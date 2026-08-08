@@ -21,9 +21,10 @@ import io.github.jamal_wia.kmptoolkit.notification.Notifier
  * **Recording is independent of [result].** A post is recorded even when the configured result says
  * the platform refused it, because the question the log answers is "did my code ask for this?" —
  * but [showing] is not updated for a refused post, because that question is "would the user see
- * it?", and the answer there is no. [NotificationResult.Coalesced] is the one exception worth
- * knowing: it is recorded and does update [showing], since a real coalesced post means the previous
- * frame is still up.
+ * it?", and the answer there is no. [NotificationResult.Coalesced] follows the same rule for the
+ * opposite reason: it is recorded, and it leaves [showing] alone, because a coalesced post means
+ * the platform kept the frame that was already up. Only [NotificationResult.Posted] changes what is
+ * on screen.
  *
  * **Nothing is coalesced here.** The double does not replicate the production coalescing rule, on
  * purpose: a test that has to reason about a 500 ms throttle to know what its subject posted is
@@ -70,6 +71,11 @@ public class RecordingNotifier(
     public val cancelAllCount: Int get() = cancelAllCalls
 
     override suspend fun post(id: String, notification: LocalNotification): NotificationResult {
+        // The same rejection the real notifiers perform. A double that accepted a blank id would
+        // let a test pass for code that kills the process on iOS, which is worse than no double.
+        require(id.isNotBlank()) {
+            "Notification id must not be blank; it is the replace and cancel key for this notification."
+        }
         recorded += PostedNotification(id = id, notification = notification)
         val outcome: NotificationResult = result
         // Only a real post changes what is on screen. Coalesced leaves whatever was already up

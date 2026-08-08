@@ -15,9 +15,13 @@ public interface Notifier {
 
 The one type shared code depends on.
 
-- **`post`** — posts `notification` under `id`, replacing whatever is showing under that id. Never
-  throws; every failure is a `NotificationResult`. Suspending because checking authorization is
-  asynchronous on iOS; on Android it does not suspend in practice.
+- **`post`** — posts `notification` under `id`, replacing whatever is showing under that id. Every
+  *runtime* failure is a `NotificationResult`, never an exception. The single exception is a **blank
+  `id`**, which throws `IllegalArgumentException`: it is a bug in the calling code, and left
+  unchecked the platforms disagree destructively about it — Android folds it onto a shared integer
+  id, `UNNotificationRequest` raises an Objective-C exception that Kotlin/Native cannot catch and
+  the process dies. Suspending because checking authorization is asynchronous on iOS; on Android it
+  does not suspend in practice.
 - **`cancel`** — removes the notification under `id` and forgets its progress-coalescing state. A
   no-op for an id that is not showing, including one this instance never posted. Reports nothing,
   because neither platform reports anything.
@@ -218,7 +222,7 @@ public val NotificationResult.isPosted: Boolean
 | `Coalesced` | redundant progress update, previous frame stands | both |
 | `PermissionDenied` | no runtime grant | Android 13+, iOS |
 | `NotificationsDisabled` | app-level toggle off | Android (iOS folds this into `PermissionDenied`) |
-| `ChannelBlocked` | channel muted by the user | Android 8+ |
+| `ChannelBlocked` | channel muted by the user, or its group muted (API 28+) | Android 8+ |
 | `Failed` | icon that does not resolve, framework refusal, `NSError` | both |
 
 `Failed.cause` is for logs. The concrete throwable type is not part of the contract — on iOS it

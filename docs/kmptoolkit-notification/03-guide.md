@@ -11,7 +11,10 @@ platform's integer id. Two rules follow:
   notifications.
 - **Use a different id per concurrently visible thing.** Two downloads showing at once are two ids.
 
-The id is never shown to the user and never leaves the device.
+The id is never shown to the user and never leaves the device. It **must not be blank** — that is
+the one thing `post` throws for (`IllegalArgumentException`), because it is a bug rather than a
+device state, and because the platforms disagree about it destructively: Android would fold it onto
+a shared integer id, iOS would take the process down.
 
 ## Channels
 
@@ -83,6 +86,16 @@ frame *with* a percentage is safe too, because 100 is never suppressed.
 
 **Do not build your own throttle on top.** A caller that only posts every 5% just gets a coarser bar;
 the module is already bounding the rate.
+
+**What a suppressed frame still costs.** Coalescing decides the *result* last, so that a redundant
+frame can never mask a real failure — a permission revoked mid-download is reported as
+`PermissionDenied`, not as `Coalesced`. That ordering is not free: every frame, suppressed or not,
+still runs the permission check, the app-level toggle check and one channel read on Android, and one
+authorization check on iOS. What a suppressed frame skips is the work that could not have changed
+the answer — the persisted channel write, building the notification, and the post itself. In
+practice that is a handful of cheap calls per frame on the calling coroutine; if you are posting
+from a tight per-byte loop, throttling your own *call site* is still the cheapest option, and the
+module's limits then act as a safety net rather than the primary brake.
 
 **iOS has no progress bar.** `progress` there only drives coalescing. If the percentage must be
 visible on iOS, put it in `body` — as the example does.
@@ -170,10 +183,11 @@ code that handles a tap converges on one `when` on both platforms.
 | `Coalesced` | suppressed as a redundant progress update | nothing |
 | `PermissionDenied` | no runtime grant (Android 13+ / iOS) | prompt, at a moment the user expects |
 | `NotificationsDisabled` | app-level toggle is off (Android) | offer a link to system settings |
-| `ChannelBlocked` | that channel is muted (Android 8+) | offer a link to that channel's settings |
+| `ChannelBlocked` | that channel, or its group, is muted (Android 8+) | offer a link to that channel's settings |
 | `Failed` | icon that does not resolve, framework refusal | log it; it is a bug, not a user state |
 
-Nothing here throws, and nothing here is a string to show a user. Both are deliberate.
+None of these is a string to show a user, and none of them is thrown — the only exception `post`
+raises is for a blank `id`, above. Both are deliberate.
 
 ## Common mistakes
 
@@ -182,6 +196,8 @@ Nothing here throws, and nothing here is a string to show a user. Both are delib
   next to it. Same id, always.
 - **A channel per notification.** Channels are user-facing settings rows, not tags. A handful per
   app is the intended scale.
+- **Deriving an id from something that can be empty.** `post(order.id, ...)` throws when `order.id`
+  is blank; give it a prefix (`"order-" + order.id`) or validate upstream.
 - **Expecting `ongoing = true` to survive on iOS.** It does not exist there; the notification is
   dismissible.
 - **Building the notification's copy inside shared code from a hardcoded string.** The module takes

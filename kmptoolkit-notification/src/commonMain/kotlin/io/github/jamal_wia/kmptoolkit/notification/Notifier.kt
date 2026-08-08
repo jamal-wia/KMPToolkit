@@ -10,9 +10,11 @@ package io.github.jamal_wia.kmptoolkit.notification
  * construct it (see `docs/01-architecture.md`).
  *
  * **Contract:**
- * - **Nothing throws.** A missing permission, notifications switched off, a channel the user
- *   blocked, a small icon that does not resolve — all of it comes back as a [NotificationResult].
- *   A notification is usually decorative; it must not take down the code that asked for it.
+ * - **Nothing throws for a runtime condition.** A missing permission, notifications switched off,
+ *   a channel the user blocked, a small icon that does not resolve — all of it comes back as a
+ *   [NotificationResult]. A notification is usually decorative; it must not take down the code that
+ *   asked for it. The one exception is a **blank `id`**, which is a programming error rather than a
+ *   runtime condition and throws [IllegalArgumentException] — see [post].
  * - **[post] is suspending because checking whether you may post is asynchronous on iOS.** On
  *   Android it does not suspend in practice.
  * - **[post] identifies a notification by [String] id, and re-posting the same id replaces it in
@@ -36,10 +38,17 @@ public interface Notifier {
     /**
      * Posts [notification] under [id], replacing whatever is currently showing under that id.
      *
-     * @param id your own stable identifier. It is the replace/cancel key on both platforms, and it
-     *   is never shown to the user.
+     * @param id your own stable identifier. It is the replace key, the cancel key, and the seed for
+     *   the platform's own integer id on Android; it is never shown to the user. Must not be blank.
      * @return what the platform made of the request; see [NotificationResult]. Safe to ignore, and
      *   worth logging.
+     * @throws IllegalArgumentException if [id] is blank. This is the one thing [post] throws for,
+     *   and it is deliberate: a blank id is a bug in the calling code, not a state of the device.
+     *   Left unchecked the two platforms disagree about it in the worst possible way — Android
+     *   quietly folds it onto a shared integer id, while `UNNotificationRequest` rejects it with an
+     *   Objective-C exception that Kotlin/Native cannot catch, killing the process. Every other
+     *   identifier in this module ([NotificationChannelSpec.id], [NotificationAction.id]) is
+     *   validated at construction; this one has no constructor to validate it in.
      */
     public suspend fun post(id: String, notification: LocalNotification): NotificationResult
 
@@ -73,10 +82,28 @@ public interface Notifier {
  */
 public fun noOpNotifier(): Notifier = NoOpNotifier
 
+/**
+ * The one validation every [Notifier] implementation performs, so that a blank id fails the same
+ * way everywhere instead of only on the platform that happens to notice.
+ *
+ * It lives here rather than in each implementation because the failure it prevents is
+ * platform-dependent and asymmetric: silently sharing an integer id on Android, an uncatchable
+ * Objective-C exception on iOS.
+ */
+internal fun requireValidNotificationId(id: String) {
+    require(id.isNotBlank()) {
+        "Notification id must not be blank; it is the replace and cancel key for this notification."
+    }
+}
+
 private object NoOpNotifier : Notifier {
 
-    override suspend fun post(id: String, notification: LocalNotification): NotificationResult =
-        NotificationResult.NotificationsDisabled
+    override suspend fun post(id: String, notification: LocalNotification): NotificationResult {
+        // Validated here too: a blank id must not slip through unnoticed in exactly the
+        // configuration where nothing is posted anyway, only to crash once notifications are on.
+        requireValidNotificationId(id)
+        return NotificationResult.NotificationsDisabled
+    }
 
     override fun cancel(id: String): Unit = Unit
 

@@ -53,22 +53,39 @@ internal class ProgressCoalescer(
      * measured against, so call it exactly once per attempted post and honour the answer.
      */
     fun shouldPost(id: String, progress: NotificationProgress?): Boolean = lock.withLock {
-        if (progress !is NotificationProgress.Determinate) {
-            posted.remove(id)
-            return@withLock true
+        when (val decision: Decision = decide(id, progress)) {
+            Decision.Suppress -> false
+            Decision.Reset -> {
+                posted.remove(id)
+                true
+            }
+
+            is Decision.Record -> {
+                posted[id] = Post(bucket = decision.bucket, at = timeSource.markNow())
+                true
+            }
         }
+    }
+
+    /**
+     * The same question as [shouldPost], asked **without** recording anything.
+     *
+     * It exists so a caller can find out that a frame is redundant *before* paying for work that
+     * only matters to a frame that will actually be shown — while still running every gate whose
+     * answer could outrank "redundant". Nothing here is a commitment: [shouldPost] is what decides,
+     * and it may disagree if time has passed in between.
+     */
+    fun wouldSuppress(id: String, progress: NotificationProgress?): Boolean =
+        lock.withLock { decide(id, progress) is Decision.Suppress }
+
+    private fun decide(id: String, progress: NotificationProgress?): Decision {
+        if (progress !is NotificationProgress.Determinate) return Decision.Reset
         val percent: Int = progress.percent.coerceIn(0, NotificationConfig.MAX_PERCENT)
-        if (percent == NotificationConfig.MAX_PERCENT) {
-            posted.remove(id)
-            return@withLock true
-        }
+        if (percent == NotificationConfig.MAX_PERCENT) return Decision.Reset
         val bucket: Int = (percent / bucketPercent) * bucketPercent
-        val previous: Post? = posted[id]
-        if (previous != null && (previous.bucket == bucket || previous.at.elapsedNow() < minInterval)) {
-            return@withLock false
-        }
-        posted[id] = Post(bucket = bucket, at = timeSource.markNow())
-        true
+        val previous: Post = posted[id] ?: return Decision.Record(bucket)
+        val tooSoon: Boolean = previous.at.elapsedNow() < minInterval
+        return if (previous.bucket == bucket || tooSoon) Decision.Suppress else Decision.Record(bucket)
     }
 
     /** Forgets [id]'s state, so its next determinate update posts. Called when it is cancelled. */
@@ -78,4 +95,17 @@ internal class ProgressCoalescer(
     fun clear(): Unit = lock.withLock { posted.clear() }
 
     private data class Post(val bucket: Int, val at: TimeMark)
+
+    /** What [decide] concluded, kept separate from acting on it so it can also be asked about. */
+    private sealed interface Decision {
+
+        /** Redundant: the bar would not move, or the rate limit has not elapsed. */
+        data object Suppress : Decision
+
+        /** Always posts and clears the id's state — a terminal or non-determinate frame. */
+        data object Reset : Decision
+
+        /** Posts and becomes the new baseline. */
+        data class Record(val bucket: Int) : Decision
+    }
 }

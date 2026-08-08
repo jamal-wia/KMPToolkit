@@ -6,6 +6,7 @@ import io.github.jamal_wia.kmptoolkit.notification.NotificationProgress
 import io.github.jamal_wia.kmptoolkit.notification.NotificationResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
@@ -45,6 +46,15 @@ class RecordingNotifierTest {
         assertEquals(NotificationResult.PermissionDenied, result)
         assertEquals(1, notifier.posted.size)
         assertTrue(notifier.showing.isEmpty())
+    }
+
+    @Test
+    fun `a blank id is rejected exactly as the real notifiers reject it`() = runTest {
+        val notifier = RecordingNotifier()
+
+        assertFailsWith<IllegalArgumentException> { notifier.post("", notification()) }
+
+        assertTrue(notifier.posted.isEmpty(), "a rejected call is not a call the code made")
     }
 
     @Test
