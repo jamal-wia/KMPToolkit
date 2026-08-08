@@ -142,6 +142,27 @@ Only two modules depend on Compose Multiplatform: `kmptoolkit-systembars` and
 `kmptoolkit-logging-overlay`. Every other module is plain Kotlin with no UI framework dependency —
 adding, say, `kmptoolkit-outbox` to a non-Compose (or non-UI) target never pulls in Compose.
 
+A Compose module also publishes a **smaller set of Apple targets** than the rest of the suite:
+`iosArm64` and `iosSimulatorArm64` only, no `iosX64`, because Compose Multiplatform 1.11+ publishes
+no iosX64 variant. That asymmetry is visible in the `.klib.api` dumps and is intentional.
+
+### Notes for anyone adding a Compose module
+
+Four things cost the first Compose module a build cycle each; they are recorded here so the next
+one does not rediscover them:
+
+- Robolectric Compose UI tests need `debugImplementation(platform(libs.androidx.compose.bom))` and
+  `debugImplementation(libs.androidx.compose.ui.test.manifest)` in a plain `dependencies { }`
+  block. It must be `debugImplementation` — an `androidUnitTest` dependency merges into the
+  manifest too late, and the failure is an opaque *"Unable to resolve activity for Intent …
+  ComponentActivity"*. The debug variant is never published, so nothing reaches consumers.
+- Those tests also need `@Config(sdk = [34])`. The default is `compileSdk` 37, which no released
+  Robolectric emulates, and the failure names no SDK level.
+- `compose.uiTest` requires `@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)`
+  at the top of the build file.
+- `androidx.compose.ui.test.runComposeUiTest` is deprecated in 1.11; import
+  `androidx.compose.ui.test.v2.runComposeUiTest` instead — same signature.
+
 ## Android manifests
 
 Library modules do not declare Android permissions in their own `AndroidManifest.xml`, even when
