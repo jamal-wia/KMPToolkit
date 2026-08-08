@@ -61,6 +61,7 @@ include(":kmptoolkit-settings")
 include(":kmptoolkit-systembars")
 include(":kmptoolkit-outbox")
 include(":kmptoolkit-outbox-testing")
+include(":kmptoolkit-outbox-sqldelight")
 
 include(":kmptoolkit-bom")
 
