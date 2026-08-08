@@ -25,8 +25,9 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 
 | Artifact | What it solves | Depends on | Status | Docs |
 |---|---|---|---|---|
+| `kmptoolkit-bom` | Pins every artifact below to one version — import this first | — | Available | [install](#installation) |
 | `kmptoolkit-coroutines` | Testable dispatcher seam (`AppDispatchers`) | — | Available | [docs](docs/kmptoolkit-coroutines/01-overview.md) |
-| `kmptoolkit-coroutines-testing` | `TestAppDispatchers` double, for `testImplementation` | `coroutines` | Available | [docs](docs/kmptoolkit-coroutines/01-overview.md) |
+| `kmptoolkit-coroutines-testing` | `TestAppDispatchers` double, for `testImplementation` | `coroutines` | Available | [docs](docs/kmptoolkit-coroutines/06-testing.md) |
 | `kmptoolkit-logging` | Minimal tag/level logging interface + pluggable sinks, zero dependencies | — | Available | [docs](docs/kmptoolkit-logging/01-overview.md) |
 | `kmptoolkit-haptics` | Haptic feedback, with the outcome reported rather than thrown | — | Available | [docs](docs/kmptoolkit-haptics/01-overview.md) |
 | `kmptoolkit-haptics-testing` | `RecordingHapticFeedback` double, for `testImplementation` | `haptics` | Available | [docs](docs/kmptoolkit-haptics/06-testing.md) |
@@ -84,6 +85,7 @@ class UserRepository(private val dispatchers: AppDispatchers) {
 // production
 val repository = UserRepository(DefaultAppDispatchers())
 // tests — no real threads, no Dispatchers.setMain()
+// TestAppDispatchers comes from kmptoolkit-coroutines-testing, added as testImplementation
 val repository = UserRepository(TestAppDispatchers())
 ```
 
