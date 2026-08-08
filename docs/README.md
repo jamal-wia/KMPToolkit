@@ -1,0 +1,41 @@
+# Documentation index
+
+This is a learning path, not a reference dump. Read in order the first time; come back to
+individual module docs afterward as you need them.
+
+## Read first, once
+
+1. [`00-getting-started.md`](00-getting-started.md) — install the BOM, pull in one module, run a
+   working example.
+2. [`01-architecture.md`](01-architecture.md) — the principles every module follows, and why: no
+   bundled DI, no hardcoded consumer identifiers, no user-facing text, what `@ToolkitInternalApi`
+   means, the ABI/semver policy.
+3. [`02-platform-setup.md`](02-platform-setup.md) — one-time platform steps shared by several
+   modules: Android manifest permissions, `Info.plist` entries, background modes, app-start
+   initialization.
+
+## Then, per module you use
+
+Each module has its own `docs/<module>/` folder, numbered in learning order:
+
+| File | Purpose |
+|---|---|
+| `01-overview.md` | What the module solves, and — just as important — what it explicitly does **not** do |
+| `02-getting-started.md` | A minimal working example, five minutes to a compiling result |
+| `03-guide.md` | Common scenarios from simple to advanced, error handling, lifecycle |
+| `04-api-reference.md` | Every public symbol: signature, contract, thread-safety |
+| `05-platform-notes.md` *(if present)* | Android vs. iOS behavior, required permissions/manifest entries |
+| `06-testing.md` *(if present)* | Test fixtures the module ships, and how to use them |
+| `07-faq.md` *(if present)* | Answers to recurring real questions |
+
+Start with the module's `01-overview.md` — if what you need doesn't fit that module's stated scope,
+check the "What this is not" section for a pointer to the right one instead.
+
+## Available modules
+
+| Module | Docs |
+|---|---|
+| `kmptoolkit-coroutines` | [`kmptoolkit-coroutines/`](kmptoolkit-coroutines/01-overview.md) |
+
+The rest of the suite is on the roadmap — see the root [`README.md`](../README.md) module table and
+[`CHANGELOG.md`](../CHANGELOG.md).

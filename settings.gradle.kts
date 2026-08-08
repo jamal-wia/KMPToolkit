@@ -1,4 +1,5 @@
 pluginManagement {
+    includeBuild("build-logic")
     repositories {
         google {
             content {
@@ -23,5 +24,10 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "KMPToolkit"
-include(":app")
- 
+
+// Published library modules are added here one at a time as they are ported —
+// see /Users/admin/.claude/plans/valiant-wobbling-dahl.md, phases 1-3.
+include(":kmptoolkit-coroutines")
+
+// Not published — Android Compose demo, smoke-tests published artifacts from mavenLocal.
+include(":sample")
