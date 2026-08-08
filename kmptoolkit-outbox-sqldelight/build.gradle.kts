@@ -42,10 +42,27 @@ sqldelight {
             // The dumped schema is what a future .sqm migration is verified against. Committed, so
             // a schema change that forgets its migration fails the build instead of a consumer's
             // upgrade.
+            //
+            // The path is SQLDelight's convention and not a free choice: verifyMigrations looks for
+            // the dump inside the .sq source directory regardless of what this is set to. See the
+            // task-ordering rule below for the one consequence of it living in a generator input.
             schemaOutputDirectory.set(file("src/commonMain/sqldelight/databases"))
             verifyMigrations.set(true)
         }
     }
+}
+
+// The schema dump lands inside src/commonMain/sqldelight — SQLDelight's convention, and not
+// negotiable: the migration verifier looks for it there whatever schemaOutputDirectory says. That
+// directory is also the code generator's *input*, so Gradle 9 refuses to run the dump alongside
+// anything that reads it unless the order is stated. Without this, regenerating the schema in the
+// same invocation as a build fails with "uses this output ... without declaring an explicit or
+// implicit dependency" — which is exactly the invocation anyone regenerating it would reach for.
+tasks.matching { task ->
+    task.name.endsWith("KmpToolkitOutboxDatabaseInterface") ||
+        task.name.endsWith("KmpToolkitOutboxDatabaseMigration")
+}.configureEach {
+    mustRunAfter(tasks.matching { it.name.endsWith("KmpToolkitOutboxDatabaseSchema") })
 }
 
 kotlin {

@@ -1,19 +1,23 @@
 package io.github.jamal_wia.kmptoolkit.outbox.sqldelight
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlSchema
 import app.cash.sqldelight.driver.native.NativeSqliteDriver
 import app.cash.sqldelight.driver.native.inMemoryDriver
 import co.touchlab.sqliter.DatabaseFileContext
-import io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db.KmpToolkitOutboxDatabase
 
-internal actual fun createInMemoryOutboxStorage(): OutboxStorage =
-    standaloneStorage(inMemoryDriver(KmpToolkitOutboxDatabase.Schema))
+internal actual fun createDriver(
+    schema: SqlSchema<QueryResult.Value<Unit>>,
+    name: String?,
+): SqlDriver = if (name == null) {
+    inMemoryDriver(schema)
+} else {
+    NativeSqliteDriver(schema = schema, name = name)
+}
 
-internal actual fun createFileOutboxStorage(name: String): OutboxStorage = standaloneStorage(
-    NativeSqliteDriver(schema = KmpToolkitOutboxDatabase.Schema, name = name),
-)
-
-internal actual fun deleteFileOutboxStorage(name: String) {
+internal actual fun deleteDatabaseFile(name: String) {
     // Best effort: the simulator's database directory is shared across runs, so leaving files
-    // behind would eventually matter even though every test picks a unique name.
+    // behind would eventually matter even though every check picks a unique name.
     DatabaseFileContext.deleteDatabase(name)
 }

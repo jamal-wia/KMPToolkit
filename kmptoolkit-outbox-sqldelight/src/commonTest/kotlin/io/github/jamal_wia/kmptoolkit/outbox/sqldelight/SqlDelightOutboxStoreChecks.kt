@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.outbox.sqldelight
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlDriver
 import io.github.jamal_wia.kmptoolkit.outbox.OutboxItem
 import io.github.jamal_wia.kmptoolkit.outbox.OutboxItemState
 import io.github.jamal_wia.kmptoolkit.outbox.spi.OutboxStore
@@ -9,9 +11,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -62,10 +66,17 @@ internal class SqlDelightOutboxStoreChecks {
     /**
      * Two executors reporting the same failure for the same lease: exactly one write lands.
      *
-     * The sequential version of this is in the contract. This one runs the two calls on different
-     * threads, which is the shape the SPI actually warns about — a settle from a detached executor
-     * arriving while the drain is doing something else — and it is the only version that can catch
-     * a compare-and-set implemented as a read followed by a write.
+     * The sequential version of this is in the contract. This one issues the two calls from two
+     * coroutines on different threads — the shape the SPI actually warns about, a settle from a
+     * detached executor arriving while the drain is doing something else — and asserts that the
+     * loser changed nothing at all rather than half of the row.
+     *
+     * What it deliberately does not claim: this cannot, on its own, prove the guard is one SQL
+     * statement. Every statement of a storage is confined to one thread, so the two calls are
+     * serialized before they reach SQLite, and a read-then-write inside a transaction would pass
+     * here too. That the guard is a single `UPDATE … WHERE lease_until = :expected` is visible in
+     * `OutboxItem.sq`; what this check is for is the outcome the SPI specifies — exactly one write
+     * applies, and the row is never left holding a mixture of the two callers' fields.
      */
     suspend fun concurrentRecordFailuresLetExactlyOneThrough() {
         withStorage { storage ->
@@ -364,7 +375,7 @@ internal class SqlDelightOutboxStoreChecks {
                 assertEquals(listOf("a"), storage.store.getAllActive().map { it.id })
             }
         } finally {
-            deleteFileOutboxStorage(name)
+            deleteDatabaseFile(name)
         }
     }
 
@@ -388,7 +399,7 @@ internal class SqlDelightOutboxStoreChecks {
                 )
             }
         } finally {
-            deleteFileOutboxStorage(name)
+            deleteDatabaseFile(name)
         }
     }
 
@@ -407,7 +418,7 @@ internal class SqlDelightOutboxStoreChecks {
                 assertEquals(listOf("a"), storage.store.getAllActive().map { it.id })
             }
         } finally {
-            deleteFileOutboxStorage(name)
+            deleteDatabaseFile(name)
         }
     }
 
@@ -422,7 +433,7 @@ internal class SqlDelightOutboxStoreChecks {
                 }
             }
         } finally {
-            deleteFileOutboxStorage(name)
+            deleteDatabaseFile(name)
         }
     }
 
@@ -430,16 +441,89 @@ internal class SqlDelightOutboxStoreChecks {
     // Observation and lifecycle.
     // ---------------------------------------------------------------------------------------
 
-    /** The observation flow re-emits when a row of that type changes, not only on collection. */
-    suspend fun observeByTypeEmitsAgainAfterAWrite() {
+    /**
+     * The observation flow re-emits to a **live** collector when a row of that type changes.
+     *
+     * Collecting `.first()` three times would not check this at all: each call is a fresh
+     * collection, so a flow that emits once and then goes silent forever would pass. That is the
+     * failure mode the SPI singles out — "emitting more often than strictly necessary is
+     * acceptable; missing a change is not" — so the collector here stays open across the writes.
+     */
+    suspend fun observeByTypeReEmitsToALiveCollector() {
         withStorage { storage ->
             val store: OutboxStore = storage.store
-            store.insertKeep(item(id = "a", type = "one"))
-            assertEquals(listOf("a"), store.observeByType("one").first().map { it.id })
-            store.insertKeep(item(id = "b", type = "one"))
-            assertEquals(listOf("a", "b"), store.observeByType("one").first().map { it.id })
-            store.deleteById("a")
-            assertEquals(listOf("b"), store.observeByType("one").first().map { it.id })
+            withContext(Dispatchers.Default) {
+                val emissions = Channel<List<String>>(capacity = Channel.UNLIMITED)
+                val collector = launch {
+                    store.observeByType("one").collect { items ->
+                        emissions.send(items.map { it.id })
+                    }
+                }
+                try {
+                    assertEquals(emptyList(), emissions.awaitNext(), "the initial contents")
+
+                    store.insertKeep(item(id = "a", type = "one"))
+                    assertEquals(listOf("a"), emissions.awaitSettled(listOf("a")))
+
+                    // A row of another type must not wake this collector into a wrong value; if it
+                    // emits at all, the contents still have to be right.
+                    store.insertKeep(item(id = "other", type = "two"))
+                    store.insertKeep(item(id = "b", type = "one"))
+                    assertEquals(listOf("a", "b"), emissions.awaitSettled(listOf("a", "b")))
+
+                    store.park("a", "gave up")
+                    assertEquals(
+                        listOf("a", "b"),
+                        emissions.awaitSettled(listOf("a", "b")),
+                        "parking changes a row of this type so it must re-emit — and must still " +
+                            "include the parked item",
+                    )
+
+                    store.deleteById("a")
+                    assertEquals(listOf("b"), emissions.awaitSettled(listOf("b")))
+                } finally {
+                    collector.cancel()
+                }
+            }
+        }
+    }
+
+    /**
+     * A `state` string this build does not recognize reads back as PARKED instead of throwing.
+     *
+     * Reachable without any corruption: a user on a newer build enqueues a row in a state that build
+     * added, then downgrades. The row is written here through the driver directly, because the store
+     * has no way to produce a state it does not know about — which is the point.
+     */
+    suspend fun anUnrecognizedStateReadsBackAsParked() {
+        val driver: SqlDriver = createDriver(outboxDatabaseSchema, name = null)
+        val storage: OutboxStorage = createOutboxStorage(driver)
+        try {
+            val store: OutboxStore = storage.store
+            store.insertKeep(item(id = "known"))
+            driver.execute(
+                identifier = null,
+                sql = "UPDATE kmptoolkit_outbox_item SET state = 'FROM_THE_FUTURE' WHERE id = ?",
+                parameters = 1,
+            ) { bindString(0, "known") }
+
+            assertEquals(
+                OutboxItemState.PARKED,
+                store.getById("known")?.state,
+                "an undecodable state must render as PARKED rather than fail the read",
+            )
+            assertTrue(
+                store.getAllActive().isEmpty(),
+                "an undecodable state is not PENDING or IN_FLIGHT so it must leave the active set",
+            )
+            assertEquals(
+                listOf("known"),
+                store.observeByType("checks.type").first().map { it.id },
+                "the row must stay visible — nothing is lost, it is just out of rotation",
+            )
+        } finally {
+            storage.close()
+            driver.close()
         }
     }
 
@@ -449,6 +533,241 @@ internal class SqlDelightOutboxStoreChecks {
         storage.close()
         storage.close()
     }
+
+    /**
+     * Closing while statements are still running waits for them instead of pulling the connection
+     * out from under them.
+     *
+     * Releasing the database thread does not join it, so a `close()` that returned immediately would
+     * close the connection under a live cursor — a crash inside SQLite rather than an exception this
+     * module could report. The check is written as a race so that a non-draining implementation
+     * fails here rather than on somebody's device at teardown.
+     */
+    suspend fun closingWaitsForStatementsAlreadyRunning() {
+        repeat(CLOSE_RACE_ROUNDS) {
+            val storage: OutboxStorage = createInMemoryOutboxStorage()
+            withContext(Dispatchers.Default) {
+                val writes = launch {
+                    // Ignore whatever the released thread does to a call issued after close() —
+                    // that case is explicitly undefined. What must not happen is a crash inside a
+                    // statement that was *already running* when close() was called.
+                    runCatching { repeat(WRITES_PER_CLOSE_RACE) { i -> storage.store.insertKeep(item(id = "id-$i")) } }
+                }
+                storage.close()
+                writes.join()
+            }
+        }
+    }
+
+    /**
+     * Collecting the observation flow from inside a transaction does not deadlock.
+     *
+     * It would, on any implementation that dispatched the query onto the database thread without
+     * noticing it is already there: that thread is the one the open transaction is occupying, so the
+     * dispatch would wait for a transaction that is waiting for the dispatch. The check has a
+     * timeout precisely so that a regression fails instead of hanging the suite forever.
+     */
+    suspend fun observeByTypeCanBeCollectedInsideATransaction() {
+        withStorage { storage ->
+            val store: OutboxStore = storage.store
+            // Dispatchers.Default, so the timeout is wall-clock: under runTest's virtual clock a
+            // `withTimeout` fires the instant the test scheduler runs out of work, which is exactly
+            // what happens while the real database thread is busy — it would report a deadlock that
+            // is not there, and could never report one that is.
+            val observed: List<String> = withContext(Dispatchers.Default) {
+                withTimeout(TIMEOUT_MILLIS) {
+                    storage.transactionRunner.inTransaction {
+                        store.insertKeep(item(id = "a", type = "one"))
+                        store.observeByType("one").first().map { it.id }
+                    }
+                }
+            }
+            assertEquals(listOf("a"), observed)
+        }
+    }
+
+    /**
+     * Leaving the database thread inside a transaction fails loudly instead of writing outside it.
+     *
+     * A coroutine context element survives a dispatcher switch; the invariant it stands for does
+     * not. Without the thread check, this statement would run on an IO thread while the transaction
+     * sat open on the database thread — the caller's write and the queue's committing separately,
+     * silently. That is the failure a transactional outbox exists to prevent, so it has to be the
+     * one thing this module refuses to do quietly.
+     */
+    suspend fun leavingTheDatabaseThreadInsideATransactionFailsLoudly() {
+        withStorage { storage ->
+            val thrown: IllegalStateException = assertFailsWith {
+                storage.transactionRunner.inTransaction {
+                    withContext(Dispatchers.Default) {
+                        storage.store.insertKeep(item(id = "a"))
+                    }
+                }
+            }
+            assertTrue(
+                thrown.message.orEmpty().contains("database thread"),
+                "the failure must say what went wrong, was: ${thrown.message}",
+            )
+            assertTrue(
+                storage.store.getAllActive().isEmpty(),
+                "the rejected write must not have landed",
+            )
+        }
+    }
+
+    /**
+     * A driver you supplied is still yours after the storage is closed.
+     *
+     * The documented promise of the shared-driver route, and the one whose breach would be worst:
+     * closing a driver the consumer's whole app is using would take their database down when they
+     * released a queue.
+     */
+    suspend fun closingAStorageDoesNotCloseASuppliedDriver() {
+        val driver: SqlDriver = createDriver(outboxDatabaseSchema, name = null)
+        try {
+            val storage: OutboxStorage = createOutboxStorage(driver)
+            storage.store.insertKeep(item(id = "a"))
+            storage.close()
+
+            // Still usable: a closed driver would throw here.
+            val rows: Long = driver.executeQuery(
+                identifier = null,
+                sql = "SELECT count(*) FROM kmptoolkit_outbox_item",
+                mapper = { cursor ->
+                    cursor.next()
+                    QueryResult.Value(cursor.getLong(0) ?: 0L)
+                },
+                parameters = 0,
+            ).value
+            assertEquals(1L, rows, "the supplied driver must still be open and hold the row")
+        } finally {
+            driver.close()
+        }
+    }
+
+    /**
+     * The queue table can be added to a database this module did not create — the shared-driver
+     * route in full, which is the only one that makes the outbox genuinely transactional.
+     */
+    suspend fun theQueueCanBeCreatedInsideAnotherDatabase() {
+        // A database whose schema is somebody else's: nothing of ours exists in it yet.
+        val driver: SqlDriver = createDriver(emptySchema, name = null)
+        try {
+            outboxDatabaseSchema.create(driver)
+            val storage: OutboxStorage = createOutboxStorage(driver)
+            try {
+                storage.transactionRunner.inTransaction {
+                    storage.store.insertKeep(item(id = "a"))
+                    storage.store.insertKeep(item(id = "b"))
+                }
+                assertEquals(listOf("a", "b"), storage.store.getAllActive().map { it.id })
+            } finally {
+                storage.close()
+            }
+        } finally {
+            driver.close()
+        }
+    }
+
+    /**
+     * A platform database failure arrives as [OutboxStorageException], naming the operation.
+     *
+     * Not merely tidier: `OutboxStore` has no result type, so a consumer's only handle on a failed
+     * write is what gets thrown. If that were a `SQLiteException` on Android and a Darwin error on
+     * iOS, every consumer's error handling would have to be platform-specific — in a module whose
+     * entire purpose is to keep shared code from being.
+     */
+    suspend fun aDatabaseFailureArrivesAsAnOutboxStorageException() {
+        val failure = FakeSqliteException()
+        val storage: OutboxStorage = createOutboxStorage(FailingSqlDriver(failure))
+        try {
+            val store: OutboxStore = storage.store
+            val expected: List<Pair<OutboxStorageOperation, suspend () -> Any?>> = listOf(
+                OutboxStorageOperation.INSERT_KEEP to { store.insertKeep(item(id = "a")) },
+                OutboxStorageOperation.INSERT_REPLACE to { store.insertReplace(item(id = "a")) },
+                OutboxStorageOperation.GET_ALL_ACTIVE to { store.getAllActive() },
+                OutboxStorageOperation.GET_BY_ID to { store.getById("a") },
+                OutboxStorageOperation.RECORD_FAILURE to { store.recordFailure("a", 1, 0L, null) },
+                OutboxStorageOperation.MARK_IN_FLIGHT to { store.markInFlight("a", 1L) },
+                OutboxStorageOperation.PARK to { store.park("a", null) },
+                OutboxStorageOperation.DELETE_BY_ID to { store.deleteById("a") },
+                OutboxStorageOperation.DELETE_BY_TAG to { store.deleteByTag("t") },
+                OutboxStorageOperation.CLEAR_ALL to { store.clearAll() },
+            )
+            expected.forEach { (operation, call) ->
+                val thrown: OutboxStorageException = assertFailsWith { call() }
+                assertEquals(operation, thrown.operation)
+                assertEquals(failure, thrown.cause, "the platform failure must be kept as the cause")
+            }
+
+            val fromTransaction: OutboxStorageException = assertFailsWith {
+                storage.transactionRunner.inTransaction { }
+            }
+            assertEquals(OutboxStorageOperation.TRANSACTION, fromTransaction.operation)
+        } finally {
+            storage.close()
+        }
+    }
+
+    /**
+     * A cancellation surfacing from the database layer stays a cancellation.
+     *
+     * Wrapping it would break structured concurrency: a cancelled drain would look like a database
+     * fault to every `catch` up the stack, and would be "handled" instead of unwinding.
+     */
+    suspend fun aCancellationIsNotWrappedAsADatabaseFailure() {
+        val storage: OutboxStorage = createOutboxStorage(
+            FailingSqlDriver(CancellationException("cancelled")),
+        )
+        try {
+            assertFailsWith<CancellationException> { storage.store.getAllActive() }
+        } finally {
+            storage.close()
+        }
+    }
+
+    /**
+     * An empty unique key is a real key, not a synonym for "no key".
+     *
+     * The distinction is load-bearing and easy to lose: the identity index is partial on
+     * `unique_key IS NOT NULL`, so `""` is indexed and deduplicates, while `null` is not indexed and
+     * never conflicts. A store that normalized one into the other would either merge unrelated
+     * effects or stop deduplicating.
+     */
+    suspend fun anEmptyUniqueKeyIsARealIdentity() {
+        withStorage { storage ->
+            val store: OutboxStore = storage.store
+            assertTrue(store.insertKeep(item(id = "a", uniqueKey = "")))
+            assertFalse(
+                store.insertKeep(item(id = "b", uniqueKey = "")),
+                "an empty unique key must deduplicate like any other key",
+            )
+            assertTrue(
+                store.insertKeep(item(id = "c", uniqueKey = null)),
+                "a null unique key must still never conflict with an empty one",
+            )
+            assertEquals(listOf("a", "c"), store.getAllActive().map { it.id })
+        }
+    }
+
+    /** The next emission, or a failure rather than a hang if the flow has gone silent. */
+    private suspend fun Channel<List<String>>.awaitNext(): List<String> =
+        withTimeout(TIMEOUT_MILLIS) { receive() }
+
+    /**
+     * Emissions until [expected] arrives, failing rather than hanging if it never does.
+     *
+     * The SPI allows a store to emit more often than strictly necessary — SQLDelight notifies per
+     * table, so an unrelated write can wake this collector — so a check that demanded the very next
+     * emission would be asserting something the contract does not promise. What it does promise is
+     * that the change is not *missed*, which is what a bounded wait for the right value tests.
+     */
+    private suspend fun Channel<List<String>>.awaitSettled(expected: List<String>): List<String> =
+        withTimeout(TIMEOUT_MILLIS) {
+            var latest: List<String> = receive()
+            while (latest != expected) latest = receive()
+            latest
+        }
 
     private suspend fun withStorage(block: suspend (OutboxStorage) -> Unit) {
         val storage: OutboxStorage = createInMemoryOutboxStorage()
@@ -476,20 +795,15 @@ internal class SqlDelightOutboxStoreChecks {
         attempts: Int = 0,
         nextRunAtEpochMillis: Long = 0L,
         createdAtEpochMillis: Long = 0L,
-    ): OutboxItem = OutboxItem(
+    ): OutboxItem = anItem(
         id = id,
         type = type,
-        payload = "payload-$id",
-        schemaVersion = 1,
         uniqueKey = uniqueKey,
         orderingKey = orderingKey,
         tag = tag,
-        state = OutboxItemState.PENDING,
         attempts = attempts,
         nextRunAtEpochMillis = nextRunAtEpochMillis,
         createdAtEpochMillis = createdAtEpochMillis,
-        lastError = null,
-        leaseUntilEpochMillis = 0L,
     )
 
     private companion object {
@@ -503,5 +817,10 @@ internal class SqlDelightOutboxStoreChecks {
         const val BURST_SIZE: Int = 200
 
         const val TIMEOUT_MILLIS: Long = 10_000L
+
+        /** Enough attempts that a close() which did not drain would hit a running statement. */
+        const val CLOSE_RACE_ROUNDS: Int = 20
+
+        const val WRITES_PER_CLOSE_RACE: Int = 50
     }
 }

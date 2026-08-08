@@ -6,6 +6,8 @@ import app.cash.sqldelight.db.SqlSchema
 import io.github.jamal_wia.kmptoolkit.outbox.spi.OutboxStore
 import io.github.jamal_wia.kmptoolkit.outbox.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db.KmpToolkitOutboxDatabase
+import kotlin.concurrent.atomics.AtomicBoolean
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
 /**
  * The two SPI implementations `kmptoolkit-outbox` needs, over one SQLite database.
@@ -28,7 +30,7 @@ import io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db.KmpToolkitOutboxDatab
  * second one over the same file is not an error, but it opens a second connection and a second
  * thread for no benefit.
  */
-public interface OutboxStorage {
+public interface OutboxStorage : AutoCloseable {
 
     /**
      * The durable queue table, as the SPI's port type.
@@ -54,15 +56,20 @@ public interface OutboxStorage {
     /**
      * Releases the database thread, and the connection if this storage opened one.
      *
-     * Idempotent. A storage created from a `SqlDriver` you supplied never closes that driver — it
-     * is not this module's to close, and the database it belongs to is probably still in use.
+     * **Blocks** until every statement already in flight has finished. It has to: releasing the
+     * thread does not join it, so closing the connection without waiting would close it under a
+     * live cursor. In exchange, `close()` returning means the database really is quiet.
+     *
+     * Idempotent, and safe to call from two threads at once. A storage created from a `SqlDriver`
+     * you supplied never closes that driver — it is not this module's to close, and the database it
+     * belongs to is probably still in use.
      *
      * Using the storage afterwards is a bug, and the failure it produces comes from the released
      * thread rather than from this module — it is not a documented shape to branch on. Close a
      * storage only when the queue itself is finished with, not on every screen teardown: the queue
      * outlives the UI by design.
      */
-    public fun close()
+    override fun close()
 }
 
 /**
@@ -130,6 +137,7 @@ public fun createOutboxStorage(driver: SqlDriver): OutboxStorage =
  * Internal: the public surface is the interface and the factories. The class also owns the
  * confinement thread, which is why it — rather than the store — is what [close] hangs off.
  */
+@OptIn(ExperimentalAtomicApi::class)
 internal class SqlDelightOutboxStorage(
     private val driver: SqlDriver,
     private val ownsDriver: Boolean,
@@ -143,20 +151,45 @@ internal class SqlDelightOutboxStorage(
     override val store: OutboxStore = SqlDelightOutboxStore(database, confinement)
 
     override val transactionRunner: TransactionRunner =
-        SqlDelightTransactionRunner(database, confinement)
+        SqlDelightTransactionRunner(driver, database, confinement)
 
-    private var closed: Boolean = false
+    /**
+     * Atomic rather than a plain flag: [close] is documented as idempotent and callable from any
+     * thread, and two concurrent calls on a plain `var` would both get past the guard and close the
+     * driver twice.
+     */
+    private val closed: AtomicBoolean = AtomicBoolean(false)
 
     override fun close() {
-        if (closed) return
-        closed = true
-        confinement.close()
-        if (ownsDriver) driver.close()
+        if (!closed.compareAndSet(expectedValue = false, newValue = true)) return
+        // The driver is closed from the database thread, after everything queued ahead of it has
+        // run — see DatabaseConfinement.closeAfterDraining for why that ordering is not optional.
+        confinement.closeAfterDraining { if (ownsDriver) driver.close() }
     }
 
     private companion object {
         const val DATABASE_THREAD_NAME: String = "kmptoolkit-outbox-db"
     }
+}
+
+/**
+ * Opens [driver]'s connection now, so that a failure to create or migrate the schema is reported by
+ * the factory that asked for it.
+ *
+ * Both drivers open lazily. Without this, a corrupt file or a failed migration would surface much
+ * later as a failed `insertKeep` — which is true but useless: the consumer would be looking at an
+ * enqueue for the cause of a problem that happened at startup.
+ *
+ * `PRAGMA user_version` is the cheapest statement that forces the connection: it touches no table,
+ * so it works on a database whose schema was created a microsecond earlier.
+ */
+internal fun forceOpen(driver: SqlDriver) {
+    driver.executeQuery(
+        identifier = null,
+        sql = "PRAGMA user_version",
+        mapper = { QueryResult.Value(Unit) },
+        parameters = 0,
+    ).value
 }
 
 /**

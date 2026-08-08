@@ -164,10 +164,10 @@ pool. You never have to think about it — the store dispatches for you — with
 **2. Do not switch dispatchers inside `inTransaction`.**
 
 ```kotlin
-// WRONG — the domain write runs on another thread and is not in the transaction.
+// WRONG — fails with IllegalStateException: the write would have run on another
+// thread, outside the transaction, and committed separately.
 storage.transactionRunner.inTransaction {
-    withContext(Dispatchers.IO) { myQueries.markSending(id) }
-    outbox.enqueue(...)
+    withContext(Dispatchers.IO) { outbox.enqueue(...) }
 }
 
 // RIGHT — everything in the block runs on the database thread already.
@@ -177,6 +177,13 @@ storage.transactionRunner.inTransaction {
 }
 ```
 
+The failure is deliberate and immediate. A coroutine context element survives a dispatcher switch
+but the invariant it stands for does not, so a store call that has left the database thread is
+detected and refused rather than allowed to write outside the transaction that is still open. A
+silent success there is the exact bug a transactional outbox exists to prevent, so it is the one
+thing this module will not do quietly. Note that this can only catch **this module's** statements —
+a write of yours through your own queries is not something this module sees.
+
 **3. Do not await anything slow inside `inTransaction`.** A network call in a transaction block
 holds the database thread and SQLite's write lock until it returns. That is bad advice in any
 database; here it also stalls every other queue operation. Do the slow work first, then open the
@@ -184,6 +191,10 @@ transaction — or, better, put the slow work in a handler, which is what the ou
 
 A block that throws rolls the transaction back and the exception propagates unchanged, including
 `CancellationException`: a cancelled coroutine never leaves a half-applied transaction behind.
+
+Collecting `observeByType` from inside a transaction is fine — the flow recognizes that it is
+already on the database thread rather than dispatching onto it — though what it shows you is the
+uncommitted state your own transaction has written so far.
 
 ## Failures
 

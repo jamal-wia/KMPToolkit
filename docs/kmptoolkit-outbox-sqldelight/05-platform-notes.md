@@ -55,11 +55,11 @@ restore. This module cannot decide that for you.
 | In-memory mode | `name = null` | `inMemoryDriver(schema)` |
 | Journal mode | WAL, the platform default | WAL, SQLiter's default |
 
-The version spread on Android is why this module's SQL stays conservative. In particular
-`recordFailure`'s compare-and-set reads its affected-row count with `SELECT changes()` immediately
-after the `UPDATE` and inside the same transaction, rather than with an `UPDATE … RETURNING` clause:
-`RETURNING` needs SQLite 3.35, and `minSdk` 24 ships 3.9. The transaction is what keeps both
-statements on one connection, which is what makes `changes()` mean what it says.
+The version spread on Android is why this module's SQL stays conservative. `recordFailure`'s
+compare-and-set, for instance, does not use an `UPDATE … RETURNING` clause to learn whether it wrote
+a row: `RETURNING` needs SQLite 3.35 and `minSdk` 24 ships 3.9. It uses the statement's own
+affected-row count instead — which also avoids `SELECT changes()`, a second statement that both
+pools can serve from a *reader* connection, where it is always 0.
 
 ## Threading
 
@@ -79,18 +79,22 @@ What this means for you:
 
 - **You never dispatch.** Every store call switches to the database thread itself and switches back.
   Call them from anywhere.
-- **Do not switch dispatchers inside `inTransaction`** — see [`03-guide.md`](03-guide.md). Your
-  write would leave the transaction, and nothing would tell you.
+- **Do not switch dispatchers inside `inTransaction`** — see [`03-guide.md`](03-guide.md). A store
+  call that has left the database thread is detected and fails with an `IllegalStateException`
+  rather than writing outside the transaction.
 - **Do not await anything slow inside `inTransaction`.** It holds the database thread and SQLite's
   write lock for the duration.
 - **One thread per storage.** Two queues means two threads, which is the cost of them being
   genuinely independent. Two storages over one file is not supported for a different reason — see
   [`03-guide.md`](03-guide.md).
-- **`close()` releases the thread.** On Android it is a daemon thread, so forgetting `close()` leaks
-  a thread but cannot hang a JVM; on iOS it is a worker with its own run loop and must be closed.
+- **`close()` blocks until the thread is quiet**, then releases it. It has to: releasing a thread
+  does not join it, and closing the connection while a statement is still running would close it
+  under a live cursor. On Android the thread is a daemon, so forgetting `close()` leaks a thread but
+  cannot hang a JVM; on iOS it is a worker with its own run loop and must be closed.
 
-`observeByType`'s flow emits on that same thread, so an emission can never observe a half-applied
-transaction. Do not collect it from inside `inTransaction`.
+`observeByType`'s flow reads on that same thread, so an emission can never observe a half-applied
+transaction. Collecting it from inside `inTransaction` is safe — it recognizes it is already on the
+database thread instead of dispatching onto it — and shows the uncommitted state so far.
 
 ## Targets
 

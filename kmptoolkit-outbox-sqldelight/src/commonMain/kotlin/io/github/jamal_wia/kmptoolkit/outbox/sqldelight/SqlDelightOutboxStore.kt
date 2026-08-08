@@ -7,7 +7,7 @@ import io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db.KmpToolkitOutboxDatab
 import io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db.Kmptoolkit_outbox_item
 import io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db.OutboxItemQueries
 import app.cash.sqldelight.coroutines.asFlow
-import app.cash.sqldelight.coroutines.mapToList
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -15,9 +15,14 @@ import kotlinx.coroutines.flow.map
 /**
  * The [OutboxStore] contract on one SQLDelight table.
  *
- * Internal: a consumer holds it through [OutboxStorage.store] as the SPI type. Exposing the class
- * would publish the row mapping and the query object, neither of which is a promise this module
- * wants to keep across a schema change.
+ * Internal: a consumer holds it through [OutboxStorage.store] as the SPI type, so the mapping
+ * between a row and an [OutboxItem] stays this module's business.
+ *
+ * That is only half true of the generated types it is built on. SQLDelight has no way to generate
+ * `internal`, so `KmpToolkitOutboxDatabase`, `OutboxItemQueries` and `Kmptoolkit_outbox_item` are in
+ * the published ABI whether or not they are meant to be used — which means a `.sq` change is an ABI
+ * change, and a consumer *can* reach past the store into the table. Neither is intended; both are
+ * stated plainly in `docs/kmptoolkit-outbox-sqldelight/04-api-reference.md` rather than papered over.
  *
  * Three parts of this are load-bearing and are documented where they happen: the insertion sequence
  * (`OutboxItem.sq`), the compare-and-set in [recordFailure], and the thread confinement that lets a
@@ -69,15 +74,20 @@ internal class SqlDelightOutboxStore(
 
     override suspend fun insertReplace(record: OutboxItem): Unit = onDatabaseThread(confinement) {
         mapFailures(OutboxStorageOperation.INSERT_REPLACE) {
-            database.transaction {
+            val key: String? = record.uniqueKey
+            if (key == null) {
+                // Nothing to supersede — a keyless item conflicts with nothing — so this is a plain
+                // append and needs no transaction to be atomic.
+                queries.insert(record)
+            } else {
                 // Delete plus insert, never an in-place edit. The replacement takes a fresh id,
                 // attempt count, gate, lease and — because `sequence` is autoincrementing — a new
                 // position at the tail, so a key that is replaced over and over cannot hold the
                 // head of its ordering channel forever.
-                record.uniqueKey?.let { key ->
+                database.transaction {
                     queries.deleteByIdentity(type = record.type, uniqueKey = key)
+                    queries.insert(record)
                 }
-                queries.insert(record)
             }
         }
     }
@@ -104,18 +114,19 @@ internal class SqlDelightOutboxStore(
         mapFailures(OutboxStorageOperation.RECORD_FAILURE) {
             // One UPDATE carrying the guard in its WHERE clause, not a read followed by a write:
             // a read-then-write loses exactly the race the guard exists to win, because the lease
-            // can move between the two. The transaction is here only to keep the UPDATE and the
-            // changes() read on one connection — see `changes` in OutboxItem.sq.
-            database.transactionWithResult {
-                queries.recordFailure(
-                    attempts = attempts.toLong(),
-                    nextRunAt = nextRunAtEpochMillis,
-                    lastError = lastError,
-                    id = id,
-                    expectedLease = expectedLeaseUntilEpochMillis,
-                )
-                queries.changes().executeAsOne() > 0L
-            }
+            // can move between the two.
+            //
+            // The statement's own affected-row count answers "did a row change?", so there is no
+            // second query and no transaction to keep two statements on one connection. That
+            // matters beyond tidiness: `SELECT changes()` outside a transaction can be served by a
+            // reader connection — where it is always 0 — on both of this module's drivers.
+            queries.recordFailure(
+                attempts = attempts.toLong(),
+                nextRunAt = nextRunAtEpochMillis,
+                lastError = lastError,
+                id = id,
+                expectedLease = expectedLeaseUntilEpochMillis,
+            ).value > 0L
         }
     }
 
@@ -147,15 +158,20 @@ internal class SqlDelightOutboxStore(
     override fun observeByType(type: String): Flow<List<OutboxItem>> =
         queries.selectByType(type)
             .asFlow()
-            // The same thread every write runs on, so an emission can never observe a half-applied
-            // transaction, and SQLDelight's own listener bookkeeping stays confined.
-            .mapToList(confinement.dispatcher)
+            // `onDatabaseThread` rather than coroutines-extensions' `mapToList(dispatcher)`: both
+            // run the query on the thread every write runs on — so an emission can never observe a
+            // half-applied transaction — but only this one recognizes that it may already be there.
+            // A plain dispatch would deadlock when the flow is collected from inside a transaction,
+            // because the thread it dispatches to is the thread that transaction is occupying.
+            .map { query -> onDatabaseThread(confinement) { query.executeAsList() } }
             .map { rows -> rows.map { row -> row.toOutboxItem() } }
             .catch { cause ->
-                throw if (cause is OutboxStorageException) {
-                    cause
-                } else {
-                    OutboxStorageException(OutboxStorageOperation.OBSERVE_BY_TYPE, cause)
+                throw when {
+                    // Not a database failure — rewrapping it would make a cancelled collector look
+                    // like a broken queue to every catch up the stack.
+                    cause is CancellationException -> cause
+                    cause is OutboxStorageException -> cause
+                    else -> OutboxStorageException(OutboxStorageOperation.OBSERVE_BY_TYPE, cause)
                 }
             }
 

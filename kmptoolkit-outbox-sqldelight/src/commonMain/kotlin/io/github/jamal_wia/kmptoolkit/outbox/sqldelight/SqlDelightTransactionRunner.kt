@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.outbox.sqldelight
 
+import app.cash.sqldelight.db.SqlDriver
 import io.github.jamal_wia.kmptoolkit.outbox.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db.KmpToolkitOutboxDatabase
 import kotlin.coroutines.ContinuationInterceptor
@@ -14,8 +15,8 @@ import kotlinx.coroutines.withContext
  * ### Reentrancy
  *
  * The SPI requires a nested `inTransaction` to **join** the outer one. This implementation does not
- * rely on SQLDelight's own nesting to get that: it checks the coroutine context for
- * [DatabaseThreadMarker] and, when the marker belongs to this storage, simply runs the block. That
+ * rely on SQLDelight's own nesting to get that: it joins when the caller is confined to this
+ * storage's thread *and* the driver reports an open transaction, and simply runs the block. That
  * is stricter than SQLDelight's behavior in the way that matters — SQLDelight would open an inner
  * transaction whose rollback semantics differ from a plain join (an inner failure marks the outer
  * one unsuccessful, so it can roll back writes the caller believed were committed) — and it is also
@@ -46,15 +47,24 @@ import kotlinx.coroutines.withContext
  * an [OutboxStorageException].
  */
 internal class SqlDelightTransactionRunner(
+    private val driver: SqlDriver,
     private val database: KmpToolkitOutboxDatabase,
     private val confinement: DatabaseConfinement,
 ) : TransactionRunner {
 
     override suspend fun <R> inTransaction(block: suspend () -> R): R {
-        if (coroutineContext[DatabaseThreadMarker]?.owner === confinement.owner) {
-            // Already inside this storage's transaction: join it. Opening a second one here is the
-            // exact failure the SPI's reentrancy clause exists to prevent.
-            return block()
+        if (confinement.isReentrant(coroutineContext)) {
+            confinement.requireConfined()
+            // Both conditions matter. The marker says the caller is doing confined work for this
+            // storage, but every store call sets it, not only a transaction — so a transaction has
+            // to be confirmed with the driver as well. Without that, a call reaching here from
+            // inside a plain store operation would run its block with no transaction at all and
+            // report success.
+            if (driver.currentTransaction() != null) {
+                // Already inside this storage's transaction: join it. Opening a second one here is
+                // the exact failure the SPI's reentrancy clause exists to prevent.
+                return block()
+            }
         }
         return withContext(confinement.dispatcher + confinement.marker) {
             // The context the bridged block runs under: the marker (so nested store calls know they

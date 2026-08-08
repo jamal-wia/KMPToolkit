@@ -11,7 +11,7 @@ public final class io/github/jamal_wia/kmptoolkit/outbox/sqldelight/OutboxDataba
 	public fun toString ()Ljava/lang/String;
 }
 
-public abstract interface class io/github/jamal_wia/kmptoolkit/outbox/sqldelight/OutboxStorage {
+public abstract interface class io/github/jamal_wia/kmptoolkit/outbox/sqldelight/OutboxStorage : java/lang/AutoCloseable {
 	public abstract fun close ()V
 	public abstract fun getStore ()Lio/github/jamal_wia/kmptoolkit/outbox/spi/OutboxStore;
 	public abstract fun getTransactionRunner ()Lio/github/jamal_wia/kmptoolkit/outbox/spi/TransactionRunner;
@@ -100,7 +100,6 @@ public final class io/github/jamal_wia/kmptoolkit/outbox/sqldelight/db/Kmptoolki
 
 public final class io/github/jamal_wia/kmptoolkit/outbox/sqldelight/db/OutboxItemQueries : app/cash/sqldelight/TransacterImpl {
 	public fun <init> (Lapp/cash/sqldelight/db/SqlDriver;)V
-	public final fun changes ()Lapp/cash/sqldelight/ExecutableQuery;
 	public final fun deleteAll ()Lapp/cash/sqldelight/db/QueryResult;
 	public final fun deleteById (Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun deleteByIdentity (Ljava/lang/String;Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;

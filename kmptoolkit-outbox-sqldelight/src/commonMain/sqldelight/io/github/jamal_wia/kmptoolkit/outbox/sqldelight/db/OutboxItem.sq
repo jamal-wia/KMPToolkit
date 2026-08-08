@@ -88,8 +88,8 @@ SELECT * FROM kmptoolkit_outbox_item WHERE id = :id;
 -- conditional on the lease not having moved since the caller read it — that is what stops a stale
 -- failure report from a detached executor clearing a claim a second executor is working under.
 --
--- Pair it with `changes` inside the same transaction to learn whether a row was actually written;
--- SQLite before 3.35 has no RETURNING clause, and minSdk 24 ships 3.9.
+-- Whether a row was actually written comes from the statement's own affected-row count, which
+-- SQLDelight returns. No RETURNING clause: it needs SQLite 3.35 and minSdk 24 ships 3.9.
 recordFailure:
 UPDATE kmptoolkit_outbox_item
 SET state = 'PENDING',
@@ -98,11 +98,6 @@ SET state = 'PENDING',
     last_error = :lastError,
     lease_until = 0
 WHERE id = :id AND (:expectedLease IS NULL OR lease_until = :expectedLease);
-
--- How many rows the previous statement on this connection changed. Only meaningful immediately
--- after that statement and inside the same transaction, which is what keeps both on one connection.
-changes:
-SELECT changes();
 
 -- Hand the row to a detached executor. `attempts` is deliberately untouched: a hand-off is not a
 -- failure.

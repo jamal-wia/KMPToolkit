@@ -44,7 +44,7 @@ public fun createOutboxStorage(
             schema = KmpToolkitOutboxDatabase.Schema,
             context = applicationContext,
             name = outboxDatabaseFileName(name),
-        )
+        ).also(::forceOpen)
     }
     return standaloneStorage(driver)
 }
@@ -61,6 +61,8 @@ internal actual fun createConfinedDatabaseDispatcher(name: String): CloseableCor
     }.asCoroutineDispatcher()
     return dispatcher
 }
+
+internal actual fun currentThreadId(): Long = Thread.currentThread().id
 
 internal actual fun <R> runBlockingOnCurrentThread(
     context: CoroutineContext,

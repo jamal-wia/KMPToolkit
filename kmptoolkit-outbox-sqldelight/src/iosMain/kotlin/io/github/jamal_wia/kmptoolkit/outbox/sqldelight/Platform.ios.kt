@@ -3,11 +3,13 @@ package io.github.jamal_wia.kmptoolkit.outbox.sqldelight
 import app.cash.sqldelight.driver.native.NativeSqliteDriver
 import io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db.KmpToolkitOutboxDatabase
 import kotlin.coroutines.CoroutineContext
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CloseableCoroutineDispatcher
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.runBlocking
 import platform.Foundation.NSBundle
+import platform.posix.pthread_self
 
 /**
  * Opens the queue on its own database file, under the app's Application Support directory.
@@ -36,7 +38,7 @@ public fun createOutboxStorage(config: OutboxDatabaseConfig = OutboxDatabaseConf
         NativeSqliteDriver(
             schema = KmpToolkitOutboxDatabase.Schema,
             name = outboxDatabaseFileName(name),
-        )
+        ).also(::forceOpen)
     }
     return standaloneStorage(driver)
 }
@@ -51,6 +53,24 @@ public fun createOutboxStorage(config: OutboxDatabaseConfig = OutboxDatabaseConf
 @OptIn(DelicateCoroutinesApi::class)
 internal actual fun createConfinedDatabaseDispatcher(name: String): CloseableCoroutineDispatcher =
     newSingleThreadContext(name)
+
+/**
+ * `pthread_self` rather than anything from Foundation: the database thread is a plain worker with
+ * no `NSThread` identity of its own, and this value is only ever compared against another reading
+ * of itself.
+ */
+@OptIn(ExperimentalForeignApi::class)
+internal actual fun currentThreadId(): Long = pthread_self()?.rawValue?.toLong() ?: NO_THREAD_ID
+
+/**
+ * What [currentThreadId] returns if `pthread_self` ever handed back nothing.
+ *
+ * It cannot on a running thread, but a constant that equals no real thread id is a better answer
+ * than `!!`: the value is only ever compared for equality, and a comparison that says "not the
+ * database thread" fails loudly, whereas a crash here would come from the check rather than from
+ * the thing it checks.
+ */
+private const val NO_THREAD_ID = -1L
 
 internal actual fun <R> runBlockingOnCurrentThread(
     context: CoroutineContext,

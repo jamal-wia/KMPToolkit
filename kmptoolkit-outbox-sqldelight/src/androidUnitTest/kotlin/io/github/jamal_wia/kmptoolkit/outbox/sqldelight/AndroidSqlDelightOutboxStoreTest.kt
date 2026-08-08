@@ -99,8 +99,53 @@ class AndroidSqlDelightOutboxStoreTest {
     }
 
     @Test
-    fun `observeByType emits again after a write`() = runTest {
-        checks.observeByTypeEmitsAgainAfterAWrite()
+    fun `observeByType re-emits to a live collector`() = runTest {
+        checks.observeByTypeReEmitsToALiveCollector()
+    }
+
+    @Test
+    fun `an unrecognized state reads back as parked`() = runTest {
+        checks.anUnrecognizedStateReadsBackAsParked()
+    }
+
+    @Test
+    fun `closing a storage does not close a supplied driver`() = runTest {
+        checks.closingAStorageDoesNotCloseASuppliedDriver()
+    }
+
+    @Test
+    fun `the queue can be created inside another database`() = runTest {
+        checks.theQueueCanBeCreatedInsideAnotherDatabase()
+    }
+
+    @Test
+    fun `a database failure arrives as an OutboxStorageException`() = runTest {
+        checks.aDatabaseFailureArrivesAsAnOutboxStorageException()
+    }
+
+    @Test
+    fun `a cancellation is not wrapped as a database failure`() = runTest {
+        checks.aCancellationIsNotWrappedAsADatabaseFailure()
+    }
+
+    @Test
+    fun `an empty unique key is a real identity`() = runTest {
+        checks.anEmptyUniqueKeyIsARealIdentity()
+    }
+
+    @Test
+    fun `closing waits for statements already running`() = runTest {
+        checks.closingWaitsForStatementsAlreadyRunning()
+    }
+
+    @Test
+    fun `observeByType can be collected inside a transaction`() = runTest {
+        checks.observeByTypeCanBeCollectedInsideATransaction()
+    }
+
+    @Test
+    fun `leaving the database thread inside a transaction fails loudly`() = runTest {
+        checks.leavingTheDatabaseThreadInsideATransactionFailsLoudly()
     }
 
     @Test
