@@ -1,0 +1,133 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-permission>
+final enum class io.github.jamal_wia.kmptoolkit.permission/Permission : kotlin/Enum<io.github.jamal_wia.kmptoolkit.permission/Permission> { // io.github.jamal_wia.kmptoolkit.permission/Permission|null[0]
+    enum entry CAMERA // io.github.jamal_wia.kmptoolkit.permission/Permission.CAMERA|null[0]
+    enum entry MICROPHONE // io.github.jamal_wia.kmptoolkit.permission/Permission.MICROPHONE|null[0]
+    enum entry NOTIFICATIONS // io.github.jamal_wia.kmptoolkit.permission/Permission.NOTIFICATIONS|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.permission/Permission.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.permission/Permission> // io.github.jamal_wia.kmptoolkit.permission/Permission.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.permission/Permission // io.github.jamal_wia.kmptoolkit.permission/Permission.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.permission/Permission> // io.github.jamal_wia.kmptoolkit.permission/Permission.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.permission/PermissionHandler { // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler|null[0]
+    abstract fun openAppSettings(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.openAppSettings|openAppSettings(){}[0]
+    abstract suspend fun check(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.check|check(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
+    abstract suspend fun request(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.request|request(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState { // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState|null[0]
+    final object AwaitingRationale : io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState { // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.AwaitingRationale|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.AwaitingRationale.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.AwaitingRationale.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.AwaitingRationale.toString|toString(){}[0]
+    }
+
+    final object AwaitingSettings : io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState { // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.AwaitingSettings|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.AwaitingSettings.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.AwaitingSettings.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.AwaitingSettings.toString|toString(){}[0]
+    }
+
+    final object Denied : io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState { // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Denied|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Denied.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Denied.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Denied.toString|toString(){}[0]
+    }
+
+    final object Granted : io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState { // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Granted|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Granted.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Granted.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Granted.toString|toString(){}[0]
+    }
+
+    final object Idle : io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState { // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Idle|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Idle.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Idle.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Idle.toString|toString(){}[0]
+    }
+
+    final object Requesting : io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState { // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Requesting|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Requesting.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Requesting.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState.Requesting.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.permission/PermissionStatus { // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus|null[0]
+    final class Denied : io.github.jamal_wia.kmptoolkit.permission/PermissionStatus { // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied|null[0]
+        constructor <init>(kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied.<init>|<init>(kotlin.Boolean){}[0]
+
+        final val shouldShowRationale // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied.shouldShowRationale|{}shouldShowRationale[0]
+            final fun <get-shouldShowRationale>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied.shouldShowRationale.<get-shouldShowRationale>|<get-shouldShowRationale>(){}[0]
+
+        final fun component1(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied.component1|component1(){}[0]
+        final fun copy(kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied.copy|copy(kotlin.Boolean){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Denied.toString|toString(){}[0]
+    }
+
+    final object Granted : io.github.jamal_wia.kmptoolkit.permission/PermissionStatus { // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Granted|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Granted.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Granted.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.Granted.toString|toString(){}[0]
+    }
+
+    final object NotDetermined : io.github.jamal_wia.kmptoolkit.permission/PermissionStatus { // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.NotDetermined|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.NotDetermined.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.NotDetermined.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.NotDetermined.toString|toString(){}[0]
+    }
+
+    final object PermanentlyDenied : io.github.jamal_wia.kmptoolkit.permission/PermissionStatus { // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.PermanentlyDenied|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.PermanentlyDenied.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.PermanentlyDenied.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionStatus.PermanentlyDenied.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.permission/PermissionConfig { // io.github.jamal_wia.kmptoolkit.permission/PermissionConfig|null[0]
+    constructor <init>(kotlin/String? = ...) // io.github.jamal_wia.kmptoolkit.permission/PermissionConfig.<init>|<init>(kotlin.String?){}[0]
+
+    final val keyPrefix // io.github.jamal_wia.kmptoolkit.permission/PermissionConfig.keyPrefix|{}keyPrefix[0]
+        final fun <get-keyPrefix>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.permission/PermissionConfig.keyPrefix.<get-keyPrefix>|<get-keyPrefix>(){}[0]
+
+    final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.permission/PermissionConfig.component1|component1(){}[0]
+    final fun copy(kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.permission/PermissionConfig // io.github.jamal_wia.kmptoolkit.permission/PermissionConfig.copy|copy(kotlin.String?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/PermissionConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/PermissionConfig.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow { // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.permission/Permission, io.github.jamal_wia.kmptoolkit.permission/PermissionHandler) // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.<init>|<init>(io.github.jamal_wia.kmptoolkit.permission.Permission;io.github.jamal_wia.kmptoolkit.permission.PermissionHandler){}[0]
+
+    final val permission // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.permission|{}permission[0]
+        final fun <get-permission>(): io.github.jamal_wia.kmptoolkit.permission/Permission // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.permission.<get-permission>|<get-permission>(){}[0]
+    final val state // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.state|{}state[0]
+        final fun <get-state>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState> // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.state.<get-state>|<get-state>(){}[0]
+
+    final fun openSettings(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.openSettings|openSettings(){}[0]
+    final fun rationaleDismissed(): io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.rationaleDismissed|rationaleDismissed(){}[0]
+    final fun reset(): io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.reset|reset(){}[0]
+    final fun settingsDeclined(): io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.settingsDeclined|settingsDeclined(){}[0]
+    final suspend fun rationaleAcknowledged(): io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.rationaleAcknowledged|rationaleAcknowledged(){}[0]
+    final suspend fun refresh(): io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.refresh|refresh(){}[0]
+    final suspend fun start(): io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState // io.github.jamal_wia.kmptoolkit.permission/PermissionRequestFlow.start|start(){}[0]
+}
+
+final val io.github.jamal_wia.kmptoolkit.permission/canPrompt // io.github.jamal_wia.kmptoolkit.permission/canPrompt|@io.github.jamal_wia.kmptoolkit.permission.PermissionStatus{}canPrompt[0]
+    final fun (io.github.jamal_wia.kmptoolkit.permission/PermissionStatus).<get-canPrompt>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/canPrompt.<get-canPrompt>|<get-canPrompt>@io.github.jamal_wia.kmptoolkit.permission.PermissionStatus(){}[0]
+final val io.github.jamal_wia.kmptoolkit.permission/isGranted // io.github.jamal_wia.kmptoolkit.permission/isGranted|@io.github.jamal_wia.kmptoolkit.permission.PermissionStatus{}isGranted[0]
+    final fun (io.github.jamal_wia.kmptoolkit.permission/PermissionStatus).<get-isGranted>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/isGranted.<get-isGranted>|<get-isGranted>@io.github.jamal_wia.kmptoolkit.permission.PermissionStatus(){}[0]
+
+final fun io.github.jamal_wia.kmptoolkit.permission/createPermissionHandler(io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.permission/PermissionHandler // io.github.jamal_wia.kmptoolkit.permission/createPermissionHandler|createPermissionHandler(io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]

@@ -1,0 +1,32 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-permission-testing>
+final class io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler : io.github.jamal_wia.kmptoolkit.permission/PermissionHandler { // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.permission/PermissionStatus = ...) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.<init>|<init>(io.github.jamal_wia.kmptoolkit.permission.PermissionStatus){}[0]
+
+    final val checks // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.checks|{}checks[0]
+        final fun <get-checks>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.permission/Permission> // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.checks.<get-checks>|<get-checks>(){}[0]
+    final val requests // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.requests|{}requests[0]
+        final fun <get-requests>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.permission/Permission> // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.requests.<get-requests>|<get-requests>(){}[0]
+
+    final var defaultStatus // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.defaultStatus|{}defaultStatus[0]
+        final fun <get-defaultStatus>(): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.defaultStatus.<get-defaultStatus>|<get-defaultStatus>(){}[0]
+        final fun <set-defaultStatus>(io.github.jamal_wia.kmptoolkit.permission/PermissionStatus) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.defaultStatus.<set-defaultStatus>|<set-defaultStatus>(io.github.jamal_wia.kmptoolkit.permission.PermissionStatus){}[0]
+    final var openAppSettingsCount // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.openAppSettingsCount|{}openAppSettingsCount[0]
+        final fun <get-openAppSettingsCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.openAppSettingsCount.<get-openAppSettingsCount>|<get-openAppSettingsCount>(){}[0]
+    final var settingsAvailable // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.settingsAvailable|{}settingsAvailable[0]
+        final fun <get-settingsAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.settingsAvailable.<get-settingsAvailable>|<get-settingsAvailable>(){}[0]
+        final fun <set-settingsAvailable>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.settingsAvailable.<set-settingsAvailable>|<set-settingsAvailable>(kotlin.Boolean){}[0]
+
+    final fun clearRecordings() // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.clearRecordings|clearRecordings(){}[0]
+    final fun openAppSettings(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.openAppSettings|openAppSettings(){}[0]
+    final fun scriptRequest(io.github.jamal_wia.kmptoolkit.permission/Permission, io.github.jamal_wia.kmptoolkit.permission/PermissionStatus) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.scriptRequest|scriptRequest(io.github.jamal_wia.kmptoolkit.permission.Permission;io.github.jamal_wia.kmptoolkit.permission.PermissionStatus){}[0]
+    final fun setStatus(io.github.jamal_wia.kmptoolkit.permission/Permission, io.github.jamal_wia.kmptoolkit.permission/PermissionStatus) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.setStatus|setStatus(io.github.jamal_wia.kmptoolkit.permission.Permission;io.github.jamal_wia.kmptoolkit.permission.PermissionStatus){}[0]
+    final suspend fun check(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.check|check(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
+    final suspend fun request(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.request|request(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
+}

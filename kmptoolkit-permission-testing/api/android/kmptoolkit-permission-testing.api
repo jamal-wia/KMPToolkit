@@ -1,0 +1,19 @@
+public final class io/github/jamal_wia/kmptoolkit/permission/testing/RecordingPermissionHandler : io/github/jamal_wia/kmptoolkit/permission/PermissionHandler {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun check (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun clearRecordings ()V
+	public final fun getChecks ()Ljava/util/List;
+	public final fun getDefaultStatus ()Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;
+	public final fun getOpenAppSettingsCount ()I
+	public final fun getRequests ()Ljava/util/List;
+	public final fun getSettingsAvailable ()Z
+	public fun openAppSettings ()Z
+	public fun request (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun scriptRequest (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)V
+	public final fun setDefaultStatus (Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)V
+	public final fun setSettingsAvailable (Z)V
+	public final fun setStatus (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)V
+}
+
