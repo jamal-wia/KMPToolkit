@@ -1,0 +1,41 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-haptics>
+final enum class io.github.jamal_wia.kmptoolkit.haptics/HapticResult : kotlin/Enum<io.github.jamal_wia.kmptoolkit.haptics/HapticResult> { // io.github.jamal_wia.kmptoolkit.haptics/HapticResult|null[0]
+    enum entry PERFORMED // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.PERFORMED|null[0]
+    enum entry PERMISSION_DENIED // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.PERMISSION_DENIED|null[0]
+    enum entry UNAVAILABLE // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.UNAVAILABLE|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.haptics/HapticResult> // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.haptics/HapticResult // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.haptics/HapticResult> // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.values|values#static(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.haptics/HapticType : kotlin/Enum<io.github.jamal_wia.kmptoolkit.haptics/HapticType> { // io.github.jamal_wia.kmptoolkit.haptics/HapticType|null[0]
+    enum entry ERROR // io.github.jamal_wia.kmptoolkit.haptics/HapticType.ERROR|null[0]
+    enum entry HEAVY // io.github.jamal_wia.kmptoolkit.haptics/HapticType.HEAVY|null[0]
+    enum entry LIGHT // io.github.jamal_wia.kmptoolkit.haptics/HapticType.LIGHT|null[0]
+    enum entry MEDIUM // io.github.jamal_wia.kmptoolkit.haptics/HapticType.MEDIUM|null[0]
+    enum entry SUCCESS // io.github.jamal_wia.kmptoolkit.haptics/HapticType.SUCCESS|null[0]
+    enum entry WARNING // io.github.jamal_wia.kmptoolkit.haptics/HapticType.WARNING|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.haptics/HapticType.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.haptics/HapticType> // io.github.jamal_wia.kmptoolkit.haptics/HapticType.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.haptics/HapticType // io.github.jamal_wia.kmptoolkit.haptics/HapticType.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.haptics/HapticType> // io.github.jamal_wia.kmptoolkit.haptics/HapticType.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback { // io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback|null[0]
+    abstract fun perform(io.github.jamal_wia.kmptoolkit.haptics/HapticType): io.github.jamal_wia.kmptoolkit.haptics/HapticResult // io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback.perform|perform(io.github.jamal_wia.kmptoolkit.haptics.HapticType){}[0]
+}
+
+final fun io.github.jamal_wia.kmptoolkit.haptics/createHapticFeedback(): io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback // io.github.jamal_wia.kmptoolkit.haptics/createHapticFeedback|createHapticFeedback(){}[0]
+final fun io.github.jamal_wia.kmptoolkit.haptics/noOpHapticFeedback(): io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback // io.github.jamal_wia.kmptoolkit.haptics/noOpHapticFeedback|noOpHapticFeedback(){}[0]

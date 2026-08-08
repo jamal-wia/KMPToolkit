@@ -1,0 +1,33 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/haptics/HapticFeedback {
+	public abstract fun perform (Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;)Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/haptics/HapticFeedbackKt {
+	public static final fun noOpHapticFeedback ()Lio/github/jamal_wia/kmptoolkit/haptics/HapticFeedback;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/haptics/HapticFeedback_androidKt {
+	public static final fun createHapticFeedback (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/haptics/HapticFeedback;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/haptics/HapticResult : java/lang/Enum {
+	public static final field PERFORMED Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
+	public static final field PERMISSION_DENIED Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
+	public static final field UNAVAILABLE Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/haptics/HapticType : java/lang/Enum {
+	public static final field ERROR Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;
+	public static final field HEAVY Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;
+	public static final field LIGHT Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;
+	public static final field MEDIUM Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;
+	public static final field SUCCESS Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;
+	public static final field WARNING Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;
+}
+
