@@ -11,8 +11,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Added
 
-- `kmptoolkit-coroutines` — `AppDispatchers` dispatcher seam, `DefaultAppDispatchers` production
-  implementation, and `TestAppDispatchers` test double shipped in the main source set.
+- `kmptoolkit-coroutines` — `AppDispatchers` dispatcher seam and its `DefaultAppDispatchers`
+  production implementation.
+- `kmptoolkit-coroutines-testing` — `TestAppDispatchers` double, published separately so
+  `kotlinx-coroutines-test` stays off consumers' runtime classpath.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +

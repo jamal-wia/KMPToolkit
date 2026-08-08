@@ -42,6 +42,11 @@ using `dispatchers.main` must substitute `TestAppDispatchers`.
 
 ## `class TestAppDispatchers : AppDispatchers`
 
+> Ships in the separate **`kmptoolkit-coroutines-testing`** artifact
+> (`io.github.jamal_wia.kmptoolkit.coroutines.testing`), added as a `testImplementation`
+> dependency — not in `kmptoolkit-coroutines` itself. See
+> [`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate--testing-artifacts).
+
 The test double. All three dispatchers return the same `testDispatcher`.
 
 **Constructor:**
@@ -61,7 +66,6 @@ TestAppDispatchers(scheduler: TestCoroutineScheduler = TestCoroutineScheduler())
 `UnconfinedTestDispatcher` semantics apply: coroutines start eagerly, running to their first real
 suspension point before `launch`/`async` returns.
 
-This type ships in the module's **main** source set rather than a test source set, so it is
-available to consumers' test code through the ordinary `implementation` dependency. Kotlin
-Multiplatform provides no way to expose one module's `commonTest` to another module — see
-[`../01-architecture.md`](../01-architecture.md#public-api-and-toolkitinternalapi).
+It is published as a normal (non-test) artifact because Kotlin Multiplatform provides no way to
+expose one module's `commonTest` to a consumer — but it is a *separate* artifact, so depending on
+`kmptoolkit-coroutines` alone never puts `kotlinx-coroutines-test` on your runtime classpath.

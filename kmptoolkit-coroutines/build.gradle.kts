@@ -24,12 +24,12 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation(libs.kotlinx.coroutines.core)
-            // TestAppDispatchers ships in commonMain (not commonTest) so consumers can reach it
-            // from their own test source sets via a plain `implementation("...kmptoolkit-coroutines")`
-            // — Kotlin Multiplatform has no mechanism to expose one module's commonTest to another
-            // module's commonTest or to a consumer's test source set.
-            implementation(libs.kotlinx.coroutines.test)
+            // api, not implementation: AppDispatchers exposes CoroutineDispatcher in its own
+            // signatures, so consumers need kotlinx-coroutines-core on their compile classpath.
+            api(libs.kotlinx.coroutines.core)
         }
+        // No commonTest dependency on :kmptoolkit-coroutines-testing — that module depends on
+        // this one, so the reverse edge would be a project cycle. TestAppDispatchers is covered
+        // by that module's own tests.
     }
 }

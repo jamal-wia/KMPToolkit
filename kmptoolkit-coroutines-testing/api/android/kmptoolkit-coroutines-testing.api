@@ -1,0 +1,10 @@
+public final class io/github/jamal_wia/kmptoolkit/coroutines/testing/TestAppDispatchers : io/github/jamal_wia/kmptoolkit/coroutines/AppDispatchers {
+	public fun <init> ()V
+	public fun <init> (Lkotlinx/coroutines/test/TestCoroutineScheduler;)V
+	public synthetic fun <init> (Lkotlinx/coroutines/test/TestCoroutineScheduler;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun getDefault ()Lkotlinx/coroutines/CoroutineDispatcher;
+	public fun getIo ()Lkotlinx/coroutines/CoroutineDispatcher;
+	public fun getMain ()Lkotlinx/coroutines/CoroutineDispatcher;
+	public final fun getTestDispatcher ()Lkotlinx/coroutines/CoroutineDispatcher;
+}
+

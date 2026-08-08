@@ -1,5 +1,6 @@
-package io.github.jamal_wia.kmptoolkit.coroutines
+package io.github.jamal_wia.kmptoolkit.coroutines.testing
 
+import io.github.jamal_wia.kmptoolkit.coroutines.AppDispatchers
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -17,6 +18,9 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
  *     // ...
  * }
  * ```
+ *
+ * @param scheduler the virtual clock. Pass one explicitly to share a clock across several
+ *   collaborators; the default creates a fresh, independent one.
  */
 public class TestAppDispatchers(
     scheduler: TestCoroutineScheduler = TestCoroutineScheduler(),

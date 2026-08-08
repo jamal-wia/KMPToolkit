@@ -26,6 +26,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | Artifact | What it solves | Depends on | Status | Docs |
 |---|---|---|---|---|
 | `kmptoolkit-coroutines` | Testable dispatcher seam (`AppDispatchers`) | — | Available | [docs](docs/kmptoolkit-coroutines/01-overview.md) |
+| `kmptoolkit-coroutines-testing` | `TestAppDispatchers` double, for `testImplementation` | `coroutines` | Available | [docs](docs/kmptoolkit-coroutines/01-overview.md) |
 | `kmptoolkit-logging` | Minimal tag/level logging interface + SPI | — | Planned | — |
 | `kmptoolkit-haptics` | Haptic feedback abstraction | — | Planned | — |
 | `kmptoolkit-audio-player` | Audio playback (MediaPlayer / AVPlayer) | — | Planned | — |

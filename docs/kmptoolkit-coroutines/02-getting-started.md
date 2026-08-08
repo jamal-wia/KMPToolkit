@@ -8,10 +8,16 @@ A minimal working example, start to finish.
 dependencies {
     implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
     implementation("io.github.jamal-wia:kmptoolkit-coroutines")
+
+    // Only if you want the TestAppDispatchers double (step 4 below)
+    testImplementation("io.github.jamal-wia:kmptoolkit-coroutines-testing")
 }
 ```
 
-This module has no dependencies on other `kmptoolkit-*` modules.
+The production module has no dependencies on other `kmptoolkit-*` modules, and deliberately does
+**not** pull in `kotlinx-coroutines-test` — that lives in the separate `-testing` artifact so it
+never reaches your app's runtime classpath. See
+[`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate--testing-artifacts).
 
 ## 2. Depend on the interface, not on `Dispatchers`
 
@@ -46,7 +52,7 @@ your object graph. This module ships no DI bindings by design; see
 ## 4. Substitute the test double in tests
 
 ```kotlin
-import io.github.jamal_wia.kmptoolkit.coroutines.TestAppDispatchers
+import io.github.jamal_wia.kmptoolkit.coroutines.testing.TestAppDispatchers
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test

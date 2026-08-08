@@ -25,16 +25,3 @@ final class io.github.jamal_wia.kmptoolkit.coroutines/DefaultAppDispatchers : io
     final val main // io.github.jamal_wia.kmptoolkit.coroutines/DefaultAppDispatchers.main|{}main[0]
         final fun <get-main>(): kotlinx.coroutines/CoroutineDispatcher // io.github.jamal_wia.kmptoolkit.coroutines/DefaultAppDispatchers.main.<get-main>|<get-main>(){}[0]
 }
-
-final class io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers : io.github.jamal_wia.kmptoolkit.coroutines/AppDispatchers { // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers|null[0]
-    constructor <init>(kotlinx.coroutines.test/TestCoroutineScheduler = ...) // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers.<init>|<init>(kotlinx.coroutines.test.TestCoroutineScheduler){}[0]
-
-    final val default // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers.default|{}default[0]
-        final fun <get-default>(): kotlinx.coroutines/CoroutineDispatcher // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers.default.<get-default>|<get-default>(){}[0]
-    final val io // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers.io|{}io[0]
-        final fun <get-io>(): kotlinx.coroutines/CoroutineDispatcher // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers.io.<get-io>|<get-io>(){}[0]
-    final val main // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers.main|{}main[0]
-        final fun <get-main>(): kotlinx.coroutines/CoroutineDispatcher // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers.main.<get-main>|<get-main>(){}[0]
-    final val testDispatcher // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers.testDispatcher|{}testDispatcher[0]
-        final fun <get-testDispatcher>(): kotlinx.coroutines/CoroutineDispatcher // io.github.jamal_wia.kmptoolkit.coroutines/TestAppDispatchers.testDispatcher.<get-testDispatcher>|<get-testDispatcher>(){}[0]
-}

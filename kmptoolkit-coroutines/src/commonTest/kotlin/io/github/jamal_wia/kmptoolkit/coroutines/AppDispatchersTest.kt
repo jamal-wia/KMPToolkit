@@ -4,26 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 
-/**
- * Pins the contract [TestAppDispatchers] consumers rely on: all three dispatchers collapse onto
- * one deterministic dispatcher, and two independently constructed instances stay independent.
- */
+/** Pins the contract [DefaultAppDispatchers] callers rely on. */
 class AppDispatchersTest {
-
-    @Test
-    fun `TestAppDispatchers collapses io-main-default onto the same test dispatcher`() {
-        val dispatchers = TestAppDispatchers()
-        assertSame(dispatchers.testDispatcher, dispatchers.io)
-        assertSame(dispatchers.testDispatcher, dispatchers.main)
-        assertSame(dispatchers.testDispatcher, dispatchers.default)
-    }
-
-    @Test
-    fun `two independent TestAppDispatchers instances do not share a dispatcher`() {
-        val first = TestAppDispatchers()
-        val second = TestAppDispatchers()
-        assertNotSame(first.testDispatcher, second.testDispatcher)
-    }
 
     @Test
     fun `DefaultAppDispatchers exposes three distinct dispatchers`() {
@@ -31,5 +13,15 @@ class AppDispatchersTest {
         assertNotSame(dispatchers.io, dispatchers.main)
         assertNotSame(dispatchers.main, dispatchers.default)
         assertNotSame(dispatchers.io, dispatchers.default)
+    }
+
+    @Test
+    fun `DefaultAppDispatchers returns the same instance on repeated access`() {
+        // Callers — TestAppDispatchers' contract among them — may compare dispatchers by identity,
+        // so a property must not allocate a new dispatcher per read.
+        val dispatchers = DefaultAppDispatchers()
+        assertSame(dispatchers.io, dispatchers.io)
+        assertSame(dispatchers.main, dispatchers.main)
+        assertSame(dispatchers.default, dispatchers.default)
     }
 }
