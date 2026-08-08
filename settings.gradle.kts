@@ -47,6 +47,8 @@ include(":kmptoolkit-biometric")
 include(":kmptoolkit-biometric-testing")
 include(":kmptoolkit-permission")
 include(":kmptoolkit-permission-testing")
+include(":kmptoolkit-notification")
+include(":kmptoolkit-notification-testing")
 include(":kmptoolkit-systembars")
 
 // Not published — Android Compose demo, smoke-tests published artifacts from mavenLocal.

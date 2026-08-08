@@ -1,0 +1,45 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-notification-testing>
+final class io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification { // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification|null[0]
+    constructor <init>(kotlin/String, io.github.jamal_wia.kmptoolkit.notification/LocalNotification) // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.<init>|<init>(kotlin.String;io.github.jamal_wia.kmptoolkit.notification.LocalNotification){}[0]
+
+    final val id // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.id|{}id[0]
+        final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.id.<get-id>|<get-id>(){}[0]
+    final val notification // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.notification|{}notification[0]
+        final fun <get-notification>(): io.github.jamal_wia.kmptoolkit.notification/LocalNotification // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.notification.<get-notification>|<get-notification>(){}[0]
+
+    final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.component1|component1(){}[0]
+    final fun component2(): io.github.jamal_wia.kmptoolkit.notification/LocalNotification // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.component2|component2(){}[0]
+    final fun copy(kotlin/String = ..., io.github.jamal_wia.kmptoolkit.notification/LocalNotification = ...): io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.copy|copy(kotlin.String;io.github.jamal_wia.kmptoolkit.notification.LocalNotification){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier : io.github.jamal_wia.kmptoolkit.notification/Notifier { // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.notification/NotificationResult = ...) // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.<init>|<init>(io.github.jamal_wia.kmptoolkit.notification.NotificationResult){}[0]
+
+    final val cancelAllCount // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.cancelAllCount|{}cancelAllCount[0]
+        final fun <get-cancelAllCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.cancelAllCount.<get-cancelAllCount>|<get-cancelAllCount>(){}[0]
+    final val cancelled // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.cancelled|{}cancelled[0]
+        final fun <get-cancelled>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.cancelled.<get-cancelled>|<get-cancelled>(){}[0]
+    final val posted // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.posted|{}posted[0]
+        final fun <get-posted>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification> // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.posted.<get-posted>|<get-posted>(){}[0]
+    final val showing // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.showing|{}showing[0]
+        final fun <get-showing>(): kotlin.collections/Map<kotlin/String, io.github.jamal_wia.kmptoolkit.notification/LocalNotification> // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.showing.<get-showing>|<get-showing>(){}[0]
+
+    final var result // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.result|{}result[0]
+        final fun <get-result>(): io.github.jamal_wia.kmptoolkit.notification/NotificationResult // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.result.<get-result>|<get-result>(){}[0]
+        final fun <set-result>(io.github.jamal_wia.kmptoolkit.notification/NotificationResult) // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.result.<set-result>|<set-result>(io.github.jamal_wia.kmptoolkit.notification.NotificationResult){}[0]
+
+    final fun cancel(kotlin/String) // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.cancel|cancel(kotlin.String){}[0]
+    final fun cancelAll() // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.cancelAll|cancelAll(){}[0]
+    final fun clear() // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.clear|clear(){}[0]
+    final suspend fun post(kotlin/String, io.github.jamal_wia.kmptoolkit.notification/LocalNotification): io.github.jamal_wia.kmptoolkit.notification/NotificationResult // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.post|post(kotlin.String;io.github.jamal_wia.kmptoolkit.notification.LocalNotification){}[0]
+}
