@@ -4,6 +4,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import platform.Foundation.NSBundle
 import platform.Foundation.NSUserDefaults
 
 /**
@@ -64,6 +65,22 @@ class IosLanguageApplierTest {
         applier.apply(null)
 
         assertNull(ownAppleLanguages())
+    }
+
+    @Test
+    fun `the public factory produces a working applier over the standard defaults`() {
+        // Exercised through the "follow the system" path on purpose: it removes a key the test
+        // never set, so the simulator-wide standard domain this factory deliberately targets is
+        // left exactly as it was found.
+        val fromFactory: LanguageApplier = createLanguageApplier()
+
+        fromFactory.apply(null)
+
+        assertNull(
+            NSUserDefaults.standardUserDefaults
+                .persistentDomainForName(NSBundle.mainBundle.bundleIdentifier ?: "")
+                ?.get("AppleLanguages"),
+        )
     }
 
     /** What this suite itself stores under `AppleLanguages`, ignoring the domains it inherits. */

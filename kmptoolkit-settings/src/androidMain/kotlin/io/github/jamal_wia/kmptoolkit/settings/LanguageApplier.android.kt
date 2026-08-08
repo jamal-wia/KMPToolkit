@@ -60,11 +60,23 @@ internal class AndroidLanguageApplier(private val context: Context) : LanguageAp
     private fun applyThroughDefaults(language: LanguageTag?) {
         val locale: Locale = language
             ?.let { Locale.forLanguageTag(it.value) }
-            ?: Resources.getSystem().configuration.locales[0]
+            ?: systemLocale()
         Locale.setDefault(locale)
         // Both, not just Locale.setDefault: resource resolution goes through
         // LocaleList.getDefault() on API 24+, and leaving that at the system locale lets the
         // framework's periodic reapplication of the base Configuration silently win.
         LocaleList.setDefault(LocaleList(locale))
+    }
+
+    /**
+     * The device's own first locale, or the JVM default when the system list is empty.
+     *
+     * `LocaleList` is allowed to be empty and `get(0)` then returns `null`, which would be an NPE
+     * on the way into a non-null `Locale` — in the one path ([LanguageApplier.apply] with `null`)
+     * whose contract says it never throws.
+     */
+    private fun systemLocale(): Locale {
+        val system: LocaleList = Resources.getSystem().configuration.locales
+        return if (system.isEmpty) Locale.getDefault() else system[0]
     }
 }

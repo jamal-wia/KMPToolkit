@@ -54,6 +54,36 @@ class LanguageTagTest {
     }
 
     @Test
+    fun `subtags inside an extension sequence stay lowercase`() {
+        // "ca" here is a calendar key, not a region — length-based casing alone would return
+        // "en-u-CA-gregory", a different string than the caller wrote.
+        assertEquals("en-u-ca-gregory", LanguageTag("en-U-CA-Gregory").value)
+        assertEquals("en-u-nu-latn", LanguageTag("en-u-nu-Latn").value)
+    }
+
+    @Test
+    fun `subtags inside a private-use sequence stay lowercase`() {
+        assertEquals("en-x-ab", LanguageTag("en-X-AB").value)
+        assertEquals("en-x-abcd", LanguageTag("en-x-ABCD").value)
+    }
+
+    @Test
+    fun `a region before an extension is still uppercased`() {
+        assertEquals("pt-BR-u-ca-gregory", LanguageTag("PT-br-U-ca-GREGORY").value)
+    }
+
+    @Test
+    fun `an eight-letter primary subtag is accepted`() {
+        assertEquals("abcdefgh", LanguageTag("abcdefgh").value)
+    }
+
+    @Test
+    fun `an eight-character trailing subtag is accepted and a longer one is not`() {
+        assertEquals("en-abcdefgh", LanguageTag("en-abcdefgh").value)
+        assertNull(LanguageTag.ofOrNull("en-abcdefghi"))
+    }
+
+    @Test
     fun `an empty tag is rejected`() {
         assertNull(LanguageTag.ofOrNull(""))
         assertFailsWith<IllegalArgumentException> { LanguageTag("") }

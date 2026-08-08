@@ -59,6 +59,20 @@ class AndroidLanguageApplierTest {
     }
 
     @Test
+    @Config(sdk = [35])
+    fun `above api 33 the framework locale manager is still the branch taken`() {
+        applier.apply(LanguageTag("de"))
+
+        assertEquals("de", localeManager().applicationLocales.toLanguageTags())
+        assertEquals(
+            originalLocale,
+            Locale.getDefault(),
+            "the process defaults must be left to the framework on this branch, which reapplies " +
+                "the language itself before the app's own code runs",
+        )
+    }
+
+    @Test
     @Config(sdk = [32])
     fun `below api 33 the language goes to the process locale defaults`() {
         applier.apply(LanguageTag("pt-BR"))

@@ -147,6 +147,7 @@ final class io.github.jamal_wia.kmptoolkit.settings/SettingsConfig { // io.githu
     final fun copy(kotlin/String = ..., kotlin.collections/Set<io.github.jamal_wia.kmptoolkit.settings/LanguageTag> = ..., io.github.jamal_wia.kmptoolkit.settings/FontScale = ..., io.github.jamal_wia.kmptoolkit.settings/ThemeMode = ..., io.github.jamal_wia.kmptoolkit.settings/LanguageTag? = ...): io.github.jamal_wia.kmptoolkit.settings/SettingsConfig // io.github.jamal_wia.kmptoolkit.settings/SettingsConfig.copy|copy(kotlin.String;kotlin.collections.Set<io.github.jamal_wia.kmptoolkit.settings.LanguageTag>;io.github.jamal_wia.kmptoolkit.settings.FontScale;io.github.jamal_wia.kmptoolkit.settings.ThemeMode;io.github.jamal_wia.kmptoolkit.settings.LanguageTag?){}[0]
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.settings/SettingsConfig.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.settings/SettingsConfig.hashCode|hashCode(){}[0]
+    final fun supports(io.github.jamal_wia.kmptoolkit.settings/LanguageTag): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.settings/SettingsConfig.supports|supports(io.github.jamal_wia.kmptoolkit.settings.LanguageTag){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.settings/SettingsConfig.toString|toString(){}[0]
 
     final object Companion { // io.github.jamal_wia.kmptoolkit.settings/SettingsConfig.Companion|null[0]
@@ -165,10 +166,6 @@ final class io.github.jamal_wia.kmptoolkit.settings/SettingsLoad { // io.github.
 
     final fun component1(): io.github.jamal_wia.kmptoolkit.settings/AppSettings // io.github.jamal_wia.kmptoolkit.settings/SettingsLoad.component1|component1(){}[0]
     final fun component2(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.settings/SettingsError> // io.github.jamal_wia.kmptoolkit.settings/SettingsLoad.component2|component2(){}[0]
-    final fun copy(io.github.jamal_wia.kmptoolkit.settings/AppSettings = ..., kotlin.collections/List<io.github.jamal_wia.kmptoolkit.settings/SettingsError> = ...): io.github.jamal_wia.kmptoolkit.settings/SettingsLoad // io.github.jamal_wia.kmptoolkit.settings/SettingsLoad.copy|copy(io.github.jamal_wia.kmptoolkit.settings.AppSettings;kotlin.collections.List<io.github.jamal_wia.kmptoolkit.settings.SettingsError>){}[0]
-    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.settings/SettingsLoad.equals|equals(kotlin.Any?){}[0]
-    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.settings/SettingsLoad.hashCode|hashCode(){}[0]
-    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.settings/SettingsLoad.toString|toString(){}[0]
 }
 
 final value class io.github.jamal_wia.kmptoolkit.settings/FontScale { // io.github.jamal_wia.kmptoolkit.settings/FontScale|null[0]

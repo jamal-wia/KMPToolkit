@@ -87,6 +87,52 @@ class AppSettingsLoadTest {
     }
 
     @Test
+    fun `a font scale at either end of the range loads cleanly`() {
+        listOf("0.5", "3.0").forEach { raw ->
+            val storage = ScriptedKeyValueStorage()
+            storage.put(config.fontScaleKey, raw)
+
+            val load: SettingsLoad = createAppSettings(storage, config)
+
+            assertEquals(FontScale(raw.toFloat()), load.settings.fontScale.value)
+            assertContentEquals(emptyList(), load.problems)
+        }
+    }
+
+    @Test
+    fun `a font scale just outside either end falls back and is reported`() {
+        listOf("0.49", "3.01").forEach { raw ->
+            val storage = ScriptedKeyValueStorage()
+            storage.put(config.fontScaleKey, raw)
+
+            val load: SettingsLoad = createAppSettings(storage, config)
+
+            assertEquals(FontScale.DEFAULT, load.settings.fontScale.value)
+            assertContentEquals(
+                listOf(SettingsError.UnreadableValue(config.fontScaleKey, raw)),
+                load.problems,
+            )
+        }
+    }
+
+    @Test
+    fun `every font scale this platform writes is readable again`() {
+        listOf(0.5f, 1.0f, 1.15f, 1.3f, 2.375f, 3.0f).forEach { multiplier ->
+            val storage = ScriptedKeyValueStorage()
+            createAppSettings(storage, config).settings.setFontScale(FontScale(multiplier))
+
+            val load: SettingsLoad = createAppSettings(storage, config)
+
+            assertEquals(
+                FontScale(multiplier),
+                load.settings.fontScale.value,
+                "the store holds the multiplier as text, so the encode/decode pair has to be exact",
+            )
+            assertContentEquals(emptyList(), load.problems)
+        }
+    }
+
+    @Test
     fun `an empty font scale entry falls back to the default and is reported`() {
         val storage = ScriptedKeyValueStorage()
         storage.put(config.fontScaleKey, "")
@@ -211,15 +257,19 @@ class AppSettingsLoadTest {
     @Test
     fun `a read failure on one setting does not stop the others from loading`() {
         val storage = ScriptedKeyValueStorage()
+        val error = StorageError.Unavailable()
         storage.put(config.fontScaleKey, "1.15")
         storage.put(config.languageKey, "pt-BR")
-        storage.failReadsOf(config.themeModeKey, StorageError.Unavailable())
+        storage.failReadsOf(config.themeModeKey, error)
 
         val load: SettingsLoad = createAppSettings(storage, config)
 
         assertEquals(FontScale(1.15f), load.settings.fontScale.value)
         assertEquals(LanguageTag("pt-BR"), load.settings.language.value)
-        assertEquals(1, load.problems.size)
+        assertContentEquals(
+            listOf(SettingsError.ReadFailed(config.themeModeKey, error)),
+            load.problems,
+        )
     }
 
     @Test

@@ -80,6 +80,7 @@ public final class io/github/jamal_wia/kmptoolkit/settings/SettingsConfig {
 	public final fun getSupportedLanguages ()Ljava/util/Set;
 	public final fun getThemeModeKey ()Ljava/lang/String;
 	public fun hashCode ()I
+	public final fun supports-ZpBGJDQ (Ljava/lang/String;)Z
 	public fun toString ()Ljava/lang/String;
 }
 
@@ -148,13 +149,8 @@ public final class io/github/jamal_wia/kmptoolkit/settings/SettingsLoad {
 	public fun <init> (Lio/github/jamal_wia/kmptoolkit/settings/AppSettings;Ljava/util/List;)V
 	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/settings/AppSettings;
 	public final fun component2 ()Ljava/util/List;
-	public final fun copy (Lio/github/jamal_wia/kmptoolkit/settings/AppSettings;Ljava/util/List;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsLoad;
-	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/settings/SettingsLoad;Lio/github/jamal_wia/kmptoolkit/settings/AppSettings;Ljava/util/List;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsLoad;
-	public fun equals (Ljava/lang/Object;)Z
 	public final fun getProblems ()Ljava/util/List;
 	public final fun getSettings ()Lio/github/jamal_wia/kmptoolkit/settings/AppSettings;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/settings/SettingsResult {

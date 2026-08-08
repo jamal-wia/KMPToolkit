@@ -23,8 +23,10 @@ import kotlin.jvm.JvmInline
  * BCP 47 is case-insensitive, but a value class compares by its string, so `"PT-br"` and `"pt-BR"`
  * would otherwise be two different keys into the same set. Every instance is therefore normalised
  * at construction to the conventional casing from the specification: language lowercase, a
- * four-letter script subtag Titlecase, a two-letter region subtag UPPERCASE. `LanguageTag("PT-br")
- * == LanguageTag("pt-BR")` holds, and [value] is what gets persisted and handed to the platform.
+ * four-letter script subtag Titlecase, a two-letter region subtag UPPERCASE, and everything else —
+ * a three-digit region, a variant, and every subtag inside an extension or private-use sequence
+ * (`-u-`, `-t-`, `-x-`) — lowercase. `LanguageTag("PT-br") == LanguageTag("pt-BR")` holds, and
+ * [value] is what gets persisted and handed to the platform.
  *
  * ## What is validated, and what is not
  *
@@ -77,20 +79,35 @@ public value class LanguageTag private constructor(public val value: String) {
             if (rest.any { it.isEmpty() || it.length > MAX_SUBTAG_LENGTH || !it.isAlphanumeric() }) {
                 return null
             }
-            return LanguageTag((listOf(primary.lowercase()) + rest.map(::canonicalise)).joinToString("-"))
+            return LanguageTag((listOf(primary.lowercase()) + canonicalise(rest)).joinToString("-"))
         }
 
         /**
          * The conventional casing from BCP 47 § 2.1.1: a four-letter subtag is a script and is
          * written Titlecase, a two-letter subtag is a region and is written uppercase, everything
-         * else — a three-digit region, a variant, an extension — is lowercase.
+         * else — a three-digit region, a variant — is lowercase.
+         *
+         * The walk stops applying those rules at the first **singleton** (a one-character subtag),
+         * because a singleton opens an extension or private-use sequence — `-u-`, `-t-`, `-x-` —
+         * whose own subtags are lowercase whatever their length. Without that boundary, the
+         * calendar key in `en-u-ca-gregory` reads as a two-letter *region* and comes back out as
+         * `en-u-CA-gregory`, which is a different string than the one the caller wrote.
          */
-        private fun canonicalise(subtag: String): String = when {
-            subtag.length == SCRIPT_LENGTH && subtag.all { it.isAsciiLetter() } ->
-                subtag[0].uppercase() + subtag.substring(1).lowercase()
+        private fun canonicalise(subtags: List<String>): List<String> {
+            var inExtension = false
+            return subtags.map { subtag ->
+                if (subtag.length == SINGLETON_LENGTH) inExtension = true
+                when {
+                    inExtension -> subtag.lowercase()
+                    subtag.length == SCRIPT_LENGTH && subtag.all { it.isAsciiLetter() } ->
+                        subtag[0].uppercase() + subtag.substring(1).lowercase()
 
-            subtag.length == REGION_LENGTH && subtag.all { it.isAsciiLetter() } -> subtag.uppercase()
-            else -> subtag.lowercase()
+                    subtag.length == REGION_LENGTH && subtag.all { it.isAsciiLetter() } ->
+                        subtag.uppercase()
+
+                    else -> subtag.lowercase()
+                }
+            }
         }
 
         // Written out rather than taken from Char.isLetter()/isLetterOrDigit(): those accept the
@@ -104,5 +121,6 @@ public value class LanguageTag private constructor(public val value: String) {
         private const val MAX_SUBTAG_LENGTH: Int = 8
         private const val SCRIPT_LENGTH: Int = 4
         private const val REGION_LENGTH: Int = 2
+        private const val SINGLETON_LENGTH: Int = 1
     }
 }

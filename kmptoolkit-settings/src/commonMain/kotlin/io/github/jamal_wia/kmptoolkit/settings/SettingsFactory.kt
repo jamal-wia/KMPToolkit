@@ -21,14 +21,24 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
  * problems.forEach { logger.w("settings") { "could not load: $it" } }
  * ```
  *
+ * Destructurable but deliberately not a `data class`: a generated `equals` over an [AppSettings]
+ * would compare by identity and mean nothing, and a generated `copy` would let a caller pair one
+ * load's settings with another's problems.
+ *
  * @param settings the settings, populated with whatever loaded and defaults for whatever did not.
  * @param problems one entry per setting that did not load, in the order the settings were read
  *   (font scale, theme mode, language). Never more than one per setting.
  */
-public data class SettingsLoad(
+public class SettingsLoad(
     public val settings: AppSettings,
     public val problems: List<SettingsError>,
-)
+) {
+    /** [settings], so that `val (settings, problems) = createAppSettings(storage)` works. */
+    public operator fun component1(): AppSettings = settings
+
+    /** [problems] — see [component1]. */
+    public operator fun component2(): List<SettingsError> = problems
+}
 
 /**
  * Reads the three settings out of [storage] and returns an [AppSettings] over them, plus whatever

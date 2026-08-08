@@ -4,6 +4,7 @@ import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -67,6 +68,20 @@ class AppSettingsConcurrencyTest {
     @Test
     fun `concurrent writes to different settings all land`() = runTest {
         withContext(Dispatchers.Default) {
+            // Repeated, because a single round of three coroutines would almost never interleave:
+            // one pass proves the code runs, not that the settings are independent.
+            repeat(ROUNDS) { round ->
+                coroutineScope {
+                    val results: List<SettingsResult> = listOf(
+                        async { settings.setFontScale(FontScale(1.0f + round * 0.01f)) },
+                        async { settings.setThemeMode(ThemeMode.entries[round % 3]) },
+                        async { settings.setLanguage(LANGUAGES[round % LANGUAGES.size]) },
+                    ).awaitAll()
+
+                    results.forEach { assertEquals(SettingsResult.Success, it) }
+                }
+            }
+
             coroutineScope {
                 val results: List<SettingsResult> = listOf(
                     async { settings.setFontScale(FontScale(1.3f)) },
@@ -90,8 +105,11 @@ class AppSettingsConcurrencyTest {
 
     @Test
     fun `concurrent writes to one setting all succeed and one of them wins`() = runTest {
+        // Starts away from the loaded default: a writer whose value already equals the current one
+        // is short-circuited by AppSettings and never reaches the store, which would make "all of
+        // them succeeded" vacuous for that writer.
         val written: List<FontScale> = List(WRITER_COUNT) { index ->
-            FontScale(1.0f + index * 0.01f)
+            FontScale(1.5f + index * 0.01f)
         }
 
         withContext(Dispatchers.Default) {
@@ -108,6 +126,12 @@ class AppSettingsConcurrencyTest {
             written.map { it.multiplier.toString() },
             storage.get(config.fontScaleKey).let { (it as StorageResult.Success).value },
         )
+
+        // Whoever won, what they left behind has to be loadable: a race must not be able to leave
+        // an entry that the next launch reports as UnreadableValue.
+        val reloaded: SettingsLoad = createAppSettings(storage, config)
+        assertContains(written, reloaded.settings.fontScale.value)
+        assertContentEquals(emptyList(), reloaded.problems)
     }
 
     @Test
@@ -126,8 +150,10 @@ class AppSettingsConcurrencyTest {
                 }
             }
 
-            // Both values are legal outcomes: what is asserted is that the store and the flow
-            // agree on one of them, and that no writer left the setting on a value nobody wrote.
+            // Both values are legal outcomes, and the contract explicitly does not promise which
+            // one — nor that the flow and the store agree, since persisting and publishing are two
+            // steps. What is asserted is the part that does hold: neither of them can end on a
+            // value no writer ever wrote.
             val current: ThemeMode = settings.themeMode.value
             assertContains(listOf(ThemeMode.DARK, ThemeMode.LIGHT), current)
             assertContains(
@@ -139,5 +165,8 @@ class AppSettingsConcurrencyTest {
     private companion object {
         const val WRITER_COUNT: Int = 16
         const val WRITES_PER_WRITER: Int = 50
+        const val ROUNDS: Int = 50
+        val LANGUAGES: List<LanguageTag> =
+            listOf(LanguageTag("en"), LanguageTag("de"), LanguageTag("pt-BR"))
     }
 }

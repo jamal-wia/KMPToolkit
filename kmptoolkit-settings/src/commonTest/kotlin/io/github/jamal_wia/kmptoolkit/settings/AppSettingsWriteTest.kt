@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -28,7 +29,12 @@ class AppSettingsWriteTest {
 
         assertEquals(SettingsResult.Success, result)
         assertEquals(FontScale(1.15f), settings.fontScale.value)
-        assertEquals(1.15f, storage.stored(config.fontScaleKey)?.toFloat())
+        assertEquals(
+            "1.15",
+            storage.stored(config.fontScaleKey),
+            "the wire format is the decimal string itself — comparing parsed floats would let a " +
+                "format regression through",
+        )
     }
 
     @Test
@@ -99,6 +105,59 @@ class AppSettingsWriteTest {
     }
 
     @Test
+    fun `a failed write of the follow-the-system sentinel is reported like any other`() {
+        settings.setLanguage(LanguageTag("pt-BR"))
+        val error = StorageError.OperationFailed(StorageOperation.PUT, config.languageKey)
+        storage.failWritesOf(config.languageKey, error)
+
+        val result: SettingsResult = settings.setLanguage(null)
+
+        assertEquals(
+            SettingsResult.Failure(SettingsError.WriteFailed(config.languageKey, error)),
+            result,
+        )
+        assertEquals(LanguageTag("pt-BR"), settings.language.value)
+        assertEquals("pt-BR", storage.stored(config.languageKey))
+    }
+
+    @Test
+    fun `a chosen language survives a new instance over the same store`() {
+        settings.setLanguage(LanguageTag("pt-BR"))
+
+        val reloaded: SettingsLoad = createAppSettings(storage, config)
+
+        assertEquals(LanguageTag("pt-BR"), reloaded.settings.language.value)
+        assertContentEquals(emptyList(), reloaded.problems)
+    }
+
+    @Test
+    fun `choosing to follow the system survives a new instance over the same store`() {
+        settings.setLanguage(null)
+
+        val reloaded: SettingsLoad = createAppSettings(storage, config)
+
+        assertNull(
+            reloaded.settings.language.value,
+            "the sentinel must not decay back into defaultLanguage at the next launch",
+        )
+        assertContentEquals(emptyList(), reloaded.problems)
+    }
+
+    @Test
+    fun `a second instance over the same store does not see this one's writes`() {
+        val other: AppSettings = createAppSettings(storage, config).settings
+
+        settings.setThemeMode(ThemeMode.DARK)
+
+        assertEquals(
+            ThemeMode.SYSTEM,
+            other.themeMode.value,
+            "the flows are populated once at construction — an instance is not a live view",
+        )
+        assertEquals(ThemeMode.DARK, createAppSettings(storage, config).settings.themeMode.value)
+    }
+
+    @Test
     fun `setting the value that is already current writes nothing`() {
         settings.setThemeMode(ThemeMode.DARK)
         val writesAfterFirst: Int = storage.attemptedWrites.size
@@ -127,9 +186,13 @@ class AppSettingsWriteTest {
 
     @Test
     fun `a failed write of one setting does not affect another`() {
-        storage.failWritesOf(config.fontScaleKey, StorageError.Unavailable())
+        val error = StorageError.Unavailable()
+        storage.failWritesOf(config.fontScaleKey, error)
 
-        assertTrue(settings.setFontScale(FontScale(1.3f)) is SettingsResult.Failure)
+        assertEquals(
+            SettingsResult.Failure(SettingsError.WriteFailed(config.fontScaleKey, error)),
+            settings.setFontScale(FontScale(1.3f)),
+        )
         assertEquals(SettingsResult.Success, settings.setThemeMode(ThemeMode.LIGHT))
         assertEquals(FontScale.DEFAULT, settings.fontScale.value)
         assertEquals(ThemeMode.LIGHT, settings.themeMode.value)
@@ -156,7 +219,7 @@ class AppSettingsWriteTest {
 
         val failed: SettingsResult = settings.setLanguage(LanguageTag("de"))
         assertEquals(SettingsError.UnsupportedLanguage(LanguageTag("de")), failed.errorOrNull())
-        assertTrue(!failed.isSuccess)
+        assertFalse(failed.isSuccess)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

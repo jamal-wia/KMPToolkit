@@ -60,19 +60,24 @@ public data class SettingsConfig(
     }
 
     /** Where [AppSettings.fontScale] is stored: [keyPrefix] + `".font_scale"`. */
-    public val fontScaleKey: String get() = "$keyPrefix.font_scale"
+    public val fontScaleKey: String = "$keyPrefix.font_scale"
 
     /** Where [AppSettings.themeMode] is stored: [keyPrefix] + `".theme_mode"`. */
-    public val themeModeKey: String get() = "$keyPrefix.theme_mode"
+    public val themeModeKey: String = "$keyPrefix.theme_mode"
 
     /** Where [AppSettings.language] is stored: [keyPrefix] + `".language"`. */
-    public val languageKey: String get() = "$keyPrefix.language"
+    public val languageKey: String = "$keyPrefix.language"
 
     /**
-     * Whether [tag] is one this configuration accepts — always true when [supportedLanguages] is
-     * empty, membership otherwise.
+     * Whether [AppSettings.setLanguage] would accept [tag] — always `true` when
+     * [supportedLanguages] is empty, membership in it otherwise.
+     *
+     * Public because "empty means accept anything" is behaviour a consumer has to reason about
+     * rather than an implementation detail: a language picker built from [supportedLanguages]
+     * alone renders nothing but a "System" row under the default configuration, which is the wrong
+     * list rather than a short one.
      */
-    internal fun supports(tag: LanguageTag): Boolean =
+    public fun supports(tag: LanguageTag): Boolean =
         supportedLanguages.isEmpty() || tag in supportedLanguages
 
     public companion object {

@@ -61,6 +61,18 @@ class FontScaleTest {
     }
 
     @Test
+    fun `of accepts both ends of the range`() {
+        assertEquals(FontScale(0.5f), FontScale.of(FontScale.MINIMUM_MULTIPLIER))
+        assertEquals(FontScale(3.0f), FontScale.of(FontScale.MAXIMUM_MULTIPLIER))
+    }
+
+    @Test
+    fun `coerced leaves both ends of the range alone`() {
+        assertEquals(FontScale(0.5f), FontScale.coerced(FontScale.MINIMUM_MULTIPLIER))
+        assertEquals(FontScale(3.0f), FontScale.coerced(FontScale.MAXIMUM_MULTIPLIER))
+    }
+
+    @Test
     fun `coerced clamps to the nearer end of the range`() {
         assertEquals(FontScale(FontScale.MINIMUM_MULTIPLIER), FontScale.coerced(0.1f))
         assertEquals(FontScale(FontScale.MAXIMUM_MULTIPLIER), FontScale.coerced(9.0f))

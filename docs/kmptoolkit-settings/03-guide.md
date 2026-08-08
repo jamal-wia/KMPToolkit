@@ -61,6 +61,11 @@ The list itself is `config.supportedLanguages` plus a "System" row that sets `nu
 val options: List<LanguageTag?> = listOf(null) + config.supportedLanguages.sortedBy { it.value }
 ```
 
+That works when you declared a set. Under the **default** config `supportedLanguages` is empty,
+which means "accept anything" rather than "nothing is available" — `config.supports(tag)` is `true`
+for every well-formed tag there, and the list of what to *show* has to come from your own
+translation catalogue, since the library has no way to know it.
+
 ## What to do with a load problem
 
 `createAppSettings` returns `SettingsLoad(settings, problems)`. Each problem tells you something
@@ -68,9 +73,16 @@ different:
 
 | Problem | What happened | A reasonable reaction |
 |---|---|---|
-| `ReadFailed` | The store could not be read. The stored value, if any, is still there. | Log it. Do **not** write the default back — that would destroy a value that is merely unreachable right now. |
-| `UnreadableValue` | The entry holds something this version cannot parse — an older format, a dropped range, a partial restore. | Log it, and optionally write the default back to clean the entry up: `settings.setThemeMode(settings.themeMode.value)`. |
+| `ReadFailed` | The store could not be read. The stored value, if any, is still there. | Log it. Do **not** try to write the default back — that would destroy a value that is merely unreachable right now. |
+| `UnreadableValue` | The entry holds something this version cannot parse — an older format, a dropped range, a partial restore. | Log it. The entry is harmless: it is overwritten by the next value the user actually picks. |
 | `UnsupportedLanguage` | The stored language is no longer in `supportedLanguages`, usually because an update dropped a translation. | Log it, and consider telling the user once that their language is no longer available — this is the one problem a user can act on. |
+
+A stale entry cannot be "repaired" by writing the loaded value back: the flow already holds it, so
+`settings.setThemeMode(settings.themeMode.value)` is a no-op that returns `Success` and writes
+nothing (see [`04-api-reference.md`](04-api-reference.md#appsettings)). That is deliberate — a
+setting the user never touched should not cause a write on every launch. If you genuinely want the
+entry gone, remove the key through the same `KeyValueStorage` you passed in:
+`storage.remove(config.themeModeKey)`.
 
 Ignoring `problems` entirely is a defensible choice for a small app. Assigning it to `_` is not
 the same as never having seen it, which is the point of returning it.
@@ -85,9 +97,29 @@ scope.launch { settings.language.collect(applier::apply) }
 ```
 
 `StateFlow` replays its current value to a new collector, so this applies the loaded language
-immediately and then each change. On Android 13+ the platform already reapplies the language on
-its own before your code runs, so this is a cheap no-op there; below 33, and on iOS, it is what
+immediately and then each change. Below Android 13, and on iOS, that start-up application is what
 makes the choice survive a restart.
+
+**On Android 13+ it is not free, and one case needs care.** The system stores the language itself
+and lists your app in Settings → Apps → *your app* → Language, so a user can change it *outside*
+your UI. `AppSettings` does not hear about that, and the start-up collect above would then write
+your stale value back through `LocaleManager` — reverting the user's choice and recreating your
+activities during start-up. If you expose the language in your own settings screen and are on
+API 33+, reconcile at start-up before wiring the collector:
+
+```kotlin
+if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    val system: String? = context.getSystemService(LocaleManager::class.java)
+        ?.applicationLocales?.toLanguageTags()?.takeIf { it.isNotEmpty() }
+    val chosen: LanguageTag? = system?.substringBefore(',')?.let(LanguageTag::ofOrNull)
+    if (chosen != settings.language.value) settings.setLanguage(chosen)
+}
+scope.launch { settings.language.collect(applier::apply) }
+```
+
+The library does not do this for you because reading the system value back is an Android-only
+concept with no iOS counterpart, and `LanguageApplier` is deliberately write-only — see
+[`05-platform-notes.md`](05-platform-notes.md).
 
 **Do not** call `applier.apply(...)` from your settings screen *instead* of collecting: a language
 that is applied where it was picked but not at start-up is a language that reverts on the next

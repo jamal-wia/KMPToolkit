@@ -54,10 +54,13 @@ public fun createAppSettings(
     config: SettingsConfig = SettingsConfig(),
 ): SettingsLoad
 
-public data class SettingsLoad(
+public class SettingsLoad(
     public val settings: AppSettings,
     public val problems: List<SettingsError>,
-)
+) {
+    public operator fun component1(): AppSettings
+    public operator fun component2(): List<SettingsError>
+}
 ```
 
 Reads the three keys, in the order font scale → theme mode → language, and always produces a
@@ -73,7 +76,9 @@ usable `AppSettings`. Each setting that could not be loaded contributes exactly 
 | unreadable — the store failed | the configured default | `ReadFailed(key, cause)` |
 
 Loading never writes: a corrupted entry is left for the next successful write to overwrite, so a
-value that is merely unreadable *today* is not destroyed.
+value that is merely unreadable *today* is not destroyed. Note the interaction with the
+already-current short-circuit above — writing the *loaded* value back is a no-op and will not clean
+such an entry up; remove the key through your own `KeyValueStorage` if you want it gone.
 
 Construct one per app at start-up and hold it. It owns no native handle, registers nothing, and
 needs no release.
@@ -124,7 +129,10 @@ Persisted as the constant's name (`"DARK"`), matched case-sensitively on the way
 - `LanguageTag("pt-BR")` reads like a constructor and throws on a malformed tag; `ofOrNull`
   returns `null` instead.
 - **Canonicalised on construction**: language lowercase, four-letter script Titlecase, two-letter
-  region UPPERCASE. `LanguageTag("PT-br") == LanguageTag("pt-BR")`.
+  region UPPERCASE, everything else lowercase — a three-digit region (`es-419`), a variant
+  (`de-DE-1901`), and every subtag inside an extension or private-use sequence, which begins at the
+  first one-character subtag (`en-u-ca-gregory`, `en-x-ab`). `LanguageTag("PT-br") ==
+  LanguageTag("pt-BR")`.
 - **Syntax only.** A primary subtag of 2–8 ASCII letters, then subtags of 1–8 ASCII letters or
   digits, `-` separated. `"en_US"`, `"en-"`, `"English (US)"` and non-ASCII text are rejected;
   `"english"` is accepted, because syntax is all this checks. Whether your app can render a tag is
@@ -145,8 +153,13 @@ public data class SettingsConfig(
     public val fontScaleKey: String  // "$keyPrefix.font_scale"
     public val themeModeKey: String  // "$keyPrefix.theme_mode"
     public val languageKey: String   // "$keyPrefix.language"
+
+    public fun supports(tag: LanguageTag): Boolean
 }
 ```
+
+`supports` answers what `setLanguage` would do with a tag: always `true` when `supportedLanguages`
+is empty, membership otherwise.
 
 `DEFAULT_KEY_PREFIX` is `"io.github.jamal_wia.kmptoolkit.settings"` — this module's own package,
 a namespace nothing else writes to. It is not the consuming app's identifier because the store is

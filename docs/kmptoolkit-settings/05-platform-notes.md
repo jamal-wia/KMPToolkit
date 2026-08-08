@@ -8,10 +8,11 @@ one.
 
 ## Permissions and manifest entries
 
-**None.** This module declares no permission, no `<queries>`, no service, no `Info.plist` key, and
-nothing is required of you either. That is asserted, not just claimed: `LibraryManifestTest` reads
-the merged manifest through a real `PackageManager` and fails the build if anything but the test
-harness's own entries appears.
+**None.** This module declares no permission, no `<queries>`, no service, and no `Info.plist` key,
+and nothing is required of you either. The permission half is asserted rather than merely claimed:
+`LibraryManifestTest` reads the merged manifest's requested permissions through a real
+`PackageManager` and fails the build if anything but the test harness's own entries appears. (The
+module ships no `AndroidManifest.xml` at all, which is what makes the rest true.)
 
 Changing the app language needs no permission on either platform. (`CHANGE_CONFIGURATION` exists
 on Android and is signature-level — no app can hold it, and nothing here tries.)
@@ -38,10 +39,12 @@ Two consequences worth designing for:
 - Your activity is destroyed and recreated the moment the user picks a language. Anything in
   unsaved UI state disappears — the same event as a rotation, so if you already survive rotation,
   you already survive this.
-- Because the system reapplies it, the value in this module's store and the value the system holds
-  can drift if something else changes one of them. `AppSettings` remains the source of truth for
-  *your* UI; if you want to detect drift, read `LocaleManager.applicationLocales` at start-up and
-  compare.
+- Because the system reapplies it — and because the user can change the language in the OS
+  settings without touching your UI — the value the system holds and the value `AppSettings` holds
+  can drift. Applying the stored value blindly at start-up then *reverts the user's choice*.
+  Reconcile the two first: [`03-guide.md`](03-guide.md#keeping-the-language-applied) has the
+  start-up snippet. `LanguageApplier` has no read side because `LocaleManager.applicationLocales`
+  has no iOS counterpart, so reading it is Android-specific code in your app.
 
 `null` (follow the system) sets an **empty** locale list, which clears the override. It
 deliberately does not pin today's system locale, or the app would stop following the system the
@@ -60,9 +63,11 @@ What this does **not** do:
 - It does not persist anything of its own — this module's store is the only record, so you must
   apply the loaded language at start-up (the collector in
   [`03-guide.md`](03-guide.md#keeping-the-language-applied)).
-- It does not recreate your activities. Already-inflated views and already-resolved strings keep
-  the old language; anything resolved afterwards gets the new one. If you want an immediate
-  switch, recreate your activity yourself after applying.
+- It does not recreate your activities, and — this is the part that surprises people — it does not
+  even change an existing one. An `Activity` carries its own `Configuration`, so its `Resources`
+  keep resolving the old locale no matter what the process defaults say; the new language reaches
+  contexts created *afterwards*. **Recreate the activity yourself** (`Activity.recreate()`, or
+  navigate through a restart) if the user is meant to see the change without relaunching.
 
 **Why not `AppCompatDelegate.setApplicationLocales`**, which would give this path persistence and
 recreation for free: it would put `androidx.appcompat` — a UI toolkit with its own resources and
@@ -101,6 +106,14 @@ Two workable designs:
    `settings.language`. Then use `LanguageApplier` only to keep the *system-level* preference in
    step, so that OS surfaces (the share sheet, permission dialogs, Settings) agree with your UI.
 
+**One entry, not a chain.** `AppleLanguages` is an ordered *preference list*, and this writes the
+chosen tag as its only element, so a string missing from that localization falls back to the
+development region rather than to the user's next preferred language. That is the deliberate
+trade: preserving the rest of the chain across repeated changes would accumulate the user's
+previous app-language choices in it, which is not the system chain either. If the fallback order
+matters to your app, write `AppleLanguages` yourself with your own applier — the interface exists
+for that.
+
 `synchronize()` is called after the write even though it has been deprecated since iOS 12: the
 alternative is an unspecified delay before the value reaches disk, and an app the user kills in
 that window loses the language it just said it applied.
@@ -111,6 +124,16 @@ On both platforms, this changes string resolution — not number, date or curren
 by a separate region setting, and not the language of content your server sends you. If your
 backend localizes responses, send `settings.language.value?.value` (or the system locale when it
 is `null`) as an `Accept-Language` header yourself.
+
+## Swift and Objective-C interop
+
+`FontScale` and `LanguageTag` are Kotlin `value class`es, and Kotlin/Native does not export those
+to Objective-C — declarations that use them are omitted from the generated framework header. In
+practice that is invisible, because of how this module is meant to be wired: Swift calls
+`createLanguageApplier()` and hands the result to shared Kotlin, and everything that *names* a
+`FontScale` or a `LanguageTag` — reading the flows, applying the language, building the settings
+screen state — lives in common code. If you do need to drive these types from Swift directly,
+expose a small Kotlin facade in your shared module that takes and returns `String`/`Float`.
 
 ## Storage location
 

@@ -38,9 +38,7 @@ import kotlin.jvm.JvmInline
 public value class FontScale(public val multiplier: Float) {
 
     init {
-        // `in` on a Float range is a compareTo chain, so NaN — which compares false against
-        // everything — is rejected by the same check rather than needing its own.
-        require(multiplier in MINIMUM_MULTIPLIER..MAXIMUM_MULTIPLIER) {
+        require(isInRange(multiplier)) {
             "multiplier must be between $MINIMUM_MULTIPLIER and $MAXIMUM_MULTIPLIER, " +
                 "was $multiplier"
         }
@@ -72,7 +70,7 @@ public value class FontScale(public val multiplier: Float) {
          * than from source: a stored preference, a remote config, a text field.
          */
         public fun of(multiplier: Float): FontScale? =
-            if (multiplier in MINIMUM_MULTIPLIER..MAXIMUM_MULTIPLIER) FontScale(multiplier) else null
+            if (isInRange(multiplier)) FontScale(multiplier) else null
 
         /**
          * [multiplier] clamped into [MINIMUM_MULTIPLIER]`..`[MAXIMUM_MULTIPLIER], for a value that
@@ -83,5 +81,15 @@ public value class FontScale(public val multiplier: Float) {
             multiplier.isNaN() -> DEFAULT
             else -> FontScale(multiplier.coerceIn(MINIMUM_MULTIPLIER, MAXIMUM_MULTIPLIER))
         }
+
+        /**
+         * The single definition of "acceptable", shared by the constructor and [of] so the two can
+         * never disagree about a boundary.
+         *
+         * `in` on a `Float` range is a `compareTo` chain, so `NaN` — which compares false against
+         * everything — is rejected by the same check rather than needing its own.
+         */
+        internal fun isInRange(multiplier: Float): Boolean =
+            multiplier in MINIMUM_MULTIPLIER..MAXIMUM_MULTIPLIER
     }
 }
