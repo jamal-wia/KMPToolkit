@@ -52,12 +52,12 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-settings` | Font scale, theme mode, app language | `storage` | Available | [docs](docs/kmptoolkit-settings/01-overview.md) |
 | `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-outbox/01-overview.md) |
 | `kmptoolkit-outbox-testing` | `InMemoryOutboxStore`, `OutboxStoreContract`, `FakeOutbox`, for `testImplementation` | `outbox` | Available | [docs](docs/kmptoolkit-outbox/06-testing.md) |
-| `kmptoolkit-outbox-sqldelight` | SQLDelight-backed outbox store | `outbox` | Planned | — |
+| `kmptoolkit-outbox-sqldelight` | SQLDelight-backed `OutboxStore`, the reference SPI implementation | `outbox` | Available | [docs](docs/kmptoolkit-outbox-sqldelight/01-overview.md) |
 | `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | `platform` | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 
-"Planned" modules are tracked in `CHANGELOG.md` and land module-by-module — see
-[`docs/README.md`](docs/README.md) for the full documentation index once a module is available.
+See [`docs/README.md`](docs/README.md) for the full documentation index and the recommended reading
+order.
 
 ## Installation
 

@@ -54,6 +54,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-notification` | Local notifications, channels and actions | [`kmptoolkit-notification/`](kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-session` | Session lifecycle and teardown fan-out | [`kmptoolkit-session/`](kmptoolkit-session/01-overview.md) |
 | `kmptoolkit-outbox` | Transactional outbox / offline effect queue | [`kmptoolkit-outbox/`](kmptoolkit-outbox/01-overview.md) |
+| `kmptoolkit-outbox-sqldelight` | SQLDelight-backed store for the outbox | [`kmptoolkit-outbox-sqldelight/`](kmptoolkit-outbox-sqldelight/01-overview.md) |
 
 Most of these also publish a `-testing` companion artifact holding their test double, documented in
 the same folder's `06-testing.md` rather than a folder of their own. Four do not:

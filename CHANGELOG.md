@@ -76,6 +76,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   well-tested engine unreusable. `kmptoolkit-outbox-testing` ships a complete `InMemoryOutboxStore`
   and `OutboxStoreContract`, a runnable check of every invariant a store must hold, so a custom
   store can prove itself rather than be reviewed.
+- `kmptoolkit-outbox-sqldelight` — the reference implementation of the outbox storage SPI, over
+  SQLite. Ordering uses an `AUTOINCREMENT` sequence rather than a timestamp, so two enqueues in the
+  same millisecond keep their order and a rowid freed by a delivered item is never reused beneath a
+  waiting one. It passes all 30 checks of `OutboxStoreContract` unmodified on both platforms.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +

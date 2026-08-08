@@ -136,6 +136,21 @@ Version policy:
 in `CHANGELOG.md` under its own `Breaking` heading — see `CHANGELOG.md`'s own header note. After
 `1.0.0`, a breaking change requires a major version.
 
+### One artifact leaks generated types, deliberately
+
+`kmptoolkit-outbox-sqldelight` publishes the types SQLDelight generates from its `.sq` file —
+`KmpToolkitOutboxDatabase`, its query object, and the row type. SQLDelight has no option to
+generate them `internal`, so they are in the ABI whether or not they are meant to be API.
+
+Two consequences a consumer should know, both stated in that module's `04-api-reference.md` rather
+than hidden:
+
+- **A schema change is an ABI change**, and is versioned as one. In practice this is the honest
+  outcome anyway: changing the table shape changes what a stored queue means.
+- **Nothing stops a consumer reaching past `OutboxStore` into the table directly.** Doing so
+  bypasses every invariant the store upholds — lease handling, the compare-and-set in
+  `recordFailure`, ordering. It is unsupported, and the module says so; it cannot be prevented.
+
 ## Compose modules are opt-in artifacts
 
 Only two modules depend on Compose Multiplatform: `kmptoolkit-systembars` and
