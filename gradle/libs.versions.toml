@@ -21,9 +21,6 @@ activityCompose = "1.13.0"
 biometric = "1.2.0-alpha05"
 workRuntime = "2.11.2"
 
-# --- Security (kmptoolkit-storage) ---
-tinkAndroid = "1.23.0"
-
 # --- Persistence (kmptoolkit-outbox-sqldelight) ---
 sqldelight = "2.3.2"
 
@@ -49,9 +46,6 @@ androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecyc
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
-
-# Security
-tink-android = { group = "com.google.crypto.tink", name = "tink-android", version.ref = "tinkAndroid" }
 
 # Persistence
 sqldelight-runtime = { group = "app.cash.sqldelight", name = "runtime", version.ref = "sqldelight" }
