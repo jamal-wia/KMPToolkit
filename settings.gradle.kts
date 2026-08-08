@@ -58,6 +58,8 @@ include(":kmptoolkit-notification-testing")
 include(":kmptoolkit-session")
 include(":kmptoolkit-session-testing")
 include(":kmptoolkit-systembars")
+include(":kmptoolkit-outbox")
+include(":kmptoolkit-outbox-testing")
 
 include(":kmptoolkit-bom")
 
