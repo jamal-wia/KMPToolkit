@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    No <uses-permission> here, by design. SCHEDULE_EXACT_ALARM / USE_EXACT_ALARM must be declared by
+    the consuming app: a manifest-merged permission would appear in every consumer's app silently,
+    and this one has to be justified in a Play Store listing. Without it the scheduler still arms
+    alarms, inexactly, and says so through AlarmScheduleResult.Inexact.
+    See docs/kmptoolkit-scheduler/05-platform-notes.md.
+
+    The receiver below is not a permission and grants nothing: it is exported="false", so only the
+    PendingIntents this module creates can trigger it. It is declared here so a consumer cannot
+    forget it — a missing <receiver> fails at neither compile nor schedule time, only as alarms
+    that never arrive.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <receiver
+            android:name="io.github.jamal_wia.kmptoolkit.scheduler.AlarmReceiver"
+            android:exported="false" />
+    </application>
+</manifest>

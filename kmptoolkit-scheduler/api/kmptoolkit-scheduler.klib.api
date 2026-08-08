@@ -1,0 +1,169 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-scheduler>
+final enum class io.github.jamal_wia.kmptoolkit.scheduler/InexactReason : kotlin/Enum<io.github.jamal_wia.kmptoolkit.scheduler/InexactReason> { // io.github.jamal_wia.kmptoolkit.scheduler/InexactReason|null[0]
+    enum entry EXACT_ALARM_PERMISSION_MISSING // io.github.jamal_wia.kmptoolkit.scheduler/InexactReason.EXACT_ALARM_PERMISSION_MISSING|null[0]
+    enum entry EXACT_ALARM_PERMISSION_REVOKED // io.github.jamal_wia.kmptoolkit.scheduler/InexactReason.EXACT_ALARM_PERMISSION_REVOKED|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.scheduler/InexactReason.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.scheduler/InexactReason> // io.github.jamal_wia.kmptoolkit.scheduler/InexactReason.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.scheduler/InexactReason // io.github.jamal_wia.kmptoolkit.scheduler/InexactReason.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.scheduler/InexactReason> // io.github.jamal_wia.kmptoolkit.scheduler/InexactReason.values|values#static(){}[0]
+}
+
+abstract fun interface io.github.jamal_wia.kmptoolkit.scheduler/AlarmSoundResolver { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSoundResolver|null[0]
+    abstract fun soundFor(kotlin/String): kotlin/String? // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSoundResolver.soundFor|soundFor(kotlin.String){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.scheduler/AlarmHandler { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmHandler|null[0]
+    abstract val type // io.github.jamal_wia.kmptoolkit.scheduler/AlarmHandler.type|{}type[0]
+        abstract fun <get-type>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmHandler.type.<get-type>|<get-type>(){}[0]
+
+    abstract suspend fun onFire(io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm) // io.github.jamal_wia.kmptoolkit.scheduler/AlarmHandler.onFire|onFire(io.github.jamal_wia.kmptoolkit.scheduler.ScheduledAlarm){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduler { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduler|null[0]
+    abstract suspend fun cancel(kotlin/String) // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduler.cancel|cancel(kotlin.String){}[0]
+    abstract suspend fun cancelAll(kotlin.collections/Collection<kotlin/String>) // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduler.cancelAll|cancelAll(kotlin.collections.Collection<kotlin.String>){}[0]
+    abstract suspend fun schedule(io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm): io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduler.schedule|schedule(io.github.jamal_wia.kmptoolkit.scheduler.ScheduledAlarm){}[0]
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure|null[0]
+    final class PlatformError : io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError|null[0]
+        constructor <init>(kotlin/String?) // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError.<init>|<init>(kotlin.String?){}[0]
+
+        final val message // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError.message|{}message[0]
+            final fun <get-message>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError.message.<get-message>|<get-message>(){}[0]
+
+        final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError.component1|component1(){}[0]
+        final fun copy(kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError.copy|copy(kotlin.String?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.PlatformError.toString|toString(){}[0]
+    }
+
+    final object NotificationPermissionDenied : io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.NotificationPermissionDenied|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.NotificationPermissionDenied.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.NotificationPermissionDenied.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.NotificationPermissionDenied.toString|toString(){}[0]
+    }
+
+    final object SchedulerUnavailable : io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.SchedulerUnavailable|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.SchedulerUnavailable.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.SchedulerUnavailable.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure.SchedulerUnavailable.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult|null[0]
+    final class Failed : io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure) // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed.<init>|<init>(io.github.jamal_wia.kmptoolkit.scheduler.AlarmFailure){}[0]
+
+        final val reason // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed.reason|{}reason[0]
+            final fun <get-reason>(): io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed.reason.<get-reason>|<get-reason>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.scheduler/AlarmFailure = ...): io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed.copy|copy(io.github.jamal_wia.kmptoolkit.scheduler.AlarmFailure){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Failed.toString|toString(){}[0]
+    }
+
+    final class Inexact : io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.scheduler/InexactReason) // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact.<init>|<init>(io.github.jamal_wia.kmptoolkit.scheduler.InexactReason){}[0]
+
+        final val reason // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact.reason|{}reason[0]
+            final fun <get-reason>(): io.github.jamal_wia.kmptoolkit.scheduler/InexactReason // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact.reason.<get-reason>|<get-reason>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.scheduler/InexactReason // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.scheduler/InexactReason = ...): io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact.copy|copy(io.github.jamal_wia.kmptoolkit.scheduler.InexactReason){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Inexact.toString|toString(){}[0]
+    }
+
+    final object Exact : io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Exact|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Exact.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Exact.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult.Exact.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification|null[0]
+    constructor <init>(kotlin/String, kotlin/String, kotlin/String) // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.<init>|<init>(kotlin.String;kotlin.String;kotlin.String){}[0]
+
+    final val body // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.body|{}body[0]
+        final fun <get-body>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.body.<get-body>|<get-body>(){}[0]
+    final val channelId // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.channelId|{}channelId[0]
+        final fun <get-channelId>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.channelId.<get-channelId>|<get-channelId>(){}[0]
+    final val title // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.title|{}title[0]
+        final fun <get-title>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.title.<get-title>|<get-title>(){}[0]
+
+    final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.component1|component1(){}[0]
+    final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.component2|component2(){}[0]
+    final fun component3(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.component3|component3(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String = ..., kotlin/String = ...): io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.copy|copy(kotlin.String;kotlin.String;kotlin.String){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig|null[0]
+    constructor <init>(kotlin/String? = ..., kotlin/String = ..., kotlin/String = ...) // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.<init>|<init>(kotlin.String?;kotlin.String;kotlin.String){}[0]
+
+    final val alarmIdKey // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.alarmIdKey|{}alarmIdKey[0]
+        final fun <get-alarmIdKey>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.alarmIdKey.<get-alarmIdKey>|<get-alarmIdKey>(){}[0]
+    final val alarmIntentScheme // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.alarmIntentScheme|{}alarmIntentScheme[0]
+        final fun <get-alarmIntentScheme>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.alarmIntentScheme.<get-alarmIntentScheme>|<get-alarmIntentScheme>(){}[0]
+    final val alarmTypeKey // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.alarmTypeKey|{}alarmTypeKey[0]
+        final fun <get-alarmTypeKey>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.alarmTypeKey.<get-alarmTypeKey>|<get-alarmTypeKey>(){}[0]
+
+    final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.component1|component1(){}[0]
+    final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.component2|component2(){}[0]
+    final fun component3(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.component3|component3(){}[0]
+    final fun copy(kotlin/String? = ..., kotlin/String = ..., kotlin/String = ...): io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.copy|copy(kotlin.String?;kotlin.String;kotlin.String){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.Companion|null[0]
+        final const val DEFAULT_ALARM_ID_KEY // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.Companion.DEFAULT_ALARM_ID_KEY|{}DEFAULT_ALARM_ID_KEY[0]
+            final fun <get-DEFAULT_ALARM_ID_KEY>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.Companion.DEFAULT_ALARM_ID_KEY.<get-DEFAULT_ALARM_ID_KEY>|<get-DEFAULT_ALARM_ID_KEY>(){}[0]
+        final const val DEFAULT_ALARM_TYPE_KEY // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.Companion.DEFAULT_ALARM_TYPE_KEY|{}DEFAULT_ALARM_TYPE_KEY[0]
+            final fun <get-DEFAULT_ALARM_TYPE_KEY>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig.Companion.DEFAULT_ALARM_TYPE_KEY.<get-DEFAULT_ALARM_TYPE_KEY>|<get-DEFAULT_ALARM_TYPE_KEY>(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm { // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm|null[0]
+    constructor <init>(kotlin/String, kotlin/String, kotlin/Long, io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification, kotlin.collections/Map<kotlin/String, kotlin/String> = ...) // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.<init>|<init>(kotlin.String;kotlin.String;kotlin.Long;io.github.jamal_wia.kmptoolkit.scheduler.AlarmNotification;kotlin.collections.Map<kotlin.String,kotlin.String>){}[0]
+
+    final val fireAtEpochMillis // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.fireAtEpochMillis|{}fireAtEpochMillis[0]
+        final fun <get-fireAtEpochMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.fireAtEpochMillis.<get-fireAtEpochMillis>|<get-fireAtEpochMillis>(){}[0]
+    final val id // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.id|{}id[0]
+        final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.id.<get-id>|<get-id>(){}[0]
+    final val notification // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.notification|{}notification[0]
+        final fun <get-notification>(): io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.notification.<get-notification>|<get-notification>(){}[0]
+    final val payload // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.payload|{}payload[0]
+        final fun <get-payload>(): kotlin.collections/Map<kotlin/String, kotlin/String> // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.payload.<get-payload>|<get-payload>(){}[0]
+    final val type // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.type|{}type[0]
+        final fun <get-type>(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.type.<get-type>|<get-type>(){}[0]
+
+    final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.component1|component1(){}[0]
+    final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.component2|component2(){}[0]
+    final fun component3(): kotlin/Long // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.component3|component3(){}[0]
+    final fun component4(): io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.component4|component4(){}[0]
+    final fun component5(): kotlin.collections/Map<kotlin/String, kotlin/String> // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.component5|component5(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String = ..., kotlin/Long = ..., io.github.jamal_wia.kmptoolkit.scheduler/AlarmNotification = ..., kotlin.collections/Map<kotlin/String, kotlin/String> = ...): io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.copy|copy(kotlin.String;kotlin.String;kotlin.Long;io.github.jamal_wia.kmptoolkit.scheduler.AlarmNotification;kotlin.collections.Map<kotlin.String,kotlin.String>){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm.toString|toString(){}[0]
+}
+
+final fun (kotlin.collections/Collection<io.github.jamal_wia.kmptoolkit.scheduler/AlarmHandler>).io.github.jamal_wia.kmptoolkit.scheduler/handlerFor(kotlin/String): io.github.jamal_wia.kmptoolkit.scheduler/AlarmHandler? // io.github.jamal_wia.kmptoolkit.scheduler/handlerFor|handlerFor@kotlin.collections.Collection<io.github.jamal_wia.kmptoolkit.scheduler.AlarmHandler>(kotlin.String){}[0]
+final fun io.github.jamal_wia.kmptoolkit.scheduler/createAlarmScheduler(io.github.jamal_wia.kmptoolkit.scheduler/AlarmSoundResolver = ..., io.github.jamal_wia.kmptoolkit.scheduler/AlarmSchedulerConfig = ...): io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduler // io.github.jamal_wia.kmptoolkit.scheduler/createAlarmScheduler|createAlarmScheduler(io.github.jamal_wia.kmptoolkit.scheduler.AlarmSoundResolver;io.github.jamal_wia.kmptoolkit.scheduler.AlarmSchedulerConfig){}[0]

@@ -30,6 +30,8 @@ rootProject.name = "KMPToolkit"
 include(":kmptoolkit-coroutines")
 include(":kmptoolkit-coroutines-testing")
 include(":kmptoolkit-logging")
+include(":kmptoolkit-scheduler")
+include(":kmptoolkit-scheduler-testing")
 
 // Not published — Android Compose demo, smoke-tests published artifacts from mavenLocal.
 include(":sample")

@@ -1,0 +1,15 @@
+public final class io/github/jamal_wia/kmptoolkit/scheduler/testing/RecordingAlarmScheduler : io/github/jamal_wia/kmptoolkit/scheduler/AlarmScheduler {
+	public fun <init> ()V
+	public fun <init> (Lkotlin/jvm/functions/Function1;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun cancel (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun cancelAll (Ljava/util/Collection;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun clear ()V
+	public final fun getArmed ()Ljava/util/List;
+	public final fun getCancelledIds ()Ljava/util/List;
+	public final fun getResultFor ()Lkotlin/jvm/functions/Function1;
+	public final fun getScheduleCalls ()Ljava/util/List;
+	public fun schedule (Lio/github/jamal_wia/kmptoolkit/scheduler/ScheduledAlarm;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun setResultFor (Lkotlin/jvm/functions/Function1;)V
+}
+

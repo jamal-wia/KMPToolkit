@@ -1,0 +1,27 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-scheduler-testing>
+final class io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler : io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduler { // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler|null[0]
+    constructor <init>(kotlin/Function1<io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm, io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult> = ...) // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.<init>|<init>(kotlin.Function1<io.github.jamal_wia.kmptoolkit.scheduler.ScheduledAlarm,io.github.jamal_wia.kmptoolkit.scheduler.AlarmScheduleResult>){}[0]
+
+    final val armed // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.armed|{}armed[0]
+        final fun <get-armed>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm> // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.armed.<get-armed>|<get-armed>(){}[0]
+    final val cancelledIds // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.cancelledIds|{}cancelledIds[0]
+        final fun <get-cancelledIds>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.cancelledIds.<get-cancelledIds>|<get-cancelledIds>(){}[0]
+    final val scheduleCalls // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.scheduleCalls|{}scheduleCalls[0]
+        final fun <get-scheduleCalls>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm> // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.scheduleCalls.<get-scheduleCalls>|<get-scheduleCalls>(){}[0]
+
+    final var resultFor // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.resultFor|{}resultFor[0]
+        final fun <get-resultFor>(): kotlin/Function1<io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm, io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult> // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.resultFor.<get-resultFor>|<get-resultFor>(){}[0]
+        final fun <set-resultFor>(kotlin/Function1<io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm, io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult>) // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.resultFor.<set-resultFor>|<set-resultFor>(kotlin.Function1<io.github.jamal_wia.kmptoolkit.scheduler.ScheduledAlarm,io.github.jamal_wia.kmptoolkit.scheduler.AlarmScheduleResult>){}[0]
+
+    final fun clear() // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.clear|clear(){}[0]
+    final suspend fun cancel(kotlin/String) // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.cancel|cancel(kotlin.String){}[0]
+    final suspend fun cancelAll(kotlin.collections/Collection<kotlin/String>) // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.cancelAll|cancelAll(kotlin.collections.Collection<kotlin.String>){}[0]
+    final suspend fun schedule(io.github.jamal_wia.kmptoolkit.scheduler/ScheduledAlarm): io.github.jamal_wia.kmptoolkit.scheduler/AlarmScheduleResult // io.github.jamal_wia.kmptoolkit.scheduler.testing/RecordingAlarmScheduler.schedule|schedule(io.github.jamal_wia.kmptoolkit.scheduler.ScheduledAlarm){}[0]
+}
