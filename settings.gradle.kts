@@ -48,6 +48,8 @@ include(":kmptoolkit-biometric-testing")
 include(":kmptoolkit-permission")
 include(":kmptoolkit-permission-testing")
 include(":kmptoolkit-systembars")
+include(":kmptoolkit-outbox")
+include(":kmptoolkit-outbox-testing")
 
 // Not published — Android Compose demo, smoke-tests published artifacts from mavenLocal.
 include(":sample")

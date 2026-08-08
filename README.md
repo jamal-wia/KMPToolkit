@@ -47,7 +47,8 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-notification` | Local notifications, channels, actions | `platform`, `permission` | Planned | — |
 | `kmptoolkit-session` | Session lifecycle manager | `coroutines`, `logging` | Planned | — |
 | `kmptoolkit-settings` | Font scale, theme mode, app language | `storage` | Planned | — |
-| `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `coroutines`, `logging` | Planned | — |
+| `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-outbox/01-overview.md) |
+| `kmptoolkit-outbox-testing` | `InMemoryOutboxStore`, `OutboxStoreContract`, `FakeOutbox`, for `testImplementation` | `outbox` | Available | [docs](docs/kmptoolkit-outbox/06-testing.md) |
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed outbox store | `outbox` | Planned | — |
 | `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | `platform` | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |

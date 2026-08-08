@@ -49,6 +49,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-systembars` — Compose system-bar control built as a base configuration plus a stack
   of per-axis override layers, so leaving a screen removes exactly that screen's contribution
   instead of restoring a snapshot that may since have gone stale.
+- `kmptoolkit-outbox` and `kmptoolkit-outbox-testing` — a transactional outbox: a durable effect
+  queue with per-handler retry policies, strict FIFO ordering channels, constraint gating, and
+  detached delivery under a self-expiring lease. **Storage is an SPI, not a dependency** — the
+  module ships no database at all, which is the one thing that made the donor's otherwise
+  well-tested engine unreusable. `kmptoolkit-outbox-testing` ships a complete `InMemoryOutboxStore`
+  and `OutboxStoreContract`, a runnable check of every invariant a store must hold, so a custom
+  store can prove itself rather than be reviewed.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +
