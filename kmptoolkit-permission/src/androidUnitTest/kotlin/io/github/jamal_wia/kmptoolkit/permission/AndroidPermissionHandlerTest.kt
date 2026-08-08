@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.platform.activity.createActivityTracker
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
+import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
 import io.github.jamal_wia.kmptoolkit.storage.testing.InMemoryKeyValueStorage
 import kotlin.test.Test
@@ -51,6 +52,34 @@ private class StubHost(
 }
 
 /**
+ * A [KeyValueStorage] that counts the operations which reach persistent state.
+ *
+ * Reads are not counted: the point of the assertions using this is that a *query* must not write.
+ */
+private class CountingKeyValueStorage(
+    private val delegate: KeyValueStorage = InMemoryKeyValueStorage(),
+) : KeyValueStorage by delegate {
+
+    var writes: Int = 0
+        private set
+
+    override fun put(key: String, value: String): StorageResult<Unit> {
+        writes++
+        return delegate.put(key, value)
+    }
+
+    override fun remove(key: String): StorageResult<Unit> {
+        writes++
+        return delegate.remove(key)
+    }
+
+    override fun clear(): StorageResult<Unit> {
+        writes++
+        return delegate.clear()
+    }
+}
+
+/**
  * The Android status logic, exercised against a real `Context` and a real `PackageManager`.
  *
  * The cases come from the module's contract — `docs/kmptoolkit-permission/01-overview.md` and
@@ -72,6 +101,7 @@ class AndroidPermissionHandlerTest {
         sdkInt: Int = Build.VERSION_CODES.TIRAMISU,
         keyPrefix: String = "test",
         settings: (Intent) -> Boolean = { true },
+        storage: KeyValueStorage = this.storage,
     ): AndroidPermissionHandler = AndroidPermissionHandler(
         context = context,
         host = host,
@@ -158,6 +188,55 @@ class AndroidPermissionHandlerTest {
         handler(host = host).check(Permission.CAMERA)
 
         assertEquals(0, host.launchCount)
+    }
+
+    // --- check is a query -----------------------------------------------------------------------
+
+    @Test
+    fun `checking a granted permission repeatedly writes nothing when there is no flag`() = runTest {
+        grant(Manifest.permission.CAMERA)
+        val counting = CountingKeyValueStorage()
+        val handler: AndroidPermissionHandler = handler(storage = counting)
+
+        repeat(10) { assertEquals(PermissionStatus.Granted, handler.check(Permission.CAMERA)) }
+
+        assertEquals(
+            0,
+            counting.writes,
+            "check must be a query: a consumer polling a granted permission per frame must not " +
+                "pay a persistent write each time",
+        )
+    }
+
+    @Test
+    fun `clearing a flag on grant costs exactly one write however often it is checked`() = runTest {
+        val counting = CountingKeyValueStorage()
+        counting.put(askedKey("test", Permission.CAMERA), "true")
+        val writesAfterSetup: Int = counting.writes
+        grant(Manifest.permission.CAMERA)
+        val handler: AndroidPermissionHandler = handler(storage = counting)
+
+        handler.check(Permission.CAMERA)
+        handler.check(Permission.CAMERA)
+
+        assertEquals(
+            1,
+            counting.writes - writesAfterSetup,
+            "the stale flag is cleared once; the second check has nothing left to clear",
+        )
+        assertNull(counting.getStringOrNull(askedKey("test", Permission.CAMERA)))
+    }
+
+    @Test
+    fun `checking a permission that is not granted writes nothing at all`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val counting = CountingKeyValueStorage()
+        val handler: AndroidPermissionHandler = handler(storage = counting)
+
+        handler.check(Permission.CAMERA)
+        handler.check(Permission.CAMERA)
+
+        assertEquals(0, counting.writes)
     }
 
     // --- Notifications before and after API 33 ------------------------------------------------

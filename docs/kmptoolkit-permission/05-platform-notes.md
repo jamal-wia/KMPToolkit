@@ -53,6 +53,10 @@ is to remember whether the dialog was ever shown — which is why the Android fa
   as `NotDetermined` again, which is correct: Android will show its dialog for it again. The same
   applies after Android's automatic reset of permissions for apps that have not been opened in
   months.
+- Cleared **only when there is something to clear**. `check` stays a query: checking a granted
+  permission that has no flag stored — the overwhelmingly common case — performs no write at all, so
+  a consumer that checks before every action can do so as often as it likes. Checking a granted
+  permission that *does* still carry a stale flag costs exactly one write, once.
 - Keyed by the enum's name rather than the platform string, so the flag survives Android changing
   which string a permission maps to — which has already happened once, when notifications became a
   runtime permission.
