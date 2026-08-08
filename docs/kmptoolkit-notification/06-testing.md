@@ -76,21 +76,29 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
 
 - `ProgressCoalescerTest` — bucketing (including widths 1 and 100), the two frames that are never
   suppressed (non-determinate, and 100%), clamping of out-of-range percentages, per-id independence,
-  `forget`/`clear`, and an exact-count assertion that a 0..100 run produces eleven posts.
+  `forget`/`clear`, an exact-count assertion that a 0..100 run produces eleven posts, and that the
+  non-committing `wouldSuppress` query agrees with `shouldPost` while recording nothing.
 - `NotificationConfigTest` — defaults, the application-id-derived broadcast action (and that two
   applications never resolve to the same one), and every rejected value.
 - `NotificationModelTest` — the defaults a caller gets, and the blank ids/names that fail at
   construction.
-- `NoOpNotifierTest` — reports `NotificationsDisabled` and stays callable.
+- `NoOpNotifierTest` — reports `NotificationsDisabled`, stays callable, and rejects a blank id even
+  though it posts nothing, so the bug cannot hide in the configuration that would never surface it.
 
 **`androidUnitTest`** (Robolectric, via the `kmptoolkit.androidtest` convention plugin):
 
 - `AndroidNotifierTest` — the happy path, channel creation from the spec, custom sound resolution,
-  replace-vs-stack, and each way a post fails: permission absent, notifications disabled app-wide, a
-  blocked channel, an icon that does not resolve. Plus cancelling an id that is not showing,
-  `cancelAll` on an empty tray, coalescing through the real notifier (including that a coalesced post
-  never hides a permission failure), the action-button broadcast and its distinct `PendingIntent`s,
-  and the tap target's extras and flags.
+  replace-vs-stack, a blank id, and each way a post fails: permission absent, notifications disabled
+  app-wide, a blocked channel, a channel whose *group* the user muted, an icon that does not resolve.
+  Plus cancelling an id that is not showing, `cancelAll` on an empty tray, coalescing through the
+  real notifier (including that a coalesced post never hides a permission failure, and that a
+  channel which disappeared is re-created even on a suppressed frame), the action-button broadcast
+  and its distinct `PendingIntent`s, and the tap target's extras and flags.
+- `AndroidNotifierLegacyTest` — the API 24–25 path, at `@Config(sdk = [24])`, because the
+  module-wide `robolectric.properties` pins `sdk=35` and nothing else here would ever execute a
+  pre-26 branch. Covers the sound that has to ride on the notification when there is no channel:
+  `Default` playing the platform default rather than nothing, `Custom`, `Silent`, and a `Low`
+  importance staying silent as it would on a channel.
 - `LibraryManifestTest` — the merged manifest contributes nothing beyond the test harness's own
   entries. See [`05-platform-notes.md`](05-platform-notes.md#permissions-and-the-manifest) for the
   exact pinned set.

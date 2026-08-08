@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.notification
 
 import android.app.Notification
 import android.app.NotificationChannel
+import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.ComponentName
@@ -15,6 +16,7 @@ import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
 import io.github.jamal_wia.kmptoolkit.permission.testing.RecordingPermissionHandler
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -123,6 +125,17 @@ class AndroidNotifierTest {
         assertEquals(2, shown.size)
     }
 
+    // --- the id itself -------------------------------------------------------------------------
+
+    @Test
+    fun `a blank id is rejected rather than folded onto a shared platform id`() = runTest {
+        // Unvalidated, "" hashes to 0 and is bumped to platform id 1 here, while the same call kills
+        // the process on iOS. One rejection, both platforms.
+        assertFailsWith<IllegalArgumentException> { notifier().post("", notification()) }
+        assertFailsWith<IllegalArgumentException> { notifier().post("   ", notification()) }
+        assertTrue(shown.isEmpty())
+    }
+
     // --- the ways a post fails ---------------------------------------------------------------
 
     @Test
@@ -180,6 +193,66 @@ class AndroidNotifierTest {
         )
 
         assertEquals(NotificationResult.Posted, result)
+    }
+
+    @Test
+    fun `a channel muted through its group is reported as blocked`() = runTest {
+        // The user can mute a whole group from API 28; every channel in it still reports its own
+        // original importance, so checking only the channel would have answered Posted for a
+        // notification nobody will ever see.
+        blockGroupOf(CHANNEL_ID)
+
+        val result: NotificationResult = notifier().post("download", notification())
+
+        assertEquals(NotificationResult.ChannelBlocked(CHANNEL_ID), result)
+        assertTrue(shown.isEmpty())
+    }
+
+    @Test
+    fun `a channel in an unblocked group still posts`() = runTest {
+        putChannelInGroup(CHANNEL_ID, blocked = false)
+
+        assertEquals(NotificationResult.Posted, notifier().post("download", notification()))
+    }
+
+    @Test
+    fun `a missing channel is created even for a frame that will be coalesced`() = runTest {
+        // The channel write is what a redundant frame skips — but only when the channel is there.
+        // Skipping it for a channel that has gone would silently drop everything afterwards.
+        val notifier: Notifier = notifier()
+        notifier.post("d", notification().copy(progress = NotificationProgress.Determinate(40)))
+        manager.deleteNotificationChannel(CHANNEL_ID)
+
+        val result: NotificationResult = notifier.post(
+            "d",
+            notification().copy(progress = NotificationProgress.Determinate(41)),
+        )
+
+        assertEquals(NotificationResult.Coalesced, result)
+        assertNotNull(
+            manager.getNotificationChannel(CHANNEL_ID),
+            "a channel that disappeared must be re-created even on a suppressed frame",
+        )
+    }
+
+    @Test
+    fun `a changed channel spec is re-applied on the next real post`() = runTest {
+        val notifier: Notifier = notifier()
+        notifier.post("a", notification())
+
+        notifier.post(
+            "b",
+            notification(
+                channel = NotificationChannelSpec(
+                    id = CHANNEL_ID,
+                    name = "Downloads renamed",
+                    importance = NotificationImportance.Low,
+                    sound = NotificationSound.Silent,
+                ),
+            ),
+        )
+
+        assertEquals("Downloads renamed", manager.getNotificationChannel(CHANNEL_ID).name.toString())
     }
 
     @Test
@@ -455,6 +528,31 @@ class AndroidNotifierTest {
         manager.deleteNotificationChannel(channelId)
     }
 
+    /** Puts the channel in a group the user has muted, the way the system would report it. */
+    private fun blockGroupOf(channelId: String) = putChannelInGroup(channelId, blocked = true)
+
+    /**
+     * Creates a group, marks it blocked or not, and puts [channelId] in it.
+     *
+     * The channel is created and then deleted so that the notifier's own `createNotificationChannel`
+     * restores it — group and all — instead of replacing it. That mirrors the platform, where a
+     * channel's group is fixed at creation and a re-created deleted channel comes back as it was.
+     * `setBlocked` is a hidden framework setter; only the system may call it for real, so a test has
+     * to reach it reflectively to describe a state the user creates.
+     */
+    private fun putChannelInGroup(channelId: String, blocked: Boolean) {
+        val group = NotificationChannelGroup(GROUP_ID, "Downloads group")
+        NotificationChannelGroup::class.java
+            .getMethod("setBlocked", Boolean::class.javaPrimitiveType)
+            .invoke(group, blocked)
+        manager.createNotificationChannelGroup(group)
+        manager.createNotificationChannel(
+            NotificationChannel(channelId, "Downloads", NotificationManager.IMPORTANCE_LOW)
+                .apply { this.group = GROUP_ID },
+        )
+        manager.deleteNotificationChannel(channelId)
+    }
+
     /** This module has no launcher activity of its own; a real app resolves one. */
     private fun registerLauncherActivity() {
         val component = ComponentName(context.packageName, "com.example.TestLauncher")
@@ -468,6 +566,7 @@ class AndroidNotifierTest {
 
     private companion object {
         const val CHANNEL_ID: String = "downloads"
+        const val GROUP_ID: String = "downloads_group"
 
         /** An id in the app resource range that no resource in this module occupies. */
         const val UNRESOLVABLE_RES_ID: Int = 0x7F123456

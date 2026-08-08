@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.permission.PermissionHandler
 import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -39,6 +40,22 @@ class IosNotifierTest {
 
             assertEquals(NotificationResult.PermissionDenied, result)
         }
+
+    /**
+     * The regression test for the one bug that could not be caught at all.
+     *
+     * `UNNotificationRequest.requestWithIdentifier` rejects an empty identifier by raising an
+     * Objective-C exception, which Kotlin/Native cannot catch: before the `require`, this call took
+     * the whole process down. That it runs to a caught [IllegalArgumentException] here — on a real
+     * iOS simulator binary — is the assertion.
+     */
+    @Test
+    fun `a blank id is rejected before the request is built`() = runTest {
+        val notifier: Notifier = notifier(PermissionStatus.Granted)
+
+        assertFailsWith<IllegalArgumentException> { notifier.post("", notification) }
+        assertFailsWith<IllegalArgumentException> { notifier.post("   ", notification) }
+    }
 
     @Test
     fun `a permanently denied authorization is reported the same way`() = runTest {

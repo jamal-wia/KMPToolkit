@@ -222,6 +222,50 @@ class ProgressCoalescerTest {
         assertTrue(coalescer.shouldPost("b", NotificationProgress.Determinate(40)))
     }
 
+    // --- wouldSuppress: the same answer, without committing to it --------------------------
+
+    @Test
+    fun `wouldSuppress agrees with shouldPost`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        coalescer.shouldPost("a", NotificationProgress.Determinate(40))
+
+        assertTrue(coalescer.wouldSuppress("a", NotificationProgress.Determinate(41)))
+        assertFalse(coalescer.shouldPost("a", NotificationProgress.Determinate(41)))
+    }
+
+    @Test
+    fun `wouldSuppress records nothing`() {
+        val coalescer: ProgressCoalescer = coalescer()
+
+        // Asking about a fresh id must not become that id's baseline.
+        assertFalse(coalescer.wouldSuppress("a", NotificationProgress.Determinate(40)))
+        assertFalse(coalescer.wouldSuppress("a", NotificationProgress.Determinate(40)))
+        assertTrue(coalescer.shouldPost("a", NotificationProgress.Determinate(40)))
+        // And asking again must not consume the suppression either.
+        assertTrue(coalescer.wouldSuppress("a", NotificationProgress.Determinate(41)))
+        assertTrue(coalescer.wouldSuppress("a", NotificationProgress.Determinate(41)))
+    }
+
+    @Test
+    fun `wouldSuppress is false for the frames that are never suppressed`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        coalescer.shouldPost("a", NotificationProgress.Determinate(95))
+
+        assertFalse(coalescer.wouldSuppress("a", null))
+        assertFalse(coalescer.wouldSuppress("a", NotificationProgress.Indeterminate))
+        assertFalse(coalescer.wouldSuppress("a", NotificationProgress.Determinate(100)))
+    }
+
+    @Test
+    fun `wouldSuppress follows the clock like shouldPost does`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        coalescer.shouldPost("a", NotificationProgress.Determinate(0))
+
+        assertTrue(coalescer.wouldSuppress("a", NotificationProgress.Determinate(10)))
+        time += 500.milliseconds
+        assertFalse(coalescer.wouldSuppress("a", NotificationProgress.Determinate(10)))
+    }
+
     @Test
     fun `a full run at the defaults posts exactly eleven times`() {
         // The point of the class, stated as a number: a per-percent loop must not become 101 posts.

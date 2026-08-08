@@ -62,6 +62,11 @@ internal class IosNotifier(
         get() = UNUserNotificationCenter.currentNotificationCenter()
 
     override suspend fun post(id: String, notification: LocalNotification): NotificationResult {
+        // Validation, not a catch: `requestWithIdentifier` rejects an empty identifier by raising an
+        // Objective-C exception, and Kotlin/Native cannot catch one — the process would die. This is
+        // the only reason post() throws at all, and it throws for a caller's bug, not for a device
+        // state. See Notifier.post's KDoc.
+        requireValidNotificationId(id)
         // iOS reports "the user switched notifications off in Settings" and "the user answered no
         // to the prompt" as one and the same authorization status, so there is no honest way to
         // return NotificationsDisabled here — PermissionDenied covers both.

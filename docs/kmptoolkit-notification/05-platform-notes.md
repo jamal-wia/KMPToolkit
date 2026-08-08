@@ -91,9 +91,14 @@ usage-description string.
 - **`POST_NOTIFICATIONS` exists from API 33.** Below that there is no runtime grant, so
   `PermissionDenied` cannot occur — but notifications can still be off app-wide, which is
   `NotificationsDisabled`. The two are genuinely different states and both are reported.
-- **Channels exist from API 26.** Below that the module skips channel creation, `ChannelBlocked`
-  cannot occur, and a `NotificationSound.Custom` is applied to the notification itself instead, since
-  there is no channel to carry it. `minSdk` for the suite is 24, so this path is real.
+- **Channels exist from API 26.** Below that the module skips channel creation and
+  `ChannelBlocked` cannot occur; the sound is applied to the notification itself, since there is no
+  channel to carry one. All three of `Silent`, `Default` and `Custom` are applied there — a
+  `NotificationCompat` notification is silent unless a sound is set explicitly, so `Default` has to
+  be spelled out as the platform's default notification URI or it would quietly mean `Silent`. A
+  `NotificationImportance.Low` notification is kept silent below 26 too, matching what
+  `IMPORTANCE_LOW` does from 26 onwards. `minSdk` for the suite is 24, so this path is real, and
+  `AndroidNotifierLegacyTest` runs at `sdk = 24` to keep it that way.
 - **The small icon is mandatory**, drawn as a silhouette from its alpha channel on API 21+. A
   resource id that does not resolve is caught before posting and returned as `Failed`.
 - **`setOnlyAlertOnce(true)` is always applied**, so re-posting an id to update it does not buzz
@@ -101,6 +106,14 @@ usage-description string.
 - **Ids are hashed** from your string to a non-negative, non-zero `Int` — non-zero because
   `startForeground` rejects 0, and stable across processes because `String.hashCode` is specified.
   Two different strings could in principle collide; use readable, distinct ids.
+- **A channel is "blocked" two ways**: muted directly (`IMPORTANCE_NONE`), or — from API 28 — sitting
+  in a `NotificationChannelGroup` the user muted, which silences every channel in it while each one
+  still reports its own original importance. Both come back as `ChannelBlocked`. This module creates
+  no groups, but a consumer's channel may belong to one created elsewhere in their app.
+- **The channel write is skipped for a redundant progress frame**, never the channel *read*: a frame
+  about to be coalesced does not need `createNotificationChannel` re-issued, but a channel that is
+  missing is still created, because the platform drops a notification on a channel that does not
+  exist without a word.
 - **`cancelAll` clears the app's whole tray**, including notifications posted by a previous process
   or by another part of your app.
 
@@ -122,7 +135,12 @@ usage-description string.
 
 ## Both platforms
 
-- Nothing is thrown from `post`, `cancel` or `cancelAll`.
+- Nothing is thrown from `post`, `cancel` or `cancelAll` for a runtime condition — a missing
+  permission, a dead system service, a payload the framework refuses. The one exception is a blank
+  `id` passed to `post`, which is a programming error and throws `IllegalArgumentException`; see
+  [`04-api-reference.md`](04-api-reference.md#notifier). On iOS that check is what stands between a
+  blank id and process death, because `UNNotificationRequest` rejects it with an Objective-C
+  exception Kotlin/Native cannot catch.
 - Nothing is persisted. The module has no database, no list of what it has posted, and nothing to
   restore after a reboot or a process death — beyond in-memory progress-coalescing state, which is
   meant to be lost.
