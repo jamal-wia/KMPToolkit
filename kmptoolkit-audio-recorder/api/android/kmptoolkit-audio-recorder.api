@@ -1,0 +1,319 @@
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat : java/lang/Enum {
+	public static final field AAC Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
+	public static final field M4A Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
+	public static final field WAV Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getExtension ()Ljava/lang/String;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder {
+	public abstract fun cancel ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
+	public abstract fun getElapsed ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun pause ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
+	public abstract fun prepare (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun prepare$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun release ()V
+	public abstract fun resume ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
+	public abstract fun start ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
+	public abstract fun stop ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder$DefaultImpls {
+	public static synthetic fun prepare$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder;Ljava/lang/String;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig$Companion;
+	public static final field DEFAULT_BIT_RATE I
+	public static final field DEFAULT_CHANNEL_COUNT I
+	public static final field DEFAULT_MINIMUM_FREE_SPACE_BYTES J
+	public static final field DEFAULT_SAMPLE_RATE I
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;IIIJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;IIIJJLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun component5 ()I
+	public final fun component6-UwyO8pc ()J
+	public final fun component7 ()J
+	public final fun copy-x2RqbK4 (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;IIIJJ)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;
+	public static synthetic fun copy-x2RqbK4$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;IIIJJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBitRate ()I
+	public final fun getChannelCount ()I
+	public final fun getDurationUpdateInterval-UwyO8pc ()J
+	public final fun getFormat ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
+	public final fun getMinimumFreeSpaceBytes ()J
+	public final fun getSampleRate ()I
+	public final fun getStorage ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig$Companion {
+	public final fun getDEFAULT_DURATION_UPDATE_INTERVAL-UwyO8pc ()J
+	public final fun getHighQuality ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderFactory_androidKt {
+	public static final fun createAudioRecorder (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder;
+	public static synthetic fun createAudioRecorder$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile {
+	public synthetic fun <init> (Ljava/lang/String;JLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2-UwyO8pc ()J
+	public final fun copy-HG0u8IE (Ljava/lang/String;J)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;
+	public static synthetic fun copy-HG0u8IE$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;Ljava/lang/String;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDuration-UwyO8pc ()J
+	public final fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$AlreadyReleased : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$AlreadyReleased;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$AlreadyReleased;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$AlreadyReleased;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOperation ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$DirectoryNotWritable : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$DirectoryNotWritable;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$DirectoryNotWritable;Ljava/lang/String;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$DirectoryNotWritable;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public final fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$EngineFailure : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public final fun component2 ()Ljava/lang/Throwable;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$EngineFailure;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$EngineFailure;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$EngineFailure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public final fun getOperation ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$IllegalState : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState;
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$IllegalState;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$IllegalState;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$IllegalState;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOperation ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public final fun getState ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$InsufficientStorage : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
+	public fun <init> (Ljava/lang/String;JJ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun copy (Ljava/lang/String;JJ)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$InsufficientStorage;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$InsufficientStorage;Ljava/lang/String;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$InsufficientStorage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAvailableBytes ()J
+	public final fun getPath ()Ljava/lang/String;
+	public final fun getRequiredBytes ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$PermissionDenied : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$PermissionDenied;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$UnsupportedFormat : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$UnsupportedFormat;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$UnsupportedFormat;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$UnsupportedFormat;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFormat ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation : java/lang/Enum {
+	public static final field CANCEL Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public static final field PAUSE Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public static final field PREPARE Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public static final field RESUME Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public static final field START Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public static final field STOP Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderOperation;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult$Failure : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult$Failure;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult$Failure;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult$Failure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getError ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult$Success : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult {
+	public fun <init> (Ljava/lang/Object;)V
+	public final fun component1 ()Ljava/lang/Object;
+	public final fun copy (Ljava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult$Success;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult$Success;Ljava/lang/Object;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult$Success;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getValue ()Ljava/lang/Object;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResultKt {
+	public static final fun errorOrNull (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;
+	public static final fun getOrNull (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;)Ljava/lang/Object;
+	public static final fun isSuccess (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;)Z
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Completed : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Completed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Completed;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Completed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRecording ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getError ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Idle : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Idle;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Paused : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+	public synthetic fun <init> (Ljava/lang/String;JLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2-UwyO8pc ()J
+	public final fun copy-HG0u8IE (Ljava/lang/String;J)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Paused;
+	public static synthetic fun copy-HG0u8IE$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Paused;Ljava/lang/String;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Paused;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getElapsed-UwyO8pc ()J
+	public final fun getOutputPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Preparing : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Preparing;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Ready : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Ready;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Ready;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Ready;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOutputPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Recording : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Recording;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Recording;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Recording;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOutputPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Released : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Released;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderStateKt {
+	public static final fun getOutputPath (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState;)Ljava/lang/String;
+	public static final fun isActive (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState;)Z
+	public static final fun isRecording (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage$Companion;
+	public static final field DEFAULT_FILE_NAME_PREFIX Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDirectoryName ()Ljava/lang/String;
+	public final fun getDirectoryPath ()Ljava/lang/String;
+	public final fun getFileNamePrefix ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage$Companion {
+}
+

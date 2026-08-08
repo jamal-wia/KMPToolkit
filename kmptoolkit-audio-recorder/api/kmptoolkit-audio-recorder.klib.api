@@ -1,0 +1,368 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-audio-recorder>
+final enum class io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat : kotlin/Enum<io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat> { // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat|null[0]
+    enum entry AAC // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat.AAC|null[0]
+    enum entry M4A // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat.M4A|null[0]
+    enum entry WAV // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat.WAV|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat.entries.<get-entries>|<get-entries>#static(){}[0]
+    final val extension // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat.extension|{}extension[0]
+        final fun <get-extension>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat.extension.<get-extension>|<get-extension>(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat.values|values#static(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation : kotlin/Enum<io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation> { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation|null[0]
+    enum entry CANCEL // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.CANCEL|null[0]
+    enum entry PAUSE // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.PAUSE|null[0]
+    enum entry PREPARE // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.PREPARE|null[0]
+    enum entry RESUME // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.RESUME|null[0]
+    enum entry START // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.START|null[0]
+    enum entry STOP // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.STOP|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation> // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation> // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder { // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder|null[0]
+    abstract val elapsed // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.elapsed|{}elapsed[0]
+        abstract fun <get-elapsed>(): kotlinx.coroutines.flow/StateFlow<kotlin.time/Duration> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.elapsed.<get-elapsed>|<get-elapsed>(){}[0]
+    abstract val state // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.state|{}state[0]
+        abstract fun <get-state>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.state.<get-state>|<get-state>(){}[0]
+
+    abstract fun cancel(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.cancel|cancel(){}[0]
+    abstract fun pause(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.pause|pause(){}[0]
+    abstract fun release() // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.release|release(){}[0]
+    abstract fun resume(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.resume|resume(){}[0]
+    abstract fun start(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.start|start(){}[0]
+    abstract fun stop(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.stop|stop(){}[0]
+    abstract suspend fun prepare(kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/String> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.prepare|prepare(kotlin.String?){}[0]
+}
+
+sealed interface <#A: out kotlin/Any?> io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult|null[0]
+    final class <#A1: out kotlin/Any?> Success : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<#A1> { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success|null[0]
+        constructor <init>(#A1) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success.<init>|<init>(1:0){}[0]
+
+        final val value // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success.value|{}value[0]
+            final fun <get-value>(): #A1 // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success.value.<get-value>|<get-value>(){}[0]
+
+        final fun component1(): #A1 // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success.component1|component1(){}[0]
+        final fun copy(#A1 = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success<#A1> // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success.copy|copy(1:0){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Success.toString|toString(){}[0]
+    }
+
+    final class Failure : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Nothing> { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderError){}[0]
+
+        final val error // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure.error|{}error[0]
+            final fun <get-error>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure.error.<get-error>|<get-error>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderError){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult.Failure.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError|null[0]
+    final class AlreadyReleased : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation){}[0]
+
+        final val operation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased.operation|{}operation[0]
+            final fun <get-operation>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased.operation.<get-operation>|<get-operation>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased.toString|toString(){}[0]
+    }
+
+    final class DirectoryNotWritable : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable|null[0]
+        constructor <init>(kotlin/String, kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.<init>|<init>(kotlin.String;kotlin.Throwable?){}[0]
+
+        final val cause // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.cause.<get-cause>|<get-cause>(){}[0]
+        final val path // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.path|{}path[0]
+            final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.path.<get-path>|<get-path>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.component1|component1(){}[0]
+        final fun component2(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.component2|component2(){}[0]
+        final fun copy(kotlin/String = ..., kotlin/Throwable? = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.copy|copy(kotlin.String;kotlin.Throwable?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.DirectoryNotWritable.toString|toString(){}[0]
+    }
+
+    final class EngineFailure : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation, kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation;kotlin.Throwable?){}[0]
+
+        final val cause // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.cause.<get-cause>|<get-cause>(){}[0]
+        final val operation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.operation|{}operation[0]
+            final fun <get-operation>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.operation.<get-operation>|<get-operation>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.component1|component1(){}[0]
+        final fun component2(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.component2|component2(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation = ..., kotlin/Throwable? = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation;kotlin.Throwable?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.EngineFailure.toString|toString(){}[0]
+    }
+
+    final class IllegalState : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState, io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState;io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation){}[0]
+
+        final val operation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.operation|{}operation[0]
+            final fun <get-operation>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.operation.<get-operation>|<get-operation>(){}[0]
+        final val state // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.state|{}state[0]
+            final fun <get-state>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.state.<get-state>|<get-state>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.component1|component1(){}[0]
+        final fun component2(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.component2|component2(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState = ..., io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState;io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.IllegalState.toString|toString(){}[0]
+    }
+
+    final class InsufficientStorage : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage|null[0]
+        constructor <init>(kotlin/String, kotlin/Long, kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.<init>|<init>(kotlin.String;kotlin.Long;kotlin.Long){}[0]
+
+        final val availableBytes // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.availableBytes|{}availableBytes[0]
+            final fun <get-availableBytes>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.availableBytes.<get-availableBytes>|<get-availableBytes>(){}[0]
+        final val path // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.path|{}path[0]
+            final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.path.<get-path>|<get-path>(){}[0]
+        final val requiredBytes // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.requiredBytes|{}requiredBytes[0]
+            final fun <get-requiredBytes>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.requiredBytes.<get-requiredBytes>|<get-requiredBytes>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.component1|component1(){}[0]
+        final fun component2(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.component2|component2(){}[0]
+        final fun component3(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.component3|component3(){}[0]
+        final fun copy(kotlin/String = ..., kotlin/Long = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.copy|copy(kotlin.String;kotlin.Long;kotlin.Long){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.toString|toString(){}[0]
+    }
+
+    final class UnsupportedFormat : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.AudioFormat){}[0]
+
+        final val format // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat.format|{}format[0]
+            final fun <get-format>(): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat.format.<get-format>|<get-format>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.AudioFormat){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat.toString|toString(){}[0]
+    }
+
+    final object PermissionDenied : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.PermissionDenied|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.PermissionDenied.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.PermissionDenied.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.PermissionDenied.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState|null[0]
+    final class Completed : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordedFile){}[0]
+
+        final val recording // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed.recording|{}recording[0]
+            final fun <get-recording>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed.recording.<get-recording>|<get-recording>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordedFile){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Completed.toString|toString(){}[0]
+    }
+
+    final class Failed : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderError){}[0]
+
+        final val error // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.error|{}error[0]
+            final fun <get-error>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.error.<get-error>|<get-error>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderError){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.toString|toString(){}[0]
+    }
+
+    final class Paused : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused|null[0]
+        constructor <init>(kotlin/String, kotlin.time/Duration) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.<init>|<init>(kotlin.String;kotlin.time.Duration){}[0]
+
+        final val elapsed // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.elapsed|{}elapsed[0]
+            final fun <get-elapsed>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.elapsed.<get-elapsed>|<get-elapsed>(){}[0]
+        final val outputPath // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.outputPath|{}outputPath[0]
+            final fun <get-outputPath>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.outputPath.<get-outputPath>|<get-outputPath>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.component1|component1(){}[0]
+        final fun component2(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.component2|component2(){}[0]
+        final fun copy(kotlin/String = ..., kotlin.time/Duration = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.copy|copy(kotlin.String;kotlin.time.Duration){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused.toString|toString(){}[0]
+    }
+
+    final class Ready : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready.<init>|<init>(kotlin.String){}[0]
+
+        final val outputPath // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready.outputPath|{}outputPath[0]
+            final fun <get-outputPath>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready.outputPath.<get-outputPath>|<get-outputPath>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Ready.toString|toString(){}[0]
+    }
+
+    final class Recording : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording.<init>|<init>(kotlin.String){}[0]
+
+        final val outputPath // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording.outputPath|{}outputPath[0]
+            final fun <get-outputPath>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording.outputPath.<get-outputPath>|<get-outputPath>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Recording.toString|toString(){}[0]
+    }
+
+    final object Idle : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Idle|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Idle.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Idle.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Idle.toString|toString(){}[0]
+    }
+
+    final object Preparing : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Preparing|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Preparing.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Preparing.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Preparing.toString|toString(){}[0]
+    }
+
+    final object Released : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Released|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Released.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Released.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Released.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig { // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage = ..., io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin.time/Duration = ..., kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage;io.github.jamal_wia.kmptoolkit.audio.recorder.AudioFormat;kotlin.Int;kotlin.Int;kotlin.Int;kotlin.time.Duration;kotlin.Long){}[0]
+
+    final val bitRate // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.bitRate|{}bitRate[0]
+        final fun <get-bitRate>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.bitRate.<get-bitRate>|<get-bitRate>(){}[0]
+    final val channelCount // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.channelCount|{}channelCount[0]
+        final fun <get-channelCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.channelCount.<get-channelCount>|<get-channelCount>(){}[0]
+    final val durationUpdateInterval // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.durationUpdateInterval|{}durationUpdateInterval[0]
+        final fun <get-durationUpdateInterval>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.durationUpdateInterval.<get-durationUpdateInterval>|<get-durationUpdateInterval>(){}[0]
+    final val format // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.format|{}format[0]
+        final fun <get-format>(): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.format.<get-format>|<get-format>(){}[0]
+    final val minimumFreeSpaceBytes // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.minimumFreeSpaceBytes|{}minimumFreeSpaceBytes[0]
+        final fun <get-minimumFreeSpaceBytes>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.minimumFreeSpaceBytes.<get-minimumFreeSpaceBytes>|<get-minimumFreeSpaceBytes>(){}[0]
+    final val sampleRate // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.sampleRate|{}sampleRate[0]
+        final fun <get-sampleRate>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.sampleRate.<get-sampleRate>|<get-sampleRate>(){}[0]
+    final val storage // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.storage|{}storage[0]
+        final fun <get-storage>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.storage.<get-storage>|<get-storage>(){}[0]
+
+    final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component1|component1(){}[0]
+    final fun component2(): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component2|component2(){}[0]
+    final fun component3(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component3|component3(){}[0]
+    final fun component4(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component4|component4(){}[0]
+    final fun component5(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component5|component5(){}[0]
+    final fun component6(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component6|component6(){}[0]
+    final fun component7(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component7|component7(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage = ..., io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin.time/Duration = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage;io.github.jamal_wia.kmptoolkit.audio.recorder.AudioFormat;kotlin.Int;kotlin.Int;kotlin.Int;kotlin.time.Duration;kotlin.Long){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion|null[0]
+        final const val DEFAULT_BIT_RATE // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_BIT_RATE|{}DEFAULT_BIT_RATE[0]
+            final fun <get-DEFAULT_BIT_RATE>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_BIT_RATE.<get-DEFAULT_BIT_RATE>|<get-DEFAULT_BIT_RATE>(){}[0]
+        final const val DEFAULT_CHANNEL_COUNT // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_CHANNEL_COUNT|{}DEFAULT_CHANNEL_COUNT[0]
+            final fun <get-DEFAULT_CHANNEL_COUNT>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_CHANNEL_COUNT.<get-DEFAULT_CHANNEL_COUNT>|<get-DEFAULT_CHANNEL_COUNT>(){}[0]
+        final const val DEFAULT_MINIMUM_FREE_SPACE_BYTES // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_MINIMUM_FREE_SPACE_BYTES|{}DEFAULT_MINIMUM_FREE_SPACE_BYTES[0]
+            final fun <get-DEFAULT_MINIMUM_FREE_SPACE_BYTES>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_MINIMUM_FREE_SPACE_BYTES.<get-DEFAULT_MINIMUM_FREE_SPACE_BYTES>|<get-DEFAULT_MINIMUM_FREE_SPACE_BYTES>(){}[0]
+        final const val DEFAULT_SAMPLE_RATE // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_SAMPLE_RATE|{}DEFAULT_SAMPLE_RATE[0]
+            final fun <get-DEFAULT_SAMPLE_RATE>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_SAMPLE_RATE.<get-DEFAULT_SAMPLE_RATE>|<get-DEFAULT_SAMPLE_RATE>(){}[0]
+
+        final val DEFAULT_DURATION_UPDATE_INTERVAL // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_DURATION_UPDATE_INTERVAL|{}DEFAULT_DURATION_UPDATE_INTERVAL[0]
+            final fun <get-DEFAULT_DURATION_UPDATE_INTERVAL>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_DURATION_UPDATE_INTERVAL.<get-DEFAULT_DURATION_UPDATE_INTERVAL>|<get-DEFAULT_DURATION_UPDATE_INTERVAL>(){}[0]
+        final val HighQuality // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.HighQuality|{}HighQuality[0]
+            final fun <get-HighQuality>(): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.HighQuality.<get-HighQuality>|<get-HighQuality>(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile|null[0]
+    constructor <init>(kotlin/String, kotlin.time/Duration) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.<init>|<init>(kotlin.String;kotlin.time.Duration){}[0]
+
+    final val duration // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.duration|{}duration[0]
+        final fun <get-duration>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.duration.<get-duration>|<get-duration>(){}[0]
+    final val path // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.path|{}path[0]
+        final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.path.<get-path>|<get-path>(){}[0]
+
+    final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.component1|component1(){}[0]
+    final fun component2(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.component2|component2(){}[0]
+    final fun copy(kotlin/String = ..., kotlin.time/Duration = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.copy|copy(kotlin.String;kotlin.time.Duration){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage|null[0]
+    constructor <init>(kotlin/String? = ..., kotlin/String? = ..., kotlin/String = ...) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.<init>|<init>(kotlin.String?;kotlin.String?;kotlin.String){}[0]
+
+    final val directoryName // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.directoryName|{}directoryName[0]
+        final fun <get-directoryName>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.directoryName.<get-directoryName>|<get-directoryName>(){}[0]
+    final val directoryPath // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.directoryPath|{}directoryPath[0]
+        final fun <get-directoryPath>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.directoryPath.<get-directoryPath>|<get-directoryPath>(){}[0]
+    final val fileNamePrefix // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.fileNamePrefix|{}fileNamePrefix[0]
+        final fun <get-fileNamePrefix>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.fileNamePrefix.<get-fileNamePrefix>|<get-fileNamePrefix>(){}[0]
+
+    final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.component1|component1(){}[0]
+    final fun component2(): kotlin/String? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.component2|component2(){}[0]
+    final fun component3(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.component3|component3(){}[0]
+    final fun copy(kotlin/String? = ..., kotlin/String? = ..., kotlin/String = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.copy|copy(kotlin.String?;kotlin.String?;kotlin.String){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.Companion|null[0]
+        final const val DEFAULT_FILE_NAME_PREFIX // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.Companion.DEFAULT_FILE_NAME_PREFIX|{}DEFAULT_FILE_NAME_PREFIX[0]
+            final fun <get-DEFAULT_FILE_NAME_PREFIX>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage.Companion.DEFAULT_FILE_NAME_PREFIX.<get-DEFAULT_FILE_NAME_PREFIX>|<get-DEFAULT_FILE_NAME_PREFIX>(){}[0]
+    }
+}
+
+final val io.github.jamal_wia.kmptoolkit.audio.recorder/isActive // io.github.jamal_wia.kmptoolkit.audio.recorder/isActive|@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState{}isActive[0]
+    final fun (io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState).<get-isActive>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/isActive.<get-isActive>|<get-isActive>@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.audio.recorder/isRecording // io.github.jamal_wia.kmptoolkit.audio.recorder/isRecording|@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState{}isRecording[0]
+    final fun (io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState).<get-isRecording>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/isRecording.<get-isRecording>|<get-isRecording>@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.audio.recorder/isSuccess // io.github.jamal_wia.kmptoolkit.audio.recorder/isSuccess|@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult<*>{}isSuccess[0]
+    final fun (io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<*>).<get-isSuccess>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/isSuccess.<get-isSuccess>|<get-isSuccess>@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult<*>(){}[0]
+final val io.github.jamal_wia.kmptoolkit.audio.recorder/outputPath // io.github.jamal_wia.kmptoolkit.audio.recorder/outputPath|@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState{}outputPath[0]
+    final fun (io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState).<get-outputPath>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.audio.recorder/outputPath.<get-outputPath>|<get-outputPath>@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState(){}[0]
+
+final fun <#A: kotlin/Any?> (io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<#A>).io.github.jamal_wia.kmptoolkit.audio.recorder/errorOrNull(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError? // io.github.jamal_wia.kmptoolkit.audio.recorder/errorOrNull|errorOrNull@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult<0:0>(){0§<kotlin.Any?>}[0]
+final fun <#A: kotlin/Any?> (io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<#A>).io.github.jamal_wia.kmptoolkit.audio.recorder/getOrNull(): #A? // io.github.jamal_wia.kmptoolkit.audio.recorder/getOrNull|getOrNull@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult<0:0>(){0§<kotlin.Any?>}[0]
+final fun io.github.jamal_wia.kmptoolkit.audio.recorder/createAudioRecorder(io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder // io.github.jamal_wia.kmptoolkit.audio.recorder/createAudioRecorder|createAudioRecorder(io.github.jamal_wia.kmptoolkit.audio.recorder.AudioRecorderConfig){}[0]

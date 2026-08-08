@@ -1,0 +1,45 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-audio-recorder-testing>
+final class io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder : io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder { // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig = ..., kotlin/String = ...) // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.AudioRecorderConfig;kotlin.String){}[0]
+
+    final val completedRecordings // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.completedRecordings|{}completedRecordings[0]
+        final fun <get-completedRecordings>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.completedRecordings.<get-completedRecordings>|<get-completedRecordings>(){}[0]
+    final val deletedPaths // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.deletedPaths|{}deletedPaths[0]
+        final fun <get-deletedPaths>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.deletedPaths.<get-deletedPaths>|<get-deletedPaths>(){}[0]
+    final val elapsed // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.elapsed|{}elapsed[0]
+        final fun <get-elapsed>(): kotlinx.coroutines.flow/StateFlow<kotlin.time/Duration> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.elapsed.<get-elapsed>|<get-elapsed>(){}[0]
+    final val preparedPaths // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.preparedPaths|{}preparedPaths[0]
+        final fun <get-preparedPaths>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.preparedPaths.<get-preparedPaths>|<get-preparedPaths>(){}[0]
+    final val state // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.state|{}state[0]
+        final fun <get-state>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.state.<get-state>|<get-state>(){}[0]
+
+    final var failNextOperationWith // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.failNextOperationWith|{}failNextOperationWith[0]
+        final fun <get-failNextOperationWith>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError? // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.failNextOperationWith.<get-failNextOperationWith>|<get-failNextOperationWith>(){}[0]
+        final fun <set-failNextOperationWith>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError?) // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.failNextOperationWith.<set-failNextOperationWith>|<set-failNextOperationWith>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderError?){}[0]
+    final var permissionGranted // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.permissionGranted|{}permissionGranted[0]
+        final fun <get-permissionGranted>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.permissionGranted.<get-permissionGranted>|<get-permissionGranted>(){}[0]
+        final fun <set-permissionGranted>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.permissionGranted.<set-permissionGranted>|<set-permissionGranted>(kotlin.Boolean){}[0]
+    final var releaseCount // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.releaseCount|{}releaseCount[0]
+        final fun <get-releaseCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.releaseCount.<get-releaseCount>|<get-releaseCount>(){}[0]
+
+    final fun advanceElapsed(kotlin.time/Duration) // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.advanceElapsed|advanceElapsed(kotlin.time.Duration){}[0]
+    final fun cancel(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.cancel|cancel(){}[0]
+    final fun pause(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.pause|pause(){}[0]
+    final fun release() // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.release|release(){}[0]
+    final fun resume(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.resume|resume(){}[0]
+    final fun start(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.start|start(){}[0]
+    final fun stop(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.stop|stop(){}[0]
+    final suspend fun prepare(kotlin/String?): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/String> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.prepare|prepare(kotlin.String?){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.Companion|null[0]
+        final const val DEFAULT_FAKE_DIRECTORY // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.Companion.DEFAULT_FAKE_DIRECTORY|{}DEFAULT_FAKE_DIRECTORY[0]
+            final fun <get-DEFAULT_FAKE_DIRECTORY>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.Companion.DEFAULT_FAKE_DIRECTORY.<get-DEFAULT_FAKE_DIRECTORY>|<get-DEFAULT_FAKE_DIRECTORY>(){}[0]
+    }
+}
