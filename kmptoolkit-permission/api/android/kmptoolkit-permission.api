@@ -1,0 +1,137 @@
+public final class io/github/jamal_wia/kmptoolkit/permission/Permission : java/lang/Enum {
+	public static final field CAMERA Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+	public static final field MICROPHONE Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+	public static final field NOTIFICATIONS Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionConfig {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/permission/PermissionConfig;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/permission/PermissionConfig;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/PermissionConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKeyPrefix ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$AwaitingRationale : io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$AwaitingRationale;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$AwaitingSettings : io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$AwaitingSettings;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$Denied : io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$Denied;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$Granted : io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$Granted;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$Idle : io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$Idle;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$Requesting : io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/PermissionFlowState$Requesting;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/permission/PermissionHandler {
+	public abstract fun check (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun openAppSettings ()Z
+	public abstract fun request (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionHandler_androidKt {
+	public static final fun createPermissionHandler (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost;Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Lio/github/jamal_wia/kmptoolkit/permission/PermissionConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;
+	public static synthetic fun createPermissionHandler$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost;Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Lio/github/jamal_wia/kmptoolkit/permission/PermissionConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionRequestFlow {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;)V
+	public final fun getPermission ()Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun openSettings ()Z
+	public final fun rationaleAcknowledged (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun rationaleDismissed ()Lio/github/jamal_wia/kmptoolkit/permission/PermissionFlowState;
+	public final fun refresh (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun reset ()Lio/github/jamal_wia/kmptoolkit/permission/PermissionFlowState;
+	public final fun settingsDeclined ()Lio/github/jamal_wia/kmptoolkit/permission/PermissionFlowState;
+	public final fun start (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost {
+	public abstract fun launch (Ljava/lang/String;Lkotlin/jvm/functions/Function1;)Z
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/permission/PermissionStatus {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionStatus$Denied : io/github/jamal_wia/kmptoolkit/permission/PermissionStatus {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun copy (Z)Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus$Denied;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus$Denied;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus$Denied;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getShouldShowRationale ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionStatus$Granted : io/github/jamal_wia/kmptoolkit/permission/PermissionStatus {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus$Granted;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionStatus$NotDetermined : io/github/jamal_wia/kmptoolkit/permission/PermissionStatus {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus$NotDetermined;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionStatus$PermanentlyDenied : io/github/jamal_wia/kmptoolkit/permission/PermissionStatus {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus$PermanentlyDenied;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionStatusKt {
+	public static final fun getCanPrompt (Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)Z
+	public static final fun isGranted (Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)Z
+}
+
