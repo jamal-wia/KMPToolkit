@@ -29,6 +29,8 @@ rootProject.name = "KMPToolkit"
 // see /Users/admin/.claude/plans/valiant-wobbling-dahl.md, phases 1-3.
 include(":kmptoolkit-coroutines")
 include(":kmptoolkit-coroutines-testing")
+include(":kmptoolkit-audio-player")
+include(":kmptoolkit-audio-player-testing")
 
 // Not published — Android Compose demo, smoke-tests published artifacts from mavenLocal.
 include(":sample")

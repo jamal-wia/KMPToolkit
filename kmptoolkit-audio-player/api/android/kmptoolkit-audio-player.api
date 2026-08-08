@@ -1,0 +1,204 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer : java/lang/AutoCloseable {
+	public fun close ()V
+	public abstract fun getPlaybackPositionFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getPlaybackSpeed ()F
+	public abstract fun getStateFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun pause ()V
+	public abstract fun play ()V
+	public abstract fun prepare (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun release ()V
+	public abstract fun replay ()V
+	public abstract fun seekBackward (J)V
+	public static synthetic fun seekBackward$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;JILjava/lang/Object;)V
+	public abstract fun seekForward (J)V
+	public static synthetic fun seekForward$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;JILjava/lang/Object;)V
+	public abstract fun seekTo (J)V
+	public abstract fun setPlaybackSpeed (F)V
+	public abstract fun stop ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer$DefaultImpls {
+	public static fun close (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;)V
+	public static synthetic fun seekBackward$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;JILjava/lang/Object;)V
+	public static synthetic fun seekForward$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;JILjava/lang/Object;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig$Companion;
+	public static final field DEFAULT_MAX_PLAYBACK_SPEED F
+	public static final field DEFAULT_MIN_PLAYBACK_SPEED F
+	public static final field DEFAULT_POSITION_UPDATE_INTERVAL_MS J
+	public fun <init> ()V
+	public fun <init> (JFF)V
+	public synthetic fun <init> (JFFILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()F
+	public final fun component3 ()F
+	public final fun copy (JFF)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig;JFFILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxPlaybackSpeed ()F
+	public final fun getMinPlaybackSpeed ()F
+	public final fun getPositionUpdateIntervalMs ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig$Companion {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerFactory_androidKt {
+	public static final fun createAudioPlayer (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig;Lkotlin/coroutines/CoroutineContext;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;
+	public static synthetic fun createAudioPlayer$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig;Lkotlin/coroutines/CoroutineContext;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerKt {
+	public static final field DEFAULT_SEEK_AMOUNT_MS J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerReleasedException : java/lang/IllegalStateException {
+	public fun <init> ()V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/player/AudioSource {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioSource$Asset : io/github/jamal_wia/kmptoolkit/audio/player/AudioSource {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource$Asset;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource$Asset;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource$Asset;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioSource$File : io/github/jamal_wia/kmptoolkit/audio/player/AudioSource {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource$File;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource$File;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource$File;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioSource$Remote : io/github/jamal_wia/kmptoolkit/audio/player/AudioSource {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource$Remote;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource$Remote;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource$Remote;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/EngineAudioPlayerKt {
+	public static final fun createAudioPlayer (Lio/github/jamal_wia/kmptoolkit/audio/player/PlaybackEngine;Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig;Lkotlin/coroutines/CoroutineContext;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;
+	public static synthetic fun createAudioPlayer$default (Lio/github/jamal_wia/kmptoolkit/audio/player/PlaybackEngine;Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig;Lkotlin/coroutines/CoroutineContext;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/player/PlaybackEngine {
+	public abstract fun durationMs ()J
+	public abstract fun load (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun pause ()V
+	public abstract fun positionMs ()J
+	public abstract fun release ()V
+	public abstract fun seekTo (J)V
+	public abstract fun setListener (Lio/github/jamal_wia/kmptoolkit/audio/player/PlaybackEngineListener;)V
+	public abstract fun setSpeed (F)V
+	public abstract fun start ()V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/player/PlaybackEngineListener {
+	public abstract fun onCompleted ()V
+	public abstract fun onFailed (Ljava/lang/Throwable;)V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/player/PlayerState {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Completed : io/github/jamal_wia/kmptoolkit/audio/player/PlayerState {
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Completed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Completed;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Completed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDuration ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Error : io/github/jamal_wia/kmptoolkit/audio/player/PlayerState {
+	public fun <init> (Ljava/lang/Throwable;)V
+	public final fun component1 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Error;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Error;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Error;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Idle : io/github/jamal_wia/kmptoolkit/audio/player/PlayerState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Idle;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Paused : io/github/jamal_wia/kmptoolkit/audio/player/PlayerState {
+	public fun <init> (JJ)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun copy (JJ)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Paused;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Paused;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Paused;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentPosition ()J
+	public final fun getDuration ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Playing : io/github/jamal_wia/kmptoolkit/audio/player/PlayerState {
+	public fun <init> (JJ)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun copy (JJ)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Playing;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Playing;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Playing;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentPosition ()J
+	public final fun getDuration ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Preparing : io/github/jamal_wia/kmptoolkit/audio/player/PlayerState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Preparing;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Ready : io/github/jamal_wia/kmptoolkit/audio/player/PlayerState {
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Ready;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Ready;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState$Ready;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDuration ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/player/PlayerStateKt {
+	public static final fun getDuration (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState;)Ljava/lang/Long;
+	public static final fun getPlaybackPosition (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState;)Ljava/lang/Long;
+	public static final fun getProgress (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState;)F
+	public static final fun isPlayable (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState;)Z
+	public static final fun isPlaying (Lio/github/jamal_wia/kmptoolkit/audio/player/PlayerState;)Z
+}
+

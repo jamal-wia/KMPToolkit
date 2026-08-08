@@ -1,0 +1,31 @@
+public final class io/github/jamal_wia/kmptoolkit/audio/player/testing/FakePlaybackEngine : io/github/jamal_wia/kmptoolkit/audio/player/PlaybackEngine {
+	public fun <init> ()V
+	public fun <init> (J)V
+	public synthetic fun <init> (JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun advancePositionBy (J)V
+	public final fun advancePositionTo (J)V
+	public final fun completePlayback ()V
+	public fun durationMs ()J
+	public final fun failPlayback (Ljava/lang/Throwable;)V
+	public final fun getAppliedSpeed ()F
+	public final fun getDurationMs ()J
+	public final fun getHasListener ()Z
+	public final fun getLoadDelayMs ()J
+	public final fun getLoadFailure ()Ljava/lang/Throwable;
+	public final fun getLoadedSources ()Ljava/util/List;
+	public final fun getPositionMs ()J
+	public final fun getReleaseCount ()I
+	public final fun isPlaying ()Z
+	public fun load (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioSource;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun pause ()V
+	public fun positionMs ()J
+	public fun release ()V
+	public fun seekTo (J)V
+	public final fun setDurationMs (J)V
+	public fun setListener (Lio/github/jamal_wia/kmptoolkit/audio/player/PlaybackEngineListener;)V
+	public final fun setLoadDelayMs (J)V
+	public final fun setLoadFailure (Ljava/lang/Throwable;)V
+	public fun setSpeed (F)V
+	public fun start ()V
+}
+
