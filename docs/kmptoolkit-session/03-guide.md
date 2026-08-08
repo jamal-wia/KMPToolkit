@@ -50,6 +50,25 @@ default) is abandoned and recorded. Neither stops the other cleaners, and neithe
 from ending. You never need a `try`/`catch` inside a cleaner for the sake of the teardown — only for
 your own recovery.
 
+*Abandoned* is meant literally. The step runs on a scope that outlives it, and the timeout is
+applied to **waiting for it**, not to the step itself. That distinction is the difference between a
+bound and a suggestion: `withTimeoutOrNull { cleaner.clean() }` cancels the block and then *awaits*
+it, so a cleaner that never checks for cancellation — blocking I/O, a JNI call, a tight CPU loop,
+its own `NonCancellable` — would still be awaited in full, with the manager's lock held, wedging
+every later sign-out. Instead, the overrunning cleaner is cancelled, left to finish on its own, and
+forgotten; the teardown moves on at the timeout.
+
+### It must not call the manager that is running it
+
+`endSession()` and `startSession()` throw `SessionReentrancyException` when called from inside a
+cleaner or revoker of the same manager. They would otherwise wait forever for a lock the cleaner's
+own call chain is holding, and the timeout cannot help — the nested call *is* the thing that hangs.
+
+A cleaner cleans; deciding to start or end a session is the app's job, from outside teardown.
+Detection follows the coroutine context, so it catches the case that actually happens — a direct
+call. A cleaner that hands the call to an unrelated scope escapes the check and deadlocks for real,
+so do not do that either. Calling a *different* manager is fine and is not reentrancy.
+
 ## Failure semantics, in one place
 
 | What happens | Effect on other cleaners | Effect on the session | What you get back |
@@ -59,7 +78,8 @@ your own recovery.
 | A cleaner overruns its timeout | none | none | `cleanerFailures` entry with `SessionTeardownTimeoutException` |
 | *Every* cleaner throws | — | none — it still ends | one entry per cleaner, in registration order |
 | The revoker throws or hangs | none — they run afterwards regardless | none | `revokeFailure` |
-| The calling coroutine is cancelled | none — teardown is uncancellable | none | the teardown finishes; a cancelled caller may not observe the report — read it from a later `endSession()` |
+| The calling coroutine is cancelled | none — teardown is uncancellable | none | the teardown finishes and the cancelled caller still receives the report |
+| A cleaner calls back into this manager | none | none | `cleanerFailures` entry with `SessionReentrancyException` |
 
 The single rule behind that table: **a teardown that aborts halfway is worse than either outcome.**
 An app with three of five features wiped is in a state nobody designed, tested, or can reason

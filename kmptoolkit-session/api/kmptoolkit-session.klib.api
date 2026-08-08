@@ -75,6 +75,13 @@ final class io.github.jamal_wia.kmptoolkit.session/SessionEndReport { // io.gith
     }
 }
 
+final class io.github.jamal_wia.kmptoolkit.session/SessionReentrancyException : kotlin/IllegalStateException { // io.github.jamal_wia.kmptoolkit.session/SessionReentrancyException|null[0]
+    constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.session/SessionReentrancyException.<init>|<init>(kotlin.String){}[0]
+
+    final val operation // io.github.jamal_wia.kmptoolkit.session/SessionReentrancyException.operation|{}operation[0]
+        final fun <get-operation>(): kotlin/String // io.github.jamal_wia.kmptoolkit.session/SessionReentrancyException.operation.<get-operation>|<get-operation>(){}[0]
+}
+
 final class io.github.jamal_wia.kmptoolkit.session/SessionTeardownTimeoutException : kotlin/RuntimeException { // io.github.jamal_wia.kmptoolkit.session/SessionTeardownTimeoutException|null[0]
     constructor <init>(kotlin/String, kotlin.time/Duration) // io.github.jamal_wia.kmptoolkit.session/SessionTeardownTimeoutException.<init>|<init>(kotlin.String;kotlin.time.Duration){}[0]
 

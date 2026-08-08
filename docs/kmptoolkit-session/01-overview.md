@@ -41,6 +41,10 @@ These are the properties the module exists to provide; each one is spelled out i
   is worse than either finishing or never starting.
 - **Failures are reported, never swallowed.** `endSession()` returns a `SessionEndReport` naming
   every cleaner that threw or overran its timeout, plus the revoker's failure if there was one.
+- **No participant can hold sign-out hostage.** Each step is *abandoned* at its timeout rather than
+  awaited, so even a cleaner that ignores cancellation delays sign-out by a bounded amount and
+  cannot wedge a later one. A cleaner that calls back into the manager is refused with a named
+  exception instead of deadlocking on its lock.
 - **Exactly once per session.** Concurrent callers do not each trigger a teardown; the first runs
   it and the rest receive the same report.
 - **Offline sign-out works.** Server revocation is optional, bounded, and allowed to fail — it can

@@ -4,8 +4,12 @@ import io.github.jamal_wia.kmptoolkit.coroutines.AppDispatchers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlin.time.Duration
 
 /**
  * Local doubles for this module's own tests. They deliberately do not come from
@@ -80,15 +84,37 @@ internal class StepRecorder {
  * A cleaner whose call count survives genuine multi-threaded contention — [FakeCleaner]'s plain
  * counter can lose an increment, which would make a parallelism test pass for the wrong reason.
  */
-internal class ThreadSafeCountingCleaner(override val name: String = "counting") : SessionCleaner {
+internal class ThreadSafeCountingCleaner(
+    override val name: String = "counting",
+    private val thenThrow: (() -> Unit)? = null,
+) : SessionCleaner {
     private val mutex = Mutex()
     private var count: Int = 0
 
     override suspend fun clean() {
         mutex.withLock { count++ }
+        thenThrow?.invoke()
     }
 
     suspend fun cleanCalls(): Int = mutex.withLock { count }
+}
+
+/**
+ * A cleaner that ignores cancellation for [duration] — blocking I/O, a JNI call or a tight CPU loop
+ * modelled in the one way common Kotlin can express it.
+ *
+ * This is the shape that breaks a naive timeout: `withTimeoutOrNull { block() }` cancels the block
+ * and then *awaits* it, so a step like this one is still awaited in full, with the manager's lock
+ * held, however small the timeout was.
+ */
+internal class NonCooperativeCleaner(
+    override val name: String = "non-cooperative",
+    private val duration: Duration,
+) : SessionCleaner {
+
+    override suspend fun clean() {
+        withContext(NonCancellable) { delay(duration) }
+    }
 }
 
 /**

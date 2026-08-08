@@ -53,6 +53,9 @@ public interface SessionManager {
      * teardown is still running would otherwise be silently undone when that teardown finishes.
      * Called during an in-flight teardown, it waits for that teardown to complete and then opens
      * the new session.
+     *
+     * **Not reentrant.** Calling it from inside a [SessionCleaner] or [SessionRevoker] of this same
+     * manager throws [SessionReentrancyException] rather than deadlocking.
      */
     public suspend fun startSession()
 
@@ -65,18 +68,25 @@ public interface SessionManager {
      * exception-isolated, so no single failure can abort the rest — the session always ends, and
      * every failure is recorded in the returned [SessionEndReport].
      *
-     * **Runs at most once per session.** Concurrent callers do not each trigger a teardown: the
-     * first one runs it, the rest suspend until it completes and receive the same report. Called
-     * when no session is open it does nothing and returns [SessionEndReport.Empty] — the cleaners
-     * do not run.
+     * **No step can hold the session open.** Each is abandoned at its timeout rather than awaited,
+     * so even a cleaner that ignores cancellation — blocking I/O, a JNI call, its own
+     * `NonCancellable` — delays sign-out by at most that bound and cannot wedge a later one.
+     *
+     * **Runs at most once per session,** and the two "nothing to do" cases are told apart:
+     * - Called **concurrently** with a teardown already in flight, it does not start a second one:
+     *   it suspends until that teardown finishes and returns *its* report.
+     * - Called on a session that was **already closed** when the call arrived, it does nothing,
+     *   runs no cleaner, and returns [SessionEndReport.Empty] — not the previous teardown's report,
+     *   which would attribute failures that did not happen on this call.
      *
      * **Uncancellable once started.** A half-finished teardown leaves the app in a worse state than
      * either finishing or not starting, and the caller is typically a screen scope that the logout
      * navigation itself is about to destroy. Cancelling the calling coroutine therefore does not
-     * stop the teardown: every cleaner still runs to completion and the session still ends. What a
-     * cancelled caller cannot count on is *observing* the returned report — it is a cancelled
-     * coroutine, and structured concurrency still applies to it. Read the report from a caller you
-     * did not cancel, or from a later `endSession()` call, which returns the same one.
+     * stop the teardown: every cleaner still runs to completion, the session still ends, and the
+     * cancelled caller still receives the report.
+     *
+     * **Not reentrant.** Calling it from inside a [SessionCleaner] or [SessionRevoker] of this same
+     * manager throws [SessionReentrancyException] rather than deadlocking.
      */
     public suspend fun endSession(): SessionEndReport
 }

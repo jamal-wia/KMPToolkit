@@ -19,8 +19,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.measureTime
 
 class SessionManagerTest {
 
@@ -28,11 +32,12 @@ class SessionManagerTest {
         cleaners: List<SessionCleaner> = emptyList(),
         revoker: SessionRevoker? = null,
         dispatchers: AppDispatchers = TestAppDispatchers(testScheduler),
+        cleanerTimeout: Duration = 5.seconds,
     ): SessionManager = createSessionManager(
         cleaners = cleaners,
         revoker = revoker,
         dispatchers = dispatchers,
-        cleanerTimeout = 5.seconds,
+        cleanerTimeout = cleanerTimeout,
         revokeTimeout = 10.seconds,
     )
 
@@ -54,12 +59,31 @@ class SessionManagerTest {
 
     @Test
     fun `endSession closes the session`() = runTest {
-        val manager: SessionManager = manager()
+        val cleaner = FakeCleaner()
+        val manager: SessionManager = manager(cleaners = listOf(cleaner))
         manager.startSession()
+        // INACTIVE is also the initial state, so asserting it alone would hold even if both methods
+        // did nothing. Pin the transition and the work it did.
+        assertEquals(SessionState.ACTIVE, manager.state.value)
 
         manager.endSession()
 
         assertEquals(SessionState.INACTIVE, manager.state.value)
+        assertEquals(1, cleaner.cleanCalls)
+    }
+
+    @Test
+    fun `startSession twice leaves one open session that one endSession closes`() = runTest {
+        val cleaner = FakeCleaner()
+        val manager: SessionManager = manager(cleaners = listOf(cleaner))
+
+        manager.startSession()
+        manager.startSession()
+
+        assertEquals(SessionState.ACTIVE, manager.state.value)
+        manager.endSession()
+        assertEquals(SessionState.INACTIVE, manager.state.value)
+        assertEquals(1, cleaner.cleanCalls)
     }
 
     @Test
@@ -121,6 +145,22 @@ class SessionManagerTest {
         val report: SessionEndReport = manager.endSession()
 
         assertEquals(emptyList(), report.cleanerFailures)
+    }
+
+    @Test
+    fun `two cleaners sharing a name produce two failures under that name`() = runTest {
+        val manager: SessionManager = manager(
+            cleaners = listOf(
+                FakeCleaner(name = "dup", onClean = { throw IllegalStateException("first") }),
+                FakeCleaner(name = "dup", onClean = { throw IllegalStateException("second") }),
+            ),
+        )
+        manager.startSession()
+
+        val report: SessionEndReport = manager.endSession()
+
+        assertEquals(listOf("dup", "dup"), report.cleanerFailures.map { it.name })
+        assertEquals(listOf("first", "second"), report.cleanerFailures.map { it.cause.message })
     }
 
     @Test
@@ -230,6 +270,132 @@ class SessionManagerTest {
         assertEquals(5.seconds, timeout.timeout)
     }
 
+    @Test
+    fun `a cleaner that ignores cancellation is abandoned at the timeout rather than awaited`() = runTest {
+        // The failure this pins: withTimeoutOrNull cancels its block and then awaits it, so a step
+        // that does not check for cancellation is awaited in full — with the manager's lock held
+        // and uncancellable. Real dispatchers and real time, because the point is wall-clock cost.
+        val manager: SessionManager = manager(
+            cleaners = listOf(NonCooperativeCleaner(name = "stuck", duration = NON_COOPERATIVE_WORK)),
+            dispatchers = ParallelAppDispatchers(),
+            cleanerTimeout = SHORT_TIMEOUT,
+        )
+        manager.startSession()
+
+        val elapsed: Duration = withContext(Dispatchers.Default) {
+            measureTime { manager.endSession() }
+        }
+
+        assertTrue(
+            elapsed < NON_COOPERATIVE_WORK / 2,
+            "endSession waited $elapsed for a cleaner it should have abandoned after $SHORT_TIMEOUT",
+        )
+        // Lower bound as well: without it the test would also pass on a clock that is not running,
+        // which is the failure mode of measuring wall time from inside runTest.
+        assertTrue(
+            elapsed >= SHORT_TIMEOUT,
+            "endSession returned in $elapsed, faster than the $SHORT_TIMEOUT bound it was supposed to wait",
+        )
+        assertEquals(SessionState.INACTIVE, manager.state.value)
+    }
+
+    @Test
+    fun `an abandoned cleaner does not wedge later calls`() = runTest {
+        val healthy = FakeCleaner(name = "healthy")
+        val manager: SessionManager = manager(
+            cleaners = listOf(
+                NonCooperativeCleaner(name = "stuck", duration = NON_COOPERATIVE_WORK),
+                healthy,
+            ),
+            dispatchers = ParallelAppDispatchers(),
+            cleanerTimeout = SHORT_TIMEOUT,
+        )
+
+        val elapsed: Duration = withContext(Dispatchers.Default) {
+            measureTime {
+                manager.startSession()
+                manager.endSession()
+                // The lock must be free again the moment the timeout elapsed — not once the
+                // abandoned cleaner finally finishes.
+                manager.startSession()
+                manager.endSession()
+            }
+        }
+
+        assertTrue(
+            elapsed < NON_COOPERATIVE_WORK,
+            "two sign-outs took ${elapsed}; an abandoned cleaner is still being awaited",
+        )
+        assertEquals(2, healthy.cleanCalls)
+        assertEquals(SessionState.INACTIVE, manager.state.value)
+    }
+
+    // --- Reentrancy ----------------------------------------------------------------------------
+
+    @Test
+    fun `a cleaner that calls endSession is refused instead of deadlocking`() = runTest {
+        lateinit var manager: SessionManager
+        val healthy = FakeCleaner(name = "healthy")
+        manager = manager(
+            cleaners = listOf(FakeCleaner(name = "reentrant", onClean = { manager.endSession() }), healthy),
+        )
+        manager.startSession()
+
+        val report: SessionEndReport = manager.endSession()
+
+        assertEquals(1, healthy.cleanCalls)
+        assertEquals(SessionState.INACTIVE, manager.state.value)
+        val failure: SessionCleanerFailure = report.cleanerFailures.single()
+        assertEquals("reentrant", failure.name)
+        assertEquals("endSession", assertIs<SessionReentrancyException>(failure.cause).operation)
+    }
+
+    @Test
+    fun `a cleaner that calls startSession is refused instead of deadlocking`() = runTest {
+        lateinit var manager: SessionManager
+        manager = manager(
+            cleaners = listOf(FakeCleaner(name = "reentrant", onClean = { manager.startSession() })),
+        )
+        manager.startSession()
+
+        val report: SessionEndReport = manager.endSession()
+
+        assertEquals(SessionState.INACTIVE, manager.state.value)
+        assertEquals("startSession", assertIs<SessionReentrancyException>(report.cleanerFailures.single().cause).operation)
+    }
+
+    @Test
+    fun `a revoker that calls endSession is refused instead of deadlocking`() = runTest {
+        lateinit var manager: SessionManager
+        val cleaner = FakeCleaner()
+        manager = manager(cleaners = listOf(cleaner), revoker = { manager.endSession() })
+        manager.startSession()
+
+        val report: SessionEndReport = manager.endSession()
+
+        assertEquals(1, cleaner.cleanCalls)
+        assertEquals("endSession", assertIs<SessionReentrancyException>(report.revokeFailure).operation)
+    }
+
+    @Test
+    fun `a cleaner may end a different manager's session`() = runTest {
+        // The marker carries manager identity, not a bare flag: two managers in one process are
+        // legal and only a call back into the *same* one is reentrancy.
+        val otherCleaner = FakeCleaner(name = "other")
+        val other: SessionManager = manager(cleaners = listOf(otherCleaner))
+        other.startSession()
+        val manager: SessionManager = manager(
+            cleaners = listOf(FakeCleaner(name = "cascading", onClean = { other.endSession() })),
+        )
+        manager.startSession()
+
+        val report: SessionEndReport = manager.endSession()
+
+        assertTrue(report.isClean)
+        assertEquals(1, otherCleaner.cleanCalls)
+        assertEquals(SessionState.INACTIVE, other.state.value)
+    }
+
     // --- Revoker -------------------------------------------------------------------------------
 
     @Test
@@ -255,10 +421,32 @@ class SessionManagerTest {
 
     @Test
     fun `no revoker means no revoke failure`() = runTest {
-        val manager: SessionManager = manager(cleaners = listOf(FakeCleaner()))
+        val cleaner = FakeCleaner()
+        val manager: SessionManager = manager(cleaners = listOf(cleaner))
         manager.startSession()
 
-        assertNull(manager.endSession().revokeFailure)
+        val report: SessionEndReport = manager.endSession()
+
+        assertNull(report.revokeFailure)
+        assertTrue(report.isClean)
+        assertEquals(1, cleaner.cleanCalls)
+    }
+
+    @Test
+    fun `a revoker that throws an Error is recorded and the cleaners still run`() = runTest {
+        val cleaner = FakeCleaner()
+        val manager: SessionManager = manager(
+            cleaners = listOf(cleaner),
+            revoker = { throw Error("revoker exploded") },
+        )
+        manager.startSession()
+
+        val report: SessionEndReport = manager.endSession()
+
+        assertEquals(1, cleaner.cleanCalls)
+        assertEquals(SessionState.INACTIVE, manager.state.value)
+        assertEquals("revoker exploded", assertIs<Error>(report.revokeFailure).message)
+        assertEquals(emptyList(), report.cleanerFailures)
     }
 
     @Test
@@ -308,7 +496,7 @@ class SessionManagerTest {
 
     @Test
     fun `a second sequential endSession tears nothing down again`() = runTest {
-        val cleaner = FakeCleaner()
+        val cleaner = FakeCleaner(name = "broken", onClean = { throw IllegalStateException("boom") })
         val manager: SessionManager = manager(cleaners = listOf(cleaner))
         manager.startSession()
 
@@ -316,24 +504,50 @@ class SessionManagerTest {
         val second: SessionEndReport = manager.endSession()
 
         assertEquals(1, cleaner.cleanCalls)
-        assertEquals(first, second)
+        assertEquals(listOf("broken"), first.cleanerFailures.map { it.name })
+        assertEquals(SessionEndReport.Empty, second)
     }
 
     @Test
-    fun `a later endSession reports the failures of the teardown that actually ran`() = runTest {
+    fun `a later endSession on a closed session does not replay the previous teardown's failures`() = runTest {
         val manager: SessionManager = manager(
             cleaners = listOf(FakeCleaner(name = "broken", onClean = { throw IllegalStateException("boom") })),
         )
         manager.startSession()
         manager.endSession()
 
+        // This caller arrived after the session was already closed. Handing it the earlier
+        // teardown's failures would report failures that did not happen on its call.
         val report: SessionEndReport = manager.endSession()
 
-        assertEquals(listOf("broken"), report.cleanerFailures.map { it.name })
+        assertEquals(SessionEndReport.Empty, report)
+        assertTrue(report.isClean)
     }
 
     @Test
-    fun `two concurrent endSession calls tear down once and both receive the same report`() = runTest {
+    fun `a caller that loses the race to an in-flight teardown receives that teardown's report`() = runTest {
+        val gate = Gate(name = "broken", thenThrow = { throw IllegalStateException("boom") })
+        val manager: SessionManager = manager(cleaners = listOf(gate.cleaner()))
+        manager.startSession()
+
+        val winner: Deferred<SessionEndReport> = async { manager.endSession() }
+        gate.awaitTeardownInFlight()
+        // Queued behind a teardown that is genuinely in flight — not a later call on a closed
+        // session, which is the case that gets Empty.
+        val loser: Deferred<SessionEndReport> = async { manager.endSession() }
+        runCurrent()
+        gate.release()
+
+        val winnerReport: SessionEndReport = winner.await()
+        val loserReport: SessionEndReport = loser.await()
+
+        assertEquals(1, gate.cleanCalls)
+        assertEquals(listOf("broken"), winnerReport.cleanerFailures.map { it.name })
+        assertEquals(winnerReport, loserReport)
+    }
+
+    @Test
+    fun `two endSession calls launched together still tear down once`() = runTest {
         val cleaner = FakeCleaner(name = "broken", onClean = { throw IllegalStateException("boom") })
         val manager: SessionManager = manager(cleaners = listOf(cleaner))
         manager.startSession()
@@ -343,14 +557,23 @@ class SessionManagerTest {
             async { manager.endSession() },
         ).awaitAll()
 
+        // Launched together, but `runTest`'s StandardTestDispatcher runs them one after another, so
+        // the second arrives at a session that is already closed and is owed Empty — not the first
+        // one's failures. Genuine overlap is covered by the gated test above and by the
+        // real-parallelism test below.
         assertEquals(1, cleaner.cleanCalls)
-        assertEquals(reports[0], reports[1])
         assertEquals(listOf("broken"), reports[0].cleanerFailures.map { it.name })
+        assertEquals(SessionEndReport.Empty, reports[1])
     }
 
     @Test
     fun `many genuinely parallel endSession calls tear down once`() = runTest {
-        val cleaner = ThreadSafeCountingCleaner()
+        // The cleaner fails on purpose: with a clean cleaner every report equals Empty, so the test
+        // could not tell a shared report from a freshly built empty one.
+        val cleaner = ThreadSafeCountingCleaner(
+            name = "broken",
+            thenThrow = { throw IllegalStateException("boom") },
+        )
         val manager: SessionManager = manager(
             cleaners = listOf(cleaner),
             dispatchers = ParallelAppDispatchers(),
@@ -359,7 +582,7 @@ class SessionManagerTest {
 
         // Real threads, not a test dispatcher's interleaving: the guard has to hold under actual
         // parallel entry into endSession.
-        withContext(Dispatchers.Default) {
+        val reports: List<SessionEndReport> = withContext(Dispatchers.Default) {
             coroutineScope {
                 val racers: List<Deferred<SessionEndReport>> = List(PARALLEL_CALLERS) {
                     async { manager.endSession() }
@@ -370,6 +593,43 @@ class SessionManagerTest {
 
         assertEquals(1, cleaner.cleanCalls())
         assertEquals(SessionState.INACTIVE, manager.state.value)
+
+        // Which callers raced the teardown and which arrived after it is genuinely nondeterministic
+        // with real threads, and the two are owed different answers. What must hold for every
+        // caller: it got either the one real report — identical for all of them, and not clean —
+        // or Empty, and never some third thing.
+        val distinct: List<SessionEndReport> = reports.distinct()
+        assertTrue(distinct.size <= 2, "callers saw $distinct")
+        val real: List<SessionEndReport> = distinct.filterNot { it == SessionEndReport.Empty }
+        assertEquals(1, real.size, "expected exactly one real report, saw $real")
+        assertEquals(listOf("broken"), real.single().cleanerFailures.map { it.name })
+        assertTrue(reports.contains(real.single()))
+    }
+
+    @Test
+    fun `parallel startSession and endSession calls neither wedge nor corrupt the manager`() = runTest {
+        val cleaner = ThreadSafeCountingCleaner()
+        val manager: SessionManager = manager(
+            cleaners = listOf(cleaner),
+            dispatchers = ParallelAppDispatchers(),
+        )
+        manager.startSession()
+
+        withContext(Dispatchers.Default) {
+            coroutineScope {
+                List(PARALLEL_CALLERS) { index: Int ->
+                    async { if (index % 2 == 0) manager.startSession() else manager.endSession() }
+                }.awaitAll()
+            }
+        }
+
+        // The interleaving decides the final state, so the assertion is about liveness, not order:
+        // the manager must still work afterwards.
+        manager.startSession()
+        assertEquals(SessionState.ACTIVE, manager.state.value)
+        manager.endSession()
+        assertEquals(SessionState.INACTIVE, manager.state.value)
+        assertTrue(cleaner.cleanCalls() >= 1)
     }
 
     @Test
@@ -429,7 +689,27 @@ class SessionManagerTest {
     }
 
     @Test
-    fun `a teardown run by a cancelled caller is still reported to the next caller`() = runTest {
+    fun `a cancelled caller still receives the report of the teardown it started`() = runTest {
+        val gate = Gate(name = "broken", thenThrow = { throw IllegalStateException("boom") })
+        val manager: SessionManager = manager(cleaners = listOf(gate.cleaner()))
+        manager.startSession()
+
+        var observed: SessionEndReport? = null
+        val ending: Job = launch { observed = manager.endSession() }
+        gate.awaitTeardownInFlight()
+        ending.cancel()
+        gate.release()
+        ending.join()
+
+        // The teardown runs under NonCancellable, so the call returns its value rather than
+        // throwing at the cancelled caller — worth pinning, because the opposite is the intuitive
+        // guess and the docs have to state one of the two.
+        val report: SessionEndReport = assertNotNull(observed)
+        assertEquals(listOf("broken"), report.cleanerFailures.map { it.name })
+    }
+
+    @Test
+    fun `a teardown run by a cancelled caller closes the session for everyone`() = runTest {
         val gate = Gate(name = "broken", thenThrow = { throw IllegalStateException("boom") })
         val manager: SessionManager = manager(cleaners = listOf(gate.cleaner()))
         manager.startSession()
@@ -439,13 +719,19 @@ class SessionManagerTest {
         ending.cancel()
         gate.release()
         ending.join()
-        val report: SessionEndReport = manager.endSession()
 
         assertEquals(1, gate.cleanCalls)
-        assertEquals(listOf("broken"), report.cleanerFailures.map { it.name })
+        assertEquals(SessionState.INACTIVE, manager.state.value)
+        // A later caller is not the cancelled one's proxy: it arrived at a closed session and gets
+        // Empty, cleaner failures and all.
+        assertEquals(SessionEndReport.Empty, manager.endSession())
     }
 
     private companion object {
         const val PARALLEL_CALLERS = 64
+
+        /** The reviewer's exact shape: 50 ms of patience for 600 ms of uncancellable work. */
+        val SHORT_TIMEOUT: Duration = 50.milliseconds
+        val NON_COOPERATIVE_WORK: Duration = 600.milliseconds
     }
 }

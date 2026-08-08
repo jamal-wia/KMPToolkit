@@ -30,9 +30,11 @@ kotlin {
             api(project(":kmptoolkit-session"))
         }
         commonTest.dependencies {
-            // Only this module's own tests need it: the fixtures pull in no test framework, but
-            // driving a suspend function from a test does.
+            // Only this module's own tests need these: the fixtures pull in no test framework, but
+            // driving them through a real SessionManager — which is how a consumer uses them, and
+            // therefore what these tests must exercise — needs a test dispatcher to run on.
             implementation(libs.kotlinx.coroutines.test)
+            implementation(project(":kmptoolkit-coroutines-testing"))
         }
     }
 }

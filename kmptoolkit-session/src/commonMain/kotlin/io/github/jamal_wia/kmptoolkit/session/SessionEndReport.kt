@@ -34,9 +34,12 @@ public data class SessionEndReport(
 
         /**
          * The report of a teardown that did nothing, returned by [SessionManager.endSession] when
-         * no session was open. Indistinguishable from a perfectly clean teardown by design: check
-         * [SessionManager.state] first if you need to know whether *your* call is the one that
-         * ended the session.
+         * the session was already closed when the call arrived. Indistinguishable from a perfectly
+         * clean teardown by design: check [SessionManager.state] first if you need to know whether
+         * *your* call is the one that ended the session.
+         *
+         * A caller that raced a teardown already in flight gets that teardown's real report
+         * instead — it was there for the sign-out, so the failures are its business.
          */
         public val Empty: SessionEndReport = SessionEndReport()
     }

@@ -21,6 +21,12 @@ package io.github.jamal_wia.kmptoolkit.session
  *   cleaner that overruns it is abandoned and reported as a failure, and teardown continues.
  * - **May throw.** A throwing cleaner is recorded in [SessionEndReport] and never prevents the
  *   other cleaners, the session ending, or [SessionManager.endSession] returning.
+ * - **Must not call back into the manager running it.** [SessionManager.endSession] and
+ *   [SessionManager.startSession] are refused with a [SessionReentrancyException] when called from
+ *   inside teardown — they would otherwise deadlock on a lock the cleaner's own call chain holds.
+ *   The refusal is recorded like any other cleaner failure. Detection follows the coroutine
+ *   context, so it catches a direct call; a cleaner that routes the call through an unrelated scope
+ *   escapes detection and does deadlock. Do not do that either.
  */
 public interface SessionCleaner {
 

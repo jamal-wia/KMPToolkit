@@ -51,16 +51,26 @@ Each step is individually exception-isolated and individually timeout-bounded, s
 abort the rest. The session always ends. See
 [`03-guide.md`](03-guide.md#failure-semantics-in-one-place) for the full table.
 
-**Runs at most once per session.** Concurrent callers do not each trigger a teardown: the first runs
-it, the rest suspend until it completes and receive the same report. Called when no session is open
-it does nothing, runs no cleaner, and returns `SessionEndReport.Empty`.
+**No step can hold the session open.** Each is *abandoned* at its timeout rather than awaited, so a
+cleaner that ignores cancellation — blocking I/O, a JNI call, its own `NonCancellable` — delays
+sign-out by at most that bound and cannot wedge a later one. It keeps running, detached, until it
+finishes on its own; nothing waits for it.
+
+**Runs at most once per session,** and the two "nothing to do" cases are told apart:
+
+- Called **concurrently** with a teardown already in flight, it does not start a second one: it
+  suspends until that teardown finishes and returns *its* report, failures and all.
+- Called on a session that was **already closed** when the call arrived, it does nothing, runs no
+  cleaner, and returns `SessionEndReport.Empty` — deliberately *not* the previous teardown's report,
+  which would attribute failures to a call during which they did not happen.
 
 **Uncancellable once started.** Cancelling the calling coroutine does not stop the teardown: every
-cleaner still runs to completion and the session still ends. The caller is typically a screen scope
-that the sign-out navigation is about to destroy, and a half-finished teardown is worse than either
-finishing or never starting. What a cancelled caller cannot count on is *observing* the returned
-report — it is a cancelled coroutine and structured concurrency still applies to it. Read the report
-from a caller you did not cancel, or from a later `endSession()`, which returns the same one.
+cleaner still runs to completion, the session still ends, and the cancelled caller still receives
+the report. The caller is typically a screen scope that the sign-out navigation is about to destroy,
+and a half-finished teardown is worse than either finishing or never starting.
+
+**Not reentrant.** Calling it from inside a `SessionCleaner` or `SessionRevoker` of the same manager
+throws [`SessionReentrancyException`](#sessionreentrancyexception) rather than deadlocking.
 
 ## `createSessionManager`
 
@@ -109,7 +119,13 @@ The fan-out SPI: one implementation per feature that holds per-account state. Co
 - **Must be idempotent** — it can run against already-empty state.
 - **Must not make network calls.** Sign-out has to work offline; that is `SessionRevoker`'s job.
 - **Must not block indefinitely** — it is bounded by `cleanerTimeout` and abandoned if it overruns.
+  Abandoned means abandoned: it is cancelled and left to run detached, and nothing waits for it, so
+  even a cleaner that ignores cancellation cannot hold up sign-out.
 - **May throw** — the throwable is recorded and never stops anything else.
+- **Must not call back into the manager running it** — `endSession()` and `startSession()` throw
+  `SessionReentrancyException` when called from inside teardown. Detection follows the coroutine
+  context, so it catches a direct call; a cleaner that routes the call through an unrelated scope
+  escapes detection and genuinely deadlocks.
 
 `name` is supplied rather than derived from the class name so it survives Android minification and
 stays stable across a rename. Uniqueness is not enforced.
@@ -150,9 +166,10 @@ A record of one teardown, never a verdict: the session has already ended by the 
   failure order, which is not observable when they run concurrently).
 - `revokeFailure` — why the revoker failed, or `null` if it succeeded or was not registered.
 - `isClean` — `true` when both are empty.
-- `Empty` — what `endSession()` returns when no session was open. Deliberately indistinguishable
-  from a perfectly clean teardown; check `state` first if you need to know whether *your* call ended
-  the session.
+- `Empty` — what `endSession()` returns when the session was already closed on arrival. Deliberately
+  indistinguishable from a perfectly clean teardown; check `state` first if you need to know whether
+  *your* call ended the session. A caller that raced a teardown already in flight gets that
+  teardown's real report instead.
 
 **Portability note about the throwables inside:** on Android and the JVM, kotlinx-coroutines'
 stacktrace recovery hands back an augmented *copy* of what a cleaner threw, not the identical
@@ -180,7 +197,31 @@ public class SessionTeardownTimeoutException(
 ```
 
 A cleaner or the revoker was still running when its timeout elapsed, so teardown abandoned it. The
-abandoned work is cancelled, not awaited — whatever it had not finished stays unfinished.
+abandoned work is cancelled, not awaited — whatever it had not finished stays unfinished, and if it
+does not honour cancellation it simply runs on, detached, with nothing waiting for it.
 
 `name` is the cleaner's name, or `"revoker"` for the revoker. The message is diagnostic and is never
 something to show a user.
+
+## `SessionReentrancyException`
+
+```kotlin
+public class SessionReentrancyException(
+    public val operation: String,
+) : IllegalStateException
+```
+
+A cleaner or revoker called `endSession()` or `startSession()` on the very manager running it.
+
+That call can never succeed — the manager holds a non-reentrant lock for the whole teardown, so the
+nested call would wait for a lock its own call chain holds, forever and uncancellably, and the step
+timeout cannot rescue it because the nested call *is* what hangs. Failing immediately with a named
+exception is the only useful outcome.
+
+Thrown from inside a cleaner it is recorded like any other cleaner failure: teardown continues and
+the session still ends. `operation` is `"endSession"` or `"startSession"`.
+
+Detection follows the coroutine context, which catches a direct call. A cleaner that routes the call
+through an unrelated scope escapes it and genuinely deadlocks — an honest limitation, not solvable
+without the library owning every scope a consumer might use. Calling a *different* `SessionManager`
+is not reentrancy and works.
