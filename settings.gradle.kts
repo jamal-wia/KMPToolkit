@@ -43,6 +43,8 @@ include(":kmptoolkit-platform")
 include(":kmptoolkit-platform-testing")
 include(":kmptoolkit-storage")
 include(":kmptoolkit-storage-testing")
+include(":kmptoolkit-biometric")
+include(":kmptoolkit-biometric-testing")
 
 // Not published — Android Compose demo, smoke-tests published artifacts from mavenLocal.
 include(":sample")

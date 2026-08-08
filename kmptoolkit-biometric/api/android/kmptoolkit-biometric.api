@@ -1,0 +1,142 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/biometric/BiometricAvailability {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricAvailability$Available : io/github/jamal_wia/kmptoolkit/biometric/BiometricAvailability {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/biometric/BiometricAvailability$Available;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricAvailability$Unavailable : io/github/jamal_wia/kmptoolkit/biometric/BiometricAvailability {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricAvailability$Unavailable;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricAvailability$Unavailable;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricAvailability$Unavailable;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricAvailabilityKt {
+	public static final fun isTransient (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;)Z
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/biometric/BiometricGate {
+	public abstract fun authenticate (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPromptText;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun availability (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;Z)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;
+	public final fun component2 ()Z
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;Z)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPolicy ()Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;
+	public final fun getRequireExplicitConfirmation ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGate_androidKt {
+	public static final fun createBiometricGate (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
+	public static synthetic fun createBiometricGate$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy : java/lang/Enum {
+	public static final field BIOMETRIC_ONLY Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;
+	public static final field BIOMETRIC_OR_DEVICE_CREDENTIAL Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricPromptText {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPromptText;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPromptText;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPromptText;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCancelLabel ()Ljava/lang/String;
+	public final fun getSubtitle ()Ljava/lang/String;
+	public final fun getTitle ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/biometric/BiometricResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Authenticated : io/github/jamal_wia/kmptoolkit/biometric/BiometricResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Authenticated;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Cancelled : io/github/jamal_wia/kmptoolkit/biometric/BiometricResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Cancelled;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Failed : io/github/jamal_wia/kmptoolkit/biometric/BiometricResult {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/Integer;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Failed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Failed;Ljava/lang/Integer;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Failed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPlatformCode ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricResult$NoPromptHost : io/github/jamal_wia/kmptoolkit/biometric/BiometricResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$NoPromptHost;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Rejected : io/github/jamal_wia/kmptoolkit/biometric/BiometricResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Rejected;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Unavailable : io/github/jamal_wia/kmptoolkit/biometric/BiometricResult {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Unavailable;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Unavailable;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Unavailable;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability : java/lang/Enum {
+	public static final field HARDWARE_UNAVAILABLE Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public static final field LOCKED_OUT Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public static final field NOT_ENROLLED Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public static final field NO_HARDWARE Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public static final field PERMANENTLY_LOCKED_OUT Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public static final field SECURITY_UPDATE_REQUIRED Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public static final field UNKNOWN Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public static final field UNSUPPORTED Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
+}
+
