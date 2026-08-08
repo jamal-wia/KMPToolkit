@@ -53,6 +53,8 @@ include(":kmptoolkit-biometric")
 include(":kmptoolkit-biometric-testing")
 include(":kmptoolkit-permission")
 include(":kmptoolkit-permission-testing")
+include(":kmptoolkit-session")
+include(":kmptoolkit-session-testing")
 include(":kmptoolkit-systembars")
 
 include(":kmptoolkit-bom")
