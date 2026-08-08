@@ -35,7 +35,28 @@ android {
     }
 }
 
+// The sample exists to prove the published artifacts actually resolve and work — see CLAUDE.md § 6.
+//
+// Two modes, because one alone is not enough:
+//   * default — project dependencies, so `./gradlew build` works on a fresh clone with nothing
+//     published anywhere;
+//   * `-PuseMavenLocal` — resolves the same modules by Maven coordinates through the BOM, which is
+//     the only way to catch a broken POM, a missing variant, or a publication that omits a target.
+//     Run `./gradlew publishToMavenLocal` first.
+val useMavenLocal: Boolean = providers.gradleProperty("useMavenLocal").isPresent
+
 dependencies {
+    if (useMavenLocal) {
+        implementation(platform("io.github.jamal-wia:kmptoolkit-bom:${providers.gradleProperty("kmptoolkit.version").get()}"))
+        implementation("io.github.jamal-wia:kmptoolkit-logging")
+        implementation("io.github.jamal-wia:kmptoolkit-storage")
+        implementation("io.github.jamal-wia:kmptoolkit-haptics")
+    } else {
+        implementation(project(":kmptoolkit-logging"))
+        implementation(project(":kmptoolkit-storage"))
+        implementation(project(":kmptoolkit-haptics"))
+    }
+
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)

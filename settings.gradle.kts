@@ -20,6 +20,12 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Only reachable for this project's own group, and only used by :sample when run with
+        // -PuseMavenLocal — see sample/build.gradle.kts. Content-filtered so an unrelated stale
+        // artifact in ~/.m2 can never shadow a real one from Maven Central.
+        mavenLocal {
+            content { includeGroup("io.github.jamal-wia") }
+        }
     }
 }
 
