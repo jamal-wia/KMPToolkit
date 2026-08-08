@@ -1,0 +1,151 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-systembars>
+final enum class io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior : kotlin/Enum<io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior> { // io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior|null[0]
+    enum entry StayHidden // io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior.StayHidden|null[0]
+    enum entry SwipeToReveal // io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior.SwipeToReveal|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior> // io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior // io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior> // io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior.values|values#static(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle : kotlin/Enum<io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle> { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle|null[0]
+    enum entry DarkIcons // io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle.DarkIcons|null[0]
+    enum entry LightIcons // io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle.LightIcons|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle> // io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle // io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle> // io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController : io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController { // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController|null[0]
+    abstract val preferredStatusBarStyle // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.preferredStatusBarStyle|{}preferredStatusBarStyle[0]
+        abstract fun <get-preferredStatusBarStyle>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.preferredStatusBarStyle.<get-preferredStatusBarStyle>|<get-preferredStatusBarStyle>(){}[0]
+    abstract val prefersStatusBarHidden // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersStatusBarHidden|{}prefersStatusBarHidden[0]
+        abstract fun <get-prefersStatusBarHidden>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersStatusBarHidden.<get-prefersStatusBarHidden>|<get-prefersStatusBarHidden>(){}[0]
+
+    abstract var hostViewController // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.hostViewController|{}hostViewController[0]
+        abstract fun <get-hostViewController>(): platform.UIKit/UIViewController? // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.hostViewController.<get-hostViewController>|<get-hostViewController>(){}[0]
+        abstract fun <set-hostViewController>(platform.UIKit/UIViewController?) // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.hostViewController.<set-hostViewController>|<set-hostViewController>(platform.UIKit.UIViewController?){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController|null[0]
+    abstract val config // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController.config|{}config[0]
+        abstract fun <get-config>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig> // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController.config.<get-config>|<get-config>(){}[0]
+    open val currentConfig // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController.currentConfig|{}currentConfig[0]
+        open fun <get-currentConfig>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController.currentConfig.<get-currentConfig>|<get-currentConfig>(){}[0]
+
+    abstract fun applyOverride(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverrideHandle // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController.applyOverride|applyOverride(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsOverride){}[0]
+    abstract fun release() // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController.release|release(){}[0]
+    abstract fun setBaseConfig(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController.setBaseConfig|setBaseConfig(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig){}[0]
+    abstract fun updateBaseConfig(kotlin/Function1<io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig, io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig>) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController.updateBaseConfig|updateBaseConfig(kotlin.Function1<io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig,io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig>){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverrideHandle { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverrideHandle|null[0]
+    abstract fun release() // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverrideHandle.release|release(){}[0]
+    abstract fun update(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverrideHandle.update|update(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsOverride){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle = ..., io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle = ..., io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility = ...) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.<init>|<init>(io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle;io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle;io.github.jamal_wia.kmptoolkit.systembars.SystemBarsVisibility){}[0]
+
+    final val navigationBarIcons // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.navigationBarIcons|{}navigationBarIcons[0]
+        final fun <get-navigationBarIcons>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.navigationBarIcons.<get-navigationBarIcons>|<get-navigationBarIcons>(){}[0]
+    final val statusBarIcons // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.statusBarIcons|{}statusBarIcons[0]
+        final fun <get-statusBarIcons>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.statusBarIcons.<get-statusBarIcons>|<get-statusBarIcons>(){}[0]
+    final val visibility // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.visibility|{}visibility[0]
+        final fun <get-visibility>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.visibility.<get-visibility>|<get-visibility>(){}[0]
+
+    final fun component1(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.component1|component1(){}[0]
+    final fun component2(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.component2|component2(){}[0]
+    final fun component3(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.component3|component3(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle = ..., io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle = ..., io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility = ...): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.copy|copy(io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle;io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle;io.github.jamal_wia.kmptoolkit.systembars.SystemBarsVisibility){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.Companion|null[0]
+        final val ForDarkBackground // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.Companion.ForDarkBackground|{}ForDarkBackground[0]
+            final fun <get-ForDarkBackground>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.Companion.ForDarkBackground.<get-ForDarkBackground>|<get-ForDarkBackground>(){}[0]
+        final val ForLightBackground // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.Companion.ForLightBackground|{}ForLightBackground[0]
+            final fun <get-ForLightBackground>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig.Companion.ForLightBackground.<get-ForLightBackground>|<get-ForLightBackground>(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle? = ..., io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle? = ..., io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility? = ...) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.<init>|<init>(io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle?;io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle?;io.github.jamal_wia.kmptoolkit.systembars.SystemBarsVisibility?){}[0]
+
+    final val isEmpty // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.isEmpty|{}isEmpty[0]
+        final fun <get-isEmpty>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.isEmpty.<get-isEmpty>|<get-isEmpty>(){}[0]
+    final val navigationBarIcons // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.navigationBarIcons|{}navigationBarIcons[0]
+        final fun <get-navigationBarIcons>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle? // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.navigationBarIcons.<get-navigationBarIcons>|<get-navigationBarIcons>(){}[0]
+    final val statusBarIcons // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.statusBarIcons|{}statusBarIcons[0]
+        final fun <get-statusBarIcons>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle? // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.statusBarIcons.<get-statusBarIcons>|<get-statusBarIcons>(){}[0]
+    final val visibility // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.visibility|{}visibility[0]
+        final fun <get-visibility>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility? // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.visibility.<get-visibility>|<get-visibility>(){}[0]
+
+    final fun component1(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle? // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.component1|component1(){}[0]
+    final fun component2(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle? // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.component2|component2(){}[0]
+    final fun component3(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility? // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.component3|component3(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle? = ..., io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle? = ..., io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility? = ...): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.copy|copy(io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle?;io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle?;io.github.jamal_wia.kmptoolkit.systembars.SystemBarsVisibility?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.Companion|null[0]
+        final val None // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.Companion.None|{}None[0]
+            final fun <get-None>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.Companion.None.<get-None>|<get-None>(){}[0]
+
+        final fun icons(io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride.Companion.icons|icons(io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility|null[0]
+    constructor <init>(kotlin/Boolean = ..., kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior = ...) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.<init>|<init>(kotlin.Boolean;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.systembars.HiddenBarBehavior){}[0]
+
+    final val hiddenBarBehavior // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.hiddenBarBehavior|{}hiddenBarBehavior[0]
+        final fun <get-hiddenBarBehavior>(): io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.hiddenBarBehavior.<get-hiddenBarBehavior>|<get-hiddenBarBehavior>(){}[0]
+    final val isNavigationBarVisible // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.isNavigationBarVisible|{}isNavigationBarVisible[0]
+        final fun <get-isNavigationBarVisible>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.isNavigationBarVisible.<get-isNavigationBarVisible>|<get-isNavigationBarVisible>(){}[0]
+    final val isStatusBarVisible // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.isStatusBarVisible|{}isStatusBarVisible[0]
+        final fun <get-isStatusBarVisible>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.isStatusBarVisible.<get-isStatusBarVisible>|<get-isStatusBarVisible>(){}[0]
+
+    final fun component1(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.component1|component1(){}[0]
+    final fun component2(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.component2|component2(){}[0]
+    final fun component3(): io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.component3|component3(){}[0]
+    final fun copy(kotlin/Boolean = ..., kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.systembars/HiddenBarBehavior = ...): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.copy|copy(kotlin.Boolean;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.systembars.HiddenBarBehavior){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.Companion|null[0]
+        final val Hidden // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.Companion.Hidden|{}Hidden[0]
+            final fun <get-Hidden>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.Companion.Hidden.<get-Hidden>|<get-Hidden>(){}[0]
+        final val Immersive // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.Companion.Immersive|{}Immersive[0]
+            final fun <get-Immersive>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.Companion.Immersive.<get-Immersive>|<get-Immersive>(){}[0]
+        final val Visible // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.Companion.Visible|{}Visible[0]
+            final fun <get-Visible>(): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility.Companion.Visible.<get-Visible>|<get-Visible>(){}[0]
+    }
+}
+
+final val io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop|#static{}io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop[0]
+final val io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop|#static{}io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop[0]
+final val io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsVisibility$stableprop // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsVisibility$stableprop|#static{}io_github_jamal_wia_kmptoolkit_systembars_SystemBarsVisibility$stableprop[0]
+
+final fun io.github.jamal_wia.kmptoolkit.systembars/DialogWindowSystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController, androidx.compose.runtime/Composer?, kotlin/Int) // io.github.jamal_wia.kmptoolkit.systembars/DialogWindowSystemBarsEffect|DialogWindowSystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsController;androidx.compose.runtime.Composer?;kotlin.Int){}[0]
+final fun io.github.jamal_wia.kmptoolkit.systembars/SystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController, io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle?, io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle?, io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility?, androidx.compose.runtime/Composer?, kotlin/Int, kotlin/Int) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsEffect|SystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsController;io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle?;io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle?;io.github.jamal_wia.kmptoolkit.systembars.SystemBarsVisibility?;androidx.compose.runtime.Composer?;kotlin.Int;kotlin.Int){}[0]
+final fun io.github.jamal_wia.kmptoolkit.systembars/SystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController, io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride, androidx.compose.runtime/Composer?, kotlin/Int) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsEffect|SystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsController;io.github.jamal_wia.kmptoolkit.systembars.SystemBarsOverride;androidx.compose.runtime.Composer?;kotlin.Int){}[0]
+final fun io.github.jamal_wia.kmptoolkit.systembars/createSystemBarsController(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig = ...): io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController // io.github.jamal_wia.kmptoolkit.systembars/createSystemBarsController|createSystemBarsController(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig){}[0]
+final fun io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop_getter(): kotlin/Int // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop_getter|io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop_getter(){}[0]
+final fun io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop_getter(): kotlin/Int // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop_getter|io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop_getter(){}[0]
+final fun io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsVisibility$stableprop_getter(): kotlin/Int // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsVisibility$stableprop_getter|io_github_jamal_wia_kmptoolkit_systembars_SystemBarsVisibility$stableprop_getter(){}[0]

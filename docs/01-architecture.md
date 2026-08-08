@@ -162,6 +162,21 @@ one does not rediscover them:
   at the top of the build file.
 - `androidx.compose.ui.test.runComposeUiTest` is deprecated in 1.11; import
   `androidx.compose.ui.test.v2.runComposeUiTest` instead — same signature.
+- A module-wide `src/androidUnitTest/resources/robolectric.properties` holding `sdk=35` is
+  preferable to a per-class `@Config(sdk = [...])`: it also covers tests you would otherwise forget
+  to annotate, such as the manifest assertion below.
+
+## Asserting the no-permissions invariant
+
+"No permission declared in a library manifest" is a rule the build should enforce, not one that
+survives on review attention. Every Android-touching module carries a `LibraryManifestTest` that
+reads the merged manifest through a real `PackageManager` and asserts what is in it.
+
+One caveat, found the hard way in two modules: the merged **test** manifest is not the merged
+library manifest. AndroidX's test runner contributes `android.permission.REORDER_TASKS`, and AGP
+synthesises `<pkg>.test.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. Neither reaches a consumer.
+Subtract that named set and assert the remainder is empty — do not weaken the assertion to a
+handful of named-absence checks, which would pass for any permission nobody thought to list.
 
 ## Android manifests
 

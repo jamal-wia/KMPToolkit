@@ -1,0 +1,119 @@
+public final class io/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior : java/lang/Enum {
+	public static final field StayHidden Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
+	public static final field SwipeToReveal Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle : java/lang/Enum {
+	public static final field DarkIcons Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public static final field LightIcons Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig {
+	public static final field $stable I
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig$Companion;
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public final fun component3 ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getNavigationBarIcons ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public final fun getStatusBarIcons ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public final fun getVisibility ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig$Companion {
+	public final fun getForDarkBackground ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;
+	public final fun getForLightBackground ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsController {
+	public abstract fun applyOverride (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverrideHandle;
+	public abstract fun getConfig ()Lkotlinx/coroutines/flow/StateFlow;
+	public fun getCurrentConfig ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;
+	public abstract fun release ()V
+	public abstract fun setBaseConfig (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;)V
+	public abstract fun updateBaseConfig (Lkotlin/jvm/functions/Function1;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsController$DefaultImpls {
+	public static fun getCurrentConfig (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsController_androidKt {
+	public static final fun createSystemBarsController (Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
+	public static synthetic fun createSystemBarsController$default (Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsEffectKt {
+	public static final fun DialogWindowSystemBarsEffect (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;Landroidx/compose/runtime/Composer;I)V
+	public static final fun SystemBarsEffect (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;Landroidx/compose/runtime/Composer;II)V
+	public static final fun SystemBarsEffect (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride;Landroidx/compose/runtime/Composer;I)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride {
+	public static final field $stable I
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride$Companion;
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public final fun component3 ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getNavigationBarIcons ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public final fun getStatusBarIcons ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
+	public final fun getVisibility ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;
+	public fun hashCode ()I
+	public final fun isEmpty ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride$Companion {
+	public final fun getNone ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride;
+	public final fun icons (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverrideHandle {
+	public abstract fun release ()V
+	public abstract fun update (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility {
+	public static final field $stable I
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility$Companion;
+	public fun <init> ()V
+	public fun <init> (ZZLio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;)V
+	public synthetic fun <init> (ZZLio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component2 ()Z
+	public final fun component3 ()Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
+	public final fun copy (ZZLio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;ZZLio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHiddenBarBehavior ()Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
+	public fun hashCode ()I
+	public final fun isNavigationBarVisible ()Z
+	public final fun isStatusBarVisible ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility$Companion {
+	public final fun getHidden ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;
+	public final fun getImmersive ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;
+	public final fun getVisible ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsVisibility;
+}
+
