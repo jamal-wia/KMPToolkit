@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.buildlogic
 
+import com.vanniktech.maven.publish.JavaPlatform
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinMultiplatform
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
@@ -58,7 +59,15 @@ class PublishConventionPlugin : Plugin<Project> {
             // lazy anyway — a module setting `kmptoolkitPublish.pomName` further down its own
             // build file is still picked up.
             extensions.configure<MavenPublishBaseExtension> {
-                configure(KotlinMultiplatform(javadocJar = JavadocJar.Empty()))
+                // The BOM is a `java-platform`, not a KMP module — it has no sources, no targets
+                // and nothing to put in a sources jar, and asking for the KotlinMultiplatform
+                // shape there fails. Detecting the plugin keeps every POM field below shared
+                // between the two, which is the reason this convention exists.
+                if (pluginManager.hasPlugin("java-platform")) {
+                    configure(JavaPlatform())
+                } else {
+                    configure(KotlinMultiplatform(javadocJar = JavadocJar.Empty()))
+                }
                 publishToMavenCentral(automaticRelease = true)
 
                 if (project.findProperty("signing.keyId") != null ||
