@@ -90,12 +90,15 @@ Checks, in order — first failure ends the call and moves `state` to `Failed`:
 | legal in current state | `IllegalState(state, PREPARE)` |
 | `RECORD_AUDIO` granted | `PermissionDenied` |
 | format encodable here | `UnsupportedFormat(format)` |
+| an explicit `outputPath` is absolute and non-blank | `DirectoryNotWritable(path)` |
 | output has a parent directory, creatable and writable | `DirectoryNotWritable(path)` |
 | free space ≥ `config.minimumFreeSpaceBytes` | `InsufficientStorage(path, required, available)` |
 | platform recorder prepares | `EngineFailure(PREPARE, cause)` |
 
 `outputPath = null` generates `<directory>/<prefix>_<epochMillis>.<extension>` from
-`config.storage`. Parent directories are created.
+`config.storage`. Parent directories are created. An explicit `outputPath` must be absolute — a
+blank or relative one is rejected before the filesystem is touched, because on iOS
+`NSURL.fileURLWithPath("")` raises an Objective-C exception that Kotlin/Native cannot catch.
 
 Cancellable: on cancellation the native recorder is released, the file is deleted, `state` returns
 to `Idle`, and `CancellationException` propagates.
@@ -125,8 +128,10 @@ stays `Paused`.
 microphone, and returns the file with its duration. The recorder can be re-prepared without being
 released.
 
-On engine failure `state` becomes `Failed` and **the partial file is kept** — a library does not
-delete a user's audio because the encoder complained on close.
+On engine failure `state` becomes `Failed(error, outputPath)` and **the partial file is kept** — a
+library does not delete a user's audio because the encoder complained on close. The path is carried
+on the state so you can still find the file; `cancel()` is illegal from `Failed`, so deleting it is
+your call to make with your own filesystem API.
 
 ### `fun cancel(): RecorderResult<Unit>`
 
@@ -141,7 +146,11 @@ the return to `Idle`, and this still returns `Success`.
 
 Terminal disposal: releases the native handle and microphone, cancels the ticker, sets `state` to
 `Released`. An in-progress recording is stopped first and **its file is kept**; call `cancel()`
-first if you want it deleted.
+first if you want it deleted. Releasing from `Ready` is the one exception: that file was never
+recorded into and nothing could ever clean it up afterwards, so it is deleted.
+
+Safe to call while a `prepare()` is still in flight — the preparation undoes itself when it
+finishes, rather than resurrecting a released recorder.
 
 Idempotent, never throws, never fails. After it, every operation returns `AlreadyReleased`.
 
@@ -155,20 +164,25 @@ public sealed interface RecorderState {
     public data class Recording(public val outputPath: String) : RecorderState
     public data class Paused(public val outputPath: String, public val elapsed: Duration) : RecorderState
     public data class Completed(public val recording: RecordedFile) : RecorderState
-    public data class Failed(public val error: RecorderError) : RecorderState
+    public data class Failed(
+        public val error: RecorderError,
+        public val outputPath: String? = null,
+    ) : RecorderState
     public data object Released : RecorderState
 }
 ```
 
 `Failed` is kept rather than reset to `Idle` so a screen rendering from `state` can show the failure
-without also inspecting return values. Preparing again clears it.
+without also inspecting return values. Preparing again clears it. `Failed.outputPath` is the file the
+failure left behind — currently only a failed `stop()`; `null` when the failure cleaned up after
+itself.
 
 ### Extensions
 
 ```kotlin
 public val RecorderState.isRecording: Boolean   // true only in Recording
 public val RecorderState.isActive: Boolean      // Recording or Paused — an output file is open
-public val RecorderState.outputPath: String?    // Ready/Recording/Paused/Completed, else null
+public val RecorderState.outputPath: String?    // Ready/Recording/Paused/Completed/Failed, else null
 ```
 
 ## `RecordedFile`
@@ -219,8 +233,10 @@ public enum class RecorderOperation { PREPARE, START, PAUSE, RESUME, STOP, CANCE
 
 Typed causes, never display strings — mapping one onto copy in the right language is the app's job.
 
-`EngineFailure.cause` is `null` when the platform reported failure by returning `false` rather than
-throwing, which `AVAudioRecorder` does; `availableBytes` is `-1` when the platform could not report
+`EngineFailure` is always the result of a call you made — a failure that happens on its own
+mid-recording is not pushed here, see [`05-platform-notes.md`](05-platform-notes.md). Its `cause` is
+`null` when the platform reported failure by returning `false` rather than throwing, which
+`AVAudioRecorder` mostly does; `availableBytes` is `-1` when the platform could not report
 free space (in which case the check passes rather than refusing on an unknown).
 
 ## `AudioRecorderConfig`
@@ -238,7 +254,7 @@ public data class AudioRecorderConfig(
 ```
 
 Companion: `DEFAULT_SAMPLE_RATE`, `DEFAULT_CHANNEL_COUNT`, `DEFAULT_BIT_RATE`,
-`DEFAULT_DURATION_UPDATE_INTERVAL`, `DEFAULT_MINIMUM_FREE_SPACE_BYTES`, and `HighQuality`
+`DEFAULT_DURATION_UPDATE_INTERVAL`, `DEFAULT_MINIMUM_FREE_SPACE_BYTES`, and `HIGH_QUALITY`
 (stereo 48 kHz at 256 kbit/s).
 
 `sampleRate`, `channelCount`, `bitRate`, and `durationUpdateInterval` must be positive;

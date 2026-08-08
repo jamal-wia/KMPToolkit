@@ -6,10 +6,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 
 /**
@@ -17,6 +21,7 @@ import kotlinx.coroutines.test.runCurrent
  * coroutine is cancelled while a recording is being prepared. Neither may escape as a platform
  * exception, and neither may leave a native handle or a stray file behind.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class RecorderFailureTest {
 
     // --- engine failures ---
@@ -80,6 +85,16 @@ class RecorderFailureTest {
             fixture.recorder.state.value,
             "an engine that refused to pause is still capturing",
         )
+
+        fixture.timeSource += 3.seconds
+        advanceTimeBy(1.seconds)
+        runCurrent()
+
+        assertEquals(
+            3.seconds,
+            fixture.recorder.elapsed.value,
+            "the timer must keep running too — a frozen timer over a running recording is a lie",
+        )
     }
 
     @Test
@@ -93,17 +108,27 @@ class RecorderFailureTest {
 
         assertEquals(RecorderOperation.RESUME, (error as RecorderError.EngineFailure).operation)
         assertEquals(paused, fixture.recorder.state.value)
+
+        fixture.timeSource += 3.seconds
+        advanceTimeBy(1.seconds)
+        runCurrent()
+
+        assertEquals(
+            Duration.ZERO,
+            fixture.recorder.elapsed.value,
+            "nothing resumed, so nothing may accumulate",
+        )
     }
 
     @Test
     fun `a failing stop keeps whatever was captured on disk`() = runRecorderTest { fixture ->
-        fixture.recording()
+        val path: String = fixture.recording()
         fixture.engine.failures[RecorderOperation.STOP] = IllegalStateException("encoder died")
 
         val error: RecorderError? = fixture.recorder.stop().errorOrNull()
 
         assertEquals(RecorderOperation.STOP, (error as RecorderError.EngineFailure).operation)
-        assertEquals(RecorderState.Failed(error), fixture.recorder.state.value)
+        assertEquals(RecorderState.Failed(error, path), fixture.recorder.state.value)
         assertContentEquals(emptyList(), fixture.fileSystem.deletedPaths)
     }
 

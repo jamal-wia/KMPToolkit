@@ -50,8 +50,17 @@ public sealed interface RecorderState {
      * re-prepared; the state is kept (rather than reset to [Idle]) so a consumer collecting
      * [AudioRecorder.state] can render the failure without also having to observe every call's
      * return value.
+     *
+     * @param outputPath the file the failed operation left behind, when it left one — currently
+     *   only a failed [AudioRecorder.stop], which keeps whatever was captured. `null` whenever the
+     *   failure deleted its own file or never created one. Without it, a caller who did not retain
+     *   the string [AudioRecorder.prepare] returned would have no way to find the leftover file,
+     *   since [AudioRecorder.cancel] is illegal from this state.
      */
-    public data class Failed(public val error: RecorderError) : RecorderState
+    public data class Failed(
+        public val error: RecorderError,
+        public val outputPath: String? = null,
+    ) : RecorderState
 
     /**
      * [AudioRecorder.release] was called. Terminal: every operation from here returns
@@ -83,15 +92,19 @@ public val RecorderState.isActive: Boolean
     get() = this is RecorderState.Recording || this is RecorderState.Paused
 
 /**
- * The file this state refers to, or `null` in the states that have no file yet ([RecorderState.Idle],
- * [RecorderState.Preparing], [RecorderState.Failed], [RecorderState.Released]).
+ * The file this state refers to, or `null` in the states that have none: [RecorderState.Idle],
+ * [RecorderState.Preparing], [RecorderState.Released], and a [RecorderState.Failed] whose failure
+ * left no file behind.
  */
 public val RecorderState.outputPath: String?
-    get() = when (this) {
-        is RecorderState.Ready -> outputPath
-        is RecorderState.Recording -> outputPath
-        is RecorderState.Paused -> outputPath
-        is RecorderState.Completed -> recording.path
+    // `state.outputPath` inside each branch resolves to the smart-cast subtype's own member
+    // property, not back to this extension — written with an explicit receiver so that stays
+    // obvious to a reader, and to a future rename.
+    get() = when (val state: RecorderState = this) {
+        is RecorderState.Ready -> state.outputPath
+        is RecorderState.Recording -> state.outputPath
+        is RecorderState.Paused -> state.outputPath
+        is RecorderState.Completed -> state.recording.path
+        is RecorderState.Failed -> state.outputPath
         RecorderState.Idle, RecorderState.Preparing, RecorderState.Released -> null
-        is RecorderState.Failed -> null
     }

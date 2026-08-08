@@ -30,6 +30,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * - **Effects are observable.** [preparedPaths], [deletedPaths], [completedRecordings], and
  *   [releaseCount] record what the code under test made the recorder do.
  *
+ * The one place it deliberately differs: `prepare` resolves immediately, so the fake never passes
+ * through [RecorderState.Preparing]. That state exists in the real recorder only while a suspending
+ * call is in flight, and there is nothing to suspend on here.
+ *
  * Not thread-safe, exactly like the recorder it stands in for. Drive it from the test's own thread.
  *
  * ```kotlin
@@ -75,7 +79,11 @@ public class FakeAudioRecorder(
 
     private val _deletedPaths: MutableList<String> = mutableListOf()
 
-    /** Every path thrown away by [cancel] or by re-preparing over an unused file, in order. */
+    /**
+     * Every path thrown away, in order: by [cancel], by re-preparing over a file that was never
+     * recorded into, and by a scripted failure of [prepare] or [start] — all the cases in which the
+     * real recorder deletes the file it had opened.
+     */
     public val deletedPaths: List<String> get() = _deletedPaths.toList()
 
     private val _completedRecordings: MutableList<RecordedFile> = mutableListOf()
@@ -106,9 +114,14 @@ public class FakeAudioRecorder(
         _elapsed.value = Duration.ZERO
 
         if (!permissionGranted) return fail(RecorderError.PermissionDenied)
-        consumeScriptedFailure()?.let { error -> return fail(error) }
 
         val path: String = outputPath ?: generatePath()
+        consumeScriptedFailure()?.let { error ->
+            // The real recorder deletes the file it had already opened before the engine failed.
+            _deletedPaths += path
+            return fail(error)
+        }
+
         _preparedPaths += path
         _state.value = RecorderState.Ready(path)
         return RecorderResult.Success(path)
@@ -118,7 +131,10 @@ public class FakeAudioRecorder(
         if (released) return releasedFailure(RecorderOperation.START)
         val current: RecorderState = _state.value
         if (current !is RecorderState.Ready) return illegal(current, RecorderOperation.START)
-        consumeScriptedFailure()?.let { error -> return fail(error) }
+        consumeScriptedFailure()?.let { error ->
+            _deletedPaths += current.outputPath
+            return fail(error)
+        }
 
         _elapsed.value = Duration.ZERO
         _state.value = RecorderState.Recording(current.outputPath)
@@ -170,7 +186,9 @@ public class FakeAudioRecorder(
             is RecorderState.Paused -> current.outputPath
             else -> return illegal(current, RecorderOperation.CANCEL)
         }
-        consumeScriptedFailure()?.let { error -> return RecorderResult.Failure(error) }
+        // No scripted-failure hook: the real cancel() is best effort and always succeeds once it
+        // is legal, so offering a way to fail it here would let a test assert behavior the real
+        // recorder never produces.
 
         _deletedPaths += path
         _elapsed.value = Duration.ZERO

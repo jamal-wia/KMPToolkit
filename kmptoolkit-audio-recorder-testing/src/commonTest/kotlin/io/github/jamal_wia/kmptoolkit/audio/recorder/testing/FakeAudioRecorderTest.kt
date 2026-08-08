@@ -7,10 +7,12 @@ import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState
 import io.github.jamal_wia.kmptoolkit.audio.recorder.errorOrNull
 import io.github.jamal_wia.kmptoolkit.audio.recorder.getOrNull
+import io.github.jamal_wia.kmptoolkit.audio.recorder.isSuccess
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.test.runTest
@@ -178,8 +180,10 @@ class FakeAudioRecorderTest {
         assertEquals(RecorderResult.Failure(error), recorder.prepare())
         assertEquals(RecorderState.Failed(error), recorder.state.value)
 
+        // recording_2, not _1: the failed attempt had already generated and discarded a name, the
+        // same way the real recorder's failed prepare discards the file it opened.
         assertEquals(
-            RecorderResult.Success("/fake/recordings/recording_1.m4a"),
+            RecorderResult.Success("/fake/recordings/recording_2.m4a"),
             recorder.prepare(),
         )
     }
@@ -236,6 +240,175 @@ class FakeAudioRecorderTest {
         recorder.pause()
         recorder.advanceElapsed(30.seconds)
         assertEquals(1.seconds, recorder.elapsed.value)
+    }
+
+    // --- the fake must refuse and clean up exactly where the real recorder does ---
+
+    @Test
+    fun `every illegal cell of the transition table is refused`() = runTest {
+        val legal: Map<String, Set<RecorderOperation>> = mapOf(
+            "Idle" to setOf(RecorderOperation.PREPARE),
+            "Ready" to setOf(
+                RecorderOperation.PREPARE,
+                RecorderOperation.START,
+                RecorderOperation.CANCEL,
+            ),
+            "Recording" to setOf(
+                RecorderOperation.PAUSE,
+                RecorderOperation.STOP,
+                RecorderOperation.CANCEL,
+            ),
+            "Paused" to setOf(
+                RecorderOperation.RESUME,
+                RecorderOperation.STOP,
+                RecorderOperation.CANCEL,
+            ),
+            "Completed" to setOf(RecorderOperation.PREPARE),
+            "Failed" to setOf(RecorderOperation.PREPARE),
+        )
+        val arrange: Map<String, suspend (FakeAudioRecorder) -> Unit> = mapOf(
+            "Idle" to { },
+            "Ready" to { recorder -> recorder.prepare() },
+            "Recording" to { recorder -> recorder.prepare(); recorder.start() },
+            "Paused" to { recorder -> recorder.prepare(); recorder.start(); recorder.pause() },
+            "Completed" to { recorder -> recorder.prepare(); recorder.start(); recorder.stop() },
+            "Failed" to { recorder ->
+                recorder.permissionGranted = false
+                recorder.prepare()
+                recorder.permissionGranted = true
+            },
+        )
+
+        legal.forEach { (stateName, legalOperations) ->
+            val recorder = FakeAudioRecorder()
+            requireNotNull(arrange[stateName]).invoke(recorder)
+            val expectedState: RecorderState = recorder.state.value
+
+            RecorderOperation.entries
+                .filterNot { it in legalOperations }
+                .forEach { operation ->
+                    assertEquals(
+                        RecorderError.IllegalState(expectedState, operation),
+                        recorder.invoke(operation).errorOrNull(),
+                        "$operation from $stateName",
+                    )
+                    assertEquals(expectedState, recorder.state.value)
+                }
+        }
+    }
+
+    @Test
+    fun `every operation after release reports that the recorder is gone`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.release()
+
+        RecorderOperation.entries.forEach { operation ->
+            assertEquals(
+                RecorderError.AlreadyReleased(operation),
+                recorder.invoke(operation).errorOrNull(),
+                "$operation from Released",
+            )
+        }
+    }
+
+    @Test
+    fun `a scripted prepare failure discards the file it had opened`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.PREPARE)
+
+        recorder.prepare()
+
+        assertContentEquals(
+            listOf("/fake/recordings/recording_1.m4a"),
+            recorder.deletedPaths,
+            "the real recorder deletes the file a failed prepare had opened",
+        )
+        assertContentEquals(emptyList(), recorder.preparedPaths)
+    }
+
+    @Test
+    fun `a scripted start failure discards the empty file`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.START)
+
+        recorder.start()
+
+        assertContentEquals(listOf(path), recorder.deletedPaths)
+        assertTrue(recorder.state.value is RecorderState.Failed)
+    }
+
+    @Test
+    fun `a scripted pause failure leaves the recorder recording`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.start()
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.PAUSE)
+
+        recorder.pause()
+
+        assertEquals(RecorderState.Recording(path), recorder.state.value)
+    }
+
+    @Test
+    fun `a scripted resume failure leaves the recorder paused`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.pause()
+        val paused: RecorderState = recorder.state.value
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.RESUME)
+
+        recorder.resume()
+
+        assertEquals(paused, recorder.state.value)
+    }
+
+    @Test
+    fun `a scripted stop failure keeps the captured file`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.STOP)
+
+        recorder.stop()
+
+        assertContentEquals(emptyList(), recorder.deletedPaths)
+        assertContentEquals(emptyList(), recorder.completedRecordings)
+    }
+
+    @Test
+    fun `cancel cannot be made to fail because the real cancel never does`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.start()
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.STOP)
+
+        assertEquals(RecorderResult.Success(Unit), recorder.cancel())
+
+        assertEquals(RecorderState.Idle, recorder.state.value)
+        assertContentEquals(listOf(path), recorder.deletedPaths)
+    }
+
+    @Test
+    fun `preparing again after a failure starts a new recording`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.permissionGranted = false
+        recorder.prepare()
+        recorder.permissionGranted = true
+
+        assertTrue(recorder.prepare().isSuccess)
+    }
+
+    private suspend fun FakeAudioRecorder.invoke(
+        operation: RecorderOperation,
+    ): RecorderResult<*> = when (operation) {
+        RecorderOperation.PREPARE -> prepare()
+        RecorderOperation.START -> start()
+        RecorderOperation.PAUSE -> pause()
+        RecorderOperation.RESUME -> resume()
+        RecorderOperation.STOP -> stop()
+        RecorderOperation.CANCEL -> cancel()
     }
 
     @Test

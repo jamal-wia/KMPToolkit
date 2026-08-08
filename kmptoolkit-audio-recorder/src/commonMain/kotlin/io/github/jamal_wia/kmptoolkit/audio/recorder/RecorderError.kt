@@ -60,9 +60,15 @@ public sealed interface RecorderError {
     public data class UnsupportedFormat(public val format: AudioFormat) : RecorderError
 
     /**
-     * The platform recorder itself rejected [operation] or reported an asynchronous error.
-     * [cause] is the underlying exception where the platform gave one — `null` when the platform
-     * API reports failure by returning `false` rather than throwing, which `AVAudioRecorder` does.
+     * The platform recorder rejected [operation]. [cause] is the underlying exception where the
+     * platform gave one — `null` when the platform API reports failure by returning `false` rather
+     * than throwing, which `AVAudioRecorder` does.
+     *
+     * This is always the result of a call *you* made. A failure that happens on its own
+     * mid-recording — the microphone taken by a phone call, the media server dying — is **not**
+     * pushed here; it surfaces at the next operation, usually [RecorderOperation.STOP]. See
+     * `docs/kmptoolkit-audio-recorder/05-platform-notes.md` for why, and for what to observe
+     * yourself if you need to react while it happens.
      */
     public data class EngineFailure(
         public val operation: RecorderOperation,
@@ -72,10 +78,24 @@ public sealed interface RecorderError {
 
 /** The operation an error refers to. Mirrors the methods of [AudioRecorder]. */
 public enum class RecorderOperation {
+
+    /** [AudioRecorder.prepare]. */
     PREPARE,
+
+    /** [AudioRecorder.start]. */
     START,
+
+    /** [AudioRecorder.pause]. */
     PAUSE,
+
+    /** [AudioRecorder.resume]. */
     RESUME,
+
+    /** [AudioRecorder.stop]. */
     STOP,
+
+    /** [AudioRecorder.cancel]. */
     CANCEL,
+
+    // No RELEASE entry: AudioRecorder.release() cannot fail, so no error ever refers to it.
 }

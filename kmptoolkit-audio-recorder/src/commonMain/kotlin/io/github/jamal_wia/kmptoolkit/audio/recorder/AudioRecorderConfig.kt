@@ -74,7 +74,7 @@ public data class AudioRecorderConfig(
          * Stereo 48 kHz at 256 kbit/s, for music or anything that will be listened to critically.
          * Roughly four times the bytes per second of the default.
          */
-        public val HighQuality: AudioRecorderConfig = AudioRecorderConfig(
+        public val HIGH_QUALITY: AudioRecorderConfig = AudioRecorderConfig(
             sampleRate = 48_000,
             channelCount = 2,
             bitRate = 256_000,

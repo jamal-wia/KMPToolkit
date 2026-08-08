@@ -91,9 +91,17 @@ public interface AudioRecorder {
      * released and the partially created output file is deleted before `CancellationException`
      * propagates; [state] is left at [RecorderState.Idle], never [RecorderState.Preparing].
      *
-     * @param outputPath absolute path of the file to record into. `null` — the default — generates
-     *   one inside the configured directory from [RecordingStorage.fileNamePrefix], the current
-     *   timestamp, and the format's extension. Parent directories are created if missing.
+     * [release] may equally land while this call is suspended. The preparation then undoes itself
+     * — freeing the handle it had just created and deleting the file — and returns
+     * [RecorderError.AlreadyReleased] rather than moving a released recorder to
+     * [RecorderState.Ready].
+     *
+     * @param outputPath absolute path of the file to record into. Must be absolute and non-blank; a
+     *   blank or relative path fails with [RecorderError.DirectoryNotWritable] before the filesystem
+     *   is touched, because `NSURL.fileURLWithPath("")` raises an Objective-C exception that
+     *   Kotlin/Native cannot catch. `null` — the default — generates a path inside the configured
+     *   directory from [RecordingStorage.fileNamePrefix], the current timestamp, and the format's
+     *   extension. Parent directories are created if missing.
      * @return the resolved absolute output path on success.
      */
     public suspend fun prepare(outputPath: String? = null): RecorderResult<String>
@@ -110,9 +118,10 @@ public interface AudioRecorder {
     /**
      * Suspends capture, keeping the output file open and [elapsed] frozen at its current value.
      *
-     * Legal only from [RecorderState.Recording]. Not supported on every Android API level — see
-     * `docs/kmptoolkit-audio-recorder/05-platform-notes.md`; where the platform refuses, this
-     * returns [RecorderError.EngineFailure] and the recording keeps running.
+     * Legal only from [RecorderState.Recording]. Not every platform output format supports pausing
+     * — see `docs/kmptoolkit-audio-recorder/05-platform-notes.md`; where the platform refuses, this
+     * returns [RecorderError.EngineFailure] and **the recording keeps running**, including
+     * [elapsed], because an engine that would not pause has not stopped capturing.
      */
     public fun pause(): RecorderResult<Unit>
 
@@ -129,6 +138,15 @@ public interface AudioRecorder {
      *
      * Legal from [RecorderState.Recording] and [RecorderState.Paused]. The recorder can be reused
      * for another recording by calling [prepare] again; it does not need to be released first.
+     *
+     * On engine failure the state becomes [RecorderState.Failed] carrying the output path, and the
+     * partial file is **kept**: a library does not delete a user's audio because the encoder
+     * complained on close. Since [cancel] is illegal from that state, the path on the state is how
+     * you find the file if you want to remove it yourself.
+     *
+     * Blocking is worth knowing about: this is not a suspending function, but the platform
+     * finalizes the container here (on Android, writing the MPEG-4 `moov` atom), which takes a
+     * noticeable fraction of a second on a long recording.
      *
      * @return the finished file and how long it ran.
      */
@@ -150,7 +168,12 @@ public interface AudioRecorder {
      *
      * An in-progress recording is stopped first and its **partial file is kept**, not deleted —
      * releasing is a lifecycle event (the screen went away), not a decision that the audio was
-     * unwanted. Call [cancel] first if you want the file gone.
+     * unwanted. Call [cancel] first if you want the file gone. Releasing from [RecorderState.Ready]
+     * is the one exception: that file was never recorded into, and [prepare] — the only thing that
+     * would ever discard it — can no longer run.
+     *
+     * Safe to call while a [prepare] is still in flight; see that method for what happens to the
+     * preparation.
      *
      * Idempotent, never fails, and never throws. See the class-level "Ownership and release" note
      * for who is expected to call it.

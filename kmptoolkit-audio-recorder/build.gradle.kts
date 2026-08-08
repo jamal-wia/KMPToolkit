@@ -1,8 +1,9 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // AndroidRecordingFileSystem talks to a real Context and a real filesystem, and the
-    // RECORD_AUDIO contract is only assertable against a real package manager.
+    // Robolectric for androidUnitTest: AndroidRecordingFileSystem needs a real Context and a real
+    // filesystem, and the "RECORD_AUDIO is not in the merged manifest" guarantee is only assertable
+    // against a real PackageManager.
     id("kmptoolkit.androidtest")
 }
 

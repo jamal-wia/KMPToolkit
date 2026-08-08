@@ -19,6 +19,9 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
     val createdDirectories: MutableSet<String> = mutableSetOf()
     val deletedPaths: MutableList<String> = mutableListOf()
 
+    /** Paths [freeSpaceBytes] was asked about — so "the check was skipped" is assertable. */
+    val freeSpaceQueries: MutableList<String> = mutableListOf()
+
     override fun appPrivateDirectory(): String = appDirectory
 
     override fun applicationIdentifier(): String = identifier
@@ -35,7 +38,10 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
         return true
     }
 
-    override fun freeSpaceBytes(path: String): Long = freeSpace
+    override fun freeSpaceBytes(path: String): Long {
+        freeSpaceQueries += path
+        return freeSpace
+    }
 
     override fun delete(path: String) {
         deletedPaths += path

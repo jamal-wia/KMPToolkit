@@ -35,8 +35,8 @@ class AudioRecorderConfigTest {
     }
 
     @Test
-    fun `HighQuality raises the encoder settings and leaves the rest alone`() {
-        val config = AudioRecorderConfig.HighQuality
+    fun `HIGH_QUALITY raises the encoder settings and leaves the rest alone`() {
+        val config = AudioRecorderConfig.HIGH_QUALITY
 
         assertEquals(48_000, config.sampleRate)
         assertEquals(2, config.channelCount)

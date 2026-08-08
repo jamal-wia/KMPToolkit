@@ -8,10 +8,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -21,9 +21,9 @@ import kotlinx.coroutines.launch
  * [RecordingFileSystem], which is what lets all of it be tested on the JVM and in the iOS
  * simulator against fakes.
  *
- * Not thread-safe by design — see the threading note on [AudioRecorder]. The mutable fields below
- * are only touched from the caller's thread; the ticker coroutine writes [elapsed] and reads
- * nothing that the caller mutates without also transitioning state first.
+ * Not thread-safe by design — see the threading note on [AudioRecorder]. Every mutable field below
+ * is read and written only from the caller's thread; the ticker coroutine is handed its start mark
+ * by value and writes nothing but [_elapsed], so it shares no mutable state with the caller.
  *
  * @param scope owned by this recorder and cancelled by [release]; it exists solely to run the
  *   [elapsed] ticker.
@@ -43,7 +43,6 @@ internal class DefaultAudioRecorder(
     private val _elapsed: MutableStateFlow<Duration> = MutableStateFlow(Duration.ZERO)
     override val elapsed: StateFlow<Duration> = _elapsed.asStateFlow()
 
-    private var currentPath: String? = null
     private var segmentStart: TimeMark? = null
     private var completedSegments: Duration = Duration.ZERO
     private var tickerJob: Job? = null
@@ -75,6 +74,12 @@ internal class DefaultAudioRecorder(
         }
 
         val path: String = outputPath ?: generateOutputPath()
+        // Guarded before the filesystem is touched: NSURL.fileURLWithPath raises on a blank path,
+        // and Kotlin/Native cannot catch an Objective-C exception, so an unchecked blank string
+        // would kill the process instead of producing a RecorderError.
+        if (path.isBlank() || !path.startsWith(PATH_SEPARATOR)) {
+            return fail(RecorderError.DirectoryNotWritable(path))
+        }
         val directory: String = fileSystem.parentOf(path)
             ?: return fail(RecorderError.DirectoryNotWritable(path))
         if (!fileSystem.ensureWritableDirectory(directory)) {
@@ -89,7 +94,6 @@ internal class DefaultAudioRecorder(
             // recorder holding the microphone plus a zero-byte file would outlive it.
             engine.release()
             fileSystem.delete(path)
-            currentPath = null
             _state.value = RecorderState.Idle
             throw cancellation
         } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
@@ -98,7 +102,16 @@ internal class DefaultAudioRecorder(
             return fail(RecorderError.EngineFailure(RecorderOperation.PREPARE, failure))
         }
 
-        currentPath = path
+        // release() may have run while the call above was suspended — the documented threading
+        // contract allows it, and Released is terminal. Undo the preparation rather than resurrect
+        // a dead recorder, which would both overwrite Released and leak the handle release() could
+        // not reach because the engine had not been assigned yet.
+        if (released) {
+            engine.release()
+            fileSystem.delete(path)
+            return releasedFailure(RecorderOperation.PREPARE)
+        }
+
         _state.value = RecorderState.Ready(path)
         return RecorderResult.Success(path)
     }
@@ -113,14 +126,14 @@ internal class DefaultAudioRecorder(
         } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
             engine.release()
             fileSystem.delete(current.outputPath)
-            currentPath = null
             return fail(RecorderError.EngineFailure(RecorderOperation.START, failure))
         }
 
         completedSegments = Duration.ZERO
-        segmentStart = timeSource.markNow()
+        val mark: TimeMark = timeSource.markNow()
+        segmentStart = mark
         _elapsed.value = Duration.ZERO
-        startTicker()
+        startTicker(base = Duration.ZERO, mark = mark)
         _state.value = RecorderState.Recording(current.outputPath)
         return SUCCESS
     }
@@ -159,8 +172,9 @@ internal class DefaultAudioRecorder(
             )
         }
 
-        segmentStart = timeSource.markNow()
-        startTicker()
+        val mark: TimeMark = timeSource.markNow()
+        segmentStart = mark
+        startTicker(base = completedSegments, mark = mark)
         _state.value = RecorderState.Recording(current.outputPath)
         return SUCCESS
     }
@@ -183,12 +197,10 @@ internal class DefaultAudioRecorder(
             // deleting a user's audio because the encoder complained on close is not a call a
             // library gets to make. `release()` documents the same rule.
             engine.release()
-            currentPath = null
-            return fail(RecorderError.EngineFailure(RecorderOperation.STOP, failure))
+            return fail(RecorderError.EngineFailure(RecorderOperation.STOP, failure), path)
         }
 
         engine.release()
-        currentPath = null
         val recording = RecordedFile(path = path, duration = _elapsed.value)
         _state.value = RecorderState.Completed(recording)
         return RecorderResult.Success(recording)
@@ -208,7 +220,6 @@ internal class DefaultAudioRecorder(
         if (current.isActive) stopEngineQuietly()
         engine.release()
         fileSystem.delete(path)
-        currentPath = null
         resetTiming()
         _state.value = RecorderState.Idle
         return SUCCESS
@@ -218,10 +229,14 @@ internal class DefaultAudioRecorder(
         if (released) return
         released = true
 
+        val current: RecorderState = _state.value
         stopTicker()
-        if (_state.value.isActive) stopEngineQuietly()
+        if (current.isActive) stopEngineQuietly()
         engine.release()
-        currentPath = null
+        // A Recording/Paused file holds audio the user produced and is kept. A Ready file holds
+        // nothing and can never be cleaned up later, because prepare() — the only thing that
+        // discards it — can no longer run on a released recorder.
+        discardPreparedButUnusedFile(current)
         resetTiming()
         _state.value = RecorderState.Released
         scope.cancel()
@@ -265,12 +280,21 @@ internal class DefaultAudioRecorder(
         }
     }
 
-    private fun startTicker() {
+    /**
+     * [base] and [mark] are passed by value rather than read from the fields, so the ticker
+     * coroutine shares no mutable state with the caller's thread — it only ever writes [_elapsed],
+     * which is a `MutableStateFlow` and safe to write from anywhere.
+     */
+    private fun startTicker(base: Duration, mark: TimeMark) {
         stopTicker()
         tickerJob = scope.launch {
-            while (isActive) {
+            while (true) {
                 delay(config.durationUpdateInterval)
-                _elapsed.value = currentElapsed()
+                val tick: Duration = base + mark.elapsedNow()
+                // Do not publish a tick computed before a stopTicker() that has already landed;
+                // the transition that cancelled us has the authoritative value.
+                ensureActive()
+                _elapsed.value = tick
             }
         }
     }
@@ -303,12 +327,13 @@ internal class DefaultAudioRecorder(
         operation: RecorderOperation,
     ): RecorderResult.Failure = RecorderResult.Failure(RecorderError.IllegalState(state, operation))
 
-    private fun fail(error: RecorderError): RecorderResult.Failure {
-        _state.value = RecorderState.Failed(error)
+    private fun fail(error: RecorderError, outputPath: String? = null): RecorderResult.Failure {
+        _state.value = RecorderState.Failed(error, outputPath)
         return RecorderResult.Failure(error)
     }
 
     private companion object {
+        const val PATH_SEPARATOR = "/"
         val SUCCESS: RecorderResult<Unit> = RecorderResult.Success(Unit)
     }
 }

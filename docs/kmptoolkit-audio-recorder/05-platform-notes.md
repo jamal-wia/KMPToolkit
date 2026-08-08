@@ -93,7 +93,9 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
   — usually `stop()` returning `EngineFailure(STOP, cause)`. If your app needs live notification of
   a lost microphone, watch `AudioManager`'s focus callbacks yourself.
 - **Free space** comes from `File.usableSpace` on the output directory, which respects per-user
-  quotas. If it cannot be determined the check is skipped rather than failing the recording.
+  quotas. A directory that does not exist, or a path that throws, is reported as unknown, and an
+  unknown skips the check rather than failing the recording — `usableSpace` answers `0` for a
+  missing path, which would otherwise be indistinguishable from a genuinely full volume.
 - **Directory creation** uses `File.mkdirs()` and then checks `isDirectory && canWrite()`. A
   `SecurityException` from a path outside the sandbox is exactly the "not writable" answer, so it is
   reported as `DirectoryNotWritable`, not thrown.
@@ -105,9 +107,20 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
 
 - **`AVAudioSession` is shared process state.** `prepare()` sets the category to
   `AVAudioSessionCategoryPlayAndRecord` and activates the session; `release()` (and the release
-  inside `stop()` / `cancel()`) deactivates it, so other audio recovers as soon as recording ends
-  rather than whenever the object is collected. If your app manages the session centrally, be aware
-  that this module touches it.
+  inside `stop()` / `cancel()`) deactivates it with
+  `AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation`, so a backgrounded music app resumes
+  promptly rather than whenever it notices. Deactivation happens on every failure path too,
+  including one where the recorder was never constructed — an active `PlayAndRecord` session left
+  behind would duck every other app's audio for the rest of the process. If your app manages the
+  session centrally, be aware that this module touches it. The category is not configurable;
+  `PlayAndRecord` rather than `Record` so an app that plays the recording back does not have to
+  fight the module over the session.
+- **Interruptions are not observed.** The module installs no `AVAudioRecorderDelegate` and no
+  `AVAudioSession` interruption observer, for the same reason as the Android note above: delivering
+  one would mean mutating recorder state from a thread the single-threaded contract forbids. A
+  recording interrupted by a phone call surfaces at the next operation. Observe
+  `AVAudioSessionInterruptionNotification` in your iOS layer if you need to react while it
+  happens.
 - **`AVAudioRecorder` reports failure by returning `false`**, and Kotlin/Native cannot catch an
   Objective-C exception at all. Every `false` is converted into a Kotlin exception internally, which
   is why `EngineFailure.cause` is often a plain `IllegalStateException` with no platform detail: that
@@ -120,7 +133,12 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
   if the app opts in. Point `RecordingStorage.directoryPath` at `Library/Caches` for recordings you
   do not want backed up.
 - **Free space** comes from `NSFileSystemFreeSize`, which reports the volume's free space and does
-  not account for iOS's "purgeable" space — it can under-report what is actually available.
+  not account for iOS's "purgeable" space — it can under-report what is actually available. A path
+  the platform cannot answer for is reported as unknown, and an unknown never blocks a recording.
+- **`AVAudioRecorder`'s initializer is failable.** It returns `nil` with an `NSError` for settings
+  CoreAudio rejects — an unusual sample rate and channel-count combination, say. Kotlin/Native binds
+  it as non-null, so the `NSError` is captured explicitly and folded into
+  `EngineFailure(PREPARE, cause)` rather than being left to crash on first use.
 - **The bundle identifier** is the default subdirectory name. In a unit-test host or a command-line
   binary, where `CFBundleIdentifier` is absent, it falls back to `recordings`.
 

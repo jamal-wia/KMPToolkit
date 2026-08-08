@@ -7,6 +7,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -16,6 +17,7 @@ import kotlinx.coroutines.test.runCurrent
  * is idempotent, and that a released recorder refuses every operation instead of touching a handle
  * it no longer owns.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class RecorderReleaseTest {
 
     @Test

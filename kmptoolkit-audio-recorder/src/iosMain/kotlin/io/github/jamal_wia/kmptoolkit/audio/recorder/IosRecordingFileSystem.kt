@@ -31,8 +31,13 @@ internal class IosRecordingFileSystem : RecordingFileSystem {
         NSURL.fileURLWithPath(directory).URLByAppendingPathComponent(name)?.path
             ?: "$directory/$name"
 
-    override fun parentOf(path: String): String? =
-        NSURL.fileURLWithPath(path).URLByDeletingLastPathComponent?.path
+    override fun parentOf(path: String): String? {
+        // Short-circuited rather than delegated to NSURL: URLByDeletingLastPathComponent resolves a
+        // bare file name against the process's working directory and hands back a real path, which
+        // would silently answer "yes, it has a parent" for something the contract says has none.
+        if (!path.contains('/')) return null
+        return NSURL.fileURLWithPath(path).URLByDeletingLastPathComponent?.path
+    }
 
     override fun ensureWritableDirectory(path: String): Boolean {
         if (!fileManager.fileExistsAtPath(path)) {

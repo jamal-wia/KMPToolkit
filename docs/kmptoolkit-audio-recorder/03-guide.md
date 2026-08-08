@@ -25,7 +25,8 @@ prose because they are the ones people guess wrong:
    means "start from zero", so a mis-wired button cannot silently append to an old recording.
 2. **`cancel` is for abandoning, `release` is for disposing.** `cancel` deletes the partial file and
    returns to `Idle`, ready to record again. `release` frees the native handle forever and **keeps**
-   the file — losing the screen is not a decision that the audio was unwanted.
+   the file — losing the screen is not a decision that the audio was unwanted. (Releasing from
+   `Ready` does delete: that file holds nothing, and nothing could clean it up later.)
 3. **An illegal call is inert.** It returns `RecorderError.IllegalState` and changes nothing: not
    the state, not the file, not the native recorder. You can ignore the result of a redundant
    `stop()` without risk.
@@ -65,7 +66,9 @@ when (val result = recorder.prepare()) {
 device being unhelpful. Treat them like a failed assertion, not like a condition to display.
 
 Failures also land in `state` as `RecorderState.Failed(error)`, so a screen that renders from the
-flow does not have to capture return values as well. Both paths report the same error object.
+flow does not have to capture return values as well. Both paths report the same error object. When a
+failure leaves a file behind — today only a failed `stop()` — `Failed.outputPath` carries it, since
+`cancel()` is illegal from `Failed` and you would otherwise have no way to find it.
 
 ## Recording with pause
 
@@ -95,7 +98,7 @@ Nothing is hardcoded. `RecordingStorage` has three knobs and a default derived f
 | `directoryName = "voice-notes"` | `<app-private files>/voice-notes/recording_<epochMillis>.m4a` |
 | `directoryPath = "/…/cache/notes"` | `/…/cache/notes/recording_<epochMillis>.m4a` |
 | `fileNamePrefix = "note"` | `…/note_<epochMillis>.m4a` |
-| `prepare(outputPath = "…")` | exactly that path, config ignored |
+| `prepare(outputPath = "…")` | exactly that path, config ignored. Must be absolute |
 
 ```kotlin
 val recorder = createAudioRecorder(
@@ -125,7 +128,7 @@ Finished files are yours: nothing here deletes, rotates, or expires a `Completed
 There is no MP3: neither platform ships an MP3 encoder, and writing AAC into a `.mp3` file would be
 a lie. Encode to MP3 on a server if you need it.
 
-`AudioRecorderConfig.HighQuality` bumps the encoder to stereo 48 kHz at 256 kbit/s — roughly four
+`AudioRecorderConfig.HIGH_QUALITY` bumps the encoder to stereo 48 kHz at 256 kbit/s — roughly four
 times the bytes per second of the default. For speech, the default is already transparent.
 
 ## Ownership and release
@@ -171,9 +174,16 @@ not need to clean up after it, and the recorder is usable again afterwards.
 Cancellation is *not* how you abandon a recording that already started: `start` is not suspending,
 so there is nothing to cancel. Call `cancel()`.
 
+`release()` during an in-flight `prepare()` is also safe: the preparation tears itself down when it
+completes rather than moving a released recorder to `Ready`.
+
 ## Threading
 
-Drive one recorder from one thread — the main thread is the usual choice. `state` and `elapsed` are
+Drive one recorder from one thread — the main thread is the usual choice. Note that `start()` and
+`stop()` are not suspending but are not instant either: `stop()` in particular finalizes the
+container (on Android, writing the MPEG-4 `moov` atom) and can block for a noticeable fraction of a
+second on a long recording. If that matters for your frame budget, call them from your own
+background dispatcher — the same one every time. `state` and `elapsed` are
 `StateFlow`s and can be collected from anywhere.
 
 The recorder runs its `elapsed` ticker on `Dispatchers.Default` and needs no main dispatcher, so it

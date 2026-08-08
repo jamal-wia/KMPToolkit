@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.runCurrent
  * The recorder's own clock is a [kotlin.time.TestTimeSource] driven by hand here, so every expected
  * value below is exact rather than approximate.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class RecorderElapsedTest {
 
     @Test

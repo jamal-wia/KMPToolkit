@@ -19,6 +19,10 @@ internal class MediaRecorderEngine(
     private val context: Context,
 ) : RecorderEngine {
 
+    // Volatile because prepare() assigns it from Dispatchers.IO while release() may read it from
+    // the caller's thread — the one interleaving the single-threaded contract still permits, since
+    // release() is allowed to run while prepare() is suspended.
+    @Volatile
     private var recorder: MediaRecorder? = null
 
     override fun hasRecordAudioPermission(): Boolean =

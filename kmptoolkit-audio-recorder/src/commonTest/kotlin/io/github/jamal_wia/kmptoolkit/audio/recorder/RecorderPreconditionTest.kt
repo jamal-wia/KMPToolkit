@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -66,6 +67,10 @@ class RecorderPreconditionTest {
                 RecorderResult.Failure(RecorderError.UnsupportedFormat(AudioFormat.WAV)),
                 result,
             )
+            assertEquals(
+                RecorderState.Failed(RecorderError.UnsupportedFormat(AudioFormat.WAV)),
+                fixture.recorder.state.value,
+            )
         }
     }
 
@@ -82,6 +87,10 @@ class RecorderPreconditionTest {
                 RecorderResult.Failure(RecorderError.DirectoryNotWritable(DEFAULT_DIRECTORY)),
                 result,
             )
+            assertEquals(
+                RecorderState.Failed(RecorderError.DirectoryNotWritable(DEFAULT_DIRECTORY)),
+                fixture.recorder.state.value,
+            )
             assertFalse(fixture.engine.calls.any { it.startsWith("prepare(") })
         }
 
@@ -93,6 +102,31 @@ class RecorderPreconditionTest {
             RecorderResult.Failure(RecorderError.DirectoryNotWritable("orphan.m4a")),
             result,
         )
+        assertEquals(
+            RecorderState.Failed(RecorderError.DirectoryNotWritable("orphan.m4a")),
+            fixture.recorder.state.value,
+        )
+    }
+
+    @Test
+    fun `prepare rejects a blank explicit path before touching the filesystem`() =
+        runRecorderTest { fixture ->
+            val result: RecorderResult<String> = fixture.recorder.prepare(outputPath = "")
+
+            assertEquals(RecorderResult.Failure(RecorderError.DirectoryNotWritable("")), result)
+            assertEquals(emptySet(), fixture.fileSystem.createdDirectories)
+            assertContentEquals(emptyList(), fixture.fileSystem.freeSpaceQueries)
+        }
+
+    @Test
+    fun `prepare rejects a relative explicit path`() = runRecorderTest { fixture ->
+        val result: RecorderResult<String> = fixture.recorder.prepare(outputPath = "notes/a.m4a")
+
+        assertEquals(
+            RecorderResult.Failure(RecorderError.DirectoryNotWritable("notes/a.m4a")),
+            result,
+        )
+        assertEquals(emptySet(), fixture.fileSystem.createdDirectories)
     }
 
     @Test
@@ -117,6 +151,16 @@ class RecorderPreconditionTest {
                 fixture.engine.calls.any { it.startsWith("prepare(") },
                 "a doomed recording must not reach the microphone",
             )
+            assertEquals(
+                RecorderState.Failed(
+                    RecorderError.InsufficientStorage(
+                        path = DEFAULT_DIRECTORY,
+                        requiredBytes = 1_000L,
+                        availableBytes = 999L,
+                    )
+                ),
+                fixture.recorder.state.value,
+            )
         }
     }
 
@@ -126,7 +170,7 @@ class RecorderPreconditionTest {
         runRecorderTest(config) { fixture ->
             fixture.fileSystem.freeSpace = 1_000L
 
-            assertTrue(fixture.recorder.prepare().isSuccess)
+            assertEquals(RecorderResult.Success(GENERATED_PATH), fixture.recorder.prepare())
         }
     }
 
@@ -136,7 +180,7 @@ class RecorderPreconditionTest {
         runRecorderTest(config) { fixture ->
             fixture.fileSystem.freeSpace = -1L
 
-            assertTrue(fixture.recorder.prepare().isSuccess)
+            assertEquals(RecorderResult.Success(GENERATED_PATH), fixture.recorder.prepare())
         }
     }
 
@@ -146,7 +190,12 @@ class RecorderPreconditionTest {
         runRecorderTest(config) { fixture ->
             fixture.fileSystem.freeSpace = 0L
 
-            assertTrue(fixture.recorder.prepare().isSuccess)
+            assertEquals(RecorderResult.Success(GENERATED_PATH), fixture.recorder.prepare())
+            assertContentEquals(
+                emptyList(),
+                fixture.fileSystem.freeSpaceQueries,
+                "a zero minimum must skip the check outright, not compare against zero",
+            )
         }
     }
 

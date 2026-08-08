@@ -56,7 +56,7 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderCo
 
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig$Companion {
 	public final fun getDEFAULT_DURATION_UPDATE_INTERVAL-UwyO8pc ()J
-	public final fun getHighQuality ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;
+	public final fun getHIGH_QUALITY ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderFactory_androidKt {
@@ -223,12 +223,15 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$C
 }
 
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
-	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;)V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;Ljava/lang/String;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;
-	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed;
-	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Failed;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getError ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;
+	public final fun getOutputPath ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

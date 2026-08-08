@@ -33,7 +33,11 @@ internal class AndroidRecordingFileSystem(
     override fun freeSpaceBytes(path: String): Long {
         @Suppress("TooGenericExceptionCaught", "SwallowedException")
         return try {
-            File(path).usableSpace
+            val directory = File(path)
+            // usableSpace answers 0 — indistinguishable from a genuinely full volume — for a path
+            // that does not exist. Report that as "unknown" instead, so the caller's
+            // treat-unknown-as-enough rule applies rather than a spurious InsufficientStorage.
+            if (directory.exists()) directory.usableSpace else UNKNOWN_FREE_SPACE
         } catch (failure: Throwable) {
             UNKNOWN_FREE_SPACE
         }
