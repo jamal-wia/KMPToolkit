@@ -37,6 +37,15 @@ jobs:
       - name: Verify build (Android + iOS unit tests)
         run: ./gradlew testDebugUnitTest iosSimulatorArm64Test --no-configuration-cache
 
+      # Publish locally first and build :sample against those coordinates through the BOM. A unit
+      # test cannot see a malformed POM, a missing Android variant, or a publication that drops a
+      # transitive dependency — a real consumer resolving the real artifacts can. Cheap, and it
+      # runs before anything is pushed to Central where a bad release cannot be withdrawn.
+      - name: Smoke-test the publication with a real consumer
+        run: |
+          ./gradlew publishToMavenLocal --no-configuration-cache
+          ./gradlew :sample:assembleDebug -PuseMavenLocal --no-configuration-cache
+
       - name: Publish to Maven Central
         run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
         env:
