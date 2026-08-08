@@ -1,0 +1,12 @@
+public final class io/github/jamal_wia/kmptoolkit/storage/testing/InMemoryKeyValueStorage : io/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage {
+	public fun <init> ()V
+	public fun clear ()Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+	public fun get (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+	public final fun getContents ()Ljava/util/Map;
+	public final fun getFailNextOperationWith ()Lio/github/jamal_wia/kmptoolkit/storage/StorageError;
+	public final fun getWrites ()Ljava/util/List;
+	public fun put (Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+	public fun remove (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+	public final fun setFailNextOperationWith (Lio/github/jamal_wia/kmptoolkit/storage/StorageError;)V
+}
+

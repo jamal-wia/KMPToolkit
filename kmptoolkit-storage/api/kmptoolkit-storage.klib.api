@@ -1,0 +1,157 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-storage>
+final enum class io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility : kotlin/Enum<io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility> { // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility|null[0]
+    enum entry AFTER_FIRST_UNLOCK // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.AFTER_FIRST_UNLOCK|null[0]
+    enum entry AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY|null[0]
+    enum entry WHEN_PASSCODE_SET_THIS_DEVICE_ONLY // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY|null[0]
+    enum entry WHEN_UNLOCKED // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.WHEN_UNLOCKED|null[0]
+    enum entry WHEN_UNLOCKED_THIS_DEVICE_ONLY // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.WHEN_UNLOCKED_THIS_DEVICE_ONLY|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility> // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility> // io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility.values|values#static(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.storage/StorageOperation : kotlin/Enum<io.github.jamal_wia.kmptoolkit.storage/StorageOperation> { // io.github.jamal_wia.kmptoolkit.storage/StorageOperation|null[0]
+    enum entry CLEAR // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.CLEAR|null[0]
+    enum entry GET // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.GET|null[0]
+    enum entry PUT // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.PUT|null[0]
+    enum entry REMOVE // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.REMOVE|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.storage/StorageOperation> // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageOperation // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.storage/StorageOperation> // io.github.jamal_wia.kmptoolkit.storage/StorageOperation.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage { // io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage|null[0]
+    abstract fun clear(): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage.clear|clear(){}[0]
+    abstract fun get(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/String?> // io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage.get|get(kotlin.String){}[0]
+    abstract fun put(kotlin/String, kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage.put|put(kotlin.String;kotlin.String){}[0]
+    abstract fun remove(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage.remove|remove(kotlin.String){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.storage/SecureKeyValueStorage : io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage // io.github.jamal_wia.kmptoolkit.storage/SecureKeyValueStorage|null[0]
+
+sealed interface <#A: out kotlin/Any?> io.github.jamal_wia.kmptoolkit.storage/StorageResult { // io.github.jamal_wia.kmptoolkit.storage/StorageResult|null[0]
+    final class <#A1: out kotlin/Any?> Success : io.github.jamal_wia.kmptoolkit.storage/StorageResult<#A1> { // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success|null[0]
+        constructor <init>(#A1) // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success.<init>|<init>(1:0){}[0]
+
+        final val value // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success.value|{}value[0]
+            final fun <get-value>(): #A1 // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success.value.<get-value>|<get-value>(){}[0]
+
+        final fun component1(): #A1 // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success.component1|component1(){}[0]
+        final fun copy(#A1 = ...): io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success<#A1> // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success.copy|copy(1:0){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Success.toString|toString(){}[0]
+    }
+
+    final class Failure : io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Nothing> { // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.storage/StorageError) // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure.<init>|<init>(io.github.jamal_wia.kmptoolkit.storage.StorageError){}[0]
+
+        final val error // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure.error|{}error[0]
+            final fun <get-error>(): io.github.jamal_wia.kmptoolkit.storage/StorageError // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure.error.<get-error>|<get-error>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.storage/StorageError // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure.component1|component1(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.storage/StorageError = ...): io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure.copy|copy(io.github.jamal_wia.kmptoolkit.storage.StorageError){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/StorageResult.Failure.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.storage/StorageError { // io.github.jamal_wia.kmptoolkit.storage/StorageError|null[0]
+    final class OperationFailed : io.github.jamal_wia.kmptoolkit.storage/StorageError { // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.storage/StorageOperation, kotlin/String? = ..., kotlin/Int? = ..., kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.<init>|<init>(io.github.jamal_wia.kmptoolkit.storage.StorageOperation;kotlin.String?;kotlin.Int?;kotlin.Throwable?){}[0]
+
+        final val cause // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.cause.<get-cause>|<get-cause>(){}[0]
+        final val key // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.key|{}key[0]
+            final fun <get-key>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.key.<get-key>|<get-key>(){}[0]
+        final val operation // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.operation|{}operation[0]
+            final fun <get-operation>(): io.github.jamal_wia.kmptoolkit.storage/StorageOperation // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.operation.<get-operation>|<get-operation>(){}[0]
+        final val platformCode // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.platformCode|{}platformCode[0]
+            final fun <get-platformCode>(): kotlin/Int? // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.platformCode.<get-platformCode>|<get-platformCode>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.storage/StorageOperation // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.component1|component1(){}[0]
+        final fun component2(): kotlin/String? // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.component2|component2(){}[0]
+        final fun component3(): kotlin/Int? // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.component3|component3(){}[0]
+        final fun component4(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.component4|component4(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.storage/StorageOperation = ..., kotlin/String? = ..., kotlin/Int? = ..., kotlin/Throwable? = ...): io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.copy|copy(io.github.jamal_wia.kmptoolkit.storage.StorageOperation;kotlin.String?;kotlin.Int?;kotlin.Throwable?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/StorageError.OperationFailed.toString|toString(){}[0]
+    }
+
+    final class Unavailable : io.github.jamal_wia.kmptoolkit.storage/StorageError { // io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable|null[0]
+        constructor <init>(kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable.<init>|<init>(kotlin.Throwable?){}[0]
+
+        final val cause // io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable.cause.<get-cause>|<get-cause>(){}[0]
+
+        final fun component1(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable.component1|component1(){}[0]
+        final fun copy(kotlin/Throwable? = ...): io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable // io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable.copy|copy(kotlin.Throwable?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/StorageError.Unavailable.toString|toString(){}[0]
+    }
+
+    final class Undecryptable : io.github.jamal_wia.kmptoolkit.storage/StorageError { // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable|null[0]
+        constructor <init>(kotlin/String, kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.<init>|<init>(kotlin.String;kotlin.Throwable?){}[0]
+
+        final val cause // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.cause.<get-cause>|<get-cause>(){}[0]
+        final val key // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.key|{}key[0]
+            final fun <get-key>(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.key.<get-key>|<get-key>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.component1|component1(){}[0]
+        final fun component2(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.component2|component2(){}[0]
+        final fun copy(kotlin/String = ..., kotlin/Throwable? = ...): io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.copy|copy(kotlin.String;kotlin.Throwable?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/StorageError.Undecryptable.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.storage/DeviceIdProvider { // io.github.jamal_wia.kmptoolkit.storage/DeviceIdProvider|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage, kotlin/String = ...) // io.github.jamal_wia.kmptoolkit.storage/DeviceIdProvider.<init>|<init>(io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage;kotlin.String){}[0]
+
+    final fun current(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/DeviceIdProvider.current|current(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.storage/DeviceIdProvider.Companion|null[0]
+        final const val DEFAULT_KEY // io.github.jamal_wia.kmptoolkit.storage/DeviceIdProvider.Companion.DEFAULT_KEY|{}DEFAULT_KEY[0]
+            final fun <get-DEFAULT_KEY>(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/DeviceIdProvider.Companion.DEFAULT_KEY.<get-DEFAULT_KEY>|<get-DEFAULT_KEY>(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.storage/StorageConfig { // io.github.jamal_wia.kmptoolkit.storage/StorageConfig|null[0]
+    constructor <init>(kotlin/String? = ...) // io.github.jamal_wia.kmptoolkit.storage/StorageConfig.<init>|<init>(kotlin.String?){}[0]
+
+    final val name // io.github.jamal_wia.kmptoolkit.storage/StorageConfig.name|{}name[0]
+        final fun <get-name>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.storage/StorageConfig.name.<get-name>|<get-name>(){}[0]
+
+    final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.storage/StorageConfig.component1|component1(){}[0]
+    final fun copy(kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.storage/StorageConfig // io.github.jamal_wia.kmptoolkit.storage/StorageConfig.copy|copy(kotlin.String?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.storage/StorageConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.storage/StorageConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.storage/StorageConfig.toString|toString(){}[0]
+}
+
+final val io.github.jamal_wia.kmptoolkit.storage/isSuccess // io.github.jamal_wia.kmptoolkit.storage/isSuccess|@io.github.jamal_wia.kmptoolkit.storage.StorageResult<*>{}isSuccess[0]
+    final fun (io.github.jamal_wia.kmptoolkit.storage/StorageResult<*>).<get-isSuccess>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.storage/isSuccess.<get-isSuccess>|<get-isSuccess>@io.github.jamal_wia.kmptoolkit.storage.StorageResult<*>(){}[0]
+
+final fun (io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage).io.github.jamal_wia.kmptoolkit.storage/getStringOrNull(kotlin/String): kotlin/String? // io.github.jamal_wia.kmptoolkit.storage/getStringOrNull|getStringOrNull@io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage(kotlin.String){}[0]
+final fun <#A: kotlin/Any?> (io.github.jamal_wia.kmptoolkit.storage/StorageResult<#A>).io.github.jamal_wia.kmptoolkit.storage/errorOrNull(): io.github.jamal_wia.kmptoolkit.storage/StorageError? // io.github.jamal_wia.kmptoolkit.storage/errorOrNull|errorOrNull@io.github.jamal_wia.kmptoolkit.storage.StorageResult<0:0>(){0§<kotlin.Any?>}[0]
+final fun <#A: kotlin/Any?> (io.github.jamal_wia.kmptoolkit.storage/StorageResult<#A>).io.github.jamal_wia.kmptoolkit.storage/getOrNull(): #A? // io.github.jamal_wia.kmptoolkit.storage/getOrNull|getOrNull@io.github.jamal_wia.kmptoolkit.storage.StorageResult<0:0>(){0§<kotlin.Any?>}[0]
+final fun io.github.jamal_wia.kmptoolkit.storage/createKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage/StorageConfig = ...): io.github.jamal_wia.kmptoolkit.storage/KeyValueStorage // io.github.jamal_wia.kmptoolkit.storage/createKeyValueStorage|createKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage.StorageConfig){}[0]
+final fun io.github.jamal_wia.kmptoolkit.storage/createSecureKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage/StorageConfig = ..., io.github.jamal_wia.kmptoolkit.storage/KeychainAccessibility = ..., kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.storage/SecureKeyValueStorage // io.github.jamal_wia.kmptoolkit.storage/createSecureKeyValueStorage|createSecureKeyValueStorage(io.github.jamal_wia.kmptoolkit.storage.StorageConfig;io.github.jamal_wia.kmptoolkit.storage.KeychainAccessibility;kotlin.String?){}[0]

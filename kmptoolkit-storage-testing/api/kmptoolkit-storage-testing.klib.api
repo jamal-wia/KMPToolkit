@@ -1,0 +1,25 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-storage-testing>
+final class io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage : io.github.jamal_wia.kmptoolkit.storage/SecureKeyValueStorage { // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.<init>|<init>(){}[0]
+
+    final val contents // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.contents|{}contents[0]
+        final fun <get-contents>(): kotlin.collections/Map<kotlin/String, kotlin/String> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.contents.<get-contents>|<get-contents>(){}[0]
+    final val writes // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.writes|{}writes[0]
+        final fun <get-writes>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.writes.<get-writes>|<get-writes>(){}[0]
+
+    final var failNextOperationWith // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.failNextOperationWith|{}failNextOperationWith[0]
+        final fun <get-failNextOperationWith>(): io.github.jamal_wia.kmptoolkit.storage/StorageError? // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.failNextOperationWith.<get-failNextOperationWith>|<get-failNextOperationWith>(){}[0]
+        final fun <set-failNextOperationWith>(io.github.jamal_wia.kmptoolkit.storage/StorageError?) // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.failNextOperationWith.<set-failNextOperationWith>|<set-failNextOperationWith>(io.github.jamal_wia.kmptoolkit.storage.StorageError?){}[0]
+
+    final fun clear(): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.clear|clear(){}[0]
+    final fun get(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/String?> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.get|get(kotlin.String){}[0]
+    final fun put(kotlin/String, kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.put|put(kotlin.String;kotlin.String){}[0]
+    final fun remove(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.remove|remove(kotlin.String){}[0]
+}

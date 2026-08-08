@@ -38,6 +38,8 @@ include(":kmptoolkit-haptics")
 include(":kmptoolkit-haptics-testing")
 include(":kmptoolkit-scheduler")
 include(":kmptoolkit-scheduler-testing")
+include(":kmptoolkit-storage")
+include(":kmptoolkit-storage-testing")
 
 // Not published — Android Compose demo, smoke-tests published artifacts from mavenLocal.
 include(":sample")
