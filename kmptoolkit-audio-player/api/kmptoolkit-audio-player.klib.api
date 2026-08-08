@@ -1,0 +1,220 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-audio-player>
+abstract interface io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer : kotlin/AutoCloseable { // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer|null[0]
+    abstract val playbackPositionFlow // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.playbackPositionFlow|{}playbackPositionFlow[0]
+        abstract fun <get-playbackPositionFlow>(): kotlinx.coroutines.flow/StateFlow<kotlin/Long> // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.playbackPositionFlow.<get-playbackPositionFlow>|<get-playbackPositionFlow>(){}[0]
+    abstract val playbackSpeed // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.playbackSpeed|{}playbackSpeed[0]
+        abstract fun <get-playbackSpeed>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.playbackSpeed.<get-playbackSpeed>|<get-playbackSpeed>(){}[0]
+    abstract val stateFlow // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.stateFlow|{}stateFlow[0]
+        abstract fun <get-stateFlow>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.audio.player/PlayerState> // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.stateFlow.<get-stateFlow>|<get-stateFlow>(){}[0]
+
+    abstract fun pause() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.pause|pause(){}[0]
+    abstract fun play() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.play|play(){}[0]
+    abstract fun release() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.release|release(){}[0]
+    abstract fun replay() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.replay|replay(){}[0]
+    abstract fun seekBackward(kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.seekBackward|seekBackward(kotlin.Long){}[0]
+    abstract fun seekForward(kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.seekForward|seekForward(kotlin.Long){}[0]
+    abstract fun seekTo(kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.seekTo|seekTo(kotlin.Long){}[0]
+    abstract fun setPlaybackSpeed(kotlin/Float) // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.setPlaybackSpeed|setPlaybackSpeed(kotlin.Float){}[0]
+    abstract fun stop() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.stop|stop(){}[0]
+    abstract suspend fun prepare(io.github.jamal_wia.kmptoolkit.audio.player/AudioSource) // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.prepare|prepare(io.github.jamal_wia.kmptoolkit.audio.player.AudioSource){}[0]
+    open fun close() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.close|close(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine { // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine|null[0]
+    abstract fun durationMs(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine.durationMs|durationMs(){}[0]
+    abstract fun pause() // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine.pause|pause(){}[0]
+    abstract fun positionMs(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine.positionMs|positionMs(){}[0]
+    abstract fun release() // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine.release|release(){}[0]
+    abstract fun seekTo(kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine.seekTo|seekTo(kotlin.Long){}[0]
+    abstract fun setListener(io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngineListener?) // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine.setListener|setListener(io.github.jamal_wia.kmptoolkit.audio.player.PlaybackEngineListener?){}[0]
+    abstract fun setSpeed(kotlin/Float) // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine.setSpeed|setSpeed(kotlin.Float){}[0]
+    abstract fun start() // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine.start|start(){}[0]
+    abstract suspend fun load(io.github.jamal_wia.kmptoolkit.audio.player/AudioSource) // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine.load|load(io.github.jamal_wia.kmptoolkit.audio.player.AudioSource){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngineListener { // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngineListener|null[0]
+    abstract fun onCompleted() // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngineListener.onCompleted|onCompleted(){}[0]
+    abstract fun onFailed(kotlin/Throwable) // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngineListener.onFailed|onFailed(kotlin.Throwable){}[0]
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.audio.player/AudioSource { // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource|null[0]
+    final class Asset : io.github.jamal_wia.kmptoolkit.audio.player/AudioSource { // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset.<init>|<init>(kotlin.String){}[0]
+
+        final val path // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset.path|{}path[0]
+            final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset.path.<get-path>|<get-path>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Asset.toString|toString(){}[0]
+    }
+
+    final class File : io.github.jamal_wia.kmptoolkit.audio.player/AudioSource { // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File.<init>|<init>(kotlin.String){}[0]
+
+        final val path // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File.path|{}path[0]
+            final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File.path.<get-path>|<get-path>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.File.toString|toString(){}[0]
+    }
+
+    final class Remote : io.github.jamal_wia.kmptoolkit.audio.player/AudioSource { // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote.<init>|<init>(kotlin.String){}[0]
+
+        final val url // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote.url|{}url[0]
+            final fun <get-url>(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote.url.<get-url>|<get-url>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioSource.Remote.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.audio.player/PlayerState { // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState|null[0]
+    final class Completed : io.github.jamal_wia.kmptoolkit.audio.player/PlayerState { // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed|null[0]
+        constructor <init>(kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed.<init>|<init>(kotlin.Long){}[0]
+
+        final val duration // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed.duration|{}duration[0]
+            final fun <get-duration>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed.duration.<get-duration>|<get-duration>(){}[0]
+
+        final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed.component1|component1(){}[0]
+        final fun copy(kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed.copy|copy(kotlin.Long){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Completed.toString|toString(){}[0]
+    }
+
+    final class Error : io.github.jamal_wia.kmptoolkit.audio.player/PlayerState { // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error|null[0]
+        constructor <init>(kotlin/Throwable) // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error.<init>|<init>(kotlin.Throwable){}[0]
+
+        final val cause // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error.cause.<get-cause>|<get-cause>(){}[0]
+
+        final fun component1(): kotlin/Throwable // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error.component1|component1(){}[0]
+        final fun copy(kotlin/Throwable = ...): io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error.copy|copy(kotlin.Throwable){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Error.toString|toString(){}[0]
+    }
+
+    final class Paused : io.github.jamal_wia.kmptoolkit.audio.player/PlayerState { // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused|null[0]
+        constructor <init>(kotlin/Long, kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.<init>|<init>(kotlin.Long;kotlin.Long){}[0]
+
+        final val currentPosition // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.currentPosition|{}currentPosition[0]
+            final fun <get-currentPosition>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.currentPosition.<get-currentPosition>|<get-currentPosition>(){}[0]
+        final val duration // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.duration|{}duration[0]
+            final fun <get-duration>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.duration.<get-duration>|<get-duration>(){}[0]
+
+        final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.component1|component1(){}[0]
+        final fun component2(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.component2|component2(){}[0]
+        final fun copy(kotlin/Long = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.copy|copy(kotlin.Long;kotlin.Long){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Paused.toString|toString(){}[0]
+    }
+
+    final class Playing : io.github.jamal_wia.kmptoolkit.audio.player/PlayerState { // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing|null[0]
+        constructor <init>(kotlin/Long, kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.<init>|<init>(kotlin.Long;kotlin.Long){}[0]
+
+        final val currentPosition // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.currentPosition|{}currentPosition[0]
+            final fun <get-currentPosition>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.currentPosition.<get-currentPosition>|<get-currentPosition>(){}[0]
+        final val duration // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.duration|{}duration[0]
+            final fun <get-duration>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.duration.<get-duration>|<get-duration>(){}[0]
+
+        final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.component1|component1(){}[0]
+        final fun component2(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.component2|component2(){}[0]
+        final fun copy(kotlin/Long = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.copy|copy(kotlin.Long;kotlin.Long){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Playing.toString|toString(){}[0]
+    }
+
+    final class Ready : io.github.jamal_wia.kmptoolkit.audio.player/PlayerState { // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready|null[0]
+        constructor <init>(kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready.<init>|<init>(kotlin.Long){}[0]
+
+        final val duration // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready.duration|{}duration[0]
+            final fun <get-duration>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready.duration.<get-duration>|<get-duration>(){}[0]
+
+        final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready.component1|component1(){}[0]
+        final fun copy(kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready.copy|copy(kotlin.Long){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Ready.toString|toString(){}[0]
+    }
+
+    final object Idle : io.github.jamal_wia.kmptoolkit.audio.player/PlayerState { // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Idle|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Idle.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Idle.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Idle.toString|toString(){}[0]
+    }
+
+    final object Preparing : io.github.jamal_wia.kmptoolkit.audio.player/PlayerState { // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Preparing|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Preparing.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Preparing.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/PlayerState.Preparing.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig { // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig|null[0]
+    constructor <init>(kotlin/Long = ..., kotlin/Float = ..., kotlin/Float = ...) // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.<init>|<init>(kotlin.Long;kotlin.Float;kotlin.Float){}[0]
+
+    final val maxPlaybackSpeed // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.maxPlaybackSpeed|{}maxPlaybackSpeed[0]
+        final fun <get-maxPlaybackSpeed>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.maxPlaybackSpeed.<get-maxPlaybackSpeed>|<get-maxPlaybackSpeed>(){}[0]
+    final val minPlaybackSpeed // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.minPlaybackSpeed|{}minPlaybackSpeed[0]
+        final fun <get-minPlaybackSpeed>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.minPlaybackSpeed.<get-minPlaybackSpeed>|<get-minPlaybackSpeed>(){}[0]
+    final val positionUpdateIntervalMs // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.positionUpdateIntervalMs|{}positionUpdateIntervalMs[0]
+        final fun <get-positionUpdateIntervalMs>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.positionUpdateIntervalMs.<get-positionUpdateIntervalMs>|<get-positionUpdateIntervalMs>(){}[0]
+
+    final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.component1|component1(){}[0]
+    final fun component2(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.component2|component2(){}[0]
+    final fun component3(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.component3|component3(){}[0]
+    final fun copy(kotlin/Long = ..., kotlin/Float = ..., kotlin/Float = ...): io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.copy|copy(kotlin.Long;kotlin.Float;kotlin.Float){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.Companion|null[0]
+        final const val DEFAULT_MAX_PLAYBACK_SPEED // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.Companion.DEFAULT_MAX_PLAYBACK_SPEED|{}DEFAULT_MAX_PLAYBACK_SPEED[0]
+            final fun <get-DEFAULT_MAX_PLAYBACK_SPEED>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.Companion.DEFAULT_MAX_PLAYBACK_SPEED.<get-DEFAULT_MAX_PLAYBACK_SPEED>|<get-DEFAULT_MAX_PLAYBACK_SPEED>(){}[0]
+        final const val DEFAULT_MIN_PLAYBACK_SPEED // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.Companion.DEFAULT_MIN_PLAYBACK_SPEED|{}DEFAULT_MIN_PLAYBACK_SPEED[0]
+            final fun <get-DEFAULT_MIN_PLAYBACK_SPEED>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.Companion.DEFAULT_MIN_PLAYBACK_SPEED.<get-DEFAULT_MIN_PLAYBACK_SPEED>|<get-DEFAULT_MIN_PLAYBACK_SPEED>(){}[0]
+        final const val DEFAULT_POSITION_UPDATE_INTERVAL_MS // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.Companion.DEFAULT_POSITION_UPDATE_INTERVAL_MS|{}DEFAULT_POSITION_UPDATE_INTERVAL_MS[0]
+            final fun <get-DEFAULT_POSITION_UPDATE_INTERVAL_MS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig.Companion.DEFAULT_POSITION_UPDATE_INTERVAL_MS.<get-DEFAULT_POSITION_UPDATE_INTERVAL_MS>|<get-DEFAULT_POSITION_UPDATE_INTERVAL_MS>(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerReleasedException : kotlin/IllegalStateException { // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerReleasedException|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerReleasedException.<init>|<init>(){}[0]
+}
+
+final const val io.github.jamal_wia.kmptoolkit.audio.player/DEFAULT_SEEK_AMOUNT_MS // io.github.jamal_wia.kmptoolkit.audio.player/DEFAULT_SEEK_AMOUNT_MS|{}DEFAULT_SEEK_AMOUNT_MS[0]
+    final fun <get-DEFAULT_SEEK_AMOUNT_MS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player/DEFAULT_SEEK_AMOUNT_MS.<get-DEFAULT_SEEK_AMOUNT_MS>|<get-DEFAULT_SEEK_AMOUNT_MS>(){}[0]
+
+final val io.github.jamal_wia.kmptoolkit.audio.player/duration // io.github.jamal_wia.kmptoolkit.audio.player/duration|@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState{}duration[0]
+    final fun (io.github.jamal_wia.kmptoolkit.audio.player/PlayerState).<get-duration>(): kotlin/Long? // io.github.jamal_wia.kmptoolkit.audio.player/duration.<get-duration>|<get-duration>@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.audio.player/isPlayable // io.github.jamal_wia.kmptoolkit.audio.player/isPlayable|@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState{}isPlayable[0]
+    final fun (io.github.jamal_wia.kmptoolkit.audio.player/PlayerState).<get-isPlayable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/isPlayable.<get-isPlayable>|<get-isPlayable>@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.audio.player/isPlaying // io.github.jamal_wia.kmptoolkit.audio.player/isPlaying|@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState{}isPlaying[0]
+    final fun (io.github.jamal_wia.kmptoolkit.audio.player/PlayerState).<get-isPlaying>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player/isPlaying.<get-isPlaying>|<get-isPlaying>@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.audio.player/playbackPosition // io.github.jamal_wia.kmptoolkit.audio.player/playbackPosition|@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState{}playbackPosition[0]
+    final fun (io.github.jamal_wia.kmptoolkit.audio.player/PlayerState).<get-playbackPosition>(): kotlin/Long? // io.github.jamal_wia.kmptoolkit.audio.player/playbackPosition.<get-playbackPosition>|<get-playbackPosition>@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.audio.player/progress // io.github.jamal_wia.kmptoolkit.audio.player/progress|@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState{}progress[0]
+    final fun (io.github.jamal_wia.kmptoolkit.audio.player/PlayerState).<get-progress>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.player/progress.<get-progress>|<get-progress>@io.github.jamal_wia.kmptoolkit.audio.player.PlayerState(){}[0]
+
+final fun io.github.jamal_wia.kmptoolkit.audio.player/createAudioPlayer(io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig = ..., platform.Foundation/NSBundle = ..., kotlin.collections/List<kotlin/String> = ..., kotlin/Boolean = ..., kotlin.coroutines/CoroutineContext = ...): io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer // io.github.jamal_wia.kmptoolkit.audio.player/createAudioPlayer|createAudioPlayer(io.github.jamal_wia.kmptoolkit.audio.player.AudioPlayerConfig;platform.Foundation.NSBundle;kotlin.collections.List<kotlin.String>;kotlin.Boolean;kotlin.coroutines.CoroutineContext){}[0]
+final fun io.github.jamal_wia.kmptoolkit.audio.player/createAudioPlayer(io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine, io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayerConfig = ..., kotlin.coroutines/CoroutineContext = ...): io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer // io.github.jamal_wia.kmptoolkit.audio.player/createAudioPlayer|createAudioPlayer(io.github.jamal_wia.kmptoolkit.audio.player.PlaybackEngine;io.github.jamal_wia.kmptoolkit.audio.player.AudioPlayerConfig;kotlin.coroutines.CoroutineContext){}[0]

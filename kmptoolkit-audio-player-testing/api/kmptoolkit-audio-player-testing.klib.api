@@ -1,0 +1,48 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-audio-player-testing>
+final class io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine : io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine { // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine|null[0]
+    constructor <init>(kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.<init>|<init>(kotlin.Long){}[0]
+
+    final val hasListener // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.hasListener|{}hasListener[0]
+        final fun <get-hasListener>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.hasListener.<get-hasListener>|<get-hasListener>(){}[0]
+    final val loadedSources // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.loadedSources|{}loadedSources[0]
+        final fun <get-loadedSources>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.audio.player/AudioSource> // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.loadedSources.<get-loadedSources>|<get-loadedSources>(){}[0]
+
+    final var appliedSpeed // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.appliedSpeed|{}appliedSpeed[0]
+        final fun <get-appliedSpeed>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.appliedSpeed.<get-appliedSpeed>|<get-appliedSpeed>(){}[0]
+    final var durationMs // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.durationMs|{}durationMs[0]
+        final fun <get-durationMs>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.durationMs.<get-durationMs>|<get-durationMs>(){}[0]
+        final fun <set-durationMs>(kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.durationMs.<set-durationMs>|<set-durationMs>(kotlin.Long){}[0]
+    final var isPlaying // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.isPlaying|{}isPlaying[0]
+        final fun <get-isPlaying>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.isPlaying.<get-isPlaying>|<get-isPlaying>(){}[0]
+    final var loadDelayMs // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.loadDelayMs|{}loadDelayMs[0]
+        final fun <get-loadDelayMs>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.loadDelayMs.<get-loadDelayMs>|<get-loadDelayMs>(){}[0]
+        final fun <set-loadDelayMs>(kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.loadDelayMs.<set-loadDelayMs>|<set-loadDelayMs>(kotlin.Long){}[0]
+    final var loadFailure // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.loadFailure|{}loadFailure[0]
+        final fun <get-loadFailure>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.loadFailure.<get-loadFailure>|<get-loadFailure>(){}[0]
+        final fun <set-loadFailure>(kotlin/Throwable?) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.loadFailure.<set-loadFailure>|<set-loadFailure>(kotlin.Throwable?){}[0]
+    final var positionMs // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.positionMs|{}positionMs[0]
+        final fun <get-positionMs>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.positionMs.<get-positionMs>|<get-positionMs>(){}[0]
+    final var releaseCount // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.releaseCount|{}releaseCount[0]
+        final fun <get-releaseCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.releaseCount.<get-releaseCount>|<get-releaseCount>(){}[0]
+
+    final fun advancePositionBy(kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.advancePositionBy|advancePositionBy(kotlin.Long){}[0]
+    final fun advancePositionTo(kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.advancePositionTo|advancePositionTo(kotlin.Long){}[0]
+    final fun completePlayback() // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.completePlayback|completePlayback(){}[0]
+    final fun durationMs(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.durationMs|durationMs(){}[0]
+    final fun failPlayback(kotlin/Throwable) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.failPlayback|failPlayback(kotlin.Throwable){}[0]
+    final fun pause() // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.pause|pause(){}[0]
+    final fun positionMs(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.positionMs|positionMs(){}[0]
+    final fun release() // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.release|release(){}[0]
+    final fun seekTo(kotlin/Long) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.seekTo|seekTo(kotlin.Long){}[0]
+    final fun setListener(io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngineListener?) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.setListener|setListener(io.github.jamal_wia.kmptoolkit.audio.player.PlaybackEngineListener?){}[0]
+    final fun setSpeed(kotlin/Float) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.setSpeed|setSpeed(kotlin.Float){}[0]
+    final fun start() // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.start|start(){}[0]
+    final suspend fun load(io.github.jamal_wia.kmptoolkit.audio.player/AudioSource) // io.github.jamal_wia.kmptoolkit.audio.player.testing/FakePlaybackEngine.load|load(io.github.jamal_wia.kmptoolkit.audio.player.AudioSource){}[0]
+}

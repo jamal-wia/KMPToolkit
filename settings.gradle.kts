@@ -30,6 +30,8 @@ rootProject.name = "KMPToolkit"
 include(":kmptoolkit-coroutines")
 include(":kmptoolkit-coroutines-testing")
 include(":kmptoolkit-logging")
+include(":kmptoolkit-audio-player")
+include(":kmptoolkit-audio-player-testing")
 include(":kmptoolkit-scheduler")
 include(":kmptoolkit-scheduler-testing")
 
