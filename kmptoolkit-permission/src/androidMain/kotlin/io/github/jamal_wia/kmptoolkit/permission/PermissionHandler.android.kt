@@ -209,7 +209,24 @@ internal class AndroidPermissionHandler(
         storage.put(askedKey(keyPrefix, permission), ASKED)
     }
 
+    /**
+     * Removes the flag, but only when there is one to remove.
+     *
+     * The guard is what keeps [check] a query. It runs on every check of a granted permission — the
+     * overwhelmingly common call — and the overwhelmingly common state there is "granted, nothing
+     * stored", where an unconditional `remove` would turn each check into a persistent write. A
+     * consumer polling a permission per UI frame (`kmptoolkit-notification` checks before every
+     * `post`, including the progress frames its coalescer then suppresses) would otherwise pay a
+     * hundred writes for a 0..100 progress loop.
+     *
+     * The read that replaces them is the same one [wasAsked] already does on the not-granted path:
+     * a `SharedPreferences` lookup, served from the in-memory map that backs it, with no disk
+     * access and no commit. That is cheap enough that no "already cleared" memo is needed here —
+     * and a memo would be the wrong trade anyway, since it would be state that has to stay correct
+     * across a handler outliving a process boundary.
+     */
     private fun clearAsked(permission: Permission) {
-        storage.remove(askedKey(keyPrefix, permission))
+        val key: String = askedKey(keyPrefix, permission)
+        if (storage.getStringOrNull(key) != null) storage.remove(key)
     }
 }
