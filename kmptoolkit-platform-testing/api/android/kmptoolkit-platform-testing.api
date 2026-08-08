@@ -1,0 +1,78 @@
+public final class io/github/jamal_wia/kmptoolkit/platform/testing/FakeConnectivityObserver : io/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityObserver {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityStatus;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityStatus;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public final fun emit (Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityStatus;)V
+	public final fun getCloseCount ()I
+	public fun getStatus ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun isClosed ()Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/testing/FakeDeviceInfo : io/github/jamal_wia/kmptoolkit/platform/device/DeviceInfo {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/platform/device/FormFactor;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/platform/device/FormFactor;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun currentCountry ()Ljava/lang/String;
+	public final fun getCountry ()Ljava/lang/String;
+	public fun getFormFactor ()Lio/github/jamal_wia/kmptoolkit/platform/device/FormFactor;
+	public fun getModel ()Ljava/lang/String;
+	public fun getOsName ()Ljava/lang/String;
+	public fun getOsVersion ()Ljava/lang/String;
+	public final fun setCountry (Ljava/lang/String;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/testing/FakeFilePicker : io/github/jamal_wia/kmptoolkit/platform/files/FilePicker {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getPickCount ()I
+	public final fun getRequestedMimeTypes ()Ljava/util/List;
+	public final fun getResult ()Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult;
+	public fun pick (Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun setResult (Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/testing/FakeReducedMotionProbe : io/github/jamal_wia/kmptoolkit/platform/accessibility/ReducedMotionProbe {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getEnabled ()Z
+	public final fun getReadCount ()I
+	public fun isReducedMotionEnabled ()Z
+	public final fun setEnabled (Z)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/testing/InMemoryCrashLogStore : io/github/jamal_wia/kmptoolkit/platform/crash/CrashLogStore {
+	public fun <init> ()V
+	public fun <init> (Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getReadCount ()I
+	public final fun getStored ()Ljava/util/List;
+	public fun readAndClear ()Ljava/util/List;
+	public final fun seed (Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashRecord;)V
+	public fun write (Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashRecord;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/testing/RecordingScreenWakeLock : io/github/jamal_wia/kmptoolkit/platform/wakelock/ScreenWakeLock {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getRequests ()Ljava/util/List;
+	public final fun getResult ()Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;
+	public final fun isHeld ()Z
+	public fun setKeepScreenOn (Z)Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;
+	public final fun setResult (Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/testing/RecordingUrlOpener : io/github/jamal_wia/kmptoolkit/platform/url/UrlOpener {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getLastUrl ()Ljava/lang/String;
+	public final fun getOpenedUrls ()Ljava/util/List;
+	public final fun getResult ()Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;
+	public fun open (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;
+	public final fun setResult (Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;)V
+}
+
