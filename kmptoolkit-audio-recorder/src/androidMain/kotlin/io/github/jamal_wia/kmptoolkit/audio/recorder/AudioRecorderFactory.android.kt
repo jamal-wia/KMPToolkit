@@ -1,9 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import android.content.Context
-import kotlinx.coroutines.CoroutineScope
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 
 /**
  * Creates an [AudioRecorder] backed by `android.media.MediaRecorder`.
@@ -17,6 +16,9 @@ import kotlinx.coroutines.SupervisorJob
  * val recorder: AudioRecorder = createAudioRecorder(context)
  * ```
  *
+ * The `coroutineContext` parameter matches `kmptoolkit-audio-player`'s factories, so a consumer
+ * that pins one module's background work pins the other the same way.
+ *
  * The instance holds native resources from its first successful [AudioRecorder.prepare] until
  * [AudioRecorder.release] — see the ownership note on [AudioRecorder] for who is expected to call
  * it. `RECORD_AUDIO` is neither declared by this library nor requested by it; see
@@ -26,20 +28,23 @@ import kotlinx.coroutines.SupervisorJob
  *   cannot leak it.
  * @param config encoder settings, storage layout, and tick interval. Fixed for the recorder's
  *   lifetime.
+ * @param coroutineContext context for the [AudioRecorder.elapsed] ticker and for the filesystem and
+ *   encoder work behind [AudioRecorder.prepare], [AudioRecorder.stop], and [AudioRecorder.cancel].
+ *   [Dispatchers.Default] rather than [Dispatchers.Main] by default: none of that work touches UI,
+ *   so the module needs no `kotlinx-coroutines-android` and runs in a plain unit test without a
+ *   main-dispatcher rule.
  */
 public fun createAudioRecorder(
     context: Context,
     config: AudioRecorderConfig = AudioRecorderConfig(),
+    coroutineContext: CoroutineContext = Dispatchers.Default,
 ): AudioRecorder {
     val applicationContext: Context = context.applicationContext
     return DefaultAudioRecorder(
         engine = MediaRecorderEngine(applicationContext),
         fileSystem = AndroidRecordingFileSystem(applicationContext),
         config = config,
-        // Default, not Main: the only thing this scope runs is the elapsed ticker, which touches
-        // no UI and no MediaRecorder — so the module needs no kotlinx-coroutines-android and works
-        // in a plain unit test without a main-dispatcher rule.
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        workerContext = coroutineContext,
         epochClock = EpochClock { System.currentTimeMillis() },
     )
 }

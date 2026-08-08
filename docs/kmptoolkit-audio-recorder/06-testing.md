@@ -34,15 +34,21 @@ not have. So the code you actually want to test — "does the stop button produc
 ## `FakeAudioRecorder`
 
 ```kotlin
-val recorder = FakeAudioRecorder()
-val viewModel = VoiceNoteViewModel(recorder)
+@Test
+fun `stopping saves the note`() = runTest {
+    val recorder = FakeAudioRecorder()
+    val viewModel = VoiceNoteViewModel(recorder)
 
-viewModel.onRecordClicked()
-recorder.advanceElapsed(3.seconds)
-viewModel.onStopClicked()
+    viewModel.onRecordClicked()
+    recorder.advanceElapsed(3.seconds)
+    viewModel.onStopClicked()
 
-assertEquals(3.seconds, recorder.completedRecordings.single().duration)
+    assertEquals(3.seconds, recorder.completedRecordings.single().duration)
+}
 ```
+
+`prepare`, `stop`, and `cancel` are `suspend` on the fake too, so a test that drives it directly
+needs `runTest` — but they resolve immediately, with no dispatcher and no I/O to wait on.
 
 It enforces the same transition table as the real recorder, so a test that passes against it is
 testing behavior the real recorder also has. What it adds is control:
@@ -112,6 +118,9 @@ recorder.
   own; script them with `failNextOperationWith`.
 - **No format validation.** `UnsupportedFormat` likewise.
 - **Not thread-safe**, exactly like the recorder it replaces.
+- **No `Preparing` state.** `prepare` suspends to match the interface but completes at once, so the
+  fake never sits in `RecorderState.Preparing`. If your code branches on that state, test it against
+  the real recorder's suite instead.
 
 ## Testing the module itself
 

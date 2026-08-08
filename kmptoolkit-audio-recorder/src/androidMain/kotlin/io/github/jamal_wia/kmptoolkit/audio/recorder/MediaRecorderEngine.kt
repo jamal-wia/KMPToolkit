@@ -5,8 +5,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.os.Build
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * [RecorderEngine] over `android.media.MediaRecorder`.
@@ -19,7 +17,7 @@ internal class MediaRecorderEngine(
     private val context: Context,
 ) : RecorderEngine {
 
-    // Volatile because prepare() assigns it from Dispatchers.IO while release() may read it from
+    // Volatile because prepare() assigns it on the worker context while release() may read it from
     // the caller's thread — the one interleaving the single-threaded contract still permits, since
     // release() is allowed to run while prepare() is suspended.
     @Volatile
@@ -38,18 +36,17 @@ internal class MediaRecorderEngine(
 
     override suspend fun prepare(outputPath: String, config: AudioRecorderConfig) {
         release()
-        // MediaRecorder.prepare() opens the file and the audio hardware, both blocking.
-        withContext(Dispatchers.IO) {
-            val created: MediaRecorder = newRecorder()
-            try {
-                created.configure(outputPath, config)
-                created.prepare()
-            } catch (failure: Throwable) {
-                created.release()
-                throw failure
-            }
-            recorder = created
+        // No withContext here: DefaultAudioRecorder already calls this on the worker context the
+        // consumer chose, and an engine that picked its own dispatcher would quietly override it.
+        val created: MediaRecorder = newRecorder()
+        try {
+            created.configure(outputPath, config)
+            created.prepare()
+        } catch (failure: Throwable) {
+            created.release()
+            throw failure
         }
+        recorder = created
     }
 
     override fun start() {

@@ -13,6 +13,10 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
  * comes out and turns it into [RecorderError.EngineFailure]; an engine must not try to recover on
  * its own, must not report failure by silently doing nothing, and must never surface a
  * user-facing message.
+ *
+ * An engine also must not choose a dispatcher. [DefaultAudioRecorder] already invokes the blocking
+ * calls below on the context its factory was given, so a `withContext` in here would override a
+ * decision the consumer made.
  */
 internal interface RecorderEngine {
 
@@ -24,7 +28,8 @@ internal interface RecorderEngine {
 
     /**
      * Opens the microphone and [outputPath] with [config]'s encoder settings, leaving the native
-     * recorder ready to capture. Suspending because both platforms do real I/O here.
+     * recorder ready to capture. Blocking, and already called on the worker context; suspending
+     * only so a test double can hold the call open.
      */
     suspend fun prepare(outputPath: String, config: AudioRecorderConfig)
 
@@ -37,7 +42,7 @@ internal interface RecorderEngine {
     /** Continues capture after [pause]. */
     fun resume()
 
-    /** Finalizes and closes the output file. */
+    /** Finalizes and closes the output file. Blocking; already called on the worker context. */
     fun stop()
 
     /**

@@ -73,13 +73,13 @@ failure leaves a file behind — today only a failed `stop()` — `Failed.output
 ## Recording with pause
 
 ```kotlin
-recorder.prepare()
-recorder.start()
+recorder.prepare()          // suspends — creates the directory, opens the file
+recorder.start()            // does not — a flip of the native recorder's state
 // … user taps pause
 recorder.pause()            // elapsed freezes; the file stays open
 // … user taps resume
 recorder.resume()           // elapsed continues from where it stopped
-val file = recorder.stop().getOrNull()
+val file = recorder.stop().getOrNull()   // suspends — finalizes the container
 ```
 
 Paused time is not counted: pausing for a minute in the middle of a ten-second recording still
@@ -137,7 +137,7 @@ The recorder holds a native handle, the microphone, and one coroutine. Whoever c
 release it exactly once.
 
 ```kotlin
-// Decompose
+// Decompose — note that release() is callable here precisely because it does not suspend
 class RecordComponent(componentContext: ComponentContext, private val recorder: AudioRecorder) :
     ComponentContext by componentContext {
     init { lifecycle.doOnDestroy { recorder.release() } }
@@ -191,6 +191,9 @@ works in a plain JVM unit test without a main-dispatcher rule.
 
 ## Common mistakes
 
+- **Reaching for `runBlocking` to call `stop()` from a click handler.** Use the scope you already
+  have — `rememberCoroutineScope()`, `viewModelScope`, the component's `coroutineScope()`. Blocking
+  a UI thread to wait for a file to finalize is the exact thing the suspend rule exists to prevent.
 - **Calling `start()` right after `prepare()` without checking the result.** If `prepare` failed,
   `start` returns `IllegalState` and nothing records. Check, or observe `state`.
 - **Expecting `stop()` to be callable twice.** The second returns `IllegalState`; the first already

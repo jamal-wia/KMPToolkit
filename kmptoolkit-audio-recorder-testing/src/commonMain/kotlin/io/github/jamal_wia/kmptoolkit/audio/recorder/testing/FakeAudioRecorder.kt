@@ -30,9 +30,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * - **Effects are observable.** [preparedPaths], [deletedPaths], [completedRecordings], and
  *   [releaseCount] record what the code under test made the recorder do.
  *
- * The one place it deliberately differs: `prepare` resolves immediately, so the fake never passes
- * through [RecorderState.Preparing]. That state exists in the real recorder only while a suspending
- * call is in flight, and there is nothing to suspend on here.
+ * The one place it deliberately differs: `prepare`, `stop`, and `cancel` are `suspend` to match the
+ * interface but resolve immediately, so the fake never passes through [RecorderState.Preparing].
+ * That state exists in the real recorder only while a suspending call is genuinely in flight, and
+ * there is no filesystem here to wait on.
  *
  * Not thread-safe, exactly like the recorder it stands in for. Drive it from the test's own thread.
  *
@@ -161,7 +162,7 @@ public class FakeAudioRecorder(
         return SUCCESS
     }
 
-    override fun stop(): RecorderResult<RecordedFile> {
+    override suspend fun stop(): RecorderResult<RecordedFile> {
         if (released) return releasedFailure(RecorderOperation.STOP)
         val current: RecorderState = _state.value
         val path: String = when (current) {
@@ -177,7 +178,7 @@ public class FakeAudioRecorder(
         return RecorderResult.Success(recording)
     }
 
-    override fun cancel(): RecorderResult<Unit> {
+    override suspend fun cancel(): RecorderResult<Unit> {
         if (released) return releasedFailure(RecorderOperation.CANCEL)
         val current: RecorderState = _state.value
         val path: String = when (current) {

@@ -5,7 +5,7 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/testing/FakeAud
 	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;Ljava/lang/String;)V
 	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun advanceElapsed-LRDsOJo (J)V
-	public fun cancel ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
+	public fun cancel (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getCompletedRecordings ()Ljava/util/List;
 	public final fun getDeletedPaths ()Ljava/util/List;
 	public fun getElapsed ()Lkotlinx/coroutines/flow/StateFlow;
@@ -21,7 +21,7 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/testing/FakeAud
 	public final fun setFailNextOperationWith (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;)V
 	public final fun setPermissionGranted (Z)V
 	public fun start ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
-	public fun stop ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
+	public fun stop (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/testing/FakeAudioRecorder$Companion {

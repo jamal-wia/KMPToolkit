@@ -26,7 +26,7 @@ when (val prepared = recorder.prepare()) {
 }
 ```
 
-Three things follow from that shape, and they are the reason the module exists:
+Four things follow from that shape, and they are the reason the module exists:
 
 - **Every failure is a value.** An illegal transition, a missing permission, an unwritable
   directory, a volume with no room, a codec the platform does not have — each is a `RecorderError`
@@ -38,6 +38,12 @@ Three things follow from that shape, and they are the reason the module exists:
 - **Doomed recordings fail before the microphone opens.** Permission, format support, directory
   writability, and free space are all checked in `prepare`, so you learn about the problem before
   the user has spoken into a file that will be thrown away.
+- **The signature tells you what can block.** *An operation that can touch the filesystem suspends;
+  an operation that only moves recorder state does not.* So `prepare()`, `stop()`, and `cancel()`
+  are `suspend`, and `start()`, `pause()`, and `resume()` are not — you never have to check the
+  documentation to find out whether a call is about to do I/O. The suspending three run that work on
+  the `coroutineContext` the factory was given, so they do not block your thread either.
+  `release()` is the one exception, and its reason is under "What this is not" below.
 
 Observing is two `StateFlow`s: `state` for the lifecycle, `elapsed` for a recording timer. They are
 separate on purpose — `state` changes only on real transitions, so a screen that shows "recording"
@@ -67,7 +73,11 @@ is not recomposed ten times a second by a duration that is only rendered in one 
 - **Not thread-safe.** Drive one recorder from one thread. It is a wrapper around native objects
   that are not thread-safe either.
 - **Not self-releasing.** Native handles are freed when you call `release()`, and at no other time.
-  Nothing here is garbage-collected for you.
+  Nothing here is garbage-collected for you. `release()` is also the one operation that breaks the
+  suspend rule above: it has to be callable from `onCleared`, `doOnDestroy`, or `deinit`, which are
+  exactly the places where the matching coroutine scope is already cancelled and there is nothing
+  left to launch in. So it does its work inline, and releasing a long open recording on the main
+  thread is the single place this library can block you.
 - **Not a file manager.** It creates the output directory and deletes files it is told to abandon.
   Retention, cleanup, upload, and encryption of finished recordings are yours.
 

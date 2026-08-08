@@ -9,7 +9,7 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat : j
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder {
-	public abstract fun cancel ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
+	public abstract fun cancel (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun getElapsed ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun getState ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun pause ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
@@ -18,7 +18,7 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/audio/recorder/Au
 	public abstract fun release ()V
 	public abstract fun resume ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
 	public abstract fun start ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
-	public abstract fun stop ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
+	public abstract fun stop (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder$DefaultImpls {
@@ -60,8 +60,8 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderCo
 }
 
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderFactory_androidKt {
-	public static final fun createAudioRecorder (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder;
-	public static synthetic fun createAudioRecorder$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder;
+	public static final fun createAudioRecorder (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;Lkotlin/coroutines/CoroutineContext;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder;
+	public static synthetic fun createAudioRecorder$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;Lkotlin/coroutines/CoroutineContext;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile {

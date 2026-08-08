@@ -41,13 +41,13 @@ abstract interface io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder {
     abstract val state // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.state|{}state[0]
         abstract fun <get-state>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.state.<get-state>|<get-state>(){}[0]
 
-    abstract fun cancel(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.cancel|cancel(){}[0]
     abstract fun pause(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.pause|pause(){}[0]
     abstract fun release() // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.release|release(){}[0]
     abstract fun resume(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.resume|resume(){}[0]
     abstract fun start(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.start|start(){}[0]
-    abstract fun stop(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.stop|stop(){}[0]
+    abstract suspend fun cancel(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.cancel|cancel(){}[0]
     abstract suspend fun prepare(kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/String> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.prepare|prepare(kotlin.String?){}[0]
+    abstract suspend fun stop(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.stop|stop(){}[0]
 }
 
 sealed interface <#A: out kotlin/Any?> io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult|null[0]
@@ -368,4 +368,4 @@ final val io.github.jamal_wia.kmptoolkit.audio.recorder/outputPath // io.github.
 
 final fun <#A: kotlin/Any?> (io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<#A>).io.github.jamal_wia.kmptoolkit.audio.recorder/errorOrNull(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError? // io.github.jamal_wia.kmptoolkit.audio.recorder/errorOrNull|errorOrNull@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult<0:0>(){0§<kotlin.Any?>}[0]
 final fun <#A: kotlin/Any?> (io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<#A>).io.github.jamal_wia.kmptoolkit.audio.recorder/getOrNull(): #A? // io.github.jamal_wia.kmptoolkit.audio.recorder/getOrNull|getOrNull@io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult<0:0>(){0§<kotlin.Any?>}[0]
-final fun io.github.jamal_wia.kmptoolkit.audio.recorder/createAudioRecorder(io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder // io.github.jamal_wia.kmptoolkit.audio.recorder/createAudioRecorder|createAudioRecorder(io.github.jamal_wia.kmptoolkit.audio.recorder.AudioRecorderConfig){}[0]
+final fun io.github.jamal_wia.kmptoolkit.audio.recorder/createAudioRecorder(io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig = ..., kotlin.coroutines/CoroutineContext = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder // io.github.jamal_wia.kmptoolkit.audio.recorder/createAudioRecorder|createAudioRecorder(io.github.jamal_wia.kmptoolkit.audio.recorder.AudioRecorderConfig;kotlin.coroutines.CoroutineContext){}[0]

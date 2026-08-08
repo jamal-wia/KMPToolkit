@@ -10,11 +10,13 @@ thread-safety.
 public fun createAudioRecorder(
     context: Context,
     config: AudioRecorderConfig = AudioRecorderConfig(),
+    coroutineContext: CoroutineContext = Dispatchers.Default,
 ): AudioRecorder
 
 // iosMain
 public fun createAudioRecorder(
     config: AudioRecorderConfig = AudioRecorderConfig(),
+    coroutineContext: CoroutineContext = Dispatchers.Default,
 ): AudioRecorder
 ```
 
@@ -25,6 +27,12 @@ and pass the common `AudioRecorder` upwards.
 Only `context.applicationContext` is retained, so passing an Activity cannot leak it. `config` is
 fixed for the recorder's lifetime — the platform applies encoder settings at prepare time, so
 changing them means a new recorder.
+
+`coroutineContext` is the single place the module decides what runs where: the `elapsed` ticker's
+scope, and the `withContext` behind `prepare`/`stop`/`cancel` that keeps their filesystem and
+encoder work off the caller's thread. The platform engines deliberately choose no dispatcher of
+their own, so this parameter really does control all of it. It mirrors `kmptoolkit-audio-player`'s
+factories, so a consumer that pins one module's background work pins the other identically.
 
 The returned instance holds no native resource until the first successful `prepare()`, and holds
 one until `release()`.
@@ -40,11 +48,17 @@ public interface AudioRecorder {
     public fun start(): RecorderResult<Unit>
     public fun pause(): RecorderResult<Unit>
     public fun resume(): RecorderResult<Unit>
-    public fun stop(): RecorderResult<RecordedFile>
-    public fun cancel(): RecorderResult<Unit>
+    public suspend fun stop(): RecorderResult<RecordedFile>
+    public suspend fun cancel(): RecorderResult<Unit>
     public fun release()
 }
 ```
+
+**Which operations suspend:** *an operation that can touch the filesystem suspends; an operation
+that only moves recorder state does not.* `prepare` creates the directory and opens the file, `stop`
+finalizes the container, `cancel` deletes the partial file — those three suspend, and run their I/O
+on the factory's `coroutineContext`. `start`, `pause`, and `resume` are flips of the native
+recorder's own state and do not. `release` is the documented exception; see below.
 
 **Thread-safety:** the six operations plus `release` are **not** thread-safe and must be called from
 one thread. `state` and `elapsed` are `StateFlow`s and are safe to read and collect from any thread.
@@ -122,22 +136,27 @@ would not pause is still capturing.
 `Paused` → `Recording`, continuing `elapsed` from where it froze. On engine failure the recorder
 stays `Paused`.
 
-### `fun stop(): RecorderResult<RecordedFile>`
+### `suspend fun stop(): RecorderResult<RecordedFile>`
 
 `Recording` / `Paused` → `Completed`. Finalizes the file, releases the native handle and the
 microphone, and returns the file with its duration. The recorder can be re-prepared without being
 released.
+
+Suspending: finalizing the container is the slowest call in the module, and it runs on the
+factory's `coroutineContext`.
 
 On engine failure `state` becomes `Failed(error, outputPath)` and **the partial file is kept** — a
 library does not delete a user's audio because the encoder complained on close. The path is carried
 on the state so you can still find the file; `cancel()` is illegal from `Failed`, so deleting it is
 your call to make with your own filesystem API.
 
-### `fun cancel(): RecorderResult<Unit>`
+### `suspend fun cancel(): RecorderResult<Unit>`
 
 `Ready` / `Recording` / `Paused` → `Idle`. Releases the native handle, deletes the partial file,
 resets `elapsed`. Illegal from `Completed` on purpose: a finished recording is yours to keep or
 delete.
+
+Suspending: it deletes a file, and the deletion runs on the factory's `coroutineContext`.
 
 Best-effort by design — an engine that throws while being stopped does not prevent the deletion or
 the return to `Idle`, and this still returns `Success`.
@@ -151,6 +170,12 @@ recorded into and nothing could ever clean it up afterwards, so it is deleted.
 
 Safe to call while a `prepare()` is still in flight — the preparation undoes itself when it
 finishes, rather than resurrecting a released recorder.
+
+**Not suspending, unlike `stop` and `cancel`, and deliberately so.** Release belongs on a teardown
+path — `onCleared`, `doOnDestroy`, `deinit` — and those are exactly the places where the matching
+coroutine scope has already been cancelled, so a suspending `release` would be uncallable where it
+is most needed. It does its work inline on the calling thread instead; releasing while a long
+recording is open is therefore the one place this library can block you.
 
 Idempotent, never throws, never fails. After it, every operation returns `AlreadyReleased`.
 

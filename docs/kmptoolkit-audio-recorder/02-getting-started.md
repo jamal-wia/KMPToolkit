@@ -88,6 +88,11 @@ suspend fun record(recorder: AudioRecorder): RecordedFile? {
 }
 ```
 
+`prepare()`, `stop()`, and `cancel()` suspend; `start()`, `pause()`, and `resume()` do not. The rule
+is that an operation which can touch the filesystem suspends — see
+[`01-overview.md`](01-overview.md) — so a `suspend` in the signature is your warning that a call
+does I/O, and the absence of one is a promise that it does not.
+
 `prepare()` with no argument generates a path for you — `<app-private files>/<your app id>/
 recording_<timestamp>.m4a`. Pass one explicitly if you want to choose:
 `recorder.prepare(outputPath = "/…/take-1.m4a")`.
@@ -95,16 +100,20 @@ recording_<timestamp>.m4a`. Pass one explicitly if you want to choose:
 ## 5. Show it on screen
 
 ```kotlin
+val scope: CoroutineScope = rememberCoroutineScope()
 val state: RecorderState by recorder.state.collectAsState()
 val elapsed: Duration by recorder.elapsed.collectAsState()
 
 when (state) {
-    is RecorderState.Recording -> RecordingUi(elapsed, onStop = { recorder.stop() })
+    is RecorderState.Recording -> RecordingUi(elapsed, onStop = { scope.launch { recorder.stop() } })
     is RecorderState.Completed -> PlaybackUi((state as RecorderState.Completed).recording)
     is RecorderState.Failed -> ErrorUi((state as RecorderState.Failed).error)
     else -> IdleUi(onRecord = { scope.launch { record(recorder) } })
 }
 ```
+
+`onStop` needs the `scope.launch` because `stop()` suspends — that is the point of the rule: writing
+it makes it visible that tapping stop finalizes a file rather than flipping a flag.
 
 `state` changes only on real transitions; `elapsed` is the one that ticks. Collect them separately
 so the timer does not invalidate the rest of the screen.
@@ -119,8 +128,10 @@ override fun onDestroy() {
 ```
 
 The recorder holds the microphone and a native handle until you do. Nothing releases it for you.
-See [`03-guide.md`](03-guide.md#ownership-and-release) for where this belongs in a Decompose
-component, a ViewModel, or a Swift view model.
+`release()` is deliberately **not** suspending so it can be called from exactly this kind of
+teardown, where the screen's coroutine scope is already gone. See
+[`03-guide.md`](03-guide.md#ownership-and-release) for where this belongs in a Decompose component,
+a ViewModel, or a Swift view model.
 
 ## Next
 

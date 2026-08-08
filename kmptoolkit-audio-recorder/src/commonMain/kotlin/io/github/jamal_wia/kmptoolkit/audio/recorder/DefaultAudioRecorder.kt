@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
@@ -12,7 +13,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The whole of this module's behavior: the transition table from [AudioRecorder], the pre-checks
@@ -25,17 +28,25 @@ import kotlinx.coroutines.launch
  * is read and written only from the caller's thread; the ticker coroutine is handed its start mark
  * by value and writes nothing but [_elapsed], so it shares no mutable state with the caller.
  *
- * @param scope owned by this recorder and cancelled by [release]; it exists solely to run the
- *   [elapsed] ticker.
+ * @param workerContext the single place this module decides what thread anything runs on: the
+ *   [elapsed] ticker's scope, and the `withContext` that keeps `prepare`/`stop`/`cancel`'s
+ *   filesystem and encoder work off the caller's thread. The engines deliberately do no dispatching
+ *   of their own, so a consumer who passes a context here really does control all of it.
  */
 internal class DefaultAudioRecorder(
     private val engine: RecorderEngine,
     private val fileSystem: RecordingFileSystem,
     private val config: AudioRecorderConfig,
-    private val scope: CoroutineScope,
+    private val workerContext: CoroutineContext,
     private val epochClock: EpochClock,
     private val timeSource: TimeSource = TimeSource.Monotonic,
 ) : AudioRecorder {
+
+    /**
+     * Owned by this recorder and cancelled by [release]. Visible to the module's own tests so they
+     * can assert that release really does stop the ticker rather than merely resetting [elapsed].
+     */
+    internal val scope: CoroutineScope = CoroutineScope(SupervisorJob() + workerContext)
 
     private val _state: MutableStateFlow<RecorderState> = MutableStateFlow(RecorderState.Idle)
     override val state: StateFlow<RecorderState> = _state.asStateFlow()
@@ -82,23 +93,27 @@ internal class DefaultAudioRecorder(
         }
         val directory: String = fileSystem.parentOf(path)
             ?: return fail(RecorderError.DirectoryNotWritable(path))
-        if (!fileSystem.ensureWritableDirectory(directory)) {
-            return fail(RecorderError.DirectoryNotWritable(directory))
+        val storageError: RecorderError? = withContext(workerContext) {
+            if (!fileSystem.ensureWritableDirectory(directory)) {
+                RecorderError.DirectoryNotWritable(directory)
+            } else {
+                checkFreeSpace(directory)
+            }
         }
-        checkFreeSpace(directory)?.let { error -> return fail(error) }
+        storageError?.let { error -> return fail(error) }
 
+        val prepareFailure: Throwable?
         try {
-            engine.prepare(path, config)
+            prepareFailure = runOnWorker { engine.prepare(path, config) }
         } catch (cancellation: CancellationException) {
             // Leave nothing half-open behind: the caller's coroutine is going away, and a native
             // recorder holding the microphone plus a zero-byte file would outlive it.
-            engine.release()
-            fileSystem.delete(path)
+            undoPreparation(path)
             _state.value = RecorderState.Idle
             throw cancellation
-        } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
-            engine.release()
-            fileSystem.delete(path)
+        }
+        prepareFailure?.let { failure ->
+            undoPreparation(path)
             return fail(RecorderError.EngineFailure(RecorderOperation.PREPARE, failure))
         }
 
@@ -107,8 +122,7 @@ internal class DefaultAudioRecorder(
         // a dead recorder, which would both overwrite Released and leak the handle release() could
         // not reach because the engine had not been assigned yet.
         if (released) {
-            engine.release()
-            fileSystem.delete(path)
+            undoPreparation(path)
             return releasedFailure(RecorderOperation.PREPARE)
         }
 
@@ -179,7 +193,7 @@ internal class DefaultAudioRecorder(
         return SUCCESS
     }
 
-    override fun stop(): RecorderResult<RecordedFile> {
+    override suspend fun stop(): RecorderResult<RecordedFile> {
         val current: RecorderState = _state.value
         if (released) return releasedFailure(RecorderOperation.STOP)
         val path: String = when (current) {
@@ -191,7 +205,8 @@ internal class DefaultAudioRecorder(
         stopTicker()
         freezeElapsed()
         try {
-            engine.stop()
+            // Finalizing the container is the one genuinely slow call in the whole module.
+            withContext(workerContext) { engine.stop() }
         } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
             // Whatever was captured up to this point stays on disk: it may be salvageable, and
             // deleting a user's audio because the encoder complained on close is not a call a
@@ -206,7 +221,7 @@ internal class DefaultAudioRecorder(
         return RecorderResult.Success(recording)
     }
 
-    override fun cancel(): RecorderResult<Unit> {
+    override suspend fun cancel(): RecorderResult<Unit> {
         val current: RecorderState = _state.value
         if (released) return releasedFailure(RecorderOperation.CANCEL)
         val path: String = when (current) {
@@ -217,9 +232,11 @@ internal class DefaultAudioRecorder(
         }
 
         stopTicker()
-        if (current.isActive) stopEngineQuietly()
-        engine.release()
-        fileSystem.delete(path)
+        withContext(workerContext) {
+            if (current.isActive) stopEngineQuietly()
+            engine.release()
+            fileSystem.delete(path)
+        }
         resetTiming()
         _state.value = RecorderState.Idle
         return SUCCESS
@@ -231,6 +248,9 @@ internal class DefaultAudioRecorder(
 
         val current: RecorderState = _state.value
         stopTicker()
+        // Inline on the calling thread, not on workerContext: release() is not suspending (see its
+        // KDoc — a teardown path has no coroutine left to launch in), so there is nowhere to hand
+        // this off to that would still have finished by the time the caller's object is gone.
         if (current.isActive) stopEngineQuietly()
         engine.release()
         // A Recording/Paused file holds audio the user produced and is kept. A Ready file holds
@@ -240,6 +260,42 @@ internal class DefaultAudioRecorder(
         resetTiming()
         _state.value = RecorderState.Released
         scope.cancel()
+    }
+
+    /**
+     * Runs [block] on [workerContext] and returns whatever it threw, rather than letting the
+     * throwable cross the `withContext` boundary.
+     *
+     * That boundary is exactly where kotlinx.coroutines' stacktrace recovery replaces an exception
+     * with a *copy* carrying an augmented stack trace. The copy is helpful when the exception is
+     * being rethrown, and wrong here: [RecorderError.EngineFailure.cause] promises the throwable
+     * the platform produced, and a consumer matching on identity — or on a field of a custom
+     * platform exception the copy could not reproduce — would get something else.
+     * `CancellationException` is deliberately still allowed through, since it is control flow and
+     * not a value.
+     */
+    private suspend fun runOnWorker(block: suspend () -> Unit): Throwable? =
+        withContext(workerContext) {
+            try {
+                block()
+                null
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
+                failure
+            }
+        }
+
+    /**
+     * Undoes a preparation that will not be used. Runs inline rather than on [workerContext],
+     * because one of its two callers is the cancellation path of `prepare`, where `withContext`
+     * would refuse to start at all. Both calls it makes are documented as non-throwing best effort
+     * and neither waits on I/O of any consequence — deleting a file that was opened and never
+     * written to.
+     */
+    private fun undoPreparation(path: String) {
+        engine.release()
+        fileSystem.delete(path)
     }
 
     private fun discardPreparedButUnusedFile(current: RecorderState) {

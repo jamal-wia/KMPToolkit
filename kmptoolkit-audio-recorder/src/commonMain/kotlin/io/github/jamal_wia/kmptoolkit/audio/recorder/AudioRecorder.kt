@@ -41,6 +41,20 @@ import kotlinx.coroutines.flow.StateFlow
  * constructing a new recorder. [release] itself is idempotent — calling it twice, or on an instance
  * that never recorded, is a no-op.
  *
+ * ## Which operations suspend, and why
+ *
+ * **An operation that can touch the filesystem suspends; an operation that only moves recorder
+ * state does not.** So [prepare] (creates the directory, opens the file), [stop] (finalizes the
+ * container — on Android that means writing the MPEG-4 `moov` atom), and [cancel] (deletes the
+ * partial file) are `suspend`; [start], [pause], and [resume] are not, because each is a flip of
+ * the native recorder's own state.
+ *
+ * The rule exists so the signature carries the information: you never have to check the
+ * documentation to find out whether a call can block. The suspending three do their I/O on the
+ * `coroutineContext` the factory was given, so they do not block the caller's thread either.
+ *
+ * [release] is the deliberate exception — see its own documentation.
+ *
  * ## Threading
  *
  * The recorder is **not** thread-safe. Call [prepare], [start], [pause], [resume], [stop],
@@ -144,13 +158,13 @@ public interface AudioRecorder {
      * complained on close. Since [cancel] is illegal from that state, the path on the state is how
      * you find the file if you want to remove it yourself.
      *
-     * Blocking is worth knowing about: this is not a suspending function, but the platform
-     * finalizes the container here (on Android, writing the MPEG-4 `moov` atom), which takes a
-     * noticeable fraction of a second on a long recording.
+     * Suspending because the platform finalizes the container here — on Android, writing the
+     * MPEG-4 `moov` atom — which takes a noticeable fraction of a second on a long recording. That
+     * work runs on the factory's `coroutineContext`, not on the caller's thread.
      *
      * @return the finished file and how long it ran.
      */
-    public fun stop(): RecorderResult<RecordedFile>
+    public suspend fun stop(): RecorderResult<RecordedFile>
 
     /**
      * Abandons the current recording: the microphone is released, the partial file is deleted, and
@@ -159,8 +173,10 @@ public interface AudioRecorder {
      * Legal from [RecorderState.Ready], [RecorderState.Recording], and [RecorderState.Paused].
      * Deliberately illegal from [RecorderState.Completed] — a finished recording is the caller's
      * file to keep or delete, and silently deleting it here would be a trap.
+     *
+     * Suspending because it deletes a file; the deletion runs on the factory's `coroutineContext`.
      */
-    public fun cancel(): RecorderResult<Unit>
+    public suspend fun cancel(): RecorderResult<Unit>
 
     /**
      * Permanently disposes the recorder: releases the native handle and microphone, stops the
@@ -174,6 +190,14 @@ public interface AudioRecorder {
      *
      * Safe to call while a [prepare] is still in flight; see that method for what happens to the
      * preparation.
+     *
+     * **Not suspending, unlike [stop] and [cancel], and deliberately so** — despite doing the same
+     * kind of work. Release belongs on a teardown path (`onCleared`, `doOnDestroy`, `deinit`,
+     * `onDestroy`), and those are exactly the places where there is no coroutine left to launch in:
+     * a scope tied to the same lifecycle has already been cancelled. A suspending `release` would
+     * be uncallable precisely where it is needed, so it does its work inline on the calling thread
+     * instead. Keep that in mind if you release on the main thread while a long recording is open:
+     * finalizing it is the one place this library can block you.
      *
      * Idempotent, never fails, and never throws. See the class-level "Ownership and release" note
      * for who is expected to call it.

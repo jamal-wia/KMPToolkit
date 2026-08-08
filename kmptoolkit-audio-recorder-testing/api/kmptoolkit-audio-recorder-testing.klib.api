@@ -30,13 +30,13 @@ final class io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecor
         final fun <get-releaseCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.releaseCount.<get-releaseCount>|<get-releaseCount>(){}[0]
 
     final fun advanceElapsed(kotlin.time/Duration) // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.advanceElapsed|advanceElapsed(kotlin.time.Duration){}[0]
-    final fun cancel(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.cancel|cancel(){}[0]
     final fun pause(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.pause|pause(){}[0]
     final fun release() // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.release|release(){}[0]
     final fun resume(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.resume|resume(){}[0]
     final fun start(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.start|start(){}[0]
-    final fun stop(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.stop|stop(){}[0]
+    final suspend fun cancel(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.cancel|cancel(){}[0]
     final suspend fun prepare(kotlin/String?): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/String> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.prepare|prepare(kotlin.String?){}[0]
+    final suspend fun stop(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.stop|stop(){}[0]
 
     final object Companion { // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.Companion|null[0]
         final const val DEFAULT_FAKE_DIRECTORY // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.Companion.DEFAULT_FAKE_DIRECTORY|{}DEFAULT_FAKE_DIRECTORY[0]
