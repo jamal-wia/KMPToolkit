@@ -49,14 +49,16 @@ is pinned by a test, so `entries` is safe to iterate for, say, a debug screen.
 
 What `perform` made of the request.
 
-| Constant | Meaning | Typical reaction |
-|---|---|---|
-| `PERFORMED` | The platform accepted the request | None. Not a promise that anything was felt |
-| `UNAVAILABLE` | No vibration hardware (Android: no vibrator service, or `hasVibrator() == false`) | Stop offering a haptics preference — it will not change while the app runs |
-| `PERMISSION_DENIED` | Android only: the app did not declare `android.permission.VIBRATE` | Fix the manifest. It is a build defect, not a runtime condition |
+| Constant | Meaning |
+|---|---|
+| `PERFORMED` | The platform accepted the request. Not a promise that anything was felt |
+| `UNAVAILABLE` | Nothing to vibrate with — on Android, no vibrator service or `hasVibrator() == false`. Also what `noOpHapticFeedback()` reports |
+| `PERMISSION_DENIED` | Android only: the app did not declare `android.permission.VIBRATE`. A build defect, not a runtime condition |
+| `FAILED` | The platform refused this request, or the vibrator service was unreachable. Transient and device-specific — it says nothing about the next call |
 
-Ignoring the return value is a legitimate default — the type exists so that failure is *available*,
-not so that every call site must branch on it.
+The table says what each value *means*, not what to do about it: reacting is UI policy and belongs
+to the app. Ignoring the return value is a legitimate default — the type exists so that failure is
+*available*, not so that every call site must branch on it.
 
 ## `fun noOpHapticFeedback(): HapticFeedback`
 
@@ -81,8 +83,8 @@ Builds the Android implementation on top of the device's default vibrator.
 ## `fun createHapticFeedback(): HapticFeedback` — iOS only
 
 Builds the iOS implementation on top of `UIImpactFeedbackGenerator` and
-`UINotificationFeedbackGenerator`. Lives in `iosMain`. Stateless, nothing to release, and every call
-returns `PERFORMED` — see [`05-platform-notes.md`](05-platform-notes.md#ios) for why iOS cannot say
+`UINotificationFeedbackGenerator`. Lives in `iosMain`. Stateless, nothing to release, dispatches the
+UIKit work to the main thread itself, and every call returns `PERFORMED` — see [`05-platform-notes.md`](05-platform-notes.md#ios) for why iOS cannot say
 anything more truthful than that.
 
 ## `class RecordingHapticFeedback` — artifact `kmptoolkit-haptics-testing`

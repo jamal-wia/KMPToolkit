@@ -7,6 +7,7 @@
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-haptics>
 final enum class io.github.jamal_wia.kmptoolkit.haptics/HapticResult : kotlin/Enum<io.github.jamal_wia.kmptoolkit.haptics/HapticResult> { // io.github.jamal_wia.kmptoolkit.haptics/HapticResult|null[0]
+    enum entry FAILED // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.FAILED|null[0]
     enum entry PERFORMED // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.PERFORMED|null[0]
     enum entry PERMISSION_DENIED // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.PERMISSION_DENIED|null[0]
     enum entry UNAVAILABLE // io.github.jamal_wia.kmptoolkit.haptics/HapticResult.UNAVAILABLE|null[0]

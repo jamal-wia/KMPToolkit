@@ -1,7 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.haptics
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.os.Build
+import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -9,9 +11,9 @@ import android.os.VibratorManager
 /**
  * The narrow slice of `android.os.Vibrator` this module uses.
  *
- * It exists so the two things that are genuinely hard to observe through the real framework class —
- * a missing `VIBRATE` permission, and the absence of a motor — can be exercised by tests with a
- * hand-written stand-in. Everything above this interface is then plain Kotlin.
+ * It exists so the things that are hard to observe through the real framework class — a missing
+ * `VIBRATE` permission, an absent motor, a service that refuses the request — can be exercised by
+ * tests with a hand-written stand-in. Everything above this interface is then plain Kotlin.
  */
 internal interface VibratorPort {
 
@@ -19,30 +21,46 @@ internal interface VibratorPort {
     fun hasVibrator(): Boolean
 
     /**
-     * Plays [vibration].
+     * Plays [vibration] and reports what the platform made of it.
      *
-     * @return `false` when the consuming app has not declared `android.permission.VIBRATE`, which
-     *   is the one framework failure with a defined meaning here. Reporting it rather than throwing
-     *   keeps `SecurityException` — a framework detail — from leaking above this seam, and lets the
-     *   layer above turn it into [HapticResult.PERMISSION_DENIED] without a `catch`.
+     * Returns exactly the [HapticResult] the caller should see: [HapticResult.PERFORMED] when the
+     * framework accepted the request, [HapticResult.PERMISSION_DENIED] when the app has not
+     * declared `android.permission.VIBRATE`, [HapticResult.FAILED] when the vibrator service
+     * refused or was unreachable, and [HapticResult.UNAVAILABLE] when there is no vibrator to talk
+     * to at all. Never throws — translating the framework's exceptions is this seam's whole job.
      */
-    fun emit(vibration: AndroidVibration): Boolean
+    fun emit(vibration: AndroidVibration): HapticResult
 }
 
 /**
  * The real [VibratorPort], on top of the platform [Vibrator].
  *
- * Two API levels matter here, and both are branched on `Build.VERSION.SDK_INT` directly so that
+ * Three API levels matter here, and each is branched on `Build.VERSION.SDK_INT` directly so that
  * lint can see the guard:
- * - **API 31 (S)** — `VIBRATOR_SERVICE` is deprecated in favour of `VibratorManager`, whose
+ * - **API 33 (`TIRAMISU`)** — `VibrationAttributes` replaces `AudioAttributes` as the way to say
+ *   what a vibration is *for*.
+ * - **API 31 (`S`)** — `VIBRATOR_SERVICE` is deprecated in favour of `VibratorManager`, whose
  *   `defaultVibrator` is the one the user perceives as "the" motor.
- * - **API 26 (O)** — `VibrationEffect` appears, and with it amplitude control. Below it, only the
- *   deprecated duration-and-pattern overloads exist, and amplitude is simply not expressible; the
- *   pulse plays at whatever strength the device chooses.
+ * - **API 26 (`O`)** — `VibrationEffect` appears, and with it amplitude control. Below it, only
+ *   the deprecated duration-and-pattern overloads exist, and amplitude is not expressible.
  *
  * `minSdk` for this library is 24, so the pre-`VibrationEffect` branch is not dead code.
+ *
+ * **Every request is attributed as touch feedback.** An unattributed `vibrate()` is classified
+ * `USAGE_UNKNOWN`, which the platform treats as an unclassified vibration: it is not scaled by the
+ * user's touch-feedback intensity slider, not silenced by the touch-feedback switch, and is
+ * filtered differently under Do Not Disturb. Attribution is what makes "the user's settings are
+ * respected" true rather than aspirational.
  */
 internal class SystemVibratorPort(private val vibrator: Vibrator?) : VibratorPort {
+
+    // Cheap and immutable, so it is built once. Its API-33+ counterpart cannot be: VibrationAttributes
+    // did not exist before then, and hoisting it into a field would need an annotation (and a
+    // dependency on androidx.annotation) to tell lint what the version guard already says.
+    private val audioAttributes: AudioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
 
     override fun hasVibrator(): Boolean = vibrator?.hasVibrator() == true
 
@@ -50,17 +68,17 @@ internal class SystemVibratorPort(private val vibrator: Vibrator?) : VibratorPor
     // that is the right call: this library deliberately declares no android.permission.VIBRATE
     // (docs/01-architecture.md#android-manifests), so lint is reporting exactly the situation the
     // design intends. The SecurityException the consumer would get without the permission is
-    // caught right here and reported as `false`, which the layer above turns into
-    // HapticResult.PERMISSION_DENIED. Annotating with @RequiresPermission instead would push the
-    // same error onto every consumer's call site, which is noise rather than information — the
-    // requirement is documented in 02-getting-started.md and 05-platform-notes.md.
+    // caught right here and reported as PERMISSION_DENIED. Annotating with @RequiresPermission
+    // instead would push the same error onto every consumer's call site, which is noise rather
+    // than information — the requirement is documented in 02-getting-started.md and
+    // 05-platform-notes.md.
     @Suppress("MissingPermission")
-    override fun emit(vibration: AndroidVibration): Boolean {
-        val target: Vibrator = vibrator ?: return false
+    override fun emit(vibration: AndroidVibration): HapticResult {
+        val target: Vibrator = vibrator ?: return HapticResult.UNAVAILABLE
         return try {
             // The VibrationEffect construction is inline rather than extracted: lint's API-level
-            // guard analysis is lexical, so moving it into a helper would need an annotation (and
-            // a dependency on androidx.annotation) to say what this `if` already says.
+            // guard analysis is lexical, so moving it into a helper would need an annotation to
+            // say what this `if` already says.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val effect: VibrationEffect = when (vibration) {
                     is AndroidVibration.OneShot ->
@@ -68,18 +86,33 @@ internal class SystemVibratorPort(private val vibrator: Vibrator?) : VibratorPor
                     is AndroidVibration.Waveform ->
                         VibrationEffect.createWaveform(vibration.timings.toLongArray(), NO_REPEAT)
                 }
-                target.vibrate(effect)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val attributes: VibrationAttributes = VibrationAttributes.Builder()
+                        .setUsage(VibrationAttributes.USAGE_TOUCH)
+                        .build()
+                    target.vibrate(effect, attributes)
+                } else {
+                    target.vibrate(effect, audioAttributes)
+                }
             } else {
                 @Suppress("DEPRECATION")
                 when (vibration) {
-                    is AndroidVibration.OneShot -> target.vibrate(vibration.durationMs)
+                    is AndroidVibration.OneShot ->
+                        target.vibrate(vibration.durationMs, audioAttributes)
                     is AndroidVibration.Waveform ->
-                        target.vibrate(vibration.timings.toLongArray(), NO_REPEAT)
+                        target.vibrate(vibration.timings.toLongArray(), NO_REPEAT, audioAttributes)
                 }
             }
-            true
+            HapticResult.PERFORMED
         } catch (_: SecurityException) {
-            false
+            HapticResult.PERMISSION_DENIED
+        } catch (_: RuntimeException) {
+            // The framework throws more than SecurityException: IllegalArgumentException for an
+            // effect it will not accept, and OEM builds wrap a dead vibrator service binder in a
+            // RuntimeException. None of that is worth crashing a click handler over, and none of
+            // it is a standing property of the device — hence FAILED rather than UNAVAILABLE.
+            // Error is deliberately not caught: an OOM or a linkage failure is not ours to hide.
+            HapticResult.FAILED
         }
     }
 

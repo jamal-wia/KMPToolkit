@@ -30,8 +30,8 @@ public enum class HapticResult {
      * `Vibrator.hasVibrator() == false`.
      *
      * This is a property of the hardware, not of a single call: if one [HapticType] returns
-     * `UNAVAILABLE`, all of them will. Reasonable reaction: stop asking, and hide any haptics
-     * preference in your settings screen.
+     * `UNAVAILABLE`, all of them will, for as long as this instance lives. It is also what
+     * [noOpHapticFeedback] reports, so a wrapper that suppresses haptics can answer the same way.
      */
     UNAVAILABLE,
 
@@ -46,4 +46,18 @@ public enum class HapticResult {
      * permission. It is a normal, install-time permission — there is no runtime prompt to show.
      */
     PERMISSION_DENIED,
+
+    /**
+     * The platform rejected the request for a reason that is neither a missing motor nor a missing
+     * permission.
+     *
+     * In practice this is Android's vibrator service refusing or being unreachable: a rejected
+     * effect, or a `RuntimeException` wrapping a dead binder when the system service restarts. It
+     * is transient or device-specific rather than a standing property of the install, so — unlike
+     * [UNAVAILABLE] — it says nothing about whether the next call will work.
+     *
+     * It exists so that `perform` can keep its promise never to throw: a decorative tap must not
+     * propagate a `RuntimeException` into the caller that asked for it.
+     */
+    FAILED,
 }

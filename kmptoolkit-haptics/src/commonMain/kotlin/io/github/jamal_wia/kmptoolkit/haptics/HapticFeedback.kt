@@ -10,7 +10,8 @@ package io.github.jamal_wia.kmptoolkit.haptics
  *
  * **Contract:**
  * - [perform] never throws. Anything that would have thrown — a missing permission, a device with
- *   no motor — comes back as a [HapticResult].
+ *   no motor, a vibrator service that refuses or has died — comes back as a [HapticResult]. A
+ *   decorative tap is never worth a crash in the code that asked for it.
  * - [perform] does not block on the vibration finishing. It returns as soon as the platform has
  *   accepted the request; the pulse plays out afterwards.
  * - Implementations are safe to call from any thread. The iOS implementation hops to the main

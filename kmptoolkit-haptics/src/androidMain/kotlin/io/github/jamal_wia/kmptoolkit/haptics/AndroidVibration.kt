@@ -29,7 +29,9 @@ internal sealed interface AndroidVibration {
  *
  * Impacts are one-shots of growing length; notifications are patterns, so `SUCCESS`, `WARNING` and
  * `ERROR` stay distinguishable by feel alone. `LIGHT` is the only type that asks for a reduced
- * amplitude — the others use the device default, which respects the user's intensity setting.
+ * amplitude — the others use the device default, which the platform scales by the user's
+ * touch-feedback intensity setting, because [SystemVibratorPort] attributes every request as touch
+ * feedback.
  */
 internal fun HapticType.toVibration(): AndroidVibration = when (this) {
     HapticType.LIGHT -> AndroidVibration.OneShot(LIGHT_MS, HALF_AMPLITUDE)

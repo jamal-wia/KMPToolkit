@@ -48,12 +48,13 @@ class HapticContractTest {
     }
 
     @Test
-    fun `there are exactly three documented outcomes`() {
+    fun `there are exactly four documented outcomes`() {
         assertEquals(
             listOf(
                 HapticResult.PERFORMED,
                 HapticResult.UNAVAILABLE,
                 HapticResult.PERMISSION_DENIED,
+                HapticResult.FAILED,
             ),
             HapticResult.entries,
         )

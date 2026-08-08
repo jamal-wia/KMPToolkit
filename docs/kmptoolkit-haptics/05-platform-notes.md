@@ -64,6 +64,25 @@ entirely — which happens on stripped-down system images and some emulators —
 Waveform timings alternate **off, on, off, on…**, exactly as the platform reads them, which is why
 every pattern starts with a `0`.
 
+### Attribution — every request is tagged as touch feedback
+
+An unattributed `vibrate()` is classified `USAGE_UNKNOWN`, and the platform treats an unclassified
+vibration differently from touch feedback: it is not scaled by the user's touch-feedback intensity
+slider, not silenced by the touch-feedback switch, and filtered differently under Do Not Disturb. So
+every call this module makes carries an attribution:
+
+| API level | Attribution |
+|---|---|
+| 33+ (`TIRAMISU`) | `VibrationAttributes` with `USAGE_TOUCH` |
+| 24–32 | `AudioAttributes` with `USAGE_ASSISTANCE_SONIFICATION` + `CONTENT_TYPE_SONIFICATION` |
+
+`VibrationAttributes` is the modern classification and did not exist before API 33; the
+`AudioAttributes` pair is the closest equivalent the older overloads accept. Both branches are
+asserted by Robolectric tests.
+
+The practical consequence: a user who turns touch feedback off, or turns its intensity down, gets
+what they asked for — which is not true of an unattributed vibration.
+
 ### The API-26 split — why the same type can feel different on two devices
 
 `VibrationEffect` (and with it amplitude control) arrived in API 26. This library's `minSdk` is 24,
@@ -87,7 +106,12 @@ expressive. Both paths are covered by Robolectric tests at SDK 24, 30 and 34.
   `PERFORMED` remains the honest answer the platform gives.
 - **A second request replaces the first.** Android does not queue vibrations; the newest call wins.
 - **Amplitude is a request, not a command.** Many devices quantize it, and the user's own
-  intensity setting scales it.
+  intensity setting scales it — see attribution below, which is what makes that scaling apply.
+- **The framework throws more than `SecurityException`.** An effect the service will not accept
+  raises `IllegalArgumentException`, and OEM builds surface a dead vibrator-service binder as a
+  `RuntimeException`. Both come back as `HapticResult.FAILED`; neither escapes `perform`. `Error`
+  (an `OutOfMemoryError`, a linkage failure) is deliberately **not** caught — that is not a haptics
+  problem to hide.
 
 ## iOS
 
@@ -108,7 +132,8 @@ point of a semantic vocabulary: `SUCCESS` keeps meaning "success" when the hardw
 ### Threading
 
 UIKit's feedback generators must be used on the main thread, so `perform` dispatches to the main
-queue itself and returns immediately. Callers in shared code therefore need no dispatcher and no
+queue itself and returns immediately — a call from a background thread is covered by a test that
+really originates off-main and then pumps the main runloop. Callers in shared code therefore need no dispatcher and no
 `suspend`. The consequence is that `PERFORMED` means "handed to UIKit", not "already felt" — by the
 time `perform` returns, nothing has happened yet.
 
@@ -120,8 +145,8 @@ be main-thread-confined shared state for no measurable gain.
 
 There is no API to ask whether the device has a Taptic Engine, whether the user disabled system
 haptics, or whether a request was honored. Every call therefore returns `PERFORMED` — including on
-the simulator, where nothing can possibly be felt. `UNAVAILABLE` and `PERMISSION_DENIED` are
-**Android-only outcomes** in practice; a `when` over `HapticResult` in shared code still has to
+the simulator, where nothing can possibly be felt. `UNAVAILABLE`, `PERMISSION_DENIED` and `FAILED`
+are **Android-only outcomes** in practice; a `when` over `HapticResult` in shared code still has to
 handle them, and doing nothing there is a perfectly good answer.
 
 ## Behavior identical on both platforms

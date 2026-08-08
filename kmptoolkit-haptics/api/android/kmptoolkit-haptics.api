@@ -11,6 +11,7 @@ public final class io/github/jamal_wia/kmptoolkit/haptics/HapticFeedback_android
 }
 
 public final class io/github/jamal_wia/kmptoolkit/haptics/HapticResult : java/lang/Enum {
+	public static final field FAILED Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
 	public static final field PERFORMED Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
 	public static final field PERMISSION_DENIED Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
 	public static final field UNAVAILABLE Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;

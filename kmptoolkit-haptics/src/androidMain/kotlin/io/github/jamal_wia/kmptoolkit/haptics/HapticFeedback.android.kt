@@ -26,18 +26,12 @@ public fun createHapticFeedback(context: Context): HapticFeedback =
  *
  * The hardware check comes first so that a device with no motor is reported as
  * [HapticResult.UNAVAILABLE] rather than as a successful no-op — `Vibrator.vibrate` on such a
- * device returns quietly, which would otherwise be indistinguishable from a real pulse.
+ * device returns quietly, which would otherwise be indistinguishable from a real pulse. Everything
+ * after that is the port's verdict, unmodified: translating framework failures is its job, not
+ * this class's.
  */
 internal class AndroidHapticFeedback(private val port: VibratorPort) : HapticFeedback {
 
-    override fun perform(type: HapticType): HapticResult {
-        if (!port.hasVibrator()) return HapticResult.UNAVAILABLE
-        // A rejected emit means the app forgot android.permission.VIBRATE. A decorative tap must
-        // not take down the screen that asked for it, so this is reported, not thrown.
-        return if (port.emit(type.toVibration())) {
-            HapticResult.PERFORMED
-        } else {
-            HapticResult.PERMISSION_DENIED
-        }
-    }
+    override fun perform(type: HapticType): HapticResult =
+        if (port.hasVibrator()) port.emit(type.toVibration()) else HapticResult.UNAVAILABLE
 }

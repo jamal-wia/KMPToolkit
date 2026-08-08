@@ -6,27 +6,26 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Covers the decision-making half of the Android implementation — hardware check, permission
- * failure, and the semantic type-to-vibration mapping — against a hand-written [VibratorPort].
+ * Covers the decision-making half of the Android implementation — the hardware check, the
+ * pass-through of the port's verdict, and the semantic type-to-vibration mapping.
  *
- * The framework-facing half lives in [SystemVibratorPortTest], which needs Robolectric; this file
- * deliberately does not, so these cases stay fast and independent of an SDK sandbox.
+ * The framework-facing half, including the real exception-to-[HapticResult] translation, lives in
+ * [SystemVibratorPortTest]; this file deliberately needs no Robolectric, so these cases stay fast
+ * and independent of an SDK sandbox.
  */
 class AndroidHapticFeedbackTest {
 
     private class FakePort(
         private val hasVibrator: Boolean = true,
-        private val permitted: Boolean = true,
-        private val failWith: Throwable? = null,
+        private val outcome: HapticResult = HapticResult.PERFORMED,
     ) : VibratorPort {
         val emitted: MutableList<AndroidVibration> = mutableListOf()
 
         override fun hasVibrator(): Boolean = hasVibrator
 
-        override fun emit(vibration: AndroidVibration): Boolean {
-            failWith?.let { throw it }
+        override fun emit(vibration: AndroidVibration): HapticResult {
             emitted += vibration
-            return permitted
+            return outcome
         }
     }
 
@@ -52,8 +51,19 @@ class AndroidHapticFeedbackTest {
     }
 
     @Test
+    fun `the port's verdict is passed through unchanged for every outcome and every type`() {
+        HapticResult.entries.forEach { outcome ->
+            val haptics: HapticFeedback = AndroidHapticFeedback(FakePort(outcome = outcome))
+
+            HapticType.entries.forEach { type ->
+                assertEquals(outcome, haptics.perform(type), "outcome=$outcome type=$type")
+            }
+        }
+    }
+
+    @Test
     fun `a missing VIBRATE permission reports PERMISSION_DENIED instead of throwing`() {
-        val port = FakePort(permitted = false)
+        val port = FakePort(outcome = HapticResult.PERMISSION_DENIED)
         val haptics: HapticFeedback = AndroidHapticFeedback(port)
 
         HapticType.entries.forEach { type ->
@@ -63,7 +73,7 @@ class AndroidHapticFeedbackTest {
 
     @Test
     fun `a denied permission stays denied across calls rather than being cached as unavailable`() {
-        val port = FakePort(permitted = false)
+        val port = FakePort(outcome = HapticResult.PERMISSION_DENIED)
         val haptics: HapticFeedback = AndroidHapticFeedback(port)
 
         repeat(3) {
@@ -75,7 +85,7 @@ class AndroidHapticFeedbackTest {
     fun `a denied request was still attempted rather than skipped preemptively`() {
         // The permission state is not something the module caches or pre-checks: it asks the
         // platform every time, so a manifest fixed by a later build takes effect immediately.
-        val port = FakePort(permitted = false)
+        val port = FakePort(outcome = HapticResult.PERMISSION_DENIED)
 
         AndroidHapticFeedback(port).perform(HapticType.WARNING)
 
@@ -83,26 +93,29 @@ class AndroidHapticFeedbackTest {
     }
 
     @Test
-    fun `no motor takes precedence over a denied permission`() {
-        val port = FakePort(hasVibrator = false, permitted = false)
+    fun `a rejected request reports FAILED and does not stop the next one from succeeding`() {
+        // FAILED is transient by definition, so a failing call must not latch the instance into a
+        // failed state — each call asks the platform again.
+        val failing: HapticFeedback = AndroidHapticFeedback(FakePort(outcome = HapticResult.FAILED))
+        val working: HapticFeedback = AndroidHapticFeedback(FakePort())
 
-        assertEquals(
-            HapticResult.UNAVAILABLE,
-            AndroidHapticFeedback(port).perform(HapticType.LIGHT),
-        )
+        assertEquals(HapticResult.FAILED, failing.perform(HapticType.ERROR))
+        assertEquals(HapticResult.FAILED, failing.perform(HapticType.ERROR))
+        assertEquals(HapticResult.PERFORMED, working.perform(HapticType.ERROR))
     }
 
     @Test
-    fun `a failure that is not a SecurityException is not swallowed`() {
-        // Only the permission failure has a defined typed outcome. Anything else is a defect
-        // somewhere else and hiding it behind a HapticResult would make it unfindable.
-        val port = FakePort(failWith = IllegalStateException("vibrator is on fire"))
+    fun `no motor takes precedence over any port outcome`() {
+        HapticResult.entries.forEach { outcome ->
+            val haptics: HapticFeedback =
+                AndroidHapticFeedback(FakePort(hasVibrator = false, outcome = outcome))
 
-        val thrown: Throwable = runCatching {
-            AndroidHapticFeedback(port).perform(HapticType.LIGHT)
-        }.exceptionOrNull() ?: error("expected the failure to propagate")
-
-        assertTrue(thrown is IllegalStateException, "was $thrown")
+            assertEquals(
+                HapticResult.UNAVAILABLE,
+                haptics.perform(HapticType.LIGHT),
+                "outcome=$outcome",
+            )
+        }
     }
 
     @Test

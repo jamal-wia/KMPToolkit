@@ -51,23 +51,28 @@ object is state two callers can race over — and your app already has a place w
 ## Reacting to the result
 
 Most call sites should ignore the return value: a decorative tap that did not happen is not an
-error path worth writing. Three cases where reading it pays off:
+error path worth writing. When you do read it, this is what each value tells you — and only that.
+What to *do* about it is UI policy, which is yours, not this library's.
 
 ```kotlin
 when (haptics.perform(HapticType.SUCCESS)) {
     HapticResult.PERFORMED -> Unit
-    HapticResult.UNAVAILABLE -> hideHapticsPreference()      // no motor: the setting is pointless
+    HapticResult.UNAVAILABLE -> Unit
     HapticResult.PERMISSION_DENIED -> logger.e { "VIBRATE missing from the manifest" }
+    HapticResult.FAILED -> Unit
 }
 ```
 
-- `UNAVAILABLE` is a **hardware** fact and will not change while the app runs. Use it to hide a
-  "vibration" switch in your settings screen rather than offering a toggle that does nothing.
-- `PERMISSION_DENIED` is a **build configuration** defect — your manifest is missing
-  `android.permission.VIBRATE`. It is not something to recover from at runtime; log it loudly in
-  debug builds so it never reaches a release. See [`05-platform-notes.md`](05-platform-notes.md).
-- `PERFORMED` is not proof that anything was felt. The user may have haptics disabled system-wide,
-  and neither platform tells you.
+- `PERFORMED` — the platform accepted the request. Not proof that anything was felt: the user may
+  have haptics off system-wide, and neither platform tells you.
+- `UNAVAILABLE` — there is nothing to vibrate with. On Android that is a hardware fact for this
+  instance's lifetime; it is also what `noOpHapticFeedback()` and a suppressing decorator report,
+  so it does **not** by itself mean "this device can never buzz".
+- `PERMISSION_DENIED` — a build-configuration defect: your manifest is missing
+  `android.permission.VIBRATE`. Not something to recover from at runtime; log it loudly in debug
+  builds so it never reaches a release. See [`05-platform-notes.md`](05-platform-notes.md).
+- `FAILED` — the platform refused this particular request, or the vibrator service was unreachable.
+  Transient and device-specific; the next call may well succeed.
 
 ## Firing a haptic from shared code that is not on the main thread
 

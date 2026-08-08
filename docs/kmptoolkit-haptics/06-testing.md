@@ -119,9 +119,10 @@ Useful as a model, and as an answer to "is the Android mapping actually verified
 |---|---|---|
 | `NoOpHapticFeedbackTest`, `HapticContractTest` | `commonTest` (JVM + iOS) | The no-op contract and the declared shape of both enums |
 | `RecordingHapticFeedbackTest` | `kmptoolkit-haptics-testing/commonTest` | The fixture's own contract — recording order, snapshot semantics, `clear` |
-| `IosHapticFeedbackTest` | `iosTest` | Every type is accepted on iOS and reports `PERFORMED` |
-| `AndroidHapticFeedbackTest` | `androidUnitTest`, no Robolectric | The decisions: no motor, denied permission, per-type mapping, nothing coalesced |
-| `SystemVibratorPortTest` | `androidUnitTest`, Robolectric at SDK 24 / 30 / 34 | The framework calls on all three API branches, and a null vibrator service |
+| `IosHapticFeedbackTest` | `iosTest` | That a call from a background thread is accepted and its UIKit work really runs on the main queue |
+| `AndroidHapticFeedbackTest` | `androidUnitTest`, no Robolectric | The decisions: no motor, verdict pass-through, per-type mapping, nothing coalesced |
+| `SystemVibratorPortLegacyApiTest` / `...EffectApiTest` / `...VibratorManagerTest` | `androidUnitTest`, Robolectric at SDK 24 / 30 / 34 | The framework calls and touch attribution on all three API branches, exact durations per type, a null vibrator service |
+| `SystemVibratorPortFailureTest` | `androidUnitTest`, Robolectric with throwing shadows | The real translation of `SecurityException` to `PERMISSION_DENIED` and of any other `RuntimeException` to `FAILED` |
 
 The split is deliberate: the framework seam (`VibratorPort`) exists so that "what should happen"
 can be tested without an SDK sandbox, and only the thin translation layer needs Robolectric.
