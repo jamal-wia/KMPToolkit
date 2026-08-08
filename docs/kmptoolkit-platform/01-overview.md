@@ -1,8 +1,8 @@
 # kmptoolkit-platform — Overview
 
-Eight small platform seams that shared Kotlin code keeps needing and cannot express by itself.
-Each one is an interface in `commonMain` with a factory per platform, and each one reports failure
-as a typed value instead of an exception.
+Seven small platform seams that shared Kotlin code keeps needing and cannot express by itself, plus
+one Android-only helper the rest of them lean on. Each seam is an interface in `commonMain` with a
+factory per platform, and each reports failure as a typed value instead of an exception.
 
 | Seam | Interface | What it answers or does |
 | --- | --- | --- |
@@ -13,7 +13,6 @@ as a typed value instead of an exception.
 | Files | `FilePicker`, `PickedFile` | let the user choose a file, get bytes back |
 | Screen | `ScreenWakeLock` | keep the display awake while a feature owns it |
 | Crashes | `CrashLogStore`, `installCrashHandler` | record an uncaught exception, read it next launch |
-| Build | `isPlatformDebugBuild`, `platformBuildVariant` | which build of *this library* is running |
 | Android activities | `ActivityAccess` | reach the resumed `Activity` without leaking it |
 
 ```kotlin
@@ -82,9 +81,15 @@ This module is a grab-bag by nature, so its boundary needs stating precisely.
   reports what the user did next.
 - **Not a CPU wake lock.** `ScreenWakeLock` suppresses the display idle timer in the foreground.
   It does nothing for background work, which is exactly why it needs no `WAKE_LOCK` permission.
-- **Not a reliable read of *your app's* build type.** `isPlatformDebugBuild` describes the library
-  binary. Consumed as a published artifact, it is `false` in your debug build. See
-  [`05-platform-notes.md`](05-platform-notes.md#build-variant-reporting).
+- **Not a report of your app's build type.** There is deliberately no `isDebugBuild` here, and this
+  is a boundary rather than an omission. A library can only see *its own* binary, and the two
+  platforms disagree about what that even means: an Android library's `BuildConfig.DEBUG` is baked
+  in when the artifact is published, so it reads `false` inside your debug build, while
+  Kotlin/Native's `Platform.isDebugBinary` reflects the framework your app links. One property
+  would therefore mean two different things depending on the target, and an app tested on iOS
+  would invert its behavior when shipped on Android. You already know your own build type — read
+  `BuildConfig.DEBUG` (or `#if DEBUG` in Swift) at your entry point and pass the value into shared
+  code, which is one line and is always right.
 - **Not Compose, and not tied to any UI framework.** Plain Kotlin, no Compose dependency.
 - **Not a DI module.** Interfaces plus factory functions; wire them however you like
   ([`../01-architecture.md`](../01-architecture.md#no-dependency-injection-framework)).

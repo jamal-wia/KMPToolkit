@@ -206,23 +206,6 @@ or Application Support path if either matters for your app.
 iOS release build's stack trace is unsymbolicated unless you keep the `.dSYM`. Run it alongside a
 real reporter to catch the crashes that die before a reporter can flush.
 
-## Build variant reporting
-
-`isPlatformDebugBuild` and `platformBuildVariant` read this **library module's** own build
-configuration: `BuildConfig.DEBUG` / `BuildConfig.BUILD_TYPE` on Android (which is why the module
-keeps `buildFeatures { buildConfig = true }`), and `Platform.isDebugBinary` on Kotlin/Native.
-
-That means:
-
-| How you consume KMPToolkit | What these report |
-| --- | --- |
-| Built from source alongside your app (composite/included build) | your build type — what you want |
-| The published Maven Central artifact | the configuration the artifact was **published** with, so `false` / `"release"` even in your debug build |
-
-If your app's behavior depends on your app's build type, read your own `BuildConfig.DEBUG` (or
-`#if DEBUG` in Swift) at the entry point and pass the value into shared code. These properties are
-for library-internal decisions and for source-built setups.
-
 ## Thread safety
 
 - `ConnectivityObserver.status` is a `StateFlow` — readable and collectable from any thread. Its

@@ -202,17 +202,6 @@ fun createCrashLogStore(config: CrashLogConfig = CrashLogConfig()): CrashLogStor
 fun installCrashHandler(store: CrashLogStore): CrashHandlerInstallation
 ```
 
-## `…platform.build`
-
-```kotlin
-expect val isPlatformDebugBuild: Boolean
-expect val platformBuildVariant: String
-```
-
-Both describe **this library's** binary, not your app's. Consumed as a published artifact they
-report the configuration the artifact was published with. See
-[`05-platform-notes.md`](05-platform-notes.md#build-variant-reporting).
-
 ## `…platform.activity` (Android only)
 
 ```kotlin

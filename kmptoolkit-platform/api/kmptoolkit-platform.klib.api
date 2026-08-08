@@ -234,11 +234,6 @@ final class io.github.jamal_wia.kmptoolkit.platform.files/PickedFile { // io.git
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.platform.files/PickedFile.toString|toString(){}[0]
 }
 
-final val io.github.jamal_wia.kmptoolkit.platform.build/isPlatformDebugBuild // io.github.jamal_wia.kmptoolkit.platform.build/isPlatformDebugBuild|{}isPlatformDebugBuild[0]
-    final fun <get-isPlatformDebugBuild>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.platform.build/isPlatformDebugBuild.<get-isPlatformDebugBuild>|<get-isPlatformDebugBuild>(){}[0]
-final val io.github.jamal_wia.kmptoolkit.platform.build/platformBuildVariant // io.github.jamal_wia.kmptoolkit.platform.build/platformBuildVariant|{}platformBuildVariant[0]
-    final fun <get-platformBuildVariant>(): kotlin/String // io.github.jamal_wia.kmptoolkit.platform.build/platformBuildVariant.<get-platformBuildVariant>|<get-platformBuildVariant>(){}[0]
-
 final fun io.github.jamal_wia.kmptoolkit.platform.accessibility/createReducedMotionProbe(): io.github.jamal_wia.kmptoolkit.platform.accessibility/ReducedMotionProbe // io.github.jamal_wia.kmptoolkit.platform.accessibility/createReducedMotionProbe|createReducedMotionProbe(){}[0]
 final fun io.github.jamal_wia.kmptoolkit.platform.connectivity/createConnectivityObserver(): io.github.jamal_wia.kmptoolkit.platform.connectivity/ConnectivityObserver // io.github.jamal_wia.kmptoolkit.platform.connectivity/createConnectivityObserver|createConnectivityObserver(){}[0]
 final fun io.github.jamal_wia.kmptoolkit.platform.crash/createCrashLogStore(io.github.jamal_wia.kmptoolkit.platform.crash/CrashLogConfig = ...): io.github.jamal_wia.kmptoolkit.platform.crash/CrashLogStore // io.github.jamal_wia.kmptoolkit.platform.crash/createCrashLogStore|createCrashLogStore(io.github.jamal_wia.kmptoolkit.platform.crash.CrashLogConfig){}[0]

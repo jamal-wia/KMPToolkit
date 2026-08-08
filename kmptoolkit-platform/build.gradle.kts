@@ -25,12 +25,9 @@ kmptoolkitPublish {
 android {
     namespace = "io.github.jamal_wia.kmptoolkit.platform"
 
-    // isPlatformDebugBuild / platformBuildVariant read this module's own BuildConfig — AGP no
-    // longer generates it for a library by default. See docs/kmptoolkit-platform/05-platform-notes.md
-    // for what that value actually means once this module is consumed as a published AAR.
-    buildFeatures {
-        buildConfig = true
-    }
+    // No buildFeatures { buildConfig = true }: nothing here reads a generated BuildConfig, and a
+    // library's own BuildConfig.DEBUG describes the artifact rather than the app consuming it —
+    // see docs/kmptoolkit-platform/01-overview.md on why this module reports no build type at all.
 }
 
 kotlin {

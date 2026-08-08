@@ -202,6 +202,26 @@ replaces it. **Never store the activity it is handed** — the listener is held 
 subscription, so anything it captures lives that long. Use the activity inside the callback and let
 it go.
 
+## Gating something to debug builds
+
+Nothing in this module answers "am I a debug build" — a library can only see its own binary, and
+what that means differs per platform ([`01-overview.md`](01-overview.md#what-this-is-not)). Read
+your app's own flag at the entry point and pass it in:
+
+```kotlin
+// androidMain — your app's BuildConfig, not the library's
+val seams = PlatformSeams(isDebug = BuildConfig.DEBUG, /* … */)
+```
+
+```swift
+// iOS — from your app target
+#if DEBUG
+let isDebug = true
+#else
+let isDebug = false
+#endif
+```
+
 ## Wiring it into a DI framework
 
 There is no Koin module here ([why](../01-architecture.md#no-dependency-injection-framework)).
