@@ -1,0 +1,260 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-notification>
+final enum class io.github.jamal_wia.kmptoolkit.notification/NotificationImportance : kotlin/Enum<io.github.jamal_wia.kmptoolkit.notification/NotificationImportance> { // io.github.jamal_wia.kmptoolkit.notification/NotificationImportance|null[0]
+    enum entry Default // io.github.jamal_wia.kmptoolkit.notification/NotificationImportance.Default|null[0]
+    enum entry High // io.github.jamal_wia.kmptoolkit.notification/NotificationImportance.High|null[0]
+    enum entry Low // io.github.jamal_wia.kmptoolkit.notification/NotificationImportance.Low|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.notification/NotificationImportance.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.notification/NotificationImportance> // io.github.jamal_wia.kmptoolkit.notification/NotificationImportance.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.notification/NotificationImportance // io.github.jamal_wia.kmptoolkit.notification/NotificationImportance.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.notification/NotificationImportance> // io.github.jamal_wia.kmptoolkit.notification/NotificationImportance.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.notification/Notifier { // io.github.jamal_wia.kmptoolkit.notification/Notifier|null[0]
+    abstract fun cancel(kotlin/String) // io.github.jamal_wia.kmptoolkit.notification/Notifier.cancel|cancel(kotlin.String){}[0]
+    abstract fun cancelAll() // io.github.jamal_wia.kmptoolkit.notification/Notifier.cancelAll|cancelAll(){}[0]
+    abstract suspend fun post(kotlin/String, io.github.jamal_wia.kmptoolkit.notification/LocalNotification): io.github.jamal_wia.kmptoolkit.notification/NotificationResult // io.github.jamal_wia.kmptoolkit.notification/Notifier.post|post(kotlin.String;io.github.jamal_wia.kmptoolkit.notification.LocalNotification){}[0]
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.notification/NotificationIcon { // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon|null[0]
+    final class AndroidDrawable : io.github.jamal_wia.kmptoolkit.notification/NotificationIcon { // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable|null[0]
+        constructor <init>(kotlin/Int) // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable.<init>|<init>(kotlin.Int){}[0]
+
+        final val resourceId // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable.resourceId|{}resourceId[0]
+            final fun <get-resourceId>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable.resourceId.<get-resourceId>|<get-resourceId>(){}[0]
+
+        final fun component1(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable.component1|component1(){}[0]
+        final fun copy(kotlin/Int = ...): io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable.copy|copy(kotlin.Int){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.AndroidDrawable.toString|toString(){}[0]
+    }
+
+    final object Default : io.github.jamal_wia.kmptoolkit.notification/NotificationIcon { // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.Default|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.Default.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.Default.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon.Default.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.notification/NotificationProgress { // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress|null[0]
+    final class Determinate : io.github.jamal_wia.kmptoolkit.notification/NotificationProgress { // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate|null[0]
+        constructor <init>(kotlin/Int) // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate.<init>|<init>(kotlin.Int){}[0]
+
+        final val percent // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate.percent|{}percent[0]
+            final fun <get-percent>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate.percent.<get-percent>|<get-percent>(){}[0]
+
+        final fun component1(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate.component1|component1(){}[0]
+        final fun copy(kotlin/Int = ...): io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate.copy|copy(kotlin.Int){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Determinate.toString|toString(){}[0]
+    }
+
+    final object Indeterminate : io.github.jamal_wia.kmptoolkit.notification/NotificationProgress { // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Indeterminate|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Indeterminate.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Indeterminate.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationProgress.Indeterminate.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.notification/NotificationResult { // io.github.jamal_wia.kmptoolkit.notification/NotificationResult|null[0]
+    final class ChannelBlocked : io.github.jamal_wia.kmptoolkit.notification/NotificationResult { // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked.<init>|<init>(kotlin.String){}[0]
+
+        final val channelId // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked.channelId|{}channelId[0]
+            final fun <get-channelId>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked.channelId.<get-channelId>|<get-channelId>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.ChannelBlocked.toString|toString(){}[0]
+    }
+
+    final class Failed : io.github.jamal_wia.kmptoolkit.notification/NotificationResult { // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed|null[0]
+        constructor <init>(kotlin/Throwable?) // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed.<init>|<init>(kotlin.Throwable?){}[0]
+
+        final val cause // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed.cause.<get-cause>|<get-cause>(){}[0]
+
+        final fun component1(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed.component1|component1(){}[0]
+        final fun copy(kotlin/Throwable? = ...): io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed.copy|copy(kotlin.Throwable?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Failed.toString|toString(){}[0]
+    }
+
+    final object Coalesced : io.github.jamal_wia.kmptoolkit.notification/NotificationResult { // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Coalesced|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Coalesced.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Coalesced.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Coalesced.toString|toString(){}[0]
+    }
+
+    final object NotificationsDisabled : io.github.jamal_wia.kmptoolkit.notification/NotificationResult { // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.NotificationsDisabled|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.NotificationsDisabled.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.NotificationsDisabled.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.NotificationsDisabled.toString|toString(){}[0]
+    }
+
+    final object PermissionDenied : io.github.jamal_wia.kmptoolkit.notification/NotificationResult { // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.PermissionDenied|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.PermissionDenied.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.PermissionDenied.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.PermissionDenied.toString|toString(){}[0]
+    }
+
+    final object Posted : io.github.jamal_wia.kmptoolkit.notification/NotificationResult { // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Posted|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Posted.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Posted.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationResult.Posted.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.notification/NotificationSound { // io.github.jamal_wia.kmptoolkit.notification/NotificationSound|null[0]
+    final class Custom : io.github.jamal_wia.kmptoolkit.notification/NotificationSound { // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom.<init>|<init>(kotlin.String){}[0]
+
+        final val resourceName // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom.resourceName|{}resourceName[0]
+            final fun <get-resourceName>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom.resourceName.<get-resourceName>|<get-resourceName>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Custom.toString|toString(){}[0]
+    }
+
+    final object Default : io.github.jamal_wia.kmptoolkit.notification/NotificationSound { // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Default|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Default.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Default.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Default.toString|toString(){}[0]
+    }
+
+    final object Silent : io.github.jamal_wia.kmptoolkit.notification/NotificationSound { // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Silent|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Silent.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Silent.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationSound.Silent.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.notification/LocalNotification { // io.github.jamal_wia.kmptoolkit.notification/LocalNotification|null[0]
+    constructor <init>(kotlin/String, kotlin/String, io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec, io.github.jamal_wia.kmptoolkit.notification/NotificationIcon = ..., io.github.jamal_wia.kmptoolkit.notification/NotificationProgress? = ..., kotlin/Boolean = ..., kotlin/Boolean = ..., kotlin.collections/List<io.github.jamal_wia.kmptoolkit.notification/NotificationAction> = ..., kotlin/String? = ..., kotlin.collections/Map<kotlin/String, kotlin/String>? = ...) // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.<init>|<init>(kotlin.String;kotlin.String;io.github.jamal_wia.kmptoolkit.notification.NotificationChannelSpec;io.github.jamal_wia.kmptoolkit.notification.NotificationIcon;io.github.jamal_wia.kmptoolkit.notification.NotificationProgress?;kotlin.Boolean;kotlin.Boolean;kotlin.collections.List<io.github.jamal_wia.kmptoolkit.notification.NotificationAction>;kotlin.String?;kotlin.collections.Map<kotlin.String,kotlin.String>?){}[0]
+
+    final val actions // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.actions|{}actions[0]
+        final fun <get-actions>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.notification/NotificationAction> // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.actions.<get-actions>|<get-actions>(){}[0]
+    final val autoCancel // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.autoCancel|{}autoCancel[0]
+        final fun <get-autoCancel>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.autoCancel.<get-autoCancel>|<get-autoCancel>(){}[0]
+    final val body // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.body|{}body[0]
+        final fun <get-body>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.body.<get-body>|<get-body>(){}[0]
+    final val channel // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.channel|{}channel[0]
+        final fun <get-channel>(): io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.channel.<get-channel>|<get-channel>(){}[0]
+    final val contentExtras // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.contentExtras|{}contentExtras[0]
+        final fun <get-contentExtras>(): kotlin.collections/Map<kotlin/String, kotlin/String>? // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.contentExtras.<get-contentExtras>|<get-contentExtras>(){}[0]
+    final val icon // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.icon|{}icon[0]
+        final fun <get-icon>(): io.github.jamal_wia.kmptoolkit.notification/NotificationIcon // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.icon.<get-icon>|<get-icon>(){}[0]
+    final val iosCategoryId // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.iosCategoryId|{}iosCategoryId[0]
+        final fun <get-iosCategoryId>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.iosCategoryId.<get-iosCategoryId>|<get-iosCategoryId>(){}[0]
+    final val ongoing // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.ongoing|{}ongoing[0]
+        final fun <get-ongoing>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.ongoing.<get-ongoing>|<get-ongoing>(){}[0]
+    final val progress // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.progress|{}progress[0]
+        final fun <get-progress>(): io.github.jamal_wia.kmptoolkit.notification/NotificationProgress? // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.progress.<get-progress>|<get-progress>(){}[0]
+    final val title // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.title|{}title[0]
+        final fun <get-title>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.title.<get-title>|<get-title>(){}[0]
+
+    final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component1|component1(){}[0]
+    final fun component10(): kotlin.collections/Map<kotlin/String, kotlin/String>? // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component10|component10(){}[0]
+    final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component2|component2(){}[0]
+    final fun component3(): io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component3|component3(){}[0]
+    final fun component4(): io.github.jamal_wia.kmptoolkit.notification/NotificationIcon // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component4|component4(){}[0]
+    final fun component5(): io.github.jamal_wia.kmptoolkit.notification/NotificationProgress? // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component5|component5(){}[0]
+    final fun component6(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component6|component6(){}[0]
+    final fun component7(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component7|component7(){}[0]
+    final fun component8(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.notification/NotificationAction> // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component8|component8(){}[0]
+    final fun component9(): kotlin/String? // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.component9|component9(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String = ..., io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec = ..., io.github.jamal_wia.kmptoolkit.notification/NotificationIcon = ..., io.github.jamal_wia.kmptoolkit.notification/NotificationProgress? = ..., kotlin/Boolean = ..., kotlin/Boolean = ..., kotlin.collections/List<io.github.jamal_wia.kmptoolkit.notification/NotificationAction> = ..., kotlin/String? = ..., kotlin.collections/Map<kotlin/String, kotlin/String>? = ...): io.github.jamal_wia.kmptoolkit.notification/LocalNotification // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.copy|copy(kotlin.String;kotlin.String;io.github.jamal_wia.kmptoolkit.notification.NotificationChannelSpec;io.github.jamal_wia.kmptoolkit.notification.NotificationIcon;io.github.jamal_wia.kmptoolkit.notification.NotificationProgress?;kotlin.Boolean;kotlin.Boolean;kotlin.collections.List<io.github.jamal_wia.kmptoolkit.notification.NotificationAction>;kotlin.String?;kotlin.collections.Map<kotlin.String,kotlin.String>?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/LocalNotification.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.notification/NotificationAction { // io.github.jamal_wia.kmptoolkit.notification/NotificationAction|null[0]
+    constructor <init>(kotlin/String, kotlin/String) // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.<init>|<init>(kotlin.String;kotlin.String){}[0]
+
+    final val id // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.id|{}id[0]
+        final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.id.<get-id>|<get-id>(){}[0]
+    final val label // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.label|{}label[0]
+        final fun <get-label>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.label.<get-label>|<get-label>(){}[0]
+
+    final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.component1|component1(){}[0]
+    final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.component2|component2(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String = ...): io.github.jamal_wia.kmptoolkit.notification/NotificationAction // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.copy|copy(kotlin.String;kotlin.String){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationAction.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec { // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec|null[0]
+    constructor <init>(kotlin/String, kotlin/String, kotlin/String = ..., io.github.jamal_wia.kmptoolkit.notification/NotificationImportance = ..., io.github.jamal_wia.kmptoolkit.notification/NotificationSound = ...) // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.<init>|<init>(kotlin.String;kotlin.String;kotlin.String;io.github.jamal_wia.kmptoolkit.notification.NotificationImportance;io.github.jamal_wia.kmptoolkit.notification.NotificationSound){}[0]
+
+    final val description // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.description|{}description[0]
+        final fun <get-description>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.description.<get-description>|<get-description>(){}[0]
+    final val id // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.id|{}id[0]
+        final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.id.<get-id>|<get-id>(){}[0]
+    final val importance // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.importance|{}importance[0]
+        final fun <get-importance>(): io.github.jamal_wia.kmptoolkit.notification/NotificationImportance // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.importance.<get-importance>|<get-importance>(){}[0]
+    final val name // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.name|{}name[0]
+        final fun <get-name>(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.name.<get-name>|<get-name>(){}[0]
+    final val sound // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.sound|{}sound[0]
+        final fun <get-sound>(): io.github.jamal_wia.kmptoolkit.notification/NotificationSound // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.sound.<get-sound>|<get-sound>(){}[0]
+
+    final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.component1|component1(){}[0]
+    final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.component2|component2(){}[0]
+    final fun component3(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.component3|component3(){}[0]
+    final fun component4(): io.github.jamal_wia.kmptoolkit.notification/NotificationImportance // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.component4|component4(){}[0]
+    final fun component5(): io.github.jamal_wia.kmptoolkit.notification/NotificationSound // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.component5|component5(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String = ..., kotlin/String = ..., io.github.jamal_wia.kmptoolkit.notification/NotificationImportance = ..., io.github.jamal_wia.kmptoolkit.notification/NotificationSound = ...): io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.copy|copy(kotlin.String;kotlin.String;kotlin.String;io.github.jamal_wia.kmptoolkit.notification.NotificationImportance;io.github.jamal_wia.kmptoolkit.notification.NotificationSound){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationChannelSpec.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.notification/NotificationConfig { // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig|null[0]
+    constructor <init>(kotlin/String? = ..., kotlin/Int = ..., kotlin.time/Duration = ...) // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.<init>|<init>(kotlin.String?;kotlin.Int;kotlin.time.Duration){}[0]
+
+    final val actionBroadcastAction // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.actionBroadcastAction|{}actionBroadcastAction[0]
+        final fun <get-actionBroadcastAction>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.actionBroadcastAction.<get-actionBroadcastAction>|<get-actionBroadcastAction>(){}[0]
+    final val minProgressInterval // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.minProgressInterval|{}minProgressInterval[0]
+        final fun <get-minProgressInterval>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.minProgressInterval.<get-minProgressInterval>|<get-minProgressInterval>(){}[0]
+    final val progressBucketPercent // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.progressBucketPercent|{}progressBucketPercent[0]
+        final fun <get-progressBucketPercent>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.progressBucketPercent.<get-progressBucketPercent>|<get-progressBucketPercent>(){}[0]
+
+    final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.component1|component1(){}[0]
+    final fun component2(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.component2|component2(){}[0]
+    final fun component3(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.component3|component3(){}[0]
+    final fun copy(kotlin/String? = ..., kotlin/Int = ..., kotlin.time/Duration = ...): io.github.jamal_wia.kmptoolkit.notification/NotificationConfig // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.copy|copy(kotlin.String?;kotlin.Int;kotlin.time.Duration){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.Companion|null[0]
+        final const val DEFAULT_PROGRESS_BUCKET_PERCENT // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.Companion.DEFAULT_PROGRESS_BUCKET_PERCENT|{}DEFAULT_PROGRESS_BUCKET_PERCENT[0]
+            final fun <get-DEFAULT_PROGRESS_BUCKET_PERCENT>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.Companion.DEFAULT_PROGRESS_BUCKET_PERCENT.<get-DEFAULT_PROGRESS_BUCKET_PERCENT>|<get-DEFAULT_PROGRESS_BUCKET_PERCENT>(){}[0]
+
+        final val DEFAULT_MIN_PROGRESS_INTERVAL // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.Companion.DEFAULT_MIN_PROGRESS_INTERVAL|{}DEFAULT_MIN_PROGRESS_INTERVAL[0]
+            final fun <get-DEFAULT_MIN_PROGRESS_INTERVAL>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.Companion.DEFAULT_MIN_PROGRESS_INTERVAL.<get-DEFAULT_MIN_PROGRESS_INTERVAL>|<get-DEFAULT_MIN_PROGRESS_INTERVAL>(){}[0]
+    }
+}
+
+final val io.github.jamal_wia.kmptoolkit.notification/isPosted // io.github.jamal_wia.kmptoolkit.notification/isPosted|@io.github.jamal_wia.kmptoolkit.notification.NotificationResult{}isPosted[0]
+    final fun (io.github.jamal_wia.kmptoolkit.notification/NotificationResult).<get-isPosted>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/isPosted.<get-isPosted>|<get-isPosted>@io.github.jamal_wia.kmptoolkit.notification.NotificationResult(){}[0]
+
+final fun io.github.jamal_wia.kmptoolkit.notification/createNotifier(io.github.jamal_wia.kmptoolkit.permission/PermissionHandler, io.github.jamal_wia.kmptoolkit.notification/NotificationConfig = ...): io.github.jamal_wia.kmptoolkit.notification/Notifier // io.github.jamal_wia.kmptoolkit.notification/createNotifier|createNotifier(io.github.jamal_wia.kmptoolkit.permission.PermissionHandler;io.github.jamal_wia.kmptoolkit.notification.NotificationConfig){}[0]
+final fun io.github.jamal_wia.kmptoolkit.notification/noOpNotifier(): io.github.jamal_wia.kmptoolkit.notification/Notifier // io.github.jamal_wia.kmptoolkit.notification/noOpNotifier|noOpNotifier(){}[0]

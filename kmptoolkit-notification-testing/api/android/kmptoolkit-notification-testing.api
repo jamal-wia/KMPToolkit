@@ -1,0 +1,29 @@
+public final class io/github/jamal_wia/kmptoolkit/notification/testing/PostedNotification {
+	public fun <init> (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;
+	public final fun copy (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;)Lio/github/jamal_wia/kmptoolkit/notification/testing/PostedNotification;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/notification/testing/PostedNotification;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/notification/testing/PostedNotification;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getNotification ()Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/notification/testing/RecordingNotifier : io/github/jamal_wia/kmptoolkit/notification/Notifier {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/notification/NotificationResult;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/notification/NotificationResult;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun cancel (Ljava/lang/String;)V
+	public fun cancelAll ()V
+	public final fun clear ()V
+	public final fun getCancelAllCount ()I
+	public final fun getCancelled ()Ljava/util/List;
+	public final fun getPosted ()Ljava/util/List;
+	public final fun getResult ()Lio/github/jamal_wia/kmptoolkit/notification/NotificationResult;
+	public final fun getShowing ()Ljava/util/Map;
+	public fun post (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun setResult (Lio/github/jamal_wia/kmptoolkit/notification/NotificationResult;)V
+}
+
