@@ -46,7 +46,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-permission-testing` | `RecordingPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions | `platform`, `permission` | Planned | — |
 | `kmptoolkit-session` | Session lifecycle manager | `coroutines`, `logging` | Planned | — |
-| `kmptoolkit-settings` | Font scale, theme mode, app language | `storage` | Planned | — |
+| `kmptoolkit-settings` | Font scale, theme mode, app language | `storage` | Available | [docs](docs/kmptoolkit-settings/01-overview.md) |
 | `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `coroutines`, `logging` | Planned | — |
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed outbox store | `outbox` | Planned | — |
 | `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | `platform` | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |

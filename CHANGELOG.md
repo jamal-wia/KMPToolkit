@@ -46,6 +46,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-biometric` and `kmptoolkit-biometric-testing` — a biometric gate returning typed
   outcomes that distinguish no-hardware, not-enrolled, transient lockout and permanent lockout.
   Prompt copy has no defaults, so the library's words cannot ship by accident.
+- `kmptoolkit-settings` — font scale, theme mode and app language over `kmptoolkit-storage`,
+  exposed as `StateFlow`s. The font scale is a validated multiplier rather than a fixed set of
+  named steps and the language is a canonicalised BCP 47 `LanguageTag` rather than an enum, so
+  neither the donor app's typography scale nor its language list ships to anyone. A failed write
+  leaves the flow untouched and returns a typed error instead of showing a choice that reverts at
+  the next launch, and everything that could not be read is reported in `SettingsLoad.problems`.
+  `LanguageApplier` applies the language through the framework `LocaleManager` on Android 13+, the
+  process locale defaults below it, and `AppleLanguages` on iOS — without an `androidx.appcompat`
+  dependency.
 - `kmptoolkit-systembars` — Compose system-bar control built as a base configuration plus a stack
   of per-axis override layers, so leaving a screen removes exactly that screen's contribution
   instead of restoring a snapshot that may since have gone stale.
