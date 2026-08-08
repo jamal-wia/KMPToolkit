@@ -1,0 +1,253 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/accessibility/ReducedMotionProbe {
+	public abstract fun isReducedMotionEnabled ()Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/accessibility/ReducedMotionProbe_androidKt {
+	public static final fun createReducedMotionProbe (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/platform/accessibility/ReducedMotionProbe;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess {
+	public abstract fun addOnActivityResumedListener (Lkotlin/jvm/functions/Function1;)Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivitySubscription;
+	public abstract fun release ()V
+	public abstract fun withActivity (Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccessKt {
+	public static final fun createActivityTracker (Landroid/app/Application;)Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/activity/ActivitySubscription {
+	public abstract fun cancel ()V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityObserver {
+	public abstract fun close ()V
+	public abstract fun getStatus ()Lkotlinx/coroutines/flow/StateFlow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityObserver_androidKt {
+	public static final fun createConnectivityObserver (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityObserver;
+	public static synthetic fun createConnectivityObserver$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityObserver;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityStatus : java/lang/Enum {
+	public static final field OFFLINE Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityStatus;
+	public static final field ONLINE Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityStatus;
+	public static final field UNKNOWN Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityStatus;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityStatus;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/platform/connectivity/ConnectivityStatus;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/crash/CrashHandlerInstallation {
+	public abstract fun uninstall ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/crash/CrashHandler_androidKt {
+	public static final fun installCrashHandler (Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashLogStore;)Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashHandlerInstallation;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/crash/CrashLogConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashLogConfig$Companion;
+	public static final field DEFAULT_FILE_NAME Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashLogConfig;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashLogConfig;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashLogConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDirectoryPath ()Ljava/lang/String;
+	public final fun getFileName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/crash/CrashLogConfig$Companion {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/crash/CrashLogStore {
+	public abstract fun readAndClear ()Ljava/util/List;
+	public abstract fun write (Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashRecord;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/crash/CrashLogStore_androidKt {
+	public static final fun createCrashLogStore (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashLogConfig;)Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashLogStore;
+	public static synthetic fun createCrashLogStore$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashLogConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashLogStore;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/crash/CrashRecord {
+	public fun <init> (JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()J
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashRecord;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashRecord;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/crash/CrashRecord;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getStackTrace ()Ljava/lang/String;
+	public final fun getThreadName ()Ljava/lang/String;
+	public final fun getTimestampMs ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/device/DeviceInfo {
+	public abstract fun currentCountry ()Ljava/lang/String;
+	public abstract fun getFormFactor ()Lio/github/jamal_wia/kmptoolkit/platform/device/FormFactor;
+	public abstract fun getModel ()Ljava/lang/String;
+	public abstract fun getOsName ()Ljava/lang/String;
+	public abstract fun getOsVersion ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/device/DeviceInfo_androidKt {
+	public static final fun createDeviceInfo (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/platform/device/DeviceInfo;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/device/FormFactor : java/lang/Enum {
+	public static final field PHONE Lio/github/jamal_wia/kmptoolkit/platform/device/FormFactor;
+	public static final field TABLET Lio/github/jamal_wia/kmptoolkit/platform/device/FormFactor;
+	public static final field UNKNOWN Lio/github/jamal_wia/kmptoolkit/platform/device/FormFactor;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/platform/device/FormFactor;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/platform/device/FormFactor;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/files/FilePicker {
+	public abstract fun pick (Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun pick$default (Lio/github/jamal_wia/kmptoolkit/platform/files/FilePicker;Ljava/util/List;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/FilePicker$DefaultImpls {
+	public static synthetic fun pick$default (Lio/github/jamal_wia/kmptoolkit/platform/files/FilePicker;Ljava/util/List;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/FilePickerConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/platform/files/FilePickerConfig$Companion;
+	public static final field DEFAULT_MAX_BYTES J
+	public fun <init> ()V
+	public fun <init> (J)V
+	public synthetic fun <init> (JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun copy (J)Lio/github/jamal_wia/kmptoolkit/platform/files/FilePickerConfig;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/platform/files/FilePickerConfig;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/files/FilePickerConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxBytes ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/FilePickerConfig$Companion {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/files/FilePickerHost {
+	public abstract fun launch ([Ljava/lang/String;Lkotlin/jvm/functions/Function1;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/FilePicker_androidKt {
+	public static final fun createFilePicker (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/platform/files/FilePickerHost;Lio/github/jamal_wia/kmptoolkit/platform/files/FilePickerConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/platform/files/FilePicker;
+	public static synthetic fun createFilePicker$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/platform/files/FilePickerHost;Lio/github/jamal_wia/kmptoolkit/platform/files/FilePickerConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/files/FilePicker;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/files/PickResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/PickResult$Cancelled : io/github/jamal_wia/kmptoolkit/platform/files/PickResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$Cancelled;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/PickResult$Failed : io/github/jamal_wia/kmptoolkit/platform/files/PickResult {
+	public fun <init> (Ljava/lang/Throwable;)V
+	public final fun component1 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$Failed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$Failed;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$Failed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/PickResult$Picked : io/github/jamal_wia/kmptoolkit/platform/files/PickResult {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/platform/files/PickedFile;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/platform/files/PickedFile;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/platform/files/PickedFile;)Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$Picked;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$Picked;Lio/github/jamal_wia/kmptoolkit/platform/files/PickedFile;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$Picked;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFile ()Lio/github/jamal_wia/kmptoolkit/platform/files/PickedFile;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/PickResult$TooLarge : io/github/jamal_wia/kmptoolkit/platform/files/PickResult {
+	public fun <init> (JJ)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun copy (JJ)Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$TooLarge;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$TooLarge;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$TooLarge;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxBytes ()J
+	public final fun getSizeBytes ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/PickResult$Unavailable : io/github/jamal_wia/kmptoolkit/platform/files/PickResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/platform/files/PickResult$Unavailable;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/files/PickedFile {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;[B)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBytes ()[B
+	public final fun getMimeTypeHint ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public final fun getSizeBytes ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult : java/lang/Enum {
+	public static final field FAILED Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;
+	public static final field INVALID_URL Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;
+	public static final field NO_HANDLER Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;
+	public static final field OPENED Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/url/UrlOpener {
+	public abstract fun open (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpenResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/url/UrlOpener_androidKt {
+	public static final fun createUrlOpener (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpener;
+	public static synthetic fun createUrlOpener$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/url/UrlOpener;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/platform/wakelock/ScreenWakeLock {
+	public abstract fun setKeepScreenOn (Z)Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/wakelock/ScreenWakeLock_androidKt {
+	public static final fun createScreenWakeLock (Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/platform/wakelock/ScreenWakeLock;
+	public static synthetic fun createScreenWakeLock$default (Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/platform/wakelock/ScreenWakeLock;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult : java/lang/Enum {
+	public static final field APPLIED Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;
+	public static final field FAILED Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;
+	public static final field NO_ACTIVE_WINDOW Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/platform/wakelock/WakeLockResult;
+}
+

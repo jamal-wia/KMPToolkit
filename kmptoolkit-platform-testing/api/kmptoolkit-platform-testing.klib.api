@@ -1,0 +1,112 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-platform-testing>
+final class io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver : io.github.jamal_wia.kmptoolkit.platform.connectivity/ConnectivityObserver { // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.platform.connectivity/ConnectivityStatus = ...) // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver.<init>|<init>(io.github.jamal_wia.kmptoolkit.platform.connectivity.ConnectivityStatus){}[0]
+
+    final val isClosed // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver.isClosed|{}isClosed[0]
+        final fun <get-isClosed>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver.isClosed.<get-isClosed>|<get-isClosed>(){}[0]
+    final val status // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver.status|{}status[0]
+        final fun <get-status>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.platform.connectivity/ConnectivityStatus> // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver.status.<get-status>|<get-status>(){}[0]
+
+    final var closeCount // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver.closeCount|{}closeCount[0]
+        final fun <get-closeCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver.closeCount.<get-closeCount>|<get-closeCount>(){}[0]
+
+    final fun close() // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver.close|close(){}[0]
+    final fun emit(io.github.jamal_wia.kmptoolkit.platform.connectivity/ConnectivityStatus) // io.github.jamal_wia.kmptoolkit.platform.testing/FakeConnectivityObserver.emit|emit(io.github.jamal_wia.kmptoolkit.platform.connectivity.ConnectivityStatus){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo : io.github.jamal_wia.kmptoolkit.platform.device/DeviceInfo { // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo|null[0]
+    constructor <init>(kotlin/String = ..., kotlin/String = ..., kotlin/String = ..., io.github.jamal_wia.kmptoolkit.platform.device/FormFactor = ..., kotlin/String? = ...) // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.<init>|<init>(kotlin.String;kotlin.String;kotlin.String;io.github.jamal_wia.kmptoolkit.platform.device.FormFactor;kotlin.String?){}[0]
+
+    final val formFactor // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.formFactor|{}formFactor[0]
+        final fun <get-formFactor>(): io.github.jamal_wia.kmptoolkit.platform.device/FormFactor // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.formFactor.<get-formFactor>|<get-formFactor>(){}[0]
+    final val model // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.model|{}model[0]
+        final fun <get-model>(): kotlin/String // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.model.<get-model>|<get-model>(){}[0]
+    final val osName // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.osName|{}osName[0]
+        final fun <get-osName>(): kotlin/String // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.osName.<get-osName>|<get-osName>(){}[0]
+    final val osVersion // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.osVersion|{}osVersion[0]
+        final fun <get-osVersion>(): kotlin/String // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.osVersion.<get-osVersion>|<get-osVersion>(){}[0]
+
+    final var country // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.country|{}country[0]
+        final fun <get-country>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.country.<get-country>|<get-country>(){}[0]
+        final fun <set-country>(kotlin/String?) // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.country.<set-country>|<set-country>(kotlin.String?){}[0]
+
+    final fun currentCountry(): kotlin/String? // io.github.jamal_wia.kmptoolkit.platform.testing/FakeDeviceInfo.currentCountry|currentCountry(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker : io.github.jamal_wia.kmptoolkit.platform.files/FilePicker { // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.platform.files/PickResult = ...) // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker.<init>|<init>(io.github.jamal_wia.kmptoolkit.platform.files.PickResult){}[0]
+
+    final val pickCount // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker.pickCount|{}pickCount[0]
+        final fun <get-pickCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker.pickCount.<get-pickCount>|<get-pickCount>(){}[0]
+    final val requestedMimeTypes // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker.requestedMimeTypes|{}requestedMimeTypes[0]
+        final fun <get-requestedMimeTypes>(): kotlin.collections/List<kotlin.collections/List<kotlin/String>> // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker.requestedMimeTypes.<get-requestedMimeTypes>|<get-requestedMimeTypes>(){}[0]
+
+    final var result // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker.result|{}result[0]
+        final fun <get-result>(): io.github.jamal_wia.kmptoolkit.platform.files/PickResult // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker.result.<get-result>|<get-result>(){}[0]
+        final fun <set-result>(io.github.jamal_wia.kmptoolkit.platform.files/PickResult) // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker.result.<set-result>|<set-result>(io.github.jamal_wia.kmptoolkit.platform.files.PickResult){}[0]
+
+    final suspend fun pick(kotlin.collections/List<kotlin/String>): io.github.jamal_wia.kmptoolkit.platform.files/PickResult // io.github.jamal_wia.kmptoolkit.platform.testing/FakeFilePicker.pick|pick(kotlin.collections.List<kotlin.String>){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.platform.testing/FakeReducedMotionProbe : io.github.jamal_wia.kmptoolkit.platform.accessibility/ReducedMotionProbe { // io.github.jamal_wia.kmptoolkit.platform.testing/FakeReducedMotionProbe|null[0]
+    constructor <init>(kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.platform.testing/FakeReducedMotionProbe.<init>|<init>(kotlin.Boolean){}[0]
+
+    final var enabled // io.github.jamal_wia.kmptoolkit.platform.testing/FakeReducedMotionProbe.enabled|{}enabled[0]
+        final fun <get-enabled>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.platform.testing/FakeReducedMotionProbe.enabled.<get-enabled>|<get-enabled>(){}[0]
+        final fun <set-enabled>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.platform.testing/FakeReducedMotionProbe.enabled.<set-enabled>|<set-enabled>(kotlin.Boolean){}[0]
+    final var readCount // io.github.jamal_wia.kmptoolkit.platform.testing/FakeReducedMotionProbe.readCount|{}readCount[0]
+        final fun <get-readCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.platform.testing/FakeReducedMotionProbe.readCount.<get-readCount>|<get-readCount>(){}[0]
+
+    final fun isReducedMotionEnabled(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.platform.testing/FakeReducedMotionProbe.isReducedMotionEnabled|isReducedMotionEnabled(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore : io.github.jamal_wia.kmptoolkit.platform.crash/CrashLogStore { // io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore|null[0]
+    constructor <init>(kotlin.collections/List<io.github.jamal_wia.kmptoolkit.platform.crash/CrashRecord> = ...) // io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore.<init>|<init>(kotlin.collections.List<io.github.jamal_wia.kmptoolkit.platform.crash.CrashRecord>){}[0]
+
+    final val stored // io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore.stored|{}stored[0]
+        final fun <get-stored>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.platform.crash/CrashRecord> // io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore.stored.<get-stored>|<get-stored>(){}[0]
+
+    final var readCount // io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore.readCount|{}readCount[0]
+        final fun <get-readCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore.readCount.<get-readCount>|<get-readCount>(){}[0]
+
+    final fun readAndClear(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.platform.crash/CrashRecord> // io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore.readAndClear|readAndClear(){}[0]
+    final fun seed(io.github.jamal_wia.kmptoolkit.platform.crash/CrashRecord) // io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore.seed|seed(io.github.jamal_wia.kmptoolkit.platform.crash.CrashRecord){}[0]
+    final fun write(io.github.jamal_wia.kmptoolkit.platform.crash/CrashRecord) // io.github.jamal_wia.kmptoolkit.platform.testing/InMemoryCrashLogStore.write|write(io.github.jamal_wia.kmptoolkit.platform.crash.CrashRecord){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock : io.github.jamal_wia.kmptoolkit.platform.wakelock/ScreenWakeLock { // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.platform.wakelock/WakeLockResult = ...) // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock.<init>|<init>(io.github.jamal_wia.kmptoolkit.platform.wakelock.WakeLockResult){}[0]
+
+    final val isHeld // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock.isHeld|{}isHeld[0]
+        final fun <get-isHeld>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock.isHeld.<get-isHeld>|<get-isHeld>(){}[0]
+    final val requests // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock.requests|{}requests[0]
+        final fun <get-requests>(): kotlin.collections/List<kotlin/Boolean> // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock.requests.<get-requests>|<get-requests>(){}[0]
+
+    final var result // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock.result|{}result[0]
+        final fun <get-result>(): io.github.jamal_wia.kmptoolkit.platform.wakelock/WakeLockResult // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock.result.<get-result>|<get-result>(){}[0]
+        final fun <set-result>(io.github.jamal_wia.kmptoolkit.platform.wakelock/WakeLockResult) // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock.result.<set-result>|<set-result>(io.github.jamal_wia.kmptoolkit.platform.wakelock.WakeLockResult){}[0]
+
+    final fun setKeepScreenOn(kotlin/Boolean): io.github.jamal_wia.kmptoolkit.platform.wakelock/WakeLockResult // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingScreenWakeLock.setKeepScreenOn|setKeepScreenOn(kotlin.Boolean){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener : io.github.jamal_wia.kmptoolkit.platform.url/UrlOpener { // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.platform.url/UrlOpenResult = ...) // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener.<init>|<init>(io.github.jamal_wia.kmptoolkit.platform.url.UrlOpenResult){}[0]
+
+    final val lastUrl // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener.lastUrl|{}lastUrl[0]
+        final fun <get-lastUrl>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener.lastUrl.<get-lastUrl>|<get-lastUrl>(){}[0]
+    final val openedUrls // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener.openedUrls|{}openedUrls[0]
+        final fun <get-openedUrls>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener.openedUrls.<get-openedUrls>|<get-openedUrls>(){}[0]
+
+    final var result // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener.result|{}result[0]
+        final fun <get-result>(): io.github.jamal_wia.kmptoolkit.platform.url/UrlOpenResult // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener.result.<get-result>|<get-result>(){}[0]
+        final fun <set-result>(io.github.jamal_wia.kmptoolkit.platform.url/UrlOpenResult) // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener.result.<set-result>|<set-result>(io.github.jamal_wia.kmptoolkit.platform.url.UrlOpenResult){}[0]
+
+    final fun open(kotlin/String): io.github.jamal_wia.kmptoolkit.platform.url/UrlOpenResult // io.github.jamal_wia.kmptoolkit.platform.testing/RecordingUrlOpener.open|open(kotlin.String){}[0]
+}

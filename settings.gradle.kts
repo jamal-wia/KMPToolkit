@@ -39,6 +39,8 @@ include(":kmptoolkit-haptics")
 include(":kmptoolkit-haptics-testing")
 include(":kmptoolkit-scheduler")
 include(":kmptoolkit-scheduler-testing")
+include(":kmptoolkit-platform")
+include(":kmptoolkit-platform-testing")
 include(":kmptoolkit-storage")
 include(":kmptoolkit-storage-testing")
 
