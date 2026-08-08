@@ -178,6 +178,22 @@ synthesises `<pkg>.test.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. Neither reach
 Subtract that named set and assert the remainder is empty — do not weaken the assertion to a
 handful of named-absence checks, which would pass for any permission nobody thought to list.
 
+### When a dependency merges permissions anyway
+
+The invariant is that **KMPToolkit's own manifests declare nothing**. It cannot be that no
+permission ever reaches a consumer, because a third-party dependency has its own manifest:
+`kmptoolkit-biometric` depends on `androidx.biometric`, which merges `USE_BIOMETRIC`,
+`USE_FINGERPRINT` and `REORDER_TASKS` into every consumer, and stripping them breaks the prompt.
+
+Where that happens, the honest response is not to pretend otherwise:
+
+1. Pin the **exact** set in the module's `LibraryManifestTest`, so a dependency upgrade that adds a
+   fourth permission fails the build rather than arriving silently in someone's app.
+2. Document the set, and why it cannot be removed, in the module's `05-platform-notes.md`.
+
+A consumer who reads "this library declares no permissions" and then finds three in their merged
+manifest has been misled, however technically true the claim was.
+
 ## Android manifests
 
 Library modules do not declare Android permissions in their own `AndroidManifest.xml`, even when

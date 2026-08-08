@@ -40,14 +40,16 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-storage-testing` | `InMemoryKeyValueStorage`, for `testImplementation` | `storage` | Available | [docs](docs/kmptoolkit-storage/06-testing.md) |
 | `kmptoolkit-platform` | Connectivity, device info, file picker, wake lock, crash log | `logging` | Available | [docs](docs/kmptoolkit-platform/01-overview.md) |
 | `kmptoolkit-platform-testing` | Fakes for the platform seams, for `testImplementation` | `platform` | Available | [docs](docs/kmptoolkit-platform/06-testing.md) |
-| `kmptoolkit-biometric` | Biometric authentication gate | `platform` | Planned | — |
-| `kmptoolkit-permission` | Runtime permission request flow | `platform`, `storage` | Planned | — |
+| `kmptoolkit-biometric` | Biometric gate with typed outcomes; prompt copy is yours | `platform` | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
+| `kmptoolkit-biometric-testing` | `ScriptedBiometricGate`, for `testImplementation` | `biometric` | Available | [docs](docs/kmptoolkit-biometric/06-testing.md) |
+| `kmptoolkit-permission` | Runtime permission request flow | `platform`, `storage` | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
+| `kmptoolkit-permission-testing` | `RecordingPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions | `platform`, `permission` | Planned | — |
 | `kmptoolkit-session` | Session lifecycle manager | `coroutines`, `logging` | Planned | — |
 | `kmptoolkit-settings` | Font scale, theme mode, app language | `storage` | Planned | — |
 | `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `coroutines`, `logging` | Planned | — |
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed outbox store | `outbox` | Planned | — |
-| `kmptoolkit-systembars` | Compose system bars controller | `platform` | Planned | — |
+| `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | `platform` | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 
 "Planned" modules are tracked in `CHANGELOG.md` and land module-by-module — see

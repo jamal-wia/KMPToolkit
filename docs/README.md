@@ -44,6 +44,9 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-storage` | Key-value storage, plain and encrypted | [`kmptoolkit-storage/`](kmptoolkit-storage/01-overview.md) |
 | `kmptoolkit-platform` | Connectivity, device info, file picker, wake lock, crash log | [`kmptoolkit-platform/`](kmptoolkit-platform/01-overview.md) |
 | `kmptoolkit-logging-overlay` | On-screen log overlay for debug builds | [`kmptoolkit-logging-overlay/`](kmptoolkit-logging-overlay/01-overview.md) |
+| `kmptoolkit-permission` | Runtime permission request flow | [`kmptoolkit-permission/`](kmptoolkit-permission/01-overview.md) |
+| `kmptoolkit-biometric` | Biometric authentication gate | [`kmptoolkit-biometric/`](kmptoolkit-biometric/01-overview.md) |
+| `kmptoolkit-systembars` | Status and navigation bar control | [`kmptoolkit-systembars/`](kmptoolkit-systembars/01-overview.md) |
 
 Each of these except `kmptoolkit-logging` also publishes a `-testing` companion artifact holding its
 test double; those are documented in the same folder's `06-testing.md` rather than a folder of their

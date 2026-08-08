@@ -39,6 +39,16 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   tri-state so a missing `ACCESS_NETWORK_STATE` is never mistaken for being offline.
 - `kmptoolkit-logging-overlay` — an on-screen log overlay wired through `kmptoolkit-logging`'s
   `LogSink`. Debug builds only: bounded buffer, no PII filtering, gating is the consumer's job.
+- `kmptoolkit-permission` and `kmptoolkit-permission-testing` — a headless rationale → request →
+  settings flow. The catalog is a closed enum of the three permissions whose mapping is exercised
+  on both platforms; location and photo library are excluded because iOS models them in ways the
+  status type cannot honestly express.
+- `kmptoolkit-biometric` and `kmptoolkit-biometric-testing` — a biometric gate returning typed
+  outcomes that distinguish no-hardware, not-enrolled, transient lockout and permanent lockout.
+  Prompt copy has no defaults, so the library's words cannot ship by accident.
+- `kmptoolkit-systembars` — Compose system-bar control built as a base configuration plus a stack
+  of per-axis override layers, so leaving a screen removes exactly that screen's contribution
+  instead of restoring a snapshot that may since have gone stale.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +
