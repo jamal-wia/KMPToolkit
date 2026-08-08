@@ -1,0 +1,54 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-logging>
+final enum class io.github.jamal_wia.kmptoolkit.logging/LogLevel : kotlin/Enum<io.github.jamal_wia.kmptoolkit.logging/LogLevel> { // io.github.jamal_wia.kmptoolkit.logging/LogLevel|null[0]
+    enum entry DEBUG // io.github.jamal_wia.kmptoolkit.logging/LogLevel.DEBUG|null[0]
+    enum entry ERROR // io.github.jamal_wia.kmptoolkit.logging/LogLevel.ERROR|null[0]
+    enum entry INFO // io.github.jamal_wia.kmptoolkit.logging/LogLevel.INFO|null[0]
+    enum entry VERBOSE // io.github.jamal_wia.kmptoolkit.logging/LogLevel.VERBOSE|null[0]
+    enum entry WARN // io.github.jamal_wia.kmptoolkit.logging/LogLevel.WARN|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.logging/LogLevel.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.logging/LogLevel> // io.github.jamal_wia.kmptoolkit.logging/LogLevel.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.logging/LogLevel // io.github.jamal_wia.kmptoolkit.logging/LogLevel.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.logging/LogLevel> // io.github.jamal_wia.kmptoolkit.logging/LogLevel.values|values#static(){}[0]
+}
+
+abstract fun interface io.github.jamal_wia.kmptoolkit.logging/LogSink { // io.github.jamal_wia.kmptoolkit.logging/LogSink|null[0]
+    abstract fun log(io.github.jamal_wia.kmptoolkit.logging/LogLevel, kotlin/String, kotlin/String, kotlin/Throwable?) // io.github.jamal_wia.kmptoolkit.logging/LogSink.log|log(io.github.jamal_wia.kmptoolkit.logging.LogLevel;kotlin.String;kotlin.String;kotlin.Throwable?){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.logging/Logger { // io.github.jamal_wia.kmptoolkit.logging/Logger|null[0]
+    abstract val tag // io.github.jamal_wia.kmptoolkit.logging/Logger.tag|{}tag[0]
+        abstract fun <get-tag>(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging/Logger.tag.<get-tag>|<get-tag>(){}[0]
+
+    abstract fun isLoggable(io.github.jamal_wia.kmptoolkit.logging/LogLevel): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.logging/Logger.isLoggable|isLoggable(io.github.jamal_wia.kmptoolkit.logging.LogLevel){}[0]
+    abstract fun log(io.github.jamal_wia.kmptoolkit.logging/LogLevel, kotlin/Throwable?, kotlin/Function0<kotlin/String>) // io.github.jamal_wia.kmptoolkit.logging/Logger.log|log(io.github.jamal_wia.kmptoolkit.logging.LogLevel;kotlin.Throwable?;kotlin.Function0<kotlin.String>){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.logging/LoggerFactory { // io.github.jamal_wia.kmptoolkit.logging/LoggerFactory|null[0]
+    abstract fun logger(kotlin/String): io.github.jamal_wia.kmptoolkit.logging/Logger // io.github.jamal_wia.kmptoolkit.logging/LoggerFactory.logger|logger(kotlin.String){}[0]
+}
+
+final object io.github.jamal_wia.kmptoolkit.logging/NoopLogger : io.github.jamal_wia.kmptoolkit.logging/Logger { // io.github.jamal_wia.kmptoolkit.logging/NoopLogger|null[0]
+    final val tag // io.github.jamal_wia.kmptoolkit.logging/NoopLogger.tag|{}tag[0]
+        final fun <get-tag>(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging/NoopLogger.tag.<get-tag>|<get-tag>(){}[0]
+
+    final fun isLoggable(io.github.jamal_wia.kmptoolkit.logging/LogLevel): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.logging/NoopLogger.isLoggable|isLoggable(io.github.jamal_wia.kmptoolkit.logging.LogLevel){}[0]
+    final fun log(io.github.jamal_wia.kmptoolkit.logging/LogLevel, kotlin/Throwable?, kotlin/Function0<kotlin/String>) // io.github.jamal_wia.kmptoolkit.logging/NoopLogger.log|log(io.github.jamal_wia.kmptoolkit.logging.LogLevel;kotlin.Throwable?;kotlin.Function0<kotlin.String>){}[0]
+}
+
+final fun (io.github.jamal_wia.kmptoolkit.logging/Logger).io.github.jamal_wia.kmptoolkit.logging/d(kotlin/Function0<kotlin/String>) // io.github.jamal_wia.kmptoolkit.logging/d|d@io.github.jamal_wia.kmptoolkit.logging.Logger(kotlin.Function0<kotlin.String>){}[0]
+final fun (io.github.jamal_wia.kmptoolkit.logging/Logger).io.github.jamal_wia.kmptoolkit.logging/e(kotlin/Throwable? = ..., kotlin/Function0<kotlin/String>) // io.github.jamal_wia.kmptoolkit.logging/e|e@io.github.jamal_wia.kmptoolkit.logging.Logger(kotlin.Throwable?;kotlin.Function0<kotlin.String>){}[0]
+final fun (io.github.jamal_wia.kmptoolkit.logging/Logger).io.github.jamal_wia.kmptoolkit.logging/i(kotlin/Function0<kotlin/String>) // io.github.jamal_wia.kmptoolkit.logging/i|i@io.github.jamal_wia.kmptoolkit.logging.Logger(kotlin.Function0<kotlin.String>){}[0]
+final fun (io.github.jamal_wia.kmptoolkit.logging/Logger).io.github.jamal_wia.kmptoolkit.logging/v(kotlin/Function0<kotlin/String>) // io.github.jamal_wia.kmptoolkit.logging/v|v@io.github.jamal_wia.kmptoolkit.logging.Logger(kotlin.Function0<kotlin.String>){}[0]
+final fun (io.github.jamal_wia.kmptoolkit.logging/Logger).io.github.jamal_wia.kmptoolkit.logging/w(kotlin/Throwable? = ..., kotlin/Function0<kotlin/String>) // io.github.jamal_wia.kmptoolkit.logging/w|w@io.github.jamal_wia.kmptoolkit.logging.Logger(kotlin.Throwable?;kotlin.Function0<kotlin.String>){}[0]
+final fun <#A: kotlin/Any?> (io.github.jamal_wia.kmptoolkit.logging/Logger).io.github.jamal_wia.kmptoolkit.logging/logTimed(kotlin/String, io.github.jamal_wia.kmptoolkit.logging/LogLevel = ..., kotlin/Function0<#A>): #A // io.github.jamal_wia.kmptoolkit.logging/logTimed|logTimed@io.github.jamal_wia.kmptoolkit.logging.Logger(kotlin.String;io.github.jamal_wia.kmptoolkit.logging.LogLevel;kotlin.Function0<0:0>){0§<kotlin.Any?>}[0]
+final fun io.github.jamal_wia.kmptoolkit.logging/createLoggerFactory(io.github.jamal_wia.kmptoolkit.logging/LogLevel = ..., kotlin.collections/List<io.github.jamal_wia.kmptoolkit.logging/LogSink> = ...): io.github.jamal_wia.kmptoolkit.logging/LoggerFactory // io.github.jamal_wia.kmptoolkit.logging/createLoggerFactory|createLoggerFactory(io.github.jamal_wia.kmptoolkit.logging.LogLevel;kotlin.collections.List<io.github.jamal_wia.kmptoolkit.logging.LogSink>){}[0]
+final fun io.github.jamal_wia.kmptoolkit.logging/platformLogSink(): io.github.jamal_wia.kmptoolkit.logging/LogSink // io.github.jamal_wia.kmptoolkit.logging/platformLogSink|platformLogSink(){}[0]
