@@ -60,6 +60,7 @@ include(":kmptoolkit-session-testing")
 include(":kmptoolkit-systembars")
 include(":kmptoolkit-outbox")
 include(":kmptoolkit-outbox-testing")
+include(":kmptoolkit-outbox-sqldelight")
 
 include(":kmptoolkit-bom")
 

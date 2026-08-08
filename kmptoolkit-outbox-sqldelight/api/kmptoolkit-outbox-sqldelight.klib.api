@@ -1,0 +1,149 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-outbox-sqldelight>
+final enum class io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation : kotlin/Enum<io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation> { // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation|null[0]
+    enum entry CLEAR_ALL // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.CLEAR_ALL|null[0]
+    enum entry DELETE_BY_ID // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.DELETE_BY_ID|null[0]
+    enum entry DELETE_BY_TAG // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.DELETE_BY_TAG|null[0]
+    enum entry GET_ALL_ACTIVE // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.GET_ALL_ACTIVE|null[0]
+    enum entry GET_BY_ID // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.GET_BY_ID|null[0]
+    enum entry INSERT_KEEP // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.INSERT_KEEP|null[0]
+    enum entry INSERT_REPLACE // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.INSERT_REPLACE|null[0]
+    enum entry MARK_IN_FLIGHT // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.MARK_IN_FLIGHT|null[0]
+    enum entry OBSERVE_BY_TYPE // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.OBSERVE_BY_TYPE|null[0]
+    enum entry OPEN // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.OPEN|null[0]
+    enum entry PARK // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.PARK|null[0]
+    enum entry RECORD_FAILURE // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.RECORD_FAILURE|null[0]
+    enum entry TRANSACTION // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.TRANSACTION|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/KmpToolkitOutboxDatabase : app.cash.sqldelight/Transacter { // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/KmpToolkitOutboxDatabase|null[0]
+    abstract val outboxItemQueries // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/KmpToolkitOutboxDatabase.outboxItemQueries|{}outboxItemQueries[0]
+        abstract fun <get-outboxItemQueries>(): io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/KmpToolkitOutboxDatabase.outboxItemQueries.<get-outboxItemQueries>|<get-outboxItemQueries>(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/KmpToolkitOutboxDatabase.Companion|null[0]
+        final val Schema // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/KmpToolkitOutboxDatabase.Companion.Schema|{}Schema[0]
+            final fun <get-Schema>(): app.cash.sqldelight.db/SqlSchema<app.cash.sqldelight.db/QueryResult.Value<kotlin/Unit>> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/KmpToolkitOutboxDatabase.Companion.Schema.<get-Schema>|<get-Schema>(){}[0]
+
+        final fun invoke(app.cash.sqldelight.db/SqlDriver): io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/KmpToolkitOutboxDatabase // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/KmpToolkitOutboxDatabase.Companion.invoke|invoke(app.cash.sqldelight.db.SqlDriver){}[0]
+    }
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorage { // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorage|null[0]
+    abstract val store // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorage.store|{}store[0]
+        abstract fun <get-store>(): io.github.jamal_wia.kmptoolkit.outbox.spi/OutboxStore // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorage.store.<get-store>|<get-store>(){}[0]
+    abstract val transactionRunner // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorage.transactionRunner|{}transactionRunner[0]
+        abstract fun <get-transactionRunner>(): io.github.jamal_wia.kmptoolkit.outbox.spi/TransactionRunner // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorage.transactionRunner.<get-transactionRunner>|<get-transactionRunner>(){}[0]
+
+    abstract fun close() // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorage.close|close(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item { // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item|null[0]
+    constructor <init>(kotlin/Long, kotlin/String, kotlin/String, kotlin/String, kotlin/Long, kotlin/String?, kotlin/String?, kotlin/String?, kotlin/String, kotlin/Long, kotlin/Long, kotlin/Long, kotlin/String?, kotlin/Long) // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.<init>|<init>(kotlin.Long;kotlin.String;kotlin.String;kotlin.String;kotlin.Long;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String;kotlin.Long;kotlin.Long;kotlin.Long;kotlin.String?;kotlin.Long){}[0]
+
+    final val attempts // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.attempts|{}attempts[0]
+        final fun <get-attempts>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.attempts.<get-attempts>|<get-attempts>(){}[0]
+    final val created_at // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.created_at|{}created_at[0]
+        final fun <get-created_at>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.created_at.<get-created_at>|<get-created_at>(){}[0]
+    final val id // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.id|{}id[0]
+        final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.id.<get-id>|<get-id>(){}[0]
+    final val last_error // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.last_error|{}last_error[0]
+        final fun <get-last_error>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.last_error.<get-last_error>|<get-last_error>(){}[0]
+    final val lease_until // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.lease_until|{}lease_until[0]
+        final fun <get-lease_until>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.lease_until.<get-lease_until>|<get-lease_until>(){}[0]
+    final val next_run_at // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.next_run_at|{}next_run_at[0]
+        final fun <get-next_run_at>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.next_run_at.<get-next_run_at>|<get-next_run_at>(){}[0]
+    final val ordering_key // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.ordering_key|{}ordering_key[0]
+        final fun <get-ordering_key>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.ordering_key.<get-ordering_key>|<get-ordering_key>(){}[0]
+    final val payload // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.payload|{}payload[0]
+        final fun <get-payload>(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.payload.<get-payload>|<get-payload>(){}[0]
+    final val schema_version // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.schema_version|{}schema_version[0]
+        final fun <get-schema_version>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.schema_version.<get-schema_version>|<get-schema_version>(){}[0]
+    final val sequence // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.sequence|{}sequence[0]
+        final fun <get-sequence>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.sequence.<get-sequence>|<get-sequence>(){}[0]
+    final val state // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.state|{}state[0]
+        final fun <get-state>(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.state.<get-state>|<get-state>(){}[0]
+    final val tag // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.tag|{}tag[0]
+        final fun <get-tag>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.tag.<get-tag>|<get-tag>(){}[0]
+    final val type // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.type|{}type[0]
+        final fun <get-type>(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.type.<get-type>|<get-type>(){}[0]
+    final val unique_key // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.unique_key|{}unique_key[0]
+        final fun <get-unique_key>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.unique_key.<get-unique_key>|<get-unique_key>(){}[0]
+
+    final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component1|component1(){}[0]
+    final fun component10(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component10|component10(){}[0]
+    final fun component11(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component11|component11(){}[0]
+    final fun component12(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component12|component12(){}[0]
+    final fun component13(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component13|component13(){}[0]
+    final fun component14(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component14|component14(){}[0]
+    final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component2|component2(){}[0]
+    final fun component3(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component3|component3(){}[0]
+    final fun component4(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component4|component4(){}[0]
+    final fun component5(): kotlin/Long // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component5|component5(){}[0]
+    final fun component6(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component6|component6(){}[0]
+    final fun component7(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component7|component7(){}[0]
+    final fun component8(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component8|component8(){}[0]
+    final fun component9(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.component9|component9(){}[0]
+    final fun copy(kotlin/Long = ..., kotlin/String = ..., kotlin/String = ..., kotlin/String = ..., kotlin/Long = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String = ..., kotlin/Long = ..., kotlin/Long = ..., kotlin/Long = ..., kotlin/String? = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.copy|copy(kotlin.Long;kotlin.String;kotlin.String;kotlin.String;kotlin.Long;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String;kotlin.Long;kotlin.Long;kotlin.Long;kotlin.String?;kotlin.Long){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries : app.cash.sqldelight/TransacterImpl { // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries|null[0]
+    constructor <init>(app.cash.sqldelight.db/SqlDriver) // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.<init>|<init>(app.cash.sqldelight.db.SqlDriver){}[0]
+
+    final fun <#A1: kotlin/Any> selectAllActive(kotlin/Function14<kotlin/Long, kotlin/String, kotlin/String, kotlin/String, kotlin/Long, kotlin/String?, kotlin/String?, kotlin/String?, kotlin/String, kotlin/Long, kotlin/Long, kotlin/Long, kotlin/String?, kotlin/Long, #A1>): app.cash.sqldelight/Query<#A1> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.selectAllActive|selectAllActive(kotlin.Function14<kotlin.Long,kotlin.String,kotlin.String,kotlin.String,kotlin.Long,kotlin.String?,kotlin.String?,kotlin.String?,kotlin.String,kotlin.Long,kotlin.Long,kotlin.Long,kotlin.String?,kotlin.Long,0:0>){0§<kotlin.Any>}[0]
+    final fun <#A1: kotlin/Any> selectById(kotlin/String, kotlin/Function14<kotlin/Long, kotlin/String, kotlin/String, kotlin/String, kotlin/Long, kotlin/String?, kotlin/String?, kotlin/String?, kotlin/String, kotlin/Long, kotlin/Long, kotlin/Long, kotlin/String?, kotlin/Long, #A1>): app.cash.sqldelight/Query<#A1> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.selectById|selectById(kotlin.String;kotlin.Function14<kotlin.Long,kotlin.String,kotlin.String,kotlin.String,kotlin.Long,kotlin.String?,kotlin.String?,kotlin.String?,kotlin.String,kotlin.Long,kotlin.Long,kotlin.Long,kotlin.String?,kotlin.Long,0:0>){0§<kotlin.Any>}[0]
+    final fun <#A1: kotlin/Any> selectByType(kotlin/String, kotlin/Function14<kotlin/Long, kotlin/String, kotlin/String, kotlin/String, kotlin/Long, kotlin/String?, kotlin/String?, kotlin/String?, kotlin/String, kotlin/Long, kotlin/Long, kotlin/Long, kotlin/String?, kotlin/Long, #A1>): app.cash.sqldelight/Query<#A1> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.selectByType|selectByType(kotlin.String;kotlin.Function14<kotlin.Long,kotlin.String,kotlin.String,kotlin.String,kotlin.Long,kotlin.String?,kotlin.String?,kotlin.String?,kotlin.String,kotlin.Long,kotlin.Long,kotlin.Long,kotlin.String?,kotlin.Long,0:0>){0§<kotlin.Any>}[0]
+    final fun changes(): app.cash.sqldelight/ExecutableQuery<kotlin/Long> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.changes|changes(){}[0]
+    final fun deleteAll(): app.cash.sqldelight.db/QueryResult<kotlin/Long> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.deleteAll|deleteAll(){}[0]
+    final fun deleteById(kotlin/String): app.cash.sqldelight.db/QueryResult<kotlin/Long> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.deleteById|deleteById(kotlin.String){}[0]
+    final fun deleteByIdentity(kotlin/String, kotlin/String?): app.cash.sqldelight.db/QueryResult<kotlin/Long> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.deleteByIdentity|deleteByIdentity(kotlin.String;kotlin.String?){}[0]
+    final fun deleteByTag(kotlin/String?): app.cash.sqldelight.db/QueryResult<kotlin/Long> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.deleteByTag|deleteByTag(kotlin.String?){}[0]
+    final fun insert(kotlin/String, kotlin/String, kotlin/String, kotlin/Long, kotlin/String?, kotlin/String?, kotlin/String?, kotlin/String, kotlin/Long, kotlin/Long, kotlin/Long, kotlin/String?, kotlin/Long): app.cash.sqldelight.db/QueryResult<kotlin/Long> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.insert|insert(kotlin.String;kotlin.String;kotlin.String;kotlin.Long;kotlin.String?;kotlin.String?;kotlin.String?;kotlin.String;kotlin.Long;kotlin.Long;kotlin.Long;kotlin.String?;kotlin.Long){}[0]
+    final fun markInFlight(kotlin/Long, kotlin/String): app.cash.sqldelight.db/QueryResult<kotlin/Long> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.markInFlight|markInFlight(kotlin.Long;kotlin.String){}[0]
+    final fun park(kotlin/String?, kotlin/String): app.cash.sqldelight.db/QueryResult<kotlin/Long> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.park|park(kotlin.String?;kotlin.String){}[0]
+    final fun recordFailure(kotlin/Long, kotlin/Long, kotlin/String?, kotlin/String, kotlin/Long?): app.cash.sqldelight.db/QueryResult<kotlin/Long> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.recordFailure|recordFailure(kotlin.Long;kotlin.Long;kotlin.String?;kotlin.String;kotlin.Long?){}[0]
+    final fun selectAllActive(): app.cash.sqldelight/Query<io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.selectAllActive|selectAllActive(){}[0]
+    final fun selectById(kotlin/String): app.cash.sqldelight/Query<io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.selectById|selectById(kotlin.String){}[0]
+    final fun selectByType(kotlin/String): app.cash.sqldelight/Query<io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/Kmptoolkit_outbox_item> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.selectByType|selectByType(kotlin.String){}[0]
+    final fun selectStateByIdentity(kotlin/String, kotlin/String?): app.cash.sqldelight/Query<kotlin/String> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight.db/OutboxItemQueries.selectStateByIdentity|selectStateByIdentity(kotlin.String;kotlin.String?){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig { // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig|null[0]
+    constructor <init>(kotlin/String? = ...) // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig.<init>|<init>(kotlin.String?){}[0]
+
+    final val name // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig.name|{}name[0]
+        final fun <get-name>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig.name.<get-name>|<get-name>(){}[0]
+
+    final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig.component1|component1(){}[0]
+    final fun copy(kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig.copy|copy(kotlin.String?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageException : kotlin/RuntimeException { // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageException|null[0]
+    final val cause // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageException.cause|{}cause[0]
+        final fun <get-cause>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageException.cause.<get-cause>|<get-cause>(){}[0]
+    final val operation // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageException.operation|{}operation[0]
+        final fun <get-operation>(): io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageOperation // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorageException.operation.<get-operation>|<get-operation>(){}[0]
+}
+
+final val io.github.jamal_wia.kmptoolkit.outbox.sqldelight/outboxDatabaseSchema // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/outboxDatabaseSchema|{}outboxDatabaseSchema[0]
+    final fun <get-outboxDatabaseSchema>(): app.cash.sqldelight.db/SqlSchema<app.cash.sqldelight.db/QueryResult.Value<kotlin/Unit>> // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/outboxDatabaseSchema.<get-outboxDatabaseSchema>|<get-outboxDatabaseSchema>(){}[0]
+
+final fun io.github.jamal_wia.kmptoolkit.outbox.sqldelight/createOutboxStorage(app.cash.sqldelight.db/SqlDriver): io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorage // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/createOutboxStorage|createOutboxStorage(app.cash.sqldelight.db.SqlDriver){}[0]
+final fun io.github.jamal_wia.kmptoolkit.outbox.sqldelight/createOutboxStorage(io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxDatabaseConfig = ...): io.github.jamal_wia.kmptoolkit.outbox.sqldelight/OutboxStorage // io.github.jamal_wia.kmptoolkit.outbox.sqldelight/createOutboxStorage|createOutboxStorage(io.github.jamal_wia.kmptoolkit.outbox.sqldelight.OutboxDatabaseConfig){}[0]
