@@ -1,0 +1,192 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/settings/AppSettings {
+	public abstract fun getFontScale ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getLanguage ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getThemeMode ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun setFontScale-PeGxBYw (F)Lio/github/jamal_wia/kmptoolkit/settings/SettingsResult;
+	public abstract fun setLanguage-A1iD208 (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsResult;
+	public abstract fun setThemeMode (Lio/github/jamal_wia/kmptoolkit/settings/ThemeMode;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/FontScale {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/settings/FontScale$Companion;
+	public static final field MAXIMUM_MULTIPLIER F
+	public static final field MINIMUM_MULTIPLIER F
+	public static final synthetic fun box-impl (F)Lio/github/jamal_wia/kmptoolkit/settings/FontScale;
+	public static fun constructor-impl (F)F
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (FLjava/lang/Object;)Z
+	public static final fun equals-impl0 (FF)Z
+	public final fun getMultiplier ()F
+	public fun hashCode ()I
+	public static fun hashCode-impl (F)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (F)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()F
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/FontScale$Companion {
+	public final fun coerced-MBsatpI (F)F
+	public final fun getDEFAULT-oSqFtSo ()F
+	public final fun of-TV3NopU (F)Lio/github/jamal_wia/kmptoolkit/settings/FontScale;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/settings/LanguageApplier {
+	public abstract fun apply-A1iD208 (Ljava/lang/String;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/LanguageApplier_androidKt {
+	public static final fun createLanguageApplier (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/settings/LanguageApplier;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/LanguageTag {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/settings/LanguageTag$Companion;
+	public static final synthetic fun box-impl (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/settings/LanguageTag;
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (Ljava/lang/String;Ljava/lang/Object;)Z
+	public static final fun equals-impl0 (Ljava/lang/String;Ljava/lang/String;)Z
+	public static final fun getLanguage-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public static fun hashCode-impl (Ljava/lang/String;)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (Ljava/lang/String;)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/LanguageTag$Companion {
+	public final fun invoke-Wk9VEPA (Ljava/lang/String;)Ljava/lang/String;
+	public final fun ofOrNull--dA7s_o (Ljava/lang/String;)Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/settings/SettingsConfig$Companion;
+	public static final field DEFAULT_KEY_PREFIX Ljava/lang/String;
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Set;FLio/github/jamal_wia/kmptoolkit/settings/ThemeMode;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Set;FLio/github/jamal_wia/kmptoolkit/settings/ThemeMode;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/Set;
+	public final fun component3-oSqFtSo ()F
+	public final fun component4 ()Lio/github/jamal_wia/kmptoolkit/settings/ThemeMode;
+	public final fun component5-i1g-82s ()Ljava/lang/String;
+	public final fun copy-A33-0fU (Ljava/lang/String;Ljava/util/Set;FLio/github/jamal_wia/kmptoolkit/settings/ThemeMode;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsConfig;
+	public static synthetic fun copy-A33-0fU$default (Lio/github/jamal_wia/kmptoolkit/settings/SettingsConfig;Ljava/lang/String;Ljava/util/Set;FLio/github/jamal_wia/kmptoolkit/settings/ThemeMode;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDefaultFontScale-oSqFtSo ()F
+	public final fun getDefaultLanguage-i1g-82s ()Ljava/lang/String;
+	public final fun getDefaultThemeMode ()Lio/github/jamal_wia/kmptoolkit/settings/ThemeMode;
+	public final fun getFontScaleKey ()Ljava/lang/String;
+	public final fun getKeyPrefix ()Ljava/lang/String;
+	public final fun getLanguageKey ()Ljava/lang/String;
+	public final fun getSupportedLanguages ()Ljava/util/Set;
+	public final fun getThemeModeKey ()Ljava/lang/String;
+	public fun hashCode ()I
+	public final fun supports-ZpBGJDQ (Ljava/lang/String;)Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsConfig$Companion {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/settings/SettingsError {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsError$ReadFailed : io/github/jamal_wia/kmptoolkit/settings/SettingsError {
+	public fun <init> (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/storage/StorageError;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/storage/StorageError;
+	public final fun copy (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/storage/StorageError;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$ReadFailed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$ReadFailed;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/storage/StorageError;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$ReadFailed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Lio/github/jamal_wia/kmptoolkit/storage/StorageError;
+	public final fun getKey ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsError$UnreadableValue : io/github/jamal_wia/kmptoolkit/settings/SettingsError {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnreadableValue;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnreadableValue;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnreadableValue;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getRawValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage : io/github/jamal_wia/kmptoolkit/settings/SettingsError {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2-B3JxDDw ()Ljava/lang/String;
+	public final fun copy-WRD6Ekk (Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage;
+	public static synthetic fun copy-WRD6Ekk$default (Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getTag-B3JxDDw ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsError$WriteFailed : io/github/jamal_wia/kmptoolkit/settings/SettingsError {
+	public fun <init> (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/storage/StorageError;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/storage/StorageError;
+	public final fun copy (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/storage/StorageError;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$WriteFailed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$WriteFailed;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/storage/StorageError;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$WriteFailed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Lio/github/jamal_wia/kmptoolkit/storage/StorageError;
+	public final fun getKey ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsFactoryKt {
+	public static final fun createAppSettings (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Lio/github/jamal_wia/kmptoolkit/settings/SettingsConfig;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsLoad;
+	public static synthetic fun createAppSettings$default (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Lio/github/jamal_wia/kmptoolkit/settings/SettingsConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsLoad;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsLoad {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/settings/AppSettings;Ljava/util/List;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/settings/AppSettings;
+	public final fun component2 ()Ljava/util/List;
+	public final fun getProblems ()Ljava/util/List;
+	public final fun getSettings ()Lio/github/jamal_wia/kmptoolkit/settings/AppSettings;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/settings/SettingsResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsResult$Failure : io/github/jamal_wia/kmptoolkit/settings/SettingsResult {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/settings/SettingsError;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/settings/SettingsError;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/settings/SettingsError;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsResult$Failure;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/settings/SettingsResult$Failure;Lio/github/jamal_wia/kmptoolkit/settings/SettingsError;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsResult$Failure;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getError ()Lio/github/jamal_wia/kmptoolkit/settings/SettingsError;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsResult$Success : io/github/jamal_wia/kmptoolkit/settings/SettingsResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/settings/SettingsResult$Success;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/SettingsResultKt {
+	public static final fun errorOrNull (Lio/github/jamal_wia/kmptoolkit/settings/SettingsResult;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError;
+	public static final fun isSuccess (Lio/github/jamal_wia/kmptoolkit/settings/SettingsResult;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/settings/ThemeMode : java/lang/Enum {
+	public static final field DARK Lio/github/jamal_wia/kmptoolkit/settings/ThemeMode;
+	public static final field LIGHT Lio/github/jamal_wia/kmptoolkit/settings/ThemeMode;
+	public static final field SYSTEM Lio/github/jamal_wia/kmptoolkit/settings/ThemeMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/settings/ThemeMode;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/settings/ThemeMode;
+}
+
