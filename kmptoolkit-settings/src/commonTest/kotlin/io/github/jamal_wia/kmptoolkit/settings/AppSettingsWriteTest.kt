@@ -71,7 +71,7 @@ class AppSettingsWriteTest {
         val result: SettingsResult = settings.setLanguage(LanguageTag("de"))
 
         assertEquals(
-            SettingsResult.Failure(SettingsError.UnsupportedLanguage(LanguageTag("de"))),
+            SettingsResult.Failure(SettingsError.UnsupportedLanguage(config.languageKey, LanguageTag("de"))),
             result,
         )
         assertEquals(LanguageTag("en"), settings.language.value)
@@ -83,7 +83,7 @@ class AppSettingsWriteTest {
         val result: SettingsResult = settings.setLanguage(LanguageTag("PT"))
 
         assertEquals(
-            SettingsResult.Failure(SettingsError.UnsupportedLanguage(LanguageTag("pt"))),
+            SettingsResult.Failure(SettingsError.UnsupportedLanguage(config.languageKey, LanguageTag("pt"))),
             result,
             "pt and pt-BR are different tags — a supported set is matched exactly",
         )
@@ -218,7 +218,7 @@ class AppSettingsWriteTest {
         assertTrue(settings.setThemeMode(ThemeMode.LIGHT).isSuccess)
 
         val failed: SettingsResult = settings.setLanguage(LanguageTag("de"))
-        assertEquals(SettingsError.UnsupportedLanguage(LanguageTag("de")), failed.errorOrNull())
+        assertEquals(SettingsError.UnsupportedLanguage(config.languageKey, LanguageTag("de")), failed.errorOrNull())
         assertFalse(failed.isSuccess)
     }
 

@@ -69,13 +69,16 @@ sealed interface io.github.jamal_wia.kmptoolkit.settings/SettingsError { // io.g
     }
 
     final class UnsupportedLanguage : io.github.jamal_wia.kmptoolkit.settings/SettingsError { // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage|null[0]
-        constructor <init>(io.github.jamal_wia.kmptoolkit.settings/LanguageTag) // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.<init>|<init>(io.github.jamal_wia.kmptoolkit.settings.LanguageTag){}[0]
+        constructor <init>(kotlin/String, io.github.jamal_wia.kmptoolkit.settings/LanguageTag) // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.<init>|<init>(kotlin.String;io.github.jamal_wia.kmptoolkit.settings.LanguageTag){}[0]
 
+        final val key // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.key|{}key[0]
+            final fun <get-key>(): kotlin/String // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.key.<get-key>|<get-key>(){}[0]
         final val tag // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.tag|{}tag[0]
             final fun <get-tag>(): io.github.jamal_wia.kmptoolkit.settings/LanguageTag // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.tag.<get-tag>|<get-tag>(){}[0]
 
-        final fun component1(): io.github.jamal_wia.kmptoolkit.settings/LanguageTag // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.component1|component1(){}[0]
-        final fun copy(io.github.jamal_wia.kmptoolkit.settings/LanguageTag = ...): io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.copy|copy(io.github.jamal_wia.kmptoolkit.settings.LanguageTag){}[0]
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.component1|component1(){}[0]
+        final fun component2(): io.github.jamal_wia.kmptoolkit.settings/LanguageTag // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.component2|component2(){}[0]
+        final fun copy(kotlin/String = ..., io.github.jamal_wia.kmptoolkit.settings/LanguageTag = ...): io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.copy|copy(kotlin.String;io.github.jamal_wia.kmptoolkit.settings.LanguageTag){}[0]
         final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.equals|equals(kotlin.Any?){}[0]
         final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.hashCode|hashCode(){}[0]
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.settings/SettingsError.UnsupportedLanguage.toString|toString(){}[0]

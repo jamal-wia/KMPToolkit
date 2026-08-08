@@ -147,7 +147,7 @@ private fun KeyValueStorage.loadLanguage(
                 // update since. Reported apart from a malformed one because the two call for
                 // different reactions — this one is a translation that went away.
                 !config.supports(tag) -> {
-                    problems += SettingsError.UnsupportedLanguage(tag)
+                    problems += SettingsError.UnsupportedLanguage(key, tag)
                     config.defaultLanguage
                 }
 

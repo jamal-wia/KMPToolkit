@@ -40,11 +40,14 @@ filesystem work that makes a suspending signature worth its cost — the rule th
 the same one `kmptoolkit-audio-recorder` states: an operation that can genuinely block suspends,
 one that moves a value does not.
 
-**Threading.** Flows are readable from anywhere. Every individual write lands whole or fails
-whole. Two concurrent writes to *different* settings never interfere. Two concurrent writes to the
-*same* setting race, and because persisting and publishing are two steps, the flow and the store
-can end on different ones of the two written values — the disagreement then surfaces at the next
-launch. Drive writes to one setting from a single dispatcher if that matters.
+**Threading.** Flows are readable from anywhere, and setters are callable from anywhere. Each
+setter holds an internal lock across the whole persist-then-publish sequence, so the store and the
+flow always agree: concurrent writers serialise, one wins, and the winner won both. Which one wins
+is unspecified — as it is for any two racing writes — but the loser cannot leave the two halves
+split, which is the outcome that would never reconcile itself.
+
+The lock is held only for a store write, an in-memory commit on both platforms, which is why the
+setters do not suspend and can be called straight from a click handler.
 
 ## `createAppSettings` and `SettingsLoad`
 
@@ -185,9 +188,12 @@ public sealed interface SettingsError {
     public data class ReadFailed(val key: String, val cause: StorageError) : SettingsError
     public data class WriteFailed(val key: String, val cause: StorageError) : SettingsError
     public data class UnreadableValue(val key: String, val rawValue: String) : SettingsError
-    public data class UnsupportedLanguage(val tag: LanguageTag) : SettingsError
+    public data class UnsupportedLanguage(val key: String, val tag: LanguageTag) : SettingsError
 }
 ```
+
+Every case carries the `key` it refers to, so a log line can read one off any `SettingsError`
+without a `when`.
 
 `ReadFailed` appears only in `SettingsLoad.problems`; the other three can appear in either place.
 None of them is a message — see [`01-architecture.md`](../01-architecture.md) on why no module

@@ -197,7 +197,7 @@ class AppSettingsLoadTest {
 
         assertEquals(LanguageTag("en"), load.settings.language.value)
         assertContentEquals(
-            listOf(SettingsError.UnsupportedLanguage(LanguageTag("de"))),
+            listOf(SettingsError.UnsupportedLanguage(config.languageKey, LanguageTag("de"))),
             load.problems,
         )
     }

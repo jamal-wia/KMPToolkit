@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.settings
 
+import android.app.Application
 import android.app.LocaleManager
 import android.content.Context
 import android.os.LocaleList
@@ -12,6 +13,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowContextImpl
 
 /**
  * The Android [LanguageApplier] has two implementations behind one call — the framework
@@ -73,6 +76,26 @@ class AndroidLanguageApplierTest {
     }
 
     @Test
+    @Config(sdk = [33])
+    fun `a device without a locale manager service is survived rather than crashed on`() {
+        // getSystemService is allowed to return null, and a missing service is the kind of thing
+        // that turns up on one OEM's build and nowhere else. LanguageApplier.apply documents that
+        // it never throws, so the only correct behaviour is to do nothing.
+        Shadow.extract<ShadowContextImpl>((context as Application).baseContext)
+            .removeSystemService(LOCALE_SERVICE)
+
+        applier.apply(LanguageTag("de"))
+        applier.apply(null)
+
+        assertEquals(
+            originalLocale,
+            Locale.getDefault(),
+            "the API 33+ branch must not silently fall through to the process defaults either — " +
+                "that would be a different behaviour than every other device of the same version",
+        )
+    }
+
+    @Test
     @Config(sdk = [32])
     fun `below api 33 the language goes to the process locale defaults`() {
         applier.apply(LanguageTag("pt-BR"))
@@ -120,4 +143,9 @@ class AndroidLanguageApplierTest {
 
     private fun localeManager(): LocaleManager =
         context.getSystemService(LocaleManager::class.java)
+
+    private companion object {
+        /** `Context.LOCALE_SERVICE`, spelled out because that constant is itself API 33+. */
+        const val LOCALE_SERVICE: String = "locale"
+    }
 }

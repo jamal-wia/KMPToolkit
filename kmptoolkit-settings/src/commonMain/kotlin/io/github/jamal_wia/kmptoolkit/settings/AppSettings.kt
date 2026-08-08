@@ -33,15 +33,17 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * ## Threading
  *
- * Safe to read from anywhere: the flows are `StateFlow`s. Safe to write from anywhere in the sense
- * that no call corrupts anything and each individual write either lands whole or fails whole.
+ * Safe to read from anywhere: the flows are `StateFlow`s. Safe to write from anywhere: each setter
+ * takes an internal lock across the whole persist-then-publish sequence, so **the value in the
+ * store and the value in the flow always agree** — concurrent writers serialise, one of them wins,
+ * and the winner won both. Which one wins is unspecified, as with any two racing writes; that the
+ * loser cannot leave the flow and the store on different values is the part that matters, because
+ * such a split never reconciles itself and shows the user one thing this session and another after
+ * the next launch.
  *
- * What is **not** guaranteed is which of two concurrent writes to the *same* setting wins: the
- * store and the flow are two separate steps, so a sufficiently unlucky interleaving can leave the
- * flow holding one of the two values and the store the other, and the disagreement surfaces at the
- * next launch. Two concurrent writes to two *different* settings never interfere. If a setting can
- * be changed from more than one place at once — a settings screen and a deep link, say — drive the
- * writes from a single dispatcher.
+ * The lock is held only for a store write — an in-memory commit on both platforms
+ * (`SharedPreferences.apply`, `NSUserDefaults`), not disk I/O — which is why the setters can stay
+ * non-suspending and remain callable straight from a click handler.
  */
 public interface AppSettings {
 

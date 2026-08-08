@@ -66,6 +66,13 @@ public sealed interface SettingsError {
      * unchanged — the caller passed a language the app has no strings for. While loading it means
      * the stored language is no longer supported, typically because an app update dropped a
      * translation, and the language fell back to [SettingsConfig.defaultLanguage].
+     *
+     * @param key always [SettingsConfig.languageKey] — carried anyway so that every case here has
+     *   one, and a log line or a crash-reporter breadcrumb can read the key off any [SettingsError]
+     *   without a `when`.
      */
-    public data class UnsupportedLanguage(public val tag: LanguageTag) : SettingsError
+    public data class UnsupportedLanguage(
+        public val key: String,
+        public val tag: LanguageTag,
+    ) : SettingsError
 }

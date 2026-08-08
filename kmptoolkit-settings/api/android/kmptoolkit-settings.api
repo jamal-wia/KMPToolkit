@@ -117,11 +117,13 @@ public final class io/github/jamal_wia/kmptoolkit/settings/SettingsError$Unreada
 }
 
 public final class io/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage : io/github/jamal_wia/kmptoolkit/settings/SettingsError {
-	public synthetic fun <init> (Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1-B3JxDDw ()Ljava/lang/String;
-	public final fun copy-ZpBGJDQ (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage;
-	public static synthetic fun copy-ZpBGJDQ$default (Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage;
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2-B3JxDDw ()Ljava/lang/String;
+	public final fun copy-WRD6Ekk (Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage;
+	public static synthetic fun copy-WRD6Ekk$default (Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/settings/SettingsError$UnsupportedLanguage;
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getKey ()Ljava/lang/String;
 	public final fun getTag-B3JxDDw ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;

@@ -22,6 +22,13 @@ internal class DefaultAppSettings(
     initialLanguage: LanguageTag?,
 ) : AppSettings {
 
+    /**
+     * Serialises every write so the store and the flow can never disagree — see [persist]. One per
+     * instance rather than one shared statically: two [AppSettings] over different stores have no
+     * reason to block each other.
+     */
+    private val lock: SettingsLock = settingsLock()
+
     private val _fontScale: MutableStateFlow<FontScale> = MutableStateFlow(initialFontScale)
     override val fontScale: StateFlow<FontScale> = _fontScale.asStateFlow()
 
@@ -50,7 +57,9 @@ internal class DefaultAppSettings(
         // mistake to report, not a preference to persist and then have to fall back from at every
         // subsequent launch.
         if (value != null && !config.supports(value)) {
-            return SettingsResult.Failure(SettingsError.UnsupportedLanguage(value))
+            return SettingsResult.Failure(
+                SettingsError.UnsupportedLanguage(config.languageKey, value),
+            )
         }
         return persist(
             flow = _language,
@@ -67,17 +76,29 @@ internal class DefaultAppSettings(
      * user a choice that silently reverts at the next launch, and undoing it afterwards would make
      * collectors see the value flicker in and back out.
      *
-     * The equality short-circuit is not an optimisation for its own sake — without it, re-selecting
-     * the value that is already active would write to the store on every tap of a settings row.
+     * **The whole sequence holds [lock].** Persisting and publishing are two steps, and two threads
+     * interleaving them can otherwise leave the store on one value and the flow on the other — not
+     * as a momentary blip but permanently, since nothing afterwards reconciles them. The user then
+     * sees one theme for the rest of the session and the other after the next launch, which is the
+     * single worst way for a settings module to fail. The lock is held across a store write, so it
+     * is held for as long as `SharedPreferences.apply` or an `NSUserDefaults` set takes — in-memory
+     * commits, not disk I/O.
+     *
+     * The equality short-circuit is inside the lock for the same reason: read-then-write outside it
+     * would let two callers both decide the value needs writing, or one decide it does not while
+     * the other is midway through changing it.
+     *
+     * It is not an optimisation for its own sake, either — without it, re-selecting the value that
+     * is already active would write to the store on every tap of a settings row.
      */
     private fun <T> persist(
         flow: MutableStateFlow<T>,
         key: String,
         value: T,
         encoded: String,
-    ): SettingsResult {
-        if (flow.value == value) return SettingsResult.Success
-        return when (val write: StorageResult<Unit> = storage.put(key, encoded)) {
+    ): SettingsResult = lock.withLock {
+        if (flow.value == value) return@withLock SettingsResult.Success
+        when (val write: StorageResult<Unit> = storage.put(key, encoded)) {
             is StorageResult.Success -> {
                 flow.value = value
                 SettingsResult.Success
