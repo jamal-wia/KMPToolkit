@@ -1,0 +1,90 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-logging-overlay>
+final class io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels { // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels|null[0]
+    constructor <init>(kotlin/String = ..., kotlin/String = ..., kotlin/String = ..., kotlin/String = ...) // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.<init>|<init>(kotlin.String;kotlin.String;kotlin.String;kotlin.String){}[0]
+
+    final val clear // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.clear|{}clear[0]
+        final fun <get-clear>(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.clear.<get-clear>|<get-clear>(){}[0]
+    final val close // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.close|{}close[0]
+        final fun <get-close>(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.close.<get-close>|<get-close>(){}[0]
+    final val empty // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.empty|{}empty[0]
+        final fun <get-empty>(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.empty.<get-empty>|<get-empty>(){}[0]
+    final val title // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.title|{}title[0]
+        final fun <get-title>(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.title.<get-title>|<get-title>(){}[0]
+
+    final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.component1|component1(){}[0]
+    final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.component2|component2(){}[0]
+    final fun component3(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.component3|component3(){}[0]
+    final fun component4(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.component4|component4(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String = ..., kotlin/String = ..., kotlin/String = ...): io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.copy|copy(kotlin.String;kotlin.String;kotlin.String;kotlin.String){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState { // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState|null[0]
+    constructor <init>(kotlin/Int = ..., io.github.jamal_wia.kmptoolkit.logging/LogLevel = ...) // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.<init>|<init>(kotlin.Int;io.github.jamal_wia.kmptoolkit.logging.LogLevel){}[0]
+
+    final val isVisible // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.isVisible|{}isVisible[0]
+        final fun <get-isVisible>(): kotlinx.coroutines.flow/StateFlow<kotlin/Boolean> // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.isVisible.<get-isVisible>|<get-isVisible>(){}[0]
+    final val maxRecords // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.maxRecords|{}maxRecords[0]
+        final fun <get-maxRecords>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.maxRecords.<get-maxRecords>|<get-maxRecords>(){}[0]
+    final val minLevel // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.minLevel|{}minLevel[0]
+        final fun <get-minLevel>(): io.github.jamal_wia.kmptoolkit.logging/LogLevel // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.minLevel.<get-minLevel>|<get-minLevel>(){}[0]
+    final val records // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.records|{}records[0]
+        final fun <get-records>(): kotlinx.coroutines.flow/StateFlow<kotlin.collections/List<io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord>> // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.records.<get-records>|<get-records>(){}[0]
+
+    final fun asLogSink(): io.github.jamal_wia.kmptoolkit.logging/LogSink // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.asLogSink|asLogSink(){}[0]
+    final fun clear() // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.clear|clear(){}[0]
+    final fun hide() // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.hide|hide(){}[0]
+    final fun record(io.github.jamal_wia.kmptoolkit.logging/LogLevel, kotlin/String, kotlin/String, kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.record|record(io.github.jamal_wia.kmptoolkit.logging.LogLevel;kotlin.String;kotlin.String;kotlin.Throwable?){}[0]
+    final fun show() // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.show|show(){}[0]
+    final fun toggle() // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState.toggle|toggle(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord { // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord|null[0]
+    constructor <init>(kotlin/Long, io.github.jamal_wia.kmptoolkit.logging/LogLevel, kotlin/String, kotlin/String, kotlin/String?, kotlin/Long) // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.<init>|<init>(kotlin.Long;io.github.jamal_wia.kmptoolkit.logging.LogLevel;kotlin.String;kotlin.String;kotlin.String?;kotlin.Long){}[0]
+
+    final val elapsedMillis // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.elapsedMillis|{}elapsedMillis[0]
+        final fun <get-elapsedMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.elapsedMillis.<get-elapsedMillis>|<get-elapsedMillis>(){}[0]
+    final val id // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.id|{}id[0]
+        final fun <get-id>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.id.<get-id>|<get-id>(){}[0]
+    final val level // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.level|{}level[0]
+        final fun <get-level>(): io.github.jamal_wia.kmptoolkit.logging/LogLevel // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.level.<get-level>|<get-level>(){}[0]
+    final val message // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.message|{}message[0]
+        final fun <get-message>(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.message.<get-message>|<get-message>(){}[0]
+    final val tag // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.tag|{}tag[0]
+        final fun <get-tag>(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.tag.<get-tag>|<get-tag>(){}[0]
+    final val throwableText // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.throwableText|{}throwableText[0]
+        final fun <get-throwableText>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.throwableText.<get-throwableText>|<get-throwableText>(){}[0]
+
+    final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.component1|component1(){}[0]
+    final fun component2(): io.github.jamal_wia.kmptoolkit.logging/LogLevel // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.component2|component2(){}[0]
+    final fun component3(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.component3|component3(){}[0]
+    final fun component4(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.component4|component4(){}[0]
+    final fun component5(): kotlin/String? // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.component5|component5(){}[0]
+    final fun component6(): kotlin/Long // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.component6|component6(){}[0]
+    final fun copy(kotlin/Long = ..., io.github.jamal_wia.kmptoolkit.logging/LogLevel = ..., kotlin/String = ..., kotlin/String = ..., kotlin/String? = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.copy|copy(kotlin.Long;io.github.jamal_wia.kmptoolkit.logging.LogLevel;kotlin.String;kotlin.String;kotlin.String?;kotlin.Long){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.logging.overlay/LogRecord.toString|toString(){}[0]
+}
+
+final const val io.github.jamal_wia.kmptoolkit.logging.overlay/DEFAULT_MAX_RECORDS // io.github.jamal_wia.kmptoolkit.logging.overlay/DEFAULT_MAX_RECORDS|{}DEFAULT_MAX_RECORDS[0]
+    final fun <get-DEFAULT_MAX_RECORDS>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.logging.overlay/DEFAULT_MAX_RECORDS.<get-DEFAULT_MAX_RECORDS>|<get-DEFAULT_MAX_RECORDS>(){}[0]
+
+final val io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayLabels$stableprop // io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayLabels$stableprop|#static{}io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayLabels$stableprop[0]
+final val io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayState$stableprop // io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayState$stableprop|#static{}io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayState$stableprop[0]
+final val io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogRecord$stableprop // io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogRecord$stableprop|#static{}io_github_jamal_wia_kmptoolkit_logging_overlay_LogRecord$stableprop[0]
+
+final fun io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayHost(io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState, androidx.compose.ui/Modifier?, io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels?, kotlin/Function2<androidx.compose.runtime/Composer, kotlin/Int, kotlin/Unit>, androidx.compose.runtime/Composer?, kotlin/Int, kotlin/Int) // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayHost|LogOverlayHost(io.github.jamal_wia.kmptoolkit.logging.overlay.LogOverlayState;androidx.compose.ui.Modifier?;io.github.jamal_wia.kmptoolkit.logging.overlay.LogOverlayLabels?;kotlin.Function2<androidx.compose.runtime.Composer,kotlin.Int,kotlin.Unit>;androidx.compose.runtime.Composer?;kotlin.Int;kotlin.Int){}[0]
+final fun io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayPanel(io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayState, androidx.compose.ui/Modifier?, io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayLabels?, androidx.compose.runtime/Composer?, kotlin/Int, kotlin/Int) // io.github.jamal_wia.kmptoolkit.logging.overlay/LogOverlayPanel|LogOverlayPanel(io.github.jamal_wia.kmptoolkit.logging.overlay.LogOverlayState;androidx.compose.ui.Modifier?;io.github.jamal_wia.kmptoolkit.logging.overlay.LogOverlayLabels?;androidx.compose.runtime.Composer?;kotlin.Int;kotlin.Int){}[0]
+final fun io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayLabels$stableprop_getter(): kotlin/Int // io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayLabels$stableprop_getter|io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayLabels$stableprop_getter(){}[0]
+final fun io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayState$stableprop_getter(): kotlin/Int // io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayState$stableprop_getter|io_github_jamal_wia_kmptoolkit_logging_overlay_LogOverlayState$stableprop_getter(){}[0]
+final fun io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogRecord$stableprop_getter(): kotlin/Int // io.github.jamal_wia.kmptoolkit.logging.overlay/io_github_jamal_wia_kmptoolkit_logging_overlay_LogRecord$stableprop_getter|io_github_jamal_wia_kmptoolkit_logging_overlay_LogRecord$stableprop_getter(){}[0]
