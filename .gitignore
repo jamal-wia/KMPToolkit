@@ -1,6 +1,13 @@
-# Build outputs
-*/build/
-build/
+# Build outputs.
+#
+# These patterns are anchored on purpose. A bare `build/` matches at *any* depth, so a Kotlin
+# source package named `build` — e.g. src/commonMain/kotlin/.../platform/build/ — is silently
+# skipped by `git add`, with no warning and no symptom until a clean checkout fails to compile.
+# Anchoring to the repo root and to one level below it covers every Gradle project here (all
+# modules are top-level) without ever matching a source directory.
+/build/
+/*/build/
+/build-logic/build/
 .gradle/
 .kotlin/
 /captures
