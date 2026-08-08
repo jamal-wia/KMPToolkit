@@ -27,11 +27,14 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 |---|---|---|---|---|
 | `kmptoolkit-coroutines` | Testable dispatcher seam (`AppDispatchers`) | — | Available | [docs](docs/kmptoolkit-coroutines/01-overview.md) |
 | `kmptoolkit-coroutines-testing` | `TestAppDispatchers` double, for `testImplementation` | `coroutines` | Available | [docs](docs/kmptoolkit-coroutines/01-overview.md) |
-| `kmptoolkit-logging` | Minimal tag/level logging interface + SPI | — | Planned | — |
-| `kmptoolkit-haptics` | Haptic feedback abstraction | — | Planned | — |
-| `kmptoolkit-audio-player` | Audio playback (MediaPlayer / AVPlayer) | — | Planned | — |
-| `kmptoolkit-audio-recorder` | Audio recording (MediaRecorder / AVAudioRecorder) | — | Planned | — |
-| `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Planned | — |
+| `kmptoolkit-logging` | Minimal tag/level logging interface + pluggable sinks, zero dependencies | — | Available | [docs](docs/kmptoolkit-logging/01-overview.md) |
+| `kmptoolkit-haptics` | Haptic feedback, with the outcome reported rather than thrown | — | Available | [docs](docs/kmptoolkit-haptics/01-overview.md) |
+| `kmptoolkit-haptics-testing` | `RecordingHapticFeedback` double, for `testImplementation` | `haptics` | Available | [docs](docs/kmptoolkit-haptics/06-testing.md) |
+| `kmptoolkit-audio-player` | Audio playback (`MediaPlayer` / `AVPlayer`) behind a pluggable engine | — | Available | [docs](docs/kmptoolkit-audio-player/01-overview.md) |
+| `kmptoolkit-audio-player-testing` | `FakePlaybackEngine`, for `testImplementation` | `audio-player` | Available | [docs](docs/kmptoolkit-audio-player/06-testing.md) |
+| `kmptoolkit-audio-recorder` | Audio recording (`MediaRecorder` / `AVAudioRecorder`) | — | Planned | — |
+| `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Available | [docs](docs/kmptoolkit-scheduler/01-overview.md) |
+| `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
 | `kmptoolkit-storage` | Key-value storage, plain and encrypted | — | Planned | — |
 | `kmptoolkit-platform` | Connectivity, device info, file picker, wake lock, crash handler | `logging` | Planned | — |
 | `kmptoolkit-biometric` | Biometric authentication gate | `platform` | Planned | — |

@@ -26,6 +26,32 @@ val audioModule = module {
 }
 ```
 
+## Platform factories, not `expect fun`
+
+A module whose implementation is platform-specific exposes a **common interface** plus a factory
+declared separately in each platform source set — not a single `expect fun` with one shared
+signature:
+
+```kotlin
+// commonMain — the type your shared code depends on
+public interface HapticFeedback { public fun perform(type: HapticType): HapticResult }
+
+// androidMain
+public fun createHapticFeedback(context: Context): HapticFeedback
+// iosMain
+public fun createHapticFeedback(): HapticFeedback
+```
+
+**Why:** platforms genuinely need different things to construct the same abstraction — Android
+needs a `Context`, iOS needs a bundle or a sound resolver or nothing at all. An `expect fun` forces
+one signature on both, so every platform ends up declaring parameters it ignores, or the module
+invents an `expect class PlatformContext` wrapper that exists purely to satisfy the shape. Both
+make the API lie about what a platform actually requires.
+
+Shared code never calls the factory: it takes the interface as a constructor parameter. Only the
+platform entry point — `Application.onCreate`, an iOS app delegate — names the factory, and that
+code is already platform-specific.
+
 ## Configuration instead of hardcoded identifiers
 
 Nothing in the toolkit hardcodes a SharedPreferences name, a Keychain service string, a

@@ -33,9 +33,17 @@ check the "What this is not" section for a pointer to the right one instead.
 
 ## Available modules
 
-| Module | Docs |
-|---|---|
-| `kmptoolkit-coroutines` | [`kmptoolkit-coroutines/`](kmptoolkit-coroutines/01-overview.md) |
+| Module | What it solves | Docs |
+|---|---|---|
+| `kmptoolkit-coroutines` | Testable dispatcher seam | [`kmptoolkit-coroutines/`](kmptoolkit-coroutines/01-overview.md) |
+| `kmptoolkit-logging` | Tag/level logging with pluggable sinks | [`kmptoolkit-logging/`](kmptoolkit-logging/01-overview.md) |
+| `kmptoolkit-haptics` | Haptic feedback | [`kmptoolkit-haptics/`](kmptoolkit-haptics/01-overview.md) |
+| `kmptoolkit-audio-player` | Audio playback | [`kmptoolkit-audio-player/`](kmptoolkit-audio-player/01-overview.md) |
+| `kmptoolkit-scheduler` | Exact-time one-shot local alarms | [`kmptoolkit-scheduler/`](kmptoolkit-scheduler/01-overview.md) |
+
+Each of these except `kmptoolkit-logging` also publishes a `-testing` companion artifact holding its
+test double; those are documented in the same folder's `06-testing.md` rather than a folder of their
+own.
 
 The rest of the suite is on the roadmap — see the root [`README.md`](../README.md) module table and
 [`CHANGELOG.md`](../CHANGELOG.md).
