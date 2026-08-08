@@ -1,0 +1,53 @@
+public final class io/github/jamal_wia/kmptoolkit/logging/LogLevel : java/lang/Enum {
+	public static final field DEBUG Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;
+	public static final field ERROR Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;
+	public static final field INFO Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;
+	public static final field VERBOSE Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;
+	public static final field WARN Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/logging/LogSink {
+	public abstract fun log (Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/logging/LogSink_androidKt {
+	public static final fun platformLogSink ()Lio/github/jamal_wia/kmptoolkit/logging/LogSink;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/logging/Logger {
+	public abstract fun getTag ()Ljava/lang/String;
+	public abstract fun isLoggable (Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;)Z
+	public abstract fun log (Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;Ljava/lang/Throwable;Lkotlin/jvm/functions/Function0;)V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/logging/LoggerFactory {
+	public abstract fun logger (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/logging/Logger;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/logging/LoggerFactoryKt {
+	public static final fun createLoggerFactory (Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;Ljava/util/List;)Lio/github/jamal_wia/kmptoolkit/logging/LoggerFactory;
+	public static synthetic fun createLoggerFactory$default (Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;Ljava/util/List;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/logging/LoggerFactory;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/logging/LoggerKt {
+	public static final fun d (Lio/github/jamal_wia/kmptoolkit/logging/Logger;Lkotlin/jvm/functions/Function0;)V
+	public static final fun e (Lio/github/jamal_wia/kmptoolkit/logging/Logger;Ljava/lang/Throwable;Lkotlin/jvm/functions/Function0;)V
+	public static synthetic fun e$default (Lio/github/jamal_wia/kmptoolkit/logging/Logger;Ljava/lang/Throwable;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)V
+	public static final fun i (Lio/github/jamal_wia/kmptoolkit/logging/Logger;Lkotlin/jvm/functions/Function0;)V
+	public static final fun logTimed (Lio/github/jamal_wia/kmptoolkit/logging/Logger;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;Lkotlin/jvm/functions/Function0;)Ljava/lang/Object;
+	public static synthetic fun logTimed$default (Lio/github/jamal_wia/kmptoolkit/logging/Logger;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun v (Lio/github/jamal_wia/kmptoolkit/logging/Logger;Lkotlin/jvm/functions/Function0;)V
+	public static final fun w (Lio/github/jamal_wia/kmptoolkit/logging/Logger;Ljava/lang/Throwable;Lkotlin/jvm/functions/Function0;)V
+	public static synthetic fun w$default (Lio/github/jamal_wia/kmptoolkit/logging/Logger;Ljava/lang/Throwable;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/logging/NoopLogger : io/github/jamal_wia/kmptoolkit/logging/Logger {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/logging/NoopLogger;
+	public fun getTag ()Ljava/lang/String;
+	public fun isLoggable (Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;)Z
+	public fun log (Lio/github/jamal_wia/kmptoolkit/logging/LogLevel;Ljava/lang/Throwable;Lkotlin/jvm/functions/Function0;)V
+}
+
