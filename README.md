@@ -36,8 +36,10 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-audio-recorder-testing` | `FakeAudioRecorder`, for `testImplementation` | `audio-recorder` | Available | [docs](docs/kmptoolkit-audio-recorder/06-testing.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Available | [docs](docs/kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
-| `kmptoolkit-storage` | Key-value storage, plain and encrypted | — | Planned | — |
-| `kmptoolkit-platform` | Connectivity, device info, file picker, wake lock, crash handler | `logging` | Planned | — |
+| `kmptoolkit-storage` | Key-value storage, plain and encrypted, plus a stable device id | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
+| `kmptoolkit-storage-testing` | `InMemoryKeyValueStorage`, for `testImplementation` | `storage` | Available | [docs](docs/kmptoolkit-storage/06-testing.md) |
+| `kmptoolkit-platform` | Connectivity, device info, file picker, wake lock, crash log | `logging` | Available | [docs](docs/kmptoolkit-platform/01-overview.md) |
+| `kmptoolkit-platform-testing` | Fakes for the platform seams, for `testImplementation` | `platform` | Available | [docs](docs/kmptoolkit-platform/06-testing.md) |
 | `kmptoolkit-biometric` | Biometric authentication gate | `platform` | Planned | — |
 | `kmptoolkit-permission` | Runtime permission request flow | `platform`, `storage` | Planned | — |
 | `kmptoolkit-notification` | Local notifications, channels, actions | `platform`, `permission` | Planned | — |
@@ -46,7 +48,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `coroutines`, `logging` | Planned | — |
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed outbox store | `outbox` | Planned | — |
 | `kmptoolkit-systembars` | Compose system bars controller | `platform` | Planned | — |
-| `kmptoolkit-logging-overlay` | Compose in-app log overlay | `logging` | Planned | — |
+| `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 
 "Planned" modules are tracked in `CHANGELOG.md` and land module-by-module — see
 [`docs/README.md`](docs/README.md) for the full documentation index once a module is available.

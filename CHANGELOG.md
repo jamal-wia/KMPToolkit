@@ -30,6 +30,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-scheduler` and `kmptoolkit-scheduler-testing` — exact-time one-shot local alarms.
   A missing `SCHEDULE_EXACT_ALARM` downgrades to an inexact alarm and says so through
   `AlarmScheduleResult.Inexact` instead of failing or downgrading silently.
+- `kmptoolkit-storage` and `kmptoolkit-storage-testing` — plain and encrypted key-value storage
+  plus `DeviceIdProvider`. Encryption uses AndroidKeyStore and `Cipher` directly rather than Tink,
+  which keeps roughly a megabyte out of every consumer. The iOS Keychain queries are built with
+  `CFDictionaryCreateMutable`, not a bridged Kotlin `Map`, which iOS 26 rejects with `errSecParam`.
+- `kmptoolkit-platform` and `kmptoolkit-platform-testing` — connectivity, device info, reduced
+  motion, URL opener, file picker, screen wake lock, and a crash log store. Connectivity reports a
+  tri-state so a missing `ACCESS_NETWORK_STATE` is never mistaken for being offline.
+- `kmptoolkit-logging-overlay` — an on-screen log overlay wired through `kmptoolkit-logging`'s
+  `LogSink`. Debug builds only: bounded buffer, no PII filtering, gating is the consumer's job.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +
