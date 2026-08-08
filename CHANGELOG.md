@@ -49,6 +49,17 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-systembars` — Compose system-bar control built as a base configuration plus a stack
   of per-axis override layers, so leaving a screen removes exactly that screen's contribution
   instead of restoring a snapshot that may since have gone stale.
+- `kmptoolkit-notification` and `kmptoolkit-notification-testing` — local notifications. A
+  `NotificationChannelSpec` keeps Android's concept and documents per field what iOS actually does
+  with it, rather than pretending a `UNNotificationCategory` is a channel: a category declares
+  action buttons and has no name, sound, importance, or mute switch. Posting returns the first
+  reason a user would not have seen the notification.
+- `kmptoolkit-session` and `kmptoolkit-session-testing` — session state plus a `SessionCleaner`
+  fan-out that runs every cleaner even when others fail, reports failures instead of swallowing
+  them, and ends the session regardless. A failing `SessionRevoker` never blocks local teardown,
+  so signing out works offline.
+- `kmptoolkit-bom` — pins every artifact to one version. Its constraint list is derived from the
+  projects that exist rather than maintained by hand.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +

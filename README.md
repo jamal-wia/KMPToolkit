@@ -44,8 +44,10 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-biometric-testing` | `ScriptedBiometricGate`, for `testImplementation` | `biometric` | Available | [docs](docs/kmptoolkit-biometric/06-testing.md) |
 | `kmptoolkit-permission` | Runtime permission request flow | `platform`, `storage` | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-permission-testing` | `RecordingPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
-| `kmptoolkit-notification` | Local notifications, channels, actions | `platform`, `permission` | Planned | — |
-| `kmptoolkit-session` | Session lifecycle manager | `coroutines`, `logging` | Planned | — |
+| `kmptoolkit-notification` | Local notifications, channels, actions | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
+| `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |
+| `kmptoolkit-session` | Session lifecycle and teardown fan-out | `coroutines`, `logging` | Available | [docs](docs/kmptoolkit-session/01-overview.md) |
+| `kmptoolkit-session-testing` | Recording cleaner and revoker, for `testImplementation` | `session` | Available | [docs](docs/kmptoolkit-session/06-testing.md) |
 | `kmptoolkit-settings` | Font scale, theme mode, app language | `storage` | Planned | — |
 | `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `coroutines`, `logging` | Planned | — |
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed outbox store | `outbox` | Planned | — |

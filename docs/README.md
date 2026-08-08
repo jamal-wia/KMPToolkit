@@ -47,6 +47,8 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-permission` | Runtime permission request flow | [`kmptoolkit-permission/`](kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-biometric` | Biometric authentication gate | [`kmptoolkit-biometric/`](kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-systembars` | Status and navigation bar control | [`kmptoolkit-systembars/`](kmptoolkit-systembars/01-overview.md) |
+| `kmptoolkit-notification` | Local notifications, channels and actions | [`kmptoolkit-notification/`](kmptoolkit-notification/01-overview.md) |
+| `kmptoolkit-session` | Session lifecycle and teardown fan-out | [`kmptoolkit-session/`](kmptoolkit-session/01-overview.md) |
 
 Each of these except `kmptoolkit-logging` also publishes a `-testing` companion artifact holding its
 test double; those are documented in the same folder's `06-testing.md` rather than a folder of their
