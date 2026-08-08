@@ -91,6 +91,11 @@ runs inside the recorded call, and both are reassignable mid-test.
 ```kotlin
 val broken = RecordingSessionCleaner(name = "db", onClean = { throw IllegalStateException("disk full") })
 val healthy = RecordingSessionCleaner(name = "cache")
+val manager = createSessionManager(
+    cleaners = listOf(broken, healthy),
+    dispatchers = TestAppDispatchers(testScheduler),
+)
+manager.startSession()
 
 val report = manager.endSession()
 
@@ -103,9 +108,12 @@ so this test is instant:
 
 ```kotlin
 val stuck = RecordingSessionCleaner(name = "db", onClean = { delay(Long.MAX_VALUE) })
-// ...
-val failure = report.cleanerFailures.single()
-assertIs<SessionTeardownTimeoutException>(failure.cause)
+val manager = createSessionManager(listOf(stuck), dispatchers = TestAppDispatchers(testScheduler))
+manager.startSession()
+
+val report = manager.endSession()
+
+assertIs<SessionTeardownTimeoutException>(report.cleanerFailures.single().cause)
 ```
 
 **Signing out offline** — the case that matters most and is hardest to reproduce against a real
@@ -123,7 +131,23 @@ assertNotNull(report.revokeFailure)
 assertEquals(SessionState.INACTIVE, manager.state.value)        // signed out regardless
 ```
 
-## Two traps in tests around this module
+**A cleaner that ignores cancellation** — the case a virtual clock cannot model, because the point
+is wall-clock cost. Use real dispatchers and measure:
+
+```kotlin
+val stuck = object : SessionCleaner {
+    override val name = "db"
+    override suspend fun clean() = withContext(NonCancellable) { delay(600.milliseconds) }
+}
+val manager = createSessionManager(listOf(stuck), dispatchers = realDispatchers, cleanerTimeout = 50.milliseconds)
+manager.startSession()
+
+val elapsed = measureTime { manager.endSession() }
+
+assertTrue(elapsed < 300.milliseconds)   // abandoned at the timeout, not awaited to the end
+```
+
+## Traps in tests around this module
 
 **`runTest`'s own scope dispatches with a `StandardTestDispatcher`.** A `launch { endSession() }` has
 *not* started running when `launch` returns, so cancelling that job — or asserting on the manager at
@@ -134,6 +158,11 @@ an "in-flight" teardown. This module's own test suite does exactly that.
 **Compare throwables by type and message, not by reference.** On Android and the JVM the throwable
 in a `SessionEndReport` is a stacktrace-recovered copy of what the cleaner threw, so `assertSame`
 passes on Kotlin/Native and fails on JVM.
+
+**Two `endSession()` calls in a row are not two concurrent callers.** Under a
+`StandardTestDispatcher` they run one after the other, so the second arrives at a closed session and
+gets `SessionEndReport.Empty` — not the first one's failures. To test the concurrent case, park a
+cleaner as above so the second call genuinely queues behind an in-flight teardown.
 
 ## Fixture reference
 
