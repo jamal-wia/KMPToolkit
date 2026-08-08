@@ -1,0 +1,28 @@
+# Build outputs
+*/build/
+build/
+.gradle/
+.kotlin/
+/captures
+.externalNativeBuild
+.cxx
+*.hprof
+
+# Local machine config — never shared, never committed
+local.properties
+*.iml
+
+# IDE — keep only the shareable subset (code style, inspection profiles, run configs)
+.idea/*
+!.idea/codeStyles/
+!.idea/inspectionProfiles/
+!.idea/runConfigurations.xml
+
+# OS
+.DS_Store
+
+# Signing / credentials — must never end up in the repo
+*.gpg
+*.jks
+*.keystore
+secring.gpg
