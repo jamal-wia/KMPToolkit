@@ -1,0 +1,11 @@
+public final class io/github/jamal_wia/kmptoolkit/haptics/testing/RecordingHapticFeedback : io/github/jamal_wia/kmptoolkit/haptics/HapticFeedback {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun clear ()V
+	public final fun getEvents ()Ljava/util/List;
+	public final fun getResult ()Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
+	public fun perform (Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;)Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
+	public final fun setResult (Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;)V
+}
+

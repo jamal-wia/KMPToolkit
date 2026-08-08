@@ -32,6 +32,8 @@ include(":kmptoolkit-coroutines-testing")
 include(":kmptoolkit-logging")
 include(":kmptoolkit-audio-player")
 include(":kmptoolkit-audio-player-testing")
+include(":kmptoolkit-haptics")
+include(":kmptoolkit-haptics-testing")
 include(":kmptoolkit-scheduler")
 include(":kmptoolkit-scheduler-testing")
 
