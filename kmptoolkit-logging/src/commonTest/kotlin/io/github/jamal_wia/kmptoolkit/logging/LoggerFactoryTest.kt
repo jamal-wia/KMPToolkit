@@ -1,10 +1,12 @@
 package io.github.jamal_wia.kmptoolkit.logging
 
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -149,7 +151,76 @@ class LoggerFactoryTest {
         logger.log(LogLevel.ERROR, null) { "survives" }
 
         assertContentEquals(listOf("before", "broken", "after"), order)
+        // Every sink must have *seen* the event, the broken one included — a sink that throws
+        // does so after recording, and containing its failure must not cost it the delivery.
+        assertEquals("survives", before.events.single().message)
+        assertEquals("survives", broken.events.single().message)
         assertEquals("survives", after.events.single().message)
+    }
+
+    @Test
+    fun `an Error from a sink propagates instead of being swallowed`() {
+        // A sink that logs into itself recurses until the stack ends; a sink that allocates
+        // unboundedly exhausts the heap. Absorbing either would turn a loud bug into an invisible
+        // one, so only Exception is contained — see TagLogger.log. (kotlin.Error stands in for
+        // StackOverflowError/OutOfMemoryError, which are JVM-only types with no common
+        // equivalent.)
+        val exploding = object : LogSink {
+            override fun log(
+                level: LogLevel,
+                tag: String,
+                message: String,
+                throwable: Throwable?,
+            ): Unit = throw Error("sink recursed")
+        }
+        val logger: Logger = createLoggerFactory(LogLevel.VERBOSE, listOf(exploding)).logger("T")
+
+        assertFailsWith<Error> {
+            logger.log(LogLevel.ERROR, null) { "boom" }
+        }
+    }
+
+    @Test
+    fun `a CancellationException from a sink propagates instead of being swallowed`() {
+        // Swallowing it would let logging silently break the caller's structured concurrency.
+        val cancelling = object : LogSink {
+            override fun log(
+                level: LogLevel,
+                tag: String,
+                message: String,
+                throwable: Throwable?,
+            ): Unit = throw CancellationException("cancelled while logging")
+        }
+        val logger: Logger = createLoggerFactory(LogLevel.VERBOSE, listOf(cancelling)).logger("T")
+
+        assertFailsWith<CancellationException> {
+            logger.log(LogLevel.ERROR, null) { "boom" }
+        }
+    }
+
+    @Test
+    fun `createLoggerFactory defaults to DEBUG and the platform sink`() {
+        // Both defaults are documented contract; without this test, flipping minLevel to VERBOSE
+        // would not fail anything.
+        val recording = RecordingSink()
+        val defaulted: Logger = createLoggerFactory(sinks = listOf(recording)).logger("T")
+
+        assertTrue(defaulted.isLoggable(LogLevel.DEBUG))
+        assertFalse(defaulted.isLoggable(LogLevel.VERBOSE))
+
+        // The default sink list is non-empty, so a factory built with no arguments at all still
+        // reports DEBUG as loggable rather than silently disabling itself.
+        assertTrue(createLoggerFactory().logger("T").isLoggable(LogLevel.DEBUG))
+    }
+
+    // Deliberately no test on platformLogSink()'s identity: the sink is stateless and Kotlin/Native
+    // collapses the non-capturing lambda into a singleton while the JVM does not, so identity is
+    // explicitly unspecified in 04-api-reference.md rather than pinned here.
+
+    @Test
+    fun `logger returns a new instance per call even for the same tag`() {
+        val factory: LoggerFactory = createLoggerFactory(LogLevel.VERBOSE, listOf(RecordingSink()))
+        assertNotSame(factory.logger("same"), factory.logger("same"))
     }
 
     @Test

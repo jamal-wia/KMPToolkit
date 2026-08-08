@@ -71,5 +71,10 @@ The sink interface exists precisely so this stays your decision rather than the 
 ## Behavior that is identical on both platforms
 
 Everything else: level filtering, lazy message evaluation, fan-out order across sinks, the
-containment of a throwing sink, the propagation of a throwing message lambda, and thread safety.
-All of it lives in common code and is covered by one shared test suite that runs on both targets.
+containment of a throwing sink, and the propagation of a throwing message lambda. All of it lives
+in common code and is covered by one shared test suite that runs on both targets.
+
+Thread safety is a design property rather than a tested one: a `Logger` holds only immutable
+references (its tag, threshold, and a defensively copied sink list), so there is no mutable state
+to race on. What that guarantee does **not** cover is your own `LogSink` — if it accumulates
+state, making it thread-safe is your responsibility.

@@ -5,8 +5,11 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 
 /** Pins the level each convenience extension emits at, and [logTimed]'s contract. */
 class LoggerExtensionsTest {
@@ -67,10 +70,15 @@ class LoggerExtensionsTest {
         assertEquals(42, result)
         val event: LogEvent = sink.events.single()
         assertEquals(LogLevel.DEBUG, event.level)
-        assertTrue(
-            event.message.startsWith("load ["), "unexpected message: ${event.message}",
+        // The duration is nondeterministic but the *shape* is contract: "<label> [<duration>]".
+        // Asserting only the prefix and suffix would let "load []" pass.
+        val bracketed: String = event.message
+            .removeSurrounding("load [", "]")
+            .also { assertNotEquals(event.message, it, "unexpected message: ${event.message}") }
+        assertNotNull(
+            Duration.parseOrNull(bracketed),
+            "not a parsable duration: ${event.message}",
         )
-        assertTrue(event.message.endsWith("]"), "unexpected message: ${event.message}")
     }
 
     @Test

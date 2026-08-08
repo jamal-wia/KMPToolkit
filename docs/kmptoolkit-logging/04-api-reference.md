@@ -57,10 +57,11 @@ Being a `fun interface`, a sink is usually a lambda:
 public expect fun platformLogSink(): LogSink
 ```
 
-The platform's own console sink — `android.util.Log` on Android, `println` on iOS. Returns a **new**
-stateless instance on each call; two instances behave identically, so sharing one is an optimization,
-not a requirement. See [`05-platform-notes.md`](05-platform-notes.md) for the per-platform output
-format and its limits.
+The platform's own console sink — `android.util.Log` on Android, `println` on iOS. The returned sink
+is stateless, so **identity is unspecified**: a call may return a fresh instance or a shared one,
+and it differs by target (Kotlin/Native collapses the non-capturing lambda into a singleton, the JVM
+does not). Never compare the result by identity or use it as a map key. See
+[`05-platform-notes.md`](05-platform-notes.md) for the per-platform output format and its limits.
 
 ## `interface Logger`
 

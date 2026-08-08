@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.logging
 
+import kotlin.time.TimedValue
+import kotlin.time.measureTimedValue
+
 /**
  * A tagged logger — the type your code depends on.
  *
@@ -57,13 +60,16 @@ public fun Logger.e(throwable: Throwable? = null, message: () -> String): Unit =
  * The measurement itself is unconditional — only the resulting log event is filtered — so the
  * duration reported is the real one and not an artifact of a disabled logger. [block]'s result is
  * returned unchanged, and an exception thrown by [block] propagates without a log event.
+ *
+ * Declared `inline` so [block] may suspend and may `return` non-locally — timing a suspending call
+ * is the common case, and a non-inline version silently cannot do it.
  */
-public fun <T> Logger.logTimed(
+public inline fun <T> Logger.logTimed(
     label: String,
     level: LogLevel = LogLevel.DEBUG,
     block: () -> T,
 ): T {
-    val timed: kotlin.time.TimedValue<T> = kotlin.time.measureTimedValue(block)
+    val timed: TimedValue<T> = measureTimedValue(block)
     log(level, null) { "$label [${timed.duration}]" }
     return timed.value
 }

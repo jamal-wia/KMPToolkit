@@ -26,8 +26,9 @@ class SyncEngine(loggerFactory: LoggerFactory) {
 }
 ```
 
-The message is a lambda, so a filtered-out event costs nothing but a comparison — string
-concatenation for a `VERBOSE` line never happens in a release build configured at `INFO`.
+The message is a lambda, so a filtered-out event costs a level comparison and — for a lambda that
+captures — one allocation, but never the string itself: concatenation for a `VERBOSE` line does
+not happen in a release build configured at `INFO`.
 
 The module has **no dependencies at all** beyond the Kotlin standard library. Adding it to a
 consumer's graph adds nothing to their app but a handful of classes.

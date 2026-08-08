@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.logging
 
+import kotlin.coroutines.cancellation.CancellationException
+
 /**
  * Creates [Logger]s that share one level threshold and one set of [LogSink]s.
  *
@@ -67,9 +69,19 @@ private class TagLogger(
             @Suppress("TooGenericExceptionCaught", "SwallowedException")
             try {
                 sink.log(level, tag, text, throwable)
-            } catch (_: Throwable) {
+            } catch (e: CancellationException) {
+                // Never absorbed: a sink that touches a cancellable API inside a cancelled
+                // coroutine must not have that cancellation eaten here, or logging would silently
+                // break the caller's structured concurrency — the exact opposite of the guarantee
+                // this catch exists to provide.
+                throw e
+            } catch (_: Exception) {
                 // Deliberate: see createLoggerFactory's KDoc. A failing destination must not
                 // propagate into the caller, and must not cost the other sinks their event.
+                //
+                // Exception, not Throwable: an Error means the process is already in trouble
+                // (StackOverflowError from a sink that logs into itself, OutOfMemoryError) and
+                // swallowing it would turn a loud, findable bug into an invisible one.
             }
         }
     }

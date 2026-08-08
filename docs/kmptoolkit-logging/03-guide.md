@@ -44,7 +44,9 @@ log.d { "resolved ${items.size} items for ${request.id}" }
 ```
 
 The string is built only if the event passes the threshold. That is what makes it safe to leave
-debug logging in shipped code: at `minLevel = WARN` the line above costs a comparison.
+debug logging in shipped code: at `minLevel = WARN` the line above costs a level comparison plus,
+because this lambda captures `userId`, one `Function0` allocation — but not the concatenation. A
+non-capturing lambda is a singleton and costs only the comparison.
 
 It does **not** make the *arguments* free. This is still evaluated in full every call:
 

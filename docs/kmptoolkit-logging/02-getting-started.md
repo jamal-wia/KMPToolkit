@@ -30,7 +30,7 @@ val loggerFactory: LoggerFactory = createLoggerFactory(
 
 Both parameters have defaults — `createLoggerFactory()` with no arguments is exactly the call above
 — but spelling them out once, where your object graph is built, is what makes the release
-configuration in [step 5](#5-turn-it-down-or-off-in-release) an obvious edit rather than a hunt.
+configuration in [step 5](#5-turn-it-down--or-off--in-release) an obvious edit rather than a hunt.
 
 This module ships no DI bindings by design; hold the factory however you already hold singletons
 (see [`../01-architecture.md`](../01-architecture.md#no-dependency-injection-framework)).
