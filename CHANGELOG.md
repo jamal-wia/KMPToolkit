@@ -24,6 +24,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-audio-player` and `kmptoolkit-audio-player-testing` — `AudioPlayer` over a pluggable
   `PlaybackEngine` SPI, so the state machine lives in common code and is testable without a device.
   `MediaPlayer` and `AVPlayer` engines ship with it.
+- `kmptoolkit-audio-recorder` and `kmptoolkit-audio-recorder-testing` — `AudioRecorder` with an
+  8×6 transition table where every illegal call is inert and typed rather than thrown. Operations
+  that can touch the filesystem suspend; operations that only move recorder state do not.
 - `kmptoolkit-scheduler` and `kmptoolkit-scheduler-testing` — exact-time one-shot local alarms.
   A missing `SCHEDULE_EXACT_ALARM` downgrades to an inexact alarm and says so through
   `AlarmScheduleResult.Inexact` instead of failing or downgrading silently.

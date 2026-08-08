@@ -32,7 +32,8 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-haptics-testing` | `RecordingHapticFeedback` double, for `testImplementation` | `haptics` | Available | [docs](docs/kmptoolkit-haptics/06-testing.md) |
 | `kmptoolkit-audio-player` | Audio playback (`MediaPlayer` / `AVPlayer`) behind a pluggable engine | — | Available | [docs](docs/kmptoolkit-audio-player/01-overview.md) |
 | `kmptoolkit-audio-player-testing` | `FakePlaybackEngine`, for `testImplementation` | `audio-player` | Available | [docs](docs/kmptoolkit-audio-player/06-testing.md) |
-| `kmptoolkit-audio-recorder` | Audio recording (`MediaRecorder` / `AVAudioRecorder`) | — | Planned | — |
+| `kmptoolkit-audio-recorder` | Audio recording (`MediaRecorder` / `AVAudioRecorder`), typed errors instead of throws | — | Available | [docs](docs/kmptoolkit-audio-recorder/01-overview.md) |
+| `kmptoolkit-audio-recorder-testing` | `FakeAudioRecorder`, for `testImplementation` | `audio-recorder` | Available | [docs](docs/kmptoolkit-audio-recorder/06-testing.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Available | [docs](docs/kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
 | `kmptoolkit-storage` | Key-value storage, plain and encrypted | — | Planned | — |
