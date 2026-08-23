@@ -80,6 +80,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   SQLite. Ordering uses an `AUTOINCREMENT` sequence rather than a timestamp, so two enqueues in the
   same millisecond keep their order and a rowid freed by a delivered item is never reused beneath a
   waiting one. It passes all 30 checks of `OutboxStoreContract` unmodified on both platforms.
+- `kmptoolkit-proximity` and `kmptoolkit-proximity-testing` — a proximity sensor seam:
+  `ProximitySensor` reports a cold, event-driven `Flow<Boolean>`, and `ProximityRule.isNear` folds
+  a raw distance into it by comparing against the smaller of a five-centimetre threshold and the
+  sensor's own maximum range, since most units are binary and answer only `0` or their own
+  maximum. iOS has no proximity API to build on at all — Core Motion exposes none, and
+  `UIDevice`'s own monitoring is iPhone-only and tied to blanking the screen — so there
+  `isAvailable` is permanently `false` rather than a gap this module could close later.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +
