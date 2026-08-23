@@ -24,6 +24,9 @@ workRuntime = "2.11.2"
 # --- Persistence (kmptoolkit-outbox-sqldelight) ---
 sqldelight = "2.3.2"
 
+# --- Persistence (kmptoolkit-downloader, iOS-only integrity checks over SQLite-backed units) ---
+androidxSqlite = "2.7.0"
+
 # --- Demo module only (classic Jetpack Compose, not Compose Multiplatform) ---
 composeBom = "2026.02.01"
 
@@ -52,6 +55,7 @@ sqldelight-runtime = { group = "app.cash.sqldelight", name = "runtime", version.
 sqldelight-coroutines-extensions = { group = "app.cash.sqldelight", name = "coroutines-extensions", version.ref = "sqldelight" }
 sqldelight-android-driver = { group = "app.cash.sqldelight", name = "android-driver", version.ref = "sqldelight" }
 sqldelight-native-driver = { group = "app.cash.sqldelight", name = "native-driver", version.ref = "sqldelight" }
+androidx-sqlite-bundled = { group = "androidx.sqlite", name = "sqlite-bundled", version.ref = "androidxSqlite" }
 
 # Demo module — classic Jetpack Compose BOM
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
