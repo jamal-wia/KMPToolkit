@@ -24,10 +24,6 @@ android {
 }
 
 kotlin {
-    // No iosX64 target, unlike every other module in this repository: androidx.sqlite:sqlite-bundled
-    // (below) publishes no iosX64 variant — the legacy Intel simulator target JetBrains and Google
-    // have been dropping from newer KMP artifacts — so this module cannot compile a SqliteDatabase
-    // integrity check for it. See `docs/kmptoolkit-downloader/05-platform-notes.md`.
     iosArm64()
     iosSimulatorArm64()
 

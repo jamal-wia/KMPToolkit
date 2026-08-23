@@ -18,8 +18,8 @@ kotlin {
 ```
 
 This module is Compose Multiplatform code and is published for `android`, `iosArm64` and
-`iosSimulatorArm64` — no `iosX64`, because Compose Multiplatform 1.11+ publishes no artifact for
-it.
+`iosSimulatorArm64` — the same target set as every other module in the suite. There is no `iosX64`
+variant.
 
 ## 2. Create the controller
 

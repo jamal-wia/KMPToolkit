@@ -165,7 +165,7 @@ Two mappings carry real judgement:
 
 ### Targets
 
-`androidTarget`, `iosX64`, `iosArm64`, `iosSimulatorArm64`. No JVM/desktop target: the donor
+`androidTarget`, `iosArm64`, `iosSimulatorArm64`. No JVM/desktop target: the donor
 implementation's desktop variant was a stub that reported "unavailable" for everything, which is
 better expressed by not shipping the target.
 

@@ -71,8 +71,8 @@ buffer rather than loading an entry into memory, and both carry zip-slip protect
 
 ## No `iosX64` target
 
-Unlike every other `kmptoolkit-*` module, this one (and `kmptoolkit-downloader-testing`) does not
-publish an `iosX64` variant — only `iosArm64` and `iosSimulatorArm64`. `androidx.sqlite:sqlite-bundled`,
-which backs the `SqliteDatabase` integrity check on iOS, publishes no `iosX64` klib at all: it is
-the legacy Intel-simulator target, and Google has been dropping it from newer KMP artifacts.
-Building or testing against the Intel iOS simulator is not supported by this module.
+This module publishes `iosArm64` and `iosSimulatorArm64` only — the same set as every other
+`kmptoolkit-*` module (see `docs/01-architecture.md`). Independently of that suite-wide choice,
+this module could not offer `iosX64` anyway: `androidx.sqlite:sqlite-bundled`, which backs the
+`SqliteDatabase` integrity check on iOS, publishes no `iosX64` klib at all. Building or testing
+against the Intel iOS simulator is not supported.

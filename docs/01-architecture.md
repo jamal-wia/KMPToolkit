@@ -157,9 +157,12 @@ Only two modules depend on Compose Multiplatform: `kmptoolkit-systembars` and
 `kmptoolkit-logging-overlay`. Every other module is plain Kotlin with no UI framework dependency —
 adding, say, `kmptoolkit-outbox` to a non-Compose (or non-UI) target never pulls in Compose.
 
-A Compose module also publishes a **smaller set of Apple targets** than the rest of the suite:
-`iosArm64` and `iosSimulatorArm64` only, no `iosX64`, because Compose Multiplatform 1.11+ publishes
-no iosX64 variant. That asymmetry is visible in the `.klib.api` dumps and is intentional.
+Apple targets are uniform across the suite: every module publishes `iosArm64` and
+`iosSimulatorArm64`, and none publishes `iosX64`. The legacy Intel simulator is superseded by
+`iosSimulatorArm64` on Apple-silicon Macs, Compose Multiplatform 1.11+ publishes no `iosX64`
+artifact at all, and dropping it keeps the suite's published-file count — 41 modules times five
+coordinates each — inside Maven Central's per-namespace limits (see `RELEASING.md`). The target
+list is recorded in each module's `.klib.api` dump.
 
 ### Notes for anyone adding a Compose module
 

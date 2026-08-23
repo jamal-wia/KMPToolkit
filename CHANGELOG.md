@@ -9,6 +9,16 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Changed
+
+- Every module now publishes exactly two Apple targets, `iosArm64` and `iosSimulatorArm64`. The
+  legacy Intel-simulator target `iosX64` is no longer declared anywhere: it is superseded by
+  `iosSimulatorArm64` on Apple-silicon Macs, Compose Multiplatform 1.11+ publishes no artifact for
+  it, and dropping it cuts roughly a fifth off the suite's published-file count — which matters
+  against Maven Central's per-namespace monthly limits (see `RELEASING.md`). No public declaration
+  changed: the `.klib.api` diffs are confined to their `Targets:` header line. Consumers building
+  for the Intel iOS simulator cannot use this suite.
+
 ### Added
 
 - `kmptoolkit-coroutines` — `AppDispatchers` dispatcher seam and its `DefaultAppDispatchers`
