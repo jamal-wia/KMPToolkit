@@ -80,6 +80,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   SQLite. Ordering uses an `AUTOINCREMENT` sequence rather than a timestamp, so two enqueues in the
   same millisecond keep their order and a rowid freed by a delivered item is never reused beneath a
   waiting one. It passes all 30 checks of `OutboxStoreContract` unmodified on both platforms.
+- `kmptoolkit-location` and `kmptoolkit-location-testing` — platform-agnostic access to the
+  device's geographic position: a one-shot suspend fun for a single fix, a `Flow` for continuous
+  updates, and a suspend check for the device-wide location service toggle, independent of the
+  app's permission. Raw coordinates only — no caching, no permission UI. The Android side is plain
+  `android.location.LocationManager` rather than Play Services' `FusedLocationProviderClient`, the
+  same reasoning that keeps `kmptoolkit-storage` off Tink: no other module here depends on Play
+  Services, and the fix-quality gain was not worth becoming the first one that does. Both
+  platforms cap a single-fix request with a timeout, so a device with no signal cannot suspend
+  `getCurrentLocation` forever.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +
