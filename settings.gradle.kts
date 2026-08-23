@@ -66,6 +66,8 @@ include(":kmptoolkit-outbox-testing")
 include(":kmptoolkit-outbox-sqldelight")
 include(":kmptoolkit-accelerometer")
 include(":kmptoolkit-accelerometer-testing")
+include(":kmptoolkit-location")
+include(":kmptoolkit-location-testing")
 
 include(":kmptoolkit-bom")
 

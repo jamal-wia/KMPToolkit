@@ -94,6 +94,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `kmptoolkit-accelerometer-testing` ships `ScriptedAccelerometer`, which replays a canned sample
   list per collector and counts registrations so a test can prove a collector was actually
   released.
+- `kmptoolkit-location` and `kmptoolkit-location-testing` — platform-agnostic access to the
+  device's geographic position: a one-shot suspend fun for a single fix, a `Flow` for continuous
+  updates, and a suspend check for the device-wide location service toggle, independent of the
+  app's permission. Raw coordinates only — no caching, no permission UI. The Android side is plain
+  `android.location.LocationManager` rather than Play Services' `FusedLocationProviderClient`, the
+  same reasoning that keeps `kmptoolkit-storage` off Tink: no other module here depends on Play
+  Services, and the fix-quality gain was not worth becoming the first one that does. Both
+  platforms cap a single-fix request with a timeout, so a device with no signal cannot suspend
+  `getCurrentLocation` forever.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +
