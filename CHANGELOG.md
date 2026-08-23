@@ -21,6 +21,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-haptics` and `kmptoolkit-haptics-testing` — `HapticFeedback` reporting a typed
   `HapticResult` rather than throwing or failing silently. Vibrations are attributed as
   `USAGE_TOUCH`, so the user's system haptics settings actually govern them.
+- `kmptoolkit-flashlight` and `kmptoolkit-flashlight-testing` — a `Flashlight` interface that
+  blinks the camera torch in one of two `FlashPattern` rhythms, built as a deliberate mirror of
+  `kmptoolkit-haptics`: same best-effort contract, same shipped test fake. Needs no permission on
+  either platform — `CameraManager.setTorchMode` on Android requires none at all, and iOS only
+  gates a capture session behind camera permission, which this module never opens — and every call
+  degrades to a silent no-op on hardware with no flash unit rather than throwing.
 - `kmptoolkit-audio-player` and `kmptoolkit-audio-player-testing` — `AudioPlayer` over a pluggable
   `PlaybackEngine` SPI, so the state machine lives in common code and is testable without a device.
   `MediaPlayer` and `AVPlayer` engines ship with it.
