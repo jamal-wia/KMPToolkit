@@ -62,6 +62,8 @@ include(":kmptoolkit-systembars")
 include(":kmptoolkit-outbox")
 include(":kmptoolkit-outbox-testing")
 include(":kmptoolkit-outbox-sqldelight")
+include(":kmptoolkit-accelerometer")
+include(":kmptoolkit-accelerometer-testing")
 
 include(":kmptoolkit-bom")
 
