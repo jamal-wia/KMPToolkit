@@ -59,6 +59,8 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-location-testing` | `FakeLocationProvider`, for `testImplementation` | `location` | Available | [docs](docs/kmptoolkit-location/06-testing.md) |
 | `kmptoolkit-proximity` | Proximity sensor (`ProximitySensor` + `ProximityRule`) | — | Available | [docs](docs/kmptoolkit-proximity/01-overview.md) |
 | `kmptoolkit-proximity-testing` | `FakeProximitySensor` double, for `testImplementation` | `proximity` | Available | [docs](docs/kmptoolkit-proximity/06-testing.md) |
+| `kmptoolkit-downloader` | Resumable background-download engine (transfer-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-downloader/01-overview.md) |
+| `kmptoolkit-downloader-testing` | `FakeDownloader`, `FakeDownloaderStorage`, for `testImplementation` | `downloader` | Available | [docs](docs/kmptoolkit-downloader/06-testing.md) |
 | `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | `platform` | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow`, m/s² on both platforms | — | Available | [docs](docs/kmptoolkit-accelerometer/01-overview.md) |
