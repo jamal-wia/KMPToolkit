@@ -80,6 +80,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   SQLite. Ordering uses an `AUTOINCREMENT` sequence rather than a timestamp, so two enqueues in the
   same millisecond keep their order and a rowid freed by a delivered item is never reused beneath a
   waiting one. It passes all 30 checks of `OutboxStoreContract` unmodified on both platforms.
+- `kmptoolkit-accelerometer` and `kmptoolkit-accelerometer-testing` — raw accelerometer readings
+  as a cold `Flow<AccelerometerSample>`, registering the platform sensor on collection and
+  releasing it on cancellation rather than on an explicit `close()`. Both platform factories take
+  a `samplingInterval: Duration` (200 ms default on each) instead of a hardcoded rate, and iOS
+  scales Core Motion's readings from g to m/s² so both platforms report the same unit.
+  `kmptoolkit-accelerometer-testing` ships `ScriptedAccelerometer`, which replays a canned sample
+  list per collector and counts registrations so a test can prove a collector was actually
+  released.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +
