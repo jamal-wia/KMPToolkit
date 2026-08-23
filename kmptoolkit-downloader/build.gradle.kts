@@ -40,6 +40,11 @@ kotlin {
             // Flow/StateFlow and createDownloader takes a DownloadDispatchers — both public
             // signatures, so a consumer needs coroutines-core on its compile classpath.
             api(libs.kotlinx.coroutines.core)
+
+            // api, not implementation: createDownloader takes a Logger, so the type is part of
+            // this module's public signature. kmptoolkit-logging itself has no dependencies, so
+            // this adds nothing else to a consumer's graph.
+            api(project(":kmptoolkit-logging"))
         }
         iosMain.dependencies {
             // The bundled SQLite driver, not the platform's own: Kotlin/Native has no SQLite

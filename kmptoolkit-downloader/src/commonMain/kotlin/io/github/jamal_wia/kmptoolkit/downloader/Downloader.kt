@@ -3,6 +3,8 @@ package io.github.jamal_wia.kmptoolkit.downloader
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadNotifier
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
+import io.github.jamal_wia.kmptoolkit.logging.Logger
+import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -161,6 +163,9 @@ public class DownloadFailedException(
  * @param dispatchers the dispatchers the engine's own coroutines run on. Defaults to
  *   [DownloadDispatchers.Default]. A test substitutes a scheduler-backed implementation to run the
  *   engine, including its stall timeout, on virtual time.
+ * @param logger where the engine reports what it did. Defaults to [NoopLogger]. Every enqueue,
+ *   retry, stall, commit and notification hand-off is logged — pass a real logger and you can
+ *   reconstruct the life of any download from the log.
  * @return a [Downloader], ready to use immediately — there is no separate `start()`.
  */
 public fun createDownloader(
@@ -171,6 +176,7 @@ public fun createDownloader(
     notifier: DownloadNotifier = DownloadNotifier.NoOp,
     bundledResourcesPresent: Boolean = false,
     dispatchers: DownloadDispatchers = DownloadDispatchers.Default,
+    logger: Logger = NoopLogger,
 ): Downloader = DefaultDownloaderEngine(
     storage = storage,
     notifier = notifier,
@@ -179,4 +185,5 @@ public fun createDownloader(
     bundledResourcesPresent = bundledResourcesPresent,
     groups = groups,
     dispatchers = dispatchers,
+    logger = logger,
 )
