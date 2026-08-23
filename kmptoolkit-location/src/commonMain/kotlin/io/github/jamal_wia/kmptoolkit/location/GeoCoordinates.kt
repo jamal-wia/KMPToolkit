@@ -9,6 +9,6 @@ package io.github.jamal_wia.kmptoolkit.location
  * without a second thought.
  */
 public data class GeoCoordinates(
-    val latitude: Double,
-    val longitude: Double,
+    public val latitude: Double,
+    public val longitude: Double,
 )

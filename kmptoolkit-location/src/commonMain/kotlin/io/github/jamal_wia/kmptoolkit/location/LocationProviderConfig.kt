@@ -19,9 +19,9 @@ package io.github.jamal_wia.kmptoolkit.location
  *   call honest. Defaults to 30 seconds.
  */
 public data class LocationProviderConfig(
-    val minUpdateDistanceMeters: Float = DEFAULT_MIN_UPDATE_DISTANCE_METERS,
-    val minUpdateIntervalMillis: Long = DEFAULT_MIN_UPDATE_INTERVAL_MILLIS,
-    val singleFixTimeoutMillis: Long = DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS,
+    public val minUpdateDistanceMeters: Float = DEFAULT_MIN_UPDATE_DISTANCE_METERS,
+    public val minUpdateIntervalMillis: Long = DEFAULT_MIN_UPDATE_INTERVAL_MILLIS,
+    public val singleFixTimeoutMillis: Long = DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS,
 ) {
     init {
         require(minUpdateDistanceMeters >= 0f) {
