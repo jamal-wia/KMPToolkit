@@ -53,6 +53,8 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-outbox/01-overview.md) |
 | `kmptoolkit-outbox-testing` | `InMemoryOutboxStore`, `OutboxStoreContract`, `FakeOutbox`, for `testImplementation` | `outbox` | Available | [docs](docs/kmptoolkit-outbox/06-testing.md) |
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed `OutboxStore`, the reference SPI implementation | `outbox` | Available | [docs](docs/kmptoolkit-outbox-sqldelight/01-overview.md) |
+| `kmptoolkit-downloader` | Resumable background-download engine (transfer-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-downloader/01-overview.md) |
+| `kmptoolkit-downloader-testing` | `FakeDownloader`, `FakeDownloaderStorage`, for `testImplementation` | `downloader` | Available | [docs](docs/kmptoolkit-downloader/06-testing.md) |
 | `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | `platform` | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 

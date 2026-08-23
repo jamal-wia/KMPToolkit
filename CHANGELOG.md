@@ -80,6 +80,17 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   SQLite. Ordering uses an `AUTOINCREMENT` sequence rather than a timestamp, so two enqueues in the
   same millisecond keep their order and a rowid freed by a delivered item is never reused beneath a
   waiting one. It passes all 30 checks of `OutboxStoreContract` unmodified on both platforms.
+- `kmptoolkit-downloader` and `kmptoolkit-downloader-testing` — a resumable background-download
+  engine for the assets an app can't ship inside its binary. **The platform transfer itself is an
+  SPI, not a dependency** — the module ships no HTTP client, only storage (Android and iOS) and the
+  retry/commit state machine around it. Nothing about an in-flight download is persisted except a
+  stall counter: "is a transfer running" is answered by the transfer SPI, "is it done" by the file
+  on disk, so a process crash needs no recovery pass — the next `ensureAvailable` call re-derives
+  everything from those two questions and resumes from whatever temp file survived. A resource is
+  also verified, not merely present, before it counts as committed: a `ZipArchive` unit proves
+  itself by an extraction marker, and a `SqliteDatabase` unit can carry its own expected row count
+  for the engine to check the file against. `kmptoolkit-downloader-testing` ships `FakeDownloader`
+  and `FakeDownloaderStorage`.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +

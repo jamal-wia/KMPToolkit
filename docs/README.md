@@ -29,7 +29,9 @@ Each module has its own `docs/<module>/` folder, numbered in learning order:
 | `07-faq.md` *(if present)* | Answers to recurring real questions |
 
 A module with a substantial extension point may add a page for it — `kmptoolkit-outbox` documents
-implementing its storage SPI in [`07-custom-store.md`](kmptoolkit-outbox/07-custom-store.md).
+implementing its storage SPI in [`07-custom-store.md`](kmptoolkit-outbox/07-custom-store.md), and
+`kmptoolkit-downloader` documents implementing its transfer SPI in
+[`07-background-downloader.md`](kmptoolkit-downloader/07-background-downloader.md).
 
 Start with the module's `01-overview.md` — if what you need doesn't fit that module's stated scope,
 check the "What this is not" section for a pointer to the right one instead.
@@ -55,6 +57,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-session` | Session lifecycle and teardown fan-out | [`kmptoolkit-session/`](kmptoolkit-session/01-overview.md) |
 | `kmptoolkit-outbox` | Transactional outbox / offline effect queue | [`kmptoolkit-outbox/`](kmptoolkit-outbox/01-overview.md) |
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed store for the outbox | [`kmptoolkit-outbox-sqldelight/`](kmptoolkit-outbox-sqldelight/01-overview.md) |
+| `kmptoolkit-downloader` | Resumable background-download engine | [`kmptoolkit-downloader/`](kmptoolkit-downloader/01-overview.md) |
 
 Most of these also publish a `-testing` companion artifact holding their test double, documented in
 the same folder's `06-testing.md` rather than a folder of their own. Four do not:
