@@ -4,9 +4,9 @@
 
 A collection of small, independent Kotlin Multiplatform libraries (Android + iOS) — coroutines
 dispatcher seams, haptics, audio record/playback, local scheduling, secure key-value storage,
-platform utilities, permissions, notifications, session management, settings, and a
-database-agnostic transactional outbox. Each module is published and versioned separately: take
-only what you need.
+platform utilities, permissions, notifications, session management, settings, raw accelerometer
+readings, and a database-agnostic transactional outbox. Each module is published and versioned
+separately: take only what you need.
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.jamal-wia/kmptoolkit-bom)](https://central.sonatype.com/namespace/io.github.jamal-wia)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -55,6 +55,8 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed `OutboxStore`, the reference SPI implementation | `outbox` | Available | [docs](docs/kmptoolkit-outbox-sqldelight/01-overview.md) |
 | `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | `platform` | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
+| `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow`, m/s² on both platforms | — | Available | [docs](docs/kmptoolkit-accelerometer/01-overview.md) |
+| `kmptoolkit-accelerometer-testing` | `ScriptedAccelerometer` double, for `testImplementation` | `accelerometer` | Available | [docs](docs/kmptoolkit-accelerometer/06-testing.md) |
 
 See [`docs/README.md`](docs/README.md) for the full documentation index and the recommended reading
 order.
