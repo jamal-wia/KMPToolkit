@@ -45,7 +45,7 @@ import kotlinx.coroutines.flow.flow
  *   collection can see a different script than an earlier one.
  */
 public class ScriptedAccelerometer(
-    public var isAvailable: Boolean = true,
+    public override var isAvailable: Boolean = true,
     public var samples: List<AccelerometerSample> = emptyList(),
 ) : Accelerometer {
 
