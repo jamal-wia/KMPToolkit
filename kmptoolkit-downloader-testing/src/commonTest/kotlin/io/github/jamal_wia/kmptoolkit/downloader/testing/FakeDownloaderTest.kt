@@ -1,7 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.downloader.testing
 
 import io.github.jamal_wia.kmptoolkit.downloader.DownloadError
+import io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit
 import io.github.jamal_wia.kmptoolkit.downloader.GroupDownloadState
+import io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup
 import io.github.jamal_wia.kmptoolkit.downloader.UnitDownloadState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -34,8 +36,8 @@ class FakeDownloaderTest {
         downloader.ensureAvailable(unit)
         downloader.ensureAvailable(group)
 
-        assertEquals(listOf(unit), downloader.ensuredUnits)
-        assertEquals(listOf(group), downloader.ensuredGroups)
+        assertEquals<List<DownloadUnit>>(listOf(unit), downloader.ensuredUnits)
+        assertEquals<List<ResourceGroup>>(listOf(group), downloader.ensuredGroups)
     }
 
     @Test
@@ -45,7 +47,7 @@ class FakeDownloaderTest {
 
         downloader.cancelDownload(unit)
 
-        assertEquals(listOf(unit), downloader.cancelledUnits)
+        assertEquals<List<DownloadUnit>>(listOf(unit), downloader.cancelledUnits)
         assertEquals(listOf("cancelled:${unit.id}"), order)
     }
 
@@ -87,7 +89,7 @@ class FakeDownloaderTest {
         storage.deleteResource(unit)
 
         assertFalse(storage.isResourceAvailable(unit))
-        assertEquals(listOf(unit), storage.deletedResources)
+        assertEquals<List<DownloadUnit>>(listOf(unit), storage.deletedResources)
     }
 
     @Test
