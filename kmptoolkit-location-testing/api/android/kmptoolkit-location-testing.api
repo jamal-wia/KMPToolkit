@@ -1,0 +1,14 @@
+public final class io/github/jamal_wia/kmptoolkit/location/testing/FakeLocationProvider : io/github/jamal_wia/kmptoolkit/location/LocationProvider {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;Z)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun emit (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;)V
+	public fun getCurrentLocation (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getLocationEnabled ()Z
+	public final fun getOpenSettingsCount ()I
+	public fun isLocationEnabled (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun observeLocation ()Lkotlinx/coroutines/flow/Flow;
+	public fun openLocationSettings ()V
+	public final fun setLocationEnabled (Z)V
+}
+

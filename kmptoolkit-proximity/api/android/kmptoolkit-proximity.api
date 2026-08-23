@@ -1,0 +1,15 @@
+public final class io/github/jamal_wia/kmptoolkit/proximity/ProximityRule {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/proximity/ProximityRule;
+	public static final field NEAR_CM F
+	public final fun isNear (FF)Z
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/proximity/ProximitySensor {
+	public abstract fun isAvailable ()Z
+	public abstract fun observe ()Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/proximity/ProximitySensor_androidKt {
+	public static final fun createProximitySensor (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/proximity/ProximitySensor;
+}
+

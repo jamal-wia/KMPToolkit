@@ -1,0 +1,23 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-proximity>
+abstract interface io.github.jamal_wia.kmptoolkit.proximity/ProximitySensor { // io.github.jamal_wia.kmptoolkit.proximity/ProximitySensor|null[0]
+    abstract val isAvailable // io.github.jamal_wia.kmptoolkit.proximity/ProximitySensor.isAvailable|{}isAvailable[0]
+        abstract fun <get-isAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.proximity/ProximitySensor.isAvailable.<get-isAvailable>|<get-isAvailable>(){}[0]
+
+    abstract fun observe(): kotlinx.coroutines.flow/Flow<kotlin/Boolean> // io.github.jamal_wia.kmptoolkit.proximity/ProximitySensor.observe|observe(){}[0]
+}
+
+final object io.github.jamal_wia.kmptoolkit.proximity/ProximityRule { // io.github.jamal_wia.kmptoolkit.proximity/ProximityRule|null[0]
+    final const val NEAR_CM // io.github.jamal_wia.kmptoolkit.proximity/ProximityRule.NEAR_CM|{}NEAR_CM[0]
+        final fun <get-NEAR_CM>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.proximity/ProximityRule.NEAR_CM.<get-NEAR_CM>|<get-NEAR_CM>(){}[0]
+
+    final fun isNear(kotlin/Float, kotlin/Float): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.proximity/ProximityRule.isNear|isNear(kotlin.Float;kotlin.Float){}[0]
+}
+
+final fun io.github.jamal_wia.kmptoolkit.proximity/createProximitySensor(): io.github.jamal_wia.kmptoolkit.proximity/ProximitySensor // io.github.jamal_wia.kmptoolkit.proximity/createProximitySensor|createProximitySensor(){}[0]

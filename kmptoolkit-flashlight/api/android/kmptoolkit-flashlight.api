@@ -1,0 +1,24 @@
+public final class io/github/jamal_wia/kmptoolkit/flashlight/FlashPattern : java/lang/Enum {
+	public static final field Attention Lio/github/jamal_wia/kmptoolkit/flashlight/FlashPattern;
+	public static final field Blink Lio/github/jamal_wia/kmptoolkit/flashlight/FlashPattern;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getOff-UwyO8pc ()J
+	public final fun getOn-UwyO8pc ()J
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/flashlight/FlashPattern;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/flashlight/FlashPattern;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/flashlight/Flashlight {
+	public abstract fun isAvailable ()Z
+	public abstract fun start (Lio/github/jamal_wia/kmptoolkit/flashlight/FlashPattern;)V
+	public abstract fun stop ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/flashlight/FlashlightKt {
+	public static final fun noOpFlashlight ()Lio/github/jamal_wia/kmptoolkit/flashlight/Flashlight;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/flashlight/Flashlight_androidKt {
+	public static final fun createFlashlight (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/flashlight/Flashlight;
+}
+

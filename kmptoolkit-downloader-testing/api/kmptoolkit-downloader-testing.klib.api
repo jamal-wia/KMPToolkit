@@ -1,0 +1,153 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-downloader-testing>
+final class io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader : io.github.jamal_wia.kmptoolkit.downloader/Downloader { // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader|null[0]
+    constructor <init>(kotlin.collections/Set<kotlin/String> = ..., kotlin/Function1<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit, kotlin/Unit> = ...) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.<init>|<init>(kotlin.collections.Set<kotlin.String>;kotlin.Function1<io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit,kotlin.Unit>){}[0]
+
+    final val availableGroupKeys // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.availableGroupKeys|{}availableGroupKeys[0]
+        final fun <get-availableGroupKeys>(): kotlin.collections/MutableSet<kotlin/String> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.availableGroupKeys.<get-availableGroupKeys>|<get-availableGroupKeys>(){}[0]
+    final val availableUnitIds // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.availableUnitIds|{}availableUnitIds[0]
+        final fun <get-availableUnitIds>(): kotlin.collections/MutableSet<kotlin/String> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.availableUnitIds.<get-availableUnitIds>|<get-availableUnitIds>(){}[0]
+    final val cancelledGroups // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.cancelledGroups|{}cancelledGroups[0]
+        final fun <get-cancelledGroups>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.cancelledGroups.<get-cancelledGroups>|<get-cancelledGroups>(){}[0]
+    final val cancelledUnits // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.cancelledUnits|{}cancelledUnits[0]
+        final fun <get-cancelledUnits>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.cancelledUnits.<get-cancelledUnits>|<get-cancelledUnits>(){}[0]
+    final val ensuredGroups // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.ensuredGroups|{}ensuredGroups[0]
+        final fun <get-ensuredGroups>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.ensuredGroups.<get-ensuredGroups>|<get-ensuredGroups>(){}[0]
+    final val ensuredUnits // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.ensuredUnits|{}ensuredUnits[0]
+        final fun <get-ensuredUnits>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.ensuredUnits.<get-ensuredUnits>|<get-ensuredUnits>(){}[0]
+
+    final var cancelAllCalls // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.cancelAllCalls|{}cancelAllCalls[0]
+        final fun <get-cancelAllCalls>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.cancelAllCalls.<get-cancelAllCalls>|<get-cancelAllCalls>(){}[0]
+    final var hasActiveUnitDownloadAnswer // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.hasActiveUnitDownloadAnswer|{}hasActiveUnitDownloadAnswer[0]
+        final fun <get-hasActiveUnitDownloadAnswer>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.hasActiveUnitDownloadAnswer.<get-hasActiveUnitDownloadAnswer>|<get-hasActiveUnitDownloadAnswer>(){}[0]
+        final fun <set-hasActiveUnitDownloadAnswer>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.hasActiveUnitDownloadAnswer.<set-hasActiveUnitDownloadAnswer>|<set-hasActiveUnitDownloadAnswer>(kotlin.Boolean){}[0]
+
+    final fun cancelDownload(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.cancelDownload|cancelDownload(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun cancelDownload(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.cancelDownload|cancelDownload(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup){}[0]
+    final fun downloadState(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.downloader/GroupDownloadState> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.downloadState|downloadState(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup){}[0]
+    final fun emit(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit, io.github.jamal_wia.kmptoolkit.downloader/UnitDownloadState) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.emit|emit(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit;io.github.jamal_wia.kmptoolkit.downloader.UnitDownloadState){}[0]
+    final fun isAvailable(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.isAvailable|isAvailable(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun isAvailable(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.isAvailable|isAvailable(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup){}[0]
+    final fun pathOf(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.pathOf|pathOf(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun retryDownload(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.retryDownload|retryDownload(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup){}[0]
+    final fun setGroupState(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup, io.github.jamal_wia.kmptoolkit.downloader/GroupDownloadState) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.setGroupState|setGroupState(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup;io.github.jamal_wia.kmptoolkit.downloader.GroupDownloadState){}[0]
+    final fun unitDownloadStateFlow(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.downloader/UnitDownloadState> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.unitDownloadStateFlow|unitDownloadStateFlow(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final suspend fun cancelAllDownloads() // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.cancelAllDownloads|cancelAllDownloads(){}[0]
+    final suspend fun ensureAvailable(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.ensureAvailable|ensureAvailable(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final suspend fun ensureAvailable(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.ensureAvailable|ensureAvailable(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup){}[0]
+    final suspend fun hasActiveUnitDownload(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloader.hasActiveUnitDownload|hasActiveUnitDownload(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage : io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage { // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage|null[0]
+    constructor <init>(kotlin.collections/Set<kotlin/String> = ..., kotlin/Long = ..., kotlin/Function1<kotlin/String, kotlin/Unit> = ...) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.<init>|<init>(kotlin.collections.Set<kotlin.String>;kotlin.Long;kotlin.Function1<kotlin.String,kotlin.Unit>){}[0]
+
+    final val availableIds // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.availableIds|{}availableIds[0]
+        final fun <get-availableIds>(): kotlin.collections/MutableSet<kotlin/String> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.availableIds.<get-availableIds>|<get-availableIds>(){}[0]
+    final val deletedResources // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedResources|{}deletedResources[0]
+        final fun <get-deletedResources>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedResources.<get-deletedResources>|<get-deletedResources>(){}[0]
+    final val deletedTempFiles // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedTempFiles|{}deletedTempFiles[0]
+        final fun <get-deletedTempFiles>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedTempFiles.<get-deletedTempFiles>|<get-deletedTempFiles>(){}[0]
+
+    final fun deleteResource(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deleteResource|deleteResource(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun deleteTempFile(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deleteTempFile|deleteTempFile(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun getResourcePath(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.getResourcePath|getResourcePath(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun getResourceSize(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Long // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.getResourceSize|getResourceSize(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun getTempFilePath(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.getTempFilePath|getTempFilePath(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun getTempFileSize(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Long // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.getTempFileSize|getTempFileSize(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun isResourceAvailable(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.isResourceAvailable|isResourceAvailable(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun isTempFileAvailable(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.isTempFileAvailable|isTempFileAvailable(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final suspend fun commitResource(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.commitResource|commitResource(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.downloader.testing/InMemoryStateStore : io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadStateStore { // io.github.jamal_wia.kmptoolkit.downloader.testing/InMemoryStateStore|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.downloader.testing/InMemoryStateStore.<init>|<init>(){}[0]
+
+    final fun readInt(kotlin/String, kotlin/Int): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader.testing/InMemoryStateStore.readInt|readInt(kotlin.String;kotlin.Int){}[0]
+    final fun remove(kotlin/String) // io.github.jamal_wia.kmptoolkit.downloader.testing/InMemoryStateStore.remove|remove(kotlin.String){}[0]
+    final fun writeInt(kotlin/String, kotlin/Int) // io.github.jamal_wia.kmptoolkit.downloader.testing/InMemoryStateStore.writeInt|writeInt(kotlin.String;kotlin.Int){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier : io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadNotifier { // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.<init>|<init>(){}[0]
+
+    final val calls // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.calls|{}calls[0]
+        final fun <get-calls>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call> // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.calls.<get-calls>|<get-calls>(){}[0]
+
+    final fun remove(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup) // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.remove|remove(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup){}[0]
+    final suspend fun showCompleted(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup) // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.showCompleted|showCompleted(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup){}[0]
+    final suspend fun showError(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup, io.github.jamal_wia.kmptoolkit.downloader/DownloadError) // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.showError|showError(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup;io.github.jamal_wia.kmptoolkit.downloader.DownloadError){}[0]
+    final suspend fun showProgress(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup, kotlin/Float) // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.showProgress|showProgress(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup;kotlin.Float){}[0]
+
+    final enum class Kind : kotlin/Enum<io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind> { // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind|null[0]
+        enum entry COMPLETED // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind.COMPLETED|null[0]
+        enum entry ERROR // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind.ERROR|null[0]
+        enum entry PROGRESS // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind.PROGRESS|null[0]
+        enum entry REMOVE // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind.REMOVE|null[0]
+
+        final val entries // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind.entries|#static{}entries[0]
+            final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind> // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind.entries.<get-entries>|<get-entries>#static(){}[0]
+
+        final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind.valueOf|valueOf#static(kotlin.String){}[0]
+        final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind> // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind.values|values#static(){}[0]
+    }
+
+    final class Call { // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind, kotlin/String, kotlin/Float?) // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.<init>|<init>(io.github.jamal_wia.kmptoolkit.downloader.testing.RecordingNotifier.Kind;kotlin.String;kotlin.Float?){}[0]
+
+        final val groupKey // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.groupKey|{}groupKey[0]
+            final fun <get-groupKey>(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.groupKey.<get-groupKey>|<get-groupKey>(){}[0]
+        final val kind // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.kind|{}kind[0]
+            final fun <get-kind>(): io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.kind.<get-kind>|<get-kind>(){}[0]
+        final val progress // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.progress|{}progress[0]
+            final fun <get-progress>(): kotlin/Float? // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.progress.<get-progress>|<get-progress>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.component1|component1(){}[0]
+        final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.component2|component2(){}[0]
+        final fun component3(): kotlin/Float? // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.component3|component3(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Kind = ..., kotlin/String = ..., kotlin/Float? = ...): io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.copy|copy(io.github.jamal_wia.kmptoolkit.downloader.testing.RecordingNotifier.Kind;kotlin.String;kotlin.Float?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/RecordingNotifier.Call.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.downloader.testing/TestDownloadDispatchers : io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadDispatchers { // io.github.jamal_wia.kmptoolkit.downloader.testing/TestDownloadDispatchers|null[0]
+    constructor <init>(kotlinx.coroutines.test/TestScope) // io.github.jamal_wia.kmptoolkit.downloader.testing/TestDownloadDispatchers.<init>|<init>(kotlinx.coroutines.test.TestScope){}[0]
+
+    final val default // io.github.jamal_wia.kmptoolkit.downloader.testing/TestDownloadDispatchers.default|{}default[0]
+        final fun <get-default>(): kotlinx.coroutines/CoroutineDispatcher // io.github.jamal_wia.kmptoolkit.downloader.testing/TestDownloadDispatchers.default.<get-default>|<get-default>(){}[0]
+    final val io // io.github.jamal_wia.kmptoolkit.downloader.testing/TestDownloadDispatchers.io|{}io[0]
+        final fun <get-io>(): kotlinx.coroutines/CoroutineDispatcher // io.github.jamal_wia.kmptoolkit.downloader.testing/TestDownloadDispatchers.io.<get-io>|<get-io>(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.downloader.testing/TestGroup : io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup { // io.github.jamal_wia.kmptoolkit.downloader.testing/TestGroup|null[0]
+    constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.downloader.testing/TestGroup.<init>|<init>(kotlin.String){}[0]
+
+    final val key // io.github.jamal_wia.kmptoolkit.downloader.testing/TestGroup.key|{}key[0]
+        final fun <get-key>(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/TestGroup.key.<get-key>|<get-key>(){}[0]
+
+    final var units // io.github.jamal_wia.kmptoolkit.downloader.testing/TestGroup.units|{}units[0]
+        final fun <get-units>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit> // io.github.jamal_wia.kmptoolkit.downloader.testing/TestGroup.units.<get-units>|<get-units>(){}[0]
+        final fun <set-units>(kotlin.collections/List<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit>) // io.github.jamal_wia.kmptoolkit.downloader.testing/TestGroup.units.<set-units>|<set-units>(kotlin.collections.List<io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit>){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit : io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit { // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit|null[0]
+    constructor <init>(kotlin/String, io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup) // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.<init>|<init>(kotlin.String;io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup){}[0]
+
+    final val apiPath // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.apiPath|{}apiPath[0]
+        final fun <get-apiPath>(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.apiPath.<get-apiPath>|<get-apiPath>(){}[0]
+    final val group // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.group|{}group[0]
+        final fun <get-group>(): io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.group.<get-group>|<get-group>(){}[0]
+    final val id // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.id|{}id[0]
+        final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.id.<get-id>|<get-id>(){}[0]
+    final val relativePath // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.relativePath|{}relativePath[0]
+        final fun <get-relativePath>(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.relativePath.<get-relativePath>|<get-relativePath>(){}[0]
+
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/TestUnit.toString|toString(){}[0]
+}

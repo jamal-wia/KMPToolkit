@@ -1,0 +1,113 @@
+public final class io/github/jamal_wia/kmptoolkit/downloader/testing/FakeDownloader : io/github/jamal_wia/kmptoolkit/downloader/Downloader {
+	public fun <init> ()V
+	public fun <init> (Ljava/util/Set;Lkotlin/jvm/functions/Function1;)V
+	public synthetic fun <init> (Ljava/util/Set;Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun cancelAllDownloads (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun cancelDownload (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public fun cancelDownload (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)V
+	public fun downloadState (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)Lkotlinx/coroutines/flow/StateFlow;
+	public final fun emit (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState;)V
+	public fun ensureAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun ensureAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getAvailableGroupKeys ()Ljava/util/Set;
+	public final fun getAvailableUnitIds ()Ljava/util/Set;
+	public final fun getCancelAllCalls ()I
+	public final fun getCancelledGroups ()Ljava/util/List;
+	public final fun getCancelledUnits ()Ljava/util/List;
+	public final fun getEnsuredGroups ()Ljava/util/List;
+	public final fun getEnsuredUnits ()Ljava/util/List;
+	public final fun getHasActiveUnitDownloadAnswer ()Z
+	public fun hasActiveUnitDownload (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun isAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+	public fun isAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)Z
+	public fun pathOf (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
+	public fun retryDownload (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)V
+	public final fun setGroupState (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;Lio/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState;)V
+	public final fun setHasActiveUnitDownloadAnswer (Z)V
+	public fun unitDownloadStateFlow (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/testing/FakeDownloaderStorage : io/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage {
+	public fun <init> ()V
+	public fun <init> (Ljava/util/Set;JLkotlin/jvm/functions/Function1;)V
+	public synthetic fun <init> (Ljava/util/Set;JLkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun commitResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public fun deleteTempFile (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public final fun getAvailableIds ()Ljava/util/Set;
+	public final fun getDeletedResources ()Ljava/util/List;
+	public final fun getDeletedTempFiles ()Ljava/util/List;
+	public fun getResourcePath (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
+	public fun getResourceSize (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)J
+	public fun getTempFilePath (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
+	public fun getTempFileSize (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)J
+	public fun isResourceAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+	public fun isTempFileAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/testing/InMemoryStateStore : io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadStateStore {
+	public fun <init> ()V
+	public fun readInt (Ljava/lang/String;I)I
+	public fun remove (Ljava/lang/String;)V
+	public fun writeInt (Ljava/lang/String;I)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier : io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier {
+	public fun <init> ()V
+	public final fun getCalls ()Ljava/util/List;
+	public fun remove (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)V
+	public fun showCompleted (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun showError (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun showProgress (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;FLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Call {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;Ljava/lang/String;Ljava/lang/Float;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/Float;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;Ljava/lang/String;Ljava/lang/Float;)Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Call;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Call;Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;Ljava/lang/String;Ljava/lang/Float;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Call;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getGroupKey ()Ljava/lang/String;
+	public final fun getKind ()Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;
+	public final fun getProgress ()Ljava/lang/Float;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind : java/lang/Enum {
+	public static final field COMPLETED Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;
+	public static final field ERROR Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;
+	public static final field PROGRESS Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;
+	public static final field REMOVE Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/downloader/testing/RecordingNotifier$Kind;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/testing/TestDownloadDispatchers : io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers {
+	public fun <init> (Lkotlinx/coroutines/test/TestScope;)V
+	public fun getDefault ()Lkotlinx/coroutines/CoroutineDispatcher;
+	public fun getIo ()Lkotlinx/coroutines/CoroutineDispatcher;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/testing/TestGroup : io/github/jamal_wia/kmptoolkit/downloader/ResourceGroup {
+	public fun <init> (Ljava/lang/String;)V
+	public fun getKey ()Ljava/lang/String;
+	public fun getUnits ()Ljava/util/List;
+	public fun setUnits (Ljava/util/List;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/testing/TestUnit : io/github/jamal_wia/kmptoolkit/downloader/DownloadUnit {
+	public fun <init> (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)V
+	public fun getApiPath ()Ljava/lang/String;
+	public fun getFormat ()Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat;
+	public fun getGroup ()Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;
+	public fun getId ()Ljava/lang/String;
+	public fun getRelativePath ()Ljava/lang/String;
+	public fun getTempExtension ()Ljava/lang/String;
+	public fun isDirectoryResource ()Z
+	public fun toString ()Ljava/lang/String;
+}
+

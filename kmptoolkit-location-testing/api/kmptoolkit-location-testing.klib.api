@@ -1,0 +1,23 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-location-testing>
+final class io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider : io.github.jamal_wia.kmptoolkit.location/LocationProvider { // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.location/GeoCoordinates? = ..., kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.<init>|<init>(io.github.jamal_wia.kmptoolkit.location.GeoCoordinates?;kotlin.Boolean){}[0]
+
+    final var locationEnabled // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.locationEnabled|{}locationEnabled[0]
+        final fun <get-locationEnabled>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.locationEnabled.<get-locationEnabled>|<get-locationEnabled>(){}[0]
+        final fun <set-locationEnabled>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.locationEnabled.<set-locationEnabled>|<set-locationEnabled>(kotlin.Boolean){}[0]
+    final var openSettingsCount // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.openSettingsCount|{}openSettingsCount[0]
+        final fun <get-openSettingsCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.openSettingsCount.<get-openSettingsCount>|<get-openSettingsCount>(){}[0]
+
+    final fun emit(io.github.jamal_wia.kmptoolkit.location/GeoCoordinates?) // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.emit|emit(io.github.jamal_wia.kmptoolkit.location.GeoCoordinates?){}[0]
+    final fun observeLocation(): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.location/GeoCoordinates?> // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.observeLocation|observeLocation(){}[0]
+    final fun openLocationSettings() // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.openLocationSettings|openLocationSettings(){}[0]
+    final suspend fun getCurrentLocation(): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates? // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.getCurrentLocation|getCurrentLocation(){}[0]
+    final suspend fun isLocationEnabled(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location.testing/FakeLocationProvider.isLocationEnabled|isLocationEnabled(){}[0]
+}

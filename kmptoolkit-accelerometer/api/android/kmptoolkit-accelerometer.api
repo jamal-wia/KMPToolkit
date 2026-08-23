@@ -1,0 +1,25 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/accelerometer/Accelerometer {
+	public abstract fun isAvailable ()Z
+	public abstract fun observe ()Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/accelerometer/AccelerometerSample {
+	public fun <init> (FFF)V
+	public final fun component1 ()F
+	public final fun component2 ()F
+	public final fun component3 ()F
+	public final fun copy (FFF)Lio/github/jamal_wia/kmptoolkit/accelerometer/AccelerometerSample;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/accelerometer/AccelerometerSample;FFFILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/accelerometer/AccelerometerSample;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getX ()F
+	public final fun getY ()F
+	public final fun getZ ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/accelerometer/Accelerometer_androidKt {
+	public static final fun createAccelerometer-HG0u8IE (Landroid/content/Context;J)Lio/github/jamal_wia/kmptoolkit/accelerometer/Accelerometer;
+	public static synthetic fun createAccelerometer-HG0u8IE$default (Landroid/content/Context;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/accelerometer/Accelerometer;
+}
+

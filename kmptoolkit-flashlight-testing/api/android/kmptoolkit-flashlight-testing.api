@@ -1,0 +1,13 @@
+public final class io/github/jamal_wia/kmptoolkit/flashlight/testing/RecordingFlashlight : io/github/jamal_wia/kmptoolkit/flashlight/Flashlight {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun clear ()V
+	public final fun getEvents ()Ljava/util/List;
+	public fun isAvailable ()Z
+	public final fun isBlinking ()Z
+	public fun setAvailable (Z)V
+	public fun start (Lio/github/jamal_wia/kmptoolkit/flashlight/FlashPattern;)V
+	public fun stop ()V
+}
+

@@ -1,0 +1,33 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-flashlight>
+final enum class io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern : kotlin/Enum<io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern> { // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern|null[0]
+    enum entry Attention // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.Attention|null[0]
+    enum entry Blink // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.Blink|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern> // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.entries.<get-entries>|<get-entries>#static(){}[0]
+    final val off // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.off|{}off[0]
+        final fun <get-off>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.off.<get-off>|<get-off>(){}[0]
+    final val on // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.on|{}on[0]
+        final fun <get-on>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.on.<get-on>|<get-on>(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern> // io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.flashlight/Flashlight { // io.github.jamal_wia.kmptoolkit.flashlight/Flashlight|null[0]
+    abstract val isAvailable // io.github.jamal_wia.kmptoolkit.flashlight/Flashlight.isAvailable|{}isAvailable[0]
+        abstract fun <get-isAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.flashlight/Flashlight.isAvailable.<get-isAvailable>|<get-isAvailable>(){}[0]
+
+    abstract fun start(io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern) // io.github.jamal_wia.kmptoolkit.flashlight/Flashlight.start|start(io.github.jamal_wia.kmptoolkit.flashlight.FlashPattern){}[0]
+    abstract fun stop() // io.github.jamal_wia.kmptoolkit.flashlight/Flashlight.stop|stop(){}[0]
+}
+
+final fun io.github.jamal_wia.kmptoolkit.flashlight/createFlashlight(): io.github.jamal_wia.kmptoolkit.flashlight/Flashlight // io.github.jamal_wia.kmptoolkit.flashlight/createFlashlight|createFlashlight(){}[0]
+final fun io.github.jamal_wia.kmptoolkit.flashlight/noOpFlashlight(): io.github.jamal_wia.kmptoolkit.flashlight/Flashlight // io.github.jamal_wia.kmptoolkit.flashlight/noOpFlashlight|noOpFlashlight(){}[0]

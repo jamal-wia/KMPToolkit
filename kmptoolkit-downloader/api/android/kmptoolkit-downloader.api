@@ -1,0 +1,387 @@
+public abstract class io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent {
+	public abstract fun getUnit ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Cancelled : io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Terminal {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Cancelled;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Cancelled;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Cancelled;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getUnit ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Error : io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Terminal {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Ljava/lang/String;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Error;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Error;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Error;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public fun getUnit ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$FileReady : io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Terminal {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$FileReady;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$FileReady;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$FileReady;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getUnit ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Progress : io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;F)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+	public final fun component2 ()F
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;F)Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Progress;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Progress;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;FILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Progress;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFraction ()F
+	public fun getUnit ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent$Terminal : io/github/jamal_wia/kmptoolkit/downloader/BackgroundDownloadEvent {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/BackgroundResourceDownloader {
+	public abstract fun cancelDownload (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public abstract fun enqueueDownload (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public abstract fun isDownloadInProgress (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+	public abstract fun observeProgress (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadCancelledException : java/lang/RuntimeException {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getGroup ()Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;
+	public final fun getUnit ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+}
+
+public abstract class io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadError$NoConnection : io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$NoConnection;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadError$NotFound : io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$NotFound;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadError$Server : io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
+	public fun <init> (Ljava/lang/Integer;)V
+	public final fun component1 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/Integer;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Server;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Server;Ljava/lang/Integer;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Server;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getStatusCode ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadError$Storage : io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Storage;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Storage;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Storage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadError$Timeout : io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Timeout;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadError$Unauthorized : io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Unauthorized;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadError$Unknown : io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Unknown;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Unknown;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Unknown;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadFailedException : java/lang/RuntimeException {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getError ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;
+	public final fun getUnit ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/DownloadUnit {
+	public abstract fun getApiPath ()Ljava/lang/String;
+	public fun getFormat ()Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat;
+	public abstract fun getGroup ()Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;
+	public abstract fun getId ()Ljava/lang/String;
+	public abstract fun getRelativePath ()Ljava/lang/String;
+	public fun getTempExtension ()Ljava/lang/String;
+	public fun isDirectoryResource ()Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadUnit$DefaultImpls {
+	public static fun getFormat (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat;
+	public static fun getTempExtension (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
+	public static fun isDirectoryResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadUnitKt {
+	public static final fun archiveMarker (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/Downloader {
+	public abstract fun cancelAllDownloads (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun cancelDownload (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public abstract fun cancelDownload (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)V
+	public abstract fun downloadState (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun ensureAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun ensureAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun hasActiveUnitDownload (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun isAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+	public abstract fun isAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)Z
+	public abstract fun pathOf (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
+	public abstract fun retryDownload (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)V
+	public abstract fun unitDownloadStateFlow (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderKt {
+	public static final fun createDownloader (Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage;Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundResourceDownloader;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadStateStore;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier;ZLio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/downloader/Downloader;
+	public static synthetic fun createDownloader$default (Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage;Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundResourceDownloader;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadStateStore;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier;ZLio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/Downloader;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderRegistry {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderRegistry;
+	public final fun await-VtjQ1oo (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun await-VtjQ1oo$default (Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderRegistry;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun clear ()V
+	public final fun getCurrent ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun register (Lio/github/jamal_wia/kmptoolkit/downloader/Downloader;)V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage$Companion;
+	public static final field WRITE_BUFFER_SIZE I
+	public abstract fun commitResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun deleteResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public abstract fun deleteTempFile (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public abstract fun getResourcePath (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
+	public abstract fun getResourceSize (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)J
+	public abstract fun getTempFilePath (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
+	public abstract fun getTempFileSize (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)J
+	public abstract fun isResourceAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+	public abstract fun isTempFileAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage$Companion {
+	public static final field WRITE_BUFFER_SIZE I
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderStorageConfig {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorageConfig;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorageConfig;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorageConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBaseDirectoryName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderStorageFactory_androidKt {
+	public static final fun createDownloaderStorage (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorageConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage;
+	public static synthetic fun createDownloaderStorage$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorageConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage;
+}
+
+public abstract class io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Completed : io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Completed;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Downloading : io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState {
+	public fun <init> (F)V
+	public final fun component1 ()F
+	public final fun copy (F)Lio/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Downloading;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Downloading;FILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Downloading;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getProgress ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Error : io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;)Lio/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Error;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Error;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Error;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getError ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Idle : io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$Idle;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/ResourceFormat {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$Opaque : io/github/jamal_wia/kmptoolkit/downloader/ResourceFormat {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$Opaque;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$SqliteDatabase : io/github/jamal_wia/kmptoolkit/downloader/ResourceFormat {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$SqliteDatabase;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$SqliteDatabase;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$SqliteDatabase;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDeclaredRowCountMetaKey ()Ljava/lang/String;
+	public final fun getRowCountTable ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$ZipArchive : io/github/jamal_wia/kmptoolkit/downloader/ResourceFormat {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$ZipArchive;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$ZipArchive;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$ZipArchive;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAvailabilityMarker ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/ResourceGroup {
+	public abstract fun getKey ()Ljava/lang/String;
+	public abstract fun getUnits ()Ljava/util/List;
+}
+
+public abstract class io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Available : io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Available;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Completed : io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Completed;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Downloading : io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState {
+	public fun <init> (F)V
+	public final fun component1 ()F
+	public final fun copy (F)Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Downloading;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Downloading;FILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Downloading;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getProgress ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Error : io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;)Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Error;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Error;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Error;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getError ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Idle : io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState$Idle;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers$Companion;
+	public abstract fun getDefault ()Lkotlinx/coroutines/CoroutineDispatcher;
+	public abstract fun getIo ()Lkotlinx/coroutines/CoroutineDispatcher;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers$Companion {
+	public final fun getDefault ()Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier$Companion;
+	public abstract fun remove (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;)V
+	public abstract fun showCompleted (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun showError (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun showProgress (Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;FLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier$Companion {
+	public final fun getNoOp ()Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadStateStore {
+	public abstract fun readInt (Ljava/lang/String;I)I
+	public abstract fun remove (Ljava/lang/String;)V
+	public abstract fun writeInt (Ljava/lang/String;I)V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadUrlResolver {
+	public abstract fun resolve (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+

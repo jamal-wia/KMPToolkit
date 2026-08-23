@@ -1,0 +1,20 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-proximity-testing>
+final class io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor : io.github.jamal_wia.kmptoolkit.proximity/ProximitySensor { // io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor|null[0]
+    constructor <init>(kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor.<init>|<init>(kotlin.Boolean){}[0]
+
+    final var emitCount // io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor.emitCount|{}emitCount[0]
+        final fun <get-emitCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor.emitCount.<get-emitCount>|<get-emitCount>(){}[0]
+    final var isAvailable // io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor.isAvailable|{}isAvailable[0]
+        final fun <get-isAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor.isAvailable.<get-isAvailable>|<get-isAvailable>(){}[0]
+        final fun <set-isAvailable>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor.isAvailable.<set-isAvailable>|<set-isAvailable>(kotlin.Boolean){}[0]
+
+    final fun emit(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor.emit|emit(kotlin.Boolean){}[0]
+    final fun observe(): kotlinx.coroutines.flow/Flow<kotlin/Boolean> // io.github.jamal_wia.kmptoolkit.proximity.testing/FakeProximitySensor.observe|observe(){}[0]
+}

@@ -1,0 +1,60 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-location>
+abstract interface io.github.jamal_wia.kmptoolkit.location/LocationProvider { // io.github.jamal_wia.kmptoolkit.location/LocationProvider|null[0]
+    abstract fun observeLocation(): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.location/GeoCoordinates?> // io.github.jamal_wia.kmptoolkit.location/LocationProvider.observeLocation|observeLocation(){}[0]
+    abstract fun openLocationSettings() // io.github.jamal_wia.kmptoolkit.location/LocationProvider.openLocationSettings|openLocationSettings(){}[0]
+    abstract suspend fun getCurrentLocation(): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates? // io.github.jamal_wia.kmptoolkit.location/LocationProvider.getCurrentLocation|getCurrentLocation(){}[0]
+    abstract suspend fun isLocationEnabled(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/LocationProvider.isLocationEnabled|isLocationEnabled(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.location/GeoCoordinates { // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates|null[0]
+    constructor <init>(kotlin/Double, kotlin/Double) // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.<init>|<init>(kotlin.Double;kotlin.Double){}[0]
+
+    final val latitude // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.latitude|{}latitude[0]
+        final fun <get-latitude>(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.latitude.<get-latitude>|<get-latitude>(){}[0]
+    final val longitude // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.longitude|{}longitude[0]
+        final fun <get-longitude>(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.longitude.<get-longitude>|<get-longitude>(){}[0]
+
+    final fun component1(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.component1|component1(){}[0]
+    final fun component2(): kotlin/Double // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.component2|component2(){}[0]
+    final fun copy(kotlin/Double = ..., kotlin/Double = ...): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.copy|copy(kotlin.Double;kotlin.Double){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig { // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig|null[0]
+    constructor <init>(kotlin/Float = ..., kotlin/Long = ..., kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.<init>|<init>(kotlin.Float;kotlin.Long;kotlin.Long){}[0]
+
+    final val minUpdateDistanceMeters // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.minUpdateDistanceMeters|{}minUpdateDistanceMeters[0]
+        final fun <get-minUpdateDistanceMeters>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.minUpdateDistanceMeters.<get-minUpdateDistanceMeters>|<get-minUpdateDistanceMeters>(){}[0]
+    final val minUpdateIntervalMillis // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.minUpdateIntervalMillis|{}minUpdateIntervalMillis[0]
+        final fun <get-minUpdateIntervalMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.minUpdateIntervalMillis.<get-minUpdateIntervalMillis>|<get-minUpdateIntervalMillis>(){}[0]
+    final val singleFixTimeoutMillis // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.singleFixTimeoutMillis|{}singleFixTimeoutMillis[0]
+        final fun <get-singleFixTimeoutMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.singleFixTimeoutMillis.<get-singleFixTimeoutMillis>|<get-singleFixTimeoutMillis>(){}[0]
+
+    final fun component1(): kotlin/Float // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.component1|component1(){}[0]
+    final fun component2(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.component2|component2(){}[0]
+    final fun component3(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.component3|component3(){}[0]
+    final fun copy(kotlin/Float = ..., kotlin/Long = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.copy|copy(kotlin.Float;kotlin.Long;kotlin.Long){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion|null[0]
+        final const val DEFAULT_MIN_UPDATE_DISTANCE_METERS // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_MIN_UPDATE_DISTANCE_METERS|{}DEFAULT_MIN_UPDATE_DISTANCE_METERS[0]
+            final fun <get-DEFAULT_MIN_UPDATE_DISTANCE_METERS>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_MIN_UPDATE_DISTANCE_METERS.<get-DEFAULT_MIN_UPDATE_DISTANCE_METERS>|<get-DEFAULT_MIN_UPDATE_DISTANCE_METERS>(){}[0]
+        final const val DEFAULT_MIN_UPDATE_INTERVAL_MILLIS // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_MIN_UPDATE_INTERVAL_MILLIS|{}DEFAULT_MIN_UPDATE_INTERVAL_MILLIS[0]
+            final fun <get-DEFAULT_MIN_UPDATE_INTERVAL_MILLIS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_MIN_UPDATE_INTERVAL_MILLIS.<get-DEFAULT_MIN_UPDATE_INTERVAL_MILLIS>|<get-DEFAULT_MIN_UPDATE_INTERVAL_MILLIS>(){}[0]
+        final const val DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS|{}DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS[0]
+            final fun <get-DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig.Companion.DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS.<get-DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS>|<get-DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS>(){}[0]
+    }
+}
+
+final fun io.github.jamal_wia.kmptoolkit.location/createLocationProvider(io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig = ..., io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.location/LocationProvider // io.github.jamal_wia.kmptoolkit.location/createLocationProvider|createLocationProvider(io.github.jamal_wia.kmptoolkit.location.LocationProviderConfig;io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]

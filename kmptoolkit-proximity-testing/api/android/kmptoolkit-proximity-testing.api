@@ -1,0 +1,11 @@
+public final class io/github/jamal_wia/kmptoolkit/proximity/testing/FakeProximitySensor : io/github/jamal_wia/kmptoolkit/proximity/ProximitySensor {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun emit (Z)V
+	public final fun getEmitCount ()I
+	public fun isAvailable ()Z
+	public fun observe ()Lkotlinx/coroutines/flow/Flow;
+	public fun setAvailable (Z)V
+}
+

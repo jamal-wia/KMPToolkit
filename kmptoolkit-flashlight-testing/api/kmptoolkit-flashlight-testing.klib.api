@@ -1,0 +1,24 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-flashlight-testing>
+final class io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight : io.github.jamal_wia.kmptoolkit.flashlight/Flashlight { // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight|null[0]
+    constructor <init>(kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.<init>|<init>(kotlin.Boolean){}[0]
+
+    final val events // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.events|{}events[0]
+        final fun <get-events>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern?> // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.events.<get-events>|<get-events>(){}[0]
+
+    final var isAvailable // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.isAvailable|{}isAvailable[0]
+        final fun <get-isAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.isAvailable.<get-isAvailable>|<get-isAvailable>(){}[0]
+        final fun <set-isAvailable>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.isAvailable.<set-isAvailable>|<set-isAvailable>(kotlin.Boolean){}[0]
+    final var isBlinking // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.isBlinking|{}isBlinking[0]
+        final fun <get-isBlinking>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.isBlinking.<get-isBlinking>|<get-isBlinking>(){}[0]
+
+    final fun clear() // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.clear|clear(){}[0]
+    final fun start(io.github.jamal_wia.kmptoolkit.flashlight/FlashPattern) // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.start|start(io.github.jamal_wia.kmptoolkit.flashlight.FlashPattern){}[0]
+    final fun stop() // io.github.jamal_wia.kmptoolkit.flashlight.testing/RecordingFlashlight.stop|stop(){}[0]
+}

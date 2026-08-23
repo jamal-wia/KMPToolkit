@@ -1,0 +1,49 @@
+public final class io/github/jamal_wia/kmptoolkit/location/GeoCoordinates {
+	public fun <init> (DD)V
+	public final fun component1 ()D
+	public final fun component2 ()D
+	public final fun copy (DD)Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;DDILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/GeoCoordinates;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLatitude ()D
+	public final fun getLongitude ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/location/LocationProvider {
+	public abstract fun getCurrentLocation (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun isLocationEnabled (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun observeLocation ()Lkotlinx/coroutines/flow/Flow;
+	public abstract fun openLocationSettings ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationProviderConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig$Companion;
+	public static final field DEFAULT_MIN_UPDATE_DISTANCE_METERS F
+	public static final field DEFAULT_MIN_UPDATE_INTERVAL_MILLIS J
+	public static final field DEFAULT_SINGLE_FIX_TIMEOUT_MILLIS J
+	public fun <init> ()V
+	public fun <init> (FJJ)V
+	public synthetic fun <init> (FJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()F
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun copy (FJJ)Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;FJJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMinUpdateDistanceMeters ()F
+	public final fun getMinUpdateIntervalMillis ()J
+	public final fun getSingleFixTimeoutMillis ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationProviderConfig$Companion {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationProvider_androidKt {
+	public static final fun createLocationProvider (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
+	public static synthetic fun createLocationProvider$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
+}
+

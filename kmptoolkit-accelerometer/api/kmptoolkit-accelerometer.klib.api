@@ -1,0 +1,35 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-accelerometer>
+abstract interface io.github.jamal_wia.kmptoolkit.accelerometer/Accelerometer { // io.github.jamal_wia.kmptoolkit.accelerometer/Accelerometer|null[0]
+    abstract val isAvailable // io.github.jamal_wia.kmptoolkit.accelerometer/Accelerometer.isAvailable|{}isAvailable[0]
+        abstract fun <get-isAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.accelerometer/Accelerometer.isAvailable.<get-isAvailable>|<get-isAvailable>(){}[0]
+
+    abstract fun observe(): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample> // io.github.jamal_wia.kmptoolkit.accelerometer/Accelerometer.observe|observe(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample { // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample|null[0]
+    constructor <init>(kotlin/Float, kotlin/Float, kotlin/Float) // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.<init>|<init>(kotlin.Float;kotlin.Float;kotlin.Float){}[0]
+
+    final val x // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.x|{}x[0]
+        final fun <get-x>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.x.<get-x>|<get-x>(){}[0]
+    final val y // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.y|{}y[0]
+        final fun <get-y>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.y.<get-y>|<get-y>(){}[0]
+    final val z // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.z|{}z[0]
+        final fun <get-z>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.z.<get-z>|<get-z>(){}[0]
+
+    final fun component1(): kotlin/Float // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.component1|component1(){}[0]
+    final fun component2(): kotlin/Float // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.component2|component2(){}[0]
+    final fun component3(): kotlin/Float // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.component3|component3(){}[0]
+    final fun copy(kotlin/Float = ..., kotlin/Float = ..., kotlin/Float = ...): io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.copy|copy(kotlin.Float;kotlin.Float;kotlin.Float){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.accelerometer/AccelerometerSample.toString|toString(){}[0]
+}
+
+final fun io.github.jamal_wia.kmptoolkit.accelerometer/createAccelerometer(kotlin.time/Duration = ...): io.github.jamal_wia.kmptoolkit.accelerometer/Accelerometer // io.github.jamal_wia.kmptoolkit.accelerometer/createAccelerometer|createAccelerometer(kotlin.time.Duration){}[0]
