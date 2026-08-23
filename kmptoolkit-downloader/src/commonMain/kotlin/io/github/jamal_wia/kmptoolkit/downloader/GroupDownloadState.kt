@@ -11,9 +11,9 @@ package io.github.jamal_wia.kmptoolkit.downloader
  */
 public sealed class GroupDownloadState {
     public data object Idle : GroupDownloadState()
-    public data class Downloading(val progress: Float) : GroupDownloadState()
+    public data class Downloading(public val progress: Float) : GroupDownloadState()
     public data object Completed : GroupDownloadState()
-    public data class Error(val error: DownloadError) : GroupDownloadState()
+    public data class Error(public val error: DownloadError) : GroupDownloadState()
 }
 
 /**
@@ -37,7 +37,7 @@ public sealed class UnitDownloadState {
      */
     public data object Available : UnitDownloadState()
 
-    public data class Downloading(val progress: Float) : UnitDownloadState()
+    public data class Downloading(public val progress: Float) : UnitDownloadState()
 
     /**
      * Finished downloading in THIS process — the transition a caller may want to celebrate or
@@ -45,5 +45,5 @@ public sealed class UnitDownloadState {
      */
     public data object Completed : UnitDownloadState()
 
-    public data class Error(val error: DownloadError) : UnitDownloadState()
+    public data class Error(public val error: DownloadError) : UnitDownloadState()
 }

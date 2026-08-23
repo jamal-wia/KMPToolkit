@@ -47,7 +47,7 @@ public sealed class BackgroundDownloadEvent {
 
     public data class Progress(
         override val unit: DownloadUnit,
-        val fraction: Float,
+        public val fraction: Float,
     ) : BackgroundDownloadEvent()
 
     public data class FileReady(
@@ -62,7 +62,7 @@ public sealed class BackgroundDownloadEvent {
      */
     public data class Error(
         override val unit: DownloadUnit,
-        val message: String,
+        public val message: String,
     ) : Terminal()
 
     public data class Cancelled(

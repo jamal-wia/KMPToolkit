@@ -70,7 +70,7 @@ public sealed interface ResourceFormat {
      * is known to produce — its presence is what proves a directory resource is complete, since an
      * interrupted extraction also leaves a directory behind.
      */
-    public data class ZipArchive(val availabilityMarker: String) : ResourceFormat
+    public data class ZipArchive(public val availabilityMarker: String) : ResourceFormat
 
     /**
      * A SQLite database, verified before it counts as committed: a truncated or corrupt download
@@ -83,8 +83,8 @@ public sealed interface ResourceFormat {
      * domain knowledge, which is why they are values here rather than anything the library assumes.
      */
     public data class SqliteDatabase(
-        val rowCountTable: String? = null,
-        val declaredRowCountMetaKey: String? = null,
+        public val rowCountTable: String? = null,
+        public val declaredRowCountMetaKey: String? = null,
     ) : ResourceFormat
 }
 

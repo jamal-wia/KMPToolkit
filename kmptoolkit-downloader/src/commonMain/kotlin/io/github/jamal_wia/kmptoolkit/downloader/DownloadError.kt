@@ -24,7 +24,7 @@ public sealed class DownloadError {
     public data object Unauthorized : DownloadError()
 
     /** The server answered, but with a failure — [statusCode] is null when it wasn't an HTTP one. */
-    public data class Server(val statusCode: Int?) : DownloadError()
+    public data class Server(public val statusCode: Int?) : DownloadError()
 
     /**
      * The bytes arrived but could not be finalized: no room on disk, an unwritable path, a ZIP that
@@ -32,8 +32,8 @@ public sealed class DownloadError {
      * [ResourceFormat.SqliteDatabase]). Distinct from a transport failure because retrying the
      * download is not obviously the fix.
      */
-    public data class Storage(val message: String? = null) : DownloadError()
+    public data class Storage(public val message: String? = null) : DownloadError()
 
     /** Anything the host's platform layer could not classify. [message] is for logs, not for users. */
-    public data class Unknown(val message: String? = null) : DownloadError()
+    public data class Unknown(public val message: String? = null) : DownloadError()
 }

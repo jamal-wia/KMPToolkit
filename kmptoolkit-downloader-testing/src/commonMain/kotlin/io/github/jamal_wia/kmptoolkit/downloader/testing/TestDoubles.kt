@@ -36,7 +36,11 @@ public class TestGroup(override val key: String) : ResourceGroup {
 public class RecordingNotifier : DownloadNotifier {
     public enum class Kind { PROGRESS, COMPLETED, REMOVE, ERROR }
 
-    public data class Call(val kind: Kind, val groupKey: String, val progress: Float?)
+    public data class Call(
+        public val kind: Kind,
+        public val groupKey: String,
+        public val progress: Float?,
+    )
 
     public val calls: MutableList<Call> = mutableListOf()
 
