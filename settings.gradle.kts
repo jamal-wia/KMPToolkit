@@ -62,6 +62,8 @@ include(":kmptoolkit-systembars")
 include(":kmptoolkit-outbox")
 include(":kmptoolkit-outbox-testing")
 include(":kmptoolkit-outbox-sqldelight")
+include(":kmptoolkit-location")
+include(":kmptoolkit-location-testing")
 
 include(":kmptoolkit-bom")
 
