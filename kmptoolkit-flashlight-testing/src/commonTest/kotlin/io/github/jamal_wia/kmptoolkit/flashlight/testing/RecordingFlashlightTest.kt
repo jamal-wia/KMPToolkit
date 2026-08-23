@@ -43,7 +43,7 @@ class RecordingFlashlightTest {
     }
 
     @Test
-    fun `is available by default, matching a device with a torch`() {
+    fun `is available by default matching a device with a torch`() {
         val flashlight: Flashlight = RecordingFlashlight()
 
         assertTrue(flashlight.isAvailable)
@@ -72,7 +72,7 @@ class RecordingFlashlightTest {
     }
 
     @Test
-    fun `clear wipes both the timeline and the running state, leaving isAvailable untouched`() {
+    fun `clear wipes both the timeline and the running state leaving isAvailable untouched`() {
         val flashlight = RecordingFlashlight(isAvailable = false)
         flashlight.start(FlashPattern.Blink)
 

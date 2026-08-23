@@ -80,7 +80,7 @@ class FakeDownloaderTest {
     }
 
     @Test
-    fun `fake storage tracks availability, deletion and a fixed size`() {
+    fun `fake storage tracks availability deletion and a fixed size`() {
         val storage = FakeDownloaderStorage(availableIds = setOf(unit.id), sizeOnDisk = 42L)
 
         assertTrue(storage.isResourceAvailable(unit))

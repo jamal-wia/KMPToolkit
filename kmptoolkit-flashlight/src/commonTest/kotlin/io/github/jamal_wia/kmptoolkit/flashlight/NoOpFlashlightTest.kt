@@ -15,7 +15,7 @@ class NoOpFlashlightTest {
     }
 
     @Test
-    fun `start and stop do nothing, and neither throws`() {
+    fun `start and stop do nothing and neither throws`() {
         val flashlight: Flashlight = noOpFlashlight()
 
         flashlight.start(FlashPattern.Blink)
