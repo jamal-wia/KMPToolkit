@@ -103,6 +103,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   Services, and the fix-quality gain was not worth becoming the first one that does. Both
   platforms cap a single-fix request with a timeout, so a device with no signal cannot suspend
   `getCurrentLocation` forever.
+- `kmptoolkit-proximity` and `kmptoolkit-proximity-testing` — a proximity sensor seam:
+  `ProximitySensor` reports a cold, event-driven `Flow<Boolean>`, and `ProximityRule.isNear` folds
+  a raw distance into it by comparing against the smaller of a five-centimetre threshold and the
+  sensor's own maximum range, since most units are binary and answer only `0` or their own
+  maximum. iOS has no proximity API to build on at all — Core Motion exposes none, and
+  `UIDevice`'s own monitoring is iPhone-only and tied to blanking the screen — so there
+  `isAvailable` is permanently `false` rather than a gap this module could close later.
 - Repository infrastructure: composite `build-logic` with `kmptoolkit.library` /
   `kmptoolkit.compose` / `kmptoolkit.publish` / `kmptoolkit.androidtest` convention plugins,
   version catalog, Maven Central publishing via the vanniktech plugin, `explicitApi()` +

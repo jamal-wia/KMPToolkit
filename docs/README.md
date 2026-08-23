@@ -58,6 +58,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed store for the outbox | [`kmptoolkit-outbox-sqldelight/`](kmptoolkit-outbox-sqldelight/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow` | [`kmptoolkit-accelerometer/`](kmptoolkit-accelerometer/01-overview.md) |
 | `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates | [`kmptoolkit-location/`](kmptoolkit-location/01-overview.md) |
+| `kmptoolkit-proximity` | Proximity sensor (near/far, event-driven) | [`kmptoolkit-proximity/`](kmptoolkit-proximity/01-overview.md) |
 
 Most of these also publish a `-testing` companion artifact holding their test double, documented in
 the same folder's `06-testing.md` rather than a folder of their own. Four do not:

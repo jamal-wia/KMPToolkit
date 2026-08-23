@@ -68,6 +68,8 @@ include(":kmptoolkit-accelerometer")
 include(":kmptoolkit-accelerometer-testing")
 include(":kmptoolkit-location")
 include(":kmptoolkit-location-testing")
+include(":kmptoolkit-proximity")
+include(":kmptoolkit-proximity-testing")
 
 include(":kmptoolkit-bom")
 
