@@ -31,6 +31,8 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-logging` | Minimal tag/level logging interface + pluggable sinks, zero dependencies | — | Available | [docs](docs/kmptoolkit-logging/01-overview.md) |
 | `kmptoolkit-haptics` | Haptic feedback, with the outcome reported rather than thrown | — | Available | [docs](docs/kmptoolkit-haptics/01-overview.md) |
 | `kmptoolkit-haptics-testing` | `RecordingHapticFeedback` double, for `testImplementation` | `haptics` | Available | [docs](docs/kmptoolkit-haptics/06-testing.md) |
+| `kmptoolkit-flashlight` | Camera-torch blink cue, with the outcome degraded to a no-op rather than thrown | — | Available | [docs](docs/kmptoolkit-flashlight/01-overview.md) |
+| `kmptoolkit-flashlight-testing` | `RecordingFlashlight` double, for `testImplementation` | `flashlight` | Available | [docs](docs/kmptoolkit-flashlight/06-testing.md) |
 | `kmptoolkit-audio-player` | Audio playback (`MediaPlayer` / `AVPlayer`) behind a pluggable engine | — | Available | [docs](docs/kmptoolkit-audio-player/01-overview.md) |
 | `kmptoolkit-audio-player-testing` | `FakePlaybackEngine`, for `testImplementation` | `audio-player` | Available | [docs](docs/kmptoolkit-audio-player/06-testing.md) |
 | `kmptoolkit-audio-recorder` | Audio recording (`MediaRecorder` / `AVAudioRecorder`), typed errors instead of throws | — | Available | [docs](docs/kmptoolkit-audio-recorder/01-overview.md) |
