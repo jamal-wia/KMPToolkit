@@ -223,14 +223,15 @@ internal class AndroidDownloaderStorage(
             var entry: ZipEntry? = zipStream.nextEntry
             while (entry != null) {
                 if (!entry.isDirectory) {
-                    val outputFile = File(dir, entry.name)
+                    val entryName: String = entry.name
+                    val outputFile = File(dir, entryName)
                     // Zip slip protection
                     require(
                         outputFile.canonicalPath.startsWith(
                             dir.canonicalPath + File.separator
                         )
                     ) {
-                        "ZIP entry attempts path traversal: ${entry.name}"
+                        "ZIP entry attempts path traversal: $entryName"
                     }
                     outputFile.parentFile?.mkdirs()
                     FileOutputStream(outputFile).use { output: FileOutputStream ->
@@ -239,7 +240,7 @@ internal class AndroidDownloaderStorage(
                             output.write(copyBuffer, 0, bytesRead)
                         }
                     }
-                    logger.d { "Extracted: ${entry.name}" }
+                    logger.d { "Extracted: $entryName" }
                 }
                 zipStream.closeEntry()
                 entry = zipStream.nextEntry

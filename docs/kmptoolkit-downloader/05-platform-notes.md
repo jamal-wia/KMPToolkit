@@ -68,3 +68,11 @@ buffer rather than loading an entry into memory, and both carry zip-slip protect
   by object identity or by any internal per-instance map.** Two `DownloadUnit` instances with the
   same `id` — a host constructing a fresh instance per call is common and expected — always resolve
   to the same bytes on disk and the same commit outcome.
+
+## No `iosX64` target
+
+Unlike every other `kmptoolkit-*` module, this one (and `kmptoolkit-downloader-testing`) does not
+publish an `iosX64` variant — only `iosArm64` and `iosSimulatorArm64`. `androidx.sqlite:sqlite-bundled`,
+which backs the `SqliteDatabase` integrity check on iOS, publishes no `iosX64` klib at all: it is
+the legacy Intel-simulator target, and Google has been dropping it from newer KMP artifacts.
+Building or testing against the Intel iOS simulator is not supported by this module.

@@ -20,7 +20,8 @@ android {
 }
 
 kotlin {
-    iosX64()
+    // No iosX64 target — matches :kmptoolkit-downloader, whose api(project(...)) dependency this
+    // module can't declare a wider target set than.
     iosArm64()
     iosSimulatorArm64()
 
