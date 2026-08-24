@@ -25,10 +25,6 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Import GPG key
-        run: |
-          echo "${{ secrets.GPG_KEY }}" | base64 --decode | gpg --batch --import
-
       # Root-level task names (no module prefix) so this step never needs editing as
       # kmptoolkit-* modules are added — Gradle runs the task in every subproject that has it.
       - name: Check public API surface

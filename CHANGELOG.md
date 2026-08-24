@@ -19,6 +19,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   changed: the `.klib.api` diffs are confined to their `Targets:` header line. Consumers building
   for the Intel iOS simulator cannot use this suite.
 
+## [1.0.0] - 2026-08-23
+
 ### Added
 
 - `kmptoolkit-coroutines` — `AppDispatchers` dispatcher seam and its `DefaultAppDispatchers`
