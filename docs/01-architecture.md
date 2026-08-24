@@ -132,6 +132,12 @@ Version policy:
   default).
 - **Major** — any breaking change to a published module's public API.
 
+These rules apply to the **suite as a whole, not to one module at a time**: every artifact takes its
+version from the single `kmptoolkit.version` property and they are all released together. So a
+breaking change in any one module bumps the major version of every artifact, and a module that did
+not change at all is still republished under the new number. That is the deliberate trade — it is
+what lets the BOM guarantee a classpath can never mix two releases.
+
 **Before `1.0.0`**, a breaking change is still possible in a minor bump but is called out explicitly
 in `CHANGELOG.md` under its own `Breaking` heading — see `CHANGELOG.md`'s own header note. After
 `1.0.0`, a breaking change requires a major version.

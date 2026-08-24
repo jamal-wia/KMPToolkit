@@ -5,8 +5,9 @@
 A collection of small, independent Kotlin Multiplatform libraries (Android + iOS) — coroutines
 dispatcher seams, haptics, audio record/playback, local scheduling, secure key-value storage,
 platform utilities, permissions, notifications, session management, settings, raw accelerometer
-readings, and a database-agnostic transactional outbox. Each module is published and versioned
-separately: take only what you need.
+readings, and a database-agnostic transactional outbox. Each module is published as its own
+artifact — take only what you need — and the whole suite is released together on a single version,
+so two KMPToolkit artifacts on one classpath can never come from different releases.
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.jamal-wia/kmptoolkit-bom)](https://central.sonatype.com/namespace/io.github.jamal-wia)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

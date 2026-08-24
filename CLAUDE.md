@@ -26,9 +26,11 @@ module — and it's the clearest illustration of why the rule exists.
 
 ## 1. What this repository is
 
-A collection of `kmptoolkit-*` Gradle modules, each an independently versioned, independently
-published Maven Central artifact, plus a `kmptoolkit-bom` platform module and a non-published
-`:sample` Compose demo app used to smoke-test artifacts from `mavenLocal`.
+A collection of `kmptoolkit-*` Gradle modules, each an independently published Maven Central
+artifact — but **not** independently versioned: every module takes its version from the single
+`kmptoolkit.version` property and the whole suite is released in lockstep. Plus a `kmptoolkit-bom`
+platform module and a non-published `:sample` Compose demo app used to smoke-test artifacts from
+`mavenLocal`.
 
 - Coordinates: `io.github.jamal-wia:kmptoolkit-<module>`, version from `kmptoolkit.version` in
   `gradle.properties` (the single source of truth every module and the BOM read).
