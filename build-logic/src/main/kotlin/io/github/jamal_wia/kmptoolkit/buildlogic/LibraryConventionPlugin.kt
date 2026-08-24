@@ -14,13 +14,11 @@ import org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation
  * Android library plugin pair, the Android-target JVM level, `explicitApi()` in strict mode, and
  * ABI validation (`./gradlew checkKotlinAbi` / `updateKotlinAbi`), dumped to `<module>/api/`.
  *
- * Deliberately does **not** declare `iosX64()` / `iosArm64()` / `iosSimulatorArm64()`: Compose
- * Multiplatform 1.11+ does not publish an iosX64 variant (see `kmptoolkit.compose`'s doc comment),
- * so the exact Apple target list differs between a plain module and a Compose-UI module. Each
- * module's own `kotlin { }` block declares its targets explicitly — three or six lines, and it is
- * the one thing about a module's shape that is worth seeing directly in its build file rather than
- * behind a plugin, exactly as `Paginator/paginator-core/build.gradle.kts` and
- * `Paginator/paginator-compose-offset/build.gradle.kts` already do.
+ * Deliberately does **not** declare `iosArm64()` / `iosSimulatorArm64()`. Every module now declares
+ * exactly those two Apple targets — `iosX64`, the legacy Intel simulator, is published by no module
+ * in this repository — but target declaration stays in each module's own `kotlin { }` block: it is
+ * the one thing about a module's shape worth seeing directly in its build file rather than behind a
+ * plugin, exactly as `Paginator/paginator-core/build.gradle.kts` already does.
  *
  * `namespace` also stays in each module's own build file: it is not mechanically derivable from
  * the Gradle path, and guessing wrong produces a resource-merging failure that is tedious to trace

@@ -98,6 +98,6 @@ database thread instead of dispatching onto it — and shows the uncommitted sta
 
 ## Targets
 
-`androidTarget`, `iosX64`, `iosArm64`, `iosSimulatorArm64` — the standard set for this toolkit. No
+`androidTarget`, `iosArm64`, `iosSimulatorArm64` — the standard set for this toolkit. No
 JVM or desktop target, and no JS: the module exists to back the two synchronous drivers, and the
 asynchronous web-worker driver would change how transactions are expressed throughout.

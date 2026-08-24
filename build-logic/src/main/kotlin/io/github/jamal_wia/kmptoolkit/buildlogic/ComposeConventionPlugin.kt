@@ -9,11 +9,11 @@ import org.jetbrains.kotlin.compose.compiler.gradle.ComposeCompilerGradlePluginE
  * `kmptoolkit.compose` — Compose Multiplatform for a module that has UI: applied *alongside*
  * `kmptoolkit.library`, never alone.
  *
- * Compose Multiplatform 1.11+ does not publish an artifact for the `iosX64` target (documented in
- * `Paginator/paginator-compose-offset/build.gradle.kts`, the precedent this project follows). A
- * Compose module's own `kotlin { }` block must therefore declare only `iosArm64()` and
- * `iosSimulatorArm64()` — no `iosX64()` — which is exactly why target declaration lives in each
- * module's build file rather than in `kmptoolkit.library` (see that plugin's doc comment).
+ * Compose Multiplatform 1.11+ publishes no artifact for the `iosX64` target, so a Compose module
+ * could never declare it. That is no longer a difference from the rest of the suite: no module in
+ * this repository targets `iosX64`, which keeps the published artifact count down (see
+ * `RELEASING.md`) and costs nothing — the Intel simulator is superseded by `iosSimulatorArm64` on
+ * every Apple-silicon Mac.
  *
  * Deliberately adds **no** Compose dependencies: `kmptoolkit-systembars` needs only
  * `compose.runtime` + `compose.foundation`, `kmptoolkit-logging-overlay` needs `compose.ui` +

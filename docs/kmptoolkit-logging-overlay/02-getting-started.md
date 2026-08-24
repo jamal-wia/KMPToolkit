@@ -21,9 +21,9 @@ kotlin {
 `kmptoolkit-logging` comes with it as an `api` dependency — you do not add it separately, and you
 can use `Logger`, `LogLevel` and `LogSink` directly.
 
-**Targets:** Android, `iosArm64`, `iosSimulatorArm64`. There is no `iosX64` variant, because Compose
-Multiplatform 1.11+ does not publish one. If you still build for the Intel simulator, this module
-cannot be part of that build.
+**Targets:** Android, `iosArm64`, `iosSimulatorArm64` — the same set as every other module in the
+suite. There is no `iosX64` variant. If you still build for the Intel simulator, this module cannot
+be part of that build.
 
 ## 2. Create the state once, at app start
 

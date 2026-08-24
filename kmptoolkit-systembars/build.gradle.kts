@@ -29,9 +29,6 @@ android {
 }
 
 kotlin {
-    // No iosX64(): Compose Multiplatform 1.11+ publishes no artifact for that target, so declaring
-    // it fails the build. Every non-Compose module in this repo declares all three — the difference
-    // is deliberate, see `kmptoolkit.compose`'s doc comment in build-logic.
     iosArm64()
     iosSimulatorArm64()
 
