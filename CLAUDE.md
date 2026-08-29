@@ -85,6 +85,11 @@ library:
 
 ## 4. Branching and commits
 
+- Commit automatically once a change is complete and passes the verification gates (§ 6) — do not
+  wait for a separate "go ahead and commit" each time; this policy is that standing instruction. It
+  covers committing only: pushing to a remote and publishing (§ 5) each still need their own
+  explicit, same-turn go-ahead — a commit landing on a local task branch is cheap to amend or drop,
+  a push or a release is not.
 - Never commit directly to `main` or `develop`. Every change happens on its own task branch, created
   from `develop`.
 - Stage only the files you actually changed, by explicit path. Never `git add -A` / `git add .` /
