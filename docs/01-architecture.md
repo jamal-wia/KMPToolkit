@@ -110,7 +110,7 @@ dependencies {
 ```
 
 **Why:** a fixture can pull in test infrastructure a production module has no business depending
-on — `kmptoolkit-session`'s `RecordingSessionCleaner`, for instance, is exercised through
+on — `kmptoolkit-scheduler`'s `RecordingAlarmScheduler`, for instance, is exercised through
 `kotlinx-coroutines-test`. Shipping fixtures inside the production module would put that kind of
 test framework on the **runtime classpath of every consuming app**. Kotlin Multiplatform has no way
 to expose one module's `commonTest` to a consumer, so a separate published artifact is the only

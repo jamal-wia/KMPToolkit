@@ -54,7 +54,6 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-settings` | Font scale, theme mode and app language | [`kmptoolkit-settings/`](kmptoolkit-settings/01-overview.md) |
 | `kmptoolkit-systembars` | Status and navigation bar control | [`kmptoolkit-systembars/`](kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-notification` | Local notifications, channels and actions | [`kmptoolkit-notification/`](kmptoolkit-notification/01-overview.md) |
-| `kmptoolkit-session` | Session lifecycle and teardown fan-out | [`kmptoolkit-session/`](kmptoolkit-session/01-overview.md) |
 | `kmptoolkit-outbox` | Transactional outbox / offline effect queue | [`kmptoolkit-outbox/`](kmptoolkit-outbox/01-overview.md) |
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed store for the outbox | [`kmptoolkit-outbox-sqldelight/`](kmptoolkit-outbox-sqldelight/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow` | [`kmptoolkit-accelerometer/`](kmptoolkit-accelerometer/01-overview.md) |

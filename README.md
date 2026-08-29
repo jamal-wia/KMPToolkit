@@ -4,8 +4,8 @@
 
 A collection of small, independent Kotlin Multiplatform libraries (Android + iOS) — coroutines
 dispatcher seams, haptics, audio record/playback, local scheduling, secure key-value storage,
-platform utilities, permissions, notifications, session management, settings, raw accelerometer
-readings, and a database-agnostic transactional outbox. Each module is published as its own
+platform utilities, permissions, notifications, settings, raw accelerometer readings, and a
+database-agnostic transactional outbox. Each module is published as its own
 artifact — take only what you need — and the whole suite is released together on a single version,
 so two KMPToolkit artifacts on one classpath can never come from different releases.
 
@@ -48,8 +48,6 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-permission-testing` | `RecordingPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |
-| `kmptoolkit-session` | Session lifecycle and teardown fan-out | `logging` | Available | [docs](docs/kmptoolkit-session/01-overview.md) |
-| `kmptoolkit-session-testing` | Recording cleaner and revoker, for `testImplementation` | `session` | Available | [docs](docs/kmptoolkit-session/06-testing.md) |
 | `kmptoolkit-settings` | Font scale, theme mode, app language | `storage` | Available | [docs](docs/kmptoolkit-settings/01-overview.md) |
 | `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-outbox/01-overview.md) |
 | `kmptoolkit-outbox-testing` | `InMemoryOutboxStore`, `OutboxStoreContract`, `FakeOutbox`, for `testImplementation` | `outbox` | Available | [docs](docs/kmptoolkit-outbox/06-testing.md) |

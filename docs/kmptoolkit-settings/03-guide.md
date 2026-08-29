@@ -130,13 +130,11 @@ launch, and the bug is invisible in the session you test it in. Read
 
 The module this was ported from also cleared a biometric opt-in on logout. That is out of scope
 here (see [`01-overview.md`](01-overview.md#what-this-is-not)), and it is three lines in your own
-code with `kmptoolkit-session`:
+logout code:
 
 ```kotlin
-class DisplaySettingsCleaner(private val settings: AppSettings) : SessionCleaner {
-    override suspend fun clean() {
-        settings.setLanguage(null)
-    }
+suspend fun onLogout(settings: AppSettings) {
+    settings.setLanguage(null)
 }
 ```
 
