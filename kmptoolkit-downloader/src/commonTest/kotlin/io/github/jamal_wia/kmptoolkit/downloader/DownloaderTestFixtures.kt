@@ -14,7 +14,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
  * These deliberately duplicate the small doubles `kmptoolkit-downloader-testing` publishes
  * (`TestUnit`, `TestGroup`, `RecordingNotifier`, `InMemoryStateStore`, `TestDownloadDispatchers`)
  * rather than depending on that module: `-testing` depends on this module, so the reverse edge
- * would be a project cycle — the same reasoning `kmptoolkit-outbox`'s own `OutboxTestFixtures.kt`
+ * would be a project cycle — the same reasoning `kmptoolkit-uploader`'s own `UploaderTestFixtures.kt`
  * documents.
  */
 internal class TestUnit(

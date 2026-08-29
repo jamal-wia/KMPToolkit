@@ -7,7 +7,7 @@ package io.github.jamal_wia.kmptoolkit.downloader
  * (via [relativePath]).
  *
  * **The library ships no units.** Which resources exist is the host application's catalogue, not
- * this module's business — the same split [io.github.jamal_wia.kmptoolkit.outbox] draws between
+ * this module's business — the same split [io.github.jamal_wia.kmptoolkit.uploader] draws between
  * owning the queue and not owning any effect. A host declares its own units as `data object`s
  * (fixed assets it ships against — a bundled dataset, a downloadable model file) or `data class`es
  * (a unit named by a server-provided manifest, constructed at runtime); the engine never enumerates

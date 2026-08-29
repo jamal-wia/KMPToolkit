@@ -17,7 +17,7 @@ commonTest.dependencies {
 | `InMemoryStateStore` | You need a `DownloadStateStore` that does not touch real storage |
 | `TestDownloadDispatchers` | You want the real engine on virtual time, so a stall timeout costs no real time |
 
-There is no contract-style suite here, unlike `kmptoolkit-outbox-testing`'s `OutboxStoreContract`.
+There is no contract-style suite here, unlike `kmptoolkit-uploader-testing`'s `UploaderStoreContract`.
 The donor code this module was ported from has no runnable check of `DownloaderStorage`'s or
 `BackgroundResourceDownloader`'s invariants either — only ad-hoc fakes — so none was invented for
 this port. If you write a custom `DownloaderStorage`, `03-guide.md`'s identity rule (key everything

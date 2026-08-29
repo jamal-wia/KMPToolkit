@@ -28,7 +28,7 @@ kotlin {
     iosSimulatorArm64()
 
     sourceSets {
-        // Deliberately thin, like :kmptoolkit-outbox — coroutines, nothing else, in commonMain.
+        // Deliberately thin, like :kmptoolkit-uploader — coroutines, nothing else, in commonMain.
         // No DI framework (the host wires the engine; an OS-created entry point reaches it through
         // DownloaderRegistry), no HTTP client (the host resolves download URLs through the
         // DownloadUrlResolver port; the bytes themselves move over whatever the host's
@@ -53,7 +53,7 @@ kotlin {
             implementation(libs.androidx.sqlite.bundled)
         }
         // No dependency on :kmptoolkit-downloader-testing — that module depends on this one, so
-        // the reverse edge would be a project cycle (same reasoning as :kmptoolkit-outbox). The
+        // the reverse edge would be a project cycle (same reasoning as :kmptoolkit-uploader). The
         // engine tests here build their own small, local fakes instead.
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

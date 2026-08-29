@@ -20,7 +20,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * Deliberately not a dependency-injection lookup: this library declares no DI framework, so it
  * cannot ask one for the downloader, and a host that wires its graph differently still works. The
- * same shape `kmptoolkit-outbox`'s `OutboxEngineRegistry` uses for its own wake entry points.
+ * same shape `kmptoolkit-uploader`'s `UploaderEngineRegistry` uses for its own wake entry points.
  *
  * ## Usage
  *

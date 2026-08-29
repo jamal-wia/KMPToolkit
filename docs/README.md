@@ -28,8 +28,8 @@ Each module has its own `docs/<module>/` folder, numbered in learning order:
 | `06-testing.md` *(if present)* | Test fixtures the module ships, and how to use them |
 | `07-faq.md` *(if present)* | Answers to recurring real questions |
 
-A module with a substantial extension point may add a page for it — `kmptoolkit-outbox` documents
-implementing its storage SPI in [`07-custom-store.md`](kmptoolkit-outbox/07-custom-store.md), and
+A module with a substantial extension point may add a page for it — `kmptoolkit-uploader` documents
+implementing its storage SPI in [`07-custom-store.md`](kmptoolkit-uploader/07-custom-store.md), and
 `kmptoolkit-downloader` documents implementing its transfer SPI in
 [`07-background-downloader.md`](kmptoolkit-downloader/07-background-downloader.md).
 
@@ -52,8 +52,8 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-biometric` | Biometric authentication gate | [`kmptoolkit-biometric/`](kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-systembars` | Status and navigation bar control | [`kmptoolkit-systembars/`](kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-notification` | Local notifications, channels and actions | [`kmptoolkit-notification/`](kmptoolkit-notification/01-overview.md) |
-| `kmptoolkit-outbox` | Transactional outbox / offline effect queue | [`kmptoolkit-outbox/`](kmptoolkit-outbox/01-overview.md) |
-| `kmptoolkit-outbox-sqldelight` | SQLDelight-backed store for the outbox | [`kmptoolkit-outbox-sqldelight/`](kmptoolkit-outbox-sqldelight/01-overview.md) |
+| `kmptoolkit-uploader` | Transactional uploader / offline effect queue | [`kmptoolkit-uploader/`](kmptoolkit-uploader/01-overview.md) |
+| `kmptoolkit-uploader-sqldelight` | SQLDelight-backed store for the uploader | [`kmptoolkit-uploader-sqldelight/`](kmptoolkit-uploader-sqldelight/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow` | [`kmptoolkit-accelerometer/`](kmptoolkit-accelerometer/01-overview.md) |
 | `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates | [`kmptoolkit-location/`](kmptoolkit-location/01-overview.md) |
 | `kmptoolkit-proximity` | Proximity sensor (near/far, event-driven) | [`kmptoolkit-proximity/`](kmptoolkit-proximity/01-overview.md) |

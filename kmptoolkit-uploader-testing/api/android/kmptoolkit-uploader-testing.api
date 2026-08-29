@@ -1,0 +1,125 @@
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploader : io/github/jamal_wia/kmptoolkit/uploader/Uploader {
+	public fun <init> ()V
+	public fun <init> (Lkotlin/jvm/functions/Function1;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun emitObserved (Ljava/util/List;)V
+	public fun enqueue (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getEnqueued ()Ljava/util/List;
+	public final fun getTriggerCount ()I
+	public final fun lastEnqueued ()Lio/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploader$Enqueued;
+	public fun observe (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
+	public final fun reset (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun trigger ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploader$Enqueued {
+	public fun <init> (ILio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;)V
+	public final fun component1 ()I
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;
+	public final fun component3 ()Ljava/lang/Object;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;
+	public final fun copy (ILio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;)Lio/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploader$Enqueued;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploader$Enqueued;ILio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploader$Enqueued;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getConflictPolicy ()Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;
+	public final fun getHandler ()Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;
+	public final fun getOrdinal ()I
+	public final fun getPayload ()Ljava/lang/Object;
+	public final fun getTag ()Ljava/lang/String;
+	public final fun getUniqueKey ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/InMemoryUploaderStore : io/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore {
+	public fun <init> ()V
+	public fun <init> (Ljava/util/List;)V
+	public synthetic fun <init> (Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun clearAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteById (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun deleteByTag (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getAllActive (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getById (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getItems ()Lkotlinx/coroutines/flow/StateFlow;
+	public fun insertKeep (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun insertReplace (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markInFlight (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun observeByType (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
+	public fun park (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordFailure (Ljava/lang/String;IJLjava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun snapshot ()Ljava/util/List;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/MutableConstraintProvider : io/github/jamal_wia/kmptoolkit/uploader/spi/ConstraintProvider {
+	public fun <init> (Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun block ()V
+	public fun getKey ()Ljava/lang/String;
+	public fun getSatisfied ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun satisfy ()V
+	public final fun set (Z)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/MutableUploaderClock : io/github/jamal_wia/kmptoolkit/uploader/UploaderClock {
+	public fun <init> ()V
+	public fun <init> (J)V
+	public synthetic fun <init> (JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun advanceBy (J)V
+	public final fun getNowMillis ()J
+	public fun nowEpochMillis ()J
+	public final fun setNowMillis (J)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/RecordingWakeScheduler : io/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler {
+	public fun <init> ()V
+	public fun cancelWake ()V
+	public final fun getCancelCount ()I
+	public final fun getScheduleCount ()I
+	public final fun isArmed ()Z
+	public final fun reset ()V
+	public fun scheduleWake ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStoreContract {
+	public fun <init> (Lkotlin/jvm/functions/Function0;)V
+	public final fun clearAllEmptiesTheStore (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun deleteByIdIsIdempotent (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun deleteByIdRemovesOnlyThatItem (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun deleteByTagLeavesOtherTagsAlone (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun deleteByTagRemovesEveryStateOfThatTag (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun freshStoreIsEmpty (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getAllActiveExcludesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getAllActiveIncludesInFlight (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getByIdReturnsNullForUnknownId (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertKeepIsRefusedByInFlight (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertKeepIsRefusedByPending (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertKeepSupersedesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertReplaceSupersedesInFlightAndResetsIt (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertReplaceSupersedesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertReplaceSupersedesPendingAtTheTail (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertedItemRoundTripsUnchanged (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertionOrderSurvivesSameMillisecondInserts (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun item (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;IJJJ)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;
+	public static synthetic fun item$default (Lio/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStoreContract;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;IJJJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;
+	public final fun markInFlightLeavesAttemptsAlone (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun markInFlightOnAnAbsentRowIsANoOp (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun nullUniqueKeyNeverConflicts (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun observeByTypeEmitsEmptyForAnUnknownType (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun observeByTypeFiltersAndOrders (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun observeByTypeIncludesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun parkKeepsTheItemAndClearsTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun parkOnAnAbsentRowIsANoOp (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureAppliesWhenTheLeaseMatches (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureIsRejectedWhenTheLeaseMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureOnAnAbsentRowReturnsFalse (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureWritesEveryFieldAndClearsTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun uniqueKeysAreScopedPerType (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun verifyAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStoreContractViolation : java/lang/AssertionError {
+	public fun <init> (Ljava/lang/String;)V
+}
+

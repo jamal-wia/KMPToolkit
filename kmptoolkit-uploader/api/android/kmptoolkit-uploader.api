@@ -1,0 +1,402 @@
+public final class io/github/jamal_wia/kmptoolkit/uploader/AttemptContext {
+	public fun <init> (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Z)V
+	public synthetic fun <init> (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun component5 ()Z
+	public final fun copy (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptContext;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptContext;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;ZILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptContext;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempts ()I
+	public final fun getId ()Ljava/lang/String;
+	public final fun getOrderingKey ()Ljava/lang/String;
+	public final fun getUniqueKey ()Ljava/lang/String;
+	public final fun getWasDetached ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/AttemptResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Detached : io/github/jamal_wia/kmptoolkit/uploader/AttemptResult {
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Detached;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Detached;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Detached;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getLeaseMillis ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Drop : io/github/jamal_wia/kmptoolkit/uploader/AttemptResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Drop;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Drop;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Drop;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Park : io/github/jamal_wia/kmptoolkit/uploader/AttemptResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Park;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Park;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Park;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Retry : io/github/jamal_wia/kmptoolkit/uploader/AttemptResult {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Retry;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Retry;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Retry;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Success : io/github/jamal_wia/kmptoolkit/uploader/AttemptResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/AttemptResult$Success;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy : java/lang/Enum {
+	public static final field KEEP Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;
+	public static final field REPLACE Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/ExponentialBackoffRetryPolicy : io/github/jamal_wia/kmptoolkit/uploader/RetryPolicy {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/ExponentialBackoffRetryPolicy$Companion;
+	public static final field DEFAULT_BASE_DELAY_MILLIS J
+	public static final field DEFAULT_JITTER_RATIO D
+	public static final field DEFAULT_MAX_DELAY_MILLIS J
+	public fun <init> ()V
+	public fun <init> (JJDLio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy;Lkotlin/random/Random;)V
+	public synthetic fun <init> (JJDLio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy;Lkotlin/random/Random;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun backoffMillis (I)J
+	public fun getGiveUp ()Lio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy;
+	public fun getMaxDelayMillis ()J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/ExponentialBackoffRetryPolicy$Companion {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$DropAfterAttempts : io/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy {
+	public fun <init> (I)V
+	public final fun component1 ()I
+	public final fun copy (I)Lio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$DropAfterAttempts;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$DropAfterAttempts;IILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$DropAfterAttempts;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxAttempts ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$Never : io/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$Never;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$ParkAfterAttempts : io/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy {
+	public fun <init> (I)V
+	public final fun component1 ()I
+	public final fun copy (I)Lio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$ParkAfterAttempts;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$ParkAfterAttempts;IILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy$ParkAfterAttempts;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxAttempts ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/RetryPolicy {
+	public abstract fun backoffMillis (I)J
+	public abstract fun getGiveUp ()Lio/github/jamal_wia/kmptoolkit/uploader/GiveUpPolicy;
+	public abstract fun getMaxDelayMillis ()J
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/SettleResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/SettleResult$Delivered : io/github/jamal_wia/kmptoolkit/uploader/SettleResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Delivered;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/SettleResult$Drop : io/github/jamal_wia/kmptoolkit/uploader/SettleResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Drop;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Drop;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Drop;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/SettleResult$Failed : io/github/jamal_wia/kmptoolkit/uploader/SettleResult {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Failed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Failed;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Failed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/SettleResult$Park : io/github/jamal_wia/kmptoolkit/uploader/SettleResult {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Park;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Park;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult$Park;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/Uploader {
+	public abstract fun enqueue (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun enqueue$default (Lio/github/jamal_wia/kmptoolkit/uploader/Uploader;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun observe (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
+	public abstract fun trigger ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/Uploader$DefaultImpls {
+	public static synthetic fun enqueue$default (Lio/github/jamal_wia/kmptoolkit/uploader/Uploader;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/UploaderClock {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/UploaderClock$Companion;
+	public abstract fun nowEpochMillis ()J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderClock$Companion {
+	public final fun getSystem ()Lio/github/jamal_wia/kmptoolkit/uploader/UploaderClock;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/UploaderConfig$Companion;
+	public static final field DEFAULT_CLOCK_ANOMALY_FACTOR I
+	public synthetic fun <init> (JJJIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (JJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-UwyO8pc ()J
+	public final fun component2-UwyO8pc ()J
+	public final fun component3-UwyO8pc ()J
+	public final fun component4 ()I
+	public final fun copy-2d-g_3Q (JJJI)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderConfig;
+	public static synthetic fun copy-2d-g_3Q$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderConfig;JJJIILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClockAnomalyFactor ()I
+	public final fun getDrainPollInterval-UwyO8pc ()J
+	public final fun getHeartbeatInterval-UwyO8pc ()J
+	public final fun getMinAlarmDelay-UwyO8pc ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderConfig$Companion {
+	public final fun getDEFAULT_DRAIN_POLL_INTERVAL-UwyO8pc ()J
+	public final fun getDEFAULT_HEARTBEAT_INTERVAL-UwyO8pc ()J
+	public final fun getDEFAULT_MIN_ALARM_DELAY-UwyO8pc ()J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderDrainWorker : androidx/work/CoroutineWorker {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/UploaderDrainWorker$Companion;
+	public static final field DRAIN_BUDGET_MILLIS_KEY Ljava/lang/String;
+	public static final field ENGINE_WAIT_MILLIS_KEY Ljava/lang/String;
+	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;)V
+	public fun doWork (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderDrainWorker$Companion {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/UploaderEngine : io/github/jamal_wia/kmptoolkit/uploader/Uploader {
+	public abstract fun awaitDrained-VtjQ1oo (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun close ()V
+	public abstract fun drain (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun settle (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/SettleResult;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun start ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderEngineKt {
+	public static final fun createUploaderEngine (Lio/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore;Ljava/util/List;Lkotlinx/coroutines/CoroutineScope;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/uploader/spi/TransactionRunner;Lio/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderClock;Lkotlin/jvm/functions/Function0;)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderEngine;
+	public static synthetic fun createUploaderEngine$default (Lio/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore;Ljava/util/List;Lkotlinx/coroutines/CoroutineScope;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/uploader/spi/TransactionRunner;Lio/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderClock;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderEngine;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderEngineRegistry {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/UploaderEngineRegistry;
+	public final fun await-VtjQ1oo (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getCurrent ()Lio/github/jamal_wia/kmptoolkit/uploader/UploaderEngine;
+	public final fun register (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderEngine;)V
+	public final fun unregister (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderEngine;)V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/UploaderHandler {
+	public abstract fun decodePayload (Ljava/lang/String;)Ljava/lang/Object;
+	public abstract fun encodePayload (Ljava/lang/Object;)Ljava/lang/String;
+	public abstract fun execute (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptContext;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getConstraintKeys ()Ljava/util/Set;
+	public fun getRetryPolicy ()Lio/github/jamal_wia/kmptoolkit/uploader/RetryPolicy;
+	public fun getSchemaVersion ()I
+	public abstract fun getType ()Ljava/lang/String;
+	public fun orderingKey (Ljava/lang/Object;)Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderHandler$DefaultImpls {
+	public static fun getConstraintKeys (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;)Ljava/util/Set;
+	public static fun getRetryPolicy (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;)Lio/github/jamal_wia/kmptoolkit/uploader/RetryPolicy;
+	public static fun getSchemaVersion (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;)I
+	public static fun orderingKey (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;)Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderItem {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;IJJLjava/lang/String;J)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;IJJLjava/lang/String;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component10 ()J
+	public final fun component11 ()J
+	public final fun component12 ()Ljava/lang/String;
+	public final fun component13 ()J
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun component4 ()I
+	public final fun component5 ()Ljava/lang/String;
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;
+	public final fun component9 ()I
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;IJJLjava/lang/String;J)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;IJJLjava/lang/String;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAttempts ()I
+	public final fun getCreatedAtEpochMillis ()J
+	public final fun getId ()Ljava/lang/String;
+	public final fun getLastError ()Ljava/lang/String;
+	public final fun getLeaseUntilEpochMillis ()J
+	public final fun getNextRunAtEpochMillis ()J
+	public final fun getOrderingKey ()Ljava/lang/String;
+	public final fun getPayload ()Ljava/lang/String;
+	public final fun getSchemaVersion ()I
+	public final fun getState ()Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;
+	public final fun getTag ()Ljava/lang/String;
+	public final fun getType ()Ljava/lang/String;
+	public final fun getUniqueKey ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderItemState : java/lang/Enum {
+	public static final field IN_FLIGHT Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;
+	public static final field PARKED Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;
+	public static final field PENDING Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig$Companion;
+	public static final field WORK_NAME_SUFFIX Ljava/lang/String;
+	public synthetic fun <init> (Ljava/lang/String;ZJJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;ZJJJLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun component3-UwyO8pc ()J
+	public final fun component4-UwyO8pc ()J
+	public final fun component5-UwyO8pc ()J
+	public final fun copy-dzcTWTo (Ljava/lang/String;ZJJJ)Lio/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig;
+	public static synthetic fun copy-dzcTWTo$default (Lio/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig;Ljava/lang/String;ZJJJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDrainBudget-UwyO8pc ()J
+	public final fun getEngineWait-UwyO8pc ()J
+	public final fun getInitialBackoff-UwyO8pc ()J
+	public final fun getRequiresNetwork ()Z
+	public final fun getUniqueWorkName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig$Companion {
+	public final fun getDEFAULT_DRAIN_BUDGET-UwyO8pc ()J
+	public final fun getDEFAULT_ENGINE_WAIT-UwyO8pc ()J
+	public final fun getDEFAULT_INITIAL_BACKOFF-UwyO8pc ()J
+	public final fun getMIN_INITIAL_BACKOFF-UwyO8pc ()J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeSchedulerKt {
+	public static final fun createWorkManagerWakeScheduler (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler;
+	public static synthetic fun createWorkManagerWakeScheduler$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/spi/ConstraintProvider {
+	public abstract fun getKey ()Ljava/lang/String;
+	public abstract fun getSatisfied ()Lkotlinx/coroutines/flow/StateFlow;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/spi/TransactionRunner {
+	public abstract fun inTransaction (Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/spi/TransactionRunner$Direct : io/github/jamal_wia/kmptoolkit/uploader/spi/TransactionRunner {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/spi/TransactionRunner$Direct;
+	public fun inTransaction (Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore {
+	public abstract fun clearAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun deleteById (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun deleteByTag (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getAllActive (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun getById (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun insertKeep (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun insertReplace (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun markInFlight (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun observeByType (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
+	public abstract fun park (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun recordFailure (Ljava/lang/String;IJLjava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun recordFailure$default (Lio/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore;Ljava/lang/String;IJLjava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore$DefaultImpls {
+	public static synthetic fun recordFailure$default (Lio/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore;Ljava/lang/String;IJLjava/lang/String;Ljava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler {
+	public abstract fun cancelWake ()V
+	public abstract fun scheduleWake ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler$NoOp : io/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler$NoOp;
+	public fun cancelWake ()V
+	public fun scheduleWake ()V
+}
+

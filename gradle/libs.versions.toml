@@ -14,14 +14,14 @@ coroutines = "1.11.0"
 serialization = "1.11.0"
 atomicfu = "0.33.0"
 
-# --- AndroidX (consumed by kmptoolkit-platform, -permission, -notification, -biometric, -outbox, sample) ---
+# --- AndroidX (consumed by kmptoolkit-platform, -permission, -notification, -biometric, -uploader, sample) ---
 coreKtx = "1.19.0"
 lifecycleRuntimeKtx = "2.11.0"
 activityCompose = "1.13.0"
 biometric = "1.2.0-alpha05"
 workRuntime = "2.11.2"
 
-# --- Persistence (kmptoolkit-outbox-sqldelight) ---
+# --- Persistence (kmptoolkit-uploader-sqldelight) ---
 sqldelight = "2.3.2"
 
 # --- Persistence (kmptoolkit-downloader, iOS-only integrity checks over SQLite-backed units) ---

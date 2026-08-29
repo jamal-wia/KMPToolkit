@@ -1,0 +1,129 @@
+-- The kmptoolkit-uploader queue table.
+--
+-- The table and its indices are prefixed `kmptoolkit_uploader_` rather than named `uploader_item`,
+-- because this schema can be created inside a database the consumer already owns (that is the
+-- whole point of a transactional uploader: the queue and the domain tables must share one
+-- transaction). An unprefixed name would collide with a table they wrote themselves.
+--
+-- Two columns carry the invariants that are easy to get wrong:
+--
+--   * `sequence` is the insertion order UploaderStore.getAllActive promises. It is not `created_at`:
+--     timestamps have millisecond resolution, so a burst of enqueues inside one millisecond would
+--     come back shuffled and the engine's FIFO channel heads with it. AUTOINCREMENT (rather than a
+--     bare INTEGER PRIMARY KEY) is deliberate — plain rowids are reused after a delete, so a row
+--     inserted after a wipe could land *before* a surviving one.
+--
+--   * `id` is the client-generated identity every write is addressed by, and it is UNIQUE rather
+--     than PRIMARY KEY so that `sequence` can own the rowid.
+CREATE TABLE kmptoolkit_uploader_item (
+    sequence        INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              TEXT    NOT NULL UNIQUE,
+    type            TEXT    NOT NULL,
+    payload         TEXT    NOT NULL,
+    schema_version  INTEGER NOT NULL,
+    unique_key      TEXT,
+    ordering_key    TEXT,
+    tag             TEXT,
+    state           TEXT    NOT NULL,
+    attempts        INTEGER NOT NULL,
+    next_run_at     INTEGER NOT NULL,
+    created_at      INTEGER NOT NULL,
+    last_error      TEXT,
+    lease_until     INTEGER NOT NULL DEFAULT 0
+);
+
+-- The dedup identity is (type, unique_key). Partial, so the index holds only keyed rows: a keyless
+-- enqueue must never conflict with anything, and there can be any number of them.
+CREATE UNIQUE INDEX kmptoolkit_uploader_item_identity
+    ON kmptoolkit_uploader_item(type, unique_key)
+    WHERE unique_key IS NOT NULL;
+
+-- getAllActive's access path: filter by state, read in sequence order.
+CREATE INDEX kmptoolkit_uploader_item_state
+    ON kmptoolkit_uploader_item(state, sequence);
+
+-- observeByType's access path.
+CREATE INDEX kmptoolkit_uploader_item_type
+    ON kmptoolkit_uploader_item(type, sequence);
+
+-- deleteByTag's access path — a logout wipe scans by tag alone.
+CREATE INDEX kmptoolkit_uploader_item_tag
+    ON kmptoolkit_uploader_item(tag);
+
+-- `sequence` is omitted so SQLite assigns the next one: every insert, including the one that
+-- supersedes an existing row, enters at the tail of the insertion sequence.
+insert:
+INSERT INTO kmptoolkit_uploader_item(
+    id, type, payload, schema_version, unique_key, ordering_key, tag,
+    state, attempts, next_run_at, created_at, last_error, lease_until
+)
+VALUES (:id, :type, :payload, :schemaVersion, :uniqueKey, :orderingKey, :tag,
+    :state, :attempts, :nextRunAt, :createdAt, :lastError, :leaseUntil);
+
+-- The KEEP policy's lookup: what, if anything, currently holds this identity.
+selectStateByIdentity:
+SELECT state FROM kmptoolkit_uploader_item
+WHERE type = :type AND unique_key = :uniqueKey
+LIMIT 1;
+
+-- Used by both policies to supersede the row holding an identity — always a delete plus an insert,
+-- never an in-place edit, so the replacement gets a fresh id, attempt count, gate, lease and
+-- sequence.
+deleteByIdentity:
+DELETE FROM kmptoolkit_uploader_item WHERE type = :type AND unique_key = :uniqueKey;
+
+-- Every PENDING and IN_FLIGHT row in insertion order. A row whose `state` string matches neither
+-- literal — a downgrade past a future state, or corruption — is excluded here rather than crashing
+-- the drain; it stays visible through selectByType.
+selectAllActive:
+SELECT * FROM kmptoolkit_uploader_item
+WHERE state IN ('PENDING', 'IN_FLIGHT')
+ORDER BY sequence ASC;
+
+selectById:
+SELECT * FROM kmptoolkit_uploader_item WHERE id = :id;
+
+-- The compare-and-set. One statement, five fields: the attempt count, the backoff gate, the error,
+-- the return to PENDING, and the cleared lease. A non-null :expectedLease makes the whole write
+-- conditional on the lease not having moved since the caller read it — that is what stops a stale
+-- failure report from a detached executor clearing a claim a second executor is working under.
+--
+-- Whether a row was actually written comes from the statement's own affected-row count, which
+-- SQLDelight returns. No RETURNING clause: it needs SQLite 3.35 and minSdk 24 ships 3.9.
+recordFailure:
+UPDATE kmptoolkit_uploader_item
+SET state = 'PENDING',
+    attempts = :attempts,
+    next_run_at = :nextRunAt,
+    last_error = :lastError,
+    lease_until = 0
+WHERE id = :id AND (:expectedLease IS NULL OR lease_until = :expectedLease);
+
+-- Hand the row to a detached executor. `attempts` is deliberately untouched: a hand-off is not a
+-- failure.
+markInFlight:
+UPDATE kmptoolkit_uploader_item
+SET state = 'IN_FLIGHT', lease_until = :leaseUntil
+WHERE id = :id;
+
+-- Out of rotation without being deleted. Clears the lease, leaves `attempts` alone.
+park:
+UPDATE kmptoolkit_uploader_item
+SET state = 'PARKED', last_error = :lastError, lease_until = 0
+WHERE id = :id;
+
+deleteById:
+DELETE FROM kmptoolkit_uploader_item WHERE id = :id;
+
+-- The logout wipe: every row carrying this exact tag, in every state. A NULL tag matches nothing,
+-- which is what `=` already gives us.
+deleteByTag:
+DELETE FROM kmptoolkit_uploader_item WHERE tag = :tag;
+
+-- Live view of one effect type in every state, insertion order — including PARKED, which is what a
+-- "failed to send" indicator binds to.
+selectByType:
+SELECT * FROM kmptoolkit_uploader_item WHERE type = :type ORDER BY sequence ASC;
+
+deleteAll:
+DELETE FROM kmptoolkit_uploader_item;

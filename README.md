@@ -5,7 +5,7 @@
 A collection of small, independent Kotlin Multiplatform libraries (Android + iOS) — coroutines
 dispatcher seams, haptics, audio record/playback, local scheduling, secure key-value storage,
 permissions, notifications, raw accelerometer readings, and a database-agnostic transactional
-outbox. Each module is published as its own artifact — take only what you need — and the whole
+uploader. Each module is published as its own artifact — take only what you need — and the whole
 suite is released together on a single version, so two KMPToolkit artifacts on one classpath can
 never come from different releases.
 
@@ -18,7 +18,7 @@ never come from different releases.
 ## Why small modules instead of one library
 
 Every artifact solves exactly one problem and depends on as few others as possible. You add
-`kmptoolkit-haptics` without pulling in an outbox engine, a notification system, or Compose. See
+`kmptoolkit-haptics` without pulling in an uploader engine, a notification system, or Compose. See
 [`docs/01-architecture.md`](docs/01-architecture.md) for the principles every module follows (no
 bundled DI framework, no hardcoded consumer identifiers, no user-facing text) and why.
 
@@ -46,9 +46,9 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-permission-testing` | `RecordingPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |
-| `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-outbox/01-overview.md) |
-| `kmptoolkit-outbox-testing` | `InMemoryOutboxStore`, `OutboxStoreContract`, `FakeOutbox`, for `testImplementation` | `outbox` | Available | [docs](docs/kmptoolkit-outbox/06-testing.md) |
-| `kmptoolkit-outbox-sqldelight` | SQLDelight-backed `OutboxStore`, the reference SPI implementation | `outbox` | Available | [docs](docs/kmptoolkit-outbox-sqldelight/01-overview.md) |
+| `kmptoolkit-uploader` | Transactional uploader engine (storage-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-uploader/01-overview.md) |
+| `kmptoolkit-uploader-testing` | `InMemoryUploaderStore`, `UploaderStoreContract`, `FakeUploader`, for `testImplementation` | `uploader` | Available | [docs](docs/kmptoolkit-uploader/06-testing.md) |
+| `kmptoolkit-uploader-sqldelight` | SQLDelight-backed `UploaderStore`, the reference SPI implementation | `uploader` | Available | [docs](docs/kmptoolkit-uploader-sqldelight/01-overview.md) |
 | `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates, service-enabled check | `logging` | Available | [docs](docs/kmptoolkit-location/01-overview.md) |
 | `kmptoolkit-location-testing` | `FakeLocationProvider`, for `testImplementation` | `location` | Available | [docs](docs/kmptoolkit-location/06-testing.md) |
 | `kmptoolkit-proximity` | Proximity sensor (`ProximitySensor` + `ProximityRule`) | — | Available | [docs](docs/kmptoolkit-proximity/01-overview.md) |

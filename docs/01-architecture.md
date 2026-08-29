@@ -98,7 +98,7 @@ bump.
 
 ## Test fixtures ship as separate `-testing` artifacts
 
-Where a module offers a test double — `InMemoryKeyValueStorage`, a fake outbox, a recording
+Where a module offers a test double — `InMemoryKeyValueStorage`, a fake uploader, a recording
 cleaner — that fixture lives in its own artifact (`kmptoolkit-storage-testing`), never in the
 production module:
 
@@ -145,8 +145,8 @@ in `CHANGELOG.md` under its own `Breaking` heading — see `CHANGELOG.md`'s own 
 
 ### One artifact leaks generated types, deliberately
 
-`kmptoolkit-outbox-sqldelight` publishes the types SQLDelight generates from its `.sq` file —
-`KmpToolkitOutboxDatabase`, its query object, and the row type. SQLDelight has no option to
+`kmptoolkit-uploader-sqldelight` publishes the types SQLDelight generates from its `.sq` file —
+`KmpToolkitUploaderDatabase`, its query object, and the row type. SQLDelight has no option to
 generate them `internal`, so they are in the ABI whether or not they are meant to be API.
 
 Two consequences a consumer should know, both stated in that module's `04-api-reference.md` rather
@@ -154,7 +154,7 @@ than hidden:
 
 - **A schema change is an ABI change**, and is versioned as one. In practice this is the honest
   outcome anyway: changing the table shape changes what a stored queue means.
-- **Nothing stops a consumer reaching past `OutboxStore` into the table directly.** Doing so
+- **Nothing stops a consumer reaching past `UploaderStore` into the table directly.** Doing so
   bypasses every invariant the store upholds — lease handling, the compare-and-set in
   `recordFailure`, ordering. It is unsupported, and the module says so; it cannot be prevented.
 
@@ -162,7 +162,7 @@ than hidden:
 
 Only two modules depend on Compose Multiplatform: `kmptoolkit-systembars` and
 `kmptoolkit-logging-overlay`. Every other module is plain Kotlin with no UI framework dependency —
-adding, say, `kmptoolkit-outbox` to a non-Compose (or non-UI) target never pulls in Compose.
+adding, say, `kmptoolkit-uploader` to a non-Compose (or non-UI) target never pulls in Compose.
 
 Apple targets are uniform across the suite: every module publishes `iosArm64` and
 `iosSimulatorArm64`, and none publishes `iosX64`. The legacy Intel simulator is superseded by

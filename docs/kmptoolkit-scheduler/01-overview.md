@@ -52,7 +52,7 @@ is out of scope, deliberately:
 - **Not a task runner or job scheduler.** It does not run background work, does not retry, has no
   constraints (network, charging, idle), and no notion of a job succeeding or failing. If you need
   "sync when there is Wi-Fi, eventually", you want `WorkManager` / `BGTaskScheduler`, not this.
-- **Not an outbox.** It carries no queue, no delivery guarantee, and no persistence. An alarm that
+- **Not an uploader.** It carries no queue, no delivery guarantee, and no persistence. An alarm that
   fires is delivered once to a handler that either does something or does not; nothing is retried
   and nothing is recorded.
 - **Not a repeating scheduler.** Every alarm is one-shot. There is no interval, no cron expression,

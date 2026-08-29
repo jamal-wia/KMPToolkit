@@ -35,6 +35,21 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Changed
 
+- **Breaking:** `kmptoolkit-outbox`, `kmptoolkit-outbox-testing`, and `kmptoolkit-outbox-sqldelight`
+  are renamed to `kmptoolkit-uploader`, `kmptoolkit-uploader-testing`, and
+  `kmptoolkit-uploader-sqldelight`. The package moves from
+  `io.github.jamal_wia.kmptoolkit.outbox` to `io.github.jamal_wia.kmptoolkit.uploader`, and every
+  public type is renamed to match — `Outbox` to `Uploader`, `OutboxItem` to `UploaderItem`,
+  `OutboxEngine` to `UploaderEngine`, `OutboxConfig` to `UploaderConfig`, `OutboxStore` to
+  `UploaderStore`, `OutboxHandler` to `UploaderHandler`, `OutboxClock` to `UploaderClock`,
+  `OutboxEngineRegistry` to `UploaderEngineRegistry`, `FakeOutbox` to `FakeUploader`,
+  `InMemoryOutboxStore` to `InMemoryUploaderStore`, `OutboxStoreContract` to
+  `UploaderStoreContract`, `SqlDelightOutboxStore` to `SqlDelightUploaderStore`, and the rest of
+  each module's API accordingly. `kmptoolkit-outbox-sqldelight`'s table and index names change from
+  `kmptoolkit_outbox_item*` to `kmptoolkit_uploader_item*` — an existing on-disk database's queue
+  table is not carried forward automatically; a consumer with data already committed under the old
+  name is responsible for migrating it. There is no compatibility alias for the old coordinates,
+  package, or type names.
 - **Breaking:** `createBiometricGate` and `createPermissionHandler` (Android) no longer take an
   `activityAccess: ActivityAccess` parameter, and `createSystemBarsController` (Android) takes a
   `context: Context` in its place. This follows from removing `kmptoolkit-platform`, above:

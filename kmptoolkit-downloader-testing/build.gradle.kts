@@ -28,7 +28,7 @@ kotlin {
             // api, not implementation: every fixture here implements a kmptoolkit-downloader
             // interface and names its types in public signatures.
             api(project(":kmptoolkit-downloader"))
-            // A main-source dependency on purpose, like :kmptoolkit-outbox-testing's clock and
+            // A main-source dependency on purpose, like :kmptoolkit-uploader-testing's clock and
             // wake-scheduler fixtures: TestDownloadDispatchers exists to be used from tests, and
             // the virtual-clock dispatcher it wraps is the whole point of shipping it.
             implementation(libs.kotlinx.coroutines.test)
