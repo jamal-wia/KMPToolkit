@@ -33,3 +33,4 @@ local.properties
 *.jks
 *.keystore
 secring.gpg
+/.idea/inspectionProfiles/Project_Default.xml
