@@ -1,10 +1,10 @@
 package io.github.jamal_wia.kmptoolkit.session
 
-import io.github.jamal_wia.kmptoolkit.coroutines.AppDispatchers
-import io.github.jamal_wia.kmptoolkit.coroutines.testing.TestAppDispatchers
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -12,6 +12,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -28,15 +29,16 @@ import kotlin.time.measureTime
 
 class SessionManagerTest {
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun TestScope.manager(
         cleaners: List<SessionCleaner> = emptyList(),
         revoker: SessionRevoker? = null,
-        dispatchers: AppDispatchers = TestAppDispatchers(testScheduler),
+        ioDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(testScheduler),
         cleanerTimeout: Duration = 5.seconds,
     ): SessionManager = createSessionManager(
         cleaners = cleaners,
         revoker = revoker,
-        dispatchers = dispatchers,
+        ioDispatcher = ioDispatcher,
         cleanerTimeout = cleanerTimeout,
         revokeTimeout = 10.seconds,
     )
@@ -277,7 +279,7 @@ class SessionManagerTest {
         // and uncancellable. Real dispatchers and real time, because the point is wall-clock cost.
         val manager: SessionManager = manager(
             cleaners = listOf(NonCooperativeCleaner(name = "stuck", duration = NON_COOPERATIVE_WORK)),
-            dispatchers = ParallelAppDispatchers(),
+            ioDispatcher = Dispatchers.Default,
             cleanerTimeout = SHORT_TIMEOUT,
         )
         manager.startSession()
@@ -307,7 +309,7 @@ class SessionManagerTest {
                 NonCooperativeCleaner(name = "stuck", duration = NON_COOPERATIVE_WORK),
                 healthy,
             ),
-            dispatchers = ParallelAppDispatchers(),
+            ioDispatcher = Dispatchers.Default,
             cleanerTimeout = SHORT_TIMEOUT,
         )
 
@@ -576,7 +578,7 @@ class SessionManagerTest {
         )
         val manager: SessionManager = manager(
             cleaners = listOf(cleaner),
-            dispatchers = ParallelAppDispatchers(),
+            ioDispatcher = Dispatchers.Default,
         )
         manager.startSession()
 
@@ -611,7 +613,7 @@ class SessionManagerTest {
         val cleaner = ThreadSafeCountingCleaner()
         val manager: SessionManager = manager(
             cleaners = listOf(cleaner),
-            dispatchers = ParallelAppDispatchers(),
+            ioDispatcher = Dispatchers.Default,
         )
         manager.startSession()
 

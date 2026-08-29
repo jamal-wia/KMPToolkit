@@ -20,8 +20,7 @@ kotlin {
 ```
 
 It is pure common Kotlin — no Android manifest entry, no `Info.plist` key, no permission, no
-platform initialization. It pulls in
-[`kmptoolkit-coroutines`](../kmptoolkit-coroutines/01-overview.md) and
+platform initialization. It pulls in `kotlinx-coroutines-core` and
 [`kmptoolkit-logging`](../kmptoolkit-logging/01-overview.md).
 
 ## 2. Write a cleaner per feature that holds per-account state
@@ -52,10 +51,12 @@ val sessionManager: SessionManager = createSessionManager(
         DownloadsSessionCleaner(downloads),
     ),
     revoker = SessionRevoker { authApi.revokeCurrentSession() }, // optional
-    dispatchers = appDispatchers,
     logger = loggerFactory.logger("Session"),                    // optional
 )
 ```
+
+Teardown dispatches to `Dispatchers.IO` unless you pass a different `ioDispatcher` — production
+code rarely needs to.
 
 There is no DI framework here and no global instance — construct it wherever you construct your
 other singletons. With Koin that is four lines:
@@ -63,7 +64,7 @@ other singletons. With Koin that is four lines:
 ```kotlin
 val sessionModule = module {
     single<SessionManager> {
-        createSessionManager(cleaners = getAll(), revoker = get(), dispatchers = get())
+        createSessionManager(cleaners = getAll(), revoker = get())
     }
 }
 ```

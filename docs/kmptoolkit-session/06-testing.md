@@ -6,7 +6,7 @@
 dependencies {
     implementation("io.github.jamal-wia:kmptoolkit-session")
     testImplementation("io.github.jamal-wia:kmptoolkit-session-testing")
-    testImplementation("io.github.jamal-wia:kmptoolkit-coroutines-testing") // for TestAppDispatchers
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:<version>") // for UnconfinedTestDispatcher
 }
 ```
 
@@ -39,7 +39,7 @@ fun `every registered cleaner runs on sign-out`() = runTest {
         RecordingSessionCleaner(name = "profile"),
         RecordingSessionCleaner(name = "downloads"),
     )
-    val manager = createSessionManager(cleaners, dispatchers = TestAppDispatchers(testScheduler))
+    val manager = createSessionManager(cleaners, ioDispatcher = UnconfinedTestDispatcher(testScheduler))
     manager.startSession()
 
     manager.endSession()
@@ -70,7 +70,7 @@ fun `cleaning twice leaves the chat database empty and does not throw`() = runTe
 ```kotlin
 @Test
 fun `signing out sends the user to the sign-in screen`() = runTest {
-    val manager = createSessionManager(emptyList(), dispatchers = TestAppDispatchers(testScheduler))
+    val manager = createSessionManager(emptyList(), ioDispatcher = UnconfinedTestDispatcher(testScheduler))
     val navigator = RecordingNavigator()
     SessionRouter(manager, navigator).start(backgroundScope)
     manager.startSession()
@@ -93,7 +93,7 @@ val broken = RecordingSessionCleaner(name = "db", onClean = { throw IllegalState
 val healthy = RecordingSessionCleaner(name = "cache")
 val manager = createSessionManager(
     cleaners = listOf(broken, healthy),
-    dispatchers = TestAppDispatchers(testScheduler),
+    ioDispatcher = UnconfinedTestDispatcher(testScheduler),
 )
 manager.startSession()
 
@@ -103,12 +103,12 @@ assertEquals(1, healthy.cleanCalls)                             // a failure nex
 assertEquals(listOf("db"), report.cleanerFailures.map { it.name })
 ```
 
-**A cleaner that hangs** — with a `TestAppDispatchers` the cleaner timeout elapses in virtual time,
-so this test is instant:
+**A cleaner that hangs** — with an `UnconfinedTestDispatcher` the cleaner timeout elapses in virtual
+time, so this test is instant:
 
 ```kotlin
 val stuck = RecordingSessionCleaner(name = "db", onClean = { delay(Long.MAX_VALUE) })
-val manager = createSessionManager(listOf(stuck), dispatchers = TestAppDispatchers(testScheduler))
+val manager = createSessionManager(listOf(stuck), ioDispatcher = UnconfinedTestDispatcher(testScheduler))
 manager.startSession()
 
 val report = manager.endSession()
@@ -121,7 +121,7 @@ backend:
 
 ```kotlin
 val revoker = RecordingSessionRevoker(onRevoke = { throw IOException("offline") })
-val manager = createSessionManager(cleaners, revoker, TestAppDispatchers(testScheduler))
+val manager = createSessionManager(cleaners, revoker, UnconfinedTestDispatcher(testScheduler))
 manager.startSession()
 
 val report = manager.endSession()
@@ -139,7 +139,7 @@ val stuck = object : SessionCleaner {
     override val name = "db"
     override suspend fun clean() = withContext(NonCancellable) { delay(600.milliseconds) }
 }
-val manager = createSessionManager(listOf(stuck), dispatchers = realDispatchers, cleanerTimeout = 50.milliseconds)
+val manager = createSessionManager(listOf(stuck), ioDispatcher = Dispatchers.Default, cleanerTimeout = 50.milliseconds)
 manager.startSession()
 
 val elapsed = measureTime { manager.endSession() }

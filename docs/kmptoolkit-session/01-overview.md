@@ -7,7 +7,6 @@ app to be told — and to clean up — when it ends.
 val sessionManager: SessionManager = createSessionManager(
     cleaners = listOf(profileCleaner, chatCleaner, downloadsCleaner),
     revoker = SessionRevoker { authApi.revoke() },
-    dispatchers = dispatchers,
 )
 
 sessionManager.startSession()            // after a successful sign-in
@@ -77,8 +76,7 @@ The scope above is the whole scope, and the neighbouring problems are deliberate
 
 ## Dependencies
 
-`kotlinx-coroutines-core`, [`kmptoolkit-coroutines`](../kmptoolkit-coroutines/01-overview.md) (the
-`AppDispatchers` seam teardown runs on) and
+`kotlinx-coroutines-core` (teardown dispatches to a `CoroutineDispatcher`) and
 [`kmptoolkit-logging`](../kmptoolkit-logging/01-overview.md) (optional, defaults to `NoopLogger`).
 No DI framework, no Compose, no platform code at all — the module is pure common Kotlin, identical
 on Android and iOS.

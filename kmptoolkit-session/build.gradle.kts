@@ -26,15 +26,13 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             // api, not implementation: SessionManager.state is a StateFlow and createSessionManager
-            // takes an AppDispatchers, so both types are part of this module's own public API.
+            // takes a CoroutineDispatcher, so both types are part of this module's own public API.
             api(libs.kotlinx.coroutines.core)
-            api(project(":kmptoolkit-coroutines"))
             // api as well: createSessionManager takes a Logger.
             api(project(":kmptoolkit-logging"))
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
-            implementation(project(":kmptoolkit-coroutines-testing"))
             // No dependency on :kmptoolkit-session-testing — that module depends on this one, so
             // the reverse edge would be a project cycle. This module's tests declare their own
             // local fakes; the published fixtures are covered by that module's own tests.

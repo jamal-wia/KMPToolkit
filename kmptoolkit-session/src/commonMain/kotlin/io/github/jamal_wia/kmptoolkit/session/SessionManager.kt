@@ -1,8 +1,10 @@
 package io.github.jamal_wia.kmptoolkit.session
 
-import io.github.jamal_wia.kmptoolkit.coroutines.AppDispatchers
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -99,9 +101,9 @@ public interface SessionManager {
  *   state flip.
  * @param revoker optional server-side revocation hook, run before the cleaners. `null` — the
  *   default — means teardown is entirely local.
- * @param dispatchers where teardown runs. Cleaners wipe databases and caches, which does not belong
- *   on the main thread, so the whole teardown is dispatched to [AppDispatchers.io]. Substitute
- *   `TestAppDispatchers` from `kmptoolkit-coroutines-testing` in tests.
+ * @param ioDispatcher where teardown runs. Cleaners wipe databases and caches, which does not belong
+ *   on the main thread, so the whole teardown is dispatched to [ioDispatcher]. Defaults to
+ *   [Dispatchers.IO]; substitute a `TestDispatcher` from `kotlinx-coroutines-test` in tests.
  * @param logger where teardown progress and failures are reported. Defaults to [NoopLogger] — the
  *   [SessionEndReport] carries the same failures either way.
  * @param cleanerTimeout upper bound on a single cleaner. Cleaners are fast local wipes; this only
@@ -114,14 +116,14 @@ public interface SessionManager {
 public fun createSessionManager(
     cleaners: List<SessionCleaner>,
     revoker: SessionRevoker? = null,
-    dispatchers: AppDispatchers,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     logger: Logger = NoopLogger,
     cleanerTimeout: Duration = 5.seconds,
     revokeTimeout: Duration = 10.seconds,
 ): SessionManager = DefaultSessionManager(
     cleaners = cleaners.toList(),
     revoker = revoker,
-    dispatchers = dispatchers,
+    ioDispatcher = ioDispatcher,
     logger = logger,
     cleanerTimeout = cleanerTimeout,
     revokeTimeout = revokeTimeout,

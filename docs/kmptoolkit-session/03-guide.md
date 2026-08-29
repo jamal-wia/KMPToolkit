@@ -120,7 +120,6 @@ cleaners, because it usually needs the credentials the cleaners are about to del
 val manager = createSessionManager(
     cleaners = cleaners,
     revoker = SessionRevoker { authApi.revokeCurrentSession() },
-    dispatchers = dispatchers,
 )
 ```
 
@@ -175,9 +174,10 @@ session — the final state is `ACTIVE`, which is what the user just asked for.
 
 ## Threading
 
-Teardown runs on `AppDispatchers.io`: cleaners wipe databases and caches, which has no business on
-the main thread. The `state` flow is a plain `StateFlow` and is safe to collect from anywhere; if
-you react to it by navigating, collect it wherever your app already does main-thread work.
+Teardown runs on `ioDispatcher`, which defaults to `Dispatchers.IO`: cleaners wipe databases and
+caches, which has no business on the main thread. The `state` flow is a plain `StateFlow` and is
+safe to collect from anywhere; if you react to it by navigating, collect it wherever your app
+already does main-thread work.
 
 Everything else is thread-safe by construction — one mutex serializes `startSession` and
 `endSession`, so concurrent callers on different threads cannot produce two teardowns of one session.

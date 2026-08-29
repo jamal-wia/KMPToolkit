@@ -57,8 +57,5 @@ kotlin {
         // reverse edge would be a project cycle. The tests here use their own store fixture, which
         // is deliberate beyond the cycle: two independent OutboxStore implementations (this one and
         // InMemoryOutboxStore) cross-check the SPI contract instead of one confirming itself.
-        //
-        // No :kmptoolkit-coroutines either: the engine takes the CoroutineScope it runs on, so it
-        // never names a dispatcher and has nothing to abstract behind AppDispatchers.
     }
 }

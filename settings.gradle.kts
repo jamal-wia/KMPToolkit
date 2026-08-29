@@ -33,8 +33,6 @@ rootProject.name = "KMPToolkit"
 
 // Published library modules, added one at a time as they are ported. The full roadmap of planned
 // modules lives in the root README's module table.
-include(":kmptoolkit-coroutines")
-include(":kmptoolkit-coroutines-testing")
 include(":kmptoolkit-logging")
 include(":kmptoolkit-logging-overlay")
 include(":kmptoolkit-audio-player")

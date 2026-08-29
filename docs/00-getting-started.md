@@ -26,7 +26,7 @@ With the BOM in place, module coordinates don't need an explicit version:
 ```kotlin
 dependencies {
     implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-    implementation("io.github.jamal-wia:kmptoolkit-coroutines")
+    implementation("io.github.jamal-wia:kmptoolkit-logging")
 }
 ```
 
@@ -36,18 +36,22 @@ pulls those in transitively; you don't need to list them yourself.
 
 ## 3. A working example
 
-`kmptoolkit-coroutines` is the smallest module and a good first integration check:
+`kmptoolkit-logging` is the smallest module — no other `kmptoolkit-*` module, no coroutines, no
+third-party logger — and a good first integration check:
 
 ```kotlin
-import io.github.jamal_wia.kmptoolkit.coroutines.AppDispatchers
-import io.github.jamal_wia.kmptoolkit.coroutines.DefaultAppDispatchers
+import io.github.jamal_wia.kmptoolkit.logging.LoggerFactory
+import io.github.jamal_wia.kmptoolkit.logging.createLoggerFactory
+import io.github.jamal_wia.kmptoolkit.logging.i
 
 class UserRepository(
-    private val dispatchers: AppDispatchers = DefaultAppDispatchers(),
+    loggerFactory: LoggerFactory = createLoggerFactory(),
 ) {
-    suspend fun loadUsers(): List<User> = withContext(dispatchers.io) {
-        // network / disk work here
-        emptyList()
+    private val log = loggerFactory.logger("UserRepository")
+
+    suspend fun loadUsers(): List<User> {
+        log.i { "loading users" }
+        return emptyList()
     }
 }
 ```
@@ -62,7 +66,7 @@ correctly and you're ready to add other modules.
   follows and that shape how you'll use them.
 - [`02-platform-setup.md`](02-platform-setup.md) — if the module you're adding needs a platform
   permission or manifest entry.
-- The module's own `docs/<module>/02-getting-started.md` for anything beyond `kmptoolkit-coroutines`.
+- The module's own `docs/<module>/02-getting-started.md` for anything beyond `kmptoolkit-logging`.
 
 ## Troubleshooting a version that won't resolve
 

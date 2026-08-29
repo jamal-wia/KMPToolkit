@@ -16,8 +16,8 @@ import org.gradle.kotlin.dsl.create
  *
  * ```
  * kmptoolkitPublish {
- *     pomName.set("KMPToolkit Coroutines")
- *     pomDescription.set("Pick this module if you need a testable dispatcher seam ...")
+ *     pomName.set("KMPToolkit Logging")
+ *     pomDescription.set("Pick this module if you need a testable logging seam ...")
  * }
  * ```
  */
@@ -34,7 +34,7 @@ interface KmptoolkitPublishExtension {
  *
  * `coordinates()` uses `project.name` as the artifactId rather than a hardcoded string: every
  * kmptoolkit-* module's Gradle project name already *is* its artifactId
- * (`:kmptoolkit-coroutines` → `kmptoolkit-coroutines`), so restating it would only invite the two
+ * (`:kmptoolkit-logging` → `kmptoolkit-logging`), so restating it would only invite the two
  * to drift apart.
  *
  * Signing is conditional so a contributor without a GPG key can still build and run

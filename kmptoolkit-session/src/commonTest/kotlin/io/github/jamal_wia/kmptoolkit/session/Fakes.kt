@@ -1,9 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.session
 
-import io.github.jamal_wia.kmptoolkit.coroutines.AppDispatchers
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -115,16 +112,4 @@ internal class NonCooperativeCleaner(
     override suspend fun clean() {
         withContext(NonCancellable) { delay(duration) }
     }
-}
-
-/**
- * Real multi-threaded dispatchers for the parallelism tests.
- *
- * `DefaultAppDispatchers` is unusable here: it initializes `main` from `Dispatchers.Main`, which
- * has no implementation in a plain JVM or Native test process.
- */
-internal class ParallelAppDispatchers : AppDispatchers {
-    override val io: CoroutineDispatcher = Dispatchers.Default
-    override val main: CoroutineDispatcher = Dispatchers.Default
-    override val default: CoroutineDispatcher = Dispatchers.Default
 }

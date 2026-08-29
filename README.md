@@ -27,8 +27,6 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | Artifact | What it solves | Depends on | Status | Docs |
 |---|---|---|---|---|
 | `kmptoolkit-bom` | Pins every artifact below to one version — import this first | — | Available | [install](#installation) |
-| `kmptoolkit-coroutines` | Testable dispatcher seam (`AppDispatchers`) | — | Available | [docs](docs/kmptoolkit-coroutines/01-overview.md) |
-| `kmptoolkit-coroutines-testing` | `TestAppDispatchers` double, for `testImplementation` | `coroutines` | Available | [docs](docs/kmptoolkit-coroutines/06-testing.md) |
 | `kmptoolkit-logging` | Minimal tag/level logging interface + pluggable sinks, zero dependencies | — | Available | [docs](docs/kmptoolkit-logging/01-overview.md) |
 | `kmptoolkit-haptics` | Haptic feedback, with the outcome reported rather than thrown | — | Available | [docs](docs/kmptoolkit-haptics/01-overview.md) |
 | `kmptoolkit-haptics-testing` | `RecordingHapticFeedback` double, for `testImplementation` | `haptics` | Available | [docs](docs/kmptoolkit-haptics/06-testing.md) |
@@ -50,7 +48,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-permission-testing` | `RecordingPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |
-| `kmptoolkit-session` | Session lifecycle and teardown fan-out | `coroutines`, `logging` | Available | [docs](docs/kmptoolkit-session/01-overview.md) |
+| `kmptoolkit-session` | Session lifecycle and teardown fan-out | `logging` | Available | [docs](docs/kmptoolkit-session/01-overview.md) |
 | `kmptoolkit-session-testing` | Recording cleaner and revoker, for `testImplementation` | `session` | Available | [docs](docs/kmptoolkit-session/06-testing.md) |
 | `kmptoolkit-settings` | Font scale, theme mode, app language | `storage` | Available | [docs](docs/kmptoolkit-settings/01-overview.md) |
 | `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-outbox/01-overview.md) |
@@ -77,7 +75,7 @@ Add the BOM to align every module on one version, then pull in only what you use
 ```kotlin
 dependencies {
     implementation(platform("io.github.jamal-wia:kmptoolkit-bom:<version>"))
-    implementation("io.github.jamal-wia:kmptoolkit-coroutines")
+    implementation("io.github.jamal-wia:kmptoolkit-logging")
 }
 ```
 
@@ -88,17 +86,17 @@ dependencies {
 ## Quick start
 
 ```kotlin
-class UserRepository(private val dispatchers: AppDispatchers) {
-    suspend fun loadUsers(): List<User> = withContext(dispatchers.io) {
-        // ...
+class UserRepository(private val loggerFactory: LoggerFactory) {
+    private val log = loggerFactory.logger("UserRepository")
+
+    suspend fun loadUsers(): List<User> {
+        log.i { "loading users" }
+        return emptyList()
     }
 }
 
 // production
-val repository = UserRepository(DefaultAppDispatchers())
-// tests — no real threads, no Dispatchers.setMain()
-// TestAppDispatchers comes from kmptoolkit-coroutines-testing, added as testImplementation
-val repository = UserRepository(TestAppDispatchers())
+val repository = UserRepository(createLoggerFactory())
 ```
 
 See [`docs/00-getting-started.md`](docs/00-getting-started.md) for a from-scratch walkthrough, and
