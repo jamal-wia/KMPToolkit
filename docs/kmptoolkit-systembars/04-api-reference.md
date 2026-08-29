@@ -193,15 +193,14 @@ a dialog window it does nothing. No-op on iOS.
 
 ```kotlin
 public fun createSystemBarsController(
-    activityAccess: ActivityAccess,
+    context: Context,
     initialConfig: SystemBarsConfig = SystemBarsConfig(),
 ): SystemBarsController
 ```
 
-`activityAccess` comes from [`kmptoolkit-platform`](../kmptoolkit-platform/01-overview.md)'s
-`createActivityTracker(application)`. It takes the tracker rather than an `Activity` because the
-window changes identity on every configuration change; the controller re-applies itself to each new
-one automatically.
+`context`'s application context is retained to track the currently resumed activity, rather than
+taking an `Activity` directly, because the window changes identity on every configuration change;
+the controller re-applies itself to each new one automatically.
 
 ### iOS
 

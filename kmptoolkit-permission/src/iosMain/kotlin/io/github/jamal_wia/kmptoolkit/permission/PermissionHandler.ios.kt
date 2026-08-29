@@ -85,7 +85,7 @@ private class IosPermissionHandler(private val logger: Logger) : PermissionHandl
         }
         // UIApplication is main-thread-only, and this may well be called from a background
         // coroutine, so the open is dispatched rather than attempted in place. `true` therefore
-        // means "handed to UIKit", matching kmptoolkit-platform's UrlOpener.
+        // means "handed to UIKit", not "the settings screen actually opened".
         dispatch_async(dispatch_get_main_queue()) {
             application.openURL(url, options = emptyMap<Any?, Any?>(), completionHandler = null)
         }

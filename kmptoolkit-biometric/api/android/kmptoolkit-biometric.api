@@ -44,8 +44,8 @@ public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig 
 }
 
 public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGate_androidKt {
-	public static final fun createBiometricGate (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
-	public static synthetic fun createBiometricGate$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
+	public static final fun createBiometricGate (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
+	public static synthetic fun createBiometricGate$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy : java/lang/Enum {

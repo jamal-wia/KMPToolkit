@@ -31,8 +31,8 @@ dependencies {
 ```
 
 Check the root README's module table for what each artifact depends on — a module with
-dependencies (e.g. `kmptoolkit-permission` needs `kmptoolkit-platform` and `kmptoolkit-storage`)
-pulls those in transitively; you don't need to list them yourself.
+dependencies (e.g. `kmptoolkit-permission` needs `kmptoolkit-storage`) pulls those in
+transitively; you don't need to list them yourself.
 
 ## 3. A working example
 

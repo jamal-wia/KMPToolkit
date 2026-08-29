@@ -33,8 +33,8 @@ Getting this wrong fails differently on each platform, and both failures are con
 ### Where the status comes from
 
 `Context.checkSelfPermission` for granted, `Activity.shouldShowRequestPermissionRationale` (reached
-through `kmptoolkit-platform`'s `ActivityAccess`, per call, never retained) for the rationale hint,
-and one persisted flag for the rest.
+through the module's own internally tracked activity, per call, never retained) for the rationale
+hint, and one persisted flag for the rest.
 
 ### The asked flag
 

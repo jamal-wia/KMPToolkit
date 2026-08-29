@@ -35,9 +35,8 @@ Putting a biometric check in front of a screen is a small feature with a long ta
 
 - **Android's prompt is a fragment.** It needs a resumed `FragmentActivity`, so shared code cannot
   show it without a way to reach one — and the obvious way (a static holder) leaks a destroyed
-  activity. This module reaches one through `ActivityAccess` from
-  [`kmptoolkit-platform`](../kmptoolkit-platform/01-overview.md), which cannot be made to hold an
-  activity beyond a callback.
+  activity. This module tracks one internally, weakly held and cleared on every pause or destroy,
+  so it cannot be made to hold an activity beyond a callback.
 - **Android's failure vocabulary is wide and shaped nothing like iOS's.** Twelve error codes, two
   distinct lockouts, a "security update required" state, and an availability query with its own
   separate set of statuses.

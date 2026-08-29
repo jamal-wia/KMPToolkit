@@ -52,8 +52,8 @@ public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsControlle
 }
 
 public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsController_androidKt {
-	public static final fun createSystemBarsController (Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
-	public static synthetic fun createSystemBarsController$default (Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
+	public static final fun createSystemBarsController (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
+	public static synthetic fun createSystemBarsController$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsEffectKt {

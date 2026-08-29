@@ -21,9 +21,28 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   suite. `SessionManager`, `SessionCleaner`, `SessionRevoker`, and the rest of the module's public
   API are gone, along with the `RecordingSessionCleaner`/`RecordingSessionRevoker` test doubles;
   no other module in the suite depended on either artifact.
+- **Breaking:** `kmptoolkit-settings` is no longer part of the suite. `AppSettings`, `FontScale`,
+  `ThemeMode`, `LanguageTag`, `LanguageApplier`, and the rest of the module's public API are gone.
+  It was the one module that prescribed *what settings an app should have* instead of exposing a
+  platform capability, and it had no dependents inside the suite.
+- **Breaking:** `kmptoolkit-platform` and `kmptoolkit-platform-testing` are no longer part of the
+  suite: `ConnectivityObserver`, `DeviceInfo`, `FilePicker`, `ScreenWakeLock`, `CrashLogStore`,
+  `UrlOpener`, `ReducedMotionProbe`, and the public `ActivityAccess`/`ActivitySubscription`/
+  `createActivityTracker` API are all gone, along with every fake in `kmptoolkit-platform-testing`.
+  Nothing in the suite used the capabilities beyond `ActivityAccess`; that one is now a private
+  implementation detail duplicated inside each of its three consumers instead — see the `Changed`
+  entry below.
 
 ### Changed
 
+- **Breaking:** `createBiometricGate` and `createPermissionHandler` (Android) no longer take an
+  `activityAccess: ActivityAccess` parameter, and `createSystemBarsController` (Android) takes a
+  `context: Context` in its place. This follows from removing `kmptoolkit-platform`, above:
+  `ActivityAccess` could no longer be a type the three modules share, so each now tracks the
+  currently resumed activity with its own private, weakly-held tracker instead of the caller
+  building one with `createActivityTracker(application)` and passing it to all three. A consumer
+  using all three modules now gets three `Application.ActivityLifecycleCallbacks` registrations
+  instead of one, which is harmless but was worth naming.
 - Every module now publishes exactly two Apple targets, `iosArm64` and `iosSimulatorArm64`. The
   legacy Intel-simulator target `iosX64` is no longer declared anywhere: it is superseded by
   `iosSimulatorArm64` on Apple-silicon Macs, Compose Multiplatform 1.11+ publishes no artifact for

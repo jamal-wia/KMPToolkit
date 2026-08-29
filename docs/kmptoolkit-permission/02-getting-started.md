@@ -19,9 +19,9 @@ kotlin {
 }
 ```
 
-The Android side additionally pulls in `kmptoolkit-platform` (for `ActivityAccess`) and
-`kmptoolkit-storage` (for the one flag per permission that Android's own API cannot report). Both
-arrive transitively; you only name them if you construct them yourself, which the next step does.
+The Android side additionally pulls in `kmptoolkit-storage`, for the one flag per permission that
+Android's own API cannot report. It arrives transitively; you only name it if you construct it
+yourself, which the next step does.
 
 ## 2. Declare the permission — in **your** manifest and **your** `Info.plist`
 
@@ -70,15 +70,11 @@ class MainActivity : ComponentActivity(), PermissionRequestHost {
 ```kotlin
 class MyApplication : Application() {
 
-    lateinit var activityAccess: ActivityAccess
-        private set
-
     lateinit var storage: KeyValueStorage
         private set
 
     override fun onCreate() {
         super.onCreate()
-        activityAccess = createActivityTracker(this)
         storage = createKeyValueStorage(this)
     }
 }
@@ -87,7 +83,6 @@ class MyApplication : Application() {
 val handler: PermissionHandler = createPermissionHandler(
     context = this,
     host = this,
-    activityAccess = app.activityAccess,
     storage = app.storage,
 )
 ```

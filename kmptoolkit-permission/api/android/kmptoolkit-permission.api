@@ -72,8 +72,8 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/permission/Permis
 }
 
 public final class io/github/jamal_wia/kmptoolkit/permission/PermissionHandler_androidKt {
-	public static final fun createPermissionHandler (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost;Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Lio/github/jamal_wia/kmptoolkit/permission/PermissionConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;
-	public static synthetic fun createPermissionHandler$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost;Lio/github/jamal_wia/kmptoolkit/platform/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Lio/github/jamal_wia/kmptoolkit/permission/PermissionConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;
+	public static final fun createPermissionHandler (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost;Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Lio/github/jamal_wia/kmptoolkit/permission/PermissionConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;
+	public static synthetic fun createPermissionHandler$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost;Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Lio/github/jamal_wia/kmptoolkit/permission/PermissionConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/permission/PermissionRequestFlow {

@@ -4,10 +4,10 @@
 
 A collection of small, independent Kotlin Multiplatform libraries (Android + iOS) — coroutines
 dispatcher seams, haptics, audio record/playback, local scheduling, secure key-value storage,
-platform utilities, permissions, notifications, settings, raw accelerometer readings, and a
-database-agnostic transactional outbox. Each module is published as its own
-artifact — take only what you need — and the whole suite is released together on a single version,
-so two KMPToolkit artifacts on one classpath can never come from different releases.
+permissions, notifications, raw accelerometer readings, and a database-agnostic transactional
+outbox. Each module is published as its own artifact — take only what you need — and the whole
+suite is released together on a single version, so two KMPToolkit artifacts on one classpath can
+never come from different releases.
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.jamal-wia/kmptoolkit-bom)](https://central.sonatype.com/namespace/io.github.jamal-wia)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -40,15 +40,12 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
 | `kmptoolkit-storage` | Key-value storage, plain and encrypted, plus a stable device id | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
 | `kmptoolkit-storage-testing` | `InMemoryKeyValueStorage`, for `testImplementation` | `storage` | Available | [docs](docs/kmptoolkit-storage/06-testing.md) |
-| `kmptoolkit-platform` | Connectivity, device info, file picker, wake lock, crash log | `logging` | Available | [docs](docs/kmptoolkit-platform/01-overview.md) |
-| `kmptoolkit-platform-testing` | Fakes for the platform seams, for `testImplementation` | `platform` | Available | [docs](docs/kmptoolkit-platform/06-testing.md) |
-| `kmptoolkit-biometric` | Biometric gate with typed outcomes; prompt copy is yours | `platform` | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
+| `kmptoolkit-biometric` | Biometric gate with typed outcomes; prompt copy is yours | — | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-biometric-testing` | `ScriptedBiometricGate`, for `testImplementation` | `biometric` | Available | [docs](docs/kmptoolkit-biometric/06-testing.md) |
-| `kmptoolkit-permission` | Runtime permission request flow | `platform`, `storage` | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
+| `kmptoolkit-permission` | Runtime permission request flow | `storage` | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-permission-testing` | `RecordingPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |
-| `kmptoolkit-settings` | Font scale, theme mode, app language | `storage` | Available | [docs](docs/kmptoolkit-settings/01-overview.md) |
 | `kmptoolkit-outbox` | Transactional outbox engine (storage-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-outbox/01-overview.md) |
 | `kmptoolkit-outbox-testing` | `InMemoryOutboxStore`, `OutboxStoreContract`, `FakeOutbox`, for `testImplementation` | `outbox` | Available | [docs](docs/kmptoolkit-outbox/06-testing.md) |
 | `kmptoolkit-outbox-sqldelight` | SQLDelight-backed `OutboxStore`, the reference SPI implementation | `outbox` | Available | [docs](docs/kmptoolkit-outbox-sqldelight/01-overview.md) |
@@ -58,7 +55,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-proximity-testing` | `FakeProximitySensor` double, for `testImplementation` | `proximity` | Available | [docs](docs/kmptoolkit-proximity/06-testing.md) |
 | `kmptoolkit-downloader` | Resumable background-download engine (transfer-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-downloader/01-overview.md) |
 | `kmptoolkit-downloader-testing` | `FakeDownloader`, `FakeDownloaderStorage`, for `testImplementation` | `downloader` | Available | [docs](docs/kmptoolkit-downloader/06-testing.md) |
-| `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | `platform` | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
+| `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | — | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow`, m/s² on both platforms | — | Available | [docs](docs/kmptoolkit-accelerometer/01-overview.md) |
 | `kmptoolkit-accelerometer-testing` | `ScriptedAccelerometer` double, for `testImplementation` | `accelerometer` | Available | [docs](docs/kmptoolkit-accelerometer/06-testing.md) |

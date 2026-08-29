@@ -167,7 +167,6 @@ optimistically would build a retry loop that never terminates).
 // androidMain
 public fun createBiometricGate(
     context: Context,
-    activityAccess: ActivityAccess,
     config: BiometricGateConfig = BiometricGateConfig(),
 ): BiometricGate
 
@@ -179,9 +178,9 @@ public fun createBiometricGate(
 
 Two signatures rather than one `expect fun`, per
 [`docs/01-architecture.md`](../01-architecture.md#platform-factories-not-expect-fun): Android needs a
-`Context` for `BiometricManager` and an `ActivityAccess` to host the prompt fragment; iOS needs
-neither.
+`Context` for `BiometricManager` and for tracking the activity that hosts the prompt fragment; iOS
+needs neither.
 
-- `context` — any `Context`; only its application context is retained.
-- `activityAccess` — from `kmptoolkit-platform`'s `createActivityTracker(application)`. When no
-  resumed `FragmentActivity` is available, `authenticate` returns `BiometricResult.NoPromptHost`.
+- `context` — any `Context`; its application context is retained both for `BiometricManager` and to
+  track the currently resumed activity. When no resumed `FragmentActivity` is available,
+  `authenticate` returns `BiometricResult.NoPromptHost`.

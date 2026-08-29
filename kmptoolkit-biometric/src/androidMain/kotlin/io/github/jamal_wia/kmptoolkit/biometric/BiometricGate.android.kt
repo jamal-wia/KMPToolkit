@@ -1,8 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.biometric
 
+import android.app.Application
 import android.content.Context
 import androidx.biometric.BiometricManager
-import io.github.jamal_wia.kmptoolkit.platform.activity.ActivityAccess
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
@@ -12,13 +12,11 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * Build it once — in your `Application`, or wherever you assemble dependencies — and pass the
  * resulting [BiometricGate] into shared code.
  *
- * @param context any `Context`; only its application context is retained, and only to query
- *   `BiometricManager` for [BiometricGate.availability]. Passing an `Activity` here is harmless —
- *   nothing keeps a reference to it.
- * @param activityAccess how the prompt finds an activity to attach itself to. Android's biometric
- *   prompt is a fragment, so it needs a resumed `FragmentActivity`; `ActivityAccess` from
- *   `kmptoolkit-platform` is the supported way to reach one without a static holder that would leak
- *   it. When no such activity is resumed, [BiometricGate.authenticate] returns
+ * @param context any `Context`; its application context is retained to query `BiometricManager`
+ *   for [BiometricGate.availability] and to track the currently resumed activity, which the
+ *   prompt needs to attach itself to — Android's biometric prompt is a fragment, so it needs a
+ *   resumed `FragmentActivity`. Passing an `Activity` here is harmless — nothing keeps a reference
+ *   to it. When no such activity is resumed, [BiometricGate.authenticate] returns
  *   [BiometricResult.NoPromptHost] rather than throwing.
  * @param config which credentials count and whether passive biometrics need a confirming tap; see
  *   [BiometricGateConfig].
@@ -29,10 +27,11 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  */
 public fun createBiometricGate(
     context: Context,
-    activityAccess: ActivityAccess,
     config: BiometricGateConfig = BiometricGateConfig(),
 ): BiometricGate {
-    val manager: BiometricManager = BiometricManager.from(context.applicationContext)
+    val applicationContext: Context = context.applicationContext
+    val manager: BiometricManager = BiometricManager.from(applicationContext)
+    val activityAccess: ActivityAccess = createActivityTracker(applicationContext as Application)
     return AndroidBiometricGate(
         status = BiometricStatusPort { allowed -> manager.canAuthenticate(allowed) },
         prompt = ActivityBiometricPromptPort(activityAccess, config),

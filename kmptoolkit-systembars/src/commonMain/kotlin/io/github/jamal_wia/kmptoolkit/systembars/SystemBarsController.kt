@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * The single owner of the status bar and navigation bar for one app process.
  *
- * Create one — `createSystemBarsController(activityAccess)` on Android,
+ * Create one — `createSystemBarsController(context)` on Android,
  * `createSystemBarsController()` on iOS — hold it for as long as the UI lives, and pass it to
  * whoever needs it. Nothing here is global: two controllers driving the same window would fight,
  * which is the exact failure this module exists to prevent.

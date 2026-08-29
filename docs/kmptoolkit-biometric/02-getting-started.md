@@ -19,8 +19,8 @@ kotlin {
 The version is whatever `kmptoolkit.version` says in this repository's `gradle.properties`; with
 the BOM, omit it.
 
-On Android the module brings `androidx.biometric` and `kmptoolkit-platform` with it. It declares no
-permission of its own — `androidx.biometric` contributes three install-time ones, listed in
+On Android the module brings `androidx.biometric` with it. It declares no permission of its own —
+`androidx.biometric` contributes three install-time ones, listed in
 [`05-platform-notes.md`](05-platform-notes.md).
 
 ## 2. Depend on the interface in shared code
@@ -54,26 +54,23 @@ name a `createBiometricGate`.
 ```kotlin
 class App : Application() {
 
-    lateinit var activityAccess: ActivityAccess
-        private set
     lateinit var biometricGate: BiometricGate
         private set
 
     override fun onCreate() {
         super.onCreate()
-        activityAccess = createActivityTracker(this)
-        biometricGate = createBiometricGate(this, activityAccess)
+        biometricGate = createBiometricGate(this)
     }
 }
 ```
 
-Two things to get right, both of which fail quietly rather than loudly:
+One thing to get right, and it fails quietly rather than loudly: **the activity that hosts the
+prompt must be a `FragmentActivity`.** `ComponentActivity` and `AppCompatActivity` both are; a bare
+`Activity` is not, and every `authenticate` from it returns `BiometricResult.NoPromptHost`.
 
-- **The activity that hosts the prompt must be a `FragmentActivity`.** `ComponentActivity` and
-  `AppCompatActivity` both are; a bare `Activity` is not, and every `authenticate` from it returns
-  `BiometricResult.NoPromptHost`.
-- **Reuse one `ActivityAccess` for the whole process.** Creating a second tracker is harmless but
-  pointless; creating one per screen is a leak waiting for someone to forget `release()`.
+Build the gate once — in `Application.onCreate`, or wherever you assemble dependencies — and hold
+the result for the process lifetime; a gate built per screen registers its own activity tracking
+each time, which is harmless but pointless.
 
 ## 4. Build it on iOS
 

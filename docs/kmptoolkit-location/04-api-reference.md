@@ -51,9 +51,8 @@ public interface LocationProvider {
 | `openLocationSettings` | Sends the user to the system location settings screen (Android) or the app's own settings page (iOS — there is no deep link to the toggle). Fire-and-forget: no result, no callback. |
 
 Implementations are safe to call from any thread. Nothing here holds a resource that must be closed
-— there is no `close()` on this interface, unlike `kmptoolkit-platform`'s `ConnectivityObserver`,
-because there is no persistent platform registration outside of an active `observeLocation`
-collector.
+— there is no `close()` on this interface, because there is no persistent platform registration
+outside of an active `observeLocation` collector.
 
 ## `GeoCoordinates`
 

@@ -17,8 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
  *   for the next heartbeat.
  *
  * This module deliberately ships no built-in provider — not even a network one. Connectivity
- * detection belongs to the app (or to `kmptoolkit-platform`, whose `ConnectivityObserver` is two
- * lines away from being a provider), and hardcoding one here would bind every consumer to this
+ * detection belongs to the app, and hardcoding one here would bind every consumer to this
  * library's idea of what "online" means.
  *
  * ## Contract

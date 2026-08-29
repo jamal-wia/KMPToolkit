@@ -29,22 +29,19 @@ to whoever needs it. There is no global instance and no DI integration — see
 
 ### Android
 
-`createSystemBarsController` takes an `ActivityAccess` from
-[`kmptoolkit-platform`](../kmptoolkit-platform/01-overview.md), because the window it styles belongs
-to whichever activity is resumed right now — an identity that changes on every rotation.
+`createSystemBarsController` takes a `Context` and tracks the currently resumed activity
+internally, because the window it styles belongs to whichever activity is resumed right now — an
+identity that changes on every rotation.
 
 ```kotlin
 class MyApplication : Application() {
 
-    lateinit var activityAccess: ActivityAccess
-        private set
     lateinit var systemBars: SystemBarsController
         private set
 
     override fun onCreate() {
         super.onCreate()
-        activityAccess = createActivityTracker(this)
-        systemBars = createSystemBarsController(activityAccess)
+        systemBars = createSystemBarsController(this)
     }
 }
 ```

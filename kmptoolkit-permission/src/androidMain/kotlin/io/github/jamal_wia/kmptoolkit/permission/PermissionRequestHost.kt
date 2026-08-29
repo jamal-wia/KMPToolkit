@@ -6,12 +6,11 @@ package io.github.jamal_wia.kmptoolkit.permission
  *
  * You implement this, in about ten lines, on top of
  * `registerForActivityResult(ActivityResultContracts.RequestPermission())`. It is not done for you
- * for the same reason `kmptoolkit-platform`'s `FilePickerHost` is not: an `ActivityResultLauncher`
- * must be registered *before* the activity reaches `RESUMED` and dies with that activity. A
- * library object that registered one would have to hold an `Activity` for a lifetime the library
- * controls, which is exactly the coupling that produces the leak everyone eventually finds in a
- * heap dump. Registering it in your own activity leaves the activity reference where the framework
- * already manages it.
+ * because an `ActivityResultLauncher` must be registered *before* the activity reaches `RESUMED`
+ * and dies with that activity. A library object that registered one would have to hold an
+ * `Activity` for a lifetime the library controls, which is exactly the coupling that produces the
+ * leak everyone eventually finds in a heap dump. Registering it in your own activity leaves the
+ * activity reference where the framework already manages it.
  *
  * ```kotlin
  * class MainActivity : ComponentActivity(), PermissionRequestHost {

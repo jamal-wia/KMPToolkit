@@ -85,12 +85,4 @@ class LibraryManifestTest {
         assertFalse(Manifest.permission.INTERNET in declared)
         assertFalse(Manifest.permission.ACCESS_NETWORK_STATE in declared)
     }
-
-    @Test
-    fun `the transitive platform dependency contributes no permission of its own`() {
-        // kmptoolkit-platform makes the same promise; this asserts it still holds through the
-        // merge rather than trusting that module's own test.
-        assertFalse(Manifest.permission.WAKE_LOCK in declared)
-        assertFalse(Manifest.permission.DISABLE_KEYGUARD in declared)
-    }
 }

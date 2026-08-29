@@ -154,15 +154,14 @@ itself. See [`05-platform-notes.md`](05-platform-notes.md#the-asked-flag).
 public fun createPermissionHandler(
     context: Context,
     host: PermissionRequestHost,
-    activityAccess: ActivityAccess,
     storage: KeyValueStorage,
     config: PermissionConfig = PermissionConfig(),
     logger: Logger = NoopLogger,
 ): PermissionHandler
 ```
 
-`context`'s application context is what gets retained; no activity is held. `activityAccess` comes
-from `kmptoolkit-platform`'s `createActivityTracker(application)` and is used per call, for
+`context`'s application context is what gets retained; no activity is held directly — the handler
+tracks the currently resumed activity internally, used per call for
 `shouldShowRequestPermissionRationale` and to launch settings from the foreground activity when
 there is one. `storage` comes from `kmptoolkit-storage`'s `createKeyValueStorage(context)`.
 

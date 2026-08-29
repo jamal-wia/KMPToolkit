@@ -97,8 +97,6 @@ Useful as a model, and as an answer to "is the Android sensor mapping actually v
 | `FakeProximitySensorTest` | `kmptoolkit-proximity-testing/commonTest` | The fixture's own contract — replay, availability gating, `emitCount` |
 
 The `SensorEventListener` registration and event-mapping wiring itself is not separately simulated
-under Robolectric — the same boundary this repository already draws for
-`kmptoolkit-platform`'s `AndroidConnectivityObserver`, whose `NetworkCallback` registration is
-likewise untested at that layer while its translation logic (there, `NetworkStateTracker`; here,
-`ProximityRule`) is pinned directly. What that wiring does with a `SensorEvent` is exactly
+under Robolectric — the registration is thin plumbing, while the translation logic it drives
+(`ProximityRule`) is pinned directly. What that wiring does with a `SensorEvent` is exactly
 `ProximityRule.isNear`, already covered without any Android dependency at all.

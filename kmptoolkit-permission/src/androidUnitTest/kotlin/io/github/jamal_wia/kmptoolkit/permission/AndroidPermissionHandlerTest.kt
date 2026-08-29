@@ -9,7 +9,6 @@ import android.provider.Settings
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
-import io.github.jamal_wia.kmptoolkit.platform.activity.createActivityTracker
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
@@ -416,7 +415,6 @@ class AndroidPermissionHandlerTest {
         val handler: PermissionHandler = createPermissionHandler(
             context = context,
             host = StubHost(granted = false),
-            activityAccess = createActivityTracker(application),
             storage = storage,
         )
 

@@ -30,11 +30,10 @@ appearing in your listing unannounced.
 `androidx.biometric.BiometricPrompt` posts a fragment into the hosting activity's fragment manager.
 `ComponentActivity` and `AppCompatActivity` both qualify; a bare `android.app.Activity` does not.
 
-The module reaches an activity through `ActivityAccess` from `kmptoolkit-platform`, which hands out
-the *currently resumed* one and holds it weakly. When there is none — the app is backgrounded, a
-configuration change is in flight — or when the resumed activity is not a `FragmentActivity`,
-`authenticate` returns `BiometricResult.NoPromptHost` and nothing is shown. It is deliberately not
-a `ClassCastException`, and deliberately not `Cancelled`.
+The module tracks the *currently resumed* activity internally and holds it weakly. When there is
+none — the app is backgrounded, a configuration change is in flight — or when the resumed activity
+is not a `FragmentActivity`, `authenticate` returns `BiometricResult.NoPromptHost` and nothing is
+shown. It is deliberately not a `ClassCastException`, and deliberately not `Cancelled`.
 
 ### Authenticator strength
 

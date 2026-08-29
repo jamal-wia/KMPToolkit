@@ -63,14 +63,14 @@ your own UI draws there, and drawing it is a layout concern.
 ### Activity recreation
 
 A rotation, a theme change, a font-size change and a multi-window resize all destroy the activity
-and build a new window at platform defaults. The controller subscribes to
-`ActivityAccess.addOnActivityResumedListener` and re-applies its current configuration to every
-activity that resumes, including the one that was already resumed when it was created — so both the
-base and every live claim survive, because they live in the controller and not in the window.
+and build a new window at platform defaults. The controller subscribes to its internal activity
+tracker's resume callback and re-applies its current configuration to every activity that resumes,
+including the one that was already resumed when it was created — so both the base and every live
+claim survive, because they live in the controller and not in the window.
 
-This is also why the factory takes an `ActivityAccess` rather than an `Activity`: holding an
-activity across a configuration change is a leak, and `kmptoolkit-platform` already solves the
-problem with a weakly-held, lifecycle-driven tracker.
+This is also why the factory takes a `Context` rather than an `Activity`: holding an activity
+across a configuration change is a leak, and the controller solves the problem internally with a
+weakly-held, lifecycle-driven tracker instead.
 
 ### Dialogs, popups and bottom sheets
 

@@ -6,8 +6,8 @@ What differs behind `ProximitySensor`, and the hardware reality that shapes both
 
 Neither platform needs anything. `Sensor.TYPE_PROXIMITY` is not a runtime- or install-time-gated
 sensor on Android, so this module declares no permission and there is nothing for your app to add
-either — unlike `kmptoolkit-haptics`' `VIBRATE` or `kmptoolkit-platform`'s
-`ACCESS_NETWORK_STATE`, there is no missing-permission failure mode to document here.
+either — unlike `kmptoolkit-haptics`' `VIBRATE`, there is no missing-permission failure mode to
+document here.
 
 ## Android
 

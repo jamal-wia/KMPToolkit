@@ -48,12 +48,6 @@ kotlin {
         }
 
         androidMain.dependencies {
-            // api, not implementation: createSystemBarsController(activityAccess) takes an
-            // ActivityAccess, so it is part of this module's Android public surface. It is also
-            // the reason this module does not ship a second "current activity" holder — see
-            // docs/kmptoolkit-systembars/05-platform-notes.md.
-            api(project(":kmptoolkit-platform"))
-
             // WindowCompat / WindowInsetsControllerCompat — the whole Android implementation.
             implementation(libs.androidx.core.ktx)
         }

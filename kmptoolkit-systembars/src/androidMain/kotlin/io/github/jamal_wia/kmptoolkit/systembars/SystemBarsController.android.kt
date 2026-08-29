@@ -1,6 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.systembars
 
 import android.app.Activity
+import android.app.Application
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalView
@@ -8,26 +10,26 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import io.github.jamal_wia.kmptoolkit.platform.activity.ActivityAccess
-import io.github.jamal_wia.kmptoolkit.platform.activity.ActivitySubscription
 
 /**
  * Creates the Android [SystemBarsController].
  *
- * @param activityAccess how the controller reaches the window it styles. It takes an
- *   [ActivityAccess] rather than an `Activity` on purpose: the bars belong to whichever activity is
- *   resumed *now*, and that identity changes on every rotation, theme change and font-size change.
- *   `kmptoolkit-platform` already solves that with a weakly-held, lifecycle-driven tracker, and a
- *   second one here would be a second thing to keep in sync. Create it once with
- *   `createActivityTracker(application)` and share it.
+ * @param context any `Context`; its application context is retained to track the currently
+ *   resumed activity, which the controller needs to reach the window it styles — the bars belong
+ *   to whichever activity is resumed *now*, and that identity changes on every rotation, theme
+ *   change and font-size change.
  * @param initialConfig the base configuration to start from, before your theme sets one.
  * @return a controller whose lifetime is yours. Call [SystemBarsController.release] if you tear the
  *   graph down without ending the process.
  */
 public fun createSystemBarsController(
-    activityAccess: ActivityAccess,
+    context: Context,
     initialConfig: SystemBarsConfig = SystemBarsConfig(),
-): SystemBarsController = AndroidSystemBarsController(activityAccess, initialConfig)
+): SystemBarsController {
+    val activityAccess: ActivityAccess =
+        createActivityTracker(context.applicationContext as Application)
+    return AndroidSystemBarsController(activityAccess, initialConfig)
+}
 
 /**
  * Applies the configuration through `WindowInsetsControllerCompat`, which is the one API that

@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.permission
 
 import android.Manifest
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,7 +12,6 @@ import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.w
-import io.github.jamal_wia.kmptoolkit.platform.activity.ActivityAccess
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
 import kotlin.coroutines.resume
@@ -27,9 +27,9 @@ private const val ASKED: String = "true"
  *
  * - **[host]** shows the system dialog. It is yours to implement because an
  *   `ActivityResultLauncher` belongs to an activity — see [PermissionRequestHost].
- * - **[activityAccess]** answers `shouldShowRequestPermissionRationale`, which only an `Activity`
- *   can answer, and opens the settings screen from the foreground activity when there is one. No
- *   activity is retained: the access is scoped per call.
+ * - An internally tracked activity answers `shouldShowRequestPermissionRationale`, which only an
+ *   `Activity` can answer, and opens the settings screen from the foreground activity when there
+ *   is one. No activity is retained: the access is scoped per call.
  * - **[storage]** holds one flag per permission. Android cannot distinguish "never asked" from
  *   "permanently denied" on its own — both look identical through its API — and without that flag
  *   a first-run app sends users to settings for a permission it never asked for. See
@@ -46,12 +46,12 @@ private const val ASKED: String = "true"
 public fun createPermissionHandler(
     context: Context,
     host: PermissionRequestHost,
-    activityAccess: ActivityAccess,
     storage: KeyValueStorage,
     config: PermissionConfig = PermissionConfig(),
     logger: Logger = NoopLogger,
 ): PermissionHandler {
     val applicationContext: Context = context.applicationContext
+    val activityAccess: ActivityAccess = createActivityTracker(applicationContext as Application)
     return AndroidPermissionHandler(
         context = applicationContext,
         host = host,

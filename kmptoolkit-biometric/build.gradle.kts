@@ -41,10 +41,6 @@ kotlin {
         }
         androidMain.dependencies {
             implementation(libs.androidx.biometric)
-
-            // api, not implementation: createBiometricGate takes an ActivityAccess, so that type
-            // is part of this module's public Android signature.
-            api(project(":kmptoolkit-platform"))
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

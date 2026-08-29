@@ -2,8 +2,6 @@ package io.github.jamal_wia.kmptoolkit.biometric
 
 import android.app.Activity
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import io.github.jamal_wia.kmptoolkit.platform.activity.ActivityAccess
-import io.github.jamal_wia.kmptoolkit.platform.activity.ActivitySubscription
 import kotlin.test.Test
 import kotlin.test.assertNull
 import org.junit.runner.RunWith

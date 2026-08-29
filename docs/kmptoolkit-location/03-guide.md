@@ -81,8 +81,7 @@ equivalent cap on `observeLocation()` — a `Flow` that "gives up" would be indi
 
 - **Recreating the provider per screen.** `createLocationProvider(...)` is cheap to call but the
   object it returns is meant to be built once and shared — create it where you assemble your object
-  graph (an `Application`-scoped or app-lifetime component), same as
-  `kmptoolkit-platform`'s `ConnectivityObserver`.
+  graph (an `Application`-scoped or app-lifetime component).
 - **Treating `null` as an error.** It is the documented "no answer" value for a missing permission,
   a disabled service, or no signal. Nothing throws.
 - **Assuming `observeLocation()` is silent until a real fix arrives.** Both platform implementations

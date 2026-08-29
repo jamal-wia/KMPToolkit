@@ -47,11 +47,9 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-audio-recorder` | Audio recording | [`kmptoolkit-audio-recorder/`](kmptoolkit-audio-recorder/01-overview.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | [`kmptoolkit-scheduler/`](kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-storage` | Key-value storage, plain and encrypted | [`kmptoolkit-storage/`](kmptoolkit-storage/01-overview.md) |
-| `kmptoolkit-platform` | Connectivity, device info, file picker, wake lock, crash log | [`kmptoolkit-platform/`](kmptoolkit-platform/01-overview.md) |
 | `kmptoolkit-logging-overlay` | On-screen log overlay for debug builds | [`kmptoolkit-logging-overlay/`](kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-permission` | Runtime permission request flow | [`kmptoolkit-permission/`](kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-biometric` | Biometric authentication gate | [`kmptoolkit-biometric/`](kmptoolkit-biometric/01-overview.md) |
-| `kmptoolkit-settings` | Font scale, theme mode and app language | [`kmptoolkit-settings/`](kmptoolkit-settings/01-overview.md) |
 | `kmptoolkit-systembars` | Status and navigation bar control | [`kmptoolkit-systembars/`](kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-notification` | Local notifications, channels and actions | [`kmptoolkit-notification/`](kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-outbox` | Transactional outbox / offline effect queue | [`kmptoolkit-outbox/`](kmptoolkit-outbox/01-overview.md) |
@@ -62,11 +60,9 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-downloader` | Resumable background-download engine | [`kmptoolkit-downloader/`](kmptoolkit-downloader/01-overview.md) |
 
 Most of these also publish a `-testing` companion artifact holding their test double, documented in
-the same folder's `06-testing.md` rather than a folder of their own. Four do not:
+the same folder's `06-testing.md` rather than a folder of their own. Three do not:
 `kmptoolkit-logging`, `kmptoolkit-logging-overlay` and `kmptoolkit-systembars`, whose seams are
-already interfaces a test implements directly, and `kmptoolkit-settings`, whose only useful double
-is a store — `InMemoryKeyValueStorage` from `kmptoolkit-storage-testing`, as
-[`kmptoolkit-settings/03-guide.md`](kmptoolkit-settings/03-guide.md#testing) shows.
+already interfaces a test implements directly.
 
 The rest of the suite is on the roadmap — see the root [`README.md`](../README.md) module table and
 [`CHANGELOG.md`](../CHANGELOG.md).

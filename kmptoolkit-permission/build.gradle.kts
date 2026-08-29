@@ -41,9 +41,8 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
         androidMain.dependencies {
-            // api on both: ActivityAccess and KeyValueStorage are parameters of the public Android
-            // factory, so a consumer needs them on their compile classpath to call it.
-            api(project(":kmptoolkit-platform"))
+            // api: KeyValueStorage is a parameter of the public Android factory, so a consumer
+            // needs it on their compile classpath to call it.
             api(project(":kmptoolkit-storage"))
         }
         androidUnitTest.dependencies {
