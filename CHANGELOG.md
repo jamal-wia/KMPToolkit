@@ -9,14 +9,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-29
+
 ### Removed
 
 - **Breaking:** `kmptoolkit-coroutines` and `kmptoolkit-coroutines-testing` are no longer part of
   the suite. `AppDispatchers` was a three-field dispatcher-seam interface whose only internal
   consumer, `kmptoolkit-session`, used exactly one of those fields — and `kotlinx-coroutines-test`'s
   own `TestDispatcher` already covers what `TestAppDispatchers` existed to provide, with no custom
-  type needed. Per `CLAUDE.md` § Public API and compatibility, a breaking change after `1.0.0`
-  requires a major version — this release must ship as one.
+  type needed.
 - **Breaking:** `kmptoolkit-session` and `kmptoolkit-session-testing` are no longer part of the
   suite. `SessionManager`, `SessionCleaner`, `SessionRevoker`, and the rest of the module's public
   API are gone, along with the `RecordingSessionCleaner`/`RecordingSessionRevoker` test doubles;
