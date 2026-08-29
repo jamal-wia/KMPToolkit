@@ -40,7 +40,6 @@ check the "What this is not" section for a pointer to the right one instead.
 
 | Module | What it solves | Docs |
 |---|---|---|
-| `kmptoolkit-coroutines` | Testable dispatcher seam | [`kmptoolkit-coroutines/`](kmptoolkit-coroutines/01-overview.md) |
 | `kmptoolkit-logging` | Tag/level logging with pluggable sinks | [`kmptoolkit-logging/`](kmptoolkit-logging/01-overview.md) |
 | `kmptoolkit-haptics` | Haptic feedback | [`kmptoolkit-haptics/`](kmptoolkit-haptics/01-overview.md) |
 | `kmptoolkit-flashlight` | Camera-torch blink cue | [`kmptoolkit-flashlight/`](kmptoolkit-flashlight/01-overview.md) |

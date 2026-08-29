@@ -46,7 +46,7 @@ on the repository (see `.github/workflows/publish.yml`).
    ```kotlin
    dependencies {
        implementation(platform("io.github.jamal-wia:kmptoolkit-bom:x.y.z"))
-       implementation("io.github.jamal-wia:kmptoolkit-coroutines")
+       implementation("io.github.jamal-wia:kmptoolkit-logging")
    }
    ```
 

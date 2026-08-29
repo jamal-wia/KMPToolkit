@@ -78,7 +78,7 @@ throws [`SessionReentrancyException`](#sessionreentrancyexception) rather than d
 public fun createSessionManager(
     cleaners: List<SessionCleaner>,
     revoker: SessionRevoker? = null,
-    dispatchers: AppDispatchers,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     logger: Logger = NoopLogger,
     cleanerTimeout: Duration = 5.seconds,
     revokeTimeout: Duration = 10.seconds,
@@ -89,7 +89,7 @@ public fun createSessionManager(
 |---|---|
 | `cleaners` | Everything that must run when the session ends. Copied defensively — mutating the list afterwards changes nothing. Order is irrelevant; an empty list is valid and makes `endSession()` a pure state flip. |
 | `revoker` | Optional server-side revocation hook, run before the cleaners. `null` means teardown is entirely local. |
-| `dispatchers` | Where teardown runs. The whole teardown is dispatched to `AppDispatchers.io` — cleaners wipe databases, which does not belong on the main thread. Substitute `TestAppDispatchers` in tests. |
+| `ioDispatcher` | Where teardown runs. Defaults to `Dispatchers.IO` — cleaners wipe databases, which does not belong on the main thread. Substitute a `TestDispatcher` from `kotlinx-coroutines-test` in tests. |
 | `logger` | Where teardown progress and failures are reported. The returned report carries the same failures either way. |
 | `cleanerTimeout` | Upper bound on a single cleaner. Only bites when one stalls; it exists so a stuck cleaner delays sign-out by a bounded amount instead of hanging it forever. |
 | `revokeTimeout` | Upper bound on the revoker. Larger by default because it is the one step allowed to touch the network — but still bounded. |

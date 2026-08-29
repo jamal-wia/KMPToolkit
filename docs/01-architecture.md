@@ -98,22 +98,23 @@ bump.
 
 ## Test fixtures ship as separate `-testing` artifacts
 
-Where a module offers a test double — `TestAppDispatchers`, an in-memory storage, a fake outbox —
-that fixture lives in its own artifact (`kmptoolkit-coroutines-testing`), never in the production
-module:
+Where a module offers a test double — `InMemoryKeyValueStorage`, a fake outbox, a recording
+cleaner — that fixture lives in its own artifact (`kmptoolkit-storage-testing`), never in the
+production module:
 
 ```kotlin
 dependencies {
-    implementation("io.github.jamal-wia:kmptoolkit-coroutines")
-    testImplementation("io.github.jamal-wia:kmptoolkit-coroutines-testing")
+    implementation("io.github.jamal-wia:kmptoolkit-storage")
+    testImplementation("io.github.jamal-wia:kmptoolkit-storage-testing")
 }
 ```
 
-**Why:** a fixture pulls in test infrastructure — `TestAppDispatchers` needs
-`kotlinx-coroutines-test`. Shipping it inside the production module puts that test framework on the
-**runtime classpath of every consuming app**, where it has no business being. Kotlin Multiplatform
-has no way to expose one module's `commonTest` to a consumer, so a separate published artifact is
-the only mechanism that keeps the production POM clean.
+**Why:** a fixture can pull in test infrastructure a production module has no business depending
+on — `kmptoolkit-session`'s `RecordingSessionCleaner`, for instance, is exercised through
+`kotlinx-coroutines-test`. Shipping fixtures inside the production module would put that kind of
+test framework on the **runtime classpath of every consuming app**. Kotlin Multiplatform has no way
+to expose one module's `commonTest` to a consumer, so a separate published artifact is the only
+mechanism that keeps the production POM clean.
 
 The cost is one extra artifact per module that has fixtures, and it is worth paying: a consumer who
 never writes a test never downloads the fixture, and one who does gets it under

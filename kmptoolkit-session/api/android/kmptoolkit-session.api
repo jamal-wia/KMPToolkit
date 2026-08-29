@@ -44,8 +44,8 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/session/SessionMa
 }
 
 public final class io/github/jamal_wia/kmptoolkit/session/SessionManagerKt {
-	public static final fun createSessionManager-qRfGceg (Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/session/SessionRevoker;Lio/github/jamal_wia/kmptoolkit/coroutines/AppDispatchers;Lio/github/jamal_wia/kmptoolkit/logging/Logger;JJ)Lio/github/jamal_wia/kmptoolkit/session/SessionManager;
-	public static synthetic fun createSessionManager-qRfGceg$default (Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/session/SessionRevoker;Lio/github/jamal_wia/kmptoolkit/coroutines/AppDispatchers;Lio/github/jamal_wia/kmptoolkit/logging/Logger;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/session/SessionManager;
+	public static final fun createSessionManager-qRfGceg (Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/session/SessionRevoker;Lkotlinx/coroutines/CoroutineDispatcher;Lio/github/jamal_wia/kmptoolkit/logging/Logger;JJ)Lio/github/jamal_wia/kmptoolkit/session/SessionManager;
+	public static synthetic fun createSessionManager-qRfGceg$default (Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/session/SessionRevoker;Lkotlinx/coroutines/CoroutineDispatcher;Lio/github/jamal_wia/kmptoolkit/logging/Logger;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/session/SessionManager;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/session/SessionReentrancyException : java/lang/IllegalStateException {

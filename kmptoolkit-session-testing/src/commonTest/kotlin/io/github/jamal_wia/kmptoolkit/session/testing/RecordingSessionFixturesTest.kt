@@ -1,12 +1,13 @@
 package io.github.jamal_wia.kmptoolkit.session.testing
 
-import io.github.jamal_wia.kmptoolkit.coroutines.testing.TestAppDispatchers
 import io.github.jamal_wia.kmptoolkit.session.SessionEndReport
 import io.github.jamal_wia.kmptoolkit.session.SessionManager
 import io.github.jamal_wia.kmptoolkit.session.SessionState
 import io.github.jamal_wia.kmptoolkit.session.SessionTeardownTimeoutException
 import io.github.jamal_wia.kmptoolkit.session.createSessionManager
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,6 +15,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class RecordingSessionFixturesTest {
 
     @Test
@@ -105,7 +107,7 @@ class RecordingSessionFixturesTest {
             RecordingSessionCleaner(name = "profile"),
             RecordingSessionCleaner(name = "downloads"),
         )
-        val manager: SessionManager = createSessionManager(cleaners, dispatchers = TestAppDispatchers(testScheduler))
+        val manager: SessionManager = createSessionManager(cleaners, ioDispatcher = UnconfinedTestDispatcher(testScheduler))
         manager.startSession()
 
         manager.endSession()
@@ -122,7 +124,7 @@ class RecordingSessionFixturesTest {
         )
         val manager: SessionManager = createSessionManager(
             cleaners = listOf(broken, healthy),
-            dispatchers = TestAppDispatchers(testScheduler),
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
         )
         manager.startSession()
 
@@ -137,7 +139,7 @@ class RecordingSessionFixturesTest {
         val stuck = RecordingSessionCleaner(name = "db", onClean = { delay(Long.MAX_VALUE) })
         val manager: SessionManager = createSessionManager(
             cleaners = listOf(stuck),
-            dispatchers = TestAppDispatchers(testScheduler),
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
         )
         manager.startSession()
 
@@ -154,7 +156,7 @@ class RecordingSessionFixturesTest {
         val manager: SessionManager = createSessionManager(
             cleaners = listOf(cleaner),
             revoker = revoker,
-            dispatchers = TestAppDispatchers(testScheduler),
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
         )
         manager.startSession()
 

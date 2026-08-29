@@ -1,9 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.session
 
-import io.github.jamal_wia.kmptoolkit.coroutines.AppDispatchers
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.NonCancellable
@@ -40,7 +40,7 @@ import kotlin.time.Duration
 internal class DefaultSessionManager(
     private val cleaners: List<SessionCleaner>,
     private val revoker: SessionRevoker?,
-    private val dispatchers: AppDispatchers,
+    private val ioDispatcher: CoroutineDispatcher,
     private val logger: Logger,
     private val cleanerTimeout: Duration,
     private val revokeTimeout: Duration,
@@ -116,13 +116,13 @@ internal class DefaultSessionManager(
         }
     }
 
-    private suspend fun runTeardown(): SessionEndReport = withContext(dispatchers.io) {
+    private suspend fun runTeardown(): SessionEndReport = withContext(ioDispatcher) {
         logger.i { "Ending session — ${cleaners.size} cleaner(s), revoker=${revoker != null}" }
 
         // Steps run on a scope of their own rather than as children of this teardown, so that
         // abandoning one is possible at all: a child would still be awaited by the enclosing scope
         // on the way out, which is exactly the bug the timeout is supposed to prevent.
-        val stepScope = CoroutineScope(dispatchers.io + SupervisorJob() + TeardownMarker(this@DefaultSessionManager))
+        val stepScope = CoroutineScope(ioDispatcher + SupervisorJob() + TeardownMarker(this@DefaultSessionManager))
         try {
             // Before the cleaners: revocation needs the credentials they are about to delete.
             val revokeFailure: Throwable? =

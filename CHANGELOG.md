@@ -9,8 +9,22 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Removed
+
+- **Breaking:** `kmptoolkit-coroutines` and `kmptoolkit-coroutines-testing` are no longer part of
+  the suite. `AppDispatchers` was a three-field dispatcher-seam interface whose only internal
+  consumer, `kmptoolkit-session`, used exactly one of those fields — and `kotlinx-coroutines-test`'s
+  own `TestDispatcher` already covers what `TestAppDispatchers` existed to provide, with no custom
+  type needed. Per `CLAUDE.md` § Public API and compatibility, a breaking change after `1.0.0`
+  requires a major version — this release must ship as one.
+
 ### Changed
 
+- **Breaking:** `kmptoolkit-session`'s `createSessionManager` now takes
+  `ioDispatcher: CoroutineDispatcher = Dispatchers.IO` (same parameter position, now defaulted)
+  instead of the removed `dispatchers: AppDispatchers`; `DefaultSessionManager`'s constructor
+  changed to match. Substitute a `kotlinx-coroutines-test` `TestDispatcher` (e.g.
+  `UnconfinedTestDispatcher`) in tests instead of the removed `TestAppDispatchers`.
 - Every module now publishes exactly two Apple targets, `iosArm64` and `iosSimulatorArm64`. The
   legacy Intel-simulator target `iosX64` is no longer declared anywhere: it is superseded by
   `iosSimulatorArm64` on Apple-silicon Macs, Compose Multiplatform 1.11+ publishes no artifact for
