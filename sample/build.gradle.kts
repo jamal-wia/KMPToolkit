@@ -40,13 +40,20 @@ android {
 // Two modes, because one alone is not enough:
 //   * default — project dependencies, so `./gradlew build` works on a fresh clone with nothing
 //     published anywhere;
-//   * `-PuseMavenLocal` — resolves the same modules by Maven coordinates through the BOM, which is
-//     the only way to catch a broken POM, a missing variant, or a publication that omits a target.
-//     Run `./gradlew publishToMavenLocal` first.
-val useMavenLocal: Boolean = providers.gradleProperty("useMavenLocal").isPresent
+//   * `-PusePublishedArtifacts` — resolves the same modules by Maven coordinates through the BOM,
+//     which is the only way to catch a broken POM, a missing variant, or a publication that omits a
+//     target.
+//
+// The second mode reads from Maven Central, so it verifies a release **after** it is published
+// rather than before. `mavenLocal` used to back it, which let the same check run against a
+// `publishToMavenLocal` dry run first; that repository is gone, deliberately — a resolvable
+// `~/.m2` is exactly what makes a broken publication look fine on the machine that produced it.
+// Run this after the release lands and before announcing it.
+val usePublishedArtifacts: Boolean =
+    providers.gradleProperty("usePublishedArtifacts").isPresent
 
 dependencies {
-    if (useMavenLocal) {
+    if (usePublishedArtifacts) {
         implementation(platform("io.github.jamal-wia:kmptoolkit-bom:${providers.gradleProperty("kmptoolkit.version").get()}"))
         implementation("io.github.jamal-wia:kmptoolkit-logging")
         implementation("io.github.jamal-wia:kmptoolkit-storage")

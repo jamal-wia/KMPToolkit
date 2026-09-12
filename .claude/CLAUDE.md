@@ -29,8 +29,8 @@ module — and it's the clearest illustration of why the rule exists.
 A collection of `kmptoolkit-*` Gradle modules, each an independently published Maven Central
 artifact — but **not** independently versioned: every module takes its version from the single
 `kmptoolkit.version` property and the whole suite is released in lockstep. Plus a `kmptoolkit-bom`
-platform module and a non-published `:sample` Compose demo app used to smoke-test artifacts from
-`mavenLocal`.
+platform module and a non-published `:sample` Compose demo app used to smoke-test the released
+artifacts by coordinate.
 
 - Coordinates: `io.github.jamal-wia:kmptoolkit-<module>`, version from `kmptoolkit.version` in
   `gradle.properties` (the single source of truth every module and the BOM read).
@@ -133,8 +133,12 @@ library:
   conversation.
 - `allTests` does **not** run Android (Robolectric) unit tests — don't rely on it alone; run
   `testDebugUnitTest` explicitly.
-- A smoke test that actually exercises a published artifact: `publishToMavenLocal` from the
-  library modules, then resolve and build `:sample` against it.
+- A smoke test that actually exercises a published artifact: `./gradlew :sample:assembleDebug
+  -PusePublishedArtifacts`, which resolves the suite by coordinate through the BOM from Maven
+  Central. It is the only check that can catch a broken POM, a missing variant, or a publication
+  that omits a target — and it runs **after** a release, not before it. There is deliberately no
+  `mavenLocal` repository to point it at a local dry run: a resolvable `~/.m2` is precisely what
+  makes a broken publication look correct on the machine that produced it.
 
 ## 7. Tests are an honest adversary
 
