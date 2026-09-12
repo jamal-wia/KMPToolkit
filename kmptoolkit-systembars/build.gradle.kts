@@ -81,6 +81,13 @@ kotlin {
 
         androidUnitTest.dependencies {
             implementation(compose.uiTest)
+            // AutoSystemBarsIconStyleLifecycleTest drives the test clock frame by frame and needs a
+            // real Activity to dispatch window insets into, which is `createAndroidComposeRule` —
+            // the JUnit4 rule, not the `runComposeUiTest` the other UI tests here use. Versioned
+            // through the Compose BOM, as the catalog entry carries no version of its own.
+            implementation(project.dependencies.platform(libs.androidx.compose.bom))
+            implementation(libs.androidx.compose.ui.test.junit4)
+            implementation(libs.androidx.activity.compose)
         }
     }
 }
