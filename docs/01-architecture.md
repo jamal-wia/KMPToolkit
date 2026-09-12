@@ -160,9 +160,13 @@ than hidden:
 
 ## Compose modules are opt-in artifacts
 
-Only two modules depend on Compose Multiplatform: `kmptoolkit-systembars` and
-`kmptoolkit-logging-overlay`. Every other module is plain Kotlin with no UI framework dependency —
-adding, say, `kmptoolkit-uploader` to a non-Compose (or non-UI) target never pulls in Compose.
+Only three modules depend on Compose Multiplatform: `kmptoolkit-systembars`,
+`kmptoolkit-logging-overlay`, and `kmptoolkit-language-compose`. Every other module is plain Kotlin
+with no UI framework dependency — adding, say, `kmptoolkit-uploader` to a non-Compose (or non-UI)
+target never pulls in Compose. A module whose core capability is useful outside Compose too splits
+into a plain-Kotlin base and a `-compose` companion (`kmptoolkit-language` /
+`kmptoolkit-language-compose`) rather than pulling Compose into the base — see the base module's own
+`01-overview.md` for why.
 
 Apple targets are uniform across the suite: every module publishes `iosArm64` and
 `iosSimulatorArm64`, and none publishes `iosX64`. The legacy Intel simulator is superseded by

@@ -187,7 +187,68 @@ On Android such a surface has an insets controller of its own that the activity-
 never reaches, so without this the bars over an open sheet revert to the platform default. Outside
 a dialog window it does nothing. No-op on iOS.
 
+### `AutoSystemBarsIconStyle`
+
+```kotlin
+@Composable
+public fun AutoSystemBarsIconStyle(
+    controller: SystemBarsController,
+    probe: StatusBarLuminanceProbe,
+    enabled: Boolean = true,
+    intervalMs: Long = DEFAULT_SAMPLE_INTERVAL_MS,
+    onSampled: ((durationNanos: Long) -> Unit)? = null,
+    content: @Composable () -> Unit,
+)
+```
+
+Wraps `content` with an automatic icon-style probe for both bars: samples the pixels drawn under
+each on a timer (and on demand via `probe`), derives a contrasting `SystemBarIconStyle` per bar, and
+publishes both as a single [`SystemBarsOverride`](#systembarsoverride) it pushes once and updates in
+place — a layer like any other, so a screen's own `SystemBarsEffect` composed later still wins any
+axis it claims. See [`03-guide.md`](03-guide.md#automatic-icon-styling).
+
+| Parameter | Contract |
+|---|---|
+| `controller` | Receives the derived styles |
+| `probe` | The on-demand trigger source — see [`createStatusBarLuminanceProbe`](#statusbarluminanceprobe) |
+| `enabled` | `false` disables sampling and pushes no override; `content` still composes and is still recorded into the internal layer every frame |
+| `intervalMs` | Periodic sample cadence — [`DEFAULT_SAMPLE_INTERVAL_MS`] (300 ms) by default |
+| `onSampled` | Diagnostics hook called after every sample with how long it took, in nanoseconds. `null` (the default) costs nothing |
+
+Sampling runs only while the host's `Lifecycle` is at least `STARTED`. Place this once, near the
+root, and not under a layer-introducing modifier or composable — see the guide's placement section.
+
+### `StatusBarLuminanceProbe`
+
+```kotlin
+public interface StatusBarLuminanceProbe {
+    public fun triggerRecalculation()
+    public val triggers: SharedFlow<Unit>
+}
+
+public fun createStatusBarLuminanceProbe(): StatusBarLuminanceProbe
+```
+
+| Member | Contract |
+|---|---|
+| `triggerRecalculation()` | Asks `AutoSystemBarsIconStyle` to re-sample on the next composed frame. Bursts are conflated to at most one extra sample |
+| `triggers` | Consumed internally by `AutoSystemBarsIconStyle`. Call `triggerRecalculation()` instead of collecting this yourself |
+
+`createStatusBarLuminanceProbe()` is platform-independent — no `Context` needed on either target.
+Create one per `AutoSystemBarsIconStyle`, hold it, and pass it to both the wrapper and every screen
+that needs to nudge it.
+
+### `DEFAULT_SAMPLE_INTERVAL_MS`
+
+```kotlin
+public const val DEFAULT_SAMPLE_INTERVAL_MS: Long = 300L
+```
+
+The default `intervalMs` for `AutoSystemBarsIconStyle`.
+
 ## Factories
+
+### Android
 
 ### Android
 
@@ -275,3 +336,20 @@ class FakeSystemBarsController : SystemBarsController {
 `ScreenWakeLockController` does ship one, in `kmptoolkit-systembars-testing`:
 `RecordingScreenWakeLockController`, which records every `setKeepScreenOn` call. See
 [`06-testing.md`](06-testing.md).
+
+`StatusBarLuminanceProbe` ships none either, for the same reason as `SystemBarsController`:
+
+```kotlin
+class FakeStatusBarLuminanceProbe : StatusBarLuminanceProbe {
+    private val flow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    override val triggers: SharedFlow<Unit> = flow
+    override fun triggerRecalculation() { flow.tryEmit(Unit) }
+}
+```
+
+`AutoSystemBarsIconStyle` itself is not something to fake — it is a composable that exercises real
+`GraphicsLayer` pixel sampling, and testing it means testing that Compose is drawing what you think
+it is. Test the *decision* it makes by testing your own code against `FakeSystemBarsController` /
+`FakeStatusBarLuminanceProbe`, and trust this module's own test suite (`LuminanceToStyleTest`,
+`ScratchRowSourcesTest`, `PeriodicSampleGateTest`, `IdleTickTest`, `SampleRowsTest`,
+`PublishStylesTest`) for the sampling logic itself.

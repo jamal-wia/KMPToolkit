@@ -1,3 +1,8 @@
+public final class io/github/jamal_wia/kmptoolkit/systembars/AutoSystemBarsIconStyleKt {
+	public static final field DEFAULT_SAMPLE_INTERVAL_MS J
+	public static final fun AutoSystemBarsIconStyle (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;Lio/github/jamal_wia/kmptoolkit/systembars/StatusBarLuminanceProbe;ZJLkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Landroidx/compose/runtime/Composer;II)V
+}
+
 public final class io/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior : java/lang/Enum {
 	public static final field StayHidden Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
 	public static final field SwipeToReveal Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
@@ -12,6 +17,15 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/systembars/Screen
 
 public final class io/github/jamal_wia/kmptoolkit/systembars/ScreenWakeLockController_androidKt {
 	public static final fun createScreenWakeLockController (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/systembars/ScreenWakeLockController;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/systembars/StatusBarLuminanceProbe {
+	public abstract fun getTriggers ()Lkotlinx/coroutines/flow/SharedFlow;
+	public abstract fun triggerRecalculation ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/StatusBarLuminanceProbeKt {
+	public static final fun createStatusBarLuminanceProbe ()Lio/github/jamal_wia/kmptoolkit/systembars/StatusBarLuminanceProbe;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle : java/lang/Enum {

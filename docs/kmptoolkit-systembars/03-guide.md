@@ -185,7 +185,67 @@ Atomicity is not ordering, though: if two writers race to set the *same* axis, w
 last is genuinely undefined, because the question has no answer. Two owners of one axis is the
 design problem, and the layer stack is how you avoid having it.
 
-## `ScreenWakeLockController`: a different shape on purpose
+## Automatic icon styling
+
+`AutoSystemBarsIconStyle` exists for the screens `SystemBarsEffect` handles awkwardly: a page whose
+background isn't one of your theme's two known values — a photo, a video, user-generated content —
+where computing a contrasting icon style would mean the screen inspecting its own colours by hand.
+Wrap your content once and let it derive both bars' styles from the actual pixels:
+
+```kotlin
+val probe = createStatusBarLuminanceProbe()
+
+@Composable
+fun App(controller: SystemBarsController) {
+    AutoSystemBarsIconStyle(controller, probe) {
+        NavHost(/* ... */)
+    }
+}
+```
+
+### How it composes with `SystemBarsEffect`
+
+The derived style is published as one [`SystemBarsOverride`](04-api-reference.md#systembarsoverride)
+that `AutoSystemBarsIconStyle` pushes once, near the root, and updates in place — it is a layer like
+any other, not a second base. A screen that pushes its own `SystemBarsEffect` is composed later, so
+its override sits on a layer above the probe's and wins any axis it claims, exactly as it would win
+against another screen's claim. In practice this means:
+
+- Most screens do nothing at all — the probe already derives a correct style from their background.
+- A screen with a genuine reason to override the derived style anyway — a brief flash color during a
+  transition, say — still can, with an ordinary `SystemBarsEffect`. Releasing it hands the axis back
+  to the probe's layer underneath, not to the base.
+- `visibility` is never touched by the probe. Hiding bars or entering immersive mode is still your
+  screen's call, made the same way as without `AutoSystemBarsIconStyle` in the tree.
+
+### When to call `triggerRecalculation`
+
+The periodic sample (every `intervalMs`, 300 ms by default) is a safety net for content that changes
+without telling anyone — scrolling imagery, a transition finishing. A screen that knows its
+background just changed should call `StatusBarLuminanceProbe.triggerRecalculation()` instead of
+waiting for the next tick:
+
+```kotlin
+@Composable
+fun PhotoViewerScreen(probe: StatusBarLuminanceProbe, page: Int) {
+    LaunchedEffect(page) { probe.triggerRecalculation() }
+    // ...
+}
+```
+
+Bursts are conflated to at most one extra sample, so calling this on every recomposition of a
+fast-changing value is safe.
+
+### Placement
+
+Place `AutoSystemBarsIconStyle` once, near the root, and **not** under a layer-introducing modifier
+or composable (`Modifier.graphicsLayer`, `Modifier.clip`, `Modifier.shadow`, an elevated `Surface`,
+`AnimatedContent`). Its idle-skip optimization counts how many times its own root has drawn, and a
+non-dirty ancestor layer can replay its display list to the screen without running that root's draw
+again — which would silently stop the probe from ever re-sampling a genuinely changed backdrop.
+Nesting it inside another `AutoSystemBarsIconStyle` is a no-op in practice and a code-review smell.
+
+### `ScreenWakeLockController`: a different shape on purpose
 
 Unlike the bars, this is a single boolean with a single owner — there is no base, no stack, no
 composition-scoped effect shipped for it. Two things follow from that:
@@ -212,3 +272,5 @@ this interface has no layering to protect it the way the bars do.
 | `handle.release()` then `applyOverride(new)` | `handle.update(new)` — keeps the layer's precedence |
 | A second controller for a second window | One controller; use `DialogWindowSystemBarsEffect` for dialog windows |
 | Hiding the bars with `Hidden` for a video player | `Immersive` — the user needs a way back |
+| A screen computing its own contrasting icon style by hand | `AutoSystemBarsIconStyle` near the root, `triggerRecalculation()` on background change |
+| `AutoSystemBarsIconStyle` under a `graphicsLayer`/`clip`/`shadow`/`AnimatedContent` | Place it once, near the root, above every layer-introducing modifier |

@@ -173,3 +173,42 @@ No permission is required; `FLAG_KEEP_SCREEN_ON` needs none.
 Backed by `UIApplication.idleTimerDisabled`. No activity-tracker equivalent is needed: iOS hosts one
 process-stable `UIWindow` for the app's whole lifetime, and the property is not reset by the OS on
 its own. The write is dispatched to the main queue, the same way status-bar updates are.
+
+## `AutoSystemBarsIconStyle`
+
+### What a sample costs, and why the shape matters
+
+A full-screen `GraphicsLayer.toImageBitmap()` followed by `toPixelMap()` copies the *entire* rendered
+frame back to the CPU — on a 1080 × 2400 screen that is roughly 10 MB per copy, on the main thread.
+`AutoSystemBarsIconStyle` never does this: it re-records the display list into a scratch layer only a
+few rows tall (two per bar, by default), clipped and translated so each scratch row shows the source
+row it wants, and reads *that* back instead. The display list is replayed, not re-executed, so no
+composable's draw lambda runs again for a sample. Reading a strip a few rows tall instead of the
+whole screen is most of the difference between an imperceptible per-sample cost and a dropped frame
+every cycle — do not "simplify" this back to a full-screen readback.
+
+### Sampling only while visible (both platforms)
+
+`repeatOnLifecycle(Lifecycle.State.STARTED)` means the sampling coroutines are cancelled the moment
+the host drops below `STARTED` and restarted from scratch — first-tick rule included — on return to
+the foreground. Without this, a `delay`-driven loop keeps ticking in a backgrounded app and rasterises
+a scratch bitmap on every tick for no one to see; this is the actual origin of the module's
+lifecycle-runtime-compose dependency, not a nice-to-have.
+
+### Animation detection differs by platform
+
+The periodic sample defers while `rememberIsAnimating()` reports `true`, up to a jittered cap so an
+endless animation is still sampled occasionally. Android answers this from `Recomposer.hasPendingWork`
+— true while anything awaits a frame, including a child animating only its own layer transform, which
+never redraws the probe's root. iOS exposes no equivalent public signal, so `rememberIsAnimating()`
+returns `null` there and the periodic gate falls back to its draw clock alone (`sinceLastDrawMs`,
+written from the same `drawWithContent` that records the sampling layer). In practice this means a
+purely layer-driven animation (translation, alpha, scale with no recomposition) can defer a sample
+longer on iOS than on Android before the jittered cap forces one anyway — bounded, never unbounded.
+
+### Both bars are read from the same captured frame
+
+The scratch layer holds the status bar's rows followed by the navigation bar's, both replayed from
+the *same* recorded frame in one `stripLayer.record` call, so the two bars' decisions are always
+about a single consistent moment — never one bar's decision from one frame and the other's from a
+frame recorded a tick later.

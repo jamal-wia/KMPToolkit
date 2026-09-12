@@ -129,7 +129,33 @@ ModalBottomSheet(onDismissRequest = ::dismiss) {
 
 No-op on iOS, where the sheet shares the app's one status bar.
 
-## 6. If you need to keep the screen awake
+## 6. If a screen's background isn't the app theme's
+
+`AutoSystemBarsIconStyle` derives each bar's icon style from what is actually drawn under it, so a
+screen with its own background — an image, a video, a colour the theme does not know about — does
+not have to compute a contrasting style by hand. Wrap it once, near the root, alongside a
+`StatusBarLuminanceProbe` your screens can nudge:
+
+```kotlin
+val probe = createStatusBarLuminanceProbe()
+
+@Composable
+fun App(controller: SystemBarsController) {
+    AutoSystemBarsIconStyle(controller, probe) {
+        // the rest of your app
+    }
+}
+
+@Composable
+fun PhotoViewerScreen(probe: StatusBarLuminanceProbe) {
+    LaunchedEffect(Unit) { probe.triggerRecalculation() }
+    Image(/* ... */)
+}
+```
+
+See [`03-guide.md`](03-guide.md#automatic-icon-styling) for how this interacts with `SystemBarsEffect`.
+
+## 7. If you need to keep the screen awake
 
 `ScreenWakeLockController` is unrelated to the bars, but ships in the same module. Create one the
 same way, hold it for the session that needs it, and clear it explicitly when done — it does not

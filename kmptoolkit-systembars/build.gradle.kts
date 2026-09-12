@@ -20,7 +20,9 @@ kmptoolkitPublish {
             "layered and scoped to composition, so leaving a screen restores exactly the state " +
             "underneath it, and a screen that owns only the status bar never clobbers one that " +
             "owns the navigation bar. It styles the bars; it is not a theming system and not an " +
-            "insets library."
+            "insets library. Also includes AutoSystemBarsIconStyle, an opt-in composable that " +
+            "derives each bar's icon style from the pixels actually drawn under it, and " +
+            "ScreenWakeLockController, an unrelated keep-screen-awake primitive."
     )
 }
 
@@ -45,6 +47,16 @@ kotlin {
             // dialog-window effect, which needs LocalView and DialogWindowProvider on Android.
             implementation(compose.runtime)
             implementation(compose.ui)
+
+            // AutoSystemBarsIconStyle's probe Box: Modifier.fillMaxSize(), WindowInsets.statusBars
+            // / navigationBars.
+            implementation(compose.foundation)
+
+            // AutoSystemBarsIconStyle pauses sampling below Lifecycle.State.STARTED — a backgrounded
+            // screen must be neither read nor written to. This is the one real dependency this pulls
+            // in beyond compose.runtime/compose.ui/compose.foundation: LocalLifecycleOwner +
+            // repeatOnLifecycle.
+            implementation(libs.androidx.lifecycle.runtime.compose)
         }
 
         androidMain.dependencies {

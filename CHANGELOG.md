@@ -17,6 +17,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   (iOS). Purely additive — `SystemBarsController` and every other existing symbol is unchanged.
 - `kmptoolkit-systembars-testing`: new module holding `RecordingScreenWakeLockController`, a
   `ScreenWakeLockController` double for `testImplementation`.
+- `kmptoolkit-systembars`: `AutoSystemBarsIconStyle`, an opt-in composable that samples the pixels
+  drawn under both bars and derives a contrasting icon style for each, and
+  `StatusBarLuminanceProbe` / `createStatusBarLuminanceProbe()` for triggering an on-demand
+  re-sample. Ported from Tahfeez's `AutoSystemBarsIconStyle`, adapted to publish its derived style
+  as one `SystemBarsOverride` this composable pushes and updates in place (this module's existing
+  layered-override model) rather than writing a flat controller's icon-style setters directly, so a
+  screen's own `SystemBarsEffect` still wins any axis it explicitly claims. Requires a new
+  `androidx.lifecycle:lifecycle-runtime-compose` dependency in `commonMain`, needed to pause
+  sampling while the host is backgrounded. Purely additive — every existing symbol is unchanged.
 - New `kmptoolkit-language` module: `AppLanguageHolder`, `AppLanguage` (a BCP-47 code and a reading
   direction — no language catalog, no display names), `applyLanguageGlobally()` /
   `getSystemLanguageCode()`, and Android's `localizedContext()`. Ported from Tahfeez's
