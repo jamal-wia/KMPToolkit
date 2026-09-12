@@ -117,10 +117,11 @@ your own UI draws there, and drawing it is a layout concern.
 ### Activity recreation
 
 A rotation, a theme change, a font-size change and a multi-window resize all destroy the activity
-and build a new window at platform defaults. The controller subscribes to its internal activity
-tracker's resume callback and re-applies its current configuration to every activity that resumes,
-including the one that was already resumed when it was created — so both the base and every live
-claim survive, because they live in the controller and not in the window.
+and build a new window at platform defaults. The controller subscribes to its activity tracker's
+resume callback and re-applies its current configuration to every activity that resumes after the
+tracker exists — so both the base and every live claim survive, because they live in the controller
+and not in the window. An activity that had *already* resumed when the tracker was created is not
+among them; that is the reason for creating the controller in `Application.onCreate`, above.
 
 This is also why the factory takes a `Context` rather than an `Activity`: holding an activity
 across a configuration change is a leak, and the controller solves the problem internally with a
