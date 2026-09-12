@@ -75,6 +75,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   created the manager, so on such a thread neither a fix nor a failure would ever arrive, and the
   call would suspend forever rather than time out or fail.
 
+## [1.0.2] - 2026-09-04
+
+No public API change. Re-release of `1.0.1`, whose Maven Central deployment never completed
+because the CI signing step failed on a misconfigured repository secret (see `RELEASING.md`
+§ Troubleshooting). Every `kmptoolkit-*` artifact and the BOM are published at this version.
+
 ## [1.0.1] - 2026-08-29
 
 ### Removed
