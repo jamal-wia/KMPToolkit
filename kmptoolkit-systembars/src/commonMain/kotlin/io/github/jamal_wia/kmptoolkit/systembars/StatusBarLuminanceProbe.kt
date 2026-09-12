@@ -12,10 +12,11 @@ import kotlinx.coroutines.flow.asSharedFlow
  * toggle, a fullscreen image appearing — calls [triggerRecalculation] to ask for an **immediate**
  * re-sample on the next composed frame, instead of waiting for the periodic tick to catch up.
  *
- * Call this rather than [SystemBarsController.setStatusBarStyle] / `setNavigationBarStyle` from a
- * screen: leave the icon-style decision to the probe, and only signal "the area under the bars just
- * changed; look again". That keeps the decision in one place and stops a screen and the probe from
- * fighting over the controller.
+ * Call this rather than claiming the icon axes yourself — through [SystemBarsController.applyOverride]
+ * or a [SystemBarsEffect] naming `statusBarIcons` / `navigationBarIcons` — from a screen whose
+ * background changed: leave the icon-style decision to the probe, and only signal "the area under the
+ * bars just changed; look again". That keeps the decision in one place, and spares the screen from
+ * having to keep those styles right for every background it will ever draw.
  *
  * Create one with [createStatusBarLuminanceProbe], hold it for as long as [AutoSystemBarsIconStyle]
  * is composed, and pass it to both. Implementations must be safe to call from any thread.
