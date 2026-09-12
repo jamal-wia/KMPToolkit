@@ -68,6 +68,30 @@ Show your own explanation first. `openLocationSettings()` leaves your app immedi
 nothing about what the user did there — there is no callback, no result, and no way to know whether
 they turned the service back on. Re-check `isLocationEnabled()` when your screen resumes.
 
+## Prompting to re-enable the service
+
+`promptToEnableService()` exists for the platform that *can* raise an in-place "turn location back
+on" dialog without sending the user out to Settings — write your code against all four
+`LocationServicePrompt` cases and it already does the right thing today, and keeps doing the right
+thing if a future revision of this module (or your own `LocationProvider`, wrapping this one) adds a
+real resolution dialog behind `PROMPTED` / `NOT_NOW`:
+
+```kotlin
+when (location.promptToEnableService()) {
+    LocationServicePrompt.ALREADY_ON -> proceedWithLocation()
+    LocationServicePrompt.PROMPTED -> Unit // the OS is showing its own dialog; re-check on resume
+    LocationServicePrompt.NOT_NOW -> Unit // your app was backgrounded before it could ask; try again
+    LocationServicePrompt.UNSUPPORTED -> showEnableLocationPrompt(onConfirm = { location.openLocationSettings() })
+}
+```
+
+Both factory-built providers only ever return `ALREADY_ON` or `UNSUPPORTED` — see
+[`05-platform-notes.md`](05-platform-notes.md#why-there-is-no-in-place-dialog) for why. If your
+product genuinely needs the in-place dialog Android offers through Google Play Services'
+`SettingsClient`, implement `LocationProvider` yourself (or decorate a factory-built one) and return
+`PROMPTED` / `NOT_NOW` from your own `promptToEnableService()` override — this module deliberately
+does not carry that dependency, see `docs/01-architecture.md`.
+
 ## Never block on a fix that will not arrive soon
 
 Both calls are capped by `LocationProviderConfig.singleFixTimeoutMillis` — `getCurrentLocation()`

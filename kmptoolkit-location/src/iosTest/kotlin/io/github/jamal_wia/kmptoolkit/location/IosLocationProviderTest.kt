@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.location
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -17,5 +18,15 @@ class IosLocationProviderTest {
         val provider: LocationProvider = createLocationProvider()
 
         provider.isLocationEnabled()
+    }
+
+    @Test
+    fun `promptToEnableService reflects isLocationEnabled — no in-place dialog exists on iOS`() = runTest {
+        val provider: LocationProvider = createLocationProvider()
+
+        val expected: LocationServicePrompt =
+            if (provider.isLocationEnabled()) LocationServicePrompt.ALREADY_ON else LocationServicePrompt.UNSUPPORTED
+
+        assertEquals(expected, provider.promptToEnableService())
     }
 }

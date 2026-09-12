@@ -69,6 +69,25 @@ directly instead of Tink. If your app already depends on Play Services and needs
 quality, wrap `FusedLocationProviderClient` behind this module's `LocationProvider` interface
 yourself; the interface is small enough that doing so is a few dozen lines.
 
+## Why there is no in-place dialog
+
+`promptToEnableService()` never returns `LocationServicePrompt.PROMPTED` from either factory-built
+provider, and that follows directly from the trade-off above:
+
+- **Android** raises its in-place "turn on Location?" dialog through Play Services'
+  `SettingsClient.checkLocationSettings()` + `ResolvableApiException.startResolutionForResult()` —
+  an API this module has no access to without the dependency it deliberately avoids. Without it,
+  the only route left is `openLocationSettings()`, which is exactly what the default
+  `promptToEnableService()` falls back to.
+- **iOS** exposes no public API for this at all, resolution dialog or otherwise — `openLocationSettings()`'s
+  own fallback (the app's own settings page) is already the best available option.
+
+If your app already depends on Play Services and wants the real in-place dialog, wrap
+`FusedLocationProviderClient`'s settings-resolution flow behind your own `LocationProvider` (or a
+decorator around a factory-built one) and return `PROMPTED` while the dialog is up, `NOT_NOW` when
+your screen has no window to raise it over (backgrounded between the tap and the check), and
+`ALREADY_ON` / `UNSUPPORTED` by delegating to the wrapped provider otherwise.
+
 ## Provider selection and fallback (Android)
 
 `getCurrentLocation()` and `observeLocation()` both track `LocationManager.GPS_PROVIDER` and
@@ -94,9 +113,13 @@ platforms.
 
 - `LocationProvider` methods are safe to call from any thread.
 - Android: the underlying `LocationListener` callbacks are delivered on `Looper.getMainLooper()`.
-- iOS: `CLLocationManager` delegate callbacks are delivered on whatever queue CoreLocation chooses
-  for the manager (the main run loop, by default, since no custom queue is configured); `emit`/
-  `trySend` calls into the `Flow` are safe from that thread regardless.
+- iOS: every `CLLocationManager` used by this module is created and started on the **main queue**,
+  regardless of which thread `getCurrentLocation()` / `observeLocation()` is called from. This
+  matters because CoreLocation delivers delegate callbacks on the run loop of the thread that
+  *created* the manager — a manager created on a Kotlin/Native worker thread (no run loop, which is
+  what a bare `Dispatchers.Default` caller would produce) would never deliver a callback at all, and
+  the call would suspend forever rather than time out or fail. `trySend`/`resume` calls back into
+  the coroutine are safe from the main queue regardless of which thread is awaiting them.
 - `isLocationEnabled()` on iOS runs on `Dispatchers.Default`, off the caller's thread, because
   `CLLocationManager.locationServicesEnabled()` logs a runtime warning when called on the main
   thread while authorization is still being determined.

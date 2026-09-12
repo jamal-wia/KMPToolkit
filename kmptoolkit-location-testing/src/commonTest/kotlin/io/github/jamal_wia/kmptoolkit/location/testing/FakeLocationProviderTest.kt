@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.location.testing
 
 import io.github.jamal_wia.kmptoolkit.location.GeoCoordinates
+import io.github.jamal_wia.kmptoolkit.location.LocationServicePrompt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -59,6 +60,20 @@ class FakeLocationProviderTest {
         provider.locationEnabled = false
 
         assertFalse(provider.isLocationEnabled())
+    }
+
+    @Test
+    fun `promptToEnableService reports ALREADY_ON when the service is on`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = true)
+
+        assertEquals(LocationServicePrompt.ALREADY_ON, provider.promptToEnableService())
+    }
+
+    @Test
+    fun `promptToEnableService reports UNSUPPORTED when the service is off`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = false)
+
+        assertEquals(LocationServicePrompt.UNSUPPORTED, provider.promptToEnableService())
     }
 
     @Test

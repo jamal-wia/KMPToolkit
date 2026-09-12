@@ -65,6 +65,11 @@ fun `prompts to enable location when the service is off`() = runTest {
 }
 ```
 
+Since `promptToEnableService()` has no state of its own — it is only ever `ALREADY_ON` or
+`UNSUPPORTED`, derived from `locationEnabled` — the same `locationEnabled` you already set is what
+a screen calling `promptToEnableService()` instead of `isLocationEnabled()` sees too. No separate
+fixture control is needed.
+
 ## Proving a screen sent the user to settings
 
 ```kotlin

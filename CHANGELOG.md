@@ -34,6 +34,31 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - New `kmptoolkit-language-compose` module: `AppLocale` (provides `LocalLayoutDirection` from an
   `AppLanguage`, forces a recomposition on language change) and `Modifier.mirrorOnRtl()` /
   `mirrorOnLtr()`. Split from `kmptoolkit-language` so the base module stays plain Kotlin.
+- `kmptoolkit-permission`: `SpecialPermission` and `SpecialPermissionHandler`, for Android's
+  "special access" grants that have no in-app request dialog — `EXACT_ALARM`, `OVERLAY`,
+  `WRITE_SETTINGS`, `ALL_FILES_ACCESS`, `USAGE_STATS_ACCESS`, `IGNORE_BATTERY_OPTIMIZATIONS`,
+  `NOTIFICATION_LISTENER_ACCESS`, `DO_NOT_DISTURB_ACCESS`. Created with
+  `createSpecialPermissionHandler(context, logger)` (Android) / `createSpecialPermissionHandler()`
+  (iOS); every entry is always granted, with nothing to open, on iOS. Ported from Tahfeez's
+  `core/permission`, adapted to this module's factory-function convention (no Koin). Purely
+  additive — `PermissionHandler` and every other existing symbol is unchanged.
+- `kmptoolkit-permission-testing`: `RecordingSpecialPermissionHandler`, a `SpecialPermissionHandler`
+  double for `testImplementation`.
+- `kmptoolkit-location`: `LocationServicePrompt` and `LocationProvider.promptToEnableService()` (a
+  **default interface method**, so no existing `LocationProvider` implementation — including a
+  consumer's own — needs to change). Both factory-built providers only ever report `ALREADY_ON` /
+  `UNSUPPORTED`: an in-place resolution dialog needs Google Play Services on Android, which this
+  module deliberately does not depend on, and iOS exposes no equivalent API at all — see
+  `docs/kmptoolkit-location/05-platform-notes.md`. Purely additive.
+
+### Fixed
+
+- `kmptoolkit-location`: the iOS `LocationProvider` now creates and starts every `CLLocationManager`
+  on the main queue. Previously a caller reaching `getCurrentLocation()` / `observeLocation()` from
+  `Dispatchers.Default` (a Kotlin/Native worker thread, which has no run loop) could see the manager
+  created there too — CoreLocation delivers delegate callbacks on the run loop of the thread that
+  created the manager, so on such a thread neither a fix nor a failure would ever arrive, and the
+  call would suspend forever rather than time out or fail.
 
 ## [1.0.1] - 2026-08-29
 
