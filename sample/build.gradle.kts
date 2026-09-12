@@ -37,20 +37,19 @@ android {
 
 // The sample exists to prove the published artifacts actually resolve and work — see CLAUDE.md § 6.
 //
-// Two modes, because one alone is not enough:
+// Three modes, because one alone is not enough. The last two both resolve by Maven coordinate
+// through the BOM, which is the only way to catch a broken POM, a missing variant, or a publication
+// that omits a target — a unit test cannot see any of those.
 //   * default — project dependencies, so `./gradlew build` works on a fresh clone with nothing
 //     published anywhere;
-//   * `-PusePublishedArtifacts` — resolves the same modules by Maven coordinates through the BOM,
-//     which is the only way to catch a broken POM, a missing variant, or a publication that omits a
-//     target.
-//
-// The second mode reads from Maven Central, so it verifies a release **after** it is published
-// rather than before. `mavenLocal` used to back it, which let the same check run against a
-// `publishToMavenLocal` dry run first; that repository is gone, deliberately — a resolvable
-// `~/.m2` is exactly what makes a broken publication look fine on the machine that produced it.
-// Run this after the release lands and before announcing it.
+//   * `-PuseMavenLocal` — resolves a `publishToMavenLocal` dry run, BEFORE a release reaches
+//     Central. This is what the release workflow runs, and the only thing that makes the
+//     `mavenLocal` repository exist at all (see settings.gradle.kts);
+//   * `-PusePublishedArtifacts` — resolves the real thing from Maven Central, AFTER a release, to
+//     confirm that what consumers get is what was meant. Deliberately cannot see `~/.m2`.
+val useMavenLocal: Boolean = providers.gradleProperty("useMavenLocal").isPresent
 val usePublishedArtifacts: Boolean =
-    providers.gradleProperty("usePublishedArtifacts").isPresent
+    useMavenLocal || providers.gradleProperty("usePublishedArtifacts").isPresent
 
 dependencies {
     if (usePublishedArtifacts) {

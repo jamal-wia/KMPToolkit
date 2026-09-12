@@ -133,12 +133,15 @@ library:
   conversation.
 - `allTests` does **not** run Android (Robolectric) unit tests — don't rely on it alone; run
   `testDebugUnitTest` explicitly.
-- A smoke test that actually exercises a published artifact: `./gradlew :sample:assembleDebug
-  -PusePublishedArtifacts`, which resolves the suite by coordinate through the BOM from Maven
-  Central. It is the only check that can catch a broken POM, a missing variant, or a publication
-  that omits a target — and it runs **after** a release, not before it. There is deliberately no
-  `mavenLocal` repository to point it at a local dry run: a resolvable `~/.m2` is precisely what
-  makes a broken publication look correct on the machine that produced it.
+- A smoke test that actually exercises a published artifact — the only check that can catch a
+  broken POM, a missing variant, or a publication that omits a target, since no unit test can see
+  any of those. Two forms, and both matter:
+  `./gradlew publishToMavenLocal && ./gradlew :sample:assembleDebug -PuseMavenLocal` before a
+  release (what the publish workflow runs), and `./gradlew :sample:assembleDebug
+  -PusePublishedArtifacts` against Maven Central after one.
+- The `mavenLocal` repository exists **only** while `-PuseMavenLocal` is passed. Never add it
+  unconditionally: a permanently reachable `~/.m2` is precisely what makes a broken publication, or
+  a version that was never published at all, look correct on the one machine that produced it.
 
 ## 7. Tests are an honest adversary
 
