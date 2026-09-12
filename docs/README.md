@@ -60,9 +60,10 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-downloader` | Resumable background-download engine | [`kmptoolkit-downloader/`](kmptoolkit-downloader/01-overview.md) |
 
 Most of these also publish a `-testing` companion artifact holding their test double, documented in
-the same folder's `06-testing.md` rather than a folder of their own. Three do not:
-`kmptoolkit-logging`, `kmptoolkit-logging-overlay` and `kmptoolkit-systembars`, whose seams are
-already interfaces a test implements directly.
+the same folder's `06-testing.md` rather than a folder of their own. Two do not: `kmptoolkit-logging`
+and `kmptoolkit-logging-overlay`, whose seams are already interfaces a test implements directly.
+`kmptoolkit-systembars` publishes one for `ScreenWakeLockController` even though `SystemBarsController`
+itself has no fixture, for the same reason — see its `06-testing.md`.
 
 The rest of the suite is on the roadmap — see the root [`README.md`](../README.md) module table and
 [`CHANGELOG.md`](../CHANGELOG.md).

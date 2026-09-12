@@ -1,0 +1,19 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-systembars-testing>
+final class io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController : io.github.jamal_wia.kmptoolkit.systembars/ScreenWakeLockController { // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController.<init>|<init>(){}[0]
+
+    final val calls // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController.calls|{}calls[0]
+        final fun <get-calls>(): kotlin.collections/List<kotlin/Boolean> // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController.calls.<get-calls>|<get-calls>(){}[0]
+    final val isKeptOn // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController.isKeptOn|{}isKeptOn[0]
+        final fun <get-isKeptOn>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController.isKeptOn.<get-isKeptOn>|<get-isKeptOn>(){}[0]
+
+    final fun clear() // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController.clear|clear(){}[0]
+    final fun setKeepScreenOn(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController.setKeepScreenOn|setKeepScreenOn(kotlin.Boolean){}[0]
+}

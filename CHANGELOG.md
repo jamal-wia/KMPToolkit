@@ -9,6 +9,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Added
+
+- `kmptoolkit-systembars`: `ScreenWakeLockController`, a keep-screen-awake primitive
+  (`Window.FLAG_KEEP_SCREEN_ON` / `UIApplication.idleTimerDisabled`) unrelated to the bars, created
+  with `createScreenWakeLockController(context)` (Android) / `createScreenWakeLockController()`
+  (iOS). Purely additive — `SystemBarsController` and every other existing symbol is unchanged.
+- `kmptoolkit-systembars-testing`: new module holding `RecordingScreenWakeLockController`, a
+  `ScreenWakeLockController` double for `testImplementation`.
+
 ## [1.0.1] - 2026-08-29
 
 ### Removed

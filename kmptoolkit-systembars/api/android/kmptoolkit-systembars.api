@@ -6,6 +6,14 @@ public final class io/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior :
 	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
 }
 
+public abstract interface class io/github/jamal_wia/kmptoolkit/systembars/ScreenWakeLockController {
+	public abstract fun setKeepScreenOn (Z)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/systembars/ScreenWakeLockController_androidKt {
+	public static final fun createScreenWakeLockController (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/systembars/ScreenWakeLockController;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle : java/lang/Enum {
 	public static final field DarkIcons Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;
 	public static final field LightIcons Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarIconStyle;

@@ -129,6 +129,21 @@ ModalBottomSheet(onDismissRequest = ::dismiss) {
 
 No-op on iOS, where the sheet shares the app's one status bar.
 
+## 6. If you need to keep the screen awake
+
+`ScreenWakeLockController` is unrelated to the bars, but ships in the same module. Create one the
+same way, hold it for the session that needs it, and clear it explicitly when done — it does not
+tie itself to a composition the way `SystemBarsEffect` does:
+
+```kotlin
+val wakeLock = createScreenWakeLockController(context)   // createScreenWakeLockController() on iOS
+
+fun onRecordingStarted() = wakeLock.setKeepScreenOn(true)
+fun onRecordingStopped() = wakeLock.setKeepScreenOn(false)   // callers must call this explicitly
+```
+
+See [`04-api-reference.md`](04-api-reference.md#screenwakelockcontroller).
+
 ## Next
 
 [`03-guide.md`](03-guide.md) — what happens when two screens want the same axis, when a claim

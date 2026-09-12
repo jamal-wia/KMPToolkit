@@ -1,0 +1,8 @@
+public final class io/github/jamal_wia/kmptoolkit/systembars/testing/RecordingScreenWakeLockController : io/github/jamal_wia/kmptoolkit/systembars/ScreenWakeLockController {
+	public fun <init> ()V
+	public final fun clear ()V
+	public final fun getCalls ()Ljava/util/List;
+	public final fun isKeptOn ()Z
+	public fun setKeepScreenOn (Z)V
+}
+

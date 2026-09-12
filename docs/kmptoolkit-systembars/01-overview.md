@@ -77,6 +77,15 @@ Two properties follow from that shape, and they are the reason it exists:
 - **Not a singleton.** Nothing here is global or static. Two controllers driving one window would
   reintroduce exactly the fight this module exists to end, so create one and pass it.
 
+## Also in this module: `ScreenWakeLockController`
+
+A second, unrelated primitive lives here for a practical reason, not a conceptual one: keeping the
+screen from auto-locking (`Window.FLAG_KEEP_SCREEN_ON` / `UIApplication.idleTimerDisabled`) is, like
+the bars, a single per-window platform flag that only one owner may hold at a time, reached through
+the same activity-tracking machinery `SystemBarsController` already needs on Android. See
+[`04-api-reference.md`](04-api-reference.md#screenwakelockcontroller) and
+[`06-testing.md`](06-testing.md).
+
 ## Where to go next
 
 - [`02-getting-started.md`](02-getting-started.md) — a working setup on both platforms.

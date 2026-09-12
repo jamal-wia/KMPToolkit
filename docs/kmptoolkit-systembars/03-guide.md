@@ -185,6 +185,23 @@ Atomicity is not ordering, though: if two writers race to set the *same* axis, w
 last is genuinely undefined, because the question has no answer. Two owners of one axis is the
 design problem, and the layer stack is how you avoid having it.
 
+## `ScreenWakeLockController`: a different shape on purpose
+
+Unlike the bars, this is a single boolean with a single owner — there is no base, no stack, no
+composition-scoped effect shipped for it. Two things follow from that:
+
+- **It is idempotent, not reference-counted.** Wire it straight off a boolean state — `isRecording
+  .collect { wakeLock.setKeepScreenOn(it) }` — without your own edge-detection; a second `true`
+  does not need a second `false`.
+- **Nothing releases it for you.** `SystemBarsEffect` exists precisely because forgetting to release
+  an override is easy and costly; the wake lock has no composition-scoped equivalent, so call
+  `setKeepScreenOn(false)` explicitly from whatever owns the session (a `DisposableEffect`'s
+  `onDispose`, a component's teardown hook) when the reason to stay awake ends.
+
+Only one caller in your app should ever touch it. A second, independent caller of the same platform
+flag reintroduces the exact "last write wins" conflict `SystemBarsController` exists to prevent, and
+this interface has no layering to protect it the way the bars do.
+
 ## Anti-patterns
 
 | Don't | Do |

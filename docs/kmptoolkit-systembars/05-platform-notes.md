@@ -149,3 +149,27 @@ module.
 `setNeedsStatusBarAppearanceUpdate()` is UIKit and therefore main-thread only. The controller
 dispatches to the main queue when it is called from anywhere else, and calls through inline when it
 is already there, so you never have to think about it.
+
+## `ScreenWakeLockController`
+
+### Android
+
+Backed by `Window.FLAG_KEEP_SCREEN_ON`, applied through the same internal activity tracker
+`SystemBarsController` uses — `createScreenWakeLockController` builds its own tracker instance, so
+using both controllers registers two lightweight `ActivityLifecycleCallbacks`, not one shared one.
+
+The controller remembers whether it last set the flag on the *specific* activity it wrote to
+(a weak reference), which is what makes rotation safe in both directions: a `true` held by the
+controller is re-applied to the freshly recreated activity's window (which otherwise starts with the
+flag unset), and a `false` that arrived while no activity was resumed is still delivered to that same
+window the next time it resumes — it does not linger and keep the screen awake indefinitely. A
+different activity — a different screen, not a recreation of the same one — never carried this
+controller's flag and is left untouched either way.
+
+No permission is required; `FLAG_KEEP_SCREEN_ON` needs none.
+
+### iOS
+
+Backed by `UIApplication.idleTimerDisabled`. No activity-tracker equivalent is needed: iOS hosts one
+process-stable `UIWindow` for the app's whole lifetime, and the property is not reset by the OS on
+its own. The write is dispatched to the main queue, the same way status-bar updates are.

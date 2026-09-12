@@ -222,11 +222,44 @@ is held strongly and is what gets `setNeedsStatusBarAppearanceUpdate()` on every
 (or `release()` the controller) when the host goes away. See
 [`05-platform-notes.md`](05-platform-notes.md).
 
+## Wake lock
+
+### `ScreenWakeLockController`
+
+```kotlin
+public interface ScreenWakeLockController {
+    public fun setKeepScreenOn(enabled: Boolean)
+}
+```
+
+Suppresses, or restores, the OS's screen-idle timer — unrelated to the bars, and shipped in this
+module because both are thin wrappers over a single per-window platform flag. See
+[`03-guide.md`](03-guide.md#screenwakelockcontroller-a-different-shape-on-purpose).
+
+| Member | Contract |
+|---|---|
+| `setKeepScreenOn(enabled)` | Idempotent: calling it with the value it already holds is a no-op. There is no `release()` — callers must call `setKeepScreenOn(false)` themselves when the reason to stay awake ends |
+
+### Factories
+
+```kotlin
+// Android
+public fun createScreenWakeLockController(context: Context): ScreenWakeLockController
+
+// iOS
+public fun createScreenWakeLockController(): ScreenWakeLockController
+```
+
+The Android implementation tracks the currently resumed activity internally, the same way
+`createSystemBarsController` does, and re-applies a held `true` to each newly resumed activity
+across configuration changes. The iOS implementation needs no such tracking — see
+[`05-platform-notes.md`](05-platform-notes.md).
+
 ## Testing fixtures
 
-None. This module ships no `-testing` artifact, and deliberately: the part worth faking in a test
-is `SystemBarsController`, which is a five-method interface over three enums with no platform
-types in its signatures — a fake is shorter than the import that would bring one in.
+`SystemBarsController` itself ships no fixture, deliberately: it is a five-method interface over
+three enums with no platform types in its signatures — a fake is shorter than the import that would
+bring one in.
 
 ```kotlin
 class FakeSystemBarsController : SystemBarsController {
@@ -238,3 +271,7 @@ class FakeSystemBarsController : SystemBarsController {
     override fun release() = Unit
 }
 ```
+
+`ScreenWakeLockController` does ship one, in `kmptoolkit-systembars-testing`:
+`RecordingScreenWakeLockController`, which records every `setKeepScreenOn` call. See
+[`06-testing.md`](06-testing.md).
