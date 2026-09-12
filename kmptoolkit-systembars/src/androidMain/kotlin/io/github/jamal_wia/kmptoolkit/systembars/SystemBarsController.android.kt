@@ -77,7 +77,8 @@ private class AndroidSystemBarsController(
 ) : LayeredSystemBarsController(initialConfig) {
 
     /**
-     * Re-applies on every resume, including the immediate one at construction.
+     * Re-applies on every resume the tracker sees, and at construction if the tracker already holds
+     * a resumed activity — which it does only when it existed before that activity resumed.
      *
      * A recreated activity is a brand-new window at platform defaults while this controller still
      * holds the state the previous one had — nothing changed as far as the state is concerned, so

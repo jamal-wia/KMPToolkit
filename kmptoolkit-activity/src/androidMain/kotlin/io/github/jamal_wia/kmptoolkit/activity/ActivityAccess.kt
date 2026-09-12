@@ -38,7 +38,9 @@ public interface ActivityAccess {
     public fun <R> withActivity(block: (Activity) -> R): R?
 
     /**
-     * Subscribes to activity resumption, and fires immediately if one is already resumed.
+     * Subscribes to activity resumption, and fires immediately if this tracker already holds a
+     * resumed activity — one whose resume it saw. An activity that resumed before the tracker was
+     * created is not known to it; see [createActivityAccess].
      *
      * The listener is invoked synchronously on whatever thread the framework delivers
      * `onActivityResumed` on, which is the main thread.
