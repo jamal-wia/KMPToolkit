@@ -47,6 +47,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   API 29+. Because this module deliberately never calls `enableEdgeToEdge`, following the docs left a
   faint band behind the navigation bar on three-button devices. The notes now give the two lines that
   avoid it.
+- Documentation: the iOS platform notes now cover SwiftUI apps, whose window root is a hosting
+  controller that never asks an embedded Compose view controller about the status bar. They show
+  making the host the root from a `UIWindowSceneDelegate`, and warn off the app-delegate-owned window,
+  which leaves the UIScene lifecycle and builds the UI on background launches. The note on activity
+  recreation, which claimed a replay to an activity resumed before the controller existed, now agrees
+  with the creation-order contract, as does the matching KDoc in `kmptoolkit-activity`.
 - KDoc: `applyLanguageGlobally` said `AppLanguageHolder` applies only on a `setLanguage` that changes
   the language; it applies on every call. `StatusBarLuminanceProbe` pointed screens at
   `setStatusBarStyle` / `setNavigationBarStyle`, which do not exist in this API.
