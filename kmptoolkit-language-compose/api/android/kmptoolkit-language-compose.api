@@ -1,0 +1,9 @@
+public final class io/github/jamal_wia/kmptoolkit/language/compose/AppLocaleKt {
+	public static final fun AppLocale (Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;Lkotlin/jvm/functions/Function2;Landroidx/compose/runtime/Composer;I)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/language/compose/MirrorOnRtlKt {
+	public static final fun mirrorOnLtr (Landroidx/compose/ui/Modifier;Landroidx/compose/runtime/Composer;I)Landroidx/compose/ui/Modifier;
+	public static final fun mirrorOnRtl (Landroidx/compose/ui/Modifier;Landroidx/compose/runtime/Composer;I)Landroidx/compose/ui/Modifier;
+}
+

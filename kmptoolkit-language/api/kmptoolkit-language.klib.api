@@ -1,0 +1,41 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-language>
+abstract interface io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder { // io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder|null[0]
+    abstract val languageFlow // io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder.languageFlow|{}languageFlow[0]
+        abstract fun <get-languageFlow>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.language/AppLanguage> // io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder.languageFlow.<get-languageFlow>|<get-languageFlow>(){}[0]
+    open val language // io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder.language|{}language[0]
+        open fun <get-language>(): io.github.jamal_wia.kmptoolkit.language/AppLanguage // io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder.language.<get-language>|<get-language>(){}[0]
+
+    abstract fun setLanguage(io.github.jamal_wia.kmptoolkit.language/AppLanguage) // io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder.setLanguage|setLanguage(io.github.jamal_wia.kmptoolkit.language.AppLanguage){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.language/AppLanguage { // io.github.jamal_wia.kmptoolkit.language/AppLanguage|null[0]
+    constructor <init>(kotlin/String?, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.language/AppLanguage.<init>|<init>(kotlin.String?;kotlin.Boolean){}[0]
+
+    final val code // io.github.jamal_wia.kmptoolkit.language/AppLanguage.code|{}code[0]
+        final fun <get-code>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.language/AppLanguage.code.<get-code>|<get-code>(){}[0]
+    final val isLtr // io.github.jamal_wia.kmptoolkit.language/AppLanguage.isLtr|{}isLtr[0]
+        final fun <get-isLtr>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.language/AppLanguage.isLtr.<get-isLtr>|<get-isLtr>(){}[0]
+
+    final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.language/AppLanguage.component1|component1(){}[0]
+    final fun component2(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.language/AppLanguage.component2|component2(){}[0]
+    final fun copy(kotlin/String? = ..., kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.language/AppLanguage // io.github.jamal_wia.kmptoolkit.language/AppLanguage.copy|copy(kotlin.String?;kotlin.Boolean){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.language/AppLanguage.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.language/AppLanguage.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.language/AppLanguage.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.language/AppLanguage.Companion|null[0]
+        final val System // io.github.jamal_wia.kmptoolkit.language/AppLanguage.Companion.System|{}System[0]
+            final fun <get-System>(): io.github.jamal_wia.kmptoolkit.language/AppLanguage // io.github.jamal_wia.kmptoolkit.language/AppLanguage.Companion.System.<get-System>|<get-System>(){}[0]
+    }
+}
+
+final fun io.github.jamal_wia.kmptoolkit.language/applyLanguageGlobally(io.github.jamal_wia.kmptoolkit.language/AppLanguage) // io.github.jamal_wia.kmptoolkit.language/applyLanguageGlobally|applyLanguageGlobally(io.github.jamal_wia.kmptoolkit.language.AppLanguage){}[0]
+final fun io.github.jamal_wia.kmptoolkit.language/createAppLanguageHolder(io.github.jamal_wia.kmptoolkit.language/AppLanguage, kotlin/Function1<io.github.jamal_wia.kmptoolkit.language/AppLanguage, kotlin/Unit> = ..., kotlin/Function1<io.github.jamal_wia.kmptoolkit.language/AppLanguage, kotlin/Unit> = ...): io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder // io.github.jamal_wia.kmptoolkit.language/createAppLanguageHolder|createAppLanguageHolder(io.github.jamal_wia.kmptoolkit.language.AppLanguage;kotlin.Function1<io.github.jamal_wia.kmptoolkit.language.AppLanguage,kotlin.Unit>;kotlin.Function1<io.github.jamal_wia.kmptoolkit.language.AppLanguage,kotlin.Unit>){}[0]
+final fun io.github.jamal_wia.kmptoolkit.language/getSystemLanguageCode(): kotlin/String? // io.github.jamal_wia.kmptoolkit.language/getSystemLanguageCode|getSystemLanguageCode(){}[0]

@@ -66,6 +66,8 @@ include(":kmptoolkit-proximity")
 include(":kmptoolkit-proximity-testing")
 include(":kmptoolkit-downloader")
 include(":kmptoolkit-downloader-testing")
+include(":kmptoolkit-language")
+include(":kmptoolkit-language-compose")
 
 include(":kmptoolkit-bom")
 

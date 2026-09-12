@@ -17,6 +17,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   (iOS). Purely additive — `SystemBarsController` and every other existing symbol is unchanged.
 - `kmptoolkit-systembars-testing`: new module holding `RecordingScreenWakeLockController`, a
   `ScreenWakeLockController` double for `testImplementation`.
+- New `kmptoolkit-language` module: `AppLanguageHolder`, `AppLanguage` (a BCP-47 code and a reading
+  direction — no language catalog, no display names), `applyLanguageGlobally()` /
+  `getSystemLanguageCode()`, and Android's `localizedContext()`. Ported from Tahfeez's
+  `core/language`, generalized to carry no fixed language list or user-facing text and to depend on
+  no storage or DI framework of its own.
+- New `kmptoolkit-language-compose` module: `AppLocale` (provides `LocalLayoutDirection` from an
+  `AppLanguage`, forces a recomposition on language change) and `Modifier.mirrorOnRtl()` /
+  `mirrorOnLtr()`. Split from `kmptoolkit-language` so the base module stays plain Kotlin.
 
 ## [1.0.1] - 2026-08-29
 
