@@ -1,14 +1,15 @@
-package io.github.jamal_wia.kmptoolkit.permission
+package io.github.jamal_wia.kmptoolkit.activity
 
 import android.app.Activity
 import android.app.Application
 
 /**
- * Scoped access to the activity that is resumed **right now**, for the one Android API in this
- * module that cannot be reached from an application `Context`: `shouldShowRequestPermissionRationale`.
+ * Scoped access to the activity that is resumed **right now**.
  *
- * Private to this module — [createActivityTracker] is called once, internally, by
- * [createPermissionHandler][io.github.jamal_wia.kmptoolkit.permission.createPermissionHandler].
+ * Anything that has to reach a window, a permission launcher, or any other `Activity`-scoped API
+ * from code that is not itself an activity needs this, and the identity it needs changes constantly:
+ * a rotation, a theme change or a font-size change destroys the activity and builds another.
+ *
  * Everything about the shape of this interface exists to make an activity leak hard:
  *
  * - **There is no getter.** You cannot obtain an `Activity` and put it in a field; you can only
@@ -19,7 +20,7 @@ import android.app.Application
  * - **Nothing global holds it.** The tracker is registered with the `Application`, which outlives
  *   every activity — hence the weak reference — and [release] unregisters it.
  */
-internal interface ActivityAccess {
+public interface ActivityAccess {
 
     /**
      * Runs [block] with the currently resumed activity and returns its result, or returns `null`
@@ -34,7 +35,7 @@ internal interface ActivityAccess {
      * The block runs on the calling thread; most `Activity` APIs require the main thread, and this
      * does not move you there.
      */
-    fun <R> withActivity(block: (Activity) -> R): R?
+    public fun <R> withActivity(block: (Activity) -> R): R?
 
     /**
      * Subscribes to activity resumption, and fires immediately if one is already resumed.
@@ -48,7 +49,7 @@ internal interface ActivityAccess {
      * @return a handle to stop receiving callbacks. Cancel it when the listener's owner goes away;
      *   a listener that lives as long as the process never needs to.
      */
-    fun addOnActivityResumedListener(listener: (Activity) -> Unit): ActivitySubscription
+    public fun addOnActivityResumedListener(listener: (Activity) -> Unit): ActivitySubscription
 
     /**
      * Unregisters from the `Application`, drops the current activity reference, and forgets every
@@ -56,22 +57,39 @@ internal interface ActivityAccess {
      *
      * A process-lifetime tracker never needs this. It exists for tests. Idempotent.
      */
-    fun release()
+    public fun release()
 }
 
 /** A handle returned by [ActivityAccess.addOnActivityResumedListener]. */
-internal interface ActivitySubscription {
+public interface ActivitySubscription {
 
     /** Stops the listener from being called again, and releases whatever it captured. Idempotent. */
-    fun cancel()
+    public fun cancel()
 }
 
 /**
- * Creates this module's process-wide [ActivityAccess], registered against [application]'s
- * activity lifecycle callbacks.
+ * Creates a process-wide [ActivityAccess], registered against [application]'s activity lifecycle
+ * callbacks.
  *
  * Passing an `Activity` here would be a mistake the compiler cannot catch, which is why the
  * parameter is `Application` and not `Context`.
+ *
+ * @param isTracked decides which activities this instance is allowed to answer with. The default
+ *   accepts every activity in the process, which is what you want when the thing being driven
+ *   belongs to whichever activity the user is looking at.
+ *
+ *   Narrow it when it does not. An app whose process hosts activities it does not own the appearance
+ *   of — a sign-in flow, a photo picker, a billing screen, a `ComponentActivity` some SDK declared
+ *   in its own manifest — would otherwise have that activity styled, kept awake, or handed a
+ *   permission launcher the moment it resumes, simply for being the most recent one. Passing
+ *   `{ it is MainActivity }` makes the answer "the activity I mean", not "the activity on top".
+ *
+ *   An untracked activity resuming does not displace the tracked one: [withActivity] keeps
+ *   answering with the tracked activity underneath, and stops only when *that* one goes away. The
+ *   predicate is called on the main thread during `onActivityResumed` and should be a cheap type
+ *   check.
  */
-internal fun createActivityTracker(application: Application): ActivityAccess =
-    LifecycleActivityTracker(application).also { tracker -> tracker.register() }
+public fun createActivityAccess(
+    application: Application,
+    isTracked: (Activity) -> Boolean = { true },
+): ActivityAccess = LifecycleActivityTracker(application, isTracked).also { it.register() }

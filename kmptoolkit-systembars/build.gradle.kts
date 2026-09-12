@@ -71,6 +71,11 @@ kotlin {
         androidMain.dependencies {
             // WindowCompat / WindowInsetsControllerCompat — the whole Android implementation.
             implementation(libs.androidx.core.ktx)
+
+            // api, not implementation: the createSystemBarsController / createScreenWakeLockController
+            // overloads that let a consumer say which activities count take an ActivityAccess, so it
+            // is part of this module's own Android API.
+            api(project(":kmptoolkit-activity"))
         }
 
         commonTest.dependencies {

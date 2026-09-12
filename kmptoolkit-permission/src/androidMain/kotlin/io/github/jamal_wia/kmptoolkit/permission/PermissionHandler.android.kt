@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
+import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.d
@@ -51,7 +53,7 @@ public fun createPermissionHandler(
     logger: Logger = NoopLogger,
 ): PermissionHandler {
     val applicationContext: Context = context.applicationContext
-    val activityAccess: ActivityAccess = createActivityTracker(applicationContext as Application)
+    val activityAccess: ActivityAccess = createActivityAccess(applicationContext as Application)
     return AndroidPermissionHandler(
         context = applicationContext,
         host = host,

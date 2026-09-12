@@ -10,6 +10,9 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
+import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
+import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 
 /**
  * Creates the Android [SystemBarsController].
@@ -25,11 +28,31 @@ import androidx.core.view.WindowInsetsControllerCompat
 public fun createSystemBarsController(
     context: Context,
     initialConfig: SystemBarsConfig = SystemBarsConfig(),
-): SystemBarsController {
-    val activityAccess: ActivityAccess =
-        createActivityTracker(context.applicationContext as Application)
-    return AndroidSystemBarsController(activityAccess, initialConfig)
-}
+): SystemBarsController = createSystemBarsController(
+    activityAccess = createActivityAccess(context.applicationContext as Application),
+    initialConfig = initialConfig,
+)
+
+/**
+ * Creates the Android [SystemBarsController] over an [ActivityAccess] you own.
+ *
+ * Use this instead of the `Context` overload when "the activity on top" is not the activity you
+ * mean. That overload tracks every activity in the process, so anything your app launches into its
+ * own process — a sign-in flow, a photo picker, a `ComponentActivity` an SDK declared in its own
+ * manifest — gets your bar configuration applied to its window the moment it resumes, including a
+ * fullscreen one a screen underneath had claimed. Narrow it with
+ * `createActivityAccess(application) { it is MainActivity }`.
+ *
+ * The [ActivityAccess] is yours: this controller does not release it, so one instance can back
+ * several controllers, and [SystemBarsController.release] leaves it registered.
+ *
+ * @param activityAccess where the window to style comes from.
+ * @param initialConfig the base configuration to start from, before your theme sets one.
+ */
+public fun createSystemBarsController(
+    activityAccess: ActivityAccess,
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+): SystemBarsController = AndroidSystemBarsController(activityAccess, initialConfig)
 
 /**
  * Applies the configuration through `WindowInsetsControllerCompat`, which is the one API that

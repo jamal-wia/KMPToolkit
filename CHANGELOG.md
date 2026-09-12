@@ -21,6 +21,33 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   indicator on iOS. The controller invalidates it alongside the status bar on every configuration
   change. Added as a **default interface member**, so no existing implementation of
   `IosSystemBarsController` needs to change. Purely additive.
+- New `kmptoolkit-activity` module: `ActivityAccess`, `ActivitySubscription` and
+  `createActivityAccess(application, isTracked)` — scoped access to the resumed Android activity,
+  with no getter to leak through and a weak reference cleared by the framework's own lifecycle
+  callbacks. `kmptoolkit-systembars` and `kmptoolkit-permission` each carried a private copy of this
+  code; both now depend on the one artifact, which changes neither module's public API.
+
+  It is the suite's first **Android-only** artifact. Not because iOS support is unfinished, but
+  because UIKit has no counterpart to an `Activity` — an iOS `actual` here could only be an
+  interface that compiles and does nothing. Depend on it from `androidMain`. The bar a second
+  Android-only module would have to clear is in `docs/01-architecture.md` § "One module is
+  Android-only".
+- `kmptoolkit-systembars`: `createSystemBarsController(activityAccess, initialConfig)` and
+  `createScreenWakeLockController(activityAccess)`, so a consumer can say *which* activities the
+  controller is allowed to act on. The `Context` overloads track every activity in the process,
+  which is right when the bars belong to whichever window the user is looking at — and wrong as soon
+  as the process hosts a window the app does not own the appearance of. An in-process picker or
+  sign-in activity would otherwise be handed the configuration the app last set, including a
+  fullscreen one a screen underneath had claimed, and a keep-screen-awake flag would follow the user
+  into it. `createActivityAccess(application) { it is MainActivity }` fixes both. Purely additive;
+  the `Context` overloads are unchanged and still track everything.
+- `kmptoolkit-language`: `AppLanguage(code)` and `isRightToLeft(code)`, deriving reading direction
+  from the writing system instead of making every consumer state it. Which languages an app offers
+  is a product decision this module stays out of; which direction Arabic reads in is not, and
+  `isLtr = true` typed next to `"fa"` lays Persian out left-to-right with nothing failing. An
+  explicit script subtag outranks the language (`az-Arab` is right-to-left, `az` is not), and an
+  unrecognised tag is reported left-to-right — the safe direction to be wrong in. The two-argument
+  constructor still works and still wins. Purely additive.
 - `kmptoolkit-systembars`: `createHeadlessSystemBarsController()`, a controller with the full layer
   model and no window behind it, in the **main** artifact rather than the testing one. `@Preview`
   functions compile into production source, so a screen that resolves a controller — or uses

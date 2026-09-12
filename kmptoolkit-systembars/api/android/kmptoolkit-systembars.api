@@ -22,6 +22,7 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/systembars/Screen
 
 public final class io/github/jamal_wia/kmptoolkit/systembars/ScreenWakeLockController_androidKt {
 	public static final fun createScreenWakeLockController (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/systembars/ScreenWakeLockController;
+	public static final fun createScreenWakeLockController (Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;)Lio/github/jamal_wia/kmptoolkit/systembars/ScreenWakeLockController;
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/systembars/StatusBarLuminanceProbe {
@@ -80,7 +81,9 @@ public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsControlle
 
 public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsController_androidKt {
 	public static final fun createSystemBarsController (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
+	public static final fun createSystemBarsController (Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
 	public static synthetic fun createSystemBarsController$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
+	public static synthetic fun createSystemBarsController$default (Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/systembars/SystemBarsEffectKt {

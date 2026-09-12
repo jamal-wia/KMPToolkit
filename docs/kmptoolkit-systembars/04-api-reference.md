@@ -261,6 +261,31 @@ public fun createSystemBarsController(
 taking an `Activity` directly, because the window changes identity on every configuration change;
 the controller re-applies itself to each new one automatically.
 
+```kotlin
+public fun createSystemBarsController(
+    activityAccess: ActivityAccess,
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+): SystemBarsController
+```
+
+The same controller over an `ActivityAccess` (from `kmptoolkit-activity`) that **you** own, which is
+how you say *which* activities count.
+
+Reach for it as soon as your process hosts a window whose appearance you do not own — an in-process
+sign-in flow, a photo picker, a `ComponentActivity` a dependency declared in its own manifest. The
+`Context` overload tracks every activity in the process, so one of those resuming is handed whatever
+the app last asked for, including a fullscreen claim a screen underneath is still holding:
+
+```kotlin
+val activityAccess = createActivityAccess(application) { it is MainActivity }
+val controller = createSystemBarsController(activityAccess)
+val wakeLock = createScreenWakeLockController(activityAccess)
+```
+
+The `ActivityAccess` is yours: the controller does not release it, one instance can back several
+controllers, and `SystemBarsController.release()` leaves it registered. See
+[`../kmptoolkit-activity/03-guide.md`](../kmptoolkit-activity/03-guide.md).
+
 ### iOS
 
 ```kotlin
@@ -348,14 +373,18 @@ module because both are thin wrappers over a single per-window platform flag. Se
 ```kotlin
 // Android
 public fun createScreenWakeLockController(context: Context): ScreenWakeLockController
+public fun createScreenWakeLockController(activityAccess: ActivityAccess): ScreenWakeLockController
 
 // iOS
 public fun createScreenWakeLockController(): ScreenWakeLockController
 ```
 
-The Android implementation tracks the currently resumed activity internally, the same way
-`createSystemBarsController` does, and re-applies a held `true` to each newly resumed activity
-across configuration changes. The iOS implementation needs no such tracking — see
+The Android implementation tracks the currently resumed activity, the same way
+`createSystemBarsController` does — including the choice between the two overloads, and for the same
+reason: the `Context` one keeps whichever activity resumed last awake, so a playback session's wake
+lock follows the user into an in-process file picker. Pass the same `ActivityAccess` you gave the
+system-bars controller and both agree on which window they mean. Either way it re-applies a held
+`true` to each newly resumed activity across configuration changes. The iOS implementation needs no such tracking — see
 [`05-platform-notes.md`](05-platform-notes.md).
 
 ## Testing fixtures

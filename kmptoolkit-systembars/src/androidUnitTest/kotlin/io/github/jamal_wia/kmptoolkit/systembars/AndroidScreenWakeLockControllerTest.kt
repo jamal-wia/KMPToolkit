@@ -5,6 +5,8 @@ import android.app.Application
 import android.view.WindowManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
+import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.android.controller.ActivityController
@@ -22,7 +24,7 @@ import kotlin.test.assertTrue
 class AndroidScreenWakeLockControllerTest {
 
     private val application: Application = ApplicationProvider.getApplicationContext()
-    private val activityAccess: ActivityAccess = createActivityTracker(application)
+    private val activityAccess: ActivityAccess = createActivityAccess(application)
     private val controllers: MutableList<ActivityController<Activity>> = mutableListOf()
 
     @AfterTest

@@ -176,6 +176,26 @@ coordinates each, six for the one module that also publishes `jvm` — inside Ma
 per-namespace limits (see `RELEASING.md`). The target
 list is recorded in each module's `.klib.api` dump.
 
+## One module is Android-only
+
+`kmptoolkit-activity` publishes `android` and nothing else. It is the only module that does, and the
+reason is not that iOS support is unfinished — it is that there is nothing to support.
+
+The module answers one question: *which `Activity` is resumed right now*. UIKit has no counterpart.
+A view controller is owned by the app's own hierarchy and reached directly, so an iOS `actual` here
+could only be a fiction — an interface that compiles, resolves to nothing, and silently does not
+work for anyone who believed it. Publishing a target to preserve a symmetry that the platform does
+not have is worse for a consumer than publishing no target at all, because the first failure then
+happens at runtime on a device instead of at compile time on a laptop.
+
+That is the bar for a second Android-only module, and it is a high one: the capability must be
+*absent* on iOS, not merely unimplemented or shaped differently there. A capability that exists on
+both platforms in different forms is exactly what `expect`/`actual` is for, and belongs in a
+two-target module like every other one in the suite.
+
+Consumers depend on it from `androidMain`. `kmptoolkit-systembars` and `kmptoolkit-permission` both
+do — each carried a private copy of this code before it had a home of its own.
+
 ## One module publishes a desktop target
 
 `kmptoolkit-systembars` also publishes `jvm`. It is the only module that does, and the exception is

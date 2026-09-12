@@ -52,6 +52,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-logging-overlay` | On-screen log overlay for debug builds | [`kmptoolkit-logging-overlay/`](kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-permission` | Runtime permission request flow | [`kmptoolkit-permission/`](kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-biometric` | Biometric authentication gate | [`kmptoolkit-biometric/`](kmptoolkit-biometric/01-overview.md) |
+| `kmptoolkit-activity` | The currently resumed Android activity, scoped (Android only) | [`kmptoolkit-activity/`](kmptoolkit-activity/01-overview.md) |
 | `kmptoolkit-systembars` | Status and navigation bar control | [`kmptoolkit-systembars/`](kmptoolkit-systembars/01-overview.md) |
 | `kmptoolkit-notification` | Local notifications, channels and actions | [`kmptoolkit-notification/`](kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-uploader` | Transactional uploader / offline effect queue | [`kmptoolkit-uploader/`](kmptoolkit-uploader/01-overview.md) |

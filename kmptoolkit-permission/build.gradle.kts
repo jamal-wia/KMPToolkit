@@ -48,6 +48,11 @@ kotlin {
             // NotificationManagerCompat.getEnabledListenerPackages() — the only way to check
             // SpecialPermission.NOTIFICATION_LISTENER_ACCESS; the platform SDK has no equivalent.
             implementation(libs.androidx.core.ktx)
+
+            // implementation, not api: a permission request has to be launched from the resumed
+            // activity, but the handler resolves that itself and no ActivityAccess appears in this
+            // module's own signatures.
+            implementation(project(":kmptoolkit-activity"))
         }
         androidUnitTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

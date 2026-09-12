@@ -6,6 +6,8 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.WindowManager
+import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
+import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import java.lang.ref.WeakReference
 
 /**
@@ -15,10 +17,20 @@ import java.lang.ref.WeakReference
  *   resumed activity, which is whose window the flag is written to — that identity changes on
  *   every rotation, theme change and font-size change.
  */
-public fun createScreenWakeLockController(context: Context): ScreenWakeLockController {
-    val activityAccess: ActivityAccess = createActivityTracker(context.applicationContext as Application)
-    return AndroidScreenWakeLockController(activityAccess)
-}
+public fun createScreenWakeLockController(context: Context): ScreenWakeLockController =
+    createScreenWakeLockController(createActivityAccess(context.applicationContext as Application))
+
+/**
+ * Creates the Android [ScreenWakeLockController] over an [ActivityAccess] you own.
+ *
+ * Same reason as the system-bars overload of the same shape: the `Context` version keeps whichever
+ * activity resumed last awake, so a review session's wake lock follows the user into a system file
+ * picker hosted in this process. Narrow it with
+ * `createActivityAccess(application) { it is MainActivity }`, or share one instance with the
+ * system-bars controller so both agree on which window they mean.
+ */
+public fun createScreenWakeLockController(activityAccess: ActivityAccess): ScreenWakeLockController =
+    AndroidScreenWakeLockController(activityAccess)
 
 /**
  * Android implementation via `Window.FLAG_KEEP_SCREEN_ON`.

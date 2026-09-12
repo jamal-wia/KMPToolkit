@@ -1,4 +1,4 @@
-package io.github.jamal_wia.kmptoolkit.systembars
+package io.github.jamal_wia.kmptoolkit.activity
 
 import android.app.Activity
 import android.app.Application
@@ -12,7 +12,8 @@ import java.util.concurrent.CopyOnWriteArrayList
  * The framework, not the caller, is what clears the reference here. A `bind`/`unbind` pair called
  * by hand from `onResume`/`onPause` is one forgotten override away from pinning a destroyed
  * activity, and the failure is invisible until a heap dump. Registering with the `Application`
- * means every activity in the process is tracked whether or not anyone remembered to wire it up.
+ * means every activity in the process is seen whether or not anyone remembered to wire it up —
+ * [isTracked] then decides which of those this instance is actually willing to answer with.
  *
  * The reference itself is a [WeakReference] as a second line of defence: even if a lifecycle
  * callback were somehow missed, the garbage collector can still reclaim the activity, and
@@ -20,6 +21,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  */
 internal class LifecycleActivityTracker(
     private val application: Application,
+    private val isTracked: (Activity) -> Boolean = { true },
 ) : ActivityAccess, Application.ActivityLifecycleCallbacks {
 
     /** The only reference to an activity this class holds, and it is weak. */
@@ -62,7 +64,14 @@ internal class LifecycleActivityTracker(
         listeners.clear()
     }
 
+    /**
+     * An activity the caller does not track is ignored outright rather than replacing the current
+     * one. That is the whole point of the predicate: a picker or a sign-in screen resuming over the
+     * app must not inherit what the app asked for, and the app's own activity underneath must still
+     * be reachable when it comes back.
+     */
     override fun onActivityResumed(activity: Activity) {
+        if (!isTracked(activity)) return
         current = WeakReference(activity)
         listeners.forEach { listener -> listener(activity) }
     }
