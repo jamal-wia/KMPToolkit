@@ -29,8 +29,10 @@ Each module has its own `docs/<module>/` folder, numbered in learning order:
 | `07-faq.md` *(if present)* | Answers to recurring real questions |
 
 A module with a substantial extension point may add a page for it — `kmptoolkit-uploader` documents
-implementing its storage SPI in [`07-custom-store.md`](kmptoolkit-uploader/07-custom-store.md), and
-`kmptoolkit-downloader` documents implementing its transfer SPI in
+implementing its storage SPI in [`07-custom-store.md`](kmptoolkit-uploader/07-custom-store.md) and
+its built-in HTTP upload executor in
+[`08-upload-transport.md`](kmptoolkit-uploader/08-upload-transport.md), and `kmptoolkit-downloader`
+documents implementing its transfer SPI in
 [`07-background-downloader.md`](kmptoolkit-downloader/07-background-downloader.md).
 
 Start with the module's `01-overview.md` — if what you need doesn't fit that module's stated scope,

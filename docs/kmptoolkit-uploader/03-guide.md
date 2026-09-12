@@ -194,6 +194,34 @@ and which only then reports `Failed`. That report spends an attempt and returns 
 The consequence is a possible redundant hand-off, never a lost effect — which is the same
 at-least-once bargain the rest of the module makes.
 
+### A ready-made executor for a multipart HTTP upload
+
+Writing your own executor means answering "how do I keep this going after the process dies" for
+yourself. If your detached delivery is a plain multipart HTTP upload, `UploadTransport` is that
+executor, already written: `createWorkManagerUploadTransport` on Android turns `execute()` into one
+WorkManager job per item, unique-keyed so a re-hand joins rather than duplicates.
+
+```kotlin
+val transport: UploadTransport = createWorkManagerUploadTransport(context)
+
+override suspend fun execute(context: AttemptContext, payload: AvatarUpload): AttemptResult {
+    transport.launch(
+        context.id,
+        UploadRequest(
+            url = payload.uploadUrl,
+            headers = mapOf("Authorization" to "Bearer ${payload.freshToken}"),
+            fields = listOf(UploadField.File("avatar", payload.fileName, "image/jpeg", payload.filePath)),
+        ),
+    )
+    return AttemptResult.Detached(transport.leaseMillis)
+}
+```
+
+The transport calls `UploaderEngine.settle` itself once the job finishes — you never write the
+settle call shown above by hand. See `docs/kmptoolkit-uploader/08-upload-transport.md` for the full
+contract, what it costs (no serialization dependency, `Data`'s ~10 KB cap), and why there is no iOS
+transport yet.
+
 ## Draining on demand
 
 ```kotlin

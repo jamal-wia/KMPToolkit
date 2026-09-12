@@ -51,6 +51,21 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   module deliberately does not depend on, and iOS exposes no equivalent API at all — see
   `docs/kmptoolkit-location/05-platform-notes.md`. Purely additive.
 
+- `kmptoolkit-uploader`: `UploadTransport`, a ready-made executor for `AttemptResult.Detached`
+  covering the common case — a plain multipart HTTP upload that must keep going after the process
+  dies. `createWorkManagerUploadTransport` (Android) turns `execute()` into one `WorkManager` job
+  per item (unique-keyed, so a re-hand joins rather than duplicates), streams the multipart body
+  from disk without buffering it, and reports the outcome to whichever `UploaderEngine` is
+  registered through the existing `UploaderEngineRegistry`. `UploadRequest`/`UploadField` are
+  encoded into WorkManager's own primitive `Data` by hand — no new serialization dependency.
+  `classify: (UploadResult) -> SettleResult` (default: `defaultUploadClassification`) lets you map
+  HTTP outcomes onto the queue's vocabulary yourself. No iOS transport yet — a background
+  `NSURLSession` needs your app's own `AppDelegate` to forward
+  `application(_:handleEventsForBackgroundURLSession:completionHandler:)`, the same OS-mandated
+  cooperation the existing iOS wake scheduler already requires for `BGTaskScheduler`; see
+  `docs/kmptoolkit-uploader/08-upload-transport.md`. Purely additive — every existing symbol,
+  including `AttemptResult.Detached` itself, is unchanged.
+
 ### Fixed
 
 - `kmptoolkit-location`: the iOS `LocationProvider` now creates and starts every `CLLocationManager`

@@ -102,6 +102,62 @@ expire the moment it was written and spin the drain.
 `AttemptResult` counterparts. There is deliberately no detached/retry split: an executor never owns
 retry policy.
 
+## `UploadTransport`
+
+```kotlin
+public interface UploadTransport {
+    public val leaseMillis: Long
+    public fun launch(itemId: String, request: UploadRequest)
+    public fun cancelAll()
+}
+```
+
+An optional, ready-made executor for `AttemptResult.Detached` — see
+[`08-upload-transport.md`](08-upload-transport.md). `launch` must be idempotent per item id.
+`cancelAll` is safe to over-call: an item still owed survives and is re-handed on the next drain or
+lease expiry.
+
+## `UploadRequest` / `UploadField`
+
+```kotlin
+public data class UploadRequest(
+    val url: String,
+    val method: String = "POST",
+    val headers: Map<String, String> = emptyMap(),
+    val fields: List<UploadField>,
+)
+
+public sealed interface UploadField {
+    public data class Text(val name: String, val value: String) : UploadField
+    public data class File(val name: String, val fileName: String, val contentType: String, val path: String) : UploadField
+}
+```
+
+Declarative description of one multipart upload. `UploadField.File` streams from `path` at upload
+time — the request never carries file bytes, which is also what keeps it well under WorkManager's
+`Data` cap on Android.
+
+## `UploadResult` / `defaultUploadClassification`
+
+```kotlin
+public sealed interface UploadResult {
+    public data class Completed(val statusCode: Int) : UploadResult
+    public data class TransportFailure(val message: String?) : UploadResult
+}
+
+public fun defaultUploadClassification(result: UploadResult): SettleResult
+```
+
+| `UploadResult` | `defaultUploadClassification` |
+|---|---|
+| `Completed(2xx)` | `SettleResult.Delivered` |
+| `Completed(4xx)` | `SettleResult.Drop("HTTP <code>")` |
+| `Completed(other)` | `SettleResult.Failed(null)` |
+| `TransportFailure` | `SettleResult.Failed(null)` |
+
+A default, not a policy this module can claim to know for your API — pass your own `classify` to
+`createWorkManagerUploadTransport` when a status should map differently.
+
 ## `RetryPolicy`
 
 ```kotlin
@@ -194,6 +250,9 @@ default.
 | `createWorkManagerWakeScheduler(context, config, logger)` | Application context is extracted internally |
 | `WorkManagerWakeConfig(uniqueWorkName = null, requiresNetwork = true, initialBackoff = 30.seconds, drainBudget = 1.minutes, engineWait = 5.seconds)` | `uniqueWorkName` defaults to `<applicationId>.uploader.wake` |
 | `UploaderDrainWorker` | Constructed reflectively by WorkManager; needs no manifest entry |
+| `createWorkManagerUploadTransport(context, config, classify, logger)` | See [`08-upload-transport.md`](08-upload-transport.md) |
+| `UploadTransportConfig(uniqueWorkNamePrefix = null, workTag = null, requiresNetwork = true, leaseMillis = 15.minutes, workBackoff = 30.seconds, engineWait = 5.seconds, connectTimeoutMillis = 30_000, readTimeoutMillis = 60_000)` | `uniqueWorkNamePrefix` defaults to `<applicationId>.uploader.upload.` |
+| `UploaderUploadWorker` | Constructed reflectively by WorkManager; needs no manifest entry |
 
 ## iOS
 
