@@ -9,6 +9,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-12
+
 ### Added
 
 - `kmptoolkit-systembars`: `IosSystemBarsController.prefersHomeIndicatorAutoHidden`, to be returned
