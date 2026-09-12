@@ -9,6 +9,41 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-13
+
+### Added
+
+- `kmptoolkit-language` and `kmptoolkit-language-compose` now also publish a **`jvm` (desktop)
+  target**. `AppLanguage` is a type consumers put in the public API of their shared modules — a
+  settings repository, a language picker, a screen's state — and a module compiled for desktop could
+  not mention it at all while it resolved on only Android and iOS. Unlike the system-bars desktop
+  target this is not a no-op: `applyLanguageGlobally` sets the JVM default locale for every category,
+  `AppLanguage.System` restores the operating system's language, and `getSystemLanguageCode` reads it
+  from the `user.*` system properties, which `Locale.setDefault` does not rewrite. `AppLocale`
+  re-pins the default if something else moved it and keys the composition on the language code,
+  since a desktop string resource is resolved only when its call composes. The desktop-target
+  exception and its bar are restated in `docs/01-architecture.md` § "Desktop targets". Purely
+  additive.
+
+### Fixed
+
+- Documentation: Android controllers must be created before the first activity resumes, and the
+  docs never said so. The activity tracker learns which activity is current only from
+  `onActivityResumed`, and Android offers no public way to ask for one that resumed before
+  registration — so a controller created later, such as a lazy DI singleton first resolved by the
+  theme during composition (which on Android runs after `onResume`), could not style the window on
+  screen until the next resume. The contract is now stated on `createSystemBarsController`,
+  `createScreenWakeLockController` and `createActivityAccess`, and in both getting-started guides;
+  `ControllerCreationOrderTest` pins it, including the bounded recovery on the next resume.
+- Documentation: the Android platform notes recommended the no-argument `enableEdgeToEdge()`, which
+  installs a translucent navigation-bar scrim on API 26–28 and turns contrast enforcement back on for
+  API 29+. Because this module deliberately never calls `enableEdgeToEdge`, following the docs left a
+  faint band behind the navigation bar on three-button devices. The notes now give the two lines that
+  avoid it.
+- KDoc: `applyLanguageGlobally` said `AppLanguageHolder` applies only on a `setLanguage` that changes
+  the language; it applies on every call. `StatusBarLuminanceProbe` pointed screens at
+  `setStatusBarStyle` / `setNavigationBarStyle`, which do not exist in this API.
+
 ## [1.1.0] - 2026-09-12
 
 ### Added
