@@ -12,9 +12,10 @@ The consequence is that *you* own the list:
 
 ```kotlin
 enum class SupportedLanguage(val appLanguage: AppLanguage, val displayName: String) {
-    English(AppLanguage(code = "en", isLtr = true), "English"),
-    Russian(AppLanguage(code = "ru", isLtr = true), "Русский"),
-    Arabic(AppLanguage(code = "ar", isLtr = false), "العربية"),
+    English(AppLanguage("en"), "English"),
+    // Display names in their own script belong in your resources; this module never holds them.
+    Russian(AppLanguage("ru"), "Russian"),
+    Arabic(AppLanguage("ar"), "Arabic"),
 }
 
 val catalog: AppLanguageCatalog = createAppLanguageCatalog(

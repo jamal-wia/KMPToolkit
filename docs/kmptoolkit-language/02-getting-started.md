@@ -14,7 +14,8 @@ kotlin {
 }
 ```
 
-Plain Kotlin, no Compose dependency. Published for `android`, `iosArm64` and `iosSimulatorArm64`.
+Plain Kotlin, no Compose dependency. Published for `android`, `iosArm64`, `iosSimulatorArm64` and
+`jvm` (desktop).
 
 ## 2. Define the languages your app offers
 
@@ -22,9 +23,10 @@ There is no catalog to extend — declare your own list, with your own labels:
 
 ```kotlin
 enum class SupportedLanguage(val appLanguage: AppLanguage, val displayName: String) {
-    English(AppLanguage(code = "en", isLtr = true), "English"),
-    Arabic(AppLanguage(code = "ar", isLtr = false), "العربية"),
-    Portuguese(AppLanguage(code = "pt", isLtr = true), "Português"),
+    English(AppLanguage("en"), "English"),
+    // A real picker writes each name in its own language and script; that text is yours to supply.
+    Arabic(AppLanguage("ar"), "Arabic"),
+    Portuguese(AppLanguage("pt"), "Portuguese"),
 }
 ```
 
