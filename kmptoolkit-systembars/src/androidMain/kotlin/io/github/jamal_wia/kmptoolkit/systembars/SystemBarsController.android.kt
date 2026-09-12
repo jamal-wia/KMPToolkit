@@ -21,6 +21,12 @@ import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
  *   resumed activity, which the controller needs to reach the window it styles — the bars belong
  *   to whichever activity is resumed *now*, and that identity changes on every rotation, theme
  *   change and font-size change.
+ * **Call this from `Application.onCreate`, before any activity resumes.** The controller learns which
+ * window to style from the activity-resumed callback, and Android offers no way to ask which activity
+ * resumed before the callback was registered — so a controller created later, such as a lazy DI
+ * singleton first resolved by your theme during composition, cannot style the window already on
+ * screen until the next resume. See `docs/kmptoolkit-systembars/05-platform-notes.md`.
+ *
  * @param initialConfig the base configuration to start from, before your theme sets one.
  * @return a controller whose lifetime is yours. Call [SystemBarsController.release] if you tear the
  *   graph down without ending the process.
@@ -44,7 +50,9 @@ public fun createSystemBarsController(
  * `createActivityAccess(application) { it is MainActivity }`.
  *
  * The [ActivityAccess] is yours: this controller does not release it, so one instance can back
- * several controllers, and [SystemBarsController.release] leaves it registered.
+ * several controllers, and [SystemBarsController.release] leaves it registered. It has to exist
+ * before the first activity resumes — create it, and this controller, in `Application.onCreate`;
+ * see the other overload for why.
  *
  * @param activityAccess where the window to style comes from.
  * @param initialConfig the base configuration to start from, before your theme sets one.

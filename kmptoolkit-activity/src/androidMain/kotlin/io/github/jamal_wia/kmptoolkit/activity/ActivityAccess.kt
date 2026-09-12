@@ -74,6 +74,13 @@ public interface ActivitySubscription {
  * Passing an `Activity` here would be a mistake the compiler cannot catch, which is why the
  * parameter is `Application` and not `Context`.
  *
+ * **Create it in `Application.onCreate`, before any activity resumes.** The tracker learns which
+ * activity is current only from `onActivityResumed`, and Android offers no public way to ask which
+ * activity resumed before the callbacks were registered. An instance created later — for example a
+ * lazy DI singleton first resolved during composition, which on Android runs after `onResume` —
+ * answers `null` from [ActivityAccess.withActivity] until the next resume, and a listener added to it
+ * gets no replay of the activity already on screen.
+ *
  * @param isTracked decides which activities this instance is allowed to answer with. The default
  *   accepts every activity in the process, which is what you want when the thing being driven
  *   belongs to whichever activity the user is looking at.

@@ -31,6 +31,13 @@ class MyApplication : Application() {
 `createActivityAccess` registers with the `Application` immediately and starts tracking. Nothing
 else is needed — no per-activity call, no base class, no manifest entry.
 
+**It has to be `Application.onCreate`, not later.** The tracker learns which activity is current
+only from the activity-resumed callback, and Android has no public way to ask which activity
+resumed before that callback was registered. An instance created afterwards — a lazy DI singleton
+first resolved while your first screen composes, which on Android happens after `onResume` — answers
+`null` until the user leaves and comes back. If you use a DI container, resolve it right after the
+container starts.
+
 ## Use it
 
 ```kotlin

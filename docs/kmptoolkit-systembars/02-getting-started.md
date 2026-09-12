@@ -51,9 +51,17 @@ class MyApplication : Application() {
 }
 ```
 
-If you want your app drawing behind the bars — you almost certainly do — call `enableEdgeToEdge()`
-in your activity as usual. This module does not do it for you; see
-[`05-platform-notes.md`](05-platform-notes.md).
+**Create it in `Application.onCreate`, as above — not lazily.** The controller learns which activity
+is on screen from the activity-resumed callback, and a controller created after the first activity
+has already resumed cannot style that window until the next resume. If you bind it in a DI
+container, resolve it right after the container starts; a lazy singleton first resolved by your
+theme during composition is created too late, because on Android the first composition runs after
+`onResume`. Details in [`05-platform-notes.md`](05-platform-notes.md).
+
+If you want your app drawing behind the bars — you almost certainly do — go edge-to-edge in your
+activity. This module does not do it for you, and the no-argument `enableEdgeToEdge()` leaves a
+translucent band behind the navigation bar on three-button devices; the two lines that avoid it are
+in [`05-platform-notes.md`](05-platform-notes.md).
 
 ### iOS
 

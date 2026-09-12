@@ -46,7 +46,15 @@ asked. It is one line in your activity, next to the rest of your window setup:
 ```kotlin
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            navigationBarStyle = SystemBarStyle.auto(
+                lightScrim = Color.TRANSPARENT,
+                darkScrim = Color.TRANSPARENT,
+            ),
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         super.onCreate(savedInstanceState)
         setContent { App(systemBars) }
     }
@@ -55,6 +63,47 @@ class MainActivity : ComponentActivity() {
 
 On Android 15 (API 35) and above edge-to-edge is enforced for apps targeting that level, so this is
 increasingly not a choice anyway.
+
+**Use exactly this, not the no-argument `enableEdgeToEdge()`.** The no-argument form installs a
+translucent navigation-bar scrim — `0xE6FFFFFF` or `0x801B1B1B`, chosen by the *system* night mode
+rather than your theme on API 26–28 — and on API 29+ its `SystemBarStyle.auto` turns navigation-bar
+contrast enforcement back **on**, which the runtime setter wins over any `enforceNavigationBarContrast`
+theme attribute. On a device with three-button navigation the result is a faint band behind the bar
+for the life of the activity. The transparent scrims remove the first; the explicit
+`isNavigationBarContrastEnforced = false` after the call removes the second.
+
+Nothing in this module re-applies either, by design — so an app that previously relied on a
+controller calling `enableEdgeToEdge` on every write (a common hand-rolled pattern) loses that
+side effect when it moves here, and has to state it once in `onCreate` as above.
+
+### Create the controller before the first activity resumes
+
+Create it in `Application.onCreate`. Not lazily, and not from composition.
+
+The controller reaches a window through the currently resumed activity, which it learns about from
+`Application.ActivityLifecycleCallbacks.onActivityResumed`. Android has no public way to ask which
+activity resumed *before* those callbacks were registered, so a controller created later cannot
+reach the window already on screen until the next resume — the user sees the wrong icon style until
+they leave and come back, or rotate.
+
+This bites dependency injection in particular. A lazy singleton is first resolved by whatever needs
+it first, which is usually your theme — during composition. On Android the first composition runs
+*after* `onResume`: the decor view is attached to the window in `handleResumeActivity`, after the
+resume callbacks have already fired. So resolve it eagerly, right after the container starts:
+
+```kotlin
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        startKoin { androidContext(this@MyApplication); modules(appModules) }
+        // Registers the activity tracker now, before any activity can resume.
+        get<SystemBarsController>()
+    }
+}
+```
+
+The same applies to `createScreenWakeLockController`, and to any `ActivityAccess` you create
+yourself for either. `ControllerCreationOrderTest` pins this down, including the late-created case.
 
 Insets themselves are Compose's job, not this module's: `WindowInsets.statusBars`,
 `WindowInsets.safeDrawing`, `Modifier.windowInsetsPadding`.

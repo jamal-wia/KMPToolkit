@@ -13,6 +13,10 @@ import java.lang.ref.WeakReference
 /**
  * Creates the Android [ScreenWakeLockController].
  *
+ * **Call this from `Application.onCreate`, before any activity resumes** — for the same reason as
+ * `createSystemBarsController`: a flag set on a controller created after the first resume has no
+ * window to land on until the next one.
+ *
  * @param context any `Context`; its application context is retained to track the currently
  *   resumed activity, which is whose window the flag is written to — that identity changes on
  *   every rotation, theme change and font-size change.
