@@ -180,6 +180,38 @@ A parent view controller overrides its children, so if Compose is embedded insid
 controller, that parent is the one that has to answer — or it must return its child from
 `childForStatusBarStyle` / `childForStatusBarHidden` / `childForHomeIndicatorAutoHidden`.
 
+### SwiftUI apps: make your host the window's root, and keep the scene lifecycle
+
+This is the setup that most often silently ignores everything above. Under a SwiftUI `App`, the
+window's root is a `UIHostingController` the app does not own, and Compose embedded through a
+`UIViewControllerRepresentable` is a child it never forwards the status-bar questions to. Your
+overrides compile, your host is attached, and UIKit never asks it.
+
+Make the host the root yourself, from a scene delegate:
+
+```swift
+final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
+               options connectionOptions: UIScene.ConnectionOptions) {
+        guard let windowScene = scene as? UIWindowScene else { return }
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = ComposeHostingController()
+        window.makeKeyAndVisible()
+        self.window = window
+    }
+}
+```
+
+and name it from `application(_:configurationForConnecting:options:)` in your `@main` app delegate
+(or in `Info.plist`, if you do not generate the scene manifest).
+
+Do **not** reach for the older app-delegate-owned `window` instead. It works today, but it leaves the
+UIScene lifecycle, which Apple is making mandatory for apps built with current SDKs; and it creates
+the window — and so the whole Compose tree — on every launch, including background ones such as a
+`BGTaskScheduler` wake or a silent push, where a scene would not have connected at all.
+
 ### `Info.plist`
 
 `UIViewControllerBasedStatusBarAppearance` must stay at its default of `true`, which means **not
