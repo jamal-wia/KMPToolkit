@@ -27,6 +27,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-language-compose`: on Android, `AppLocale` provided `LocalContext` as the bare result of
+  `createConfigurationContext`. On an activity that delegates to the underlying `ContextImpl`, so the
+  context content saw was not the activity or a wrapper around it, and carried the device-default
+  theme instead of the activity's: `LocalActivity` and every find-the-activity walk returned `null`
+  under `AppLocale`, and an Android View hosted in Compose (a video player, a map) was inflated under
+  the wrong theme. It is now the host context wrapped, with only its resources localized — the
+  activity stays at the end of the chain and its theme stays in effect.
 - Documentation: Android controllers must be created before the first activity resumes, and the
   docs never said so. The activity tracker learns which activity is current only from
   `onActivityResumed`, and Android offers no public way to ask for one that resumed before

@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.language.compose
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.os.LocaleList
@@ -63,7 +64,10 @@ internal actual fun PlatformAppLocale(language: AppLanguage, content: @Composabl
     }
 
     val localizedContext: Context = remember(localizedConfiguration, baseContext) {
-        baseContext.createConfigurationContext(localizedConfiguration)
+        LocalizedResourcesContext(
+            base = baseContext,
+            localizedResources = baseContext.createConfigurationContext(localizedConfiguration).resources,
+        )
     }
 
     CompositionLocalProvider(
@@ -71,6 +75,24 @@ internal actual fun PlatformAppLocale(language: AppLanguage, content: @Composabl
         LocalContext provides localizedContext,
         content = content,
     )
+}
+
+/**
+ * [base] — normally the host activity — with only its resources swapped for localized ones.
+ *
+ * `createConfigurationContext` alone is not a substitute. On an activity it delegates to the
+ * underlying `ContextImpl`, so what it returns is neither the activity nor a wrapper around it, and it
+ * carries the device-default theme rather than the activity's. Provided as `LocalContext`, that would
+ * make `LocalActivity` and every find-the-activity walk return null, and inflate any Android View
+ * hosted in Compose — a video player, a map — under the wrong theme. Wrapping keeps the activity at
+ * the end of the chain and its theme in effect, and only strings and other resources resolve under
+ * the chosen language.
+ */
+private class LocalizedResourcesContext(
+    base: Context,
+    private val localizedResources: Resources,
+) : ContextWrapper(base) {
+    override fun getResources(): Resources = localizedResources
 }
 
 private fun deviceLocale(): Locale {

@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.language.compose
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.os.LocaleList
@@ -20,6 +23,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 
 // These tests assert exactly what the lint checks warn about: that the process-global locale is in
 // force before content composes, and that the localized Configuration reaches it. Reading both
@@ -193,6 +198,41 @@ class AppLocaleUiTest {
     }
 
     @Test
+    fun `the localized context still leads to the host activity`() = runComposeUiTest {
+        // Anything that walks LocalContext for the activity — LocalActivity, a findActivity() helper,
+        // a startActivity without FLAG_ACTIVITY_NEW_TASK — must still find it under AppLocale.
+        var host: Activity? = null
+        var found: Activity? = null
+        setContent {
+            host = LocalContext.current.findActivity()
+            AppLocale(AppLanguage("ru"), AppLanguage("ru")) {
+                found = LocalContext.current.findActivity()
+            }
+        }
+        waitForIdle()
+
+        assertNotNull(host, "precondition: the test host is an activity")
+        assertSame(host, found)
+    }
+
+    @Test
+    fun `the localized context keeps the host activity's theme`() = runComposeUiTest {
+        // A View inflated from LocalContext — a video player, a map — must be styled by the app's
+        // theme, not the device default.
+        var hostTheme: Resources.Theme? = null
+        var contentTheme: Resources.Theme? = null
+        setContent {
+            hostTheme = LocalContext.current.theme
+            AppLocale(AppLanguage("ru"), AppLanguage("ru")) {
+                contentTheme = LocalContext.current.theme
+            }
+        }
+        waitForIdle()
+
+        assertSame(hostTheme, contentTheme)
+    }
+
+    @Test
     fun `the localized context reaches content`() = runComposeUiTest {
         var observed: String? = null
         setContent {
@@ -221,4 +261,10 @@ class AppLocaleUiTest {
 
         assertEquals(deviceLanguage, observed)
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
