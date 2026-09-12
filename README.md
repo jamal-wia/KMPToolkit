@@ -61,8 +61,8 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow`, m/s² on both platforms | — | Available | [docs](docs/kmptoolkit-accelerometer/01-overview.md) |
 | `kmptoolkit-accelerometer-testing` | `ScriptedAccelerometer` double, for `testImplementation` | `accelerometer` | Available | [docs](docs/kmptoolkit-accelerometer/06-testing.md) |
-| `kmptoolkit-language` | App language selection (`AppLanguageHolder`), a supported-language catalog you populate, and the platform-locale side effect — including the Android `Application` wiring that keeps a chosen language from reverting | — | Available | [docs](docs/kmptoolkit-language/01-overview.md) |
-| `kmptoolkit-language-compose` | Compose wiring (`AppLocale`, `mirrorOnRtl`/`mirrorOnLtr`) for `kmptoolkit-language` | `language` | Available | [docs](docs/kmptoolkit-language-compose/01-overview.md) |
+| `kmptoolkit-language` | App language selection (`AppLanguageHolder`), a supported-language catalog you populate, and the platform-locale side effect — including the Android `Application` wiring that keeps a chosen language from reverting. Also publishes `jvm`, for code shared with desktop | — | Available | [docs](docs/kmptoolkit-language/01-overview.md) |
+| `kmptoolkit-language-compose` | Compose wiring (`AppLocale`, `mirrorOnRtl`/`mirrorOnLtr`) for `kmptoolkit-language`. Also publishes `jvm` | `language` | Available | [docs](docs/kmptoolkit-language-compose/01-overview.md) |
 
 See [`docs/README.md`](docs/README.md) for the full documentation index and the recommended reading
 order.

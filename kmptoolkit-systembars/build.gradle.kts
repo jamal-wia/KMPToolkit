@@ -34,13 +34,13 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
-    // The one module in the suite with a desktop target. A Compose Multiplatform app that shares a
-    // UI tree between phone and desktop cannot compile that tree at all if the system-bars types it
-    // references exist on only two of its three targets — and the whole point of this module is that
-    // a screen states what it wants from the bars without caring where it is running. Desktop has no
-    // system bars, so every platform call here is a no-op; the layer stack still behaves identically,
-    // which is what makes the shared tree compile and behave the same way. See
-    // `docs/kmptoolkit-systembars/05-platform-notes.md`.
+    // A desktop target, under the exception in docs/01-architecture.md § "Desktop targets". A Compose
+    // Multiplatform app that shares a UI tree between phone and desktop cannot compile that tree at
+    // all if the system-bars types it references exist on only two of its three targets — and the
+    // whole point of this module is that a screen states what it wants from the bars without caring
+    // where it is running. Desktop has no system bars, so every platform call here is a no-op; the
+    // layer stack still behaves identically, which is what makes the shared tree compile and behave
+    // the same way. See `docs/kmptoolkit-systembars/05-platform-notes.md`.
     jvm()
 
     sourceSets {

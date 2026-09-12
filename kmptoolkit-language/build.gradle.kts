@@ -25,6 +25,14 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
+    // Desktop, for the same reason kmptoolkit-systembars publishes it (docs/01-architecture.md §
+    // "Desktop targets"): AppLanguage is the kind of type a consumer threads through the public API of
+    // its shared modules — a settings repository, a language picker, a screen state — and a shared
+    // module compiled for desktop cannot mention it at all while the type resolves on only some of
+    // its targets. The JVM half is real, not a stub: a desktop JVM has a process-wide default locale,
+    // and the operating system's language to fall back to.
+    jvm()
+
     sourceSets {
         commonMain.dependencies {
             // api, not implementation: AppLanguageHolder exposes StateFlow<AppLanguage>, so a

@@ -29,7 +29,7 @@ kotlin {
     iosSimulatorArm64()
 
     // Matches kmptoolkit-systembars, which publishes `jvm` for the shared-UI-tree case described in
-    // `docs/01-architecture.md` § "One module publishes a desktop target". These fixtures are pure
+    // `docs/01-architecture.md` § "Desktop targets". These fixtures are pure
     // Kotlin with no platform code at all, and the whole point of the exception is that a consumer
     // writes one tree for phone and desktop — a `commonTest` that cannot resolve the double on
     // `jvm` would push that consumer straight back into per-platform test code.

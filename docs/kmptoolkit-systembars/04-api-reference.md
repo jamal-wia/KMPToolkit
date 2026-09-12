@@ -324,7 +324,7 @@ public fun createSystemBarsController(
 A desktop window has no system bars, so this returns the headless controller below: the layer stack
 behaves exactly as on a phone and the window write is skipped. It exists so a UI tree shared with a
 phone build compiles and behaves the same way on all three targets — see
-[`../01-architecture.md`](../01-architecture.md) § "One module publishes a desktop target".
+[`../01-architecture.md`](../01-architecture.md) § "Desktop targets".
 
 ### Common — headless
 

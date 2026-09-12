@@ -1,24 +1,26 @@
 # kmptoolkit-language-compose — Platform notes
 
 `AppLocale` provides the same thing everywhere — `content` rendered in the chosen language — but the
-two platforms need opposite mechanisms to get there, and the difference is visible to a user.
+platforms need different mechanisms to get there, and the difference is visible to a user.
 
 ## What each platform does
 
-| | Android | iOS |
-|---|---|---|
-| How a string resource finds the language | Process-global `LocaleList.getDefault()`, re-read when `LocalConfiguration` changes | `NSBundle`, consulted at the moment the lookup composes |
-| How `AppLocale` makes a change take effect | Re-pins the process default, then provides a new `LocalConfiguration` and `LocalContext` | Keys the composition on the language code, tearing the subtree down and rebuilding it |
-| `remember`ed state across a language change | **Survives** | **Is lost** |
+| | Android | iOS | Desktop (JVM) |
+|---|---|---|---|
+| How a string resource finds the language | Process-global `LocaleList.getDefault()`, re-read when `LocalConfiguration` changes | `NSBundle`, consulted at the moment the lookup composes | Process-global `Locale.getDefault()`, consulted at the moment the lookup composes |
+| How `AppLocale` makes a change take effect | Re-pins the process default, then provides a new `LocalConfiguration` and `LocalContext` | Keys the composition on the language code, tearing the subtree down and rebuilding it | Re-pins the process default if something moved it, then keys the composition like iOS |
+| `remember`ed state across a language change | **Survives** | **Is lost** | **Is lost** |
 
-That last row is the one to design around. It is not an oversight on either side: Android has a
+That last row is the one to design around. It is not an oversight anywhere: Android has a
 composition-local carrying the configuration, so invalidating through it is both cheaper and less
-destructive; iOS has nothing equivalent, and an already-composed screen would otherwise keep showing
-the previous language's strings until something unrelated recomposed it.
+destructive; iOS and the desktop JVM have nothing equivalent, and an already-composed screen would
+otherwise keep showing the previous language's strings until something unrelated recomposed it. The
+desktop JVM borrows one mechanism from each — a global default to keep pinned, like Android, and a
+composition that has to be rebuilt, like iOS.
 
 Do not build a screen that depends on either behaviour. If a language switch must preserve something
 — a half-filled form, a scroll position — hoist it above `AppLocale` or into your own state holder,
-and it will behave the same on both.
+and it will behave the same on all three.
 
 ## Android: why the re-pin is synchronous
 

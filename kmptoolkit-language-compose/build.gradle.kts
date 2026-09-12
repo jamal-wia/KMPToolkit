@@ -28,6 +28,11 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
+    // Follows kmptoolkit-language: a UI tree shared with a desktop build wraps its root in AppLocale
+    // exactly as the phone build does, and could not compile while this resolved on only some of its
+    // targets.
+    jvm()
+
     sourceSets {
         commonMain.dependencies {
             api(project(":kmptoolkit-language"))
@@ -37,6 +42,13 @@ kotlin {
 
         androidUnitTest.dependencies {
             implementation(compose.uiTest)
+        }
+
+        jvmTest.dependencies {
+            implementation(compose.uiTest)
+            // The Skia runtime runComposeUiTest renders through on desktop. Test-only, and for the
+            // machine running the tests — nothing here reaches a published artifact.
+            implementation(compose.desktop.currentOs)
         }
     }
 }

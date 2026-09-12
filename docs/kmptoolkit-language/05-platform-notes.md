@@ -159,3 +159,33 @@ call rather than cached per composition the way Android's `LocaleList` default c
 > strings owned by the OS rather than your bundle) only pick up a new language after the process
 > restarts. There is nothing this module — or any in-process code — can do about that; it is a
 > platform limitation, not a bug in `applyLanguageGlobally`.
+
+## Desktop (JVM)
+
+Published so that `AppLanguage` can appear in code a consumer shares with a desktop build — see
+[`../01-architecture.md`](../01-architecture.md) § "Desktop targets". Unlike the system-bars desktop
+target, nothing here is a no-op.
+
+### What `applyLanguageGlobally` actually does
+
+`Locale.setDefault(Locale)`, which sets every category at once — `DISPLAY` and `FORMAT` alike — so
+strings, dates and numbers all follow the selection. `AppLanguage.System` sets the default back to
+the operating system's language, the same way it does on the other two platforms.
+
+### `getSystemLanguageCode` reads the `user.*` system properties, not `Locale.getDefault()`
+
+The JVM derives its initial default locale from `user.language`, `user.script` and `user.country`,
+which the launcher fills in from the operating system. `Locale.setDefault` changes the default
+without writing those properties back, so after the first `applyLanguageGlobally` the default no
+longer says what the OS is set to — reading it would make `AppLanguage.System` restore the language
+you had just replaced with itself.
+
+A launcher passing `-Duser.language=…` is making exactly the declaration this function answers, so
+that override is honoured. A malformed script or region in the environment is dropped rather than
+costing the language itself, and an environment with no language at all reports `null`.
+
+### No recreation, and no configuration
+
+A desktop window is not recreated on a language change and has no configuration object for Compose
+to observe. `kmptoolkit-language-compose`'s `AppLocale` handles that by keying the composition — see
+its platform notes.

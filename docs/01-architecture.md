@@ -196,29 +196,32 @@ two-target module like every other one in the suite.
 Consumers depend on it from `androidMain`. `kmptoolkit-systembars` and `kmptoolkit-permission` both
 do — each carried a private copy of this code before it had a home of its own.
 
-## One module publishes a desktop target
+## Desktop targets
 
-`kmptoolkit-systembars` also publishes `jvm`. It is the only module that does, and the exception is
-narrow and deliberate.
+Four artifacts also publish `jvm`: `kmptoolkit-systembars` with its `-testing` fixtures, and
+`kmptoolkit-language` with `kmptoolkit-language-compose`. Every other module stays Android + iOS,
+and the exception is narrow and deliberate.
 
-Every other module exposes a capability an app either wants on a platform or does not ask for there
-at all — a consumer that has no use for haptics on desktop simply does not call into
-`kmptoolkit-haptics` from its desktop source set. System bars are different, because the module's
-whole premise is that *a screen states what it wants from the bars without knowing where it runs*. A
-Compose Multiplatform app that shares one UI tree between phone and desktop puts `SystemBarsEffect`
-in that shared tree; if the types resolved on only two of its three targets, the shared tree would
-not compile at all, and the app would have to fragment the very code this module exists to keep
-whole.
+Most modules expose a capability an app either wants on a platform or does not ask for there at all
+— a consumer with no use for haptics on desktop simply does not call into `kmptoolkit-haptics` from
+its desktop source set. These four are different, because their types are the kind a consumer puts
+in **shared** code:
 
-Desktop windows have no OS status or navigation bar, so every platform call in `jvmMain` is a no-op.
-What is *not* a no-op is the layer stack: per-axis ownership, restore-by-removal and the
-no-lost-update guarantee all live in `commonMain` and behave identically on the JVM, so a screen
-claiming and releasing an override behaves the same on every target and `config` always has a
-consistent value to read.
+- **System bars.** The module's whole premise is that *a screen states what it wants from the bars
+  without knowing where it runs*. An app sharing one UI tree between phone and desktop puts
+  `SystemBarsEffect` in that tree. Desktop windows have no OS status or navigation bar, so every
+  platform call in `jvmMain` is a no-op — but the layer stack (per-axis ownership,
+  restore-by-removal, no lost update) lives in `commonMain` and behaves identically, so a screen
+  claiming and releasing an override behaves the same on every target.
+- **Language.** `AppLanguage` is a type a consumer threads through the public API of its shared
+  modules — a settings repository, a language picker, a screen's state — and `AppLocale` wraps the
+  root of a shared UI tree. Here the JVM half is real rather than a no-op: a desktop JVM has a
+  process-wide default locale, and an operating-system language to return to.
 
-This does not open the door to a desktop target elsewhere in the suite. The bar for adding one is
-the argument above — that omitting it would break a consumer's *shared* code, not merely leave a
-capability unavailable on one platform.
+In both cases, omitting the target would not leave a capability unavailable on desktop; it would stop
+the consumer's shared modules compiling for desktop at all, and push them into fragmenting exactly the
+code these modules exist to keep whole. That is the bar for any further desktop target — *omitting it
+would break a consumer's shared code* — and anything short of it stays Android + iOS.
 
 ### Notes for anyone adding a Compose module
 

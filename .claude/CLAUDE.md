@@ -34,12 +34,13 @@ artifacts by coordinate.
 
 - Coordinates: `io.github.jamal-wia:kmptoolkit-<module>`, version from `kmptoolkit.version` in
   `gradle.properties` (the single source of truth every module and the BOM read).
-- Targets: Android + iOS. No JS/wasm. No JVM/desktop either, with exactly one exception —
-  `kmptoolkit-systembars` also publishes `jvm`, because its API is meant to be called from a UI tree
-  shared with desktop and omitting the target would stop that shared tree compiling at all. The
-  reasoning, and the bar a second exception would have to clear, are in `docs/01-architecture.md`
-  § "One module publishes a desktop target". Do not add a desktop target to another module without
-  meeting that bar and discussing it first.
+- Targets: Android + iOS. No JS/wasm. No JVM/desktop either, with one narrow exception —
+  `kmptoolkit-systembars` (+ `-testing`) and `kmptoolkit-language` (+ `-compose`) also publish `jvm`,
+  because their types belong in code a consumer shares with desktop and omitting the target would
+  stop that shared code compiling at all. The reasoning, and the bar any further exception has to
+  clear, are in `docs/01-architecture.md` § "Desktop targets". Do not add a desktop target to another
+  module without meeting that bar and discussing it first. `kmptoolkit-activity` is the opposite
+  case: Android only, see § "One module is Android-only".
 - Build wiring: convention plugins in `build-logic/` (`kmptoolkit.library`, `kmptoolkit.compose`,
   `kmptoolkit.publish`, `kmptoolkit.androidtest`) — see that module's own KDoc for what each does
   and why it's a `Plugin<Project>` class rather than a precompiled script plugin.
