@@ -6,15 +6,28 @@ Every public symbol in `io.github.jamal_wia.kmptoolkit.language.compose`.
 
 ```kotlin
 @Composable
-public fun AppLocale(language: AppLanguage, content: @Composable () -> Unit)
+public fun AppLocale(
+    language: AppLanguage,
+    resolvedLanguage: AppLanguage = language,
+    content: @Composable () -> Unit,
+)
 ```
 
-Provides `language`'s reading direction as `LocalLayoutDirection` for `content`, and forces a fresh
-composition of `content` whenever `language.code` changes (`key(language.code) { ... }`).
+Makes `content` render in `language`: its reading direction as `LocalLayoutDirection`, plus whatever
+else the platform needs for a string resource to resolve under it.
 
-Pass an already-resolved `language` — one whose `code` is never `null`. `AppLanguage.System.isLtr` is
-a placeholder; resolve it against your own supported-language list first — see
-[`kmptoolkit-language`'s guide](../kmptoolkit-language/03-guide.md#resolving-follow-system).
+| Parameter | Contract |
+|---|---|
+| `language` | The selection itself, `AppLanguage.System` included. This is what the platform locale is pinned to |
+| `resolvedLanguage` | The same selection with `System` already resolved — `catalog.resolve(language)`. Only `isLtr` is read from it. Defaults to `language`, which is correct whenever you already hold a resolved one |
+
+Passing `System` as `language` is meaningful rather than a mistake: it pins the *device's* language,
+which is not the same as pinning the language that device happens to be set to today. Pin the latter
+and a device language change stops reaching the app.
+
+What "whatever else the platform needs" means differs by platform, and the difference is visible —
+on Android a language change keeps the subtree's remembered state, on iOS it does not. See
+[`05-platform-notes.md`](05-platform-notes.md).
 
 ### `Modifier.mirrorOnRtl`
 

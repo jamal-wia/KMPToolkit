@@ -1,8 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.language
 
 import android.content.Context
-import android.content.res.Configuration
-import java.util.Locale
 
 /**
  * Wraps [base] with a configuration override that carries only [language]'s locale.
@@ -27,10 +25,6 @@ import java.util.Locale
  * at whatever they happened to be when this was called, for the rest of that context's life.
  */
 public fun localizedContext(base: Context, language: AppLanguage): Context {
-    val code: String = language.code ?: return base
-    val override: Configuration = Configuration().apply {
-        setLocale(Locale.forLanguageTag(code))
-        fontScale = 0f
-    }
-    return base.createConfigurationContext(override)
+    if (language.code == null) return base
+    return localizedContext(base, language.resolveLocale())
 }

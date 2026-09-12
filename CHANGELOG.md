@@ -51,13 +51,42 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `androidx.lifecycle:lifecycle-runtime-compose` dependency in `commonMain`, needed to pause
   sampling while the host is backgrounded. Purely additive — every existing symbol is unchanged.
 - New `kmptoolkit-language` module: `AppLanguageHolder`, `AppLanguage` (a BCP-47 code and a reading
-  direction — no language catalog, no display names), `applyLanguageGlobally()` /
-  `getSystemLanguageCode()`, and Android's `localizedContext()`. Ported from Tahfeez's
-  `core/language`, generalized to carry no fixed language list or user-facing text and to depend on
-  no storage or DI framework of its own.
-- New `kmptoolkit-language-compose` module: `AppLocale` (provides `LocalLayoutDirection` from an
-  `AppLanguage`, forces a recomposition on language change) and `Modifier.mirrorOnRtl()` /
+  direction — no fixed language list, no display names), `AppLanguageCatalog` /
+  `createAppLanguageCatalog`, `applyLanguageGlobally()` / `getSystemLanguageCode()`, and Android's
+  `localizedContext()` and `LocalizedApplicationResources`. Ported from Tahfeez's `core/language`,
+  generalized to carry no fixed language list or user-facing text and to depend on no storage or DI
+  framework of its own.
+
+  `AppLanguageCatalog` is the module's answer to the questions that need the *set* of supported
+  languages to answer, without the library knowing how many an app has: which language to serve a
+  device whose own language you do not offer (whole tag first, then primary subtag, so `pt-BR` finds
+  your `pt`), what string to persist for a selection, and what a previously persisted string means
+  today. You build one from your own list; display names and flags stay with you. `systemId` — the
+  persisted identity of "follow the device" — is a defaulted parameter rather than a constant, so an
+  app with existing values on disk can keep them.
+
+  `LocalizedApplicationResources` (Android) is the piece most easily missed: Android rebuilds the
+  process-global default locale from the *Application's* resources on every configuration delivery,
+  so without it the app silently reverts to the device language on any change that does not recreate
+  the activity — a 180° rotation, a window resize inside the same size bucket, an external display.
+  Install it by overriding `Application.getResources()`; see
+  `docs/kmptoolkit-language/05-platform-notes.md`.
+
+  `AppLanguageHolder.setLanguage` applies the platform locale on **every** call, including one
+  passing the language already in effect. The platform default is shared state the OS itself
+  rewrites, so re-asserting it is the point; `languageFlow` and `onLanguageChanged` remain
+  change-only.
+- New `kmptoolkit-language-compose` module: `AppLocale` and `Modifier.mirrorOnRtl()` /
   `mirrorOnLtr()`. Split from `kmptoolkit-language` so the base module stays plain Kotlin.
+
+  `AppLocale(language, resolvedLanguage = language, content)` takes the selection *and* the resolved
+  language: the first is what the platform locale is pinned to — passing `AppLanguage.System` pins
+  the device's language rather than whatever it is set to today — and only `isLtr` is read from the
+  second. Its platform halves differ, deliberately: Android re-pins the process default synchronously
+  before `content` composes and provides a localized `LocalConfiguration`/`LocalContext`, so a
+  language change keeps the subtree's remembered state; iOS keys the composition on the language
+  code, which is the only mechanism available there and does not. See
+  `docs/kmptoolkit-language-compose/05-platform-notes.md`.
 - `kmptoolkit-permission`: `SpecialPermission` and `SpecialPermissionHandler`, for Android's
   "special access" grants that have no in-app request dialog — `EXACT_ALARM`, `OVERLAY`,
   `WRITE_SETTINGS`, `ALL_FILES_ACCESS`, `USAGE_STATS_ACCESS`, `IGNORE_BATTERY_OPTIMIZATIONS`,

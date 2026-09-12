@@ -2,42 +2,52 @@ package io.github.jamal_wia.kmptoolkit.language.compose
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.key
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import io.github.jamal_wia.kmptoolkit.language.AppLanguage
 
 /**
- * Provides [language]'s reading direction as [LocalLayoutDirection] for [content], and forces a
- * fresh composition of [content] whenever [language]'s code changes.
+ * Makes [content] render in [language]: its reading direction as [LocalLayoutDirection], plus
+ * whatever else the platform needs for a string resource to resolve under it.
  *
  * Wrap the whole Compose tree with this once, near the root — above anything that reads
  * [LocalLayoutDirection] or displays localized text:
  *
  * ```kotlin
- * val language by languageHolder.languageFlow.collectAsState()
- * AppLocale(language = resolve(language)) {
+ * val selected: AppLanguage by languageHolder.languageFlow.collectAsState()
+ * AppLocale(language = selected, resolvedLanguage = catalog.resolve(selected)) {
  *     App()
  * }
  * ```
  *
- * Pass an already-resolved [language] — one whose [AppLanguage.code] is never `null`.
- * [AppLanguage.System]'s [AppLanguage.isLtr] is a placeholder, not a real direction; resolve it
- * against your own supported-language list first, using
- * [io.github.jamal_wia.kmptoolkit.language.getSystemLanguageCode] when you need the device's actual
- * language.
- *
- * The [key] on [AppLanguage.code] exists because Compose Multiplatform's string-resource lookup
- * reads the active language at the point a `stringResource` call composes, not reactively: without
- * forcing every descendant out of composition and back in on a language change, an already-composed
- * screen would keep showing its previous language's strings until something else happened to
- * recompose it.
+ * @param language the selection itself, including [AppLanguage.System]. This is what the platform
+ *   locale is pinned to, and passing `System` is meaningful: it pins the *device's* language, which
+ *   is not the same as pinning the language that device happens to be set to today. Pin the latter
+ *   and a device language change stops reaching the app.
+ * @param resolvedLanguage the same selection with `System` already resolved against your own
+ *   supported-language list — `catalog.resolve(language)`. Only [AppLanguage.isLtr] is read from it,
+ *   because `System`'s own direction is a placeholder rather than an answer. Defaults to [language],
+ *   which is correct whenever you already hold a resolved one.
  */
 @Composable
-public fun AppLocale(language: AppLanguage, content: @Composable () -> Unit) {
+public fun AppLocale(
+    language: AppLanguage,
+    resolvedLanguage: AppLanguage = language,
+    content: @Composable () -> Unit,
+) {
     val layoutDirection: LayoutDirection =
-        if (language.isLtr) LayoutDirection.Ltr else LayoutDirection.Rtl
-    key(language.code) {
+        if (resolvedLanguage.isLtr) LayoutDirection.Ltr else LayoutDirection.Rtl
+    PlatformAppLocale(language) {
         CompositionLocalProvider(LocalLayoutDirection provides layoutDirection, content = content)
     }
 }
+
+/**
+ * The part of making a language take effect that differs per platform.
+ *
+ * Android has a process-global default locale that the OS itself rewrites, and composition locals
+ * carrying a configuration; iOS has neither, and needs the composition torn down instead. See each
+ * actual, and `docs/kmptoolkit-language-compose/05-platform-notes.md`.
+ */
+@Composable
+internal expect fun PlatformAppLocale(language: AppLanguage, content: @Composable () -> Unit)

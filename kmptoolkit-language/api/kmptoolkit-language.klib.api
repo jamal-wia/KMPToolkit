@@ -6,6 +6,21 @@
 // - Show declarations: true
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-language>
+abstract interface io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog { // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog|null[0]
+    abstract val fallback // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.fallback|{}fallback[0]
+        abstract fun <get-fallback>(): io.github.jamal_wia.kmptoolkit.language/AppLanguage // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.fallback.<get-fallback>|<get-fallback>(){}[0]
+    abstract val supported // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.supported|{}supported[0]
+        abstract fun <get-supported>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.language/AppLanguage> // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.supported.<get-supported>|<get-supported>(){}[0]
+    abstract val systemId // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.systemId|{}systemId[0]
+        abstract fun <get-systemId>(): kotlin/String // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.systemId.<get-systemId>|<get-systemId>(){}[0]
+
+    abstract fun byCode(kotlin/String): io.github.jamal_wia.kmptoolkit.language/AppLanguage? // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.byCode|byCode(kotlin.String){}[0]
+    abstract fun fromId(kotlin/String?): io.github.jamal_wia.kmptoolkit.language/AppLanguage // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.fromId|fromId(kotlin.String?){}[0]
+    abstract fun idOf(io.github.jamal_wia.kmptoolkit.language/AppLanguage): kotlin/String // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.idOf|idOf(io.github.jamal_wia.kmptoolkit.language.AppLanguage){}[0]
+    abstract fun resolve(io.github.jamal_wia.kmptoolkit.language/AppLanguage): io.github.jamal_wia.kmptoolkit.language/AppLanguage // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.resolve|resolve(io.github.jamal_wia.kmptoolkit.language.AppLanguage){}[0]
+    abstract fun resolveSystemLanguage(): io.github.jamal_wia.kmptoolkit.language/AppLanguage // io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog.resolveSystemLanguage|resolveSystemLanguage(){}[0]
+}
+
 abstract interface io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder { // io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder|null[0]
     abstract val languageFlow // io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder.languageFlow|{}languageFlow[0]
         abstract fun <get-languageFlow>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.language/AppLanguage> // io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder.languageFlow.<get-languageFlow>|<get-languageFlow>(){}[0]
@@ -37,5 +52,6 @@ final class io.github.jamal_wia.kmptoolkit.language/AppLanguage { // io.github.j
 }
 
 final fun io.github.jamal_wia.kmptoolkit.language/applyLanguageGlobally(io.github.jamal_wia.kmptoolkit.language/AppLanguage) // io.github.jamal_wia.kmptoolkit.language/applyLanguageGlobally|applyLanguageGlobally(io.github.jamal_wia.kmptoolkit.language.AppLanguage){}[0]
+final fun io.github.jamal_wia.kmptoolkit.language/createAppLanguageCatalog(kotlin.collections/List<io.github.jamal_wia.kmptoolkit.language/AppLanguage>, io.github.jamal_wia.kmptoolkit.language/AppLanguage = ..., kotlin/String = ..., kotlin/Function0<kotlin/String?> = ...): io.github.jamal_wia.kmptoolkit.language/AppLanguageCatalog // io.github.jamal_wia.kmptoolkit.language/createAppLanguageCatalog|createAppLanguageCatalog(kotlin.collections.List<io.github.jamal_wia.kmptoolkit.language.AppLanguage>;io.github.jamal_wia.kmptoolkit.language.AppLanguage;kotlin.String;kotlin.Function0<kotlin.String?>){}[0]
 final fun io.github.jamal_wia.kmptoolkit.language/createAppLanguageHolder(io.github.jamal_wia.kmptoolkit.language/AppLanguage, kotlin/Function1<io.github.jamal_wia.kmptoolkit.language/AppLanguage, kotlin/Unit> = ..., kotlin/Function1<io.github.jamal_wia.kmptoolkit.language/AppLanguage, kotlin/Unit> = ...): io.github.jamal_wia.kmptoolkit.language/AppLanguageHolder // io.github.jamal_wia.kmptoolkit.language/createAppLanguageHolder|createAppLanguageHolder(io.github.jamal_wia.kmptoolkit.language.AppLanguage;kotlin.Function1<io.github.jamal_wia.kmptoolkit.language.AppLanguage,kotlin.Unit>;kotlin.Function1<io.github.jamal_wia.kmptoolkit.language.AppLanguage,kotlin.Unit>){}[0]
 final fun io.github.jamal_wia.kmptoolkit.language/getSystemLanguageCode(): kotlin/String? // io.github.jamal_wia.kmptoolkit.language/getSystemLanguageCode|getSystemLanguageCode(){}[0]

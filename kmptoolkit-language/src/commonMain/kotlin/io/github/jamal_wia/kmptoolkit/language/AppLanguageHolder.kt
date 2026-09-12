@@ -23,12 +23,18 @@ public interface AppLanguageHolder {
     public val language: AppLanguage get() = languageFlow.value
 
     /**
-     * Selects [language]: updates [languageFlow], applies it to the platform's default locale via
-     * [applyLanguageGlobally], and — unless it equals the language already in effect — invokes the
-     * `onLanguageChanged` callback given to [createAppLanguageHolder].
+     * Selects [language]: applies it to the platform's default locale via [applyLanguageGlobally],
+     * updates [languageFlow], and invokes the `onLanguageChanged` callback given to
+     * [createAppLanguageHolder].
      *
-     * A no-op, including no platform side effect, when [language] equals [AppLanguageHolder.language]
-     * already.
+     * The platform side effect runs on **every** call, including one passing the language already in
+     * effect. It is idempotent, and re-asserting it is the point: the process-wide default locale is
+     * shared mutable state that the platform itself rewrites — Android rebuilds it on every
+     * configuration delivery — so "the value has not changed here" says nothing about whether it is
+     * still in force out there.
+     *
+     * [languageFlow] and `onLanguageChanged` are change-only: re-selecting the current language
+     * emits nothing and persists nothing.
      */
     public fun setLanguage(language: AppLanguage)
 }
@@ -68,9 +74,9 @@ private class DefaultAppLanguageHolder(
     }
 
     override fun setLanguage(language: AppLanguage) {
+        applyGlobally(language)
         if (state.value == language) return
         state.value = language
-        applyGlobally(language)
         onLanguageChanged(language)
     }
 }

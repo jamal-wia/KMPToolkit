@@ -18,20 +18,36 @@ Plain Kotlin, no Compose dependency. Published for `android`, `iosArm64` and `io
 
 ## 2. Define the languages your app offers
 
-There is no catalog to extend — build your own list, with your own labels:
+There is no catalog to extend — declare your own list, with your own labels:
 
 ```kotlin
 enum class SupportedLanguage(val appLanguage: AppLanguage, val displayName: String) {
-    System(AppLanguage.System, "System"),
     English(AppLanguage(code = "en", isLtr = true), "English"),
     Arabic(AppLanguage(code = "ar", isLtr = false), "العربية"),
+    Portuguese(AppLanguage(code = "pt", isLtr = true), "Português"),
 }
 ```
 
-## 3. Create the holder
+`AppLanguage.System` is deliberately **not** in this list. It is a mode — "follow the device" — not a
+language, and the catalog below is what turns it into one.
 
-One per process, created wherever your app already assembles its long-lived objects. Load whatever
-you last persisted before calling this — the module has no storage of its own:
+## 3. Build the catalog
+
+```kotlin
+val catalog: AppLanguageCatalog = createAppLanguageCatalog(
+    supported = SupportedLanguage.entries.map { it.appLanguage },
+)
+```
+
+That is enough for most apps: the first entry becomes the fallback for a device whose language you do
+not offer, and `"system"` becomes the string stored for "follow the device". Both are parameters if
+you need different ones — see [`03-guide.md`](03-guide.md#migrating-an-app-that-already-persists-a-language)
+if your app already has values on disk.
+
+## 4. Create the holder
+
+One per process, created wherever your app already assembles its long-lived objects. The module has
+no storage of its own, so read your stored value and hand it over:
 
 ```kotlin
 class MyApplication : Application() {
@@ -41,10 +57,9 @@ class MyApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val saved: AppLanguage = loadSavedLanguage() ?: AppLanguage.System
         language = createAppLanguageHolder(
-            initialLanguage = saved,
-            onLanguageChanged = { persistLanguage(it) },
+            initialLanguage = catalog.fromId(storage.getString(LANGUAGE_KEY)),
+            onLanguageChanged = { storage.putString(LANGUAGE_KEY, catalog.idOf(it)) },
         )
     }
 }
@@ -53,7 +68,39 @@ class MyApplication : Application() {
 `createAppLanguageHolder` applies `initialLanguage` to the platform's default locale immediately, so
 string-resource lookups anywhere in the process are correct from the first line after this call.
 
-## 4. Let a screen change it
+## 5. Android: carry the language on the Application and the Activity
+
+Two overrides, and the language then survives everything the OS does to your process.
+
+```kotlin
+class MyApplication : Application() {
+
+    private val localizedResources = LocalizedApplicationResources()
+
+    override fun getResources(): Resources = localizedResources.resourcesOf(baseContext)
+
+    override fun onCreate() {
+        super.onCreate()
+        // …create the holder as above, then:
+        localizedResources.readLanguageFrom { language.language }
+    }
+}
+```
+
+```kotlin
+class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(localizedContext(newBase, currentLanguage()))
+    }
+}
+```
+
+Neither is optional, and they cover different failures: `attachBaseContext` makes the first frame
+after an activity is created render in the right language, while `LocalizedApplicationResources`
+keeps the *process* on that language across configuration changes that never recreate the activity.
+[`05-platform-notes.md`](05-platform-notes.md) explains exactly what goes wrong without each.
+
+## 6. Let a screen change it
 
 ```kotlin
 fun onLanguagePicked(picked: SupportedLanguage) {
@@ -61,25 +108,22 @@ fun onLanguagePicked(picked: SupportedLanguage) {
 }
 ```
 
-`setLanguage` updates `languageFlow`, re-applies the platform locale, and calls
-`onLanguageChanged` — unless the picked language is already the one in effect, in which case it does
-nothing at all.
+`setLanguage` re-applies the platform locale on every call, and updates `languageFlow` and calls
+`onLanguageChanged` when the language actually changed.
 
-## 5. If you support "follow system"
+## 7. "Follow system"
 
-`AppLanguage.System` has no fixed `isLtr` of its own. Resolve it against your own
-list when you need the actual language — for picking a translation, for instance:
+The catalog resolves it — matching the device's language against your list, falling back to the
+primary subtag (`pt-BR` → `pt`), then to your fallback language:
 
 ```kotlin
-fun resolve(selected: AppLanguage, supported: List<SupportedLanguage>): AppLanguage {
-    if (selected != AppLanguage.System) return selected
-    val deviceCode: String? = getSystemLanguageCode()
-    return supported.firstOrNull { it.appLanguage.code == deviceCode }?.appLanguage
-        ?: supported.first().appLanguage // your own fallback language
-}
+val effective: AppLanguage = catalog.resolve(language.language)
 ```
 
-## 6. Compose apps: wire layout direction
+Call this before reading `isLtr`, before picking a translation, and before passing a language to
+`AppLocale`. `AppLanguage.System`'s own `isLtr` is a placeholder, not an answer.
+
+## 8. Compose apps: wire layout direction
 
 ```kotlin
 implementation("io.github.jamal-wia:kmptoolkit-language-compose")
@@ -87,14 +131,19 @@ implementation("io.github.jamal-wia:kmptoolkit-language-compose")
 
 ```kotlin
 @Composable
-fun App(language: AppLanguage) {
-    AppLocale(language = resolve(language, SupportedLanguage.entries)) {
+fun App(holder: AppLanguageHolder) {
+    val selected: AppLanguage by holder.languageFlow.collectAsState()
+    AppLocale(language = selected, resolvedLanguage = catalog.resolve(selected)) {
         // the rest of your Compose tree
     }
 }
 ```
 
+Pass both: the selection is what the platform locale is pinned to, and the resolved language is what
+the reading direction comes from. See
+[`kmptoolkit-language-compose`](../kmptoolkit-language-compose/01-overview.md).
+
 ## Next
 
-[`03-guide.md`](03-guide.md) — persistence patterns, the "follow system" resolution step in more
-depth, and pitfalls worth knowing before you ship a language picker.
+[`03-guide.md`](03-guide.md) — persistence patterns, the catalog in more depth, and pitfalls worth
+knowing before you ship a language picker.

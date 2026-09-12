@@ -36,13 +36,61 @@ Applying `System` calls `Locale.setDefault` / `LocaleList.setDefault` with the d
 place. Switching Arabic → System therefore genuinely returns to the device's language, not to
 whatever locale happened to be default before the app ever touched it.
 
-### Configuration changes do not undo the override
+### Configuration changes *do* undo the override, and this is the important part of this page
 
-Unlike `kmptoolkit-systembars`'s activity-tracking machinery, nothing here needs to re-apply itself
-across a configuration change. `Locale.setDefault` / `LocaleList.setDefault` are process-global JVM
-state, not attached to any one `Activity` or window — they survive an activity recreation on their
-own. What *is* activity-scoped is resource resolution through a `Context`'s own `Configuration`,
-which is exactly what `localizedContext` and `Activity.attachBaseContext` are for, below.
+`Locale.setDefault` / `LocaleList.setDefault` are process-global JVM state, so it is tempting to
+assume they survive on their own. They do not, because Android rewrites them itself.
+
+On **every** configuration delivery to the process, `ActivityThread` (via
+`ConfigurationController.updateLocaleListFromAppContext`) rebuilds the default locale list. It takes
+the first locale of the **Application** context's resources and looks it up in the device's own
+locale list: found, and that entry is promoted; not found, and it is pushed to the front. Either way
+the winner is decided by whatever `Application.getResources()` returns — and Compose Multiplatform
+resolves every string resource through `LocaleList.getDefault()`.
+
+With plain application resources, that first locale is the device's. So each delivery quietly flips
+the process back to the device language. Deliveries that recreate the activity are repaired by the
+`attachBaseContext` override below — but the ones that do **not** recreate it leave nothing to repair
+them:
+
+- a 180° rotation (portrait to reverse-portrait)
+- a window resize that stays inside the same size bucket
+- an external display appearing
+
+The next screen to compose then comes up in the device's language while your settings screen still
+shows the chosen one. It was reproduced on real Android 13 and 17 devices, and it is invisible in an
+emulator test that only ever rotates 90°.
+
+**The fix is `LocalizedApplicationResources`**, and it is not optional:
+
+```kotlin
+class MyApplication : Application() {
+
+    private val localizedResources = LocalizedApplicationResources()
+
+    override fun getResources(): Resources = localizedResources.resourcesOf(baseContext)
+
+    override fun onCreate() {
+        super.onCreate()
+        val holder: AppLanguageHolder = // …however your app builds it
+        localizedResources.readLanguageFrom { holder.language }
+    }
+}
+```
+
+Serving application resources that already carry the chosen locale turns that same rebuild into a
+re-assertion of it: the "best locale" the framework reads is now yours. Since an app pins a bare tag
+(`ru`) while device entries usually carry a region (`ru-RU`), it is not found in the list and is
+pushed to the front — which is exactly where a string resource reads from.
+
+One residual case this cannot cover: if the device's own list carries your exact locale — bare, with
+no region, which normally only happens via `adb` or on some ROMs — the framework finds it at a later
+index and moves only `Locale.getDefault()`, leaving `LocaleList.getDefault()[0]` on the device's
+language. That is what `kmptoolkit-language-compose`'s `AppLocale` re-pin is for on Android.
+
+Three layers, then, each covering what the others cannot: the Application's resources survive a
+configuration delivery, `attachBaseContext` gets the first frame after a recreation right, and
+`AppLocale` re-pins synchronously before content composes.
 
 ### `localizedContext` and why the very first frame needs it
 

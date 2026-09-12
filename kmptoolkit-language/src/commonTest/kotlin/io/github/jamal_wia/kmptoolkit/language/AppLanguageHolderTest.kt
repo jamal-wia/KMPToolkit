@@ -52,7 +52,7 @@ class AppLanguageHolderTest {
     }
 
     @Test
-    fun `setLanguage with the language already in effect is a no-op`() {
+    fun `setLanguage with the language already in effect notifies nothing`() {
         val changes = mutableListOf<AppLanguage>()
         val holder = holder(AppLanguage(code = "en", isLtr = true), onLanguageChanged = { changes.add(it) })
 
@@ -82,14 +82,17 @@ class AppLanguageHolderTest {
     }
 
     @Test
-    fun `applyGlobally runs on every language change but not on a no-op setLanguage`() {
+    fun `applyGlobally runs on every setLanguage including one that changes nothing`() {
+        // The platform default is shared mutable state the OS itself rewrites, so re-asserting it
+        // is the point — see AppLanguageHolder.setLanguage.
         val applied = mutableListOf<AppLanguage>()
         val holder = createAppLanguageHolder(AppLanguage.System, applyGlobally = { applied.add(it) })
         applied.clear() // drop the initial application recorded above
+        val korean = AppLanguage(code = "ko", isLtr = true)
 
-        holder.setLanguage(AppLanguage(code = "ko", isLtr = true))
-        holder.setLanguage(AppLanguage(code = "ko", isLtr = true))
+        holder.setLanguage(korean)
+        holder.setLanguage(korean)
 
-        assertEquals(listOf(AppLanguage(code = "ko", isLtr = true)), applied)
+        assertEquals(listOf(korean, korean), applied)
     }
 }

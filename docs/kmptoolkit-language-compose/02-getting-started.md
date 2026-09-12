@@ -25,7 +25,7 @@ wrap the whole tree, above anything that reads `LocalLayoutDirection` or shows l
 fun App(languageHolder: AppLanguageHolder) {
     val selected: AppLanguage by languageHolder.languageFlow.collectAsState()
 
-    AppLocale(language = resolve(selected, SupportedLanguage.entries)) {
+    AppLocale(language = selected, resolvedLanguage = catalog.resolve(selected)) {
         MaterialTheme {
             // the rest of your app
         }

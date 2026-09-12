@@ -16,6 +16,22 @@ public final class io/github/jamal_wia/kmptoolkit/language/AppLanguage$Companion
 	public final fun getSystem ()Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;
 }
 
+public abstract interface class io/github/jamal_wia/kmptoolkit/language/AppLanguageCatalog {
+	public abstract fun byCode (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;
+	public abstract fun fromId (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;
+	public abstract fun getFallback ()Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;
+	public abstract fun getSupported ()Ljava/util/List;
+	public abstract fun getSystemId ()Ljava/lang/String;
+	public abstract fun idOf (Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;)Ljava/lang/String;
+	public abstract fun resolve (Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;)Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;
+	public abstract fun resolveSystemLanguage ()Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/language/AppLanguageCatalogKt {
+	public static final fun createAppLanguageCatalog (Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;Ljava/lang/String;Lkotlin/jvm/functions/Function0;)Lio/github/jamal_wia/kmptoolkit/language/AppLanguageCatalog;
+	public static synthetic fun createAppLanguageCatalog$default (Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;Ljava/lang/String;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/language/AppLanguageCatalog;
+}
+
 public abstract interface class io/github/jamal_wia/kmptoolkit/language/AppLanguageHolder {
 	public fun getLanguage ()Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;
 	public abstract fun getLanguageFlow ()Lkotlinx/coroutines/flow/StateFlow;
@@ -34,6 +50,12 @@ public final class io/github/jamal_wia/kmptoolkit/language/AppLanguageHolderKt {
 public final class io/github/jamal_wia/kmptoolkit/language/ApplyLanguageGlobally_androidKt {
 	public static final fun applyLanguageGlobally (Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;)V
 	public static final fun getSystemLanguageCode ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/language/LocalizedApplicationResources {
+	public fun <init> ()V
+	public final fun readLanguageFrom (Lkotlin/jvm/functions/Function0;)V
+	public final fun resourcesOf (Landroid/content/Context;)Landroid/content/res/Resources;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/language/LocalizedContextKt {

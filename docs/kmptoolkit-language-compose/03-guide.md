@@ -36,7 +36,11 @@ list double-flips it.
   looks identical under the direction you tested and is backwards under the other one.
 - **Mirroring an icon that embeds text or digits.** Both modifiers flip the whole node, glyphs
   included. Reposition such an icon instead of mirroring it.
-- **Expecting a language change to relayout without `key()`.** `AppLocale` already keys its content
-  on the language code for exactly this reason — see its own KDoc — but a screen that reads
-  `LocalLayoutDirection` deep inside a subtree it manually excludes from that key will not see the
-  change until something else recomposes it.
+- **Assuming a language change costs, or keeps, the subtree's state on both platforms.** It differs:
+  Android invalidates string resources through `LocalConfiguration`, so `remember`ed state survives a
+  switch; iOS has no such mechanism and tears the subtree down instead. Do not build a screen that
+  depends on either behaviour — see [`05-platform-notes.md`](05-platform-notes.md).
+- **Passing an already-resolved language as `AppLocale`'s only argument when the user picked
+  "follow system".** That pins the language the device is set to *today* rather than the device's
+  own, so a later device language change stops reaching the app. Pass the selection as `language`
+  and the resolved one as `resolvedLanguage`.

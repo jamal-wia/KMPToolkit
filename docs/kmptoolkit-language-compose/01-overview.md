@@ -1,8 +1,9 @@
 # kmptoolkit-language-compose — Overview
 
-Compose Multiplatform wiring for `kmptoolkit-language`: `AppLocale` provides `LocalLayoutDirection`
-from an `AppLanguage` and forces a recomposition on language change, and `Modifier.mirrorOnRtl()` /
-`mirrorOnLtr()` flip a directional drawable that has no Compose auto-mirrored counterpart.
+Compose Multiplatform wiring for `kmptoolkit-language`: `AppLocale` makes a subtree render in the
+chosen language — providing `LocalLayoutDirection`, and doing whatever each platform needs for a
+string resource to resolve under it — and `Modifier.mirrorOnRtl()` / `mirrorOnLtr()` flip a
+directional drawable that has no Compose auto-mirrored counterpart.
 
 ## Why a separate module
 

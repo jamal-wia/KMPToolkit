@@ -12,15 +12,24 @@ The consequence is that *you* own the list:
 
 ```kotlin
 enum class SupportedLanguage(val appLanguage: AppLanguage, val displayName: String) {
-    System(AppLanguage.System, "System"),
     English(AppLanguage(code = "en", isLtr = true), "English"),
     Russian(AppLanguage(code = "ru", isLtr = true), "Русский"),
     Arabic(AppLanguage(code = "ar", isLtr = false), "العربية"),
 }
+
+val catalog: AppLanguageCatalog = createAppLanguageCatalog(
+    supported = SupportedLanguage.entries.map { it.appLanguage },
+)
 ```
 
-`AppLanguageHolder` only ever sees the `AppLanguage` half. Everything a user reads — the picker's
-labels, in whatever locale the picker itself is shown in — is your enum's problem, not this module's.
+`AppLanguageHolder` and `AppLanguageCatalog` only ever see the `AppLanguage` half. Everything a user
+reads — the picker's labels, in whatever locale the picker itself is shown in — is your enum's
+problem, not this module's.
+
+Note what the catalog is *not*: it does not carry per-language metadata of its own. If your app needs
+to know that a language has no CLDR plural rules, or which keyboard layout it maps to, key your own
+map by `catalog.idOf(language)` and keep it next to your display names. The catalog answers only the
+questions that need the *set* of supported languages to answer.
 
 ## Persistence is a callback, not a dependency
 
@@ -32,40 +41,54 @@ already in the app can hold it.
 ```kotlin
 val storage: KeyValueStorage = /* kmptoolkit-storage, or your own */
 val holder: AppLanguageHolder = createAppLanguageHolder(
-    initialLanguage = storage.getString(LANGUAGE_KEY)?.let { code ->
-        AppLanguage(code = code.takeIf { it != SYSTEM_MARKER }, isLtr = isLtrCode(code))
-    } ?: AppLanguage.System,
-    onLanguageChanged = { language ->
-        storage.putString(LANGUAGE_KEY, language.code ?: SYSTEM_MARKER)
-    },
+    initialLanguage = catalog.fromId(storage.getString(LANGUAGE_KEY)),
+    onLanguageChanged = { storage.putString(LANGUAGE_KEY, catalog.idOf(it)) },
 )
 ```
 
-Encoding `AppLanguage.System` needs one bit of your own design, because `code == null` cannot be
-written to a plain string store directly — a sentinel string (`SYSTEM_MARKER` above) or a separate
-boolean flag both work; pick whichever your storage already makes easy.
+`idOf` and `fromId` are what make that a two-liner. Encoding `AppLanguage.System` otherwise needs a
+sentinel of your own, because `code == null` cannot be written to a string store directly; the
+catalog owns that sentinel (`systemId`) so the same value is written and read in one place.
+
+`fromId` never fails. An unknown id — a language you have since dropped, a typo, a first launch with
+nothing stored — resolves to `AppLanguage.System`, because stranding a user on a value the app no
+longer understands is worse than putting them back on the device's language.
+
+## Migrating an app that already persists a language
+
+If your app already has values on disk from before, do **not** write a migration. Choose `systemId`
+to match what is already there, and store ids as before:
+
+```kotlin
+val catalog = createAppLanguageCatalog(
+    supported = SupportedLanguage.entries.map { it.appLanguage },
+    systemId = "system", // whatever your app already writes for "follow the device"
+)
+```
+
+`idOf` returns a language's own code, so as long as your stored values for real languages were their
+codes (`"en"`, `"ar"`, …) and `systemId` matches your existing sentinel, every installed user keeps
+their selection. Getting this wrong is silent: the app starts, finds a value it does not recognise,
+and quietly puts everyone back on the device language.
 
 ## Resolving "follow system"
 
-`AppLanguage.System.isLtr` is a placeholder — `true`, and never meant to be read. The one thing this
-module gives you to resolve it is [`getSystemLanguageCode()`][api], which reports the device's own
-preferred language independent of whatever `applyLanguageGlobally` has already set. Match it against
-your own supported list, and fall back to whatever language you'd want a device to see if its
-language isn't one you translate into:
+`AppLanguage.System.isLtr` is a placeholder — `true`, and never meant to be read. `catalog.resolve`
+is what turns a selection into a real language:
 
 ```kotlin
-fun resolve(selected: AppLanguage, supported: List<AppLanguage>): AppLanguage {
-    if (selected != AppLanguage.System) return selected
-    val deviceCode: String? = getSystemLanguageCode()
-    return supported.firstOrNull { it.code == deviceCode }
-        ?: supported.firstOrNull { it.code == deviceCode?.substringBefore('-') }
-        ?: supported.first()
-}
+val effective: AppLanguage = catalog.resolve(holder.language)
 ```
 
-The second `firstOrNull` matters more than it looks: platforms report a full tag like `"pt-BR"` or
-`"zh-Hans-CN"`, and an app that only offers a bare `"pt"` or `"zh"` would otherwise fall through to
-its fallback language for every regional variant it does not enumerate individually.
+It matches the device's language — read fresh on every call, so a device language change takes
+effect without a restart — against your supported list: the whole tag first, then its primary
+subtag, then your fallback. That middle step matters more than it looks: platforms report a full tag
+like `"pt-BR"` or `"zh-Hans-CN"`, and an app offering a bare `"pt"` or `"zh"` would otherwise fall
+through to its fallback for every regional variant it does not enumerate individually.
+
+`getSystemLanguageCode()` is still there if you need the raw device tag for something else — an
+analytics property, a request header. It reports the device's own language independent of whatever
+`applyLanguageGlobally` has already set.
 
 ## Two writers of the platform locale is the bug to avoid
 
@@ -80,9 +103,13 @@ locale change through one holder.
 
 - **Reading `holder.language.isLtr` for layout direction when the selection might be `System`.**
   `AppLanguage.System.isLtr` is a placeholder that says nothing about the actual device language.
-  Always resolve first — see above — before deriving a direction or picking a translation.
-- **Calling `applyLanguageGlobally` yourself.** `AppLanguageHolder.setLanguage` already calls it.
-  Calling it again elsewhere just risks two callers disagreeing about which one ran last.
+  Always `catalog.resolve` first, before deriving a direction or picking a translation.
+- **Skipping the Android `Application` wiring.** `LocalizedApplicationResources` is not an
+  optimisation. Without it the app silently reverts to the device language on configuration changes
+  that do not recreate the activity — see [`05-platform-notes.md`](05-platform-notes.md).
+- **Calling `applyLanguageGlobally` yourself.** `AppLanguageHolder.setLanguage` already calls it, on
+  every call and not only on a change. Calling it again elsewhere just risks two callers disagreeing
+  about which one ran last.
 - **Forgetting `applyLanguageGlobally` is a genuinely global side effect.** It mutates process-wide
   state — `Locale.getDefault()` on Android, `NSUserDefaults["AppleLanguages"]` on iOS. A test that
   exercises it should restore the previous value afterwards, the way this module's own Android tests
