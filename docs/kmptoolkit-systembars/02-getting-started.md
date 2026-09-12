@@ -58,7 +58,7 @@ in your activity as usual. This module does not do it for you; see
 ### iOS
 
 iOS does not let anything set the status bar directly: a view controller *declares* what it wants
-and UIKit asks. So the controller supplies the two answers and your Compose host returns them.
+and UIKit asks. So the controller supplies the answers and your Compose host returns them.
 
 ```kotlin
 private val systemBars = createSystemBarsController()
@@ -70,10 +70,10 @@ fun MainViewController(): UIViewController {
 }
 ```
 
-`preferredStatusBarStyle` and `prefersStatusBarHidden` must be returned from the controller that
-UIKit actually asks — with a plain `ComposeUIViewController` that is the host above. The exact
-wiring, including the `Info.plist` requirement, is in
-[`05-platform-notes.md`](05-platform-notes.md).
+`preferredStatusBarStyle`, `prefersStatusBarHidden` and `prefersHomeIndicatorAutoHidden` must be
+returned from the controller that UIKit actually asks — with a plain `ComposeUIViewController` that
+is the host above. The exact wiring, including the `Info.plist` requirement and what the home
+indicator does and does not do, is in [`05-platform-notes.md`](05-platform-notes.md).
 
 ## 3. Let your theme own the base
 

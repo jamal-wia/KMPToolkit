@@ -11,7 +11,7 @@ make the differences go away, and a few of them are visible from your code.
 | Status bar icon style | Yes | Yes | **No** — no such bar |
 | Navigation bar icon style | Yes | **No** — there is no navigation bar | **No** — no such bar |
 | Hide the status bar | Yes | Yes | **No** — no such bar |
-| Hide the navigation bar | Yes | No such bar. The home indicator is not one and is not controllable this way | **No** — no such bar |
+| Hide the navigation bar | Yes | No such bar — the axis drives `prefersHomeIndicatorAutoHidden` instead | **No** — no such bar |
 | `HiddenBarBehavior` | Yes | **No** — a hidden status bar simply stays hidden | **No** |
 | How it is applied | Pushed onto the window's insets controller | Pulled by UIKit from a view controller | Nowhere — every platform call is a no-op |
 
@@ -99,9 +99,10 @@ bar back — only use it where your own UI offers a way out.
 ### The status bar is pulled, not pushed
 
 Nothing on iOS can set the status bar directly. A view controller *declares* what it wants through
-`preferredStatusBarStyle` and `prefersStatusBarHidden`, and UIKit re-reads those values when it is
-told they changed. So `IosSystemBarsController` supplies the two answers and invalidates the host
-when the configuration changes; the host has to be the controller UIKit actually asks.
+`preferredStatusBarStyle`, `prefersStatusBarHidden` and `prefersHomeIndicatorAutoHidden`, and UIKit
+re-reads those values when it is told they changed. So `IosSystemBarsController` supplies the three
+answers and invalidates the host when the configuration changes; the host has to be the controller
+UIKit actually asks.
 
 With a plain `ComposeUIViewController` that is the host itself:
 
@@ -116,18 +117,19 @@ fun MainViewController(): UIViewController {
 ```
 
 If your app wraps Compose in a Swift view controller of its own, that wrapper is the one UIKit asks
-— point `hostViewController` at it and return the two values from its overrides:
+— point `hostViewController` at it and return the values from its overrides:
 
 ```swift
 class ComposeHostingController: UIHostingController<ContentView> {
     override var preferredStatusBarStyle: UIStatusBarStyle { SystemBars.shared.preferredStatusBarStyle }
     override var prefersStatusBarHidden: Bool { SystemBars.shared.prefersStatusBarHidden }
+    override var prefersHomeIndicatorAutoHidden: Bool { SystemBars.shared.prefersHomeIndicatorAutoHidden }
 }
 ```
 
 A parent view controller overrides its children, so if Compose is embedded inside another
 controller, that parent is the one that has to answer — or it must return its child from
-`childForStatusBarStyle` / `childForStatusBarHidden`.
+`childForStatusBarStyle` / `childForStatusBarHidden` / `childForHomeIndicatorAutoHidden`.
 
 ### `Info.plist`
 
@@ -142,12 +144,21 @@ controller in every normal setup and a weak reference would only hide a wiring m
 is torn down while the controller lives on, clear it — `systemBars.hostViewController = null` — or
 `release()` the controller, which clears it for you.
 
-### No navigation bar
+### No navigation bar, but there is a home indicator
 
-`navigationBarIcons` and `SystemBarsVisibility.isNavigationBarVisible` are tracked and ignored. The
-home indicator is not a navigation bar; hiding it is
-`UIViewController.prefersHomeIndicatorAutoHidden`, which is a different decision and outside this
-module.
+`navigationBarIcons` is tracked and ignored — there is no bar to style.
+
+`SystemBarsVisibility.isNavigationBarVisible` is *not* ignored: it drives
+`prefersHomeIndicatorAutoHidden`. The home indicator is not a navigation bar, but it is the nearest
+thing a cross-platform "hide the bottom bar" claim can mean here, and a screen that goes fullscreen
+on Android expects the same on iOS rather than a stray indicator left glowing over its content. So
+`SystemBarsVisibility.Immersive` hides both bars on Android and hides the status bar and the home
+indicator on iOS.
+
+Two things it is not. It cannot be styled — there is no iOS equivalent of an icon style for it. And
+"hidden" means *auto-hidden*: iOS fades the indicator out after a moment of no interaction near the
+bottom edge and brings it straight back on the next touch there. That is the whole of what the
+platform offers; it is not a bar that stays gone.
 
 ### Threading
 

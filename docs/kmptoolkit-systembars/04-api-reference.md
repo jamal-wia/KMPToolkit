@@ -270,6 +270,7 @@ public interface IosSystemBarsController : SystemBarsController {
     public var hostViewController: UIViewController?
     public val preferredStatusBarStyle: UIStatusBarStyle
     public val prefersStatusBarHidden: Boolean
+    public val prefersHomeIndicatorAutoHidden: Boolean
 }
 
 public fun createSystemBarsController(
@@ -277,10 +278,16 @@ public fun createSystemBarsController(
 ): IosSystemBarsController
 ```
 
-iOS pulls status-bar appearance from a view controller rather than accepting a push, so the
-controller supplies the two values UIKit asks for and your host returns them. `hostViewController`
-is held strongly and is what gets `setNeedsStatusBarAppearanceUpdate()` on every change; clear it
-(or `release()` the controller) when the host goes away. See
+`prefersHomeIndicatorAutoHidden` is `!visibility.isNavigationBarVisible`. iOS has no navigation bar,
+so that axis would otherwise be inert; the home indicator is the nearest thing a cross-platform
+"hide the bottom bar" claim can mean here. It is auto-hiding only — the indicator returns on the
+next touch near the bottom edge — and it cannot be styled.
+
+iOS pulls this appearance from a view controller rather than accepting a push, so the controller
+supplies the values UIKit asks for and your host returns them. `hostViewController` is held strongly
+and is what gets `setNeedsStatusBarAppearanceUpdate()` and
+`setNeedsUpdateOfHomeIndicatorAutoHidden()` on every change; clear it (or `release()` the controller)
+when the host goes away. See
 [`05-platform-notes.md`](05-platform-notes.md).
 
 ## Wake lock
@@ -318,9 +325,26 @@ across configuration changes. The iOS implementation needs no such tracking — 
 
 ## Testing fixtures
 
-`SystemBarsController` itself ships no fixture, deliberately: it is a five-method interface over
-three enums with no platform types in its signatures — a fake is shorter than the import that would
-bring one in.
+Both controllers ship a double in `kmptoolkit-systembars-testing`.
+
+```kotlin
+public class RecordingSystemBarsController(
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+) : SystemBarsController {
+    public val applied: List<SystemBarsConfig>
+    public val activeOverrideCount: Int
+    public fun clear()
+}
+```
+
+It layers overrides exactly as the real controller does — newest wins a shared axis, an override
+claims only the axes it names, releasing one restores whatever is underneath it at that moment —
+and records every configuration that would have reached a window in `applied`, skipping mutations
+that changed nothing. `activeOverrideCount` is there to assert a screen leaves no layer behind. Not
+thread-safe, deliberately: see [`06-testing.md`](06-testing.md).
+
+If all you need is somewhere for a configuration to go, the interface is small enough to fake
+inline — no import required:
 
 ```kotlin
 class FakeSystemBarsController : SystemBarsController {
@@ -333,9 +357,8 @@ class FakeSystemBarsController : SystemBarsController {
 }
 ```
 
-`ScreenWakeLockController` does ship one, in `kmptoolkit-systembars-testing`:
-`RecordingScreenWakeLockController`, which records every `setKeepScreenOn` call. See
-[`06-testing.md`](06-testing.md).
+`ScreenWakeLockController`'s double is `RecordingScreenWakeLockController`, which records every
+`setKeepScreenOn` call. See [`06-testing.md`](06-testing.md).
 
 `StatusBarLuminanceProbe` ships none either, for the same reason as `SystemBarsController`:
 

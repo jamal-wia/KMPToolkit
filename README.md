@@ -56,7 +56,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-downloader` | Resumable background-download engine (transfer-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-downloader/01-overview.md) |
 | `kmptoolkit-downloader-testing` | `FakeDownloader`, `FakeDownloaderStorage`, for `testImplementation` | `downloader` | Available | [docs](docs/kmptoolkit-downloader/06-testing.md) |
 | `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership, optional pixel-sampled auto icon styling, and a keep-screen-awake primitive. The one module that also publishes a `jvm` target, so a UI tree shared with desktop still compiles | — | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
-| `kmptoolkit-systembars-testing` | `RecordingScreenWakeLockController` double, for `testImplementation` | `systembars` | Available | [docs](docs/kmptoolkit-systembars/06-testing.md) |
+| `kmptoolkit-systembars-testing` | `RecordingSystemBarsController` / `RecordingScreenWakeLockController` doubles, for `testImplementation` | `systembars` | Available | [docs](docs/kmptoolkit-systembars/06-testing.md) |
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow`, m/s² on both platforms | — | Available | [docs](docs/kmptoolkit-accelerometer/01-overview.md) |
 | `kmptoolkit-accelerometer-testing` | `ScriptedAccelerometer` double, for `testImplementation` | `accelerometer` | Available | [docs](docs/kmptoolkit-accelerometer/06-testing.md) |

@@ -6,6 +6,9 @@ import platform.UIKit.UIStatusBarStyle
 import platform.UIKit.UIStatusBarStyleDarkContent
 import platform.UIKit.UIStatusBarStyleLightContent
 import platform.UIKit.UIViewController
+// Objective-C category method (UIViewController + UIHomeIndicatorAutoHidden), which Kotlin/Native
+// exposes as an extension function rather than a member — hence the explicit import.
+import platform.UIKit.setNeedsUpdateOfHomeIndicatorAutoHidden
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 
@@ -44,6 +47,18 @@ public interface IosSystemBarsController : SystemBarsController {
 
     /** Return this from your host's `prefersStatusBarHidden`. */
     public val prefersStatusBarHidden: Boolean
+
+    /**
+     * Return this from your host's `prefersHomeIndicatorAutoHidden`.
+     *
+     * Driven by [SystemBarsVisibility.isNavigationBarVisible]. iOS has no navigation bar, so that
+     * axis would otherwise be inert here — but the home indicator is the nearest thing a
+     * cross-platform "hide the bottom bar" claim can mean on this platform, and a screen that goes
+     * fullscreen expects it gone. It is still not a navigation bar: it cannot be styled, and hiding
+     * it only fades it out until the next touch near the bottom edge.
+     */
+    public val prefersHomeIndicatorAutoHidden: Boolean
+        get() = !currentConfig.visibility.isNavigationBarVisible
 }
 
 /**
@@ -72,8 +87,15 @@ private class IosSystemBarsControllerImpl(
 
     override fun applyToPlatform(config: SystemBarsConfig) {
         // The values above are pulled by UIKit, not pushed, so all there is to do is tell it to
-        // ask again — on the main thread, which is the only place UIKit may be touched.
-        onMainThread { hostViewController?.setNeedsStatusBarAppearanceUpdate() }
+        // ask again — on the main thread, which is the only place UIKit may be touched. Both
+        // invalidations go together: they are two answers to the same configuration change, and
+        // UIKit tracks them separately, so asking for only one leaves the other stale.
+        onMainThread {
+            hostViewController?.let { host ->
+                host.setNeedsStatusBarAppearanceUpdate()
+                host.setNeedsUpdateOfHomeIndicatorAutoHidden()
+            }
+        }
     }
 
     override fun release() {

@@ -33,6 +33,8 @@ abstract interface io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsContro
         abstract fun <get-preferredStatusBarStyle>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.preferredStatusBarStyle.<get-preferredStatusBarStyle>|<get-preferredStatusBarStyle>(){}[0]
     abstract val prefersStatusBarHidden // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersStatusBarHidden|{}prefersStatusBarHidden[0]
         abstract fun <get-prefersStatusBarHidden>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersStatusBarHidden.<get-prefersStatusBarHidden>|<get-prefersStatusBarHidden>(){}[0]
+    open val prefersHomeIndicatorAutoHidden // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersHomeIndicatorAutoHidden|{}prefersHomeIndicatorAutoHidden[0]
+        open fun <get-prefersHomeIndicatorAutoHidden>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersHomeIndicatorAutoHidden.<get-prefersHomeIndicatorAutoHidden>|<get-prefersHomeIndicatorAutoHidden>(){}[0]
 
     abstract var hostViewController // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.hostViewController|{}hostViewController[0]
         abstract fun <get-hostViewController>(): platform.UIKit/UIViewController? // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.hostViewController.<get-hostViewController>|<get-hostViewController>(){}[0]

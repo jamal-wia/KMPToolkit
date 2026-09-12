@@ -17,3 +17,20 @@ final class io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWak
     final fun clear() // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController.clear|clear(){}[0]
     final fun setKeepScreenOn(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingScreenWakeLockController.setKeepScreenOn|setKeepScreenOn(kotlin.Boolean){}[0]
 }
+
+final class io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController : io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController { // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig = ...) // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.<init>|<init>(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig){}[0]
+
+    final val activeOverrideCount // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.activeOverrideCount|{}activeOverrideCount[0]
+        final fun <get-activeOverrideCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.activeOverrideCount.<get-activeOverrideCount>|<get-activeOverrideCount>(){}[0]
+    final val applied // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.applied|{}applied[0]
+        final fun <get-applied>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig> // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.applied.<get-applied>|<get-applied>(){}[0]
+    final val config // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.config|{}config[0]
+        final fun <get-config>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig> // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.config.<get-config>|<get-config>(){}[0]
+
+    final fun applyOverride(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverrideHandle // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.applyOverride|applyOverride(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsOverride){}[0]
+    final fun clear() // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.clear|clear(){}[0]
+    final fun release() // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.release|release(){}[0]
+    final fun setBaseConfig(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig) // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.setBaseConfig|setBaseConfig(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig){}[0]
+    final fun updateBaseConfig(kotlin/Function1<io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig, io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig>) // io.github.jamal_wia.kmptoolkit.systembars.testing/RecordingSystemBarsController.updateBaseConfig|updateBaseConfig(kotlin.Function1<io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig,io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig>){}[0]
+}

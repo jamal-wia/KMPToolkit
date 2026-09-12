@@ -1,13 +1,12 @@
 # kmptoolkit-systembars — Testing
 
-`SystemBarsController` needs no fixture of its own — see
-[`04-api-reference.md`](04-api-reference.md#testing-fixtures) for the four-line fake. This page is
-about the one part of the module that does ship one: `ScreenWakeLockController`.
+Both of this module's controllers ship a double: `RecordingSystemBarsController` and
+`RecordingScreenWakeLockController`.
 
-## The fixture
+## The fixtures
 
-`RecordingScreenWakeLockController` ships in a separate artifact so that nothing test-shaped ends up
-on your app's runtime classpath ([`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate--testing-artifacts)):
+They ship in a separate artifact so that nothing test-shaped ends up on your app's runtime classpath
+([`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate--testing-artifacts)):
 
 ```kotlin
 dependencies {
@@ -16,7 +15,44 @@ dependencies {
 }
 ```
 
-It works in `commonTest`, so one test covers every platform.
+They work in `commonTest`, so one test covers every platform.
+
+> `testImplementation` is the scope that matters here. If you find yourself wanting one of these in
+> a `main` source set — typically to satisfy a `@Preview` that reaches a controller through your DI
+> container — write a four-line no-op controller in your own app instead. A `-testing` artifact on a
+> runtime classpath is the exact thing the separate-artifact rule exists to prevent.
+
+## Asserting what a screen claims on the bars
+
+```kotlin
+import io.github.jamal_wia.kmptoolkit.systembars.testing.RecordingSystemBarsController
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class PhotoViewerPresenterTest {
+
+    @Test
+    fun `the viewer asks for light icons and gives them back on the way out`() {
+        val controller = RecordingSystemBarsController()
+        val presenter = PhotoViewerPresenter(controller)
+
+        presenter.onEnter()
+        assertEquals(SystemBarIconStyle.LightIcons, controller.currentConfig.statusBarIcons)
+
+        presenter.onLeave()
+        assertEquals(SystemBarIconStyle.DarkIcons, controller.currentConfig.statusBarIcons)
+        assertEquals(0, controller.activeOverrideCount)
+    }
+}
+```
+
+`activeOverrideCount` back at zero is the assertion worth making in every screen teardown test: a
+screen that leaks a layer looks fine on its own and breaks the *next* screen, which is the whole
+class of bug this module exists to remove.
+
+`applied` is an ordered list of every configuration that would have reached a window, and it records
+nothing for a mutation that left the effective configuration unchanged — so it also catches a screen
+that thrashes the bars on every recomposition.
 
 ## Asserting when your code keeps the screen awake
 
@@ -53,13 +89,16 @@ presenter that forgets to release the lock on teardown — the list ends in `tru
 `isKeptOn` is a shorthand for `calls.lastOrNull() ?: false` when a test only cares about the current
 state, not the history that led there.
 
-## What the fixture will not do for you
+## What the fixtures will not do for you
 
-- **It is not thread-safe.** The backing list is a plain `MutableList`. Drive it from one thread, or
+- **They are not thread-safe.** The backing lists are plain `MutableList`s, and
+  `RecordingSystemBarsController` does not reproduce the real controller's compare-and-set retry
+  loop — a fixture with its own concurrency bugs would prove nothing. Drive them from one thread, or
   one test coroutine, and assert after the work under test has finished.
-- **It does not fake a platform.** `RecordingScreenWakeLockController` replaces
-  `ScreenWakeLockController` entirely; it never touches `Window` or `UIApplication`. That is why it
-  runs on the JVM and on iOS with no device.
-- **It does not verify the real re-application-on-rotation behaviour.** That is `AndroidScreenWakeLockController`'s
-  own contract, covered by `AndroidScreenWakeLockControllerTest` (Robolectric) in this module's own
-  test suite — not something a fake can stand in for.
+- **They do not fake a platform.** They replace their interfaces entirely and never touch `Window`,
+  `UIApplication` or a `UIViewController`. That is why they run on the JVM and on iOS with no device
+  — and why they cannot tell you whether the bars *looked* right.
+- **They do not verify platform-specific behaviour.** The real re-application on activity recreation
+  belongs to `AndroidScreenWakeLockController` and `createSystemBarsController`, covered by
+  Robolectric tests in this module's own suite, and the iOS status-bar and home-indicator pull
+  belongs to `IosSystemBarsController`, covered by its `iosTest` suite. No fake stands in for those.

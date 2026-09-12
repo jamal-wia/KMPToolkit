@@ -67,8 +67,8 @@ Most of these also publish a `-testing` companion artifact holding their test do
 the same folder's `06-testing.md` rather than a folder of their own. `kmptoolkit-logging`,
 `kmptoolkit-logging-overlay`, `kmptoolkit-language` and `kmptoolkit-language-compose` do not, whose
 seams are already interfaces a test implements directly — see each module's own `04-api-reference.md`
-for the four-line fake. `kmptoolkit-systembars` publishes one for `ScreenWakeLockController` even
-though `SystemBarsController` itself has no fixture, for the same reason — see its `06-testing.md`.
+for the four-line fake. `kmptoolkit-systembars` publishes doubles for both of its controllers — see
+its `06-testing.md`.
 
 The rest of the suite is on the roadmap — see the root [`README.md`](../README.md) module table and
 [`CHANGELOG.md`](../CHANGELOG.md).

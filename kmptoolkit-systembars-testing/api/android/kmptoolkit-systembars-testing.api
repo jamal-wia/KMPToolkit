@@ -6,3 +6,18 @@ public final class io/github/jamal_wia/kmptoolkit/systembars/testing/RecordingSc
 	public fun setKeepScreenOn (Z)V
 }
 
+public final class io/github/jamal_wia/kmptoolkit/systembars/testing/RecordingSystemBarsController : io/github/jamal_wia/kmptoolkit/systembars/SystemBarsController {
+	public fun <init> ()V
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun applyOverride (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverride;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsOverrideHandle;
+	public final fun clear ()V
+	public final fun getActiveOverrideCount ()I
+	public final fun getApplied ()Ljava/util/List;
+	public fun getConfig ()Lkotlinx/coroutines/flow/StateFlow;
+	public fun getCurrentConfig ()Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;
+	public fun release ()V
+	public fun setBaseConfig (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;)V
+	public fun updateBaseConfig (Lkotlin/jvm/functions/Function1;)V
+}
+

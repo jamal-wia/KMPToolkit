@@ -11,6 +11,19 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Added
 
+- `kmptoolkit-systembars`: `IosSystemBarsController.prefersHomeIndicatorAutoHidden`, to be returned
+  from your host's override of the same name. iOS has no navigation bar, so
+  `SystemBarsVisibility.isNavigationBarVisible` was inert there; it now drives the home indicator,
+  which is the nearest thing a cross-platform "hide the bottom bar" claim can mean on that platform —
+  `SystemBarsVisibility.Immersive` hides both bars on Android and the status bar plus the home
+  indicator on iOS. The controller invalidates it alongside the status bar on every configuration
+  change. Added as a **default interface member**, so no existing implementation of
+  `IosSystemBarsController` needs to change. Purely additive.
+- `kmptoolkit-systembars-testing`: `RecordingSystemBarsController`, a `SystemBarsController` double
+  that layers overrides exactly as the real controller does and records every configuration that
+  would have reached a window. `activeOverrideCount` exists so a teardown test can assert a screen
+  left no layer behind. Not thread-safe, deliberately — see
+  `docs/kmptoolkit-systembars/06-testing.md`.
 - `kmptoolkit-systembars` now also publishes a **`jvm` (desktop) target** — the only module in the
   suite that does. The module's premise is that a screen states what it wants from the bars without
   knowing where it runs, so a Compose Multiplatform app sharing one UI tree between phone and
@@ -76,6 +89,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   cooperation the existing iOS wake scheduler already requires for `BGTaskScheduler`; see
   `docs/kmptoolkit-uploader/08-upload-transport.md`. Purely additive — every existing symbol,
   including `AttemptResult.Detached` itself, is unchanged.
+
+### Changed
+
+- `kmptoolkit-systembars`: `DialogWindowSystemBarsEffect` now collects the controller's configuration
+  lifecycle-aware (`collectAsStateWithLifecycle`) instead of unconditionally, matching
+  `AutoSystemBarsIconStyle` — a backgrounded dialog window is neither read from nor written to, and
+  the configuration is re-read on the way back to `STARTED`. No API change.
 
 ### Fixed
 
