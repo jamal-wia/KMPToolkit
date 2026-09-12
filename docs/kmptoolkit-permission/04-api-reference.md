@@ -188,6 +188,46 @@ public fun createPermissionHandler(logger: Logger = NoopLogger): PermissionHandl
 
 Nothing else is needed: no context, no activity, no storage.
 
+## `SpecialPermission`
+
+```kotlin
+public enum class SpecialPermission {
+    EXACT_ALARM, OVERLAY, WRITE_SETTINGS, ALL_FILES_ACCESS, USAGE_STATS_ACCESS,
+    IGNORE_BATTERY_OPTIMIZATIONS, NOTIFICATION_LISTENER_ACCESS, DO_NOT_DISTURB_ACCESS,
+}
+```
+
+An Android "special access" grant with no in-app dialog — see
+[`03-guide.md`](03-guide.md#special-access-permissions) for what each maps to and why this is a
+separate type from `Permission`. Every entry is a no-op on iOS.
+
+## `SpecialPermissionHandler`
+
+```kotlin
+public interface SpecialPermissionHandler {
+    public fun isGranted(permission: SpecialPermission): Boolean
+    public fun requestViaSettings(permission: SpecialPermission): Boolean
+}
+```
+
+| Member | Contract |
+|---|---|
+| `isGranted(permission)` | Whether `permission` is currently granted. Always `true` on iOS |
+| `requestViaSettings(permission)` | Opens the system Settings screen for `permission`. No result callback — re-check `isGranted` on resume. Returns whether a screen was actually opened; always `false` on iOS |
+
+### Factories
+
+```kotlin
+// Android
+public fun createSpecialPermissionHandler(context: Context, logger: Logger = NoopLogger): SpecialPermissionHandler
+
+// iOS
+public fun createSpecialPermissionHandler(): SpecialPermissionHandler
+```
+
+The Android factory needs only a `Context` — every operation here is context-level, none of it
+depends on an `Activity`.
+
 ## `kmptoolkit-permission-testing`
 
 Package `io.github.jamal_wia.kmptoolkit.permission.testing`.
@@ -202,6 +242,19 @@ public class RecordingPermissionHandler(
     public var settingsAvailable: Boolean
     public fun setStatus(permission: Permission, status: PermissionStatus)
     public fun scriptRequest(permission: Permission, outcome: PermissionStatus)
+    public fun clearRecordings()
+}
+```
+
+```kotlin
+public class RecordingSpecialPermissionHandler(
+    public var defaultGranted: Boolean = true,
+) : SpecialPermissionHandler {
+    public val checks: List<SpecialPermission>
+    public val requestedViaSettings: List<SpecialPermission>
+    public var defaultSettingsAvailable: Boolean
+    public fun setGranted(permission: SpecialPermission, granted: Boolean)
+    public fun setSettingsAvailable(permission: SpecialPermission, available: Boolean)
     public fun clearRecordings()
 }
 ```

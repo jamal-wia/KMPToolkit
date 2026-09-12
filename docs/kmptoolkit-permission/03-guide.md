@@ -144,6 +144,49 @@ val enabled: Boolean = handler.check(Permission.NOTIFICATIONS).isGranted
 `isGranted` and `canPrompt` cover the two questions a toggle actually asks: is it on, and would
 tapping it prompt or need a settings trip.
 
+## Special access permissions
+
+`SpecialPermissionHandler` is not a variant of `PermissionHandler` — it is a different contract for
+a different category of Android grant, and understanding why clarifies when to reach for each.
+
+A runtime [`Permission`] has a system dialog: the OS asks, the user taps, your process gets the
+answer back synchronously (or, on iOS, through a short async round trip). A [`SpecialPermission`]
+has no dialog at all — `SCHEDULE_EXACT_ALARM`, `SYSTEM_ALERT_WINDOW`, `MANAGE_EXTERNAL_STORAGE`, and
+the rest are granted only by the user finding a specific toggle in system Settings and flipping it
+there, on their own schedule, with your app usually not even running. There is nothing to await and
+nothing to distinguish a first refusal from a permanent one — the permission is simply on or off
+right now, which is exactly what `isGranted()` answers and all it promises.
+
+```kotlin
+val specialHandler: SpecialPermissionHandler = createSpecialPermissionHandler(context)
+
+fun onExactRemindersToggled(wantExact: Boolean) {
+    if (wantExact && !specialHandler.isGranted(SpecialPermission.EXACT_ALARM)) {
+        specialHandler.requestViaSettings(SpecialPermission.EXACT_ALARM)
+    }
+}
+
+// Re-check whenever your screen could plausibly have missed the change — typically resume:
+suspend fun onScreenResumed() {
+    exactRemindersEnabled = specialHandler.isGranted(SpecialPermission.EXACT_ALARM)
+}
+```
+
+### There is no `refresh()` here, and that is not an oversight
+
+`PermissionRequestFlow` exists because a runtime permission's state machine has enough shape to be
+worth modelling — rationale, request, settings, each a real decision point. A special permission has
+exactly one useful question ("is it on?") and one useful action ("open the place to turn it on"), so
+wrapping it in a flow would add a type without adding a decision. Call `isGranted()` from wherever
+your screen already re-reads state on resume.
+
+### Every entry is a no-op on iOS
+
+`isGranted()` always returns `true` and `requestViaSettings()` always returns `false` on iOS — there
+is no `SpecialPermission` case that maps to anything there. Code that checks before requesting
+(`if (!isGranted(...)) requestViaSettings(...)`) is therefore automatically a no-op on iOS without
+an `expect`/`actual` branch anywhere in your own code.
+
 ## Mistakes worth avoiding
 
 - **Requesting without declaring.** A permission missing from your `AndroidManifest.xml` produces no
@@ -163,6 +206,9 @@ tapping it prompt or need a settings trip.
 - **Reading `state.value` instead of the return value.** They are the same thing; the return value
   just saves you a read. But do not read `state.value` *while* a `start()` is in flight expecting
   the outcome — it will be `Requesting`.
+- **Reaching for `PermissionRequestFlow` around a `SpecialPermission`.** There is no rationale state
+  and no permanent-denial bookkeeping to model — call `isGranted()` / `requestViaSettings()`
+  directly, and re-check on resume.
 
 ## Read next
 

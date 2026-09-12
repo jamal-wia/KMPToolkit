@@ -44,6 +44,10 @@ kotlin {
             // api: KeyValueStorage is a parameter of the public Android factory, so a consumer
             // needs it on their compile classpath to call it.
             api(project(":kmptoolkit-storage"))
+
+            // NotificationManagerCompat.getEnabledListenerPackages() — the only way to check
+            // SpecialPermission.NOTIFICATION_LISTENER_ACCESS; the platform SDK has no equivalent.
+            implementation(libs.androidx.core.ktx)
         }
         androidUnitTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

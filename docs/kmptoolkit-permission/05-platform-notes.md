@@ -135,13 +135,39 @@ These were considered and left out rather than shipped as untested scaffolding:
   picker cares about. Android's string, meanwhile, depends on the API level and splits per media
   type (`READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, plus the visual-media-picker path that needs no
   permission at all).
-- **Contacts, calendar, health, Bluetooth, exact alarms.** No mapping was written and none is
-  claimed. Exact alarms are worth naming specifically: Android's `SCHEDULE_EXACT_ALARM` is a
-  settings-only grant with no runtime dialog, so it cannot be driven by this API at all —
-  `kmptoolkit-scheduler` deliberately falls back to an inexact alarm instead of requiring it.
+- **Contacts, calendar, health, Bluetooth.** No mapping was written and none is claimed.
+- **Exact alarms.** Not in `Permission`, and never will be: Android's `SCHEDULE_EXACT_ALARM` is a
+  settings-only grant with no runtime dialog, so it does not fit `PermissionHandler`'s shape at all.
+  It is `SpecialPermission.EXACT_ALARM` instead — see below.
+  `kmptoolkit-scheduler` deliberately falls back to an inexact alarm rather than requiring it.
 
 `openAppSettings()` on iOS opens `UIApplicationOpenSettingsURLString` on the main queue, so `true`
 means "handed to UIKit" rather than "the settings screen is up".
+
+## Special access permissions
+
+None of these need a manifest permission declaration to be *checked* — `canScheduleExactAlarms()`
+and its siblings all work with nothing declared. Actually being granted `EXACT_ALARM`, though, still
+requires your own manifest to declare `SCHEDULE_EXACT_ALARM` — this module never declares it for
+you, the same rule as every runtime `Permission`.
+
+| `SpecialPermission` | Android API | Settings screen |
+|---|---|---|
+| `EXACT_ALARM` | `AlarmManager.canScheduleExactAlarms()` (API 31+; always granted below) | `ACTION_REQUEST_SCHEDULE_EXACT_ALARM` |
+| `OVERLAY` | `Settings.canDrawOverlays()` | `ACTION_MANAGE_OVERLAY_PERMISSION` |
+| `WRITE_SETTINGS` | `Settings.System.canWrite()` | `ACTION_MANAGE_WRITE_SETTINGS` |
+| `ALL_FILES_ACCESS` | `Environment.isExternalStorageManager()` (API 30+; always granted below) | `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` |
+| `USAGE_STATS_ACCESS` | `AppOpsManager` (`OPSTR_GET_USAGE_STATS`) | `ACTION_USAGE_ACCESS_SETTINGS` |
+| `IGNORE_BATTERY_OPTIMIZATIONS` | `PowerManager.isIgnoringBatteryOptimizations()` | `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` |
+| `NOTIFICATION_LISTENER_ACCESS` | `NotificationManagerCompat.getEnabledListenerPackages()` | `ACTION_NOTIFICATION_LISTENER_SETTINGS` |
+| `DO_NOT_DISTURB_ACCESS` | `NotificationManager.isNotificationPolicyAccessGranted` | `ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS` |
+
+`NOTIFICATION_LISTENER_ACCESS` additionally needs a manifest-declared listener `<service>` of your
+own, bound with `BIND_NOTIFICATION_LISTENER_SERVICE` — this module only reports and redirects to the
+toggle, it does not declare or implement the listener service itself.
+
+All eight are always granted, with nothing to open, on iOS — none of them name a concept that exists
+there.
 
 ## Read next
 

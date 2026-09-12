@@ -135,6 +135,21 @@ class RecorderPresenter(handler: PermissionHandler) {
 Your UI observes `permissionState` and renders its own dialog for `AwaitingRationale` and
 `AwaitingSettings`. The library never supplies the words.
 
+## 6. If you need a special access permission instead
+
+Exact alarms, drawing over other apps, all-files storage access — none of these go through
+`PermissionHandler`. They have no in-app dialog and no denial bookkeeping to speak of:
+
+```kotlin
+val specialHandler: SpecialPermissionHandler = createSpecialPermissionHandler(context) // createSpecialPermissionHandler() on iOS
+
+if (!specialHandler.isGranted(SpecialPermission.EXACT_ALARM)) {
+    specialHandler.requestViaSettings(SpecialPermission.EXACT_ALARM)
+}
+```
+
+See [`03-guide.md`](03-guide.md#special-access-permissions).
+
 ## What you did **not** have to write
 
 - Remembering that the dialog was already shown once, so a permanent denial can be told apart from

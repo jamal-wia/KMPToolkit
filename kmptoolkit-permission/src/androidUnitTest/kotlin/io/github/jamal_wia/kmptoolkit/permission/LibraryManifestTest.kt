@@ -69,7 +69,9 @@ class LibraryManifestTest {
      */
     @Test
     fun `the library contributes nothing beyond what the test harness itself declares`() {
-        val contributed: List<String> = declared - TEST_HARNESS_PERMISSIONS
+        val contributed: List<String> = declared
+            .filterNot { permission -> permission in TEST_HARNESS_PERMISSIONS }
+            .filterNot(::isTestHarnessPermission)
 
         assertTrue(
             contributed.isEmpty(),
@@ -80,5 +82,15 @@ class LibraryManifestTest {
     private companion object {
         /** Declared by `androidx.test`'s own manifest, present only while running tests. */
         val TEST_HARNESS_PERMISSIONS: Set<String> = setOf("android.permission.REORDER_TASKS")
+
+        /**
+         * AGP synthesises a per-package `<packagename>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`
+         * for every test application once any manifest in the merge (here, `androidx.core`'s, for
+         * `NotificationManagerCompat`) declares an unexported dynamically-registered receiver. It
+         * never reaches a consumer's own release manifest — see `kmptoolkit-systembars`'s own
+         * `LibraryManifestTest`, which excludes the same pattern for the same reason.
+         */
+        fun isTestHarnessPermission(permission: String): Boolean =
+            permission.endsWith(".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")
     }
 }

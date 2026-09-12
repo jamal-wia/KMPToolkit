@@ -18,10 +18,32 @@ final enum class io.github.jamal_wia.kmptoolkit.permission/Permission : kotlin/E
     final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.permission/Permission> // io.github.jamal_wia.kmptoolkit.permission/Permission.values|values#static(){}[0]
 }
 
+final enum class io.github.jamal_wia.kmptoolkit.permission/SpecialPermission : kotlin/Enum<io.github.jamal_wia.kmptoolkit.permission/SpecialPermission> { // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission|null[0]
+    enum entry ALL_FILES_ACCESS // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.ALL_FILES_ACCESS|null[0]
+    enum entry DO_NOT_DISTURB_ACCESS // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.DO_NOT_DISTURB_ACCESS|null[0]
+    enum entry EXACT_ALARM // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.EXACT_ALARM|null[0]
+    enum entry IGNORE_BATTERY_OPTIMIZATIONS // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.IGNORE_BATTERY_OPTIMIZATIONS|null[0]
+    enum entry NOTIFICATION_LISTENER_ACCESS // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.NOTIFICATION_LISTENER_ACCESS|null[0]
+    enum entry OVERLAY // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.OVERLAY|null[0]
+    enum entry USAGE_STATS_ACCESS // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.USAGE_STATS_ACCESS|null[0]
+    enum entry WRITE_SETTINGS // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.WRITE_SETTINGS|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.permission/SpecialPermission> // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.permission/SpecialPermission // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.permission/SpecialPermission> // io.github.jamal_wia.kmptoolkit.permission/SpecialPermission.values|values#static(){}[0]
+}
+
 abstract interface io.github.jamal_wia.kmptoolkit.permission/PermissionHandler { // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler|null[0]
     abstract fun openAppSettings(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.openAppSettings|openAppSettings(){}[0]
     abstract suspend fun check(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.check|check(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
     abstract suspend fun request(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.request|request(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.permission/SpecialPermissionHandler { // io.github.jamal_wia.kmptoolkit.permission/SpecialPermissionHandler|null[0]
+    abstract fun isGranted(io.github.jamal_wia.kmptoolkit.permission/SpecialPermission): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/SpecialPermissionHandler.isGranted|isGranted(io.github.jamal_wia.kmptoolkit.permission.SpecialPermission){}[0]
+    abstract fun requestViaSettings(io.github.jamal_wia.kmptoolkit.permission/SpecialPermission): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/SpecialPermissionHandler.requestViaSettings|requestViaSettings(io.github.jamal_wia.kmptoolkit.permission.SpecialPermission){}[0]
 }
 
 sealed interface io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState { // io.github.jamal_wia.kmptoolkit.permission/PermissionFlowState|null[0]
@@ -131,3 +153,4 @@ final val io.github.jamal_wia.kmptoolkit.permission/isGranted // io.github.jamal
     final fun (io.github.jamal_wia.kmptoolkit.permission/PermissionStatus).<get-isGranted>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/isGranted.<get-isGranted>|<get-isGranted>@io.github.jamal_wia.kmptoolkit.permission.PermissionStatus(){}[0]
 
 final fun io.github.jamal_wia.kmptoolkit.permission/createPermissionHandler(io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.permission/PermissionHandler // io.github.jamal_wia.kmptoolkit.permission/createPermissionHandler|createPermissionHandler(io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]
+final fun io.github.jamal_wia.kmptoolkit.permission/createSpecialPermissionHandler(): io.github.jamal_wia.kmptoolkit.permission/SpecialPermissionHandler // io.github.jamal_wia.kmptoolkit.permission/createSpecialPermissionHandler|createSpecialPermissionHandler(){}[0]

@@ -30,3 +30,25 @@ final class io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissio
     final suspend fun check(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.check|check(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
     final suspend fun request(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingPermissionHandler.request|request(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
 }
+
+final class io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler : io.github.jamal_wia.kmptoolkit.permission/SpecialPermissionHandler { // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler|null[0]
+    constructor <init>(kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.<init>|<init>(kotlin.Boolean){}[0]
+
+    final val checks // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.checks|{}checks[0]
+        final fun <get-checks>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.permission/SpecialPermission> // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.checks.<get-checks>|<get-checks>(){}[0]
+    final val requestedViaSettings // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.requestedViaSettings|{}requestedViaSettings[0]
+        final fun <get-requestedViaSettings>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.permission/SpecialPermission> // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.requestedViaSettings.<get-requestedViaSettings>|<get-requestedViaSettings>(){}[0]
+
+    final var defaultGranted // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.defaultGranted|{}defaultGranted[0]
+        final fun <get-defaultGranted>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.defaultGranted.<get-defaultGranted>|<get-defaultGranted>(){}[0]
+        final fun <set-defaultGranted>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.defaultGranted.<set-defaultGranted>|<set-defaultGranted>(kotlin.Boolean){}[0]
+    final var defaultSettingsAvailable // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.defaultSettingsAvailable|{}defaultSettingsAvailable[0]
+        final fun <get-defaultSettingsAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.defaultSettingsAvailable.<get-defaultSettingsAvailable>|<get-defaultSettingsAvailable>(){}[0]
+        final fun <set-defaultSettingsAvailable>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.defaultSettingsAvailable.<set-defaultSettingsAvailable>|<set-defaultSettingsAvailable>(kotlin.Boolean){}[0]
+
+    final fun clearRecordings() // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.clearRecordings|clearRecordings(){}[0]
+    final fun isGranted(io.github.jamal_wia.kmptoolkit.permission/SpecialPermission): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.isGranted|isGranted(io.github.jamal_wia.kmptoolkit.permission.SpecialPermission){}[0]
+    final fun requestViaSettings(io.github.jamal_wia.kmptoolkit.permission/SpecialPermission): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.requestViaSettings|requestViaSettings(io.github.jamal_wia.kmptoolkit.permission.SpecialPermission){}[0]
+    final fun setGranted(io.github.jamal_wia.kmptoolkit.permission/SpecialPermission, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.setGranted|setGranted(io.github.jamal_wia.kmptoolkit.permission.SpecialPermission;kotlin.Boolean){}[0]
+    final fun setSettingsAvailable(io.github.jamal_wia.kmptoolkit.permission/SpecialPermission, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.permission.testing/RecordingSpecialPermissionHandler.setSettingsAvailable|setSettingsAvailable(io.github.jamal_wia.kmptoolkit.permission.SpecialPermission;kotlin.Boolean){}[0]
+}

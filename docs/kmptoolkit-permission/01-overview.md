@@ -84,6 +84,28 @@ So the enum holds only permissions whose mapping is exercised by a test on both 
 need one that is missing, call the platform API in platform code — or ask for it here together with
 a contract that can express it.
 
+## Special access permissions
+
+`SpecialPermission` and `SpecialPermissionHandler` are a second, deliberately separate mechanism for
+a different category of Android grant: exact alarms, drawing over other apps, all-files storage
+access, usage-stats access, battery-optimization exemption, notification-listener access, Do Not
+Disturb access. None of these have an in-app request dialog — the user can only toggle them from a
+dedicated system Settings screen — so they do not fit `PermissionHandler`'s check/request/rationale
+shape at all: there is no "first refusal" to distinguish from a permanent one, only on or off.
+
+```kotlin
+val specialHandler: SpecialPermissionHandler = createSpecialPermissionHandler(context)
+
+if (!specialHandler.isGranted(SpecialPermission.EXACT_ALARM)) {
+    specialHandler.requestViaSettings(SpecialPermission.EXACT_ALARM)
+    // no callback — re-check isGranted() when your screen resumes
+}
+```
+
+Every entry is a no-op — always granted, nothing to open — on iOS, which has no equivalent concept
+for any of them. See [`03-guide.md`](03-guide.md#special-access-permissions) and
+[`04-api-reference.md`](04-api-reference.md#specialpermissionhandler).
+
 ## When to use it
 
 Use it when the code that *knows* a permission is needed lives in shared Kotlin — a presenter, a

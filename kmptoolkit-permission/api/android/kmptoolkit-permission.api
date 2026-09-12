@@ -135,3 +135,27 @@ public final class io/github/jamal_wia/kmptoolkit/permission/PermissionStatusKt 
 	public static final fun isGranted (Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)Z
 }
 
+public final class io/github/jamal_wia/kmptoolkit/permission/SpecialPermission : java/lang/Enum {
+	public static final field ALL_FILES_ACCESS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field DO_NOT_DISTURB_ACCESS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field EXACT_ALARM Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field IGNORE_BATTERY_OPTIMIZATIONS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field NOTIFICATION_LISTENER_ACCESS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field OVERLAY Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field USAGE_STATS_ACCESS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field WRITE_SETTINGS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/permission/SpecialPermissionHandler {
+	public abstract fun isGranted (Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;)Z
+	public abstract fun requestViaSettings (Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/SpecialPermissionHandler_androidKt {
+	public static final fun createSpecialPermissionHandler (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermissionHandler;
+	public static synthetic fun createSpecialPermissionHandler$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermissionHandler;
+}
+
