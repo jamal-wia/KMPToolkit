@@ -1,7 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.language.compose
 
+import android.content.res.Configuration
 import android.content.res.Resources
 import android.os.LocaleList
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,7 +33,7 @@ class AppLocaleUiTest {
     fun `provides Ltr layout direction for an LTR language`() = runComposeUiTest {
         var observed: LayoutDirection? = null
         setContent {
-            AppLocale(AppLanguage(code = "en", isLtr = true)) {
+            AppLocale(AppLanguage(code = "en", isLtr = true), AppLanguage(code = "en", isLtr = true)) {
                 observed = LocalLayoutDirection.current
             }
         }
@@ -44,7 +46,7 @@ class AppLocaleUiTest {
     fun `provides Rtl layout direction for an RTL language`() = runComposeUiTest {
         var observed: LayoutDirection? = null
         setContent {
-            AppLocale(AppLanguage(code = "ar", isLtr = false)) {
+            AppLocale(AppLanguage(code = "ar", isLtr = false), AppLanguage(code = "ar", isLtr = false)) {
                 observed = LocalLayoutDirection.current
             }
         }
@@ -80,7 +82,7 @@ class AppLocaleUiTest {
         var nextId = 0
         var lastRememberedId = -1
         setContent {
-            AppLocale(language) {
+            AppLocale(language, language) {
                 lastRememberedId = remember { nextId++ }
             }
         }
@@ -98,7 +100,7 @@ class AppLocaleUiTest {
         var defaultDuringContent: String? = null
         var localeListHeadDuringContent: String? = null
         setContent {
-            AppLocale(AppLanguage(code = "ar", isLtr = false)) {
+            AppLocale(AppLanguage(code = "ar", isLtr = false), AppLanguage(code = "ar", isLtr = false)) {
                 defaultDuringContent = Locale.getDefault().language
                 localeListHeadDuringContent = LocaleList.getDefault()[0].language
             }
@@ -114,7 +116,7 @@ class AppLocaleUiTest {
         var language by mutableStateOf(AppLanguage(code = "ar", isLtr = false))
         var observed: String? = null
         setContent {
-            AppLocale(language) {
+            AppLocale(language, language) {
                 observed = LocaleList.getDefault()[0].language
             }
         }
@@ -132,10 +134,56 @@ class AppLocaleUiTest {
     }
 
     @Test
+    fun `a LocaleList head left behind by the framework is re-pinned without a language change`() =
+        runComposeUiTest {
+            // The residual state `LocalizedApplicationResources` exists for, reproduced exactly:
+            // ConfigurationController.updateLocaleListFromAppContext rebuilds LocaleList.getDefault()
+            // from the Application's resources and leaves Locale.getDefault() alone. The JVM default
+            // is therefore *already right* and only the list head is wrong — and Compose resolves
+            // string resources through the list, not the default.
+            //
+            // Deliberately without a language change: the test above moves both at once, so a guard
+            // that compared only Locale.getDefault(), or that only acted when the selection changed,
+            // would still pass it. This one fails unless the re-pin looks at the list head itself.
+            // Driven by a configuration delivery rather than an arbitrary recomposition, because
+            // that is the only thing that reaches the guard: the re-pin lives in the composable body
+            // and a state change read *inside* content invalidates only content's own scope. A new
+            // LocalConfiguration is what the framework actually hands down when it rebuilds the
+            // locale list without recreating the activity, so it is also what the app really sees.
+            val arabic = AppLanguage(code = "ar", isLtr = false)
+            var delivered: Configuration by mutableStateOf(Configuration())
+            var observed: String? = null
+            setContent {
+                CompositionLocalProvider(LocalConfiguration provides delivered) {
+                    AppLocale(arabic, arabic) {
+                        observed = LocaleList.getDefault()[0].language
+                    }
+                }
+            }
+            waitForIdle()
+            assertEquals("ar", observed)
+
+            // Reflection because `setDefault(LocaleList, int)` is @hide — and it has to be this
+            // overload: the public one-argument form sets Locale.getDefault() to the list head, and
+            // calling Locale.setDefault() afterwards makes LocaleList.getDefault() re-derive itself
+            // from it. The pair can only be made to disagree the way the framework itself does it.
+            LocaleList::class.java
+                .getMethod("setDefault", LocaleList::class.java, Int::class.javaPrimitiveType)
+                .invoke(null, LocaleList(Locale.forLanguageTag("en"), Locale.forLanguageTag("ar")), 1)
+            assertEquals("ar", Locale.getDefault().language, "precondition: only the head is wrong")
+            assertEquals("en", LocaleList.getDefault()[0].language)
+
+            delivered = Configuration(delivered).apply { fontScale += 1f }
+            waitForIdle()
+
+            assertEquals("ar", observed)
+        }
+
+    @Test
     fun `the localized configuration reaches content`() = runComposeUiTest {
         var observed: String? = null
         setContent {
-            AppLocale(AppLanguage(code = "ru", isLtr = true)) {
+            AppLocale(AppLanguage(code = "ru", isLtr = true), AppLanguage(code = "ru", isLtr = true)) {
                 observed = LocalConfiguration.current.locales[0].language
             }
         }
@@ -148,7 +196,7 @@ class AppLocaleUiTest {
     fun `the localized context reaches content`() = runComposeUiTest {
         var observed: String? = null
         setContent {
-            AppLocale(AppLanguage(code = "ru", isLtr = true)) {
+            AppLocale(AppLanguage(code = "ru", isLtr = true), AppLanguage(code = "ru", isLtr = true)) {
                 observed = LocalContext.current.resources.configuration.locales[0].language
             }
         }

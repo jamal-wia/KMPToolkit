@@ -15,12 +15,16 @@ dependencies {
 }
 ```
 
-They work in `commonTest`, so one test covers every platform.
+They work in `commonTest`, so one test covers every platform — this module publishes the same
+targets as `kmptoolkit-systembars`, desktop included.
 
-> `testImplementation` is the scope that matters here. If you find yourself wanting one of these in
-> a `main` source set — typically to satisfy a `@Preview` that reaches a controller through your DI
-> container — write a four-line no-op controller in your own app instead. A `-testing` artifact on a
-> runtime classpath is the exact thing the separate-artifact rule exists to prevent.
+> `testImplementation` is the scope that matters here, and it is not negotiable: a `-testing`
+> artifact on a runtime classpath is the exact thing the separate-artifact rule exists to prevent.
+> The case that usually tempts people is a `@Preview` reaching a controller through a DI container —
+> `@Preview` functions compile into your release source set, so they cannot see this module at all.
+> Call `createHeadlessSystemBarsController()` from the main artifact there; it is in
+> `kmptoolkit-systembars` precisely so that nobody has to hand-roll an empty controller or reach for
+> this one. See [`04-api-reference.md`](04-api-reference.md) § "Common — headless".
 
 ## Asserting what a screen claims on the bars
 

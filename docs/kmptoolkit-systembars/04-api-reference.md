@@ -250,8 +250,6 @@ The default `intervalMs` for `AutoSystemBarsIconStyle`.
 
 ### Android
 
-### Android
-
 ```kotlin
 public fun createSystemBarsController(
     context: Context,
@@ -289,6 +287,43 @@ and is what gets `setNeedsStatusBarAppearanceUpdate()` and
 `setNeedsUpdateOfHomeIndicatorAutoHidden()` on every change; clear it (or `release()` the controller)
 when the host goes away. See
 [`05-platform-notes.md`](05-platform-notes.md).
+
+### Desktop (`jvm`)
+
+```kotlin
+public fun createSystemBarsController(
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+): SystemBarsController
+```
+
+A desktop window has no system bars, so this returns the headless controller below: the layer stack
+behaves exactly as on a phone and the window write is skipped. It exists so a UI tree shared with a
+phone build compiles and behaves the same way on all three targets — see
+[`../01-architecture.md`](../01-architecture.md) § "One module publishes a desktop target".
+
+### Common — headless
+
+```kotlin
+public fun createHeadlessSystemBarsController(
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+): SystemBarsController
+```
+
+A controller with the full layer model and no window behind it, available on every target.
+
+Use it from **production** source where a real one cannot exist — overwhelmingly `@Preview`, which
+compiles into your release source set and therefore cannot reach a `testImplementation` artifact. A
+screen that uses `SystemBarsEffect`, or resolves a controller through a DI container, needs one to
+exist or the preview throws instead of rendering. The same applies to a screenshot harness or a
+design gallery.
+
+It is headless, not inert: overrides stack, the newest wins a shared axis, an override claims only
+the axes it names, and releasing one restores whatever is underneath at that moment. Only the push to
+a window is skipped, so a preview that reads `config` back sees the value it would see on a device.
+
+For asserting what a screen *did* — which configurations it pushed, whether it left a layer behind —
+use `RecordingSystemBarsController` from `kmptoolkit-systembars-testing` instead. This one records
+nothing.
 
 ## Wake lock
 

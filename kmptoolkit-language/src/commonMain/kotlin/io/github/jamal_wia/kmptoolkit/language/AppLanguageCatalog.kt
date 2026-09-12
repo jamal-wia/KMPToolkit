@@ -17,7 +17,9 @@ package io.github.jamal_wia.kmptoolkit.language
  * ```kotlin
  * enum class SupportedLanguage(val appLanguage: AppLanguage, val displayName: String) {
  *     English(AppLanguage("en", isLtr = true), "English"),
- *     Arabic(AppLanguage("ar", isLtr = false), "العربية"),
+ *     // A real picker writes each name in its own language and script. That text is yours, not this
+ *     // module's — which is the whole reason it is not modelled here.
+ *     Arabic(AppLanguage("ar", isLtr = false), "Arabic"),
  * }
  *
  * val catalog: AppLanguageCatalog = createAppLanguageCatalog(

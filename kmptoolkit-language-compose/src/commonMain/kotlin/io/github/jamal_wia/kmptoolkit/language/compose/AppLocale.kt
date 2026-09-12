@@ -26,13 +26,15 @@ import io.github.jamal_wia.kmptoolkit.language.AppLanguage
  *   and a device language change stops reaching the app.
  * @param resolvedLanguage the same selection with `System` already resolved against your own
  *   supported-language list — `catalog.resolve(language)`. Only [AppLanguage.isLtr] is read from it,
- *   because `System`'s own direction is a placeholder rather than an answer. Defaults to [language],
- *   which is correct whenever you already hold a resolved one.
+ *   because `System`'s own direction is a placeholder rather than an answer. It deliberately has no
+ *   default: defaulting it to [language] would make `AppLocale(selected) { … }` compile and then
+ *   read `System.isLtr`, laying out an Arabic device on "follow system" left-to-right with nothing
+ *   to indicate anything went wrong. Pass [language] explicitly when you already hold a resolved one.
  */
 @Composable
 public fun AppLocale(
     language: AppLanguage,
-    resolvedLanguage: AppLanguage = language,
+    resolvedLanguage: AppLanguage,
     content: @Composable () -> Unit,
 ) {
     val layoutDirection: LayoutDirection =

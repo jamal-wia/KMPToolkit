@@ -21,6 +21,18 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   indicator on iOS. The controller invalidates it alongside the status bar on every configuration
   change. Added as a **default interface member**, so no existing implementation of
   `IosSystemBarsController` needs to change. Purely additive.
+- `kmptoolkit-systembars`: `createHeadlessSystemBarsController()`, a controller with the full layer
+  model and no window behind it, in the **main** artifact rather than the testing one. `@Preview`
+  functions compile into production source, so a screen that resolves a controller — or uses
+  `SystemBarsEffect` — cannot reach `RecordingSystemBarsController` from a `testImplementation`
+  artifact, and every consumer with previews was left hand-rolling the same empty
+  `SystemBarsController`. It is headless rather than inert: overrides stack and release exactly as
+  on a device, so a preview reading `config` back sees a real answer. It is also what the `jvm`
+  target's `createSystemBarsController()` returns. Purely additive.
+- `kmptoolkit-systembars-testing` now also publishes a **`jvm` target**, matching
+  `kmptoolkit-systembars`. The fixtures are pure Kotlin with no platform code; without this, the
+  shared phone-and-desktop UI tree the desktop exception exists for could not resolve the double
+  from `commonTest`. Purely additive.
 - `kmptoolkit-systembars-testing`: `RecordingSystemBarsController`, a `SystemBarsController` double
   that layers overrides exactly as the real controller does and records every configuration that
   would have reached a window. `activeOverrideCount` exists so a teardown test can assert a screen
@@ -81,10 +93,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - New `kmptoolkit-language-compose` module: `AppLocale` and `Modifier.mirrorOnRtl()` /
   `mirrorOnLtr()`. Split from `kmptoolkit-language` so the base module stays plain Kotlin.
 
-  `AppLocale(language, resolvedLanguage = language, content)` takes the selection *and* the resolved
+  `AppLocale(language, resolvedLanguage, content)` takes the selection *and* the resolved
   language: the first is what the platform locale is pinned to — passing `AppLanguage.System` pins
   the device's language rather than whatever it is set to today — and only `isLtr` is read from the
-  second. Its platform halves differ, deliberately: Android re-pins the process default synchronously
+  second. `resolvedLanguage` has no default on purpose: defaulting it to `language` would let
+  `AppLocale(selected) { … }` compile and then read `AppLanguage.System.isLtr`, which is a
+  placeholder, laying an Arabic device on "follow system" out left-to-right with nothing to show for
+  it. Its platform halves differ, deliberately: Android re-pins the process default synchronously
   before `content` composes and provides a localized `LocalConfiguration`/`LocalContext`, so a
   language change keeps the subtree's remembered state; iOS keys the composition on the language
   code, which is the only mechanism available there and does not. See
@@ -130,6 +145,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-systembars`: a released `SystemBarsOverrideHandle` could release or overwrite a layer
+  belonging to a *later* override. Override ids were derived from the layers currently on the stack,
+  so an empty stack restarted the sequence and a dead handle came back to life aliasing whatever was
+  pushed next. Reaching it needed the stack to drain in between — one screen leaving, another
+  arriving, and the first then releasing or updating its handle a second time — at which point the
+  arriving screen's bars were silently cleared or rewritten. Ids are now part of the same atomic
+  state as the stack itself and are never reused, including across `SystemBarsController.release()`.
+  `RecordingSystemBarsController` was already correct here and now has the matching parity cases.
 - `kmptoolkit-location`: the iOS `LocationProvider` now creates and starts every `CLLocationManager`
   on the main queue. Previously a caller reaching `getCurrentLocation()` / `observeLocation()` from
   `Dispatchers.Default` (a Kotlin/Native worker thread, which has no run loop) could see the manager

@@ -79,7 +79,13 @@ public class RecordingSystemBarsController(
     override fun release() {
         base = SystemBarsConfig()
         overrides = emptyList()
-        publish()
+        // `state` moves, `applied` does not: tearing the controller down is not a window write. The
+        // real controller resets its stack without touching the platform, because the window this
+        // controller spoke for is going away — `applied` would otherwise show consumers a push that
+        // the shipped controller never performs.
+        state.value = overrides.fold(base) { config, layer -> layer.override.foldOnto(config) }
+        // `nextId` is deliberately not reset, matching the real controller: a handle taken before
+        // the teardown must stay dead rather than come back to life aliasing a later layer.
     }
 
     /** Forgets every recorded application. Leaves the base and the live layers alone. */

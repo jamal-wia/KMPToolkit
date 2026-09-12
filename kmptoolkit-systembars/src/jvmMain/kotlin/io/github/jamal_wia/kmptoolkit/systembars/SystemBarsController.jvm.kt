@@ -10,22 +10,15 @@ import androidx.compose.runtime.Composable
  * shared with a phone build claims and releases overrides the same way on both, and a caller reading
  * [SystemBarsController.config] gets a consistent answer instead of needing a platform check of its
  * own. The layer stack — per-axis ownership, restore-by-removal — behaves identically here; only the
- * final push to the window is a no-op.
+ * final push to the window is a no-op. It is the same controller
+ * [createHeadlessSystemBarsController] returns — on this target it is not a stand-in for a window,
+ * it is the whole truth.
  *
  * @param initialConfig the base configuration to start from, before your theme sets one.
  */
 public fun createSystemBarsController(
     initialConfig: SystemBarsConfig = SystemBarsConfig(),
-): SystemBarsController = JvmSystemBarsController(initialConfig)
-
-private class JvmSystemBarsController(
-    initialConfig: SystemBarsConfig,
-) : LayeredSystemBarsController(initialConfig) {
-
-    override fun applyToPlatform(config: SystemBarsConfig) {
-        // Nothing to push: a desktop window has no system bars to style, hide, or reveal.
-    }
-}
+): SystemBarsController = HeadlessSystemBarsController(initialConfig)
 
 @Composable
 internal actual fun applyDialogWindowSystemBars(config: SystemBarsConfig) {

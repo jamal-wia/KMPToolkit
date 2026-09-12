@@ -1,5 +1,5 @@
 public final class io/github/jamal_wia/kmptoolkit/language/compose/AppLocaleKt {
-	public static final fun AppLocale (Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;Lkotlin/jvm/functions/Function2;Landroidx/compose/runtime/Composer;II)V
+	public static final fun AppLocale (Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;Lio/github/jamal_wia/kmptoolkit/language/AppLanguage;Lkotlin/jvm/functions/Function2;Landroidx/compose/runtime/Composer;I)V
 }
 
 public final class io/github/jamal_wia/kmptoolkit/language/compose/MirrorOnRtlKt {

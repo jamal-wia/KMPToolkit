@@ -195,6 +195,56 @@ class RecordingSystemBarsControllerTest {
     }
 
     @Test
+    fun `a handle released after the stack drained does not take a later layer with it`() {
+        // Parity with the real controller, which had exactly this bug: while override ids were
+        // derived from the live layers, an empty stack restarted the sequence and a dead handle
+        // matched the next screen's layer. A fixture that got this wrong in either direction would
+        // hide the defect from the consumer whose test it is.
+        val controller = RecordingSystemBarsController()
+        val gone: SystemBarsOverrideHandle = controller.applyOverride(
+            SystemBarsOverride(statusBarIcons = SystemBarIconStyle.LightIcons),
+        )
+        gone.release()
+        val live: SystemBarsOverrideHandle = controller.applyOverride(
+            SystemBarsOverride(visibility = SystemBarsVisibility.Immersive),
+        )
+
+        gone.release()
+
+        assertEquals(1, controller.activeOverrideCount)
+        assertEquals(SystemBarsVisibility.Immersive, controller.currentConfig.visibility)
+        live.release()
+    }
+
+    @Test
+    fun `a handle updated after the stack drained does not overwrite a later layer`() {
+        val controller = RecordingSystemBarsController()
+        val gone: SystemBarsOverrideHandle = controller.applyOverride(
+            SystemBarsOverride(statusBarIcons = SystemBarIconStyle.LightIcons),
+        )
+        gone.release()
+        controller.applyOverride(SystemBarsOverride(visibility = SystemBarsVisibility.Immersive))
+
+        gone.update(SystemBarsOverride(visibility = SystemBarsVisibility.Visible))
+
+        assertEquals(SystemBarsVisibility.Immersive, controller.currentConfig.visibility)
+    }
+
+    @Test
+    fun `releasing the controller records nothing`() {
+        // The real controller resets its stack without pushing anything: the window it spoke for is
+        // going away. `applied` must not show a write the shipped controller never performs.
+        val controller = RecordingSystemBarsController()
+        controller.applyOverride(SystemBarsOverride(visibility = SystemBarsVisibility.Immersive))
+        controller.clear()
+
+        controller.release()
+
+        assertEquals(emptyList(), controller.applied)
+        assertEquals(SystemBarsConfig(), controller.currentConfig)
+    }
+
+    @Test
     fun `clear forgets recorded applications without touching the live state`() {
         val controller = RecordingSystemBarsController()
         controller.applyOverride(SystemBarsOverride(statusBarIcons = SystemBarIconStyle.LightIcons))

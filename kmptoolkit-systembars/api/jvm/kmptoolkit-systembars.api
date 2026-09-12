@@ -3,6 +3,11 @@ public final class io/github/jamal_wia/kmptoolkit/systembars/AutoSystemBarsIconS
 	public static final fun AutoSystemBarsIconStyle (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;Lio/github/jamal_wia/kmptoolkit/systembars/StatusBarLuminanceProbe;ZJLkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Landroidx/compose/runtime/Composer;II)V
 }
 
+public final class io/github/jamal_wia/kmptoolkit/systembars/HeadlessSystemBarsControllerKt {
+	public static final fun createHeadlessSystemBarsController (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
+	public static synthetic fun createHeadlessSystemBarsController$default (Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/systembars/SystemBarsController;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior : java/lang/Enum {
 	public static final field StayHidden Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;
 	public static final field SwipeToReveal Lio/github/jamal_wia/kmptoolkit/systembars/HiddenBarBehavior;

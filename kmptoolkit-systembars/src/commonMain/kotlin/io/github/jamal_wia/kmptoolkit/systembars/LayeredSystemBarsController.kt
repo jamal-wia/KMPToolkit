@@ -32,7 +32,19 @@ internal abstract class LayeredSystemBarsController(
      */
     private data class Layer(val id: Long, val override: SystemBarsOverride)
 
-    private data class Layers(val base: SystemBarsConfig, val overrides: List<Layer>) {
+    /**
+     * @param nextId the identity the next pushed layer will take. Part of the atomic state rather
+     *   than a counter beside it, so that the id a layer gets is decided by the same compare-and-set
+     *   that inserts it — and so that ids are never *reused*. Deriving the next id from the ids
+     *   currently in [overrides] would reset it every time the stack drained, and a handle whose
+     *   layer had already been released would then match the next layer pushed and release or
+     *   overwrite someone else's.
+     */
+    private data class Layers(
+        val base: SystemBarsConfig,
+        val overrides: List<Layer>,
+        val nextId: Long = 1L,
+    ) {
         /** Base with every live override folded on top, oldest first, so the newest layer wins. */
         val effective: SystemBarsConfig
             get() = overrides.fold(base) { config, layer -> layer.override.applyTo(config) }
@@ -87,17 +99,26 @@ internal abstract class LayeredSystemBarsController(
     final override fun applyOverride(override: SystemBarsOverride): SystemBarsOverrideHandle {
         var assignedId = 0L
         mutate { current ->
-            // Derived inside the transform, so a retry against a newer stack picks a fresh id: two
+            // Read inside the transform, so a retry against a newer stack picks a fresh id: two
             // threads pushing at once cannot be handed the same one, because only one of them wins
             // the compare-and-set and the other recomputes.
-            assignedId = (current.overrides.maxOfOrNull(Layer::id) ?: 0L) + 1L
-            current.copy(overrides = current.overrides + Layer(assignedId, override))
+            assignedId = current.nextId
+            current.copy(
+                overrides = current.overrides + Layer(assignedId, override),
+                nextId = current.nextId + 1L,
+            )
         }
         return Handle(assignedId)
     }
 
     override fun release() {
-        layers.value = Layers(base = SystemBarsConfig(), overrides = emptyList())
+        // `nextId` is carried across rather than reset: handles taken before the teardown must stay
+        // dead afterwards, and restarting the sequence would let one of them alias a later layer.
+        layers.value = Layers(
+            base = SystemBarsConfig(),
+            overrides = emptyList(),
+            nextId = layers.value.nextId,
+        )
     }
 
     private inner class Handle(private val id: Long) : SystemBarsOverrideHandle {

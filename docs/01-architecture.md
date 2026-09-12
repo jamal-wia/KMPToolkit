@@ -171,8 +171,9 @@ into a plain-Kotlin base and a `-compose` companion (`kmptoolkit-language` /
 Apple targets are uniform across the suite: every module publishes `iosArm64` and
 `iosSimulatorArm64`, and none publishes `iosX64`. The legacy Intel simulator is superseded by
 `iosSimulatorArm64` on Apple-silicon Macs, Compose Multiplatform 1.11+ publishes no `iosX64`
-artifact at all, and dropping it keeps the suite's published-file count — 41 modules times five
-coordinates each — inside Maven Central's per-namespace limits (see `RELEASING.md`). The target
+artifact at all, and dropping it keeps the suite's published-file count — 36 modules at five
+coordinates each, six for the one module that also publishes `jvm` — inside Maven Central's
+per-namespace limits (see `RELEASING.md`). The target
 list is recorded in each module's `.klib.api` dump.
 
 ## One module publishes a desktop target
