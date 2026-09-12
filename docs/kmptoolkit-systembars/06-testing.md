@@ -16,7 +16,7 @@ dependencies {
 }
 ```
 
-It works in `commonTest`, so one test covers both platforms.
+It works in `commonTest`, so one test covers every platform.
 
 ## Asserting when your code keeps the screen awake
 

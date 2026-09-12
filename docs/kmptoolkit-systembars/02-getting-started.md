@@ -17,9 +17,14 @@ kotlin {
 }
 ```
 
-This module is Compose Multiplatform code and is published for `android`, `iosArm64` and
-`iosSimulatorArm64` — the same target set as every other module in the suite. There is no `iosX64`
-variant.
+This module is Compose Multiplatform code and is published for `android`, `iosArm64`,
+`iosSimulatorArm64` and `jvm`. There is no `iosX64` variant.
+
+The `jvm` (desktop) target is this module's alone — no other module in the suite publishes one. It
+exists so a UI tree shared with desktop still compiles: a screen states what it wants from the bars
+without knowing where it runs, and desktop simply has no bars to give it. Every platform call there
+is a no-op, while the layer stack behaves exactly as it does everywhere else. See
+[`docs/01-architecture.md`](../01-architecture.md) for the full reasoning.
 
 ## 2. Create the controller
 

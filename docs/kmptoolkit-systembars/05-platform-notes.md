@@ -1,23 +1,28 @@
 # kmptoolkit-systembars — Platform notes
 
-The two platforms disagree about almost everything here: how many bars exist, who is allowed to
+The platforms disagree about almost everything here: how many bars exist, who is allowed to
 change them, and whether the change is pushed or pulled. The common API hides that, but it cannot
 make the differences go away, and a few of them are visible from your code.
 
 ## What each platform actually supports
 
-| | Android | iOS |
-|---|---|---|
-| Status bar icon style | Yes | Yes |
-| Navigation bar icon style | Yes | **No** — there is no navigation bar |
-| Hide the status bar | Yes | Yes |
-| Hide the navigation bar | Yes | No such bar. The home indicator is not one and is not controllable this way |
-| `HiddenBarBehavior` | Yes | **No** — a hidden status bar simply stays hidden |
-| How it is applied | Pushed onto the window's insets controller | Pulled by UIKit from a view controller |
+| | Android | iOS | Desktop (`jvm`) |
+|---|---|---|---|
+| Status bar icon style | Yes | Yes | **No** — no such bar |
+| Navigation bar icon style | Yes | **No** — there is no navigation bar | **No** — no such bar |
+| Hide the status bar | Yes | Yes | **No** — no such bar |
+| Hide the navigation bar | Yes | No such bar. The home indicator is not one and is not controllable this way | **No** — no such bar |
+| `HiddenBarBehavior` | Yes | **No** — a hidden status bar simply stays hidden | **No** |
+| How it is applied | Pushed onto the window's insets controller | Pulled by UIKit from a view controller | Nowhere — every platform call is a no-op |
 
 Axes a platform cannot honour are still tracked, still visible on `config`, and simply have no
-effect there. Nothing throws and nothing warns: an app sharing one configuration across both
-platforms is the normal case, and a navigation-bar style is meaningful on one of them.
+effect there. Nothing throws and nothing warns: an app sharing one configuration across platforms is
+the normal case, and a navigation-bar style is meaningful on one of them.
+
+Desktop is the limit case of that rule rather than an exception to it. The target exists so a UI
+tree shared with desktop compiles at all — see [`docs/01-architecture.md`](../01-architecture.md) —
+and everything above the final platform push behaves identically: overrides layer, release restores
+what was underneath, and `config` always holds the configuration the tree asked for.
 
 ## Permissions
 

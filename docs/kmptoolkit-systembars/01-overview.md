@@ -97,8 +97,8 @@ the same activity-tracking machinery `SystemBarsController` already needs on And
 
 ## Where to go next
 
-- [`02-getting-started.md`](02-getting-started.md) — a working setup on both platforms.
+- [`02-getting-started.md`](02-getting-started.md) — a working setup on each platform.
 - [`03-guide.md`](03-guide.md) — ownership in practice, and the cases worth understanding.
 - [`04-api-reference.md`](04-api-reference.md) — every public symbol.
-- [`05-platform-notes.md`](05-platform-notes.md) — what Android and iOS actually do, and what only
-  one of them can.
+- [`05-platform-notes.md`](05-platform-notes.md) — what Android, iOS and desktop actually do, and
+  what only some of them can.

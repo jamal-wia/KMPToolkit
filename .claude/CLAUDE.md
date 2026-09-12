@@ -34,7 +34,12 @@ platform module and a non-published `:sample` Compose demo app used to smoke-tes
 
 - Coordinates: `io.github.jamal-wia:kmptoolkit-<module>`, version from `kmptoolkit.version` in
   `gradle.properties` (the single source of truth every module and the BOM read).
-- Targets: Android + iOS only. No JVM/desktop, no JS/wasm.
+- Targets: Android + iOS. No JS/wasm. No JVM/desktop either, with exactly one exception —
+  `kmptoolkit-systembars` also publishes `jvm`, because its API is meant to be called from a UI tree
+  shared with desktop and omitting the target would stop that shared tree compiling at all. The
+  reasoning, and the bar a second exception would have to clear, are in `docs/01-architecture.md`
+  § "One module publishes a desktop target". Do not add a desktop target to another module without
+  meeting that bar and discussing it first.
 - Build wiring: convention plugins in `build-logic/` (`kmptoolkit.library`, `kmptoolkit.compose`,
   `kmptoolkit.publish`, `kmptoolkit.androidtest`) — see that module's own KDoc for what each does
   and why it's a `Plugin<Project>` class rather than a precompiled script plugin.

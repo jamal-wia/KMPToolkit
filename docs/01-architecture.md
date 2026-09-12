@@ -175,6 +175,30 @@ artifact at all, and dropping it keeps the suite's published-file count — 41 m
 coordinates each — inside Maven Central's per-namespace limits (see `RELEASING.md`). The target
 list is recorded in each module's `.klib.api` dump.
 
+## One module publishes a desktop target
+
+`kmptoolkit-systembars` also publishes `jvm`. It is the only module that does, and the exception is
+narrow and deliberate.
+
+Every other module exposes a capability an app either wants on a platform or does not ask for there
+at all — a consumer that has no use for haptics on desktop simply does not call into
+`kmptoolkit-haptics` from its desktop source set. System bars are different, because the module's
+whole premise is that *a screen states what it wants from the bars without knowing where it runs*. A
+Compose Multiplatform app that shares one UI tree between phone and desktop puts `SystemBarsEffect`
+in that shared tree; if the types resolved on only two of its three targets, the shared tree would
+not compile at all, and the app would have to fragment the very code this module exists to keep
+whole.
+
+Desktop windows have no OS status or navigation bar, so every platform call in `jvmMain` is a no-op.
+What is *not* a no-op is the layer stack: per-axis ownership, restore-by-removal and the
+no-lost-update guarantee all live in `commonMain` and behave identically on the JVM, so a screen
+claiming and releasing an override behaves the same on every target and `config` always has a
+consistent value to read.
+
+This does not open the door to a desktop target elsewhere in the suite. The bar for adding one is
+the argument above — that omitting it would break a consumer's *shared* code, not merely leave a
+capability unavailable on one platform.
+
 ### Notes for anyone adding a Compose module
 
 Four things cost the first Compose module a build cycle each; they are recorded here so the next

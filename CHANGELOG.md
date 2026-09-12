@@ -11,6 +11,17 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Added
 
+- `kmptoolkit-systembars` now also publishes a **`jvm` (desktop) target** — the only module in the
+  suite that does. The module's premise is that a screen states what it wants from the bars without
+  knowing where it runs, so a Compose Multiplatform app sharing one UI tree between phone and
+  desktop could not compile that tree at all while the types resolved on only two of its three
+  targets. Desktop has no system bars, so every platform call in `jvmMain` is a no-op
+  (`createSystemBarsController()` and `createScreenWakeLockController()` are the JVM factories);
+  the layer stack — per-axis ownership, restore-by-removal, no lost update under concurrency — is
+  `commonMain` and behaves identically, so `config` always holds what the shared tree asked for.
+  Purely additive: no existing target, artifact or symbol changes. See
+  `docs/01-architecture.md` § "One module publishes a desktop target".
+
 - `kmptoolkit-systembars`: `ScreenWakeLockController`, a keep-screen-awake primitive
   (`Window.FLAG_KEEP_SCREEN_ON` / `UIApplication.idleTimerDisabled`) unrelated to the bars, created
   with `createScreenWakeLockController(context)` (Android) / `createScreenWakeLockController()`
