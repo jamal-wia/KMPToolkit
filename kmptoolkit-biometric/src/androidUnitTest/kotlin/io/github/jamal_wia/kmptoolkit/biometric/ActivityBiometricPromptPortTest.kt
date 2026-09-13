@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.biometric
 
 import android.app.Activity
+import androidx.activity.ComponentActivity
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlin.test.Test
 import kotlin.test.assertNull
@@ -59,6 +60,16 @@ class ActivityBiometricPromptPortTest {
         // androidx.biometric's prompt is a fragment. A plain Activity is a wiring mistake, and it
         // must surface as NoPromptHost rather than as a ClassCastException.
         val activity: Activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val port = ActivityBiometricPromptPort(FakeActivityAccess(activity), BiometricGateConfig())
+
+        assertNull(port.show(promptText) { })
+    }
+
+    @Test
+    fun `a ComponentActivity cannot host the prompt either`() {
+        // The case the documentation once got wrong: ComponentActivity is FragmentActivity's
+        // superclass, not a subclass, and it is what a Compose activity extends by default.
+        val activity: ComponentActivity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         val port = ActivityBiometricPromptPort(FakeActivityAccess(activity), BiometricGateConfig())
 
         assertNull(port.show(promptText) { })

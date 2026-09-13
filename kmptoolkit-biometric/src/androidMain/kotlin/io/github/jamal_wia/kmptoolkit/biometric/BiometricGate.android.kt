@@ -15,9 +15,11 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * @param context any `Context`; its application context is retained to query `BiometricManager`
  *   for [BiometricGate.availability] and to track the currently resumed activity, which the
  *   prompt needs to attach itself to — Android's biometric prompt is a fragment, so it needs a
- *   resumed `FragmentActivity`. Passing an `Activity` here is harmless — nothing keeps a reference
- *   to it. When no such activity is resumed, [BiometricGate.authenticate] returns
- *   [BiometricResult.NoPromptHost] rather than throwing.
+ *   resumed `FragmentActivity` (or `AppCompatActivity`). A plain `ComponentActivity`, the default
+ *   base of a Compose activity, is not one: it is `FragmentActivity`'s superclass. Passing an
+ *   `Activity` here is harmless — nothing keeps a reference to it. When no `FragmentActivity` is
+ *   resumed, [BiometricGate.authenticate] returns [BiometricResult.NoPromptHost] rather than
+ *   throwing.
  * @param config which credentials count and whether passive biometrics need a confirming tap; see
  *   [BiometricGateConfig].
  *

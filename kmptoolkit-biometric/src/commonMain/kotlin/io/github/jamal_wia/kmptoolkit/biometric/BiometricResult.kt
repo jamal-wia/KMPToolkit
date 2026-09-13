@@ -69,8 +69,9 @@ public sealed interface BiometricResult {
      *
      * Android's biometric prompt is a fragment; it needs an activity that is on screen. You get
      * this when the call is made from the background, during a configuration change, or from an
-     * `Activity` that does not extend `FragmentActivity` — the last of which is a wiring mistake
-     * to fix rather than a runtime condition to handle.
+     * `Activity` that does not extend `FragmentActivity` — including a plain `ComponentActivity`,
+     * which is its superclass and a Compose activity's default base. That last case is a wiring
+     * mistake to fix, and retrying does not help, rather than a runtime condition to handle.
      *
      * It is distinct from [Cancelled] because the user never saw anything to cancel: retrying once
      * your UI is back on screen is correct, and telling the user "you cancelled" would be a lie.

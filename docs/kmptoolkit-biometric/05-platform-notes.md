@@ -28,7 +28,11 @@ appearing in your listing unannounced.
 ### Your activity must be a `FragmentActivity`
 
 `androidx.biometric.BiometricPrompt` posts a fragment into the hosting activity's fragment manager.
-`ComponentActivity` and `AppCompatActivity` both qualify; a bare `android.app.Activity` does not.
+`FragmentActivity` and its subclass `AppCompatActivity` qualify. `androidx.activity.ComponentActivity`
+does **not**: it is `FragmentActivity`'s *superclass* and has no fragment manager — and it is what a
+Compose project's `MainActivity` extends by default. A bare `android.app.Activity` does not qualify
+either. Switching a Compose activity to `FragmentActivity` changes nothing else: `setContent`,
+`enableEdgeToEdge` and every other `ComponentActivity` API are still there.
 
 The module tracks the *currently resumed* activity internally and holds it weakly. When there is
 none — the app is backgrounded, a configuration change is in flight — or when the resumed activity
