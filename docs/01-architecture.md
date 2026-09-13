@@ -198,8 +198,9 @@ do — each carried a private copy of this code before it had a home of its own.
 
 ## Desktop targets
 
-Five artifacts also publish `jvm`: `kmptoolkit-systembars` with its `-testing` fixtures,
-`kmptoolkit-language` with `kmptoolkit-language-compose`, and `kmptoolkit-hardware-keys`. Every other module stays Android + iOS,
+Seven artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-storage`, each with its
+`-testing` fixtures, `kmptoolkit-language` with `kmptoolkit-language-compose`, and
+`kmptoolkit-hardware-keys`. Every other module stays Android + iOS,
 and the exception is narrow and deliberate.
 
 Most modules expose a capability an app either wants on a platform or does not ask for there at all
@@ -217,6 +218,10 @@ in **shared** code:
   modules — a settings repository, a language picker, a screen's state — and `AppLocale` wraps the
   root of a shared UI tree. Here the JVM half is real rather than a no-op: a desktop JVM has a
   process-wide default locale, and an operating-system language to return to.
+- **Storage.** `KeyValueStorage` is the type a consumer's shared settings and repository code takes
+  as a parameter. The JVM half is real, like language's: a properties-file store the app points at
+  its own directory. The secure store is deliberately absent on desktop — there is no platform key
+  store to hold its key — so only the plain factory exists there.
 - **Hardware keys.** `DialogWindowHardwareKeyEffect` is called from inside dialog content, and
   dialog content is typical shared UI. Desktop has no Android-style per-window key routing, so the
   `jvm` actual is a no-op — the target exists only so that the shared dialog compiles.

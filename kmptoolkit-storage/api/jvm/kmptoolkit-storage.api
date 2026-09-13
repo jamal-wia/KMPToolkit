@@ -80,11 +80,8 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageError$Undecrypt
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class io/github/jamal_wia/kmptoolkit/storage/StorageFactory_androidKt {
-	public static final fun createKeyValueStorage (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;)Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;
-	public static synthetic fun createKeyValueStorage$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;
-	public static final fun createSecureKeyValueStorage (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
-	public static synthetic fun createSecureKeyValueStorage$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/storage/SecureKeyValueStorage;
+public final class io/github/jamal_wia/kmptoolkit/storage/StorageFactory_jvmKt {
+	public static final fun createKeyValueStorage (Ljava/io/File;Lio/github/jamal_wia/kmptoolkit/storage/StorageConfig;)Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/storage/StorageOperation : java/lang/Enum {

@@ -35,8 +35,8 @@ artifacts by coordinate.
 - Coordinates: `io.github.jamal-wia:kmptoolkit-<module>`, version from `kmptoolkit.version` in
   `gradle.properties` (the single source of truth every module and the BOM read).
 - Targets: Android + iOS. No JS/wasm. No JVM/desktop either, with one narrow exception —
-  `kmptoolkit-systembars` (+ `-testing`), `kmptoolkit-language` (+ `-compose`) and
-  `kmptoolkit-hardware-keys` also publish `jvm`,
+  `kmptoolkit-systembars` (+ `-testing`), `kmptoolkit-language` (+ `-compose`),
+  `kmptoolkit-storage` (+ `-testing`) and `kmptoolkit-hardware-keys` also publish `jvm`,
   because their types belong in code a consumer shares with desktop and omitting the target would
   stop that shared code compiling at all. The reasoning, and the bar any further exception has to
   clear, are in `docs/01-architecture.md` § "Desktop targets". Do not add a desktop target to another

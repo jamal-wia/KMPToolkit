@@ -138,6 +138,34 @@ Not a fingerprint and not a credential — see [`01-overview.md`](01-overview.md
 
 ---
 
+## Typed accessors
+
+```kotlin
+public fun KeyValueStorage.getInt(key: String): StorageResult<Int?>
+public fun KeyValueStorage.getLong(key: String): StorageResult<Long?>
+public fun KeyValueStorage.getBoolean(key: String): StorageResult<Boolean?>
+
+public fun KeyValueStorage.putInt(key: String, value: Int): StorageResult<Unit>
+public fun KeyValueStorage.putLong(key: String, value: Long): StorageResult<Unit>
+public fun KeyValueStorage.putBoolean(key: String, value: Boolean): StorageResult<Unit>
+
+public fun KeyValueStorage.getStringOr(key: String, default: String): String
+public fun KeyValueStorage.getIntOr(key: String, default: Int): Int
+public fun KeyValueStorage.getLongOr(key: String, default: Long): Long
+public fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean
+```
+
+Encoding: `Int` and `Long` as decimal strings, `Boolean` as exactly `"true"` or `"false"`.
+
+| Stored value | `getInt` / `getLong` / `getBoolean` | `...Or(key, default)` |
+|---|---|---|
+| absent | `Success(null)` | `default` |
+| parses as the type | `Success(value)` | the value |
+| does not parse | `Failure(OperationFailed(GET, key, cause = IllegalArgumentException))` | `default` |
+| store unreadable | the store's `Failure`, unchanged | `default` |
+
+---
+
 ## Android factories
 
 ```kotlin
@@ -180,6 +208,19 @@ sibling app. A group your entitlements do not grant makes every operation fail w
 
 The factories are per-platform rather than `expect`/`actual` because Android needs a `Context` and
 iOS needs nothing; see `docs/01-architecture.md`.
+
+---
+
+## Desktop factory
+
+```kotlin
+public fun createKeyValueStorage(directory: java.io.File, config: StorageConfig): KeyValueStorage
+```
+
+One properties file, `<config.name>.kmptoolkit.storage.properties`, in `directory`, created on the
+first write. `config.name` is required — `IllegalArgumentException` otherwise. Writes replace the
+file atomically; instances over the same file in one process share a lock. There is no secure store
+on desktop. See [`05-platform-notes.md`](05-platform-notes.md#desktop).
 
 ---
 

@@ -20,6 +20,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   Android, where an Activity's `onKeyDown` never sees keys, and `DialogWindowHardwareKeyPolicy`
   registers that policy once for the process. A no-op on iOS; also publishes `jvm`, so shared dialog
   code compiles for desktop.
+- `kmptoolkit-storage`: typed accessors — `getInt` / `getLong` / `getBoolean`, their `putInt` /
+  `putLong` / `putBoolean` counterparts, and `getStringOr` / `getIntOr` / `getLongOr` / `getBooleanOr`
+  with a default. One encoding for every caller (decimal strings, `"true"`/`"false"`); a stored
+  value that does not parse is a `GET` failure rather than an absent key.
+- `kmptoolkit-storage` and `kmptoolkit-storage-testing` also publish `jvm`, so shared code taking a
+  `KeyValueStorage` compiles for desktop. `createKeyValueStorage(directory, config)` is a plain store
+  in one properties file with atomic writes; there is no secure store on desktop.
 - `kmptoolkit-audio-player`: `AudioPlayer.unload()` frees the loaded source's native handle but keeps
   the player usable, for a player that outlives the screens borrowing it — `release()` stays the
   permanent teardown. The member has a default body calling `stop()`, so the change is

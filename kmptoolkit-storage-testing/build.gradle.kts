@@ -22,6 +22,10 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
+    // Published for every target kmptoolkit-storage publishes, so a desktop test source set can use
+    // the double too.
+    jvm()
+
     sourceSets {
         commonMain.dependencies {
             // api, not implementation: InMemoryKeyValueStorage implements SecureKeyValueStorage and

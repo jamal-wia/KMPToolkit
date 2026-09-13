@@ -58,8 +58,10 @@ Four things follow from that shape, and they are why the module exists:
   biometrics, or protect anything from a user who controls the device and is determined. It is the
   right place to cache a token the server can re-issue. It is the wrong place for the only copy of
   something a user cannot get back.
-- **Not typed or structured storage.** Strings in, strings out. Serializing an object and parsing it
-  back is yours, and so is the versioning problem that comes with it.
+- **Not structured storage.** Values are strings, with typed accessors for `Int`, `Long` and
+  `Boolean` on top (see [`03-guide.md`](03-guide.md#working-with-values-that-are-not-strings)).
+  Serializing an object and parsing it back is yours, and so is the versioning problem that comes
+  with it.
 - **Not observable.** There is no `Flow`, no listener, no change notification. A value is read when
   you read it. If two parts of your app must react to the same value changing, hold that state in
   your own layer and use this only to persist it.

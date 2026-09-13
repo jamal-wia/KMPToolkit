@@ -38,7 +38,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-audio-recorder-testing` | `FakeAudioRecorder`, for `testImplementation` | `audio-recorder` | Available | [docs](docs/kmptoolkit-audio-recorder/06-testing.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Available | [docs](docs/kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
-| `kmptoolkit-storage` | Key-value storage, plain and encrypted, plus a stable device id | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
+| `kmptoolkit-storage` | Key-value storage, plain and encrypted, with typed `Int`/`Long`/`Boolean` accessors and a stable device id. Also publishes `jvm` (a plain properties-file store), for code shared with desktop | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
 | `kmptoolkit-storage-testing` | `InMemoryKeyValueStorage`, for `testImplementation` | `storage` | Available | [docs](docs/kmptoolkit-storage/06-testing.md) |
 | `kmptoolkit-biometric` | Biometric gate with typed outcomes; prompt copy is yours | — | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-biometric-testing` | `ScriptedBiometricGate`, for `testImplementation` | `biometric` | Available | [docs](docs/kmptoolkit-biometric/06-testing.md) |
