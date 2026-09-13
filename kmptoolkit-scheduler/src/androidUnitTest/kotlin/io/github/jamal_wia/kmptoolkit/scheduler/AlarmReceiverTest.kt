@@ -145,6 +145,52 @@ class AlarmReceiverTest {
         assertNull(first.fired)
     }
 
+    @Test
+    fun `a handler provider is not called until an alarm fires`() {
+        var calls = 0
+        val reminder = RecordingHandler("REMINDER")
+        createAlarmScheduler(context, handlerProvider = { calls++; listOf(reminder) })
+
+        assertEquals(0, calls, "creating the scheduler must not resolve handlers")
+
+        AlarmReceiver().onReceive(context, AlarmIntents.toIntent(context, alarm(), keys()))
+
+        assertTrue(reminder.latch.await(AWAIT_SECONDS, TimeUnit.SECONDS), "handler was never called")
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun `a handler that exists only after the scheduler was created still receives its alarm`() {
+        val handlers: MutableList<AlarmHandler> = mutableListOf()
+        val scheduler: AlarmScheduler = createAlarmScheduler(context, handlerProvider = { handlers.toList() })
+        // The cycle the provider exists for: this handler needs the scheduler to be built.
+        val reArming = object : AlarmHandler {
+            override val type: String = "REMINDER"
+            val latch = CountDownLatch(1)
+            var usedScheduler: AlarmScheduler? = null
+            override suspend fun onFire(alarm: ScheduledAlarm) {
+                usedScheduler = scheduler
+                latch.countDown()
+            }
+        }
+        handlers += reArming
+
+        AlarmReceiver().onReceive(context, AlarmIntents.toIntent(context, alarm(), keys()))
+
+        assertTrue(reArming.latch.await(AWAIT_SECONDS, TimeUnit.SECONDS), "handler was never called")
+        assertEquals(scheduler, reArming.usedScheduler)
+    }
+
+    @Test
+    fun `a provider that returns no handler for the type drops the alarm`() {
+        val reminder = RecordingHandler("REMINDER")
+        createAlarmScheduler(context, handlerProvider = { listOf(reminder) })
+
+        AlarmReceiver().onReceive(context, AlarmIntents.toIntent(context, alarm(type = "DIGEST"), keys()))
+
+        assertFalse(reminder.latch.await(SETTLE_MILLIS, TimeUnit.MILLISECONDS), "handler must not run")
+    }
+
     private companion object {
         const val AWAIT_SECONDS = 5L
 

@@ -19,9 +19,15 @@ internal object AlarmDispatch {
     @Volatile
     private var registration: Registration? = null
 
-    /** Installed by `createAlarmScheduler`, read by [AlarmReceiver]. */
+    /** Installed by `createAlarmScheduler` with a fixed list, read by [AlarmReceiver]. */
     fun install(keys: AlarmIntentKeys, handlers: List<AlarmHandler>) {
-        registration = Registration(keys, handlers.toList())
+        val snapshot: List<AlarmHandler> = handlers.toList()
+        install(keys) { snapshot }
+    }
+
+    /** Installed by `createAlarmScheduler` with a provider that [AlarmReceiver] calls at fire time. */
+    fun install(keys: AlarmIntentKeys, handlerProvider: () -> Collection<AlarmHandler>) {
+        registration = Registration(keys, handlerProvider)
     }
 
     /** `null` until a scheduler has been created in this process. */
@@ -32,8 +38,8 @@ internal object AlarmDispatch {
         registration = null
     }
 
-    data class Registration(
+    class Registration(
         val keys: AlarmIntentKeys,
-        val handlers: List<AlarmHandler>,
+        val handlerProvider: () -> Collection<AlarmHandler>,
     )
 }

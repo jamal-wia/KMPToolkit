@@ -102,12 +102,19 @@ The scheduler uses `AlarmManager.setExactAndAllowWhileIdle(RTC_WAKEUP, ...)` whe
 What breaks delivery entirely:
 
 - **Reboot.** All alarms are dropped. See below.
+- **Too many alarms.** Since Android 12 an app holding 500 alarms at once is refused further ones;
+  `schedule` returns `Failed(PlatformError)`.
 - **Force-stop.** The user stopping the app from Settings cancels its alarms until the app is
   launched again.
 - **App standby buckets and battery saver.** A rarely used app is throttled; `AllowWhileIdle`
   mitigates but does not remove this.
 - **Aggressive OEM battery management** (Xiaomi, Huawei, Samsung and others) can suppress alarms for
   apps the user has not whitelisted. Nothing in the Android API can override it.
+
+What does **not** break delivery: an **app update**. Android keeps a package's alarms when the
+package is replaced. They are addressed to a receiver class, though — so if the update removed the
+class an alarm was armed for (typically: moving from an app's own receiver onto this module's), the
+alarm still fires but reaches nothing. Re-arm on `ACTION_MY_PACKAGE_REPLACED` in that release.
 
 At fire time your `AlarmHandler` runs inside `goAsync()`, which keeps the process alive for roughly
 ten seconds. It is enough to post a notification or enqueue `WorkManager`; it is not enough for

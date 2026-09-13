@@ -62,6 +62,28 @@ That last case is the one that bites: **create the scheduler in `Application.onC
 are registered as part of creating it, and an alarm can fire in a process created for that alarm
 alone.
 
+## Handlers that need the scheduler (Android)
+
+A handler often has to schedule something itself — the next occurrence of a repeating reminder, a
+follow-up nudge. It then depends on the scheduler, while the list overload wants every handler
+before the scheduler exists. In a DI container that is a cycle, and it fails when the graph is
+resolved. Pass a provider instead of a list:
+
+```kotlin
+val schedulerModule = module {
+    single<AlarmScheduler> {
+        createAlarmScheduler(androidContext(), handlerProvider = { getAll<AlarmHandler>() })
+    }
+    single { DailyReminderHandler(scheduler = get()) } bind AlarmHandler::class
+}
+```
+
+The provider is called on a background thread each time an alarm fires, never while the scheduler is
+being created, and whatever it returns then decides which handler runs. Keep it a cheap lookup that
+cannot throw. The eager-creation rule does not change: resolve the scheduler in
+`Application.onCreate` (`get<AlarmScheduler>()` right after `startKoin`), because the provider is
+registered only when the scheduler is created.
+
 ## iOS is a different mechanism, not a different implementation
 
 On iOS nothing of yours runs at fire time. The OS shows the notification you handed it when you
@@ -141,6 +163,12 @@ manifest, and only you know which alarms are still wanted after however long the
   fires first finds none and is dropped. `Application.onCreate`, always.
 - **Two `createAlarmScheduler` calls with different handler lists.** The last one wins — the first
   list stops receiving alarms. Pass every handler to one call.
+- **A handler list that contains a handler needing the scheduler.** Resolving the list builds the
+  handler, which needs the scheduler, which is still being built. Use the `handlerProvider` overload.
+- **Renaming the receiver an app used before adopting this module.** An armed alarm names its
+  receiver class. After an app update switches from your own receiver to this module's, alarms armed
+  by the old version still fire — at a class that no longer exists, so nothing runs. Re-arm from
+  `ACTION_MY_PACKAGE_REPLACED` exactly as you re-arm after a reboot.
 - **Treating the result as a boolean.** `Inexact` is armed; `Failed` is not. Collapsing them either
   hides a downgrade or invents a failure that did not happen.
 - **Expecting `cancelAll()` to clear everything.** It cancels exactly the ids you pass. There is no
