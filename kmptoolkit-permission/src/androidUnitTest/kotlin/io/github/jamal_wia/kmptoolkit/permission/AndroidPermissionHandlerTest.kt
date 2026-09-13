@@ -111,8 +111,19 @@ class AndroidPermissionHandlerTest {
         sdkInt = sdkInt,
         shouldShowRationale = { if (waitedForActivity) rationaleAfterWaiting else shouldShowRationale },
         awaitActivity = { waitedForActivity = true },
+        addResumedListener = { listener ->
+            resumeListeners += listener
+            object : io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription {
+                override fun cancel() {
+                    resumeListeners -= listener
+                }
+            }
+        },
         startSettings = settings,
     )
+
+    /** Every resume listener an [AndroidPermissionHandler.observe] collection registered and has not cancelled. */
+    private val resumeListeners: MutableList<() -> Unit> = mutableListOf()
 
     /** Whether the handler under test waited for an activity; flips the rationale the stub answers. */
     private var waitedForActivity: Boolean = false

@@ -1,5 +1,9 @@
 public final class io/github/jamal_wia/kmptoolkit/permission/Permission : java/lang/Enum {
+	public static final field BLUETOOTH_CONNECT Lio/github/jamal_wia/kmptoolkit/permission/Permission;
 	public static final field CAMERA Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+	public static final field LOCATION Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+	public static final field LOCATION_BACKGROUND Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+	public static final field MEDIA_AUDIO Lio/github/jamal_wia/kmptoolkit/permission/Permission;
 	public static final field MICROPHONE Lio/github/jamal_wia/kmptoolkit/permission/Permission;
 	public static final field NOTIFICATIONS Lio/github/jamal_wia/kmptoolkit/permission/Permission;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
@@ -67,8 +71,13 @@ public final class io/github/jamal_wia/kmptoolkit/permission/PermissionFlowState
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/permission/PermissionHandler {
 	public abstract fun check (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun observe (Lio/github/jamal_wia/kmptoolkit/permission/Permission;)Lkotlinx/coroutines/flow/Flow;
 	public abstract fun openAppSettings ()Z
 	public abstract fun request (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionHandler$DefaultImpls {
+	public static fun observe (Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;Lio/github/jamal_wia/kmptoolkit/permission/Permission;)Lkotlinx/coroutines/flow/Flow;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/permission/PermissionHandler_androidKt {
@@ -93,6 +102,11 @@ public final class io/github/jamal_wia/kmptoolkit/permission/PermissionRequestFl
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost {
 	public abstract fun launch (Ljava/lang/String;Lkotlin/jvm/functions/Function1;)Z
+	public fun launch (Ljava/util/List;Lkotlin/jvm/functions/Function1;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost$DefaultImpls {
+	public static fun launch (Lio/github/jamal_wia/kmptoolkit/permission/PermissionRequestHost;Ljava/util/List;Lkotlin/jvm/functions/Function1;)Z
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/permission/PermissionStatus {

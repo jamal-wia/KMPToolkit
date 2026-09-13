@@ -20,6 +20,14 @@ import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
 import kotlin.coroutines.resume
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -120,6 +128,7 @@ public fun createPermissionHandler(
             }
         },
         awaitActivity = { activityAccess.awaitResumed(RESUME_WAIT) },
+        addResumedListener = { listener -> activityAccess.addOnActivityResumedListener { listener() } },
         startSettings = { intent ->
             // Preferred from the resumed activity: an activity-started settings screen sits on the
             // app's own task, so the system back button returns to the screen that asked. The
@@ -204,20 +213,53 @@ internal class AndroidPermissionHandler(
     private val shouldShowRationale: (String) -> Boolean?,
     /** Suspends, briefly and at most once per call, until an activity can be asked. */
     private val awaitActivity: suspend () -> Unit,
+    /** Calls the listener on every activity resume — at once, if one is resumed — until cancelled. */
+    private val addResumedListener: (() -> Unit) -> ActivitySubscription,
     private val startSettings: (Intent) -> Boolean,
 ) : PermissionHandler {
 
+    /** A permission whose request just resolved, so every [observe] of it re-reads at once. */
+    private val requestsResolved: MutableSharedFlow<Permission> = MutableSharedFlow(extraBufferCapacity = 16)
+
     override suspend fun check(permission: Permission): PermissionStatus = currentStatus(permission)
 
-    override suspend fun request(permission: Permission): PermissionStatus {
+    override suspend fun request(permission: Permission): PermissionStatus =
+        requestDialog(permission).also { requestsResolved.tryEmit(permission) }
+
+    /**
+     * Re-reads [permission] when collection starts, on every activity resume, and after every [request]
+     * of it through this handler. A resume is where a change made in system settings — or by the
+     * system itself, auto-resetting an unused app's permissions — becomes visible to the app.
+     */
+    override fun observe(permission: Permission): Flow<PermissionStatus> =
+        callbackFlow {
+            trySend(Unit)
+            val subscription: ActivitySubscription = addResumedListener { trySend(Unit) }
+            launch { requestsResolved.collect { resolved -> if (resolved == permission) send(Unit) } }
+            awaitClose { subscription.cancel() }
+        }
+            .conflate()
+            .map { currentStatus(permission) }
+            .distinctUntilChanged()
+
+    private suspend fun requestDialog(permission: Permission): PermissionStatus {
         val current: PermissionStatus = currentStatus(permission)
         if (current is PermissionStatus.Granted || current is PermissionStatus.PermanentlyDenied) {
             logger.d { "Not showing a dialog for $permission: already $current" }
             return current
         }
+        if (permission == Permission.LOCATION_BACKGROUND && !isForegroundLocationGranted()) {
+            // Android grants background location only on top of foreground location: from API 30 a
+            // request without it is refused without any UI, and on API 29 it would silently widen
+            // into a foreground request. Either way there is no dialog for this call to wait on.
+            logger.w { "Not requesting $permission: request ${Permission.LOCATION} first" }
+            return current
+        }
 
-        val androidPermission: String = permission.androidPermission()
-        val granted: Boolean = launchDialog(androidPermission) ?: return current
+        val androidPermissions: List<String> = permission.androidPermissions()
+        val granted: Boolean = launchDialog(androidPermissions)?.let { answers ->
+            permission.isGrantedBy(answers)
+        } ?: return current
 
         return if (granted) {
             clearFlags(permission)
@@ -229,7 +271,7 @@ internal class AndroidPermissionHandler(
             // The answer arrives just before the activity is resumed again, and a continuation that
             // runs in that gap finds no activity to ask for the rationale. Waiting for the resume
             // turns "cannot tell" back into an answer in all but a backgrounded app.
-            if (shouldShowRationale(androidPermission) == null) awaitActivity()
+            if (rationaleFor(androidPermissions) == null) awaitActivity()
             currentStatus(permission)
         }
     }
@@ -254,14 +296,20 @@ internal class AndroidPermissionHandler(
             return PermissionStatus.Granted
         }
 
-        val androidPermission: String = permission.androidPermission()
-        if (context.checkSelfPermission(androidPermission) == PackageManager.PERMISSION_GRANTED) {
+        if (permission.isRuntimeGrantAbsent()) return PermissionStatus.Granted
+        if (permission == Permission.LOCATION_BACKGROUND && sdkInt < Build.VERSION_CODES.Q) {
+            // Before API 29 there is no separate background grant: foreground location covers it.
+            return currentStatus(Permission.LOCATION)
+        }
+
+        val androidPermissions: List<String> = permission.androidPermissions()
+        if (permission.isGrantedBy(androidPermissions.associateWith(::isGranted))) {
             clearFlags(permission)
             return PermissionStatus.Granted
         }
         val askedValue: String? = storage.getStringOrNull(askedKey(keyPrefix, permission))
         val asked: Boolean = askedValue != null
-        return when (shouldShowRationale(androidPermission)) {
+        return when (rationaleFor(androidPermissions)) {
             true -> {
                 markFlag(rationaleSeenKey(keyPrefix, permission))
                 PermissionStatus.Denied(shouldShowRationale = true)
@@ -283,43 +331,109 @@ internal class AndroidPermissionHandler(
     /**
      * Shows the dialog and waits.
      *
-     * @return `true`/`false` as the user answered, or `null` when the host could not show anything
-     *   — a distinction the caller needs, because "no dialog appeared" must not be recorded as a
-     *   refusal.
+     * One Android permission goes through the host's single-permission `launch`, which every host
+     * implements; a group — location's fine and coarse pair — goes through the multi-permission one.
+     *
+     * @return each Android permission's answer, or `null` when the host could not show anything — a
+     *   distinction the caller needs, because "no dialog appeared" must not be recorded as a refusal.
      */
-    private suspend fun launchDialog(androidPermission: String): Boolean? =
+    private suspend fun launchDialog(androidPermissions: List<String>): Map<String, Boolean>? =
         suspendCancellableCoroutine { continuation ->
             // A host that both reports failure and invokes the callback breaks its contract; this
             // guarantees the continuation is resumed exactly once regardless.
             var delivered = false
+            val deliver: (Map<String, Boolean>?) -> Unit = { answers ->
+                if (!delivered) {
+                    delivered = true
+                    if (continuation.isActive) continuation.resume(answers)
+                }
+            }
             val launched: Boolean = runCatching {
-                host.launch(androidPermission) { granted ->
-                    if (!delivered) {
-                        delivered = true
-                        if (continuation.isActive) continuation.resume(granted)
-                    }
+                if (androidPermissions.size == 1) {
+                    val single: String = androidPermissions.single()
+                    host.launch(single) { granted -> deliver(mapOf(single to granted)) }
+                } else {
+                    host.launch(androidPermissions) { answers -> deliver(answers) }
                 }
             }.getOrElse { cause ->
                 logger.w(cause) { "The permission request host threw while launching" }
                 false
             }
             if (!launched && !delivered) {
-                logger.w { "The permission dialog for $androidPermission could not be shown" }
-                delivered = true
-                if (continuation.isActive) continuation.resume(null)
+                logger.w {
+                    "The permission dialog for $androidPermissions could not be shown" +
+                        if (androidPermissions.size > 1) {
+                            " — a group needs PermissionRequestHost.launch(List, ...) implemented"
+                        } else {
+                            ""
+                        }
+                }
+                deliver(null)
             }
         }
 
     /**
-     * The `android.Manifest.permission` string this [Permission] maps to.
+     * The `android.Manifest.permission` strings this [Permission] is requested as, for this API level.
      *
-     * Notifications are the only API-level-dependent case left in the catalog, and the branch is
-     * about the *constant*, not about behavior: below API 33 [currentStatus] never gets here.
+     * Only called for permissions that have a runtime grant on this API level — see
+     * [isRuntimeGrantAbsent] and the pre-29 background-location branch in [currentStatus].
      */
-    private fun Permission.androidPermission(): String = when (this) {
-        Permission.NOTIFICATIONS -> Manifest.permission.POST_NOTIFICATIONS
-        Permission.MICROPHONE -> Manifest.permission.RECORD_AUDIO
-        Permission.CAMERA -> Manifest.permission.CAMERA
+    private fun Permission.androidPermissions(): List<String> = when (this) {
+        Permission.NOTIFICATIONS -> listOf(Manifest.permission.POST_NOTIFICATIONS)
+        Permission.MICROPHONE -> listOf(Manifest.permission.RECORD_AUDIO)
+        Permission.CAMERA -> listOf(Manifest.permission.CAMERA)
+        // Both, in one dialog: only then does Android 12+ render the Precise / Approximate choice.
+        Permission.LOCATION -> listOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        )
+        Permission.LOCATION_BACKGROUND -> listOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        Permission.MEDIA_AUDIO -> listOf(
+            if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_AUDIO
+            } else {
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            },
+        )
+        Permission.BLUETOOTH_CONNECT -> listOf(Manifest.permission.BLUETOOTH_CONNECT)
+    }
+
+    /**
+     * Whether [answers] — one grant state per string of [androidPermissions] — amount to this
+     * permission being granted. Location counts an approximate-only grant: the user chose it in the
+     * dialog, and the location it yields is usable.
+     */
+    private fun Permission.isGrantedBy(answers: Map<String, Boolean>): Boolean = when (this) {
+        Permission.LOCATION -> answers.values.any { it }
+        else -> answers.isNotEmpty() && answers.values.all { it }
+    }
+
+    /** A permission that has no runtime grant on this API level, and is therefore simply granted. */
+    private fun Permission.isRuntimeGrantAbsent(): Boolean = when (this) {
+        Permission.BLUETOOTH_CONNECT -> sdkInt < Build.VERSION_CODES.S
+        else -> false
+    }
+
+    private fun isGranted(androidPermission: String): Boolean =
+        context.checkSelfPermission(androidPermission) == PackageManager.PERMISSION_GRANTED
+
+    private fun isForegroundLocationGranted(): Boolean =
+        Permission.LOCATION.isGrantedBy(Permission.LOCATION.androidPermissions().associateWith(::isGranted))
+
+    /**
+     * The rationale answer for a group: `true` if the platform wants any of it explained, `null` when
+     * there is no activity to ask.
+     */
+    private fun rationaleFor(androidPermissions: List<String>): Boolean? {
+        var answer: Boolean = false
+        for (androidPermission in androidPermissions) {
+            when (shouldShowRationale(androidPermission)) {
+                null -> return null
+                true -> answer = true
+                false -> Unit
+            }
+        }
+        return answer
     }
 
     private fun isSet(key: String): Boolean = storage.getStringOrNull(key) == FLAG_SET

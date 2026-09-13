@@ -31,9 +31,11 @@ package io.github.jamal_wia.kmptoolkit.permission
  * }
  * ```
  *
- * The handler asks for one permission at a time, so there is no multi-permission variant to
- * implement. That is a consequence of the [Permission] catalog: no entry in it maps to more than
- * one Android permission string.
+ * [Permission.LOCATION] is requested as two Android permissions in one dialog, which needs the
+ * multi-permission [launch] as well — the same ten lines on
+ * `ActivityResultContracts.RequestMultiplePermissions()`. A host that does not implement it can still
+ * request every other permission; a location request then shows nothing and reports the status
+ * unchanged.
  */
 public interface PermissionRequestHost {
 
@@ -50,4 +52,25 @@ public interface PermissionRequestHost {
      *   status unchanged rather than inventing a denial.
      */
     public fun launch(androidPermission: String, onResult: (Boolean) -> Unit): Boolean
+
+    /**
+     * Shows one system dialog for all of [androidPermissions] and later invokes [onResult] with each
+     * one's answer — `registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions())`.
+     *
+     * The handler calls this only for a permission that has to be requested as a group in one dialog,
+     * which today is [Permission.LOCATION]'s fine and coarse pair; everything else goes through the
+     * single-permission [launch].
+     *
+     * The default forwards a one-element list to the single-permission [launch] and returns `false`
+     * for anything larger, so a host written before this member existed keeps working for every
+     * permission except location.
+     *
+     * @param onResult must be called exactly once, with an entry per requested permission.
+     * @return `false` if the dialog could not be shown at all; [onResult] must then not be called.
+     * @since 1.5.0
+     */
+    public fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean {
+        val single: String = androidPermissions.singleOrNull() ?: return false
+        return launch(single) { granted -> onResult(mapOf(single to granted)) }
+    }
 }

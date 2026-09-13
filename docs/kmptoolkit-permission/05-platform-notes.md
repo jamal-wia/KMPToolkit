@@ -18,6 +18,15 @@ So each permission you intend to request is yours to declare, on both platforms:
 | `NOTIFICATIONS` | `android.permission.POST_NOTIFICATIONS` (API 33+) | none |
 | `MICROPHONE` | `android.permission.RECORD_AUDIO` | `NSMicrophoneUsageDescription` |
 | `CAMERA` | `android.permission.CAMERA` | `NSCameraUsageDescription` |
+| `LOCATION` | `android.permission.ACCESS_FINE_LOCATION` **and** `android.permission.ACCESS_COARSE_LOCATION` | `NSLocationWhenInUseUsageDescription` |
+| `LOCATION_BACKGROUND` | `android.permission.ACCESS_BACKGROUND_LOCATION` (API 29+), plus the two above | `NSLocationAlwaysAndWhenInUseUsageDescription`, plus the one above, and the `location` background mode if you use it |
+| `MEDIA_AUDIO` | `android.permission.READ_MEDIA_AUDIO` (API 33+) and `android.permission.READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"` | `NSAppleMusicUsageDescription` |
+| `BLUETOOTH_CONNECT` | `android.permission.BLUETOOTH_CONNECT` (API 31+) and `android.permission.BLUETOOTH` with `android:maxSdkVersion="30"` | `NSBluetoothAlwaysUsageDescription` |
+
+**App Store review looks at what the binary links, not at what it calls.** Linking this module links
+CoreLocation, CoreBluetooth and MediaPlayer into your iOS app even if you only ever request the
+microphone, and App Store Connect has been known to ask for the matching purpose strings on the
+strength of that alone. If it does, add the strings — they are shown only if a request is made.
 
 Getting this wrong fails differently on each platform, and both failures are confusing:
 
@@ -92,6 +101,27 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
 The flag is not a secret and needs no encryption; a plain `createKeyValueStorage(context)` is the
 right store.
 
+### Location, audio files and Bluetooth
+
+- **`LOCATION`** is two Android permission strings requested in one dialog, through the host's
+  multi-permission `launch`. Either grant — precise or approximate — reports `Granted`. The rationale
+  counts as shown if Android asks for it on either string.
+- **`LOCATION_BACKGROUND`** is a grant on top of foreground location. From API 30 Android refuses a
+  background request, silently, while foreground location is not granted, so the handler does not
+  launch one then: request `LOCATION` first. From API 30 the "dialog" is the app's location page in
+  system settings, where the user picks "Allow all the time". Below API 29 there is no separate grant
+  and this entry reports whatever `LOCATION` reports.
+- **`MEDIA_AUDIO`** requests `READ_MEDIA_AUDIO` from API 33 and `READ_EXTERNAL_STORAGE` below it.
+- **`BLUETOOTH_CONNECT`** has no runtime grant below API 31 and reports `Granted` there.
+
+### Watching for changes
+
+`observe(permission)` re-reads the status on every activity resume — which is where a change made in
+system settings, or the system auto-resetting an unused app's permissions, becomes visible — and after
+every `request` through the same handler. It emits only when the status actually changed. It goes
+through the same `ActivityAccess` as the rationale question, and unregisters from it when collection
+stops.
+
 ### Notifications below API 33
 
 `POST_NOTIFICATIONS` did not exist before API 33, and notifications were allowed by default. The
@@ -148,22 +178,22 @@ through this module, but an app that obtained one elsewhere must not be told it 
 settings is still the only place it could possibly change, which is exactly what
 `PermanentlyDenied` promises. Nothing in this module claims a settings trip will *succeed*.
 
+| `LOCATION` | `CLLocationManager.authorizationStatus` + `requestWhenInUseAuthorization` | **Folded.** "While in use" and "always" are both granted. The answer arrives through the delegate, which `request` awaits; a manager and its delegate are held until it does. Reduced (approximate) accuracy is still granted — precision is a property of the fix, not the permission. |
+| `LOCATION_BACKGROUND` | the same manager + `requestAlwaysAuthorization` | **Folded, with one inference.** Only "always" is granted; "while in use" is `Denied(shouldShowRationale = true)`, because iOS may still offer the upgrade. iOS shows that upgrade prompt **at most once** and says nothing when it declines, so `request` waits for a changed status or — if the app did not resign active within a second, meaning no prompt covered it — returns the status as it is. While location is not determined, a request asks for "while in use" first, as iOS itself requires. |
+| `MEDIA_AUDIO` | `MPMediaLibrary.authorizationStatus` + `requestAuthorization` | **Clean.** The user's music library. Restricted is permanently denied. |
+| `BLUETOOTH_CONNECT` | `CBManager.authorization` + a `CBCentralManager` created to raise the prompt | **Clean, indirectly requested.** iOS has no "request Bluetooth permission" call: the prompt appears when the app first creates a central manager, which `request` does with the power alert turned off, and the answer is read once the manager reports its state. iOS has one Bluetooth permission, so this entry is it. |
+
 ### What is not in the catalog, and why
 
 These were considered and left out rather than shipped as untested scaffolding:
 
-- **Location.** iOS grants it through `CLLocationManager`'s delegate — asynchronously, possibly long
-  after the call, and possibly more than once as the user moves between "while in use" and "always".
-  `check`/`request` cannot express that without becoming a subscription, and the four-case
-  `PermissionStatus` has no room for the when-in-use/always distinction or for iOS 14's temporary
-  precise-location grant. Android adds its own wrinkle: fine and coarse must be requested in the
-  same dialog for the Precise/Approximate toggle to render correctly.
 - **Photo library.** iOS's `PHAuthorizationStatus` has `.limited` — the user picked specific photos —
   which is neither granted nor denied, and collapsing it either way loses the only fact a photo
   picker cares about. Android's string, meanwhile, depends on the API level and splits per media
   type (`READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, plus the visual-media-picker path that needs no
   permission at all).
-- **Contacts, calendar, health, Bluetooth.** No mapping was written and none is claimed.
+- **Contacts, calendar, health, SMS, phone state, Bluetooth scanning and advertising.** No mapping
+  was written and none is claimed.
 - **Exact alarms.** Not in `Permission`, and never will be: Android's `SCHEDULE_EXACT_ALARM` is a
   settings-only grant with no runtime dialog, so it does not fit `PermissionHandler`'s shape at all.
   It is `SpecialPermission.EXACT_ALARM` instead — see below.

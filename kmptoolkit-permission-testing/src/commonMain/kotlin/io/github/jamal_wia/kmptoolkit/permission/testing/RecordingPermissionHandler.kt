@@ -3,6 +3,10 @@ package io.github.jamal_wia.kmptoolkit.permission.testing
 import io.github.jamal_wia.kmptoolkit.permission.Permission
 import io.github.jamal_wia.kmptoolkit.permission.PermissionHandler
 import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * A [PermissionHandler] double that records what it was asked and answers whatever the test says.
@@ -19,6 +23,9 @@ import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
  * - **A request that the OS would not show is not shown here either.** When the current status is
  *   [PermissionStatus.Granted] or [PermissionStatus.PermanentlyDenied], [request] returns that
  *   status untouched and ignores the script, because that is what both real handlers do.
+ * - **[observe] follows every change.** A flow from [observe] emits the current status and then every
+ *   different status [setStatus], [request] or a changed [defaultStatus] produces — the double's
+ *   stand-in for the user changing a permission in settings while the app was away.
  * - **Recording is independent of the answer.** A call is recorded whatever it returns; the
  *   question a recording answers is "did my code ask?", not "did the user say yes?".
  *
@@ -40,8 +47,18 @@ import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
  *   [PermissionStatus.NotDetermined] — a fresh install, which is where most flows start.
  */
 public class RecordingPermissionHandler(
-    public var defaultStatus: PermissionStatus = PermissionStatus.NotDetermined,
+    defaultStatus: PermissionStatus = PermissionStatus.NotDetermined,
 ) : PermissionHandler {
+
+    /** What [check] answers for a permission no test has scripted. Changing it re-emits through [observe]. */
+    public var defaultStatus: PermissionStatus = defaultStatus
+        set(value) {
+            field = value
+            changed()
+        }
+
+    /** Bumped on every change a status can observe; [observe] re-reads on each bump. */
+    private val revision: MutableStateFlow<Long> = MutableStateFlow(0L)
 
     private val statuses: MutableMap<Permission, PermissionStatus> = mutableMapOf()
     private val requestOutcomes: MutableMap<Permission, PermissionStatus> = mutableMapOf()
@@ -84,6 +101,7 @@ public class RecordingPermissionHandler(
      */
     public fun setStatus(permission: Permission, status: PermissionStatus) {
         statuses[permission] = status
+        changed()
     }
 
     /**
@@ -118,8 +136,13 @@ public class RecordingPermissionHandler(
         }
         val outcome: PermissionStatus = requestOutcomes[permission] ?: PermissionStatus.Granted
         statuses[permission] = outcome
+        changed()
         return outcome
     }
+
+    /** Not recorded in [checks]: observing is not a call a screen makes on purpose, it is a subscription. */
+    override fun observe(permission: Permission): Flow<PermissionStatus> =
+        revision.map { statusOf(permission) }.distinctUntilChanged()
 
     override fun openAppSettings(): Boolean {
         openAppSettingsCount++
@@ -128,4 +151,8 @@ public class RecordingPermissionHandler(
 
     private fun statusOf(permission: Permission): PermissionStatus =
         statuses[permission] ?: defaultStatus
+
+    private fun changed() {
+        revision.value += 1
+    }
 }

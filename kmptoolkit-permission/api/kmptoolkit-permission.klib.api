@@ -7,7 +7,11 @@
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-permission>
 final enum class io.github.jamal_wia.kmptoolkit.permission/Permission : kotlin/Enum<io.github.jamal_wia.kmptoolkit.permission/Permission> { // io.github.jamal_wia.kmptoolkit.permission/Permission|null[0]
+    enum entry BLUETOOTH_CONNECT // io.github.jamal_wia.kmptoolkit.permission/Permission.BLUETOOTH_CONNECT|null[0]
     enum entry CAMERA // io.github.jamal_wia.kmptoolkit.permission/Permission.CAMERA|null[0]
+    enum entry LOCATION // io.github.jamal_wia.kmptoolkit.permission/Permission.LOCATION|null[0]
+    enum entry LOCATION_BACKGROUND // io.github.jamal_wia.kmptoolkit.permission/Permission.LOCATION_BACKGROUND|null[0]
+    enum entry MEDIA_AUDIO // io.github.jamal_wia.kmptoolkit.permission/Permission.MEDIA_AUDIO|null[0]
     enum entry MICROPHONE // io.github.jamal_wia.kmptoolkit.permission/Permission.MICROPHONE|null[0]
     enum entry NOTIFICATIONS // io.github.jamal_wia.kmptoolkit.permission/Permission.NOTIFICATIONS|null[0]
 
@@ -39,6 +43,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.permission/PermissionHandler {
     abstract fun openAppSettings(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.openAppSettings|openAppSettings(){}[0]
     abstract suspend fun check(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.check|check(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
     abstract suspend fun request(io.github.jamal_wia.kmptoolkit.permission/Permission): io.github.jamal_wia.kmptoolkit.permission/PermissionStatus // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.request|request(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
+    open fun observe(io.github.jamal_wia.kmptoolkit.permission/Permission): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.permission/PermissionStatus> // io.github.jamal_wia.kmptoolkit.permission/PermissionHandler.observe|observe(io.github.jamal_wia.kmptoolkit.permission.Permission){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.permission/SpecialPermissionHandler { // io.github.jamal_wia.kmptoolkit.permission/SpecialPermissionHandler|null[0]

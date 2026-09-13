@@ -27,6 +27,17 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-storage` and `kmptoolkit-storage-testing` also publish `jvm`, so shared code taking a
   `KeyValueStorage` compiles for desktop. `createKeyValueStorage(directory, config)` is a plain store
   in one properties file with atomic writes; there is no secure store on desktop.
+- `kmptoolkit-permission`: `Permission.LOCATION`, `LOCATION_BACKGROUND`, `MEDIA_AUDIO` and
+  `BLUETOOTH_CONNECT`, each with a stated fold onto `PermissionStatus` on both platforms. Location is
+  requested as fine and coarse in one dialog, through a new multi-permission
+  `PermissionRequestHost.launch(List, ...)` (default body: a one-element list goes to the single
+  `launch`, anything larger is not launched). **An exhaustive `when` over `Permission` needs the new
+  entries**; the change is binary-compatible. iOS apps linking the module link CoreLocation,
+  CoreBluetooth and MediaPlayer — see `05-platform-notes.md` for the purpose strings.
+- `kmptoolkit-permission`: `PermissionHandler.observe(permission)` — the status now and on every
+  change, re-read on activity resume (Android), on becoming active (iOS) and after a request. The
+  member has a default body emitting the current status once. `RecordingPermissionHandler` emits on
+  every scripted change.
 - `kmptoolkit-audio-player`: `AudioPlayer.unload()` frees the loaded source's native handle but keeps
   the player usable, for a player that outlives the screens borrowing it — `release()` stays the
   permanent teardown. The member has a default body calling `stop()`, so the change is

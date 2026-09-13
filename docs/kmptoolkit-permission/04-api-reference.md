@@ -6,13 +6,16 @@ Every public symbol, its contract, and its thread-safety. Package
 ## `Permission`
 
 ```kotlin
-public enum class Permission { NOTIFICATIONS, MICROPHONE, CAMERA }
+public enum class Permission {
+    NOTIFICATIONS, MICROPHONE, CAMERA,
+    LOCATION, LOCATION_BACKGROUND, MEDIA_AUDIO, BLUETOOTH_CONNECT, // since 1.5.0
+}
 ```
 
-The closed catalog. Each entry maps to one Android permission string and one iOS authorization API,
-both exercised by tests. Location and the photo library are deliberately absent — see
-[`01-overview.md`](01-overview.md#why-the-catalog-is-closed) and
-[`05-platform-notes.md`](05-platform-notes.md).
+The closed catalog. Each entry maps to Android permission strings and an iOS authorization API, both
+exercised by tests; the full mapping is in [`05-platform-notes.md`](05-platform-notes.md). The photo
+library is deliberately absent — see [`01-overview.md`](01-overview.md#why-the-catalog-is-closed).
+The catalog can grow in a minor release: prefer an `else` branch in a `when` over it.
 
 ## `PermissionStatus`
 
@@ -46,6 +49,7 @@ public interface PermissionHandler {
     public suspend fun check(permission: Permission): PermissionStatus
     public suspend fun request(permission: Permission): PermissionStatus
     public fun openAppSettings(): Boolean
+    public fun observe(permission: Permission): Flow<PermissionStatus> // since 1.5.0, has a default
 }
 ```
 
@@ -57,6 +61,10 @@ public interface PermissionHandler {
   show nothing either.
 - **`openAppSettings`** opens the OS page for this app. `true` means the screen opened, not that the
   user changed anything; call `check`/`PermissionRequestFlow.refresh` on resume.
+- **`observe`** emits the current status on collection, then each *different* status: on every
+  activity resume on Android, every time the app becomes active on iOS, and after every `request`
+  through the same handler. It never shows UI. The interface default emits the current status once
+  and completes, so a handler written before 1.5.0 still compiles and answers once.
 - **Nothing throws.** Every failure — a missing activity, a launcher that cannot fire, a settings
   screen no app handles — arrives as a status or as `false`.
 - **One at a time.** Drive a handler from a single coroutine; two concurrent `request` calls are not
@@ -187,6 +195,9 @@ reports.
 ```kotlin
 public interface PermissionRequestHost {
     public fun launch(androidPermission: String, onResult: (Boolean) -> Unit): Boolean
+
+    // since 1.5.0, has a default
+    public fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean
 }
 ```
 
@@ -196,6 +207,12 @@ Your activity's `registerForActivityResult` plumbing. `onResult` must be called 
 never happened. Pass `androidPermission` through verbatim — the handler picks the string, including
 the API-level-dependent choices. A full example is in
 [`02-getting-started.md`](02-getting-started.md).
+
+The multi-permission `launch` shows one dialog for all of `androidPermissions`
+(`RequestMultiplePermissions`) and reports each answer; the same exactly-once and `false` rules
+apply. The handler uses it only for `Permission.LOCATION`. Its default forwards a one-element list to
+the single `launch` and returns `false` for more, so an existing host keeps working for every other
+permission.
 
 ## iOS factory
 

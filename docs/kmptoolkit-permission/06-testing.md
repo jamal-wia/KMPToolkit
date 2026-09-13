@@ -118,6 +118,11 @@ fun `a permission revoked while the app was away disables the feature on resume`
 The same shape covers the settings trip: set the status to `Granted` between `openSettings()` and
 `refresh()`, and assert your screen enables itself.
 
+Code that collects `observe()` instead of refreshing gets the change pushed: every `setStatus`,
+`request` and change of `defaultStatus` re-emits through the double's flows, and only a *different*
+status is emitted. Collect with an `UnconfinedTestDispatcher` so each change is delivered before your
+next line runs.
+
 ## Assert states, not strings
 
 Assert on `PermissionFlowState` and on what your presenter exposes, never on copy. The module ships

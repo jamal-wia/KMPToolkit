@@ -67,6 +67,27 @@ class MainActivity : ComponentActivity(), PermissionRequestHost {
 }
 ```
 
+`Permission.LOCATION` is requested as fine and coarse location in **one** dialog — the only way
+Android 12+ shows the Precise / Approximate choice — so a host that requests location also implements
+the multi-permission `launch`. A host without it can request every other permission; a location
+request then shows nothing and leaves the status as it was.
+
+```kotlin
+    private var pendingGroup: ((Map<String, Boolean>) -> Unit)? = null
+
+    private val groupLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { answers ->
+        pendingGroup?.invoke(answers)
+        pendingGroup = null
+    }
+
+    override fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean {
+        pendingGroup = onResult
+        return runCatching { groupLauncher.launch(androidPermissions.toTypedArray()) }.isSuccess
+    }
+```
+
 ```kotlin
 class MyApplication : Application() {
 

@@ -42,7 +42,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-storage-testing` | `InMemoryKeyValueStorage`, for `testImplementation` | `storage` | Available | [docs](docs/kmptoolkit-storage/06-testing.md) |
 | `kmptoolkit-biometric` | Biometric gate with typed outcomes; prompt copy is yours | — | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-biometric-testing` | `ScriptedBiometricGate`, for `testImplementation` | `biometric` | Available | [docs](docs/kmptoolkit-biometric/06-testing.md) |
-| `kmptoolkit-permission` | Runtime permission request flow, plus special-access permissions (exact alarms, overlay, …) | `storage`, `activity` (Android) | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
+| `kmptoolkit-permission` | Runtime permission request flow for notifications, microphone, camera, location, audio files and Bluetooth, with status observation, plus special-access permissions (exact alarms, overlay, …) | `storage`, `activity` (Android) | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-permission-testing` | `RecordingPermissionHandler` / `RecordingSpecialPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions, and the notification a foreground service starts with | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |

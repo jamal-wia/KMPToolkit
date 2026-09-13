@@ -147,6 +147,19 @@ val enabled: Boolean = handler.check(Permission.NOTIFICATIONS).isGranted
 `isGranted` and `canPrompt` cover the two questions a toggle actually asks: is it on, and would
 tapping it prompt or need a settings trip.
 
+A screen that has to *stay* correct — a feature switched off when its permission is revoked in
+settings, a kiosk checklist that ticks itself when the user comes back — collects `observe()`
+instead of checking once:
+
+```kotlin
+handler.observe(Permission.LOCATION)
+    .map { status -> status.isGranted }
+    .collect { granted -> autoLocateEnabled = granted }
+```
+
+It re-reads the status whenever the app comes back to the foreground and after every request through
+the same handler, and emits only on a change.
+
 ## Special access permissions
 
 `SpecialPermissionHandler` is not a variant of `PermissionHandler` — it is a different contract for

@@ -9,6 +9,7 @@ public final class io/github/jamal_wia/kmptoolkit/permission/testing/RecordingPe
 	public final fun getOpenAppSettingsCount ()I
 	public final fun getRequests ()Ljava/util/List;
 	public final fun getSettingsAvailable ()Z
+	public fun observe (Lio/github/jamal_wia/kmptoolkit/permission/Permission;)Lkotlinx/coroutines/flow/Flow;
 	public fun openAppSettings ()Z
 	public fun request (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun scriptRequest (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)V
