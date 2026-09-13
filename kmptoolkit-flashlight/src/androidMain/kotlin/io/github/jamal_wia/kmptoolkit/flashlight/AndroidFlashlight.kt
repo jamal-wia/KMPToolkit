@@ -6,11 +6,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 
 /**
  * Android [Flashlight] driven by [CameraManager.setTorchMode].
@@ -34,35 +30,20 @@ internal class AndroidFlashlight(
     /** The first camera that actually has a flash unit — absent on many tablets. */
     private val torchCameraId: String? = resolveTorchCameraId()
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var blinking: Job? = null
+    private val blinker: TorchBlinker = TorchBlinker(
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        setTorch = { on: Boolean -> torchCameraId?.let { cameraId: String -> setTorch(cameraId, on) } },
+    )
 
     override val isAvailable: Boolean get() = torchCameraId != null
 
     override fun start(pattern: FlashPattern) {
-        val cameraId: String = torchCameraId ?: return
-        // A second start replaces the running pattern rather than layering a second blink on top.
-        blinking?.cancel()
-        blinking = scope.launch {
-            try {
-                while (isActive) {
-                    setTorch(cameraId, on = true)
-                    delay(pattern.on)
-                    setTorch(cameraId, on = false)
-                    delay(pattern.off)
-                }
-            } finally {
-                // Cancellation lands mid-cycle as often as not; the torch must never be left
-                // burning.
-                setTorch(cameraId, on = false)
-            }
-        }
+        if (torchCameraId == null) return
+        blinker.start(pattern)
     }
 
     override fun stop() {
-        blinking?.cancel()
-        blinking = null
-        torchCameraId?.let { cameraId: String -> setTorch(cameraId, on = false) }
+        blinker.stop()
     }
 
     private fun setTorch(cameraId: String, on: Boolean) {

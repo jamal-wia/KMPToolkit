@@ -3,11 +3,7 @@ package io.github.jamal_wia.kmptoolkit.flashlight
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import platform.AVFoundation.AVCaptureDevice
 import platform.AVFoundation.AVCaptureDeviceDiscoverySession
 import platform.AVFoundation.AVCaptureDevicePositionBack
@@ -31,9 +27,6 @@ import platform.AVFoundation.setTorchMode
 @OptIn(ExperimentalForeignApi::class)
 internal class IosFlashlight : Flashlight {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var blinking: Job? = null
-
     private val torchDevice: AVCaptureDevice?
         get() = AVCaptureDeviceDiscoverySession.discoverySessionWithDeviceTypes(
             deviceTypes = listOf(AVCaptureDeviceTypeBuiltInWideAngleCamera),
@@ -45,27 +38,18 @@ internal class IosFlashlight : Flashlight {
 
     override val isAvailable: Boolean get() = torchDevice != null
 
+    private val blinker: TorchBlinker = TorchBlinker(
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        setTorch = { on: Boolean -> torchDevice?.let { device: AVCaptureDevice -> setTorch(device, on) } },
+    )
+
     override fun start(pattern: FlashPattern) {
-        val device: AVCaptureDevice = torchDevice ?: return
-        blinking?.cancel()
-        blinking = scope.launch {
-            try {
-                while (isActive) {
-                    setTorch(device, on = true)
-                    delay(pattern.on)
-                    setTorch(device, on = false)
-                    delay(pattern.off)
-                }
-            } finally {
-                setTorch(device, on = false)
-            }
-        }
+        if (torchDevice == null) return
+        blinker.start(pattern)
     }
 
     override fun stop() {
-        blinking?.cancel()
-        blinking = null
-        torchDevice?.let { device: AVCaptureDevice -> setTorch(device, on = false) }
+        blinker.stop()
     }
 
     private fun setTorch(device: AVCaptureDevice, on: Boolean) {

@@ -25,6 +25,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   whose vibrations were unattributed before. The single-argument factory is unchanged. Purely
   additive.
 
+### Fixed
+
+- `kmptoolkit-flashlight`: the promise that `Flashlight` is safe to call from any thread did not
+  hold. The running blink job lived in a plain field, so two `start`s racing from different threads
+  could each install a loop, leaving one blinking that no `stop` could reach — a torch that never
+  goes dark. A replacing `start` could also have its first flash cut short by the replaced loop's
+  final "off". Both platforms now share one blink loop that swaps the job atomically and lets a
+  replacement wait for its predecessor to finish; nothing in the public API changes.
+
 ## [1.2.0] - 2026-09-13
 
 ### Added

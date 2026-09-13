@@ -78,6 +78,11 @@ first. A caller reacting to a fast sequence of events — the user going idle, t
 reminder arriving before they came back — can call `start` freely without tracking whether
 something is already running.
 
+That holds across threads too. Two `start`s racing from different threads leave exactly one loop
+running, which one `stop` ends; and the replacing pattern waits for the replaced one to switch the
+torch off before its own first flash, so that flash is never cut short. When a `start` and a `stop`
+race, the later call wins.
+
 ## Firing from shared code that is not on the main thread
 
 Just call it. Both implementations launch their own coroutine internally and return before the

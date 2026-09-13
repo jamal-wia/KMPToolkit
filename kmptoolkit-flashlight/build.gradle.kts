@@ -31,5 +31,8 @@ kotlin {
             // coroutines type in their signature.
             implementation(libs.kotlinx.coroutines.core)
         }
+        commonTest.dependencies {
+            implementation(libs.kotlinx.coroutines.test)
+        }
     }
 }
