@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.notification.testing
 
 import io.github.jamal_wia.kmptoolkit.notification.LocalNotification
+import io.github.jamal_wia.kmptoolkit.notification.NotificationOptions
 import io.github.jamal_wia.kmptoolkit.notification.NotificationResult
 import io.github.jamal_wia.kmptoolkit.notification.Notifier
 
@@ -70,13 +71,27 @@ public class RecordingNotifier(
     /** How many times [cancelAll] was called. */
     public val cancelAllCount: Int get() = cancelAllCalls
 
-    override suspend fun post(id: String, notification: LocalNotification): NotificationResult {
+    override suspend fun post(id: String, notification: LocalNotification): NotificationResult =
+        post(id, notification, NotificationOptions.DEFAULT)
+
+    /**
+     * Records the post together with [options], readable back from [PostedNotification.options].
+     * The two-argument [post] records [NotificationOptions.DEFAULT], which is what a real notifier
+     * applies for it.
+     */
+    override suspend fun post(
+        id: String,
+        notification: LocalNotification,
+        options: NotificationOptions,
+    ): NotificationResult {
         // The same rejection the real notifiers perform. A double that accepted a blank id would
         // let a test pass for code that kills the process on iOS, which is worse than no double.
         require(id.isNotBlank()) {
             "Notification id must not be blank; it is the replace and cancel key for this notification."
         }
-        recorded += PostedNotification(id = id, notification = notification)
+        recorded += PostedNotification(id = id, notification = notification).also { posted: PostedNotification ->
+            posted.options = options
+        }
         val outcome: NotificationResult = result
         // Only a real post changes what is on screen. Coalesced leaves whatever was already up
         // exactly where it was, and every failure leaves the screen untouched too.
@@ -118,4 +133,18 @@ public class RecordingNotifier(
 public data class PostedNotification(
     public val id: String,
     public val notification: LocalNotification,
-)
+) {
+
+    /**
+     * The presentation the post asked for — [NotificationOptions.DEFAULT] for the two-argument
+     * [Notifier.post].
+     *
+     * Declared outside the constructor so that adding it did not change how this class is
+     * constructed, copied or destructured; for the same reason it takes no part in [equals]. Compare
+     * it on its own: `assertFalse(notifier.posted.last().options.alertOnce)`.
+     *
+     * @since 1.4.0
+     */
+    public var options: NotificationOptions = NotificationOptions.DEFAULT
+        internal set
+}

@@ -24,7 +24,9 @@ public class RecordingNotifier(
     public fun clear()
 }
 
-public data class PostedNotification(public val id: String, public val notification: LocalNotification)
+public data class PostedNotification(public val id: String, public val notification: LocalNotification) {
+    public var options: NotificationOptions                 // since 1.4.0; not part of equals
+}
 ```
 
 Two distinct questions, two collections:
@@ -58,6 +60,11 @@ fun `a download still completes when notifications are denied`() = runTest {
     assertEquals(DownloadOutcome.Success, outcome)
 }
 ```
+
+**Options are recorded per post.** `posted.last().options` is what the three-argument `post` was
+given, and `NotificationOptions.DEFAULT` for the two-argument one — so a reminder that must alert
+every time is one assertion: `assertFalse(notifier.posted.last().options.alertOnce)`. It is kept out
+of `PostedNotification`'s constructor, and therefore out of its `equals`; compare it on its own.
 
 **It coalesces nothing.** The double does not replicate the bucket/interval rule, on purpose: a test
 that has to reason about a 500 ms throttle to know what its subject posted is testing the fixture
@@ -94,6 +101,14 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
   real notifier (including that a coalesced post never hides a permission failure, and that a
   channel which disappeared is re-created even on a suppressed frame), the action-button broadcast
   and its distinct `PendingIntent`s, and the tap target's extras and flags.
+- `AndroidNotificationOptionsTest` — each `NotificationOptions` field on a real notification
+  (`FLAG_ONLY_ALERT_ONCE`, the delete intent and its separate `PendingIntent`, the media template and
+  its compact actions, per-action icons), that a frame with changed content is never coalesced, and
+  the Android helpers: `notificationIdOf` matching the posted id, a foreground notification that is
+  ongoing, creates its channel, posts nothing and carries the same broadcasts as a post, and channel
+  creation and deletion ahead of any post.
+- `AndroidNotifierPreTiramisuTest` — at `sdk = 32`, a `PermissionHandler` answering "denied" neither
+  blocks a post nor is asked.
 - `AndroidNotifierLegacyTest` — the API 24–25 path, at `@Config(sdk = [24])`, because the
   module-wide `robolectric.properties` pins `sdk=35` and nothing else here would ever execute a
   pre-26 branch. Covers the sound that has to ride on the notification when there is no channel:

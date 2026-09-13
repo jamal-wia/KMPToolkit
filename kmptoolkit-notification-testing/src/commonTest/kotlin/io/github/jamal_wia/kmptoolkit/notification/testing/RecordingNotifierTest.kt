@@ -1,7 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.notification.testing
 
 import io.github.jamal_wia.kmptoolkit.notification.LocalNotification
+import io.github.jamal_wia.kmptoolkit.notification.NotificationAction
 import io.github.jamal_wia.kmptoolkit.notification.NotificationChannelSpec
+import io.github.jamal_wia.kmptoolkit.notification.NotificationOptions
 import io.github.jamal_wia.kmptoolkit.notification.NotificationProgress
 import io.github.jamal_wia.kmptoolkit.notification.NotificationResult
 import kotlin.test.Test
@@ -179,5 +181,26 @@ class RecordingNotifierTest {
             NotificationProgress.Determinate(41),
             notifier.showing.getValue("a").progress,
         )
+    }
+
+    @Test
+    fun `the options of each post are recorded with it`() = runTest {
+        val notifier = RecordingNotifier()
+        val options = NotificationOptions(alertOnce = false, dismissAction = NotificationAction("stop", "Stop"))
+
+        notifier.post("a", notification(), options)
+        notifier.post("b", notification())
+
+        assertEquals(options, notifier.posted[0].options)
+        assertEquals(NotificationOptions.DEFAULT, notifier.posted[1].options)
+    }
+
+    @Test
+    fun `a post with options reaches the screen like any other`() = runTest {
+        val notifier = RecordingNotifier()
+
+        notifier.post("a", notification("shown"), NotificationOptions(mediaStyle = true))
+
+        assertEquals("shown", notifier.showing.getValue("a").title)
     }
 }

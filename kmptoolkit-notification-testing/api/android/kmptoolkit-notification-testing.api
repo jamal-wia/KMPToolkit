@@ -7,6 +7,7 @@ public final class io/github/jamal_wia/kmptoolkit/notification/testing/PostedNot
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getId ()Ljava/lang/String;
 	public final fun getNotification ()Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;
+	public final fun getOptions ()Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -23,6 +24,7 @@ public final class io/github/jamal_wia/kmptoolkit/notification/testing/Recording
 	public final fun getPosted ()Ljava/util/List;
 	public final fun getResult ()Lio/github/jamal_wia/kmptoolkit/notification/NotificationResult;
 	public final fun getShowing ()Ljava/util/Map;
+	public fun post (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun post (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun setResult (Lio/github/jamal_wia/kmptoolkit/notification/NotificationResult;)V
 }

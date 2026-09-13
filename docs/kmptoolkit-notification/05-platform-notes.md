@@ -88,8 +88,8 @@ usage-description string.
 
 ## Android specifics
 
-- **`POST_NOTIFICATIONS` exists from API 33.** Below that there is no runtime grant, so
-  `PermissionDenied` cannot occur — but notifications can still be off app-wide, which is
+- **`POST_NOTIFICATIONS` exists from API 33.** Below that there is no runtime grant, so the notifier
+  does not ask the `PermissionHandler` at all and `PermissionDenied` cannot occur — but notifications can still be off app-wide, which is
   `NotificationsDisabled`. The two are genuinely different states and both are reported.
 - **Channels exist from API 26.** Below that the module skips channel creation and
   `ChannelBlocked` cannot occur; the sound is applied to the notification itself, since there is no
@@ -101,11 +101,15 @@ usage-description string.
   `AndroidNotifierLegacyTest` runs at `sdk = 24` to keep it that way.
 - **The small icon is mandatory**, drawn as a silhouette from its alpha channel on API 21+. A
   resource id that does not resolve is caught before posting and returned as `Failed`.
-- **`setOnlyAlertOnce(true)` is always applied**, so re-posting an id to update it does not buzz
-  again. That is what makes a progress notification bearable.
+- **`setOnlyAlertOnce(true)` is applied by default**, so re-posting an id to update it does not buzz
+  again. That is what makes a progress notification bearable. `NotificationOptions(alertOnce = false)`
+  turns it off for one post.
 - **Ids are hashed** from your string to a non-negative, non-zero `Int` — non-zero because
   `startForeground` rejects 0, and stable across processes because `String.hashCode` is specified.
-  Two different strings could in principle collide; use readable, distinct ids.
+  `notificationIdOf` returns it. Two different strings could in principle collide; use readable,
+  distinct ids.
+- **`NotificationOptions.mediaStyle`** uses `androidx.media`'s `NotificationCompat.MediaStyle`, which
+  this module depends on (implementation scope) for exactly that.
 - **A channel is "blocked" two ways**: muted directly (`IMPORTANCE_NONE`), or — from API 28 — sitting
   in a `NotificationChannelGroup` the user muted, which silences every channel in it while each one
   still reports its own original importance. Both come back as `ChannelBlocked`. This module creates

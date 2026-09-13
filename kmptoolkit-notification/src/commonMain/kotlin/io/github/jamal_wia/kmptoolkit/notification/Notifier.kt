@@ -53,6 +53,24 @@ public interface Notifier {
     public suspend fun post(id: String, notification: LocalNotification): NotificationResult
 
     /**
+     * Posts [notification] under [id] as the two-argument [post] does, presented according to
+     * [options] — see [NotificationOptions] for what each one changes. Every other rule of [post]
+     * applies unchanged, including the blank-id rejection.
+     *
+     * The default implementation ignores [options] and calls the two-argument [post], so a
+     * [Notifier] written against an earlier version of this interface keeps compiling and keeps
+     * posting. The notifiers this library creates override it. **A decorator must override it too**
+     * and forward [options]; inheriting the default would silently drop them.
+     *
+     * @since 1.4.0
+     */
+    public suspend fun post(
+        id: String,
+        notification: LocalNotification,
+        options: NotificationOptions,
+    ): NotificationResult = post(id, notification)
+
+    /**
      * Removes the notification showing under [id], and forgets its progress-coalescing state so a
      * later run under the same id starts fresh.
      *

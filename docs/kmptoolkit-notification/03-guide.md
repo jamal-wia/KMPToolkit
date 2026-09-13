@@ -32,6 +32,22 @@ accept that the old one lingers in settings until the user clears data.
 
 `name` and `description` *are* updated on an existing channel, so localising them later works.
 
+**Creating channels up front, and retiring one.** On Android, `NotificationChannels.ensure(context,
+spec)` creates a channel without posting anything — call it at startup for every channel you have,
+and a user opening your notification settings on day one sees all of them, in the app's language.
+`NotificationChannels.delete(context, id)` removes one you have replaced with a new id, so the old
+row does not linger in settings next to its successor:
+
+```kotlin
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        NotificationChannels.delete(this, "reminders")          // shipped with the wrong sound
+        listOf(remindersV2, downloads).forEach { NotificationChannels.ensure(this, it) }
+    }
+}
+```
+
 Both are required parameters. This library has no copy of its own — see
 [`docs/01-architecture.md`](../01-architecture.md).
 
@@ -83,6 +99,11 @@ Two updates always get through, whatever the limits say:
 Both then reset the id's state, so the next run starts fresh. That is what makes "post the completed
 frame with `progress = null`" safe rather than a rule you have to remember — but posting the final
 frame *with* a percentage is safe too, because 100 is never suppressed.
+
+**A frame that says something new is never coalesced.** The limits only drop frames the user could
+not tell apart: an update whose title, body, buttons or options differ from the frame showing is
+posted even inside the same bucket and before the interval — "Downloading page 2" replaces "page 1"
+at once. Only the percentage is compared against the limits.
 
 **Do not build your own throttle on top.** A caller that only posts every 5% just gets a coarser bar;
 the module is already bounding the rate.
@@ -175,6 +196,65 @@ another SDK.
 Give the category's action identifiers the same values as your `NotificationAction.id`s, and the
 code that handles a tap converges on one `when` on both platforms.
 
+## Presentation options (Android)
+
+`post` has a three-argument form taking `NotificationOptions`. Everything in it is Android behavior;
+iOS ignores it.
+
+**A reminder that must sound every time.** Re-posting an id that is still showing updates it
+silently by default — right for a progress bar, wrong for a reminder the user left in the shade,
+which would then swallow the next one without a sound. Turn that off for such a notification:
+
+```kotlin
+notifier.post("lesson-reminder", reminder, NotificationOptions(alertOnce = false))
+```
+
+**Swiping away does something.** A `dismissAction` sends, when the notification is swiped away, the
+same broadcast a button with that action sends, so your receiver handles both in one branch. Pair
+it with the media layout to put the button in the collapsed row as well:
+
+```kotlin
+val stop = NotificationAction(id = "stop-adhan", label = strings.stop)
+notifier.post(
+    "adhan",
+    LocalNotification(/* ... */ actions = listOf(stop)),
+    NotificationOptions(
+        dismissAction = stop,
+        mediaStyle = true,
+        actionIcons = mapOf(stop.id to NotificationIcon.AndroidDrawable(R.drawable.ic_stop)),
+    ),
+)
+```
+
+A button needs an icon in that collapsed row — Android draws an empty button otherwise — which is
+what `actionIcons` is for. On a phone's expanded notification Android does not draw action icons at
+all.
+
+## Foreground services (Android)
+
+A foreground service must call `startForeground(id, notification)` within seconds of starting, with a
+real `android.app.Notification`. Build it here, so it is the same notification `post` would show, and
+update it through the `Notifier` afterwards under the same id:
+
+```kotlin
+class PlaybackService : Service() {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForeground(
+            notificationIdOf("playback"),
+            buildForegroundNotification(this, "playback", nowPlaying, config, options),
+        )
+        return START_NOT_STICKY
+    }
+}
+
+// later, from anywhere:
+notifier.post("playback", nowPlaying.copy(body = nextTrack), options)
+```
+
+Pass the same `NotificationConfig` the notifier was created with — its broadcast action is what the
+buttons carry. The built notification is always `ongoing`, and building it runs none of the post
+gates: a service has to call `startForeground` either way.
+
 ## Deciding what to do about a result
 
 | Result | What happened | A reasonable response |
@@ -192,6 +272,8 @@ raises is for a blank `id`, above. Both are deliberate.
 ## Common mistakes
 
 - **Treating `Coalesced` as a failure.** It means the previous frame is still correct.
+- **A decorator that forwards only the two-argument `post`.** The three-argument form then falls back
+  to the interface default and drops the options silently. Forward both.
 - **Posting the completed frame under a new id.** The progress notification stays on screen forever
   next to it. Same id, always.
 - **A channel per notification.** Channels are user-facing settings rows, not tags. A handful per

@@ -8,6 +8,11 @@ ABI dump in `kmptoolkit-notification/api/`.
 ```kotlin
 public interface Notifier {
     public suspend fun post(id: String, notification: LocalNotification): NotificationResult
+    public suspend fun post(
+        id: String,
+        notification: LocalNotification,
+        options: NotificationOptions,
+    ): NotificationResult                                   // since 1.4.0
     public fun cancel(id: String)
     public fun cancelAll()
 }
@@ -22,6 +27,10 @@ The one type shared code depends on.
   id, `UNNotificationRequest` raises an Objective-C exception that Kotlin/Native cannot catch and
   the process dies. Suspending because checking authorization is asynchronous on iOS; on Android it
   does not suspend in practice.
+- **`post(id, notification, options)`** — the same post, presented according to
+  `NotificationOptions`. The interface default ignores `options` and calls the two-argument form, so
+  an older implementation keeps working; the library's notifiers override it, and a decorator must
+  override it too. The two-argument form is the same as passing `NotificationOptions.DEFAULT`.
 - **`cancel`** — removes the notification under `id` and forgets its progress-coalescing state. A
   no-op for an id that is not showing, including one this instance never posted. Reports nothing,
   because neither platform reports anything.
@@ -32,7 +41,11 @@ The one type shared code depends on.
 
 **Ordering:** the checks run permission → app-level toggle → channel → icon → coalescing, so the
 result names the first reason the user would not have seen the notification. A coalesced post never
-hides a real failure.
+hides a real failure. On Android below API 33 the permission check is skipped: there is no
+`POST_NOTIFICATIONS` to lack, whatever the `PermissionHandler` answers.
+
+**Coalescing** compares only the progress: a post whose notification or options differ in anything
+else from the frame showing is never coalesced.
 
 ## Factories
 
@@ -61,6 +74,62 @@ public fun noOpNotifier(): Notifier
 
 Posts nothing and reports `NotificationResult.NotificationsDisabled`. Stateless and shared; inject it
 when the user has notifications off in your own settings.
+
+## Android helpers
+
+*Since 1.4.0.* Plain functions, usable without a `Notifier`.
+
+```kotlin
+public fun notificationIdOf(id: String): Int
+
+public fun buildForegroundNotification(
+    context: Context,
+    id: String,
+    notification: LocalNotification,
+    config: NotificationConfig = NotificationConfig(),
+    options: NotificationOptions = NotificationOptions.DEFAULT,
+): android.app.Notification
+
+public object NotificationChannels {
+    public fun ensure(context: Context, spec: NotificationChannelSpec)
+    public fun delete(context: Context, id: String)
+}
+```
+
+- **`notificationIdOf`** — the platform `Int` id a post under `id` is shown with: non-negative,
+  never 0, stable across processes and library versions. For `startForeground`. Throws
+  `IllegalArgumentException` on a blank `id`.
+- **`buildForegroundNotification`** — renders `notification` exactly as `post` would (channel
+  mapping, buttons, dismissal, tap target, options) without posting it, forcing `ongoing`, after
+  creating its channel. Runs no permission, toggle or channel-block gate. Pass the `config` your
+  notifier uses so the button broadcasts match. Throws `IllegalArgumentException` on a blank `id`.
+- **`NotificationChannels.ensure`** — creates the channel, or updates an existing one's name and
+  description; importance and sound of an existing channel stay the user's. No-op below API 26.
+- **`NotificationChannels.delete`** — deletes the channel and its notifications. No-op below API 26
+  and for an unknown id.
+
+## `NotificationOptions`
+
+```kotlin
+public class NotificationOptions(
+    public val alertOnce: Boolean = true,
+    public val dismissAction: NotificationAction? = null,
+    public val mediaStyle: Boolean = false,
+    public val actionIcons: Map<String, NotificationIcon> = emptyMap(),
+) {
+    public companion object { public val DEFAULT: NotificationOptions }
+}
+```
+
+*Since 1.4.0.* How one post is presented. **Android only**; iOS ignores every field. A plain class
+with value equality, not a data class, so it can grow without changing how it is constructed.
+
+| Field | Android behavior |
+|---|---|
+| `alertOnce` | `setOnlyAlertOnce`. `true`: re-posting a showing id updates it silently. `false`: every post alerts — for a repeating reminder under one id. |
+| `dismissAction` | Swiping the notification away sends this action's broadcast, identical to its button's (same action and extras, a separate `PendingIntent`). Not drawn as a button by itself. |
+| `mediaStyle` | Media layout with the first action in the collapsed row. Ignored without actions. No media session. |
+| `actionIcons` | Icon per `NotificationAction.id`. Only `AndroidDrawable` draws; a missing entry or `Default` means no icon. |
 
 ## `LocalNotification`
 
@@ -166,7 +235,8 @@ public data class NotificationAction(public val id: String, public val label: St
 
 Throws `IllegalArgumentException` on a blank `id`. Renders as a button on Android; on iOS buttons
 come from the category named by `LocalNotification.iosCategoryId`. No icon field: Android 7+ does not
-render action icons on phones, and this library has no artwork to offer.
+render action icons on a phone's expanded notification. Where an icon is drawn — the media layout's
+collapsed row, a watch — supply it through `NotificationOptions.actionIcons`.
 
 ## `NotificationActionIntent` (Android only)
 

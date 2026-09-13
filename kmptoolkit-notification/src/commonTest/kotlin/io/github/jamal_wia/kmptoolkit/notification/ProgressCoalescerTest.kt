@@ -278,4 +278,33 @@ class ProgressCoalescerTest {
 
         assertEquals(11, posts)
     }
+
+    // --- content ---------------------------------------------------------------------------
+
+    @Test
+    fun `a frame whose content changed posts even inside the same bucket`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.shouldPost("a", NotificationProgress.Determinate(40), content = "Downloading page 1")
+
+        assertTrue(coalescer.shouldPost("a", NotificationProgress.Determinate(41), content = "Downloading page 2"))
+    }
+
+    @Test
+    fun `a frame whose content changed posts even before the interval elapsed`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        coalescer.shouldPost("a", NotificationProgress.Determinate(40), content = "Downloading")
+        time += 100.milliseconds
+
+        assertTrue(coalescer.shouldPost("a", NotificationProgress.Determinate(60), content = "Retrying"))
+    }
+
+    @Test
+    fun `a frame with unchanged content inside the same bucket is still suppressed`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.shouldPost("a", NotificationProgress.Determinate(40), content = "Downloading")
+
+        assertFalse(coalescer.shouldPost("a", NotificationProgress.Determinate(41), content = "Downloading"))
+        assertTrue(coalescer.wouldSuppress("a", NotificationProgress.Determinate(42), content = "Downloading"))
+        assertFalse(coalescer.wouldSuppress("a", NotificationProgress.Determinate(42), content = "Paused"))
+    }
 }
