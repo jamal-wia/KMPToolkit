@@ -79,8 +79,9 @@ reminder arriving before they came back — can call `start` freely without trac
 something is already running.
 
 That holds across threads too. Two `start`s racing from different threads leave exactly one loop
-running, which one `stop` ends; and the replacing pattern waits for the replaced one to switch the
-torch off before its own first flash, so that flash is never cut short. When a `start` and a `stop`
+running, which one `stop` ends; and a new pattern — whether it replaces a running one or follows a
+`stop` — waits for the torch to be switched off before its own first flash, so that flash is never
+cut short. When a `start` and a `stop`
 race, the later call wins.
 
 ## Firing from shared code that is not on the main thread

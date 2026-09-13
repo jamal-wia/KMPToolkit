@@ -1,6 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.flashlight
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -13,6 +15,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.concurrent.atomics.AtomicInt
+import kotlin.coroutines.CoroutineContext
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.concurrent.atomics.incrementAndFetch
@@ -67,15 +70,42 @@ class TorchBlinkerTest {
     }
 
     @Test
-    fun `stop with nothing running just switches the torch off`() = runTest {
+    fun `stop with nothing running only ever switches the torch off`() = runTest {
         val torch = RecordingTorch()
         val blinker = TorchBlinker(backgroundScope, torch::set)
 
         blinker.stop()
         blinker.stop()
+        runCurrent()
 
-        assertEquals(listOf(false, false), torch.switches)
+        assertTrue(torch.switches.isNotEmpty())
+        assertTrue(torch.switches.none { on: Boolean -> on }, "switches=${torch.switches}")
         assertFalse(blinker.isBlinking)
+    }
+
+    @Test
+    fun `a start right after a stop keeps its first flash even if the new loop runs first`() {
+        // The order a multi-threaded dispatcher can produce and runTest never does: the new loop is
+        // scheduled before the cancelled loop's finally. A last-in-first-out dispatcher forces it. Unless
+        // the new loop waits for the stop to settle, the old loop's final "off" lands after its first "on".
+        val dispatcher = LastInFirstOutDispatcher()
+        val scope = CoroutineScope(dispatcher)
+        val torch = RecordingTorch()
+        val blinker = TorchBlinker(scope, torch::set)
+        try {
+            blinker.start(FlashPattern.Blink)
+            dispatcher.drain()
+            assertTrue(torch.isOn, "the first pattern never lit")
+
+            blinker.stop()
+            blinker.start(FlashPattern.Attention)
+            dispatcher.drain()
+
+            assertTrue(torch.isOn, "the new pattern's first flash was cut short: ${torch.switches}")
+            assertTrue(blinker.isBlinking)
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test
@@ -95,6 +125,31 @@ class TorchBlinkerTest {
         advanceTimeBy(FlashPattern.Attention.on - 1.milliseconds)
         runCurrent()
         assertTrue(torch.isOn, "the new pattern's first flash ended early")
+    }
+
+    @Test
+    fun `a job replaced while it waits still makes its successor wait for what it was waiting for`() {
+        // stop, start, start in quick succession: the middle start is replaced before it ever ran. If its
+        // wait could be cancelled, the last start would see it finish at once and light the torch before
+        // the first loop's final "off" — the same clipped flash, one replacement further along.
+        val dispatcher = LastInFirstOutDispatcher()
+        val scope = CoroutineScope(dispatcher)
+        val torch = RecordingTorch()
+        val blinker = TorchBlinker(scope, torch::set)
+        try {
+            blinker.start(FlashPattern.Blink)
+            dispatcher.drain()
+
+            blinker.stop()
+            blinker.start(FlashPattern.Blink)
+            blinker.start(FlashPattern.Attention)
+            dispatcher.drain()
+
+            assertTrue(torch.isOn, "the last pattern's first flash was cut short: ${torch.switches}")
+            assertTrue(blinker.isBlinking)
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test
@@ -171,5 +226,26 @@ class TorchBlinkerTest {
     private companion object {
         const val ROUNDS: Int = 20
         const val STARTS_PER_ROUND: Int = 32
+        const val MAX_DRAIN_STEPS: Int = 10_000
+    }
+
+    /**
+     * Runs queued work newest-first, on the calling thread, when told to — the scheduling order that
+     * exposes a job overtaking the one it should have waited for.
+     */
+    private class LastInFirstOutDispatcher : CoroutineDispatcher() {
+        private val queue: ArrayDeque<Runnable> = ArrayDeque()
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            queue.addLast(block)
+        }
+
+        fun drain() {
+            repeat(MAX_DRAIN_STEPS) {
+                val next: Runnable = queue.removeLastOrNull() ?: return
+                next.run()
+            }
+            error("the dispatcher never went idle")
+        }
     }
 }

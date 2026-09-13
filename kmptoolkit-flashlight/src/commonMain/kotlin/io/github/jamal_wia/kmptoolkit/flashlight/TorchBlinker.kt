@@ -2,11 +2,14 @@ package io.github.jamal_wia.kmptoolkit.flashlight
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
@@ -21,17 +24,19 @@ import kotlin.concurrent.atomics.ExperimentalAtomicApi
  *   call lands second always sees, and cancels, the job the first one installed. With a plain field,
  *   two starts racing could both read the same old job and each install their own — leaving one loop
  *   blinking that no [stop] could reach.
- * - **A replacement does not clip its own first flash.** A cancelled loop turns the torch off in its
- *   `finally`, and that can run after the new loop has already switched it on. The new loop therefore
- *   waits for the old one to finish before its first "on".
- * - **[stop] always ends dark.** It detaches the running job and switches the torch off itself; a loop
- *   that was mid-"on" when cancelled reaches its `finally` at the next `delay` and switches it off
- *   again.
+ * - **Nothing clips a new pattern's first flash.** A cancelled loop turns the torch off in its
+ *   `finally`, and on a multi-threaded dispatcher that can run after the next loop has already
+ *   switched it on. So every job this class installs — a loop from [start], and the switch-off from
+ *   [stop] — first waits for the job it replaced to finish, and a [start] after a [stop] waits for the
+ *   stop's switch-off in turn. The wait cannot be cut short by the waiting job being replaced itself:
+ *   otherwise the job after it would stop waiting for the one still pending.
+ * - **[stop] ends dark.** It switches the torch off at once, and again once the loop it cancelled has
+ *   finished — a loop that was mid-"on" reaches its own `finally` at the next `delay`.
  *
- * The last call wins: a [stop] racing a [start] leaves the torch in whichever state the later of the
- * two asked for.
+ * The last call wins: a [stop] racing a [start] from another thread leaves the torch in whichever
+ * state the later of the two asked for.
  *
- * @param scope where the loops run. Owned by the caller; nothing here cancels it.
+ * @param scope where the jobs run. Owned by the caller; nothing here cancels it.
  * @param setTorch switches the torch. Must not throw — platform failures are swallowed by the caller.
  */
 @OptIn(ExperimentalAtomicApi::class)
@@ -40,17 +45,17 @@ internal class TorchBlinker(
     private val setTorch: (on: Boolean) -> Unit,
 ) {
 
-    private val running: AtomicReference<Job?> = AtomicReference(null)
+    /** The most recently installed job; [Phase.isLoop] tells a blink loop from a stop's switch-off. */
+    private class Phase(val job: Job, val isLoop: Boolean)
 
-    /** Whether a loop is installed and has not finished. For tests; not part of any contract. */
-    val isBlinking: Boolean get() = running.load()?.isActive == true
+    private val current: AtomicReference<Phase?> = AtomicReference(null)
+
+    /** Whether a blink loop is installed and has not finished. For tests; not part of any contract. */
+    val isBlinking: Boolean
+        get() = current.load()?.let { phase: Phase -> phase.isLoop && phase.job.isActive } == true
 
     fun start(pattern: FlashPattern) {
-        // The job cannot know what it replaced until the swap below has happened, and the swap needs
-        // the job — so the predecessor is handed over through a deferred rather than captured.
-        val predecessor: CompletableDeferred<Job?> = CompletableDeferred()
-        val next: Job = scope.launch {
-            predecessor.await()?.cancelAndJoin()
+        install(isLoop = true) {
             try {
                 while (isActive) {
                     setTorch(true)
@@ -63,13 +68,30 @@ internal class TorchBlinker(
                 setTorch(false)
             }
         }
-        val previous: Job? = running.exchange(next)
-        previous?.cancel()
-        predecessor.complete(previous)
     }
 
     fun stop() {
-        running.exchange(null)?.cancel()
         setTorch(false)
+        install(isLoop = false) { setTorch(false) }
+    }
+
+    /**
+     * Launches [body] to run once the job it replaces has finished, and makes it the current job.
+     *
+     * The job cannot know what it replaced until the swap has happened, and the swap needs the job — so
+     * the predecessor is handed over through a deferred rather than captured.
+     */
+    private fun install(isLoop: Boolean, body: suspend CoroutineScope.() -> Unit) {
+        val predecessor: CompletableDeferred<Job?> = CompletableDeferred()
+        // UNDISPATCHED so the job is inside its non-cancellable wait before this function returns. A job
+        // replaced before a dispatcher ever ran it would otherwise never start at all — and finish at
+        // once, releasing its own successor without having waited for anything.
+        val job: Job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            withContext(NonCancellable) { predecessor.await()?.cancelAndJoin() }
+            body()
+        }
+        val previous: Phase? = current.exchange(Phase(job, isLoop))
+        previous?.job?.cancel()
+        predecessor.complete(previous?.job)
     }
 }

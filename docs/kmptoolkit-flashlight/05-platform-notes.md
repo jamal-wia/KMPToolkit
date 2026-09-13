@@ -91,8 +91,10 @@ whatever the device reports right now, and a device without a back wide-angle ca
 Not just structurally identical to Android's — the same code. Both platforms hand their torch switch
 to one shared loop: a `SupervisorJob`-scoped coroutine on `Dispatchers.Default`, a `finally` that
 turns the torch off unconditionally, replaced rather than stacked on a second `start`. The running
-job is swapped atomically, and a replacing loop waits for the replaced one to finish before its first
-flash, which is what makes concurrent calls safe and keeps a replacement's first flash whole.
+job is swapped atomically, and every job — a new loop, or a stop's switch-off — first waits for the
+one it replaced to finish, without that wait being cut short if it is itself replaced. That is what
+makes concurrent calls safe and keeps a new pattern's first flash whole after either a replacement or
+a `stop`.
 
 ### `lockForConfiguration`
 

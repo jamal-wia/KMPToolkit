@@ -30,7 +30,9 @@ import kotlinx.coroutines.flow.callbackFlow
  *   `SensorManager.registerListener`. The default, 200 ms, approximates `SENSOR_DELAY_NORMAL` —
  *   roughly five samples a second, the cheapest rate the platform offers. An interval under 4 µs —
  *   zero and negative included — asks for the fastest rate (`SENSOR_DELAY_FASTEST`), and one too long
- *   to fit the platform's `Int` microseconds is capped there; see [toSamplingPeriodUs].
+ *   to fit the platform's `Int` microseconds is capped there; see [toSamplingPeriodUs]. Anything below
+ *   5 ms needs `HIGH_SAMPLING_RATE_SENSORS` on API 31+, and a debuggable app without it gets a
+ *   `SecurityException` when `observe()` is collected.
  */
 public fun createAccelerometer(
     context: Context,

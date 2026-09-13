@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.flashlight
 
+import kotlin.concurrent.Volatile
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,13 +39,21 @@ internal class IosFlashlight : Flashlight {
 
     override val isAvailable: Boolean get() = torchDevice != null
 
+    /**
+     * The torch the blink loop switches, found once per [start] rather than on every switch: a
+     * discovery session per toggle would run several times a second on a fast pattern. [stop] keeps
+     * switching the one last found, which is the torch a running pattern lit.
+     */
+    @Volatile
+    private var blinkingDevice: AVCaptureDevice? = null
+
     private val blinker: TorchBlinker = TorchBlinker(
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-        setTorch = { on: Boolean -> torchDevice?.let { device: AVCaptureDevice -> setTorch(device, on) } },
+        setTorch = { on: Boolean -> blinkingDevice?.let { device: AVCaptureDevice -> setTorch(device, on) } },
     )
 
     override fun start(pattern: FlashPattern) {
-        if (torchDevice == null) return
+        blinkingDevice = torchDevice ?: return
         blinker.start(pattern)
     }
 

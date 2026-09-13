@@ -28,10 +28,18 @@ Starting with API 31, requesting sensor data faster than 200 Hz requires
 </manifest>
 ```
 
-It is a **normal** permission — granted at install time, no runtime prompt. Without it, the
-platform silently caps delivery at 200 Hz regardless of the `samplingInterval` you request; nothing
-throws, and this module does not detect or report the cap. Only relevant if you pass a
-`samplingInterval` below 5 ms — the default (200 ms) and most reasonable use cases never approach
+It is a **normal** permission — granted at install time, no runtime prompt. What happens without it
+depends on the build, for apps targeting API 31 or higher:
+
+- **Release (non-debuggable) builds:** the platform silently caps delivery at 200 Hz regardless of
+  the `samplingInterval` you request. Nothing throws, and this module does not detect or report the
+  cap.
+- **Debuggable builds:** `SensorManager.registerListener` throws `SecurityException`, which surfaces
+  from the collection of `observe()`. The platform does this on purpose, so the missing permission is
+  found during development rather than as a silent cap in production.
+
+Only relevant if you pass a `samplingInterval` below 5 ms — including zero or a negative interval,
+which ask for the fastest rate. The default (200 ms) and most reasonable use cases never approach
 this limit.
 
 ### Should you declare `<uses-feature android:name="android.hardware.sensor.accelerometer">`?

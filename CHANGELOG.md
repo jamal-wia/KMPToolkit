@@ -17,9 +17,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   all **without** playing anything — `perform` only reports `UNAVAILABLE` after it has already
   tried, which is too late for a decision such as "does this attention cue have any way to reach the
   user". Android reads `hasVibrator()`, iOS answers `true` (UIKit cannot tell), `noOpHapticFeedback()`
-  answers `false`. The member has a default getter returning `true`, so an existing implementation
-  keeps compiling; a decorator should forward it. `RecordingHapticFeedback` gains a matching
-  `isAvailable` property and a `(result, isAvailable)` constructor. Purely additive.
+  answers `false`. The member has a default getter returning `true`, so the change is
+  binary-compatible and an existing implementation keeps compiling — unless it already declares a
+  property named `isAvailable`, which then needs `override`. A decorator should forward it. `RecordingHapticFeedback` gains a matching
+  `isAvailable` property and a `(result, isAvailable)` constructor.
 - `kmptoolkit-haptics` (Android): `HapticAttribution` and a `createHapticFeedback(context,
   attribution)` overload. `TOUCH` is what every instance did until now and remains the default;
   `NONE` plays the unattributed `vibrate(effect)`, which the user's touch-feedback switch does not
@@ -36,9 +37,11 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-flashlight`: the promise that `Flashlight` is safe to call from any thread did not
   hold. The running blink job lived in a plain field, so two `start`s racing from different threads
   could each install a loop, leaving one blinking that no `stop` could reach — a torch that never
-  goes dark. A replacing `start` could also have its first flash cut short by the replaced loop's
-  final "off". Both platforms now share one blink loop that swaps the job atomically and lets a
-  replacement wait for its predecessor to finish; nothing in the public API changes.
+  goes dark. A new pattern's first flash could also be cut short by the previous loop's final "off",
+  after either a replacing `start` or a `stop` just before it. Both platforms now share one blink loop
+  that swaps the job atomically and makes every job wait for the one it replaced to finish; nothing
+  in the public API changes. On iOS the torch is also looked up once per `start` instead of on every
+  switch.
 - `kmptoolkit-accelerometer` (iOS): two concurrent collections of one instance broke each other.
   `CMMotionManager` has a single update handler, so the second collection replaced the first one's,
   and whichever ended first called `stopAccelerometerUpdates` and silenced the other. An instance now
