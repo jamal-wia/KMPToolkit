@@ -15,8 +15,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 - `kmptoolkit-audio-player`: `AudioPlayer.unload()` frees the loaded source's native handle but keeps
   the player usable, for a player that outlives the screens borrowing it — `release()` stays the
-  permanent teardown. The member has a default body calling `stop()`, so an existing implementation
-  keeps compiling; a decorator should forward it.
+  permanent teardown. The member has a default body calling `stop()`, so the change is
+  binary-compatible and an existing implementation keeps compiling — unless it already declares a
+  `fun unload()` of its own, which then needs `override`. A decorator should forward it.
 - `kmptoolkit-scheduler` (Android): a `createAlarmScheduler(context, handlerProvider, config)`
   overload. Handlers are looked up when an alarm fires instead of being handed over at creation, so a
   handler that needs the scheduler itself no longer forms a construction cycle in a DI container.
@@ -24,7 +25,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   overload — `alertOnce` (turn it off for a reminder that must sound on every re-post), a
   `dismissAction` sent when the notification is swiped away, the media layout's collapsed button row,
   and per-action icons. Android only; iOS ignores them. The new member has a default body calling the
-  two-argument `post`, so existing implementations keep compiling; a decorator must forward it.
+  two-argument `post`, so existing implementations keep compiling (one that already declares a
+  `post(String, LocalNotification, NotificationOptions)` of its own needs `override`); a decorator
+  must forward it.
   `RecordingNotifier` records the options on `PostedNotification.options`.
 - `kmptoolkit-notification` (Android): `notificationIdOf(id)`, `buildForegroundNotification(...)` and
   `NotificationChannels.ensure` / `delete`. A foreground service starts with a notification rendered
@@ -48,10 +51,16 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   dialog, although Android would still show it. The handler now also remembers whether the user ever
   refused through the dialog (a second key, `<prefix>.rationale.<PERMISSION>`), so a dismissal reads
   `NotDetermined`. A request whose answer arrives before the activity is resumed waits for it before
-  reading the rationale, and no permanent verdict is drawn when there is no activity to ask. Stored
-  flags from earlier versions read as "never refused": a permission those versions marked asked is
-  `NotDetermined` until it is refused again. A permission missing from the manifest now also reads
-  `NotDetermined` rather than `PermanentlyDenied`.
+  reading the rationale, and no permanent verdict is drawn when there is no activity to ask.
+  Behaviour changes that follow from it:
+  - The asked flag is now written as `dialog-shown`. A flag an earlier version wrote (`true`) keeps
+    being read as those versions read it, so a permission already recorded as permanently denied
+    stays so; the fix applies once the user grants it, or on a fresh install.
+  - A permission the user refused before the app ever asked — in system settings — or one missing
+    from the manifest now reads `NotDetermined`, and `request` returns at once: without a dialog
+    Android reports no rationale, exactly as for a dismissal.
+  - `check` now writes the refusal flag the first time Android reports a rationale, once per
+    permission.
 - `kmptoolkit-audio-player`: a `prepare` that arrived while another was still loading broke both — on
   Android the first call never returned, on iOS it failed with an error that overwrote the second
   one's state. Loads are now serialized: the newer one cancels the older, waits for it to unwind, and
@@ -66,13 +75,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-audio-recorder`: cancelling `prepare` while its storage checks were pending left the
   recorder in `Preparing`, from which nothing — `prepare` included — was legal again. A `stop` or
   `cancel` whose caller was cancelled mid-way left the state `Recording` over a stopped engine; both
-  now finish before the cancellation reaches the caller.
+  now run to completion; the caller observes its cancellation afterwards.
 - `kmptoolkit-scheduler` (Android): `schedule` threw when `AlarmManager` refused an alarm — Android 12+
   caps an app at 500 — despite promising never to throw for a platform refusal. It now returns
   `Failed(PlatformError)`.
 - `kmptoolkit-notification`: a progress update whose title, body or buttons changed was coalesced
-  like any other frame in the same bucket, leaving stale text on screen. Only frames that differ in
-  nothing but the percentage are coalesced now.
+  like any other frame in the same bucket, leaving stale text on screen until the bar crossed into
+  the next one. The bucket now holds back only frames that differ in nothing but the percentage; the
+  rate limit (`minProgressInterval`) still applies to every determinate frame.
 - `kmptoolkit-notification` (Android): below API 33 a post consulted the `PermissionHandler` for
   `POST_NOTIFICATIONS`, which does not exist there, so a handler answering "denied" silenced every
   notification on older devices. The check is skipped below 33.

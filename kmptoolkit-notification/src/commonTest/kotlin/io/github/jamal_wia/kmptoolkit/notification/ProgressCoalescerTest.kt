@@ -290,12 +290,17 @@ class ProgressCoalescerTest {
     }
 
     @Test
-    fun `a frame whose content changed posts even before the interval elapsed`() {
+    fun `a frame whose content changed is still held to the rate limit`() {
+        // A body carrying the percentage changes on every step; bypassing the rate as well as the
+        // bucket for it would switch coalescing off for the notifications that need it most.
         val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
-        coalescer.shouldPost("a", NotificationProgress.Determinate(40), content = "Downloading")
+        coalescer.shouldPost("a", NotificationProgress.Determinate(40), content = "40%")
         time += 100.milliseconds
 
-        assertTrue(coalescer.shouldPost("a", NotificationProgress.Determinate(60), content = "Retrying"))
+        assertFalse(coalescer.shouldPost("a", NotificationProgress.Determinate(41), content = "41%"))
+
+        time += 400.milliseconds
+        assertTrue(coalescer.shouldPost("a", NotificationProgress.Determinate(42), content = "42%"))
     }
 
     @Test

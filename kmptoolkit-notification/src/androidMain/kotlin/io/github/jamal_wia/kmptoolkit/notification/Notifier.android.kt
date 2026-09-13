@@ -117,7 +117,7 @@ internal class AndroidNotifier(
         if (!notificationManager.areNotificationsEnabled()) {
             return NotificationResult.NotificationsDisabled
         }
-        // Everything but the percentage: a frame that changes any of it is never redundant.
+        // Everything but the percentage: a frame that changes any of it is not held back by the bucket.
         val content = CoalescingKey(notification.copy(progress = null), options)
         // Asked here, acted on at the end: knowing the frame is redundant lets the channel *write*
         // be skipped, and a write cannot change any result. Every gate still runs, so a suppressed

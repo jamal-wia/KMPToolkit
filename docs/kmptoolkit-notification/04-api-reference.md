@@ -44,8 +44,9 @@ result names the first reason the user would not have seen the notification. A c
 hides a real failure. On Android below API 33 the permission check is skipped: there is no
 `POST_NOTIFICATIONS` to lack, whatever the `PermissionHandler` answers.
 
-**Coalescing** compares only the progress: a post whose notification or options differ in anything
-else from the frame showing is never coalesced.
+**Coalescing:** the bucket applies only to frames that differ from the one showing in nothing but the
+percentage; a changed title, body, button set or options bypasses it. The rate limit
+(`minProgressInterval`) applies to every determinate frame, changed or not.
 
 ## Factories
 
@@ -102,7 +103,8 @@ public object NotificationChannels {
 - **`buildForegroundNotification`** — renders `notification` exactly as `post` would (channel
   mapping, buttons, dismissal, tap target, options) without posting it, forcing `ongoing`, after
   creating its channel. Runs no permission, toggle or channel-block gate. Pass the `config` your
-  notifier uses so the button broadcasts match. Throws `IllegalArgumentException` on a blank `id`.
+  notifier uses so the button broadcasts match. Throws `IllegalArgumentException` on a blank `id` or
+  a small icon that does not resolve.
 - **`NotificationChannels.ensure`** — creates the channel, or updates an existing one's name and
   description; importance and sound of an existing channel stay the user's. No-op below API 26.
 - **`NotificationChannels.delete`** — deletes the channel and its notifications. No-op below API 26

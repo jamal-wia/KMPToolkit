@@ -92,7 +92,9 @@ class FusedLocationProvider(
     override suspend fun getCurrentLocation(): GeoCoordinates? = try {
         client.lastLocation.await()?.toCoordinates() ?: freshFix()
     } catch (_: SecurityException) {
-        null
+        null                           // no location permission
+    } catch (_: ApiException) {
+        null                           // Play Services missing, outdated or unavailable on this device
     }
 
     @SuppressLint("MissingPermission")
@@ -171,8 +173,9 @@ same rules apply.)
 The rules the recipe encodes, each of which is part of the `LocationProvider` contract and not a
 matter of taste:
 
-- **Nothing throws.** A missing permission surfaces from Fused as `SecurityException`; turn it into
-  `null`, exactly as this module's own providers do. `SettingsClient` failures that are not
+- **Nothing throws.** A missing permission surfaces from Fused as `SecurityException`, and a device
+  without a usable Play Services as a failed task (`ApiException`, thrown by `await()`); turn both
+  into `null`, exactly as this module's own providers do. `SettingsClient` failures that are not
   resolvable are `UNSUPPORTED`, not exceptions.
 - **Cancellation stops the platform work.** `getCurrentLocation(priority, null)` keeps a request
   running after the caller is gone; pass a `CancellationTokenSource` and cancel it.

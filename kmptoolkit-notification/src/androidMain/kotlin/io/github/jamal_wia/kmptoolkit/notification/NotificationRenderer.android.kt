@@ -126,12 +126,14 @@ internal class NotificationRenderer(
     /**
      * The broadcast sent when the notification is swiped away: the same broadcast a button for
      * [action] sends, so one receiver answers both, under a request code of its own so it never
-     * collapses onto that button's `PendingIntent`.
+     * collapses onto that button's `PendingIntent`. The key is joined with a NUL rather than the
+     * button key's `:`, so no pair of ids a caller could choose — an action called `dismiss:stop`,
+     * say — yields the button key of another action.
      */
     private fun dismissPendingIntent(id: String, action: NotificationAction): PendingIntent =
         PendingIntent.getBroadcast(
             context,
-            "$id:dismiss:${action.id}".hashCode(),
+            "$id\u0000dismiss\u0000${action.id}".hashCode(),
             actionBroadcast(id, action),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

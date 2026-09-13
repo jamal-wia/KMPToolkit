@@ -16,7 +16,7 @@ kotlin {
 ```
 
 It ships as a separate artifact so it never reaches your app's runtime classpath — see
-[`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate-testing-artifacts).
+[`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate--testing-artifacts).
 
 ## `RecordingPermissionHandler`
 

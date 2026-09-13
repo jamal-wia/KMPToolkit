@@ -180,6 +180,67 @@ class AudioPlayerReuseTest {
     }
 
     @Test
+    fun `a prepare right after unload waits for the abandoned load to unwind`() = runTest {
+        val engine = RecordingPlaybackEngine().apply {
+            loadDelayMs = 1_000L
+            unwindDelayMs = 500L
+        }
+        val player: AudioPlayer = newPlayer(engine)
+
+        launch { player.prepare(first) }
+        runCurrent()
+        player.unload()
+        launch { player.prepare(second) }
+        advanceUntilIdle()
+
+        assertEquals(1, engine.maxConcurrentLoads)
+        assertEquals(PlayerState.Ready(10_000L), player.stateFlow.value)
+    }
+
+    @Test
+    fun `a prepare cancelled while waiting for the load it replaced does not free the engine under it`() = runTest {
+        val engine = RecordingPlaybackEngine().apply {
+            loadDelayMs = 1_000L
+            unwindDelayMs = 500L
+        }
+        val player: AudioPlayer = newPlayer(engine)
+
+        launch { player.prepare(first) }
+        runCurrent()
+        val waiting: Job = launch { player.prepare(second) }
+        runCurrent()
+        waiting.cancel()
+        runCurrent()
+        val releasesWhileUnwinding: Int = engine.releaseCount
+        launch { player.prepare(third) }
+        advanceUntilIdle()
+
+        assertEquals(1, engine.maxConcurrentLoads)
+        assertEquals(0, releasesWhileUnwinding, "the engine was freed while the first load was still unwinding")
+        assertEquals(PlayerState.Ready(10_000L), player.stateFlow.value)
+    }
+
+    @Test
+    fun `release during an unwinding load frees the engine only once it has unwound`() = runTest {
+        val engine = RecordingPlaybackEngine().apply {
+            loadDelayMs = 1_000L
+            unwindDelayMs = 500L
+        }
+        val player: AudioPlayer = newPlayer(engine)
+
+        launch { player.prepare(first) }
+        runCurrent()
+        player.release()
+        runCurrent()
+        assertEquals(0, engine.releaseCount)
+
+        advanceUntilIdle()
+
+        assertEquals(1, engine.releaseCount)
+        assertEquals(PlayerState.Idle, player.stateFlow.value)
+    }
+
+    @Test
     fun `a failure in a replaced load does not overwrite the replacing one`() = runTest {
         val engine = RecordingPlaybackEngine().apply {
             loadDelayMs = 1_000L

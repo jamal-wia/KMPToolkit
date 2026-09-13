@@ -103,7 +103,7 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
   and its distinct `PendingIntent`s, and the tap target's extras and flags.
 - `AndroidNotificationOptionsTest` — each `NotificationOptions` field on a real notification
   (`FLAG_ONLY_ALERT_ONCE`, the delete intent and its separate `PendingIntent`, the media template and
-  its compact actions, per-action icons), that a frame with changed content is never coalesced, and
+  its compact actions, per-action icons), that a frame with changed content is not held back by the bucket, and
   the Android helpers: `notificationIdOf` matching the posted id, a foreground notification that is
   ongoing, creates its channel, posts nothing and carries the same broadcasts as a post, and channel
   creation and deletion ahead of any post.

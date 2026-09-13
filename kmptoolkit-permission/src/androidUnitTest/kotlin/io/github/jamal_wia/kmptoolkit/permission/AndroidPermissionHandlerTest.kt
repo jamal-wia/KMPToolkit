@@ -117,8 +117,9 @@ class AndroidPermissionHandlerTest {
     /** Whether the handler under test waited for an activity; flips the rationale the stub answers. */
     private var waitedForActivity: Boolean = false
 
+    /** An asked flag as this version writes it. */
     private fun markAsked(permission: Permission) {
-        storage.put(askedKey("test", permission), "true")
+        storage.put(askedKey("test", permission), ASKED_BY_THIS_VERSION)
     }
 
     /** The state a real refusal through the dialog leaves: asked, and a rationale was once shown. */
@@ -174,12 +175,30 @@ class AndroidPermissionHandlerTest {
 
     @Test
     fun `a permission asked for but never refused is not determined`() = runTest {
-        // Also the state an app upgraded from a version that stored only the asked flag reads as:
-        // not permanent, so the next request shows the dialog if Android still would.
         deny(Manifest.permission.CAMERA)
         markAsked(Permission.CAMERA)
 
         assertEquals(PermissionStatus.NotDetermined, handler().check(Permission.CAMERA))
+    }
+
+    @Test
+    fun `an asked flag written before refusals were recorded still reads as permanently denied`() = runTest {
+        // 1.3.x wrote "true" and nothing else. Its users who refused for good must not turn into a
+        // request that returns at once forever, which is all Android offers a permanent refusal.
+        deny(Manifest.permission.CAMERA)
+        storage.put(askedKey("test", Permission.CAMERA), "true")
+
+        assertEquals(PermissionStatus.PermanentlyDenied, handler().check(Permission.CAMERA))
+    }
+
+    @Test
+    fun `a legacy asked flag is not rewritten by a later request`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        storage.put(askedKey("test", Permission.CAMERA), "true")
+
+        handler(host = StubHost(granted = false), shouldShowRationale = true).request(Permission.CAMERA)
+
+        assertEquals("true", askedFlag(Permission.CAMERA))
     }
 
     @Test
@@ -394,7 +413,7 @@ class AndroidPermissionHandlerTest {
             handler(host = host, shouldShowRationale = true).request(Permission.CAMERA)
 
         assertEquals(PermissionStatus.Denied(shouldShowRationale = true), status)
-        assertEquals("true", askedFlag(Permission.CAMERA))
+        assertEquals(ASKED_BY_THIS_VERSION, askedFlag(Permission.CAMERA))
     }
 
     @Test
@@ -409,7 +428,7 @@ class AndroidPermissionHandlerTest {
             handler(host = host, shouldShowRationale = false).request(Permission.CAMERA)
 
         assertEquals(PermissionStatus.NotDetermined, status)
-        assertEquals("true", askedFlag(Permission.CAMERA))
+        assertEquals(ASKED_BY_THIS_VERSION, askedFlag(Permission.CAMERA))
     }
 
     @Test
@@ -506,7 +525,7 @@ class AndroidPermissionHandlerTest {
         handler(host = StubHost(granted = false), keyPrefix = "com.example.custom")
             .request(Permission.CAMERA)
 
-        assertEquals("true", askedFlag(Permission.CAMERA, keyPrefix = "com.example.custom"))
+        assertEquals(ASKED_BY_THIS_VERSION, askedFlag(Permission.CAMERA, keyPrefix = "com.example.custom"))
         assertNull(askedFlag(Permission.CAMERA))
     }
 
@@ -522,7 +541,7 @@ class AndroidPermissionHandlerTest {
         handler.request(Permission.CAMERA)
 
         assertEquals(
-            "true",
+            ASKED_BY_THIS_VERSION,
             storage.getStringOrNull("${context.packageName}.kmptoolkit.permission.asked.CAMERA"),
         )
     }
@@ -551,5 +570,10 @@ class AndroidPermissionHandlerTest {
     @Test
     fun `a settings screen the platform refuses is reported as false`() {
         assertFalse(handler(settings = { false }).openAppSettings())
+    }
+
+    private companion object {
+        /** The value 1.4.0 writes under the asked key; 1.3.x wrote "true". */
+        const val ASKED_BY_THIS_VERSION = "dialog-shown"
     }
 }

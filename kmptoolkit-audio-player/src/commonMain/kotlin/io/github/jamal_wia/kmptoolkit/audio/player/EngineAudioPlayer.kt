@@ -5,6 +5,7 @@ import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
@@ -118,8 +119,9 @@ private class EngineAudioPlayer(
         // A child of the caller's job, so the caller's cancellation still reaches the engine, and a
         // handle of our own, so a later prepare/unload/release can cancel just this load.
         val load = Load(Job(parent = currentCoroutineContext()[Job]))
+        val previous: Load? = currentLoad.exchange(load)
         try {
-            currentLoad.exchange(load)?.let { previous: Load ->
+            previous?.let {
                 previous.job.cancel()
                 previous.finished.join()
             }
@@ -127,14 +129,14 @@ private class EngineAudioPlayer(
 
             stopPositionUpdates()
             _playbackPositionFlow.value = 0L
-            _stateFlow.value = PlayerState.Preparing
+            writeUnlessReleased(PlayerState.Preparing)
 
             // The failure comes back as a value rather than being thrown out of withContext: an
             // exception crossing that boundary may be replaced by a stack-trace-recovered copy, and
             // PlayerState.Error promises the engine's own Throwable.
             val failure: Throwable? = withContext(load.job) { loadCatching(source) }
             if (failure != null) {
-                if (isCurrent(load)) _stateFlow.value = PlayerState.Error(failure)
+                if (isCurrent(load)) writeUnlessReleased(PlayerState.Error(failure))
                 return
             }
         } catch (cancellation: CancellationException) {
@@ -148,9 +150,16 @@ private class EngineAudioPlayer(
             // The caller went away. A cancelled prepare must not leave a half-loaded engine
             // reachable: drop whatever it got to, report Idle rather than Error (nobody failed), and
             // let the cancellation propagate so structured concurrency still works.
-            currentLoad.compareAndSet(load, null)
-            engine.release()
-            if (!released) _stateFlow.value = PlayerState.Idle
+            //
+            // The caller may have been cancelled while still waiting for the load it replaced, which
+            // is then still unwinding on the engine: releasing now would tear into it. Wait for it
+            // first, and release only if nothing newer took over meanwhile. This load stays current
+            // until its finally, so a prepare arriving meanwhile waits for all of it.
+            withContext(NonCancellable) { previous?.finished?.join() }
+            if (currentLoad.load() === load) {
+                engine.release()
+                if (!released) _stateFlow.value = PlayerState.Idle
+            }
             throw cancellation
         } finally {
             load.job.complete()
@@ -159,7 +168,7 @@ private class EngineAudioPlayer(
 
         if (!isCurrent(load)) return
         engine.setSpeed(playbackSpeed)
-        _stateFlow.value = PlayerState.Ready(engine.durationMs())
+        writeUnlessReleased(PlayerState.Ready(engine.durationMs()))
     }
 
     override fun play() {
@@ -253,10 +262,8 @@ private class EngineAudioPlayer(
 
     override fun unload() {
         if (released) return
-        currentLoad.exchange(null)?.job?.cancel()
-
+        abandonLoad()
         stopPositionUpdates()
-        engine.release()
 
         _stateFlow.value = PlayerState.Idle
         _playbackPositionFlow.value = 0L
@@ -266,11 +273,10 @@ private class EngineAudioPlayer(
         if (released) return
         released = true
 
-        currentLoad.exchange(null)?.job?.cancel()
         stopPositionUpdates()
         scope.cancel()
         engine.setListener(null)
-        engine.release()
+        abandonLoad()
 
         _stateFlow.value = PlayerState.Idle
         _playbackPositionFlow.value = 0L
@@ -304,6 +310,36 @@ private class EngineAudioPlayer(
         // of PlayerState.Error is to hand that Throwable to the consumer unchanged instead of
         // guessing which platform types are worth catching.
         failure
+    }
+
+    /**
+     * Ends whatever load is current and frees the engine — but only once that load has finished
+     * unwinding, since freeing the engine under a load that is still running on it is exactly the
+     * interleaving this class exists to rule out.
+     *
+     * The load is replaced by an already-cancelled placeholder whose [Load.finished] completes after
+     * the engine is freed, so a [prepare] arriving in the meantime still waits for all of it. Swapping
+     * in `null` instead would let that prepare start while the abandoned load was still unwinding.
+     */
+    private fun abandonLoad() {
+        val placeholder = Load(Job().apply { cancel() })
+        val abandoned: Load? = currentLoad.exchange(placeholder)
+        abandoned?.job?.cancel()
+        val freeEngine: (Throwable?) -> Unit = {
+            engine.release()
+            placeholder.finished.complete()
+        }
+        val unwinding: Job? = abandoned?.finished?.takeUnless { it.isCompleted }
+        if (unwinding == null) freeEngine(null) else unwinding.invokeOnCompletion(freeEngine)
+    }
+
+    /**
+     * Writes [state], then undoes it if [release] landed in between: release may run on another
+     * thread, and a released player's state is [PlayerState.Idle] for good.
+     */
+    private fun writeUnlessReleased(state: PlayerState) {
+        _stateFlow.value = state
+        if (released) _stateFlow.value = PlayerState.Idle
     }
 
     private fun isCurrent(load: Load): Boolean = !released && currentLoad.load() === load

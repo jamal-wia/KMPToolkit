@@ -34,7 +34,7 @@ public val PermissionStatus.canPrompt: Boolean
 | `Denied(shouldShowRationale = true)` | refused, another dialog is possible | after the first refusal | never |
 | `Denied(shouldShowRationale = false)` | refused, no rationale asked for | rare; a device that reports no rationale mid-flow | never |
 | `PermanentlyDenied` | no dialog will appear again | second refusal ("Don't allow" twice on Android 11+, "Don't ask again" before it); a dismissed dialog is not a refusal | any refusal; also restricted by MDM or parental controls |
-| `NotDetermined` | never asked | never asked | never asked |
+| `NotDetermined` | the next request shows a dialog, as far as the app can tell | never asked; also a dialog the user dismissed, and — indistinguishably — a permission refused in settings before the app asked or missing from the manifest, for which the request returns at once | never asked |
 
 `isGranted` is `true` only for `Granted`. `canPrompt` is `true` for `NotDetermined` and `Denied` —
 the two cases where requesting would put a dialog on screen.

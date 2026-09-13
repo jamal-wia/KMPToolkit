@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -99,6 +100,23 @@ class PermissionHandlerActivityAccessTest {
         val status: PermissionStatus = handler.request(Permission.CAMERA)
 
         assertEquals(PermissionStatus.Denied(shouldShowRationale = false), status)
+        assertEquals(0, access.listenerCount)
+    }
+
+    @Test
+    fun `a request cancelled while waiting for the activity leaves no listener behind`() = runTest {
+        shadowOf(application).denyPermissions(Manifest.permission.CAMERA)
+        val access = ScriptedActivityAccess(activity)
+        val handler: PermissionHandler =
+            createPermissionHandler(application, refusingHost(access), InMemoryKeyValueStorage(), access)
+
+        val requesting = launch { handler.request(Permission.CAMERA) }
+        runCurrent()
+        assertEquals(1, access.listenerCount, "the request should be waiting for the activity")
+
+        requesting.cancel()
+        requesting.join()
+
         assertEquals(0, access.listenerCount)
     }
 

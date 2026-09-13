@@ -111,12 +111,15 @@ internal class AndroidAlarmScheduler(
             ?: return AlarmScheduleResult.Failed(AlarmFailure.SchedulerUnavailable)
         return try {
             arm(manager, alarm)
-        } catch (failure: RuntimeException) {
+        } catch (refusal: IllegalStateException) {
             // AlarmManager refuses in ways a caller cannot prevent: since Android 12 an app holding
             // too many alarms at once (the limit is 500) gets an IllegalStateException from every
             // set call, inexact ones included. "Never throws for a platform refusal" is the contract,
             // so the refusal becomes a result the caller can act on instead of a crash.
-            AlarmScheduleResult.Failed(AlarmFailure.PlatformError(failure.message))
+            AlarmScheduleResult.Failed(AlarmFailure.PlatformError(refusal.message))
+        } catch (refusal: SecurityException) {
+            // The exact path already downgrades on this; the inexact one has nothing to fall back to.
+            AlarmScheduleResult.Failed(AlarmFailure.PlatformError(refusal.message))
         }
     }
 

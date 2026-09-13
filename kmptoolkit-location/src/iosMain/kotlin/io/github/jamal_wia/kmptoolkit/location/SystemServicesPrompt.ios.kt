@@ -60,27 +60,29 @@ internal class SystemServicesPromptLocationProvider(
  * Starts a one-shot request on a `CLLocationManager` whose only purpose is the alert iOS raises in
  * front of it.
  *
- * The manager and its delegate are held until the request finishes one way or the other — ARC would
- * otherwise collect them while the alert is still up — and one at a time is enough: a second prompt
- * can only follow the first being answered or dismissed, and starting it replaces the first.
+ * Every manager and its delegate are held until their request finishes one way or the other — ARC
+ * would otherwise collect them while the alert is still up. `CLLocationManager.delegate` is a weak
+ * reference, so the set below is the only thing keeping a delegate alive; a second prompt started
+ * before the first finished adds to it rather than replacing the first. Touched on the main queue
+ * only.
  */
 private class CoreLocationServicesAlert : ServicesAlert {
 
-    private var pending: DiscardingDelegate? = null
+    private val pending: MutableSet<DiscardingDelegate> = mutableSetOf()
 
     override suspend fun raise() {
         withContext(Dispatchers.Main) {
             // Created and started on the main queue, like every manager in this module: CoreLocation
             // delivers callbacks on the run loop of the thread that created the manager.
             val delegate = DiscardingDelegate(onFinished = { finished: DiscardingDelegate ->
-                if (pending === finished) pending = null
+                pending -= finished
             })
             val manager = CLLocationManager().apply {
                 desiredAccuracy = kCLLocationAccuracyHundredMeters
                 this.delegate = delegate
             }
             delegate.manager = manager
-            pending = delegate
+            pending += delegate
             manager.requestLocation()
         }
     }

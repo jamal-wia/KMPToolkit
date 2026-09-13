@@ -152,7 +152,8 @@ class AndroidNotificationOptionsTest {
 
     @Test
     fun `a progress frame whose title changed is posted inside the same bucket`() = runTest {
-        val coalescing: Notifier = createNotifier(context, permissions, NotificationConfig())
+        val coalescing: Notifier =
+            createNotifier(context, permissions, NotificationConfig(minProgressInterval = Duration.ZERO))
 
         coalescing.post("download", notification(title = "Page 1", progress = NotificationProgress.Determinate(40)))
         val result: NotificationResult =
@@ -164,7 +165,8 @@ class AndroidNotificationOptionsTest {
 
     @Test
     fun `an unchanged progress frame inside the same bucket is still coalesced`() = runTest {
-        val coalescing: Notifier = createNotifier(context, permissions, NotificationConfig())
+        val coalescing: Notifier =
+            createNotifier(context, permissions, NotificationConfig(minProgressInterval = Duration.ZERO))
 
         coalescing.post("download", notification(progress = NotificationProgress.Determinate(40)))
         val result: NotificationResult =
@@ -213,6 +215,33 @@ class AndroidNotificationOptionsTest {
             shadowOf(requireNotNull(built.deleteIntent)).requestCode,
         )
         assertEquals("adhan", NotificationActionIntent.notificationId(shadowOf(built.actions[0].actionIntent).savedIntent))
+    }
+
+    @Test
+    fun `a foreground notification with an icon that does not resolve is rejected up front`() {
+        val broken: LocalNotification = notification().copy(icon = NotificationIcon.AndroidDrawable(0x7f_ff_ff_ff))
+
+        assertFailsWith<IllegalArgumentException> {
+            buildForegroundNotification(context, "playback", broken, config)
+        }
+    }
+
+    @Test
+    fun `an action whose id looks like a dismissal key keeps a pending intent of its own`() = runTest {
+        // "adhan:dismiss:stop" is the key a naive join would give both this button and the
+        // dismissal of "stop" on "adhan".
+        val lookalike = NotificationAction("dismiss:stop", "Lookalike")
+        notifier().post(
+            "adhan",
+            notification(actions = listOf(lookalike)),
+            NotificationOptions(dismissAction = stop),
+        )
+
+        val posted: Notification = shown.single()
+        assertNotEquals(
+            shadowOf(posted.actions[0].actionIntent).requestCode,
+            shadowOf(requireNotNull(posted.deleteIntent)).requestCode,
+        )
     }
 
     @Test

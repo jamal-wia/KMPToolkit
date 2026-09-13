@@ -29,10 +29,12 @@ import kotlin.time.TimeSource
  * Either way the id's state is then reset, so the next run starts fresh rather than measuring
  * against a stale bucket.
  *
- * And a frame is only ever redundant **with respect to the frame it would replace**: an update whose
- * content differs in anything but the percentage — a new title, a different set of buttons — posts,
- * limits or not. Coalescing exists to drop frames the user could not tell apart; dropping one that
- * says something new would leave the notification showing stale text until the next bucket.
+ * The bucket only judges frames that differ in nothing but the percentage. An update whose content
+ * changed — a new title, a body with a new figure in it, different buttons — is not held back by the
+ * bucket, because dropping it would leave stale text on screen until the bar next crossed a bucket.
+ * The **rate limit still applies** to it: a body that carries the percentage changes on every step,
+ * and letting content changes bypass the rate as well would turn coalescing off for exactly the
+ * notifications that need it most.
  *
  * **Thread-safe.** Notifications get posted from whatever thread finished a chunk of work, so the
  * state is guarded internally rather than by a note in the documentation.
@@ -57,8 +59,8 @@ internal class ProgressCoalescer(
      * Calling this **records** the decision: a `true` becomes the baseline the next call is
      * measured against, so call it exactly once per attempted post and honour the answer.
      *
-     * @param content everything about the post other than [progress], compared by equality. A
-     *   change in it always posts. `null` compares equal to `null`.
+     * @param content everything about the post other than [progress], compared by equality. A change
+     *   in it bypasses the bucket but not the rate limit. `null` compares equal to `null`.
      */
     fun shouldPost(
         id: String,
@@ -96,9 +98,9 @@ internal class ProgressCoalescer(
         if (percent == NotificationConfig.MAX_PERCENT) return Decision.Reset
         val bucket: Int = (percent / bucketPercent) * bucketPercent
         val previous: Post = posted[id] ?: return Decision.Record(bucket)
-        if (previous.content != content) return Decision.Record(bucket)
-        val tooSoon: Boolean = previous.at.elapsedNow() < minInterval
-        return if (previous.bucket == bucket || tooSoon) Decision.Suppress else Decision.Record(bucket)
+        if (previous.at.elapsedNow() < minInterval) return Decision.Suppress
+        val redundant: Boolean = previous.bucket == bucket && previous.content == content
+        return if (redundant) Decision.Suppress else Decision.Record(bucket)
     }
 
     /** Forgets [id]'s state, so its next determinate update posts. Called when it is cancelled. */
@@ -112,7 +114,7 @@ internal class ProgressCoalescer(
     /** What [decide] concluded, kept separate from acting on it so it can also be asked about. */
     private sealed interface Decision {
 
-        /** Redundant: same content, and the bar would not move or the rate limit has not elapsed. */
+        /** Too soon after the last post, or the same content with the bar in the same bucket. */
         data object Suppress : Decision
 
         /** Always posts and clears the id's state — a terminal or non-determinate frame. */

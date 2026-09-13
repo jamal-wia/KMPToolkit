@@ -163,7 +163,7 @@ public interface AudioRecorder {
      * work runs on the factory's `coroutineContext`, not on the caller's thread.
      *
      * Cancelling the calling coroutine does not abandon it half-way: the stop runs to the end, the
-     * state settles, and only then does the `CancellationException` reach the caller.
+     * state settles; the caller observes its cancellation no later than its next suspension point.
      *
      * @return the finished file and how long it ran.
      */

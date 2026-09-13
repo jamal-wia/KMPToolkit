@@ -53,7 +53,9 @@ public fun notificationIdOf(id: String): Int {
  * @param config the same [NotificationConfig] your [Notifier] was created with, so the button
  *   broadcasts match.
  * @param options presentation; see [NotificationOptions].
- * @throws IllegalArgumentException if [id] is blank.
+ * @throws IllegalArgumentException if [id] is blank, or if [notification]'s small icon does not
+ *   resolve to a resource — `startForeground` would otherwise crash the service with a far less
+ *   telling error.
  * @since 1.4.0
  */
 public fun buildForegroundNotification(
@@ -66,14 +68,20 @@ public fun buildForegroundNotification(
     requireValidNotificationId(id)
     val appContext: Context = context.applicationContext
     val renderer = NotificationRenderer(appContext, config.resolveBroadcastAction(appContext.packageName))
+    val iconResId: Int = renderer.smallIconRes(notification.icon)
+    require(renderer.isResolvable(iconResId)) {
+        "Notification icon resource 0x${iconResId.toString(HEX_RADIX)} does not resolve; startForeground would crash on it."
+    }
     NotificationChannels.ensure(appContext, notification.channel)
     return renderer.build(
         id = id,
         notification = notification.copy(ongoing = true),
         options = options,
-        iconResId = renderer.smallIconRes(notification.icon),
+        iconResId = iconResId,
     )
 }
+
+private const val HEX_RADIX: Int = 16
 
 /**
  * Creates and retires Android notification channels ahead of any post.

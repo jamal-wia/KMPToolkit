@@ -106,7 +106,8 @@ internal class DefaultAudioRecorder(
             // Nothing is open yet, so there is nothing to undo — but Preparing must not outlive the
             // call: every operation, prepare included, is illegal from it, so a recorder left there
             // could never be used again.
-            _state.value = RecorderState.Idle
+            // Released is terminal: a release() that landed meanwhile keeps its state.
+            if (!released) _state.value = RecorderState.Idle
             throw cancellation
         }
         storageError?.let { error -> return fail(error) }
@@ -118,7 +119,8 @@ internal class DefaultAudioRecorder(
             // Leave nothing half-open behind: the caller's coroutine is going away, and a native
             // recorder holding the microphone plus a zero-byte file would outlive it.
             undoPreparation(path)
-            _state.value = RecorderState.Idle
+            // Released is terminal: a release() that landed meanwhile keeps its state.
+            if (!released) _state.value = RecorderState.Idle
             throw cancellation
         }
         prepareFailure?.let { failure ->
@@ -218,7 +220,8 @@ internal class DefaultAudioRecorder(
         // engine that may already have stopped. NonCancellable is applied around the whole tail, on
         // the caller's own dispatcher, and not just around the hop to the worker: a coroutine
         // cancelled while the hop ran is not resumed after it, so a state update placed after a
-        // non-cancellable hop would still be skipped. The caller then sees its cancellation.
+        // non-cancellable hop would still be skipped. The caller observes its cancellation at its next
+        // suspension point at the latest.
         return withContext(NonCancellable) { finishStop(path) }
     }
 
@@ -235,7 +238,8 @@ internal class DefaultAudioRecorder(
 
         engine.release()
         val recording = RecordedFile(path = path, duration = _elapsed.value)
-        _state.value = RecorderState.Completed(recording)
+        // A release() that landed while the container was being finalized keeps its terminal state.
+        if (!released) _state.value = RecorderState.Completed(recording)
         return RecorderResult.Success(recording)
     }
 
@@ -260,7 +264,7 @@ internal class DefaultAudioRecorder(
                 fileSystem.delete(path)
             }
             resetTiming()
-            _state.value = RecorderState.Idle
+            if (!released) _state.value = RecorderState.Idle
         }
         return SUCCESS
     }

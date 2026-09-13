@@ -182,6 +182,27 @@ class AlarmReceiverTest {
     }
 
     @Test
+    fun `a provider that throws drops the alarm instead of crashing`() {
+        var asked = 0
+        createAlarmScheduler(context, handlerProvider = {
+            asked++
+            error("Koin has not been started")
+        })
+        val drained = CountDownLatch(1)
+        // Give the dispatch coroutine a chance to run; an escaping exception would crash this thread's
+        // default handler and fail the run.
+        Thread.setDefaultUncaughtExceptionHandler { _, _ -> drained.countDown() }
+        try {
+            AlarmReceiver().onReceive(context, AlarmIntents.toIntent(context, alarm(), keys()))
+
+            assertFalse(drained.await(SETTLE_MILLIS, TimeUnit.MILLISECONDS), "the provider's exception escaped")
+            assertEquals(1, asked)
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(null)
+        }
+    }
+
+    @Test
     fun `a provider that returns no handler for the type drops the alarm`() {
         val reminder = RecordingHandler("REMINDER")
         createAlarmScheduler(context, handlerProvider = { listOf(reminder) })

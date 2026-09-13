@@ -147,7 +147,8 @@ Suspending: finalizing the container is the slowest call in the module, and it r
 factory's `coroutineContext`.
 
 Not abandoned by cancellation: if the calling coroutine is cancelled, the stop still runs to the end
-and `state` becomes `Completed` (or `Failed`), then `CancellationException` reaches the caller. A
+and `state` becomes `Completed` (or `Failed`); the caller observes its cancellation no later than its
+next suspension point. A
 half-finished stop would leave `state` saying `Recording` over an engine that had already stopped.
 
 On engine failure `state` becomes `Failed(error, outputPath)` and **the partial file is kept** — a
@@ -162,8 +163,8 @@ resets `elapsed`. Illegal from `Completed` on purpose: a finished recording is y
 delete.
 
 Suspending: it deletes a file, and the deletion runs on the factory's `coroutineContext`. Like
-`stop`, it is not abandoned by cancellation — it finishes, reaches `Idle`, and then the
-`CancellationException` reaches the caller.
+`stop`, it is not abandoned by cancellation — it finishes and reaches `Idle`; the caller observes its
+cancellation no later than its next suspension point.
 
 Best-effort by design — an engine that throws while being stopped does not prevent the deletion or
 the return to `Idle`, and this still returns `Success`.

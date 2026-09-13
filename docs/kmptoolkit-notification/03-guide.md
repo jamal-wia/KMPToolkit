@@ -100,10 +100,12 @@ Both then reset the id's state, so the next run starts fresh. That is what makes
 frame with `progress = null`" safe rather than a rule you have to remember — but posting the final
 frame *with* a percentage is safe too, because 100 is never suppressed.
 
-**A frame that says something new is never coalesced.** The limits only drop frames the user could
-not tell apart: an update whose title, body, buttons or options differ from the frame showing is
-posted even inside the same bucket and before the interval — "Downloading page 2" replaces "page 1"
-at once. Only the percentage is compared against the limits.
+**A frame that says something new is not held back by the bucket.** An update whose title, body,
+buttons or options differ from the frame showing is posted even inside the same bucket — "Downloading
+page 2" replaces "page 1" without waiting for the bar to move. The rate limit still applies to it, so a
+body that repeats the percentage (as in the example above) is posted at most every
+`minProgressInterval`, not on every step. Keep posting as progress arrives: the next frame after the
+interval carries the latest text.
 
 **Do not build your own throttle on top.** A caller that only posts every 5% just gets a coarser bar;
 the module is already bounding the rate.
@@ -253,7 +255,11 @@ notifier.post("playback", nowPlaying.copy(body = nextTrack), options)
 
 Pass the same `NotificationConfig` the notifier was created with — its broadcast action is what the
 buttons carry. The built notification is always `ongoing`, and building it runs none of the post
-gates: a service has to call `startForeground` either way.
+gates: a service has to call `startForeground` either way. The later `post` does run them — on API 33+
+without `POST_NOTIFICATIONS` it returns `PermissionDenied` and the service's notification keeps
+showing what it started with (the platform still shows a foreground service's notification in the
+task manager). An icon that does not resolve is rejected when building, with
+`IllegalArgumentException`, rather than crashing `startForeground`.
 
 ## Deciding what to do about a result
 

@@ -43,7 +43,7 @@ rest.
 | no | `true` | — | — | `Denied(shouldShowRationale = true)`; "refused before" is recorded |
 | no | `false` | no | — | `NotDetermined` |
 | no | `false` | yes | yes | `PermanentlyDenied` |
-| no | `false` | yes | no | `NotDetermined` — a dismissed dialog, which Android 11+ shows again |
+| no | `false` | yes | no | `NotDetermined` — a dismissed dialog, which Android 11+ shows again (an asked entry written before 1.4.0 reads `PermanentlyDenied` instead; see below) |
 | no | no activity to ask | no | — | `NotDetermined` |
 | no | no activity to ask | yes | — | `Denied(shouldShowRationale = false)` — nothing permanent is concluded without an answer |
 
@@ -68,9 +68,12 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
   `"<your application id>.kmptoolkit.permission"`. Configurable through `PermissionConfig`; nothing
   is hardcoded to this library's own namespace.
 - The `rationale` entry is written the first time Android asks for a rationale — which it does only
-  after a refusal through the dialog — and only then. An app upgraded from 1.3.x or earlier has no
-  such entry, so a permission that version recorded as asked reads `NotDetermined` until the user
-  refuses it again; if Android would show the dialog, it does.
+  after a refusal through the dialog — and only then, by `check` as well as by `request`: once per
+  permission, since a set flag is never written again.
+- The `asked` entry holds `dialog-shown` since 1.4.0. Versions before it wrote `true` and recorded no
+  refusals, so a `true` entry is read as they read it: with no rationale, `PermanentlyDenied`. A
+  permission those versions recorded as permanently denied therefore stays so after an upgrade; the
+  dismissal fix applies from the next grant, or on a fresh install.
 - Written **after** the dialog resolves with a refusal, never before. A dialog that could not be
   shown at all — no activity, no registered launcher — leaves no flag, so a launcher bug cannot turn
   a permission permanently denied.

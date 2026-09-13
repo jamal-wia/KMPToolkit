@@ -23,11 +23,21 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 
-/**
- * The value written under an [askedKey] or a [rationaleSeenKey]. Its presence is the flag; the text
- * is for a human reading a dump.
- */
+/** The value written under a [rationaleSeenKey]. Its presence is the flag; the text is for a human reading a dump. */
 private const val FLAG_SET: String = "true"
+
+/**
+ * The value this version writes under an [askedKey].
+ *
+ * Deliberately not [LEGACY_ASKED]: an asked flag written by 1.3.x or earlier was written without the
+ * refusal flag next to it, so for such a flag "never refused" is unknown rather than known. Telling
+ * the two apart by value is what lets a permission those versions recorded as permanently denied stay
+ * permanently denied, instead of turning into a request that returns at once forever.
+ */
+private const val ASKED: String = "dialog-shown"
+
+/** The value versions before 1.4.0 wrote under an [askedKey]. */
+private const val LEGACY_ASKED: String = "true"
 
 /**
  * Creates the Android [PermissionHandler].
@@ -169,7 +179,8 @@ private suspend fun ActivityAccess.awaitResumed(timeout: Duration) {
  *   the only reliable sign that the user has *refused* the permission through the dialog, so it is
  *   remembered ("rationale seen").
  * - **Rationale `false`, asked, and a refusal remembered** is a permanent refusal — the second
- *   "Don't allow" on Android 11+, "Don't ask again" before it.
+ *   "Don't allow" on Android 11+, "Don't ask again" before it. So is an asked flag written by a
+ *   version before 1.4.0, which recorded no refusals and read every such state as permanent.
  * - **Rationale `false`, asked, but never refused** is a dialog the user dismissed — back, or a tap
  *   outside it. On Android 11+ that is not a refusal at all and the dialog appears again, so it reads
  *   `NotDetermined`. Treating it as permanent was a bug: it sent every user who backed out of the
@@ -214,7 +225,7 @@ internal class AndroidPermissionHandler(
         } else {
             // Recorded only now, after the dialog actually resolved. Recording it before launching
             // would turn a dialog that never appeared into a permanent denial the user never made.
-            markFlag(askedKey(keyPrefix, permission))
+            markAsked(permission)
             // The answer arrives just before the activity is resumed again, and a continuation that
             // runs in that gap finds no activity to ask for the rationale. Waiting for the resume
             // turns "cannot tell" back into an answer in all but a backgrounded app.
@@ -248,7 +259,8 @@ internal class AndroidPermissionHandler(
             clearFlags(permission)
             return PermissionStatus.Granted
         }
-        val asked: Boolean = isSet(askedKey(keyPrefix, permission))
+        val askedValue: String? = storage.getStringOrNull(askedKey(keyPrefix, permission))
+        val asked: Boolean = askedValue != null
         return when (shouldShowRationale(androidPermission)) {
             true -> {
                 markFlag(rationaleSeenKey(keyPrefix, permission))
@@ -258,6 +270,8 @@ internal class AndroidPermissionHandler(
             false -> when {
                 !asked -> PermissionStatus.NotDetermined
                 isSet(rationaleSeenKey(keyPrefix, permission)) -> PermissionStatus.PermanentlyDenied
+                // Written by a version that never recorded refusals: read it as that version did.
+                askedValue == LEGACY_ASKED -> PermissionStatus.PermanentlyDenied
                 // Asked, never refused: the dialog was dismissed, and the system will show it again.
                 else -> PermissionStatus.NotDetermined
             }
@@ -309,6 +323,12 @@ internal class AndroidPermissionHandler(
     }
 
     private fun isSet(key: String): Boolean = storage.getStringOrNull(key) == FLAG_SET
+
+    /** Records that the dialog was shown, leaving a flag an earlier version wrote as it is. */
+    private fun markAsked(permission: Permission) {
+        val key: String = askedKey(keyPrefix, permission)
+        if (storage.getStringOrNull(key) == null) storage.put(key, ASKED)
+    }
 
     /**
      * Sets a flag, but only when it is not set already — which keeps a repeated [check] of a
