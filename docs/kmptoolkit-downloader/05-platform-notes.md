@@ -37,6 +37,27 @@ Temp files live under `<base>/tmp/`; a `ZipArchive` unit stages its extraction u
 `<base>/tmp/staging-<unit.id>/` — per unit, so two archives extracting at the same time never
 collide.
 
+### Adopting a directory your app already populated
+
+The layout under the base directory is fixed: a committed resource at `<base>/<unit.relativePath>`,
+an in-progress transfer at `<base>/tmp/<unit.id>.<unit.tempExtension>`, an unpacked archive
+recognised by its `availabilityMarker`. An app that stored its downloads in exactly that shape under
+its own directory name — typically because it is moving its own downloader onto this module — keeps
+every one of them by naming that directory:
+
+```kotlin
+createDownloaderStorage(context, DownloaderStorageConfig(baseDirectoryName = "resources"))
+```
+
+Committed resources are then found in place, a half-finished transfer resumes from its current size,
+and the next commit lands beside them. Leave the default instead and every existing user downloads
+everything again while the old copies stay on disk, unreferenced. The base directory is resolved under
+the same root either way — `filesDir` on Android, `Application Support` on iOS — so only the name
+has to match. The adoption cases are pinned by `AndroidDownloaderStorageAdoptionTest`.
+
+Staging directories are the one part that is not adopted: they are transient by design, and one left
+behind by an interrupted extraction under an old name is simply never reused.
+
 ## Integrity checks
 
 Android verifies a `ResourceFormat.SqliteDatabase` unit with `android.database.sqlite` — already

@@ -24,6 +24,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   silence — for a vibration that is not a reaction to a touch, and for an app adopting the module
   whose vibrations were unattributed before. The single-argument factory is unchanged. Purely
   additive.
+- Documentation: `kmptoolkit-downloader` explains how an app that already stored downloads in the
+  same layout under its own directory name keeps them — `DownloaderStorageConfig(baseDirectoryName =
+  ...)` — and what happens to its users if it does not. Pinned by new Robolectric tests; no code
+  change.
 
 ### Fixed
 
