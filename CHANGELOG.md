@@ -9,6 +9,80 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-13
+
+### Added
+
+- `kmptoolkit-audio-player`: `AudioPlayer.unload()` frees the loaded source's native handle but keeps
+  the player usable, for a player that outlives the screens borrowing it — `release()` stays the
+  permanent teardown. The member has a default body calling `stop()`, so an existing implementation
+  keeps compiling; a decorator should forward it.
+- `kmptoolkit-scheduler` (Android): a `createAlarmScheduler(context, handlerProvider, config)`
+  overload. Handlers are looked up when an alarm fires instead of being handed over at creation, so a
+  handler that needs the scheduler itself no longer forms a construction cycle in a DI container.
+- `kmptoolkit-notification`: `NotificationOptions` and a `Notifier.post(id, notification, options)`
+  overload — `alertOnce` (turn it off for a reminder that must sound on every re-post), a
+  `dismissAction` sent when the notification is swiped away, the media layout's collapsed button row,
+  and per-action icons. Android only; iOS ignores them. The new member has a default body calling the
+  two-argument `post`, so existing implementations keep compiling; a decorator must forward it.
+  `RecordingNotifier` records the options on `PostedNotification.options`.
+- `kmptoolkit-notification` (Android): `notificationIdOf(id)`, `buildForegroundNotification(...)` and
+  `NotificationChannels.ensure` / `delete`. A foreground service starts with a notification rendered
+  exactly as `post` renders it — same buttons, same dismissal, same tap target — and later posts under
+  the same id update it. Channels can be created at startup and retired. The module now depends on
+  `androidx.media` (implementation scope) for the media layout.
+- `kmptoolkit-location` (iOS): `LocationProvider.withSystemServicesPrompt()`. Its
+  `promptToEnableService()` asks iOS to show its own "Turn On Location Services" alert and answers
+  `PROMPTED`. `FakeLocationProvider` gains `servicePromptAnswer` and `promptCount`.
+- `kmptoolkit-permission` (Android): a `createPermissionHandler(context, host, storage, activityAccess,
+  ...)` overload, for an app that already owns an `ActivityAccess`. `kmptoolkit-activity` becomes an
+  `api` dependency accordingly.
+- Documentation: `kmptoolkit-location` explains why it stays off Google Play Services and gives a
+  complete recipe for a `FusedLocationProviderClient` decorator, including the in-place "turn on
+  location" dialog.
+
+### Fixed
+
+- `kmptoolkit-permission` (Android): on Android 11+, backing out of the **first** permission dialog —
+  back, or a tap outside it — returned `PermanentlyDenied`, and every later `request` skipped the
+  dialog, although Android would still show it. The handler now also remembers whether the user ever
+  refused through the dialog (a second key, `<prefix>.rationale.<PERMISSION>`), so a dismissal reads
+  `NotDetermined`. A request whose answer arrives before the activity is resumed waits for it before
+  reading the rationale, and no permanent verdict is drawn when there is no activity to ask. Stored
+  flags from earlier versions read as "never refused": a permission those versions marked asked is
+  `NotDetermined` until it is refused again. A permission missing from the manifest now also reads
+  `NotDetermined` rather than `PermanentlyDenied`.
+- `kmptoolkit-audio-player`: a `prepare` that arrived while another was still loading broke both — on
+  Android the first call never returned, on iOS it failed with an error that overwrote the second
+  one's state. Loads are now serialized: the newer one cancels the older, waits for it to unwind, and
+  owns the outcome; the replaced call returns normally.
+- `kmptoolkit-audio-player` (iOS): the playback speed was not applied when playback started or
+  resumed, because the rate was pushed only while `AVPlayer` already reported itself playing.
+- `kmptoolkit-audio-player`: `play()` from `Completed` starts over from the beginning on both
+  platforms, as `MediaPlayer` already did; `AVPlayer` used to sit at the end in a `Playing` state. The
+  documentation said it resumed at the end.
+- `kmptoolkit-audio-player` (Android): a load cancelled while `MediaPlayer` was still attaching its
+  source leaked the handle, and an error reported right after "prepared" could resume the load twice.
+- `kmptoolkit-audio-recorder`: cancelling `prepare` while its storage checks were pending left the
+  recorder in `Preparing`, from which nothing — `prepare` included — was legal again. A `stop` or
+  `cancel` whose caller was cancelled mid-way left the state `Recording` over a stopped engine; both
+  now finish before the cancellation reaches the caller.
+- `kmptoolkit-scheduler` (Android): `schedule` threw when `AlarmManager` refused an alarm — Android 12+
+  caps an app at 500 — despite promising never to throw for a platform refusal. It now returns
+  `Failed(PlatformError)`.
+- `kmptoolkit-notification`: a progress update whose title, body or buttons changed was coalesced
+  like any other frame in the same bucket, leaving stale text on screen. Only frames that differ in
+  nothing but the percentage are coalesced now.
+- `kmptoolkit-notification` (Android): below API 33 a post consulted the `PermissionHandler` for
+  `POST_NOTIFICATIONS`, which does not exist there, so a handler answering "denied" silenced every
+  notification on older devices. The check is skipped below 33.
+- `kmptoolkit-location` (iOS): `openLocationSettings()` reached `UIApplication` on the calling thread;
+  it now hops to the main thread, as the "any thread" contract promises.
+- Documentation: `kmptoolkit-biometric` said `ComponentActivity` can host the prompt. It is
+  `FragmentActivity`'s superclass — and a Compose activity's default base — so `authenticate` from it
+  returns `NoPromptHost`. `kmptoolkit-audio-player` said the playback audio session keeps audio going
+  at screen lock; that needs the `audio` background mode.
+
 ## [1.3.0] - 2026-09-13
 
 ### Added
