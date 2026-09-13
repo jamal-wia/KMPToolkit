@@ -16,7 +16,7 @@ to be called once, from `Application.onCreate`, and the rules follow from that:
   policy — which is precisely the leak above.
 
 ```kotlin
-DialogWindowHardwareKeyPolicy.install(interceptor = ::consumeVolumeKey, logger = logger)
+DialogWindowHardwareKeyPolicy.install(logger = logger, interceptor = ::consumeVolumeKey)
 ```
 
 ## A policy that changes at runtime
@@ -29,9 +29,9 @@ class KioskState {                     // application-scoped
     @Volatile var locked: Boolean = false
 }
 
-DialogWindowHardwareKeyPolicy.install({ event ->
+DialogWindowHardwareKeyPolicy.install { event ->
     kioskState.locked && event.isVolumeKey()
-})
+}
 ```
 
 This keeps windows that are already open correct: they hold the lambda, and the lambda reads the

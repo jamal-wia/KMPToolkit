@@ -24,11 +24,11 @@ In `Application.onCreate`, before any dialog window can open:
 class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        DialogWindowHardwareKeyPolicy.install({ event ->
+        DialogWindowHardwareKeyPolicy.install { event ->
             // Consume the volume keys everywhere, including inside dialogs and sheets.
             event.keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
                 event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
-        })
+        }
     }
 }
 ```
@@ -37,7 +37,7 @@ The interceptor runs on the main thread for every key event delivered to a dialo
 the effect, before the dialog itself sees the event. `true` consumes it; `false` lets it through
 untouched.
 
-Pass a `Logger` from `kmptoolkit-logging` as the second argument if you want a warning when a second
+Pass a `Logger` from `kmptoolkit-logging` as the first argument if you want a warning when a second
 policy replaces the first — see [`03-guide.md`](03-guide.md#install-once).
 
 ## 2. Call the effect in every dialog window
@@ -74,7 +74,7 @@ fun consumeVolumeKey(event: KeyEvent): Boolean =
     event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
 
 // Application.onCreate
-DialogWindowHardwareKeyPolicy.install(::consumeVolumeKey)
+DialogWindowHardwareKeyPolicy.install(interceptor = ::consumeVolumeKey)
 
 // MainActivity
 override fun dispatchKeyEvent(event: KeyEvent): Boolean =

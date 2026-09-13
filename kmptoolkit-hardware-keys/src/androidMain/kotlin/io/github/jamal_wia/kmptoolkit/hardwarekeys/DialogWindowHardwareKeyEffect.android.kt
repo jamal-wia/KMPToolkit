@@ -53,8 +53,10 @@ public object DialogWindowHardwareKeyPolicy {
      * the same reason installing a second policy while one is in force is reported to [logger] at
      * error level — it is a strong hint that a screen, not the application, is registering it — and
      * the new one replaces the old.
+     *
+     * The interceptor comes last so the call reads as `install { event -> ... }`.
      */
-    public fun install(interceptor: (KeyEvent) -> Boolean, logger: Logger = NoopLogger) {
+    public fun install(logger: Logger = NoopLogger, interceptor: (KeyEvent) -> Boolean) {
         if (installed != null) {
             logger.e {
                 "A dialog-window key policy is already installed; replacing it. install() belongs in " +

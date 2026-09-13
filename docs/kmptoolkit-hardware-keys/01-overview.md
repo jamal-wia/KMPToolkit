@@ -28,9 +28,9 @@ Two pieces, registered in two different places on purpose:
 
 ```kotlin
 // Application.onCreate — the policy, once, for the whole process (Android only).
-DialogWindowHardwareKeyPolicy.install({ event ->
+DialogWindowHardwareKeyPolicy.install { event ->
     event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
-})
+}
 
 // Inside every dialog window's content — commonMain.
 Dialog(onDismissRequest = onDismiss) {

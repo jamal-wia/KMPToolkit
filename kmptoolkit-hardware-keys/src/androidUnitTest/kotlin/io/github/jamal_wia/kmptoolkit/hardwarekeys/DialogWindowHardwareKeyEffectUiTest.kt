@@ -63,10 +63,10 @@ class DialogWindowHardwareKeyEffectUiTest {
     @Test
     fun `a consumed key stops at the policy and never reaches the dialog`() = runComposeUiTest {
         val seen = mutableListOf<Int>()
-        DialogWindowHardwareKeyPolicy.install({ event ->
+        DialogWindowHardwareKeyPolicy.install { event ->
             seen += event.keyCode
             event.keyCode == KeyEvent.KEYCODE_VOLUME_UP
-        })
+        }
         var window: Window? = null
 
         setContent {
@@ -85,7 +85,7 @@ class DialogWindowHardwareKeyEffectUiTest {
 
     @Test
     fun `leaving composition restores the callback the dialog had`() = runComposeUiTest {
-        DialogWindowHardwareKeyPolicy.install({ true })
+        DialogWindowHardwareKeyPolicy.install { true }
         var withEffect by mutableStateOf(true)
         var window: Window? = null
         var callbackBefore: Window.Callback? = null
@@ -111,7 +111,7 @@ class DialogWindowHardwareKeyEffectUiTest {
 
     @Test
     fun `leaving composition does not clobber a decorator installed after ours`() = runComposeUiTest {
-        DialogWindowHardwareKeyPolicy.install({ true })
+        DialogWindowHardwareKeyPolicy.install { true }
         var withEffect by mutableStateOf(true)
         var window: Window? = null
 
@@ -134,7 +134,7 @@ class DialogWindowHardwareKeyEffectUiTest {
 
     @Test
     fun `the effect is inert in the activity's own window`() = runComposeUiTest {
-        DialogWindowHardwareKeyPolicy.install({ true })
+        DialogWindowHardwareKeyPolicy.install { true }
         var view: View? = null
 
         // No DialogWindowProvider parent: the effect takes the unhandled-key-listener path and must
@@ -151,11 +151,11 @@ class DialogWindowHardwareKeyEffectUiTest {
     @Test
     fun `installing a second policy replaces the first and reports it`() {
         val logger = RecordingLogger()
-        DialogWindowHardwareKeyPolicy.install({ false }, logger)
+        DialogWindowHardwareKeyPolicy.install(logger) { false }
         assertTrue(logger.errors.isEmpty())
 
         val second: (KeyEvent) -> Boolean = { true }
-        DialogWindowHardwareKeyPolicy.install(second, logger)
+        DialogWindowHardwareKeyPolicy.install(logger, second)
 
         assertEquals(1, logger.errors.size)
         assertSame(second, DialogWindowHardwareKeyPolicy.interceptor)
@@ -163,7 +163,7 @@ class DialogWindowHardwareKeyEffectUiTest {
 
     @Test
     fun `uninstall removes the policy`() {
-        DialogWindowHardwareKeyPolicy.install({ true })
+        DialogWindowHardwareKeyPolicy.install { true }
         DialogWindowHardwareKeyPolicy.uninstall()
 
         assertEquals(null, DialogWindowHardwareKeyPolicy.interceptor)

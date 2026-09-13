@@ -31,14 +31,14 @@ affect a window already composed.
 
 ```kotlin
 public object DialogWindowHardwareKeyPolicy {
-    public fun install(interceptor: (KeyEvent) -> Boolean, logger: Logger = NoopLogger)
+    public fun install(logger: Logger = NoopLogger, interceptor: (KeyEvent) -> Boolean)
     public fun uninstall()
 }
 ```
 
 The process-wide registration read by `DialogWindowHardwareKeyEffect`. Main thread only.
 
-#### `install(interceptor, logger)`
+#### `install(logger, interceptor)`
 
 | Parameter | Meaning |
 |---|---|
