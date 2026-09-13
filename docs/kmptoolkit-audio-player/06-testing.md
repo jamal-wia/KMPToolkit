@@ -150,6 +150,22 @@ fun `a tap after disposal does nothing`() = runTest {
 }
 ```
 
+## Testing a shared player that is unloaded
+
+A component that borrows a long-lived player should `unload()` it, not release it. The fake tells
+the two apart: an unload frees the engine but keeps the listener attached.
+
+```kotlin
+component.dispose()
+
+assertEquals(1, engine.releaseCount)
+assertTrue(engine.hasListener)                            // still usable — not released
+assertEquals(PlayerState.Idle, player.stateFlow.value)
+
+player.prepare(source)                                    // the next borrower
+assertIs<PlayerState.Ready>(player.stateFlow.value)
+```
+
 ## Testing cancellation
 
 ```kotlin

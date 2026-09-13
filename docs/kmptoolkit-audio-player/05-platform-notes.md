@@ -93,8 +93,9 @@ The default is the main bundle and no subdirectories. The donor implementation h
 **The audio session** is the one piece of process-wide state involved. With
 `managesAudioSession = true` (the default), loading a source sets the shared `AVAudioSession` to
 `AVAudioSessionCategoryPlayback` and activates it. That is what makes audio play with the ringer
-switch silenced and continue at screen lock, and without it most callers would report the player as
-"silently broken".
+switch silenced, and without it most callers would report the player as "silently broken". It does
+not by itself keep audio going once the app is in the background or the screen locks — that needs
+the `audio` background mode, below.
 
 Pass `managesAudioSession = false` when the app owns its session — in particular when it also
 records, where the category has to be `PlayAndRecord` and switching it under the recorder's feet
@@ -125,4 +126,8 @@ also makes `prepare()`'s cancellation contract hold on iOS.
 - The state machine, every transition, and the clamping rules — they live in `commonMain`.
 - The release contract, including double release and use-after-release.
 - Position polling cadence and the fact that it stops outside `Playing`.
-- Playback-speed clamping, and applying the rate only while playing.
+- Playback-speed clamping, and applying the rate on every `play()` and immediately while playing. On
+  iOS the rate is assigned right after `AVPlayer.play()` too, because a player that has not reached
+  its rate yet would otherwise drop it.
+- `play()` from `Completed` rewinds and starts over. `MediaPlayer` does that on its own; `AVPlayer`
+  would sit at the end, so the player seeks to `0` explicitly.

@@ -25,6 +25,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer : kot
     abstract fun stop() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.stop|stop(){}[0]
     abstract suspend fun prepare(io.github.jamal_wia.kmptoolkit.audio.player/AudioSource) // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.prepare|prepare(io.github.jamal_wia.kmptoolkit.audio.player.AudioSource){}[0]
     open fun close() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.close|close(){}[0]
+    open fun unload() // io.github.jamal_wia.kmptoolkit.audio.player/AudioPlayer.unload|unload(){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine { // io.github.jamal_wia.kmptoolkit.audio.player/PlaybackEngine|null[0]

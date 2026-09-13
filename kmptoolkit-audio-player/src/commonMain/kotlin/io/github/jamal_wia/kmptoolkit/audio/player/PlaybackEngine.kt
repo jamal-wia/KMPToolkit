@@ -20,6 +20,11 @@ package io.github.jamal_wia.kmptoolkit.audio.player
  *
  * - **[release] must be idempotent** and safe after a failed [load]. The player above may call it
  *   more than once, and calls it during teardown regardless of what state the engine reached.
+ * - **[load] after [release] must work.** [release] frees the loaded source, not the engine:
+ *   `AudioPlayer.unload` releases the engine and a later `prepare` loads into the same one again.
+ * - **[load] must honor cancellation** and leave nothing loaded when it is cancelled. The player
+ *   never runs two loads on one engine at once — a newer load waits for the cancelled one to finish
+ *   unwinding — but it relies on the cancelled one actually unwinding.
  * - **Never call the listener after [release]** — the player detaches it first, but an engine that
  *   posts callbacks from a platform queue must also drop anything already in flight.
  * - **[start], [pause], [seekTo] and [setSpeed] must tolerate being called in the wrong state.**

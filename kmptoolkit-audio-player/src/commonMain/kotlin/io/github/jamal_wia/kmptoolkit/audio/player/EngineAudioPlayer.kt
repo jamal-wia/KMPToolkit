@@ -1,18 +1,23 @@
 package io.github.jamal_wia.kmptoolkit.audio.player
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.concurrent.Volatile
+import kotlin.concurrent.atomics.AtomicReference
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.CoroutineContext
 
 /**
@@ -49,7 +54,20 @@ public fun createAudioPlayer(
  * platform engine, which is how the two drifted apart (its Android `stop()` re-prepared the source,
  * its iOS `stop()` released the player). Splitting the seam at [PlaybackEngine] leaves each platform
  * with nothing but API translation.
+ *
+ * ### One load at a time
+ *
+ * An engine is never asked to load while another load is still running on it. A [prepare] that
+ * arrives mid-load cancels the load in flight and waits for it to finish unwinding before its own
+ * begins; [unload] and [release] cancel it too. Without that, two overlapping loads interleave on
+ * one native handle — the second one's `release()` tears down the player the first is still
+ * awaiting, which on Android leaves the first `prepare` suspended forever and on iOS fails it with
+ * an error that then overwrites the second one's state.
+ *
+ * Only the most recent load writes state. A superseded [prepare] returns quietly: the caller that
+ * replaced it now owns the outcome.
  */
+@OptIn(ExperimentalAtomicApi::class)
 private class EngineAudioPlayer(
     private val engine: PlaybackEngine,
     private val config: AudioPlayerConfig,
@@ -58,6 +76,20 @@ private class EngineAudioPlayer(
 
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + coroutineContext)
     private var positionJob: Job? = null
+
+    /** The load in flight, or the last one to finish. Swapped atomically by [prepare], [unload], [release]. */
+    private val currentLoad: AtomicReference<Load?> = AtomicReference(null)
+
+    /**
+     * One [prepare] call.
+     *
+     * @property job parents the engine work, so cancelling it cancels exactly this load.
+     * @property finished completes when the call has fully unwound. Waiting on [job] would not do: a
+     *   load cancelled while still waiting for its own predecessor has no children yet, so its job
+     *   completes at once — and a third prepare waiting on it would start while the first is still
+     *   running on the engine.
+     */
+    private class Load(val job: CompletableJob, val finished: CompletableJob = Job())
 
     // Volatile, and every mutating path re-checks it: release() may land on a different thread than
     // the transport calls, and the point of the flag is that no call after it reaches the engine.
@@ -83,28 +115,49 @@ private class EngineAudioPlayer(
             _stateFlow.value = PlayerState.Error(AudioPlayerReleasedException())
             return
         }
-        stopPositionUpdates()
-        _playbackPositionFlow.value = 0L
-        _stateFlow.value = PlayerState.Preparing
-
+        // A child of the caller's job, so the caller's cancellation still reaches the engine, and a
+        // handle of our own, so a later prepare/unload/release can cancel just this load.
+        val load = Load(Job(parent = currentCoroutineContext()[Job]))
         try {
-            engine.load(source)
+            currentLoad.exchange(load)?.let { previous: Load ->
+                previous.job.cancel()
+                previous.finished.join()
+            }
+            if (!isCurrent(load)) return
+
+            stopPositionUpdates()
+            _playbackPositionFlow.value = 0L
+            _stateFlow.value = PlayerState.Preparing
+
+            // The failure comes back as a value rather than being thrown out of withContext: an
+            // exception crossing that boundary may be replaced by a stack-trace-recovered copy, and
+            // PlayerState.Error promises the engine's own Throwable.
+            val failure: Throwable? = withContext(load.job) { loadCatching(source) }
+            if (failure != null) {
+                if (isCurrent(load)) _stateFlow.value = PlayerState.Error(failure)
+                return
+            }
         } catch (cancellation: CancellationException) {
-            // A cancelled prepare must not leave a half-loaded engine reachable: drop whatever it
-            // got to, report Idle rather than Error (nobody failed — the caller went away), and let
-            // the cancellation propagate so structured concurrency still works.
+            if (currentLoad.load() !== load) {
+                // Superseded. Whatever replaced this load owns the engine and the state now; touching
+                // either here would tear down the newer load. The engine's own cancellation path has
+                // already discarded what this one got to.
+                if (currentCoroutineContext().isActive) return
+                throw cancellation
+            }
+            // The caller went away. A cancelled prepare must not leave a half-loaded engine
+            // reachable: drop whatever it got to, report Idle rather than Error (nobody failed), and
+            // let the cancellation propagate so structured concurrency still works.
+            currentLoad.compareAndSet(load, null)
             engine.release()
             if (!released) _stateFlow.value = PlayerState.Idle
             throw cancellation
-        } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
-            // Deliberately broad: an engine reports every load failure by throwing, and the whole
-            // point of PlayerState.Error is to hand that Throwable to the consumer unchanged
-            // instead of guessing which platform types are worth catching.
-            if (!released) _stateFlow.value = PlayerState.Error(failure)
-            return
+        } finally {
+            load.job.complete()
+            load.finished.complete()
         }
 
-        if (released) return
+        if (!isCurrent(load)) return
         engine.setSpeed(playbackSpeed)
         _stateFlow.value = PlayerState.Ready(engine.durationMs())
     }
@@ -114,6 +167,13 @@ private class EngineAudioPlayer(
         val current: PlayerState = _stateFlow.value
         if (!current.isPlayable || current is PlayerState.Playing) return
 
+        if (current is PlayerState.Completed) {
+            // From the end there is nothing left to resume. MediaPlayer restarts from 0 on its own
+            // while AVPlayer sits at the end without completing again, so rewind explicitly and make
+            // both platforms mean the same thing.
+            engine.seekTo(0L)
+            _playbackPositionFlow.value = 0L
+        }
         engine.start()
         engine.setSpeed(playbackSpeed)
         _stateFlow.value = PlayerState.Playing(
@@ -191,10 +251,22 @@ private class EngineAudioPlayer(
         if (_stateFlow.value is PlayerState.Playing) engine.setSpeed(playbackSpeed)
     }
 
+    override fun unload() {
+        if (released) return
+        currentLoad.exchange(null)?.job?.cancel()
+
+        stopPositionUpdates()
+        engine.release()
+
+        _stateFlow.value = PlayerState.Idle
+        _playbackPositionFlow.value = 0L
+    }
+
     override fun release() {
         if (released) return
         released = true
 
+        currentLoad.exchange(null)?.job?.cancel()
         stopPositionUpdates()
         scope.cancel()
         engine.setListener(null)
@@ -204,8 +276,11 @@ private class EngineAudioPlayer(
         _playbackPositionFlow.value = 0L
     }
 
+    // Both callbacks describe a loaded source. One arriving when nothing is loaded — posted by the
+    // platform just before an unload or release detached it — is stale and must not resurrect state.
+
     override fun onCompleted() {
-        if (released) return
+        if (released || !_stateFlow.value.isPlayable) return
         stopPositionUpdates()
         val duration: Long = engine.durationMs()
         _playbackPositionFlow.value = duration
@@ -213,10 +288,25 @@ private class EngineAudioPlayer(
     }
 
     override fun onFailed(cause: Throwable) {
-        if (released) return
+        if (released || !_stateFlow.value.isPlayable) return
         stopPositionUpdates()
         _stateFlow.value = PlayerState.Error(cause)
     }
+
+    /** Runs the engine's load, returning its failure instead of throwing it. Cancellation still throws. */
+    private suspend fun loadCatching(source: AudioSource): Throwable? = try {
+        engine.load(source)
+        null
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
+        // Deliberately broad: an engine reports every load failure by throwing, and the whole point
+        // of PlayerState.Error is to hand that Throwable to the consumer unchanged instead of
+        // guessing which platform types are worth catching.
+        failure
+    }
+
+    private fun isCurrent(load: Load): Boolean = !released && currentLoad.load() === load
 
     private fun startPositionUpdates() {
         stopPositionUpdates()

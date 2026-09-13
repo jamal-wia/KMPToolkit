@@ -34,7 +34,8 @@ import kotlinx.coroutines.flow.StateFlow
  * 6. Late callbacks from the platform — a completion or failure that was already in flight when
  *    [release] ran — are dropped instead of resurrecting a dead player's state.
  *
- * A released player cannot be revived. Create another one.
+ * A released player cannot be revived. Create another one — or, for a player that is meant to
+ * outlive the screens using it (a DI singleton, say), [unload] it instead of releasing it.
  *
  * ### Threading
  *
@@ -99,8 +100,8 @@ public interface AudioPlayer : AutoCloseable {
      * [PlayerState.Preparing] or [PlayerState.Error] — and ignored while already
      * [PlayerState.Playing], so a double tap does not restart the audio.
      *
-     * Calling it in [PlayerState.Completed] resumes from the end, which completes again almost
-     * immediately. Use [replay] to start over.
+     * Calling it in [PlayerState.Completed] starts over from the beginning, exactly like [replay]:
+     * at the end there is nothing left to resume.
      */
     public fun play()
 
@@ -164,8 +165,30 @@ public interface AudioPlayer : AutoCloseable {
     public fun setPlaybackSpeed(speed: Float)
 
     /**
-     * Frees the native handle and stops all internal work. Idempotent; see the lifecycle contract
-     * on [AudioPlayer].
+     * Discards the loaded source and frees its native handle, but keeps the player usable.
+     *
+     * The counterpart of [release] for a player whose owner outlives any one piece of audio — a
+     * process-wide instance shared by screens that come and go. Each screen unloads what it played
+     * when it goes away, the native handle is freed as promptly as [release] would free it, and the
+     * next [prepare] works as on a fresh player.
+     *
+     * After it: [PlayerState.Idle], [playbackPositionFlow] at `0`, [playbackSpeed] unchanged. A
+     * [prepare] still loading is abandoned — it returns without touching the state, which already
+     * says [PlayerState.Idle]. Calling it on a player with nothing loaded, or twice, does nothing
+     * further; on a released player it does nothing at all.
+     *
+     * The default implementation only calls [stop], which rewinds but keeps the source loaded, so
+     * that an implementation written against an older version of this interface still compiles and
+     * behaves sensibly. Every player this library creates overrides it with the behavior above, and
+     * a decorator must delegate it rather than inherit the default.
+     */
+    public fun unload() {
+        stop()
+    }
+
+    /**
+     * Frees the native handle and stops all internal work, for good. Idempotent; see the lifecycle
+     * contract on [AudioPlayer]. To free the handle but keep using the player, see [unload].
      */
     public fun release()
 

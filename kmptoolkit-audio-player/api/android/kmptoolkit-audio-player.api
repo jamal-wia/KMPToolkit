@@ -15,12 +15,14 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/audio/player/Audi
 	public abstract fun seekTo (J)V
 	public abstract fun setPlaybackSpeed (F)V
 	public abstract fun stop ()V
+	public fun unload ()V
 }
 
 public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer$DefaultImpls {
 	public static fun close (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;)V
 	public static synthetic fun seekBackward$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;JILjava/lang/Object;)V
 	public static synthetic fun seekForward$default (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;JILjava/lang/Object;)V
+	public static fun unload (Lio/github/jamal_wia/kmptoolkit/audio/player/AudioPlayer;)V
 }
 
 public final class io/github/jamal_wia/kmptoolkit/audio/player/AudioPlayerConfig {
