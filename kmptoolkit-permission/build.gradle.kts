@@ -49,10 +49,10 @@ kotlin {
             // SpecialPermission.NOTIFICATION_LISTENER_ACCESS; the platform SDK has no equivalent.
             implementation(libs.androidx.core.ktx)
 
-            // implementation, not api: a permission request has to be launched from the resumed
-            // activity, but the handler resolves that itself and no ActivityAccess appears in this
-            // module's own signatures.
-            implementation(project(":kmptoolkit-activity"))
+            // api, not implementation: the factory overload that takes an app's own tracker has
+            // ActivityAccess in its signature, so a consumer needs it on their compile classpath to
+            // call it.
+            api(project(":kmptoolkit-activity"))
         }
         androidUnitTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

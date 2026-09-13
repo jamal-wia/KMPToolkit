@@ -96,7 +96,8 @@ class AndroidPermissionHandlerTest {
 
     private fun handler(
         host: PermissionRequestHost = StubHost(),
-        shouldShowRationale: Boolean = false,
+        shouldShowRationale: Boolean? = false,
+        rationaleAfterWaiting: Boolean? = shouldShowRationale,
         sdkInt: Int = Build.VERSION_CODES.TIRAMISU,
         keyPrefix: String = "test",
         settings: (Intent) -> Boolean = { true },
@@ -108,9 +109,23 @@ class AndroidPermissionHandlerTest {
         keyPrefix = keyPrefix,
         logger = NoopLogger,
         sdkInt = sdkInt,
-        shouldShowRationale = { shouldShowRationale },
+        shouldShowRationale = { if (waitedForActivity) rationaleAfterWaiting else shouldShowRationale },
+        awaitActivity = { waitedForActivity = true },
         startSettings = settings,
     )
+
+    /** Whether the handler under test waited for an activity; flips the rationale the stub answers. */
+    private var waitedForActivity: Boolean = false
+
+    private fun markAsked(permission: Permission) {
+        storage.put(askedKey("test", permission), "true")
+    }
+
+    /** The state a real refusal through the dialog leaves: asked, and a rationale was once shown. */
+    private fun markRefusedOnce(permission: Permission) {
+        markAsked(permission)
+        storage.put(rationaleSeenKey("test", permission), "true")
+    }
 
     private fun grant(androidPermission: String) {
         shadowOf(application).grantPermissions(androidPermission)
@@ -150,16 +165,48 @@ class AndroidPermissionHandlerTest {
     }
 
     @Test
-    fun `a permission already asked for with no rationale left is permanently denied`() = runTest {
+    fun `a permission refused before with no rationale left is permanently denied`() = runTest {
         deny(Manifest.permission.CAMERA)
-        storage.put(askedKey("test", Permission.CAMERA), "true")
+        markRefusedOnce(Permission.CAMERA)
 
         assertEquals(PermissionStatus.PermanentlyDenied, handler().check(Permission.CAMERA))
     }
 
     @Test
+    fun `a permission asked for but never refused is not determined`() = runTest {
+        // Also the state an app upgraded from a version that stored only the asked flag reads as:
+        // not permanent, so the next request shows the dialog if Android still would.
+        deny(Manifest.permission.CAMERA)
+        markAsked(Permission.CAMERA)
+
+        assertEquals(PermissionStatus.NotDetermined, handler().check(Permission.CAMERA))
+    }
+
+    @Test
+    fun `a rationale seen once is remembered`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        markAsked(Permission.CAMERA)
+
+        handler(shouldShowRationale = true).check(Permission.CAMERA)
+
+        assertEquals(PermissionStatus.PermanentlyDenied, handler(shouldShowRationale = false).check(Permission.CAMERA))
+    }
+
+    @Test
+    fun `with no activity to ask nothing is concluded to be permanent`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        markRefusedOnce(Permission.CAMERA)
+
+        assertEquals(
+            PermissionStatus.Denied(shouldShowRationale = false),
+            handler(shouldShowRationale = null).check(Permission.CAMERA),
+        )
+        assertEquals(PermissionStatus.NotDetermined, handler(shouldShowRationale = null).check(Permission.MICROPHONE))
+    }
+
+    @Test
     fun `granting clears the flag so a later revocation reads as not determined again`() = runTest {
-        storage.put(askedKey("test", Permission.CAMERA), "true")
+        markRefusedOnce(Permission.CAMERA)
         grant(Manifest.permission.CAMERA)
         assertEquals(PermissionStatus.Granted, handler().check(Permission.CAMERA))
 
@@ -167,13 +214,14 @@ class AndroidPermissionHandlerTest {
 
         assertEquals(PermissionStatus.NotDetermined, handler().check(Permission.CAMERA))
         assertNull(askedFlag(Permission.CAMERA))
+        assertNull(storage.getStringOrNull(rationaleSeenKey("test", Permission.CAMERA)))
     }
 
     @Test
     fun `one permission's flag does not decide another's status`() = runTest {
         deny(Manifest.permission.CAMERA)
         deny(Manifest.permission.RECORD_AUDIO)
-        storage.put(askedKey("test", Permission.CAMERA), "true")
+        markRefusedOnce(Permission.CAMERA)
 
         assertEquals(PermissionStatus.PermanentlyDenied, handler().check(Permission.CAMERA))
         assertEquals(PermissionStatus.NotDetermined, handler().check(Permission.MICROPHONE))
@@ -224,6 +272,17 @@ class AndroidPermissionHandlerTest {
             "the stale flag is cleared once; the second check has nothing left to clear",
         )
         assertNull(counting.getStringOrNull(askedKey("test", Permission.CAMERA)))
+    }
+
+    @Test
+    fun `checking a permission that keeps asking for a rationale writes its flag once`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val counting = CountingKeyValueStorage()
+        val handler: AndroidPermissionHandler = handler(shouldShowRationale = true, storage = counting)
+
+        repeat(5) { handler.check(Permission.CAMERA) }
+
+        assertEquals(1, counting.writes)
     }
 
     @Test
@@ -305,7 +364,7 @@ class AndroidPermissionHandlerTest {
     @Test
     fun `requesting a permanently denied permission shows no dialog`() = runTest {
         deny(Manifest.permission.CAMERA)
-        storage.put(askedKey("test", Permission.CAMERA), "true")
+        markRefusedOnce(Permission.CAMERA)
         val host = StubHost()
 
         val status: PermissionStatus = handler(host = host).request(Permission.CAMERA)
@@ -339,15 +398,57 @@ class AndroidPermissionHandlerTest {
     }
 
     @Test
-    fun `a refusal with no rationale left reports permanently denied`() = runTest {
+    fun `a first dialog dismissed without an answer is not a permanent refusal`() = runTest {
+        // Android 11+: back or a tap outside returns "denied" with no rationale, and changes nothing —
+        // the next request shows the dialog again. Reporting it as permanent sent the user to
+        // settings for good, which is the bug this test pins down.
         deny(Manifest.permission.CAMERA)
         val host = StubHost(granted = false)
 
         val status: PermissionStatus =
             handler(host = host, shouldShowRationale = false).request(Permission.CAMERA)
 
-        assertEquals(PermissionStatus.PermanentlyDenied, status)
+        assertEquals(PermissionStatus.NotDetermined, status)
         assertEquals("true", askedFlag(Permission.CAMERA))
+    }
+
+    @Test
+    fun `a request after a dismissed dialog shows the dialog again`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        handler(host = StubHost(granted = false)).request(Permission.CAMERA)
+        val host = StubHost(granted = true)
+
+        assertEquals(PermissionStatus.Granted, handler(host = host).request(Permission.CAMERA))
+        assertEquals(1, host.launchCount)
+    }
+
+    @Test
+    fun `an answer arriving before the activity resumed waits for it to read the rationale`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val host = StubHost(granted = false)
+
+        val status: PermissionStatus = handler(
+            host = host,
+            shouldShowRationale = null,
+            rationaleAfterWaiting = true,
+        ).request(Permission.CAMERA)
+
+        assertTrue(waitedForActivity)
+        assertEquals(PermissionStatus.Denied(shouldShowRationale = true), status)
+    }
+
+    @Test
+    fun `a refusal whose rationale still cannot be read is not reported as permanent`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        markRefusedOnce(Permission.CAMERA)
+
+        val status: PermissionStatus = handler(
+            host = StubHost(granted = false),
+            shouldShowRationale = null,
+            rationaleAfterWaiting = null,
+        ).request(Permission.CAMERA)
+
+        assertEquals(PermissionStatus.Denied(shouldShowRationale = false), status)
     }
 
     @Test

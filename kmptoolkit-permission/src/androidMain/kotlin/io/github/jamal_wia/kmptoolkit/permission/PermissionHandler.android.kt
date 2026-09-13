@@ -8,8 +8,9 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
+import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
+import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.d
@@ -17,10 +18,16 @@ import io.github.jamal_wia.kmptoolkit.logging.w
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
 import kotlin.coroutines.resume
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 
-/** The value written under an [askedKey]. Its presence is the flag; the text is for a human reading a dump. */
-private const val ASKED: String = "true"
+/**
+ * The value written under an [askedKey] or a [rationaleSeenKey]. Its presence is the flag; the text
+ * is for a human reading a dump.
+ */
+private const val FLAG_SET: String = "true"
 
 /**
  * Creates the Android [PermissionHandler].
@@ -31,16 +38,20 @@ private const val ASKED: String = "true"
  *   `ActivityResultLauncher` belongs to an activity — see [PermissionRequestHost].
  * - An internally tracked activity answers `shouldShowRequestPermissionRationale`, which only an
  *   `Activity` can answer, and opens the settings screen from the foreground activity when there
- *   is one. No activity is retained: the access is scoped per call.
- * - **[storage]** holds one flag per permission. Android cannot distinguish "never asked" from
- *   "permanently denied" on its own — both look identical through its API — and without that flag
- *   a first-run app sends users to settings for a permission it never asked for. See
- *   [PermissionConfig].
+ *   is one. No activity is retained: the access is scoped per call. When your app already has an
+ *   `ActivityAccess`, pass it through the other overload instead.
+ * - **[storage]** holds two flags per permission. Android cannot distinguish "never asked",
+ *   "dismissed" and "permanently denied" on its own — all three look identical through its API — and
+ *   without them a first-run app, or a user who backed out of the dialog, is sent to settings for a
+ *   permission the system would still happily ask for. See [PermissionConfig].
  * - **[config]** decides the key prefix, defaulting to the consuming app's own package name.
  *
  * The handler declares no permission of its own; every permission it can request must be in
  * **your** `AndroidManifest.xml`, or the system dialog never appears and the request comes straight
  * back denied. See `docs/kmptoolkit-permission/05-platform-notes.md`.
+ *
+ * Create it in `Application.onCreate`, like the activity tracker it creates: a tracker created
+ * after the first activity resumed does not know that activity until it resumes again.
  *
  * @param context any `Context`; its application context is what gets retained.
  * @param logger where a dialog that could not be shown, or an unreadable flag, is reported.
@@ -53,7 +64,39 @@ public fun createPermissionHandler(
     logger: Logger = NoopLogger,
 ): PermissionHandler {
     val applicationContext: Context = context.applicationContext
-    val activityAccess: ActivityAccess = createActivityAccess(applicationContext as Application)
+    return createPermissionHandler(
+        context = applicationContext,
+        host = host,
+        storage = storage,
+        activityAccess = createActivityAccess(applicationContext as Application),
+        config = config,
+        logger = logger,
+    )
+}
+
+/**
+ * Creates the Android [PermissionHandler] on an [ActivityAccess] your app already owns.
+ *
+ * The same handler as the overload without it; use this one when the app has its own tracker —
+ * typically one narrowed with `isTracked` to the activities it owns. The handler then asks exactly
+ * that activity for `shouldShowRequestPermissionRationale`, and opens settings from it, rather than
+ * from whichever activity resumed last, and the app does not register a second tracker.
+ *
+ * @param context any `Context`; its application context is what gets retained.
+ * @param activityAccess the tracker the rationale question and the settings screen go through.
+ *   It must have been created before the activity that requests a permission first resumed.
+ * @param logger where a dialog that could not be shown, or an unreadable flag, is reported.
+ * @since 1.4.0
+ */
+public fun createPermissionHandler(
+    context: Context,
+    host: PermissionRequestHost,
+    storage: KeyValueStorage,
+    activityAccess: ActivityAccess,
+    config: PermissionConfig = PermissionConfig(),
+    logger: Logger = NoopLogger,
+): PermissionHandler {
+    val applicationContext: Context = context.applicationContext
     return AndroidPermissionHandler(
         context = applicationContext,
         host = host,
@@ -64,8 +107,9 @@ public fun createPermissionHandler(
         shouldShowRationale = { androidPermission ->
             activityAccess.withActivity { activity ->
                 activity.shouldShowRequestPermissionRationale(androidPermission)
-            } == true
+            }
         },
+        awaitActivity = { activityAccess.awaitResumed(RESUME_WAIT) },
         startSettings = { intent ->
             // Preferred from the resumed activity: an activity-started settings screen sits on the
             // app's own task, so the system back button returns to the screen that asked. The
@@ -82,18 +126,61 @@ public fun createPermissionHandler(
 }
 
 /**
+ * How long a request waits, after the dialog answered, for the activity to be resumed again so the
+ * rationale can be read. The answer is delivered just before `onResume`; this covers a caller whose
+ * continuation runs in that gap, and is long enough for any real resume and short enough that a
+ * backgrounded app does not keep the caller waiting.
+ */
+private val RESUME_WAIT: Duration = 1.seconds
+
+/** Suspends until an activity is resumed (at once if one is), or [timeout] passes. */
+private suspend fun ActivityAccess.awaitResumed(timeout: Duration) {
+    var subscription: ActivitySubscription? = null
+    try {
+        withTimeoutOrNull(timeout) {
+            suspendCancellableCoroutine { continuation ->
+                // The listener fires synchronously, from inside this call, when an activity is already
+                // resumed; resuming the continuation from there is fine, and the guard keeps a later
+                // resume from resuming it twice.
+                subscription = addOnActivityResumedListener {
+                    if (continuation.isActive) continuation.resume(Unit)
+                }
+            }
+        }
+    } finally {
+        subscription?.cancel()
+    }
+}
+
+/**
  * Android's [PermissionHandler].
  *
  * Internal, and constructed with lambdas rather than an [ActivityAccess], so that every branch of
- * the status logic — including the two that depend on an `Activity` and the one that depends on the
+ * the status logic — including the ones that depend on an `Activity` and the one that depends on the
  * API level — is reachable from a Robolectric unit test without an activity or an SDK switch.
  *
- * The status logic in one paragraph. Granted is granted, and grant clears the flag, so a permission
- * the user later revokes (or that Android auto-resets for an unused app) reads as never asked
- * again — which is exactly right, because the system dialog will appear for it again. Not granted
- * plus `shouldShowRequestPermissionRationale` is a first refusal. Not granted, no rationale, and
- * the flag set is a permanent refusal. Not granted, no rationale, and no flag is a permission we
- * have simply never asked for.
+ * The status logic, which is Android's own dialog policy read back through the one question it
+ * answers (`shouldShowRequestPermissionRationale`) plus two remembered facts:
+ *
+ * - **Granted** is granted, and a grant clears both facts, so a permission the user later revokes
+ *   (or that Android auto-resets for an unused app) reads as never asked again — right, because the
+ *   dialog will appear for it again.
+ * - **Rationale `true`** is a refusal after which the dialog still appears: `Denied(true)`. It is also
+ *   the only reliable sign that the user has *refused* the permission through the dialog, so it is
+ *   remembered ("rationale seen").
+ * - **Rationale `false`, asked, and a refusal remembered** is a permanent refusal — the second
+ *   "Don't allow" on Android 11+, "Don't ask again" before it.
+ * - **Rationale `false`, asked, but never refused** is a dialog the user dismissed — back, or a tap
+ *   outside it. On Android 11+ that is not a refusal at all and the dialog appears again, so it reads
+ *   `NotDetermined`. Treating it as permanent was a bug: it sent every user who backed out of the
+ *   first dialog to settings, for good.
+ * - **Rationale `false`, never asked** is a permission we have simply never asked for.
+ * - **No activity to ask** decides nothing permanent: `NotDetermined` if never asked, `Denied(false)`
+ *   otherwise. The answer is read again, with an activity, on the next call.
+ *
+ * What this cannot see, and neither can any app: a permission the user set to "Don't allow" in system
+ * settings before the app ever asked. Android then refuses without a dialog and without a rationale,
+ * which reads exactly like a dismissal — `NotDetermined`, with a request that returns at once.
  */
 internal class AndroidPermissionHandler(
     private val context: Context,
@@ -102,7 +189,10 @@ internal class AndroidPermissionHandler(
     private val keyPrefix: String,
     private val logger: Logger,
     private val sdkInt: Int,
-    private val shouldShowRationale: (String) -> Boolean,
+    /** `null` when there is no activity to ask right now. */
+    private val shouldShowRationale: (String) -> Boolean?,
+    /** Suspends, briefly and at most once per call, until an activity can be asked. */
+    private val awaitActivity: suspend () -> Unit,
     private val startSettings: (Intent) -> Boolean,
 ) : PermissionHandler {
 
@@ -119,12 +209,16 @@ internal class AndroidPermissionHandler(
         val granted: Boolean = launchDialog(androidPermission) ?: return current
 
         return if (granted) {
-            clearAsked(permission)
+            clearFlags(permission)
             PermissionStatus.Granted
         } else {
             // Recorded only now, after the dialog actually resolved. Recording it before launching
             // would turn a dialog that never appeared into a permanent denial the user never made.
-            markAsked(permission)
+            markFlag(askedKey(keyPrefix, permission))
+            // The answer arrives just before the activity is resumed again, and a continuation that
+            // runs in that gap finds no activity to ask for the rationale. Waiting for the resume
+            // turns "cannot tell" back into an answer in all but a backgrounded app.
+            if (shouldShowRationale(androidPermission) == null) awaitActivity()
             currentStatus(permission)
         }
     }
@@ -151,14 +245,24 @@ internal class AndroidPermissionHandler(
 
         val androidPermission: String = permission.androidPermission()
         if (context.checkSelfPermission(androidPermission) == PackageManager.PERMISSION_GRANTED) {
-            clearAsked(permission)
+            clearFlags(permission)
             return PermissionStatus.Granted
         }
-        if (shouldShowRationale(androidPermission)) return PermissionStatus.Denied(shouldShowRationale = true)
-        return if (wasAsked(permission)) {
-            PermissionStatus.PermanentlyDenied
-        } else {
-            PermissionStatus.NotDetermined
+        val asked: Boolean = isSet(askedKey(keyPrefix, permission))
+        return when (shouldShowRationale(androidPermission)) {
+            true -> {
+                markFlag(rationaleSeenKey(keyPrefix, permission))
+                PermissionStatus.Denied(shouldShowRationale = true)
+            }
+
+            false -> when {
+                !asked -> PermissionStatus.NotDetermined
+                isSet(rationaleSeenKey(keyPrefix, permission)) -> PermissionStatus.PermanentlyDenied
+                // Asked, never refused: the dialog was dismissed, and the system will show it again.
+                else -> PermissionStatus.NotDetermined
+            }
+
+            null -> if (asked) PermissionStatus.Denied(shouldShowRationale = false) else PermissionStatus.NotDetermined
         }
     }
 
@@ -204,31 +308,31 @@ internal class AndroidPermissionHandler(
         Permission.CAMERA -> Manifest.permission.CAMERA
     }
 
-    private fun wasAsked(permission: Permission): Boolean =
-        storage.getStringOrNull(askedKey(keyPrefix, permission)) == ASKED
+    private fun isSet(key: String): Boolean = storage.getStringOrNull(key) == FLAG_SET
 
-    private fun markAsked(permission: Permission) {
-        storage.put(askedKey(keyPrefix, permission), ASKED)
+    /**
+     * Sets a flag, but only when it is not set already — which keeps a repeated [check] of a
+     * permission that keeps asking for a rationale from writing on every call.
+     */
+    private fun markFlag(key: String) {
+        if (!isSet(key)) storage.put(key, FLAG_SET)
     }
 
     /**
-     * Removes the flag, but only when there is one to remove.
+     * Removes both flags, but only those there are to remove.
      *
      * The guard is what keeps [check] a query. It runs on every check of a granted permission — the
      * overwhelmingly common call — and the overwhelmingly common state there is "granted, nothing
      * stored", where an unconditional `remove` would turn each check into a persistent write. A
-     * consumer polling a permission per UI frame (`kmptoolkit-notification` checks before every
-     * `post`, including the progress frames its coalescer then suppresses) would otherwise pay a
-     * hundred writes for a 0..100 progress loop.
+     * consumer polling a permission per UI frame would otherwise pay a hundred writes for a 0..100
+     * progress loop.
      *
-     * The read that replaces them is the same one [wasAsked] already does on the not-granted path:
-     * a `SharedPreferences` lookup, served from the in-memory map that backs it, with no disk
-     * access and no commit. That is cheap enough that no "already cleared" memo is needed here —
-     * and a memo would be the wrong trade anyway, since it would be state that has to stay correct
-     * across a handler outliving a process boundary.
+     * The reads that replace them are `SharedPreferences` lookups, served from the in-memory map that
+     * backs it, with no disk access and no commit.
      */
-    private fun clearAsked(permission: Permission) {
-        val key: String = askedKey(keyPrefix, permission)
-        if (storage.getStringOrNull(key) != null) storage.remove(key)
+    private fun clearFlags(permission: Permission) {
+        listOf(askedKey(keyPrefix, permission), rationaleSeenKey(keyPrefix, permission)).forEach { key: String ->
+            if (storage.getStringOrNull(key) != null) storage.remove(key)
+        }
     }
 }

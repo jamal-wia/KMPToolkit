@@ -33,7 +33,7 @@ public val PermissionStatus.canPrompt: Boolean
 | `Granted` | usable now | permission granted; also notifications below API 33 | authorized (also provisional/ephemeral notifications) |
 | `Denied(shouldShowRationale = true)` | refused, another dialog is possible | after the first refusal | never |
 | `Denied(shouldShowRationale = false)` | refused, no rationale asked for | rare; a device that reports no rationale mid-flow | never |
-| `PermanentlyDenied` | no dialog will appear again | second refusal, or "Don't allow" | any refusal; also restricted by MDM or parental controls |
+| `PermanentlyDenied` | no dialog will appear again | second refusal ("Don't allow" twice on Android 11+, "Don't ask again" before it); a dismissed dialog is not a refusal | any refusal; also restricted by MDM or parental controls |
 | `NotDetermined` | never asked | never asked | never asked |
 
 `isGranted` is `true` only for `Granted`. `canPrompt` is `true` for `NotDetermined` and `Denied` —
@@ -163,7 +163,24 @@ public fun createPermissionHandler(
 `context`'s application context is what gets retained; no activity is held directly — the handler
 tracks the currently resumed activity internally, used per call for
 `shouldShowRequestPermissionRationale` and to launch settings from the foreground activity when
-there is one. `storage` comes from `kmptoolkit-storage`'s `createKeyValueStorage(context)`.
+there is one. `storage` comes from `kmptoolkit-storage`'s `createKeyValueStorage(context)`. Create it
+in `Application.onCreate`, like any activity tracker.
+
+```kotlin
+public fun createPermissionHandler(
+    context: Context,
+    host: PermissionRequestHost,
+    storage: KeyValueStorage,
+    activityAccess: ActivityAccess,
+    config: PermissionConfig = PermissionConfig(),
+    logger: Logger = NoopLogger,
+): PermissionHandler
+```
+
+*Since 1.4.0.* The same handler over an `ActivityAccess` from `kmptoolkit-activity` that your app
+already owns — typically one narrowed with `isTracked` to your own activities — instead of a tracker
+of its own. The rationale is asked of, and settings are opened from, the activity that access
+reports.
 
 ## `PermissionRequestHost` (Android only)
 

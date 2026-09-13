@@ -155,7 +155,9 @@ You almost never need to, but if you are wrapping `createPermissionHandler`, the
 answer — and whose ability to answer at all — the test dictates. The cases worth copying are the two
 failure modes a real device produces and a happy-path test never reaches: a host that cannot launch,
 and a host that throws. Neither may be recorded as a refusal, or a launcher bug turns a permission
-permanently denied.
+permanently denied. The third case worth copying is a dialog that answers "denied" with no rationale
+left and no refusal remembered — a dismissal — which must read `NotDetermined`, not
+`PermanentlyDenied`.
 
 ## What the module tests itself
 

@@ -34,7 +34,9 @@ the product:
   granted with `shouldShowRequestPermissionRationale() == false`. An app that does not remember
   which one it is either sends a first-run user to system settings for a permission it has never
   asked for, or leaves a permanently denied user tapping a button that will never do anything
-  again. This module remembers, in one flag per permission, keyed by your own application id.
+  again — and a user who merely backed out of the dialog looks the same as both. This module
+  remembers, in two flags per permission keyed by your own application id, whether it asked and
+  whether the user ever refused.
 - **iOS shows its dialog at most once per install.** A refusal there is already final, so the
   Android habit of "ask, explain, ask again" is meaningless — but the *code* asking is shared, so
   the difference has to live somewhere. It lives in `PermissionStatus`: iOS returns

@@ -21,10 +21,10 @@ So each permission you intend to request is yours to declare, on both platforms:
 
 Getting this wrong fails differently on each platform, and both failures are confusing:
 
-- **Android**: a permission missing from the manifest produces no dialog and an immediate denial.
-  The handler records that as a real refusal, so the permission goes *permanently denied* because of
-  a build-configuration mistake. If a permission is denied instantly on a fresh install, check the
-  manifest first.
+- **Android**: a permission missing from the manifest produces no dialog and an immediate denial
+  with no rationale. That is indistinguishable from a dismissed dialog, so the status stays
+  `NotDetermined` and each request returns at once, showing nothing. If requesting a permission never
+  shows a dialog on a fresh install, check the manifest first.
 - **iOS**: a missing usage-description string does not produce an error. The OS **terminates the
   app** at the moment of the request. There is nothing this module can turn into a status.
 
@@ -33,19 +33,44 @@ Getting this wrong fails differently on each platform, and both failures are con
 ### Where the status comes from
 
 `Context.checkSelfPermission` for granted, `Activity.shouldShowRequestPermissionRationale` (reached
-through the module's own internally tracked activity, per call, never retained) for the rationale
-hint, and one persisted flag for the rest.
+through an activity tracker, per call, never retained — the module's own, or the `ActivityAccess`
+you pass to the overload that takes one) for the rationale hint, and two persisted flags for the
+rest.
+
+| Granted | Rationale | Asked | Refused before | Status |
+|---|---|---|---|---|
+| yes | — | — | — | `Granted` (both flags cleared) |
+| no | `true` | — | — | `Denied(shouldShowRationale = true)`; "refused before" is recorded |
+| no | `false` | no | — | `NotDetermined` |
+| no | `false` | yes | yes | `PermanentlyDenied` |
+| no | `false` | yes | no | `NotDetermined` — a dismissed dialog, which Android 11+ shows again |
+| no | no activity to ask | no | — | `NotDetermined` |
+| no | no activity to ask | yes | — | `Denied(shouldShowRationale = false)` — nothing permanent is concluded without an answer |
+
+The dialog's answer arrives just before the requesting activity is resumed. A request whose
+continuation runs in that gap waits, up to a second, for the activity to be back before it reads the
+rationale — otherwise a genuine first refusal would look like a dismissal.
+
+**The one case no app can see:** a permission the user switched to "Don't allow" in system settings
+before the app ever asked for it. Android then refuses without a dialog and without a rationale —
+exactly what a dismissal looks like — so it reads `NotDetermined`, and requesting it returns at once.
+Offer a way to settings from a screen whose request keeps coming back refused.
 
 ### The asked flag
 
-Android cannot distinguish "never asked" from "permanently denied": both report the permission as
-not granted with `shouldShowRequestPermissionRationale() == false`. The only way to tell them apart
-is to remember whether the dialog was ever shown — which is why the Android factory takes a
-`KeyValueStorage`.
+Android cannot distinguish "never asked", "dismissed" and "permanently denied": all three report the
+permission as not granted with `shouldShowRequestPermissionRationale() == false`. The only way to
+tell them apart is to remember whether the dialog was ever shown, and whether the user ever refused
+it there — which is why the Android factory takes a `KeyValueStorage`.
 
-- One entry per permission, written as `"<prefix>.asked.<PERMISSION NAME>"`, where `<prefix>`
-  defaults to `"<your application id>.kmptoolkit.permission"`. Configurable through
-  `PermissionConfig`; nothing is hardcoded to this library's own namespace.
+- Two entries per permission: `"<prefix>.asked.<PERMISSION NAME>"` and
+  `"<prefix>.rationale.<PERMISSION NAME>"` (since 1.4.0), where `<prefix>` defaults to
+  `"<your application id>.kmptoolkit.permission"`. Configurable through `PermissionConfig`; nothing
+  is hardcoded to this library's own namespace.
+- The `rationale` entry is written the first time Android asks for a rationale — which it does only
+  after a refusal through the dialog — and only then. An app upgraded from 1.3.x or earlier has no
+  such entry, so a permission that version recorded as asked reads `NotDetermined` until the user
+  refuses it again; if Android would show the dialog, it does.
 - Written **after** the dialog resolves with a refusal, never before. A dialog that could not be
   shown at all — no activity, no registered launcher — leaves no flag, so a launcher bug cannot turn
   a permission permanently denied.

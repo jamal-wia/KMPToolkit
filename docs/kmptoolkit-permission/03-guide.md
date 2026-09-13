@@ -103,9 +103,12 @@ This is the distinction that makes the module worth having.
 - **`AwaitingRationale`** — the OS will still show its dialog. Explain, then ask again. Android
   reaches this after the first refusal.
 - **`AwaitingSettings`** — the OS will show nothing. Asking again is a silent no-op, and only a trip
-  to settings can change it. Android reaches this after the second refusal (or "Don't allow" on
-  Android 11+); **iOS reaches it after the first**, because iOS shows its dialog at most once per
-  install.
+  to settings can change it. Android reaches this after the second refusal (on Android 11+ the
+  second "Don't allow"; before it, "Don't ask again"); **iOS reaches it after the first**, because iOS
+  shows its dialog at most once per install.
+
+A dialog the user **dismissed** — back, or a tap outside it — is neither. On Android 11+ it changes
+nothing, so the permission still reads `NotDetermined` and the next request shows the dialog again.
 
 An app that treats these the same either nags a user the OS is willing to prompt, or leaves a user
 tapping a button that can never work.
@@ -190,8 +193,8 @@ an `expect`/`actual` branch anywhere in your own code.
 ## Mistakes worth avoiding
 
 - **Requesting without declaring.** A permission missing from your `AndroidManifest.xml` produces no
-  dialog and an immediate denial — which this module will then record, so the permission goes
-  permanently denied for a manifest bug. On iOS a missing `Info.plist` usage string terminates the
+  dialog and an immediate denial with no rationale — which reads exactly like a dismissed dialog, so
+  the status stays `NotDetermined` and every request returns at once without showing anything. On iOS a missing `Info.plist` usage string terminates the
   app. Check [`05-platform-notes.md`](05-platform-notes.md) first.
 - **Building the handler before the launcher is registered.** `registerForActivityResult` must be
   called while the activity is below `RESUMED`. Register it as a field initializer, as in
