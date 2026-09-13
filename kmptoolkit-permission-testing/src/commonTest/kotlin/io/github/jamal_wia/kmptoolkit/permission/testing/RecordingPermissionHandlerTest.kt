@@ -224,7 +224,7 @@ class RecordingPermissionHandlerTest {
     }
 
     @Test
-    fun `observe follows scripted statuses, requests and the default and skips repeats`() =
+    fun `observe follows scripted statuses and requests and the default and skips repeats`() =
         runTest(UnconfinedTestDispatcher()) {
             val handler = RecordingPermissionHandler()
             val seen = mutableListOf<PermissionStatus>()
