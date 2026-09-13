@@ -38,6 +38,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   change, re-read on activity resume (Android), on becoming active (iOS) and after a request. The
   member has a default body emitting the current status once. `RecordingPermissionHandler` emits on
   every scripted change.
+- `kmptoolkit-biometric`: `BiometricGateOptions` and a `createBiometricGate(context, config, options)`
+  overload (and an iOS `createBiometricGate(config, options)`, where the options change nothing) —
+  the weak sensor tier (`BiometricStrength.WEAK`, e.g. camera face unlock), one sensor attempt per
+  call (`singleAttempt`: the first non-match ends the prompt with `Rejected`), and an enrolment
+  throttle. New `BiometricGate` members with default bodies: `authenticate(prompt,
+  requireExplicitConfirmation)` for a per-call confirming tap, and `launchEnrollment()`, which on
+  Android opens the enrolment wizard or — for a user already enrolled, for whom the wizard closes
+  itself — the biometrics management screen. `ScriptedBiometricGate` records both.
 - `kmptoolkit-audio-player`: `AudioPlayer.unload()` frees the loaded source's native handle but keeps
   the player usable, for a player that outlives the screens borrowing it — `release()` stays the
   permanent teardown. The member has a default body calling `stop()`, so the change is

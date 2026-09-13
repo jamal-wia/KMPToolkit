@@ -7,9 +7,11 @@ import androidx.biometric.BiometricPrompt
 /**
  * The authenticator mask this policy asks `androidx.biometric` for.
  *
- * `BIOMETRIC_STRONG` rather than `BIOMETRIC_WEAK`: the weak tier includes sensors the platform will
- * not let you gate a Keystore key with, and accepting them would quietly weaken what
- * [BiometricResult.Authenticated] claims.
+ * `BIOMETRIC_STRONG` unless the consumer asked for [BiometricStrength.WEAK] explicitly: the weak tier
+ * includes sensors the platform will not let you gate a Keystore key with, and accepting them by
+ * default would quietly weaken what [BiometricResult.Authenticated] claims. The weak tier is only
+ * ever combined with [BiometricPolicy.BIOMETRIC_ONLY] — `createBiometricGate` rejects the other
+ * combination.
  *
  * The device-credential combination is only expressible this way from API 30. Below it the platform
  * has no implementation of `BIOMETRIC_STRONG or DEVICE_CREDENTIAL`, and `androidx.biometric`
@@ -17,13 +19,19 @@ import androidx.biometric.BiometricPrompt
  * alone, and the credential fallback is requested through the deprecated builder flag instead (see
  * [buildPromptInfo]).
  */
-internal fun BiometricGateConfig.allowedAuthenticators(): Int =
+internal fun BiometricGateConfig.allowedAuthenticators(strength: BiometricStrength = BiometricStrength.STRONG): Int =
     if (policy == BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL && supportsCombinedAuthenticators()) {
         BiometricManager.Authenticators.BIOMETRIC_STRONG or
             BiometricManager.Authenticators.DEVICE_CREDENTIAL
     } else {
-        BiometricManager.Authenticators.BIOMETRIC_STRONG
+        strength.authenticator()
     }
+
+/** The single-tier `BiometricManager.Authenticators` constant for [this] strength. */
+internal fun BiometricStrength.authenticator(): Int = when (this) {
+    BiometricStrength.STRONG -> BiometricManager.Authenticators.BIOMETRIC_STRONG
+    BiometricStrength.WEAK -> BiometricManager.Authenticators.BIOMETRIC_WEAK
+}
 
 /**
  * Whether this API level can express "strong biometric **or** device credential" as an authenticator

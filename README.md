@@ -40,7 +40,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
 | `kmptoolkit-storage` | Key-value storage, plain and encrypted, with typed `Int`/`Long`/`Boolean` accessors and a stable device id. Also publishes `jvm` (a plain properties-file store), for code shared with desktop | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
 | `kmptoolkit-storage-testing` | `InMemoryKeyValueStorage`, for `testImplementation` | `storage` | Available | [docs](docs/kmptoolkit-storage/06-testing.md) |
-| `kmptoolkit-biometric` | Biometric gate with typed outcomes; prompt copy is yours | — | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
+| `kmptoolkit-biometric` | Biometric gate with typed outcomes, an enrolment shortcut and opt-in weak-tier / single-attempt checks; prompt copy is yours | — | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-biometric-testing` | `ScriptedBiometricGate`, for `testImplementation` | `biometric` | Available | [docs](docs/kmptoolkit-biometric/06-testing.md) |
 | `kmptoolkit-permission` | Runtime permission request flow for notifications, microphone, camera, location, audio files and Bluetooth, with status observation, plus special-access permissions (exact alarms, overlay, …) | `storage`, `activity` (Android) | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-permission-testing` | `RecordingPermissionHandler` / `RecordingSpecialPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |

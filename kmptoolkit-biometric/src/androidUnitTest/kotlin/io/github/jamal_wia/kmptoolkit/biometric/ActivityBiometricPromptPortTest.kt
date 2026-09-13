@@ -47,7 +47,7 @@ class ActivityBiometricPromptPortTest {
         val port = ActivityBiometricPromptPort(FakeActivityAccess(null), BiometricGateConfig())
         var outcomes = 0
 
-        val handle: PromptHandle? = port.show(promptText) { outcomes++ }
+        val handle: PromptHandle? = port.show(promptText, requireConfirmation = true) { outcomes++ }
 
         assertNull(handle)
         // Nothing was shown, so nothing may be reported: the gate turns the null into NoPromptHost
@@ -62,7 +62,7 @@ class ActivityBiometricPromptPortTest {
         val activity: Activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val port = ActivityBiometricPromptPort(FakeActivityAccess(activity), BiometricGateConfig())
 
-        assertNull(port.show(promptText) { })
+        assertNull(port.show(promptText, requireConfirmation = true) { })
     }
 
     @Test
@@ -72,6 +72,6 @@ class ActivityBiometricPromptPortTest {
         val activity: ComponentActivity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
         val port = ActivityBiometricPromptPort(FakeActivityAccess(activity), BiometricGateConfig())
 
-        assertNull(port.show(promptText) { })
+        assertNull(port.show(promptText, requireConfirmation = true) { })
     }
 }

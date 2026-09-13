@@ -44,7 +44,9 @@ public sealed interface BiometricResult {
      *
      * A single unrecognised finger is *not* this: the platforms keep the prompt on screen and let
      * the user try again, and this module stays silent while they do. By the time you see
-     * `Rejected`, the sheet is gone. It says nothing about the user being an impostor — a wet
+     * `Rejected`, the sheet is gone. The exception is a gate built with
+     * [BiometricGateOptions.singleAttempt], where the first unrecognised finger is the attempt and
+     * ends the prompt with `Rejected`. It says nothing about the user being an impostor — a wet
      * finger and a bad angle look the same to a sensor — so let them retry if your flow allows it,
      * but expect [Unavailable] with [BiometricUnavailability.LOCKED_OUT] soon after.
      */

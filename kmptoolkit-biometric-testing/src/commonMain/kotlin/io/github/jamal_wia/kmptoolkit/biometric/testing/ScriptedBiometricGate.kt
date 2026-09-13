@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.biometric.testing
 
 import io.github.jamal_wia.kmptoolkit.biometric.BiometricAvailability
+import io.github.jamal_wia.kmptoolkit.biometric.BiometricEnrollmentLaunch
 import io.github.jamal_wia.kmptoolkit.biometric.BiometricGate
 import io.github.jamal_wia.kmptoolkit.biometric.BiometricPromptText
 import io.github.jamal_wia.kmptoolkit.biometric.BiometricResult
@@ -57,7 +58,32 @@ public class ScriptedBiometricGate(
 ) : BiometricGate {
 
     private val recordedPrompts: MutableList<BiometricPromptText> = mutableListOf()
+    private val recordedConfirmations: MutableList<Boolean?> = mutableListOf()
     private var recordedAvailabilityChecks: Int = 0
+    private var recordedEnrollmentLaunches: Int = 0
+
+    /**
+     * What [launchEnrollment] answers. Defaults to [BiometricEnrollmentLaunch.LAUNCHED] — a test that
+     * does not care is nearly always testing that the shortcut was offered and followed.
+     *
+     * @since 1.5.0
+     */
+    public var enrollmentLaunch: BiometricEnrollmentLaunch = BiometricEnrollmentLaunch.LAUNCHED
+
+    /**
+     * How many times [launchEnrollment] was called, whatever it answered.
+     *
+     * @since 1.5.0
+     */
+    public val enrollmentLaunches: Int get() = recordedEnrollmentLaunches
+
+    /**
+     * The per-call confirmation of every [authenticate] so far, parallel to [prompts]: the value passed
+     * to the two-argument overload, or `null` for a call that left it to the gate's configuration.
+     *
+     * @since 1.5.0
+     */
+    public val confirmations: List<Boolean?> get() = recordedConfirmations.toList()
 
     /**
      * Every prompt passed to [authenticate] so far, oldest first.
@@ -81,8 +107,21 @@ public class ScriptedBiometricGate(
         return availability
     }
 
-    override suspend fun authenticate(prompt: BiometricPromptText): BiometricResult {
+    override suspend fun authenticate(prompt: BiometricPromptText): BiometricResult = record(prompt, null)
+
+    override suspend fun authenticate(
+        prompt: BiometricPromptText,
+        requireExplicitConfirmation: Boolean,
+    ): BiometricResult = record(prompt, requireExplicitConfirmation)
+
+    override suspend fun launchEnrollment(): BiometricEnrollmentLaunch {
+        recordedEnrollmentLaunches++
+        return enrollmentLaunch
+    }
+
+    private fun record(prompt: BiometricPromptText, confirmation: Boolean?): BiometricResult {
         recordedPrompts += prompt
+        recordedConfirmations += confirmation
         return resultFor(prompt, recordedPrompts.size)
     }
 
@@ -95,6 +134,8 @@ public class ScriptedBiometricGate(
      */
     public fun clear() {
         recordedPrompts.clear()
+        recordedConfirmations.clear()
         recordedAvailabilityChecks = 0
+        recordedEnrollmentLaunches = 0
     }
 }

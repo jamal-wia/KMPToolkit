@@ -114,6 +114,21 @@ and some conditions (a lockout in particular) are only discovered by trying. `au
 every one of them and reports it as an `Unavailable` result, so the guard buys nothing and hides the
 lockout. Re-query availability on screen resume instead of caching it from first composition.
 
+## Sending the user to enrol
+
+When `availability()` says `Unavailable(NOT_ENROLLED)`, the useful response is a button that fixes it:
+
+```kotlin
+when (gate.launchEnrollment()) {
+    BiometricEnrollmentLaunch.LAUNCHED -> Unit // re-check availability() when the screen resumes
+    BiometricEnrollmentLaunch.THROTTLED -> Unit // a double tap; the first one is already opening
+    BiometricEnrollmentLaunch.UNAVAILABLE -> showManualInstructions()
+}
+```
+
+`UNAVAILABLE` is the only answer on iOS, which has no screen an app can open for this. The gate does
+not remember that it sent the user away; `availability()` is the source of truth on the way back.
+
 ## A grace period
 
 The gate has no memory. "Do not ask again for five minutes" is app policy, and it is a decorator:
@@ -152,7 +167,8 @@ control, and neither is the gate underneath it — see
   back to a screen still telling them their device has no biometrics.
 - **Retrying in a loop on `Rejected`.** Android escalates a repeated-failure device from
   `LOCKED_OUT` to `PERMANENTLY_LOCKED_OUT`; a retry loop drives users into a state only their PIN
-  clears.
+  clears. A gate built with `BiometricGateOptions(singleAttempt = true)` makes each call one sensor
+  attempt, which is the shape to count attempts in — it does not make a loop safe.
 - **Showing an error for `Cancelled`.** The user said no. Nothing went wrong.
 - **Calling `authenticate` from the background on Android.** You get `NoPromptHost`, not a prompt
   that appears later. Trigger it from a screen that is on-screen.

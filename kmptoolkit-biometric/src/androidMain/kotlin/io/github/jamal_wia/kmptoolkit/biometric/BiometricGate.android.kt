@@ -2,6 +2,9 @@ package io.github.jamal_wia.kmptoolkit.biometric
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.SystemClock
 import androidx.biometric.BiometricManager
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -30,14 +33,40 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 public fun createBiometricGate(
     context: Context,
     config: BiometricGateConfig = BiometricGateConfig(),
+): BiometricGate = createBiometricGate(context, config, BiometricGateOptions())
+
+/**
+ * Creates the Android [BiometricGate] with [options] beyond the policy — the weak sensor tier, one
+ * sensor attempt per call, and the enrolment-launch throttle. Otherwise identical to the two-argument
+ * overload, including its `FragmentActivity` requirement.
+ *
+ * @throws IllegalArgumentException if [options] asks for [BiometricStrength.WEAK] together with
+ *   [BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL], a combination Android cannot express.
+ * @since 1.5.0
+ */
+public fun createBiometricGate(
+    context: Context,
+    config: BiometricGateConfig,
+    options: BiometricGateOptions,
 ): BiometricGate {
+    require(options.strength == BiometricStrength.STRONG || config.policy == BiometricPolicy.BIOMETRIC_ONLY) {
+        "BiometricStrength.WEAK is only valid with BiometricPolicy.BIOMETRIC_ONLY, was ${config.policy}"
+    }
     val applicationContext: Context = context.applicationContext
     val manager: BiometricManager = BiometricManager.from(applicationContext)
     val activityAccess: ActivityAccess = createActivityTracker(applicationContext as Application)
     return AndroidBiometricGate(
         status = BiometricStatusPort { allowed -> manager.canAuthenticate(allowed) },
-        prompt = ActivityBiometricPromptPort(activityAccess, config),
+        prompt = ActivityBiometricPromptPort(activityAccess, config, options),
         config = config,
+        options = options,
+        enrollment = EnrollmentScreenStarter { intent ->
+            // From the resumed activity when there is one, the application context otherwise; a new
+            // task either way — see BiometricEnrollment.kt.
+            val launcher: Context = activityAccess.withActivity { activity -> activity } ?: applicationContext
+            launcher.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        },
     )
 }
 
@@ -61,14 +90,35 @@ internal class AndroidBiometricGate(
     private val status: BiometricStatusPort,
     private val prompt: BiometricPromptPort,
     private val config: BiometricGateConfig,
+    private val options: BiometricGateOptions = BiometricGateOptions(),
+    enrollment: EnrollmentScreenStarter = EnrollmentScreenStarter { false },
+    sdkInt: Int = Build.VERSION.SDK_INT,
+    elapsedRealtimeMillis: () -> Long = SystemClock::elapsedRealtime,
 ) : BiometricGate {
 
+    private val enrollmentLauncher = BiometricEnrollmentLauncher(
+        sdkInt = sdkInt,
+        weakTier = options.strength == BiometricStrength.WEAK,
+        throttleMillis = options.enrollmentThrottle.inWholeMilliseconds,
+        elapsedRealtimeMillis = elapsedRealtimeMillis,
+        starter = enrollment,
+    )
+
     override suspend fun availability(): BiometricAvailability =
-        mapCanAuthenticate(status.canAuthenticate(config.allowedAuthenticators()))
+        mapCanAuthenticate(status.canAuthenticate(config.allowedAuthenticators(options.strength)))
 
     override suspend fun authenticate(prompt: BiometricPromptText): BiometricResult =
+        authenticate(prompt, config.requireExplicitConfirmation)
+
+    override suspend fun launchEnrollment(): BiometricEnrollmentLaunch =
+        enrollmentLauncher.launch(enrolled = availability() == BiometricAvailability.Available)
+
+    override suspend fun authenticate(
+        prompt: BiometricPromptText,
+        requireExplicitConfirmation: Boolean,
+    ): BiometricResult =
         suspendCancellableCoroutine { continuation ->
-            val handle: PromptHandle? = this.prompt.show(prompt) { outcome ->
+            val handle: PromptHandle? = this.prompt.show(prompt, requireExplicitConfirmation) { outcome ->
                 if (continuation.isActive) continuation.resume(outcome)
             }
             if (handle == null) {

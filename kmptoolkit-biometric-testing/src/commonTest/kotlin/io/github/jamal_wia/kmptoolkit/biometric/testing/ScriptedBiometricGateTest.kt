@@ -215,4 +215,29 @@ class ScriptedBiometricGateTest {
 
         repeat(5) { assertEquals(BiometricResult.Cancelled, gate.authenticate(promptText)) }
     }
+
+    @Test
+    fun `per-call confirmations are recorded alongside the prompts`() = runTest {
+        val gate = ScriptedBiometricGate()
+        val text = BiometricPromptText(title = "t", subtitle = "s", cancelLabel = "c")
+
+        gate.authenticate(text)
+        gate.authenticate(text, requireExplicitConfirmation = false)
+
+        assertEquals(listOf(null, false), gate.confirmations)
+        assertEquals(2, gate.prompts.size)
+    }
+
+    @Test
+    fun `enrollment launches are counted and answer as scripted`() = runTest {
+        val gate = ScriptedBiometricGate()
+        gate.enrollmentLaunch = io.github.jamal_wia.kmptoolkit.biometric.BiometricEnrollmentLaunch.THROTTLED
+
+        assertEquals(io.github.jamal_wia.kmptoolkit.biometric.BiometricEnrollmentLaunch.THROTTLED, gate.launchEnrollment())
+        assertEquals(1, gate.enrollmentLaunches)
+
+        gate.clear()
+        assertEquals(0, gate.enrollmentLaunches)
+        assertEquals(emptyList(), gate.confirmations)
+    }
 }

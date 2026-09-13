@@ -11,17 +11,26 @@ final class io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGa
 
     final val availabilityChecks // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.availabilityChecks|{}availabilityChecks[0]
         final fun <get-availabilityChecks>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.availabilityChecks.<get-availabilityChecks>|<get-availabilityChecks>(){}[0]
+    final val confirmations // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.confirmations|{}confirmations[0]
+        final fun <get-confirmations>(): kotlin.collections/List<kotlin/Boolean?> // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.confirmations.<get-confirmations>|<get-confirmations>(){}[0]
+    final val enrollmentLaunches // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.enrollmentLaunches|{}enrollmentLaunches[0]
+        final fun <get-enrollmentLaunches>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.enrollmentLaunches.<get-enrollmentLaunches>|<get-enrollmentLaunches>(){}[0]
     final val prompts // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.prompts|{}prompts[0]
         final fun <get-prompts>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText> // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.prompts.<get-prompts>|<get-prompts>(){}[0]
 
     final var availability // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.availability|{}availability[0]
         final fun <get-availability>(): io.github.jamal_wia.kmptoolkit.biometric/BiometricAvailability // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.availability.<get-availability>|<get-availability>(){}[0]
         final fun <set-availability>(io.github.jamal_wia.kmptoolkit.biometric/BiometricAvailability) // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.availability.<set-availability>|<set-availability>(io.github.jamal_wia.kmptoolkit.biometric.BiometricAvailability){}[0]
+    final var enrollmentLaunch // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.enrollmentLaunch|{}enrollmentLaunch[0]
+        final fun <get-enrollmentLaunch>(): io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.enrollmentLaunch.<get-enrollmentLaunch>|<get-enrollmentLaunch>(){}[0]
+        final fun <set-enrollmentLaunch>(io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch) // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.enrollmentLaunch.<set-enrollmentLaunch>|<set-enrollmentLaunch>(io.github.jamal_wia.kmptoolkit.biometric.BiometricEnrollmentLaunch){}[0]
     final var resultFor // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.resultFor|{}resultFor[0]
         final fun <get-resultFor>(): kotlin/Function2<io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText, kotlin/Int, io.github.jamal_wia.kmptoolkit.biometric/BiometricResult> // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.resultFor.<get-resultFor>|<get-resultFor>(){}[0]
         final fun <set-resultFor>(kotlin/Function2<io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText, kotlin/Int, io.github.jamal_wia.kmptoolkit.biometric/BiometricResult>) // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.resultFor.<set-resultFor>|<set-resultFor>(kotlin.Function2<io.github.jamal_wia.kmptoolkit.biometric.BiometricPromptText,kotlin.Int,io.github.jamal_wia.kmptoolkit.biometric.BiometricResult>){}[0]
 
     final fun clear() // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.clear|clear(){}[0]
     final suspend fun authenticate(io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText): io.github.jamal_wia.kmptoolkit.biometric/BiometricResult // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.authenticate|authenticate(io.github.jamal_wia.kmptoolkit.biometric.BiometricPromptText){}[0]
+    final suspend fun authenticate(io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText, kotlin/Boolean): io.github.jamal_wia.kmptoolkit.biometric/BiometricResult // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.authenticate|authenticate(io.github.jamal_wia.kmptoolkit.biometric.BiometricPromptText;kotlin.Boolean){}[0]
     final suspend fun availability(): io.github.jamal_wia.kmptoolkit.biometric/BiometricAvailability // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.availability|availability(){}[0]
+    final suspend fun launchEnrollment(): io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch // io.github.jamal_wia.kmptoolkit.biometric.testing/ScriptedBiometricGate.launchEnrollment|launchEnrollment(){}[0]
 }
