@@ -38,8 +38,8 @@ import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
 
 /**
  * Exercises three KMPToolkit modules against whatever the build resolved them from — project
- * dependencies by default, or the published artifacts when run with `-PuseMavenLocal`
- * (a local dry run) or `-PusePublishedArtifacts` (Maven Central).
+ * dependencies by default, or the artifacts published to Maven Central when run with
+ * `-PusePublishedArtifacts`.
  *
  * It is deliberately not a showcase: every call here is one a consumer would actually make, so a
  * publication that is broken in a way the unit tests cannot see (a missing Android variant, a POM

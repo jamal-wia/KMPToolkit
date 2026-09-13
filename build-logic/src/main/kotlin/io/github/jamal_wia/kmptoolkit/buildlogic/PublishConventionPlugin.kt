@@ -37,8 +37,8 @@ interface KmptoolkitPublishExtension {
  * (`:kmptoolkit-logging` → `kmptoolkit-logging`), so restating it would only invite the two
  * to drift apart.
  *
- * Signing is conditional so a contributor without a GPG key can still build and run
- * `publishToMavenLocal`; CI supplies an in-memory key via `ORG_GRADLE_PROJECT_signingInMemoryKey`
+ * Signing is conditional so a contributor without a GPG key can still build the publications; CI
+ * supplies an in-memory key via `ORG_GRADLE_PROJECT_signingInMemoryKey`
  * (same condition Paginator's build files use).
  */
 class PublishConventionPlugin : Plugin<Project> {

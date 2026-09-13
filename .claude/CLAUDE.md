@@ -114,7 +114,7 @@ library:
 
 ## 5. Publishing
 
-- Never publish — to `mavenLocal`, to Maven Central, or anywhere else — without the user's explicit,
+- Never publish — to Maven Central or anywhere else — without the user's explicit,
   same-turn instruction. Running the verification gates (§ 6) is not that instruction.
 - No `gh` CLI, no opening pull requests, no GitHub Releases created on the user's behalf — see
   `RELEASING.md`, which documents that release step as a manual, human action by design.
@@ -134,15 +134,13 @@ library:
   conversation.
 - `allTests` does **not** run Android (Robolectric) unit tests — don't rely on it alone; run
   `testDebugUnitTest` explicitly.
-- A smoke test that actually exercises a published artifact — the only check that can catch a
-  broken POM, a missing variant, or a publication that omits a target, since no unit test can see
-  any of those. Two forms, and both matter:
-  `./gradlew publishToMavenLocal && ./gradlew :sample:assembleDebug -PuseMavenLocal` before a
-  release (what the publish workflow runs), and `./gradlew :sample:assembleDebug
-  -PusePublishedArtifacts` against Maven Central after one.
-- The `mavenLocal` repository exists **only** while `-PuseMavenLocal` is passed. Never add it
-  unconditionally: a permanently reachable `~/.m2` is precisely what makes a broken publication, or
-  a version that was never published at all, look correct on the one machine that produced it.
+- After a release, a smoke test that exercises the published artifacts — the only check that can
+  catch a broken POM, a missing variant, or a publication that omits a target, since no unit test
+  can see any of those: `./gradlew :sample:assembleDebug -PusePublishedArtifacts` against Maven
+  Central.
+- No build resolves anything from `~/.m2`: a locally reachable repository is precisely what makes a
+  broken publication, or a version that was never published at all, look correct on the one machine
+  that produced it.
 
 ## 7. Tests are an honest adversary
 

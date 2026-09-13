@@ -20,19 +20,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-
-        // Present ONLY when asked for by name. The release workflow's smoke-test step passes
-        // `-PuseMavenLocal` so `:sample` can resolve a `publishToMavenLocal` dry run by coordinate
-        // and catch a malformed POM, a missing variant, or a publication that drops a transitive
-        // dependency — before the version reaches Central, where a bad release cannot be withdrawn.
-        //
-        // Every other build, including every verification run, resolves without it. That is the
-        // point: a permanently reachable `~/.m2` is exactly what makes a broken publication — or a
-        // stale local version that was never published at all — look correct on the one machine
-        // that produced it, and on no other.
-        if (providers.gradleProperty("useMavenLocal").isPresent) {
-            mavenLocal { content { includeGroup("io.github.jamal-wia") } }
-        }
     }
 }
 
