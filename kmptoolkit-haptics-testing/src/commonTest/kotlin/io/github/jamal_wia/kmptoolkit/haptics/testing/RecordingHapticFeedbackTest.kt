@@ -6,10 +6,38 @@ import io.github.jamal_wia.kmptoolkit.haptics.HapticType
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** Pins the contract documented on [RecordingHapticFeedback]. */
 class RecordingHapticFeedbackTest {
+
+    @Test
+    fun `a fresh double is available unless the test says otherwise`() {
+        assertTrue(RecordingHapticFeedback().isAvailable)
+    }
+
+    @Test
+    fun `isAvailable can be set up front and switched mid-test`() {
+        val haptics = RecordingHapticFeedback(isAvailable = false)
+        val before: Boolean = haptics.isAvailable
+
+        haptics.isAvailable = true
+
+        assertFalse(before)
+        assertTrue(haptics.isAvailable)
+    }
+
+    @Test
+    fun `isAvailable and the result are independent of each other`() {
+        // An unavailable double still records and returns the configured result: the double does
+        // not guess what "unavailable" should imply, the test sets both facts.
+        val haptics = RecordingHapticFeedback(result = HapticResult.PERFORMED, isAvailable = false)
+
+        assertEquals(HapticResult.PERFORMED, haptics.perform(HapticType.LIGHT))
+        assertContentEquals(listOf(HapticType.LIGHT), haptics.events)
+        assertFalse(haptics.isAvailable)
+    }
 
     @Test
     fun `a fresh double has recorded nothing`() {

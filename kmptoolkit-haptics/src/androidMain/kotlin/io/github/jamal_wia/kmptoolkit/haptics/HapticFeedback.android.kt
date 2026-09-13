@@ -3,7 +3,8 @@ package io.github.jamal_wia.kmptoolkit.haptics
 import android.content.Context
 
 /**
- * Creates the Android [HapticFeedback], backed by the device's default vibrator.
+ * Creates the Android [HapticFeedback], backed by the device's default vibrator, with every vibration
+ * attributed as [HapticAttribution.TOUCH].
  *
  * Call this once — in your `Application`, or wherever you assemble dependencies — and pass the
  * resulting [HapticFeedback] into shared code. The instance holds only the framework `Vibrator`
@@ -17,8 +18,26 @@ import android.content.Context
  * @param context any `Context`; its application context is what gets retained.
  */
 public fun createHapticFeedback(context: Context): HapticFeedback =
+    createHapticFeedback(context, HapticAttribution.TOUCH)
+
+/**
+ * Creates the Android [HapticFeedback], backed by the device's default vibrator, with every vibration
+ * carrying [attribution].
+ *
+ * Everything said on the single-argument overload holds here too; the only difference is how the
+ * user's system settings treat the vibrations this instance plays — see [HapticAttribution]. This
+ * is a separate overload rather than a default parameter so that code compiled against the
+ * single-argument function keeps linking.
+ *
+ * @param context any `Context`; its application context is what gets retained.
+ * @param attribution what the vibrations are declared to be for.
+ */
+public fun createHapticFeedback(context: Context, attribution: HapticAttribution): HapticFeedback =
     AndroidHapticFeedback(
-        SystemVibratorPort(SystemVibratorPort.resolveVibrator(context.applicationContext)),
+        SystemVibratorPort(
+            vibrator = SystemVibratorPort.resolveVibrator(context.applicationContext),
+            attribution = attribution,
+        ),
     )
 
 /**
@@ -31,6 +50,8 @@ public fun createHapticFeedback(context: Context): HapticFeedback =
  * this class's.
  */
 internal class AndroidHapticFeedback(private val port: VibratorPort) : HapticFeedback {
+
+    override val isAvailable: Boolean get() = port.hasVibrator()
 
     override fun perform(type: HapticType): HapticResult =
         if (port.hasVibrator()) port.emit(type.toVibration()) else HapticResult.UNAVAILABLE

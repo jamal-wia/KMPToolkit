@@ -64,24 +64,32 @@ entirely — which happens on stripped-down system images and some emulators —
 Waveform timings alternate **off, on, off, on…**, exactly as the platform reads them, which is why
 every pattern starts with a `0`.
 
-### Attribution — every request is tagged as touch feedback
+### Attribution — touch feedback, or none
 
-An unattributed `vibrate()` is classified `USAGE_UNKNOWN`, and the platform treats an unclassified
-vibration differently from touch feedback: it is not scaled by the user's touch-feedback intensity
-slider, not silenced by the touch-feedback switch, and filtered differently under Do Not Disturb. So
-every call this module makes carries an attribution:
+What a vibration is declared to be *for* decides how the user's settings treat it. Each instance
+has one attribution, chosen in the factory: `createHapticFeedback(context)` is `TOUCH`,
+`createHapticFeedback(context, HapticAttribution.NONE)` is none.
 
-| API level | Attribution |
-|---|---|
-| 33+ (`TIRAMISU`) | `VibrationAttributes` with `USAGE_TOUCH` |
-| 24–32 | `AudioAttributes` with `USAGE_ASSISTANCE_SONIFICATION` + `CONTENT_TYPE_SONIFICATION` |
+| API level | `TOUCH` | `NONE` |
+|---|---|---|
+| 33+ (`TIRAMISU`) | `VibrationAttributes` with `USAGE_TOUCH` | `vibrate(VibrationEffect)` — the framework fills in empty attributes, `USAGE_UNKNOWN` |
+| 26–32 | `AudioAttributes` with `USAGE_ASSISTANCE_SONIFICATION` + `CONTENT_TYPE_SONIFICATION` | `vibrate(VibrationEffect)` with no attributes |
+| 24–25 | the same `AudioAttributes` on the deprecated overloads | the deprecated overloads with no attributes |
 
-`VibrationAttributes` is the modern classification and did not exist before API 33; the
-`AudioAttributes` pair is the closest equivalent the older overloads accept. Both branches are
-asserted by Robolectric tests.
+**`TOUCH`** — the default. The platform scales the vibration by the user's touch-feedback intensity
+slider and silences it when they turn touch feedback off: a user who asked for no touch vibration
+gets none. `VibrationAttributes` is the modern classification and did not exist before API 33; the
+`AudioAttributes` pair is the closest equivalent the older overloads accept.
 
-The practical consequence: a user who turns touch feedback off, or turns its intensity down, gets
-what they asked for — which is not true of an unattributed vibration.
+**`NONE`** — an unattributed vibration, classified `USAGE_UNKNOWN`. The touch-feedback switch and
+slider do not apply to it, and Do Not Disturb filters it differently. Choose it for a vibration
+that is not a reaction to the user's touch and must reach them regardless of that switch — an
+attention cue for someone who put the device down — or when adopting this module in an app that
+has been calling `Vibrator.vibrate(effect)` directly, whose vibrations then behave exactly as
+before.
+
+An app whose vibrations mean both things builds two instances. Every cell of the table is asserted
+by a Robolectric test.
 
 ### The API-26 split — why the same type can feel different on two devices
 
@@ -98,6 +106,8 @@ expressive. Both paths are covered by Robolectric tests at SDK 24, 30 and 34.
 
 ### Other Android facts worth knowing
 
+- **`isAvailable` is `hasVibrator()`**, read live, so it answers without playing anything. It says
+  nothing about the permission or the user's settings — those only surface from `perform`.
 - **`hasVibrator()` is checked before every request.** A device that reports no motor gets
   `UNAVAILABLE` rather than a successful-looking no-op, because `Vibrator.vibrate` on such a device
   returns quietly and would otherwise be indistinguishable from a real pulse.
@@ -106,7 +116,7 @@ expressive. Both paths are covered by Robolectric tests at SDK 24, 30 and 34.
   `PERFORMED` remains the honest answer the platform gives.
 - **A second request replaces the first.** Android does not queue vibrations; the newest call wins.
 - **Amplitude is a request, not a command.** Many devices quantize it, and the user's own
-  intensity setting scales it — see attribution below, which is what makes that scaling apply.
+  intensity setting scales it — see attribution above, which is what makes that scaling apply.
 - **The framework throws more than `SecurityException`.** An effect the service will not accept
   raises `IllegalArgumentException`, and OEM builds surface a dead vibrator-service binder as a
   `RuntimeException`. Both come back as `HapticResult.FAILED`; neither escapes `perform`. `Error`
@@ -144,7 +154,8 @@ be main-thread-confined shared state for no measurable gain.
 ### What iOS cannot tell you
 
 There is no API to ask whether the device has a Taptic Engine, whether the user disabled system
-haptics, or whether a request was honored. Every call therefore returns `PERFORMED` — including on
+haptics, or whether a request was honored. `isAvailable` is therefore always `true`, and every call
+returns `PERFORMED` — including on
 the simulator, where nothing can possibly be felt. `UNAVAILABLE`, `PERMISSION_DENIED` and `FAILED`
 are **Android-only outcomes** in practice; a `when` over `HapticResult` in shared code still has to
 handle them, and doing nothing there is a perfectly good answer.

@@ -1,5 +1,18 @@
+public final class io/github/jamal_wia/kmptoolkit/haptics/HapticAttribution : java/lang/Enum {
+	public static final field NONE Lio/github/jamal_wia/kmptoolkit/haptics/HapticAttribution;
+	public static final field TOUCH Lio/github/jamal_wia/kmptoolkit/haptics/HapticAttribution;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/haptics/HapticAttribution;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/haptics/HapticAttribution;
+}
+
 public abstract interface class io/github/jamal_wia/kmptoolkit/haptics/HapticFeedback {
+	public fun isAvailable ()Z
 	public abstract fun perform (Lio/github/jamal_wia/kmptoolkit/haptics/HapticType;)Lio/github/jamal_wia/kmptoolkit/haptics/HapticResult;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/haptics/HapticFeedback$DefaultImpls {
+	public static fun isAvailable (Lio/github/jamal_wia/kmptoolkit/haptics/HapticFeedback;)Z
 }
 
 public final class io/github/jamal_wia/kmptoolkit/haptics/HapticFeedbackKt {
@@ -8,6 +21,7 @@ public final class io/github/jamal_wia/kmptoolkit/haptics/HapticFeedbackKt {
 
 public final class io/github/jamal_wia/kmptoolkit/haptics/HapticFeedback_androidKt {
 	public static final fun createHapticFeedback (Landroid/content/Context;)Lio/github/jamal_wia/kmptoolkit/haptics/HapticFeedback;
+	public static final fun createHapticFeedback (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/haptics/HapticAttribution;)Lio/github/jamal_wia/kmptoolkit/haptics/HapticFeedback;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/haptics/HapticResult : java/lang/Enum {

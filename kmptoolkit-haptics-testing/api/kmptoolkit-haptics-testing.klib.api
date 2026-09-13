@@ -8,10 +8,14 @@
 // Library unique name: <io.github.jamal-wia:kmptoolkit-haptics-testing>
 final class io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback : io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback { // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback|null[0]
     constructor <init>(io.github.jamal_wia.kmptoolkit.haptics/HapticResult = ...) // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.<init>|<init>(io.github.jamal_wia.kmptoolkit.haptics.HapticResult){}[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.haptics/HapticResult = ..., kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.<init>|<init>(io.github.jamal_wia.kmptoolkit.haptics.HapticResult;kotlin.Boolean){}[0]
 
     final val events // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.events|{}events[0]
         final fun <get-events>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.haptics/HapticType> // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.events.<get-events>|<get-events>(){}[0]
 
+    final var isAvailable // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.isAvailable|{}isAvailable[0]
+        final fun <get-isAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.isAvailable.<get-isAvailable>|<get-isAvailable>(){}[0]
+        final fun <set-isAvailable>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.isAvailable.<set-isAvailable>|<set-isAvailable>(kotlin.Boolean){}[0]
     final var result // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.result|{}result[0]
         final fun <get-result>(): io.github.jamal_wia.kmptoolkit.haptics/HapticResult // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.result.<get-result>|<get-result>(){}[0]
         final fun <set-result>(io.github.jamal_wia.kmptoolkit.haptics/HapticResult) // io.github.jamal_wia.kmptoolkit.haptics.testing/RecordingHapticFeedback.result.<set-result>|<set-result>(io.github.jamal_wia.kmptoolkit.haptics.HapticResult){}[0]

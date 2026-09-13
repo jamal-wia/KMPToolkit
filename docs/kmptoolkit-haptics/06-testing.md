@@ -82,6 +82,24 @@ presenter.saveDraft()                            // records, PERMISSION_DENIED
 
 Use `clear()` to separate arrange from act when your setup itself fires haptics.
 
+## Asserting code that checks the hardware first
+
+Code that reads `isAvailable` before deciding takes the other knob. It is independent of `result` —
+an unavailable double still records and returns what `result` says, because the double does not
+guess what your code should have done with the answer:
+
+```kotlin
+@Test
+fun `the cue does not start when neither the torch nor the motor exists`() {
+    val haptics = RecordingHapticFeedback(isAvailable = false)
+    val torch = RecordingFlashlight(isAvailable = false)
+
+    AttentionCue(torch, haptics).start()
+
+    assertTrue(haptics.events.isEmpty())
+}
+```
+
 ## What the fixture will not do for you
 
 - **It is not thread-safe.** The backing list is a plain `MutableList`. Drive it from one thread, or

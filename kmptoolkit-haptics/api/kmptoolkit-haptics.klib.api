@@ -35,6 +35,9 @@ final enum class io.github.jamal_wia.kmptoolkit.haptics/HapticType : kotlin/Enum
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback { // io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback|null[0]
+    open val isAvailable // io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback.isAvailable|{}isAvailable[0]
+        open fun <get-isAvailable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback.isAvailable.<get-isAvailable>|<get-isAvailable>(){}[0]
+
     abstract fun perform(io.github.jamal_wia.kmptoolkit.haptics/HapticType): io.github.jamal_wia.kmptoolkit.haptics/HapticResult // io.github.jamal_wia.kmptoolkit.haptics/HapticFeedback.perform|perform(io.github.jamal_wia.kmptoolkit.haptics.HapticType){}[0]
 }
 

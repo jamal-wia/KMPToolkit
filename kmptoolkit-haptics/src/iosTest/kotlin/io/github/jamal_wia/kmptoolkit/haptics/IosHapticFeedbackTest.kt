@@ -31,6 +31,11 @@ import kotlin.test.assertTrue
 class IosHapticFeedbackTest {
 
     @Test
+    fun `it always reports itself available because UIKit cannot say otherwise`() {
+        assertTrue(createHapticFeedback().isAvailable)
+    }
+
+    @Test
     fun `a call from a background thread is accepted and its UIKit work runs on the main thread`() {
         // dispatch_async, not dispatch_sync: dispatch_sync runs the block on the *calling* thread,
         // so it would never leave main and the test would assert nothing about threading.

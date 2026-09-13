@@ -9,6 +9,22 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Added
+
+- `kmptoolkit-haptics`: `HapticFeedback.isAvailable` answers whether the device can play haptics at
+  all **without** playing anything — `perform` only reports `UNAVAILABLE` after it has already
+  tried, which is too late for a decision such as "does this attention cue have any way to reach the
+  user". Android reads `hasVibrator()`, iOS answers `true` (UIKit cannot tell), `noOpHapticFeedback()`
+  answers `false`. The member has a default getter returning `true`, so an existing implementation
+  keeps compiling; a decorator should forward it. `RecordingHapticFeedback` gains a matching
+  `isAvailable` property and a `(result, isAvailable)` constructor. Purely additive.
+- `kmptoolkit-haptics` (Android): `HapticAttribution` and a `createHapticFeedback(context,
+  attribution)` overload. `TOUCH` is what every instance did until now and remains the default;
+  `NONE` plays the unattributed `vibrate(effect)`, which the user's touch-feedback switch does not
+  silence — for a vibration that is not a reaction to a touch, and for an app adopting the module
+  whose vibrations were unattributed before. The single-argument factory is unchanged. Purely
+  additive.
+
 ## [1.2.0] - 2026-09-13
 
 ### Added
