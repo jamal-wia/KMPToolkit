@@ -33,6 +33,20 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   goes dark. A replacing `start` could also have its first flash cut short by the replaced loop's
   final "off". Both platforms now share one blink loop that swaps the job atomically and lets a
   replacement wait for its predecessor to finish; nothing in the public API changes.
+- `kmptoolkit-accelerometer` (iOS): two concurrent collections of one instance broke each other.
+  `CMMotionManager` has a single update handler, so the second collection replaced the first one's,
+  and whichever ended first called `stopAccelerometerUpdates` and silenced the other. An instance now
+  runs one update stream that starts with the first collection, stops with the last, and delivers
+  every sample to all of them — which is what Android already did.
+- `kmptoolkit-accelerometer` (Android): a `samplingInterval` below 4 µs reached
+  `SensorManager.registerListener` as `0`–`3`, which the platform reads as its `SENSOR_DELAY_*`
+  constants — 3 µs meant `SENSOR_DELAY_NORMAL`, 200 ms — and one longer than `Int.MAX_VALUE` µs
+  overflowed into a negative period. Short and non-positive intervals now request
+  `SENSOR_DELAY_FASTEST`, and long ones are capped.
+- Documentation: `kmptoolkit-accelerometer` and `kmptoolkit-proximity` said sensor callbacks arrive
+  on the collecting thread's looper. With no `Handler` passed, `SensorManager` delivers them on the
+  main looper. `kmptoolkit-proximity` also said an absent sensor's `observe()` never completes; the
+  always-absent iOS implementation completes at once, which is now stated.
 
 ## [1.2.0] - 2026-09-13
 

@@ -28,7 +28,9 @@ import kotlinx.coroutines.flow.callbackFlow
  * @param context any `Context`; its application context is what gets retained.
  * @param samplingInterval how often the sensor is asked to report, converted to microseconds for
  *   `SensorManager.registerListener`. The default, 200 ms, approximates `SENSOR_DELAY_NORMAL` —
- *   roughly five samples a second, the cheapest rate the platform offers.
+ *   roughly five samples a second, the cheapest rate the platform offers. An interval under 4 µs —
+ *   zero and negative included — asks for the fastest rate (`SENSOR_DELAY_FASTEST`), and one too long
+ *   to fit the platform's `Int` microseconds is capped there; see [toSamplingPeriodUs].
  */
 public fun createAccelerometer(
     context: Context,
@@ -76,11 +78,7 @@ internal class AndroidAccelerometer(
             }
         }
 
-        sensorManager.registerListener(
-            listener,
-            accelerometer,
-            samplingInterval.inWholeMicroseconds.toInt(),
-        )
+        sensorManager.registerListener(listener, accelerometer, samplingInterval.toSamplingPeriodUs())
         awaitClose { sensorManager.unregisterListener(listener) }
     }
 
@@ -92,3 +90,25 @@ internal class AndroidAccelerometer(
         const val Z_AXIS = 2
     }
 }
+
+/**
+ * This interval as the `samplingPeriodUs` argument of `SensorManager.registerListener`.
+ *
+ * That argument is overloaded: `0`–`3` are not microseconds but the `SENSOR_DELAY_*` constants
+ * (`FASTEST`, `GAME`, `UI`, `NORMAL`). Passed through unchanged, a request for 3 µs would be read as
+ * `SENSOR_DELAY_NORMAL` — some sixty thousand times slower than asked. So every interval below the
+ * first unambiguous value maps to `SENSOR_DELAY_FASTEST`, which is what such a request means, and an
+ * interval longer than `Int.MAX_VALUE` µs (about 36 minutes) is capped instead of overflowing into a
+ * negative number.
+ */
+internal fun Duration.toSamplingPeriodUs(): Int {
+    val micros: Long = inWholeMicroseconds
+    return when {
+        micros < FIRST_LITERAL_PERIOD_US -> SensorManager.SENSOR_DELAY_FASTEST
+        micros > Int.MAX_VALUE -> Int.MAX_VALUE
+        else -> micros.toInt()
+    }
+}
+
+/** The smallest `samplingPeriodUs` the platform reads as microseconds rather than a delay constant. */
+private const val FIRST_LITERAL_PERIOD_US: Long = 4L

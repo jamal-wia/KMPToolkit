@@ -43,8 +43,10 @@ Builds the Android implementation on top of `SensorManager` and `TYPE_ACCELEROME
   ([`../01-architecture.md`](../01-architecture.md#platform-factories-not-expect-fun)).
 - Retains `context.applicationContext`, so passing an `Activity` does not leak it.
 - Resolves the `Sensor` once, at construction. `samplingInterval` is converted to microseconds and
-  passed to `SensorManager.registerListener` on every collection — it can differ between two
-  concurrent collections of the same instance's `observe()`, since each registers its own listener.
+  passed to `SensorManager.registerListener` on every collection. An interval below 4 µs — zero and
+  negative included — requests `SENSOR_DELAY_FASTEST`, because the platform reads `0`–`3` as its
+  `SENSOR_DELAY_*` constants rather than microseconds; one longer than `Int.MAX_VALUE` µs (about 36
+  minutes) is capped there instead of overflowing.
 - No permission is required at the default interval. Requesting faster than 200 Hz needs
   `android.permission.HIGH_SAMPLING_RATE_SENSORS` on API 31+ — see
   [`05-platform-notes.md`](05-platform-notes.md#high-sampling-rate-sensors-android-31).
@@ -54,7 +56,11 @@ Builds the Android implementation on top of `SensorManager` and `TYPE_ACCELEROME
 Builds the iOS implementation on top of `CMMotionManager`. Lives in `iosMain`.
 
 - `samplingInterval` is converted to seconds and assigned to
-  `CMMotionManager.accelerometerUpdateInterval` before each collection starts updates.
+  `CMMotionManager.accelerometerUpdateInterval` when updates start. A zero or negative interval asks
+  for the fastest rate Core Motion offers.
+- One update stream per instance: it starts with the first collection of `observe()` and stops when
+  the last one ends, and each sample goes to every collection — see
+  [`05-platform-notes.md`](05-platform-notes.md#sensor-lifecycle).
 - Every sample is scaled from g (what Core Motion reports) to m/s² before it reaches
   `AccelerometerSample`, so both platforms speak the same unit — see
   [`05-platform-notes.md`](05-platform-notes.md#unit-conversion-ios).
