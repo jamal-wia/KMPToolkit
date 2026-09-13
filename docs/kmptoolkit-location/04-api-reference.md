@@ -32,6 +32,18 @@ public fun createLocationProvider(
 Creates the `CLLocationManager`-backed provider. A new `CLLocationManager` and delegate are created
 per request internally; nothing here needs releasing.
 
+### `withSystemServicesPrompt` (iOS)
+
+```kotlin
+public fun LocationProvider.withSystemServicesPrompt(): LocationProvider
+```
+
+*Since 1.4.0.* A decorator whose `promptToEnableService()` answers `ALREADY_ON` when the service is
+on, and otherwise starts a one-shot `CLLocationManager` request — which makes iOS raise its own "Turn
+On Location Services" alert for an authorized app — and answers `PROMPTED`. Every other member is
+forwarded unchanged. Requests no authorization. `PROMPTED` means the request was made; whether iOS
+showed the alert is not observable.
+
 ## `LocationProvider`
 
 ```kotlin

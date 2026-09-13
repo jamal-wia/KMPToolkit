@@ -85,12 +85,17 @@ when (location.promptToEnableService()) {
 }
 ```
 
-Both factory-built providers only ever return `ALREADY_ON` or `UNSUPPORTED` — see
-[`05-platform-notes.md`](05-platform-notes.md#why-there-is-no-in-place-dialog) for why. If your
-product genuinely needs the in-place dialog Android offers through Google Play Services'
-`SettingsClient`, implement `LocationProvider` yourself (or decorate a factory-built one) and return
-`PROMPTED` / `NOT_NOW` from your own `promptToEnableService()` override — this module deliberately
-does not carry that dependency, see `docs/01-architecture.md`.
+Both factory-built providers, as they come, only ever return `ALREADY_ON` or `UNSUPPORTED`. Two ways
+to get a real prompt:
+
+- **iOS:** `createLocationProvider().withSystemServicesPrompt()` asks the system to show its own
+  "Turn On Location Services" alert and answers `PROMPTED`. See
+  [`05-platform-notes.md`](05-platform-notes.md#the-in-place-prompt-on-each-platform) for when iOS
+  actually shows it.
+- **Android:** the in-place dialog exists only in Google Play Services' `SettingsClient`, which this
+  module deliberately does not depend on. If your app already has Play Services, write a Fused
+  decorator — [`05-platform-notes.md`](05-platform-notes.md#writing-a-play-services-decorator-android)
+  has the full recipe, including the `NOT_NOW` case.
 
 ## Never block on a fix that will not arrive soon
 

@@ -15,7 +15,7 @@ Works in `commonTest`, so one test covers both platforms.
 
 | Fixture | Drives | Records |
 |---|---|---|
-| `FakeLocationProvider` | `emit(coordinates)`, `locationEnabled` | `openSettingsCount` |
+| `FakeLocationProvider` | `emit(coordinates)`, `locationEnabled`, `servicePromptAnswer` | `openSettingsCount`, `promptCount` |
 
 ## A fix arriving after the screen is already showing
 
@@ -65,10 +65,33 @@ fun `prompts to enable location when the service is off`() = runTest {
 }
 ```
 
-Since `promptToEnableService()` has no state of its own — it is only ever `ALREADY_ON` or
-`UNSUPPORTED`, derived from `locationEnabled` — the same `locationEnabled` you already set is what
-a screen calling `promptToEnableService()` instead of `isLocationEnabled()` sees too. No separate
-fixture control is needed.
+`promptToEnableService()` follows `locationEnabled`: `ALREADY_ON` while it is `true`, and while it is
+`false` whatever `servicePromptAnswer` says — `UNSUPPORTED` when left `null`, which is what both
+factory-built providers answer. Set it to stand in for a provider that can prompt (a Play Services
+decorator, or `withSystemServicesPrompt()` on iOS):
+
+```kotlin
+@Test
+fun `a prompt that could not be shown yet is retried rather than sent to settings`() = runTest {
+    val location = FakeLocationProvider(locationEnabled = false).apply {
+        servicePromptAnswer = LocationServicePrompt.NOT_NOW
+    }
+    val flow = EnableLocationFlow(location)
+
+    flow.onEnableTapped()
+
+    assertEquals(1, location.promptCount)
+    assertEquals(0, location.openSettingsCount)
+}
+```
+
+## Testing your own Play Services decorator
+
+A Fused decorator is platform code over Google's client, and no fake of this module can exercise it —
+test it the way you test any Play Services integration, on a device or against Robolectric with the
+client mocked. What *can* stay a plain unit test is everything that uses it: shared code depends on
+`LocationProvider`, so it keeps being tested against `FakeLocationProvider` with the
+`servicePromptAnswer` the decorator would give.
 
 ## Proving a screen sent the user to settings
 

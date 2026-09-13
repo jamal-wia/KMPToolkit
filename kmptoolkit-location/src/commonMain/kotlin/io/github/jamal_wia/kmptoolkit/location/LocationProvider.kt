@@ -60,10 +60,11 @@ public interface LocationProvider {
      * Asks the system to turn the location service back on without leaving the app, if the
      * platform offers a way to do that. See [LocationServicePrompt] for what came of it.
      *
-     * Neither this module's Android nor its iOS implementation raises an in-place dialog — Android's
-     * version would need Google Play Services' `SettingsClient`, which this module deliberately does
-     * not depend on (see `docs/kmptoolkit-location/05-platform-notes.md`), and iOS exposes no public
-     * API for it. The default implementation reflects that honestly: [LocationServicePrompt.ALREADY_ON]
+     * Neither this module's Android nor its iOS factory raises an in-place dialog by default —
+     * Android's version would need Google Play Services' `SettingsClient`, which this module
+     * deliberately does not depend on (see `docs/kmptoolkit-location/05-platform-notes.md`, which also
+     * shows how to write a Play Services decorator), and on iOS the closest thing, the system's own
+     * "Turn On Location Services" alert, is opt-in through `withSystemServicesPrompt()`. The default implementation reflects that honestly: [LocationServicePrompt.ALREADY_ON]
      * when [isLocationEnabled] is already `true`, [LocationServicePrompt.UNSUPPORTED] otherwise — so
      * a caller can write one `when` over all four cases that already does the right thing today, and
      * would keep doing the right thing if your own [LocationProvider] (or a future revision of this

@@ -86,4 +86,29 @@ class FakeLocationProviderTest {
 
         assertEquals(2, provider.openSettingsCount)
     }
+
+    @Test
+    fun `a scripted prompt answer is given while the service is off`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = false)
+        provider.servicePromptAnswer = LocationServicePrompt.NOT_NOW
+
+        assertEquals(LocationServicePrompt.NOT_NOW, provider.promptToEnableService())
+        assertEquals(1, provider.promptCount)
+    }
+
+    @Test
+    fun `with no scripted answer the prompt is unsupported while the service is off`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = false)
+
+        assertEquals(LocationServicePrompt.UNSUPPORTED, provider.promptToEnableService())
+    }
+
+    @Test
+    fun `a scripted answer does not override a service that is already on`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = true)
+        provider.servicePromptAnswer = LocationServicePrompt.PROMPTED
+
+        assertEquals(LocationServicePrompt.ALREADY_ON, provider.promptToEnableService())
+        assertEquals(1, provider.promptCount)
+    }
 }

@@ -71,4 +71,5 @@ final class io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig { // 
     }
 }
 
+final fun (io.github.jamal_wia.kmptoolkit.location/LocationProvider).io.github.jamal_wia.kmptoolkit.location/withSystemServicesPrompt(): io.github.jamal_wia.kmptoolkit.location/LocationProvider // io.github.jamal_wia.kmptoolkit.location/withSystemServicesPrompt|withSystemServicesPrompt@io.github.jamal_wia.kmptoolkit.location.LocationProvider(){}[0]
 final fun io.github.jamal_wia.kmptoolkit.location/createLocationProvider(io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig = ..., io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.location/LocationProvider // io.github.jamal_wia.kmptoolkit.location/createLocationProvider|createLocationProvider(io.github.jamal_wia.kmptoolkit.location.LocationProviderConfig;io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]

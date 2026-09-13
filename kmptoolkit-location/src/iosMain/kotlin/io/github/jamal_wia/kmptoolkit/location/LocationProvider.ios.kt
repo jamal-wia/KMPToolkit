@@ -18,6 +18,7 @@ import platform.CoreLocation.CLLocationManager
 import platform.CoreLocation.CLLocationManagerDelegateProtocol
 import platform.CoreLocation.kCLLocationAccuracyHundredMeters
 import platform.Foundation.NSError
+import platform.Foundation.NSThread
 import platform.Foundation.NSURL
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationOpenSettingsURLString
@@ -132,16 +133,18 @@ private class IosLocationProvider(
     }
 
     // iOS exposes no deep link to the system Location Services toggle, so the best available
-    // fallback is the app's own settings page.
+    // fallback is the app's own settings page. UIApplication may only be used on the main thread,
+    // and this method is documented as callable from any thread.
     override fun openLocationSettings() {
-        val url: NSURL? = NSURL.URLWithString(UIApplicationOpenSettingsURLString)
-        if (url != null) {
+        val url: NSURL = NSURL.URLWithString(UIApplicationOpenSettingsURLString) ?: return
+        val open: () -> Unit = {
             UIApplication.sharedApplication.openURL(
                 url,
                 options = mapOf<Any?, Any?>(),
                 completionHandler = null,
             )
         }
+        if (NSThread.isMainThread) open() else dispatch_async(dispatch_get_main_queue(), open)
     }
 }
 

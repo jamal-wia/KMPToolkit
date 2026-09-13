@@ -21,7 +21,7 @@ class IosLocationProviderTest {
     }
 
     @Test
-    fun `promptToEnableService reflects isLocationEnabled — no in-place dialog exists on iOS`() = runTest {
+    fun `the undecorated provider raises no alert and reflects isLocationEnabled`() = runTest {
         val provider: LocationProvider = createLocationProvider()
 
         val expected: LocationServicePrompt =
