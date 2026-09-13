@@ -9,6 +9,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-13
+
 ### Added
 
 - `kmptoolkit-haptics`: `HapticFeedback.isAvailable` answers whether the device can play haptics at
