@@ -7,6 +7,7 @@ import kotlin.time.TimeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -93,12 +94,20 @@ internal class DefaultAudioRecorder(
         }
         val directory: String = fileSystem.parentOf(path)
             ?: return fail(RecorderError.DirectoryNotWritable(path))
-        val storageError: RecorderError? = withContext(workerContext) {
-            if (!fileSystem.ensureWritableDirectory(directory)) {
-                RecorderError.DirectoryNotWritable(directory)
-            } else {
-                checkFreeSpace(directory)
+        val storageError: RecorderError? = try {
+            withContext(workerContext) {
+                if (!fileSystem.ensureWritableDirectory(directory)) {
+                    RecorderError.DirectoryNotWritable(directory)
+                } else {
+                    checkFreeSpace(directory)
+                }
             }
+        } catch (cancellation: CancellationException) {
+            // Nothing is open yet, so there is nothing to undo — but Preparing must not outlive the
+            // call: every operation, prepare included, is illegal from it, so a recorder left there
+            // could never be used again.
+            _state.value = RecorderState.Idle
+            throw cancellation
         }
         storageError?.let { error -> return fail(error) }
 
@@ -204,15 +213,24 @@ internal class DefaultAudioRecorder(
 
         stopTicker()
         freezeElapsed()
-        try {
-            // Finalizing the container is the one genuinely slow call in the whole module.
-            withContext(workerContext) { engine.stop() }
-        } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
+        // Runs to completion even if the caller is cancelled on the way in or out. The ticker is
+        // already stopped, so abandoning part-way would leave the state saying Recording over an
+        // engine that may already have stopped. NonCancellable is applied around the whole tail, on
+        // the caller's own dispatcher, and not just around the hop to the worker: a coroutine
+        // cancelled while the hop ran is not resumed after it, so a state update placed after a
+        // non-cancellable hop would still be skipped. The caller then sees its cancellation.
+        return withContext(NonCancellable) { finishStop(path) }
+    }
+
+    private suspend fun finishStop(path: String): RecorderResult<RecordedFile> {
+        // Finalizing the container is the one genuinely slow call in the whole module.
+        val stopFailure: Throwable? = runOnWorker { engine.stop() }
+        if (stopFailure != null) {
             // Whatever was captured up to this point stays on disk: it may be salvageable, and
             // deleting a user's audio because the encoder complained on close is not a call a
             // library gets to make. `release()` documents the same rule.
             engine.release()
-            return fail(RecorderError.EngineFailure(RecorderOperation.STOP, failure), path)
+            return fail(RecorderError.EngineFailure(RecorderOperation.STOP, stopFailure), path)
         }
 
         engine.release()
@@ -232,13 +250,18 @@ internal class DefaultAudioRecorder(
         }
 
         stopTicker()
-        withContext(workerContext) {
-            if (current.isActive) stopEngineQuietly()
-            engine.release()
-            fileSystem.delete(path)
+        // Non-cancellable for the same reason as stop(), and around the whole tail for the same
+        // reason: with the ticker gone, a half-finished cancel would leave a live recorder behind a
+        // state that still says it is recording.
+        withContext(NonCancellable) {
+            withContext(workerContext) {
+                if (current.isActive) stopEngineQuietly()
+                engine.release()
+                fileSystem.delete(path)
+            }
+            resetTiming()
+            _state.value = RecorderState.Idle
         }
-        resetTiming()
-        _state.value = RecorderState.Idle
         return SUCCESS
     }
 

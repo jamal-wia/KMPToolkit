@@ -114,8 +114,9 @@ Checks, in order — first failure ends the call and moves `state` to `Failed`:
 blank or relative one is rejected before the filesystem is touched, because on iOS
 `NSURL.fileURLWithPath("")` raises an Objective-C exception that Kotlin/Native cannot catch.
 
-Cancellable: on cancellation the native recorder is released, the file is deleted, `state` returns
-to `Idle`, and `CancellationException` propagates.
+Cancellable at every point, including while the directory and free-space checks are still pending:
+on cancellation the native recorder is released, the file is deleted, `state` returns to `Idle`, and
+`CancellationException` propagates.
 
 Preparing from `Ready` deletes the previously prepared file that was never recorded into. Preparing
 from `Completed` leaves the finished file alone.
@@ -145,6 +146,10 @@ released.
 Suspending: finalizing the container is the slowest call in the module, and it runs on the
 factory's `coroutineContext`.
 
+Not abandoned by cancellation: if the calling coroutine is cancelled, the stop still runs to the end
+and `state` becomes `Completed` (or `Failed`), then `CancellationException` reaches the caller. A
+half-finished stop would leave `state` saying `Recording` over an engine that had already stopped.
+
 On engine failure `state` becomes `Failed(error, outputPath)` and **the partial file is kept** — a
 library does not delete a user's audio because the encoder complained on close. The path is carried
 on the state so you can still find the file; `cancel()` is illegal from `Failed`, so deleting it is
@@ -156,7 +161,9 @@ your call to make with your own filesystem API.
 resets `elapsed`. Illegal from `Completed` on purpose: a finished recording is yours to keep or
 delete.
 
-Suspending: it deletes a file, and the deletion runs on the factory's `coroutineContext`.
+Suspending: it deletes a file, and the deletion runs on the factory's `coroutineContext`. Like
+`stop`, it is not abandoned by cancellation — it finishes, reaches `Idle`, and then the
+`CancellationException` reaches the caller.
 
 Best-effort by design — an engine that throws while being stopped does not prevent the deletion or
 the return to `Idle`, and this still returns `Success`.

@@ -10,6 +10,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -227,4 +228,49 @@ class RecorderFailureTest {
 
         assertEquals(RecorderResult.Success(GENERATED_PATH), fixture.recorder.prepare())
     }
+
+    // Cancellation landing on a hop to the worker context, before the work there has run. The
+    // worker is a separate dispatcher, so an UNDISPATCHED launch stops exactly at that hop.
+
+    @Test
+    fun `cancelling while the storage checks are pending returns to idle`() =
+        runRecorderTest { fixture ->
+            val preparing: Job = launch(start = CoroutineStart.UNDISPATCHED) { fixture.recorder.prepare() }
+            assertEquals(RecorderState.Preparing, fixture.recorder.state.value)
+
+            preparing.cancel()
+            preparing.join()
+
+            assertEquals(RecorderState.Idle, fixture.recorder.state.value)
+            assertEquals(RecorderResult.Success(GENERATED_PATH), fixture.recorder.prepare())
+        }
+
+    @Test
+    fun `a stop whose caller is cancelled still finishes the recording`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.recording()
+
+            val stopping: Job = launch(start = CoroutineStart.UNDISPATCHED) { fixture.recorder.stop() }
+            stopping.cancel()
+            stopping.join()
+
+            val state: RecorderState = fixture.recorder.state.value
+            assertTrue(state is RecorderState.Completed, "was $state")
+            assertEquals(path, state.recording.path)
+            assertTrue("stop" in fixture.engine.calls)
+        }
+
+    @Test
+    fun `a cancel whose caller is cancelled still discards the recording`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.recording()
+
+            val cancelling: Job = launch(start = CoroutineStart.UNDISPATCHED) { fixture.recorder.cancel() }
+            cancelling.cancel()
+            cancelling.join()
+
+            assertEquals(RecorderState.Idle, fixture.recorder.state.value)
+            assertContentEquals(listOf(path), fixture.fileSystem.deletedPaths)
+            assertTrue("stop" in fixture.engine.calls)
+        }
 }
