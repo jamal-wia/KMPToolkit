@@ -160,8 +160,8 @@ than hidden:
 
 ## Compose modules are opt-in artifacts
 
-Only three modules depend on Compose Multiplatform: `kmptoolkit-systembars`,
-`kmptoolkit-logging-overlay`, and `kmptoolkit-language-compose`. Every other module is plain Kotlin
+Only four modules depend on Compose Multiplatform: `kmptoolkit-systembars`,
+`kmptoolkit-logging-overlay`, `kmptoolkit-language-compose`, and `kmptoolkit-hardware-keys`. Every other module is plain Kotlin
 with no UI framework dependency — adding, say, `kmptoolkit-uploader` to a non-Compose (or non-UI)
 target never pulls in Compose. A module whose core capability is useful outside Compose too splits
 into a plain-Kotlin base and a `-compose` companion (`kmptoolkit-language` /
@@ -171,8 +171,8 @@ into a plain-Kotlin base and a `-compose` companion (`kmptoolkit-language` /
 Apple targets are uniform across the suite: every module publishes `iosArm64` and
 `iosSimulatorArm64`, and none publishes `iosX64`. The legacy Intel simulator is superseded by
 `iosSimulatorArm64` on Apple-silicon Macs, Compose Multiplatform 1.11+ publishes no `iosX64`
-artifact at all, and dropping it keeps the suite's published-file count — 36 modules at five
-coordinates each, six for the one module that also publishes `jvm` — inside Maven Central's
+artifact at all, and dropping it keeps the suite's published-file count — five coordinates per
+module, six for each module that also publishes `jvm` — inside Maven Central's
 per-namespace limits (see `RELEASING.md`). The target
 list is recorded in each module's `.klib.api` dump.
 
@@ -198,13 +198,13 @@ do — each carried a private copy of this code before it had a home of its own.
 
 ## Desktop targets
 
-Four artifacts also publish `jvm`: `kmptoolkit-systembars` with its `-testing` fixtures, and
-`kmptoolkit-language` with `kmptoolkit-language-compose`. Every other module stays Android + iOS,
+Five artifacts also publish `jvm`: `kmptoolkit-systembars` with its `-testing` fixtures,
+`kmptoolkit-language` with `kmptoolkit-language-compose`, and `kmptoolkit-hardware-keys`. Every other module stays Android + iOS,
 and the exception is narrow and deliberate.
 
 Most modules expose a capability an app either wants on a platform or does not ask for there at all
 — a consumer with no use for haptics on desktop simply does not call into `kmptoolkit-haptics` from
-its desktop source set. These four are different, because their types are the kind a consumer puts
+its desktop source set. These are different, because their types are the kind a consumer puts
 in **shared** code:
 
 - **System bars.** The module's whole premise is that *a screen states what it wants from the bars
@@ -217,8 +217,11 @@ in **shared** code:
   modules — a settings repository, a language picker, a screen's state — and `AppLocale` wraps the
   root of a shared UI tree. Here the JVM half is real rather than a no-op: a desktop JVM has a
   process-wide default locale, and an operating-system language to return to.
+- **Hardware keys.** `DialogWindowHardwareKeyEffect` is called from inside dialog content, and
+  dialog content is typical shared UI. Desktop has no Android-style per-window key routing, so the
+  `jvm` actual is a no-op — the target exists only so that the shared dialog compiles.
 
-In both cases, omitting the target would not leave a capability unavailable on desktop; it would stop
+In every case, omitting the target would not leave a capability unavailable on desktop; it would stop
 the consumer's shared modules compiling for desktop at all, and push them into fragmenting exactly the
 code these modules exist to keep whole. That is the bar for any further desktop target — *omitting it
 would break a consumer's shared code* — and anything short of it stays Android + iOS.

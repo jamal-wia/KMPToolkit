@@ -54,6 +54,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-biometric` | Biometric authentication gate | [`kmptoolkit-biometric/`](kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-activity` | The currently resumed Android activity, scoped (Android only) | [`kmptoolkit-activity/`](kmptoolkit-activity/01-overview.md) |
 | `kmptoolkit-systembars` | Status and navigation bar control | [`kmptoolkit-systembars/`](kmptoolkit-systembars/01-overview.md) |
+| `kmptoolkit-hardware-keys` | Hardware-key policy inside Compose dialog windows (Android) | [`kmptoolkit-hardware-keys/`](kmptoolkit-hardware-keys/01-overview.md) |
 | `kmptoolkit-notification` | Local notifications, channels and actions | [`kmptoolkit-notification/`](kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-uploader` | Transactional uploader / offline effect queue | [`kmptoolkit-uploader/`](kmptoolkit-uploader/01-overview.md) |
 | `kmptoolkit-uploader-sqldelight` | SQLDelight-backed store for the uploader | [`kmptoolkit-uploader-sqldelight/`](kmptoolkit-uploader-sqldelight/01-overview.md) |
@@ -66,7 +67,8 @@ check the "What this is not" section for a pointer to the right one instead.
 
 Most of these also publish a `-testing` companion artifact holding their test double, documented in
 the same folder's `06-testing.md` rather than a folder of their own. `kmptoolkit-logging`,
-`kmptoolkit-logging-overlay`, `kmptoolkit-language` and `kmptoolkit-language-compose` do not, whose
+`kmptoolkit-logging-overlay`, `kmptoolkit-language`, `kmptoolkit-language-compose` and
+`kmptoolkit-hardware-keys` do not, whose
 seams are already interfaces a test implements directly — see each module's own `04-api-reference.md`
 for the four-line fake. `kmptoolkit-systembars` publishes doubles for both of its controllers — see
 its `06-testing.md`.

@@ -1,0 +1,12 @@
+public final class io/github/jamal_wia/kmptoolkit/hardwarekeys/DialogWindowHardwareKeyEffect_androidKt {
+	public static final fun DialogWindowHardwareKeyEffect (Landroidx/compose/runtime/Composer;I)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/hardwarekeys/DialogWindowHardwareKeyPolicy {
+	public static final field $stable I
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/hardwarekeys/DialogWindowHardwareKeyPolicy;
+	public final fun install (Lkotlin/jvm/functions/Function1;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)V
+	public static synthetic fun install$default (Lio/github/jamal_wia/kmptoolkit/hardwarekeys/DialogWindowHardwareKeyPolicy;Lkotlin/jvm/functions/Function1;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)V
+	public final fun uninstall ()V
+}
+

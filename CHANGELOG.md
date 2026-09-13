@@ -9,10 +9,17 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-09-13
+## [1.5.0] - 2026-09-13
+
+1.4.0 was never published; its changes ship in this release and are listed here.
 
 ### Added
 
+- `kmptoolkit-hardware-keys`, a new Compose module: `DialogWindowHardwareKeyEffect()` keeps the app's
+  hardware-key policy in force inside Compose dialog windows, bottom sheets and focusable popups on
+  Android, where an Activity's `onKeyDown` never sees keys, and `DialogWindowHardwareKeyPolicy`
+  registers that policy once for the process. A no-op on iOS; also publishes `jvm`, so shared dialog
+  code compiles for desktop.
 - `kmptoolkit-audio-player`: `AudioPlayer.unload()` frees the loaded source's native handle but keeps
   the player usable, for a player that outlives the screens borrowing it — `release()` stays the
   permanent teardown. The member has a default body calling `stop()`, so the change is
