@@ -25,6 +25,9 @@ internal class MediaPlayerEngine(
     private val context: Context,
 ) : PlaybackEngine {
 
+    // Volatile: published from Dispatchers.IO during load, read by transport calls on the caller's
+    // thread and cleared by release() wherever that runs.
+    @Volatile
     private var mediaPlayer: MediaPlayer? = null
     private var listener: PlaybackEngineListener? = null
 
