@@ -178,6 +178,33 @@ engine.drain()                    // the queue empties
 assertFalse(wake.isArmed)
 ```
 
+## Testing an `UploadHandler`
+
+Build the real engine with a `RecordingUploadTransport`, register it, and play the platform's part
+through `UploadGateway`:
+
+```kotlin
+@Test
+fun `a 401 refreshes the token and retries`() = runTest {
+    val transport = RecordingUploadTransport()
+    val handler = AvatarUploadHandler(transport, auth)
+    val engine = createUploaderEngine(InMemoryUploaderStore(), listOf(handler), backgroundScope)
+    UploaderEngineRegistry.register(engine)
+    engine.enqueue(handler, avatar)
+    engine.drain()
+
+    val itemId: String = transport.launches.single().itemId
+    assertIs<UploadAttempt.Ready>(UploadGateway.prepareAttempt(itemId))
+    UploadGateway.complete(itemId, UploadResult.Completed(401))
+
+    assertTrue(auth.refreshed)
+    engine.close() // unregisters, so the next test starts clean
+}
+```
+
+`UploaderEngineRegistry` is process-wide: close — or unregister — the engine at the end of every test
+that registered one.
+
 ## What this module's own tests cover
 
 Worth reading if you are extending the engine: `kmptoolkit-uploader/src/commonTest` covers retry and

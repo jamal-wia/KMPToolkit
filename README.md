@@ -46,8 +46,8 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-permission-testing` | `RecordingPermissionHandler` / `RecordingSpecialPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions, and the notification a foreground service starts with | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |
-| `kmptoolkit-uploader` | Transactional uploader engine (storage-agnostic), with a built-in Android HTTP upload executor | `logging` | Available | [docs](docs/kmptoolkit-uploader/01-overview.md) |
-| `kmptoolkit-uploader-testing` | `InMemoryUploaderStore`, `UploaderStoreContract`, `FakeUploader`, for `testImplementation` | `uploader` | Available | [docs](docs/kmptoolkit-uploader/06-testing.md) |
+| `kmptoolkit-uploader` | Transactional uploader engine (storage-agnostic), with `UploadHandler` and built-in background HTTP upload transports on Android (WorkManager) and iOS (background `NSURLSession`) | `logging` | Available | [docs](docs/kmptoolkit-uploader/01-overview.md) |
+| `kmptoolkit-uploader-testing` | `InMemoryUploaderStore`, `UploaderStoreContract`, `FakeUploader`, `RecordingUploadTransport`, for `testImplementation` | `uploader` | Available | [docs](docs/kmptoolkit-uploader/06-testing.md) |
 | `kmptoolkit-uploader-sqldelight` | SQLDelight-backed `UploaderStore`, the reference SPI implementation | `uploader` | Available | [docs](docs/kmptoolkit-uploader-sqldelight/01-overview.md) |
 | `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates, service-enabled check and re-enable prompt | `logging` | Available | [docs](docs/kmptoolkit-location/01-overview.md) |
 | `kmptoolkit-location-testing` | `FakeLocationProvider`, for `testImplementation` | `location` | Available | [docs](docs/kmptoolkit-location/06-testing.md) |

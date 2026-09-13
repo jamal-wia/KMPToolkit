@@ -108,14 +108,68 @@ retry policy.
 public interface UploadTransport {
     public val leaseMillis: Long
     public fun launch(itemId: String, request: UploadRequest)
+    public fun launch(itemId: String, isRehandOff: Boolean, request: UploadRequest) // since 1.5.0, default calls launch(itemId, request)
     public fun cancelAll()
 }
 ```
 
 An optional, ready-made executor for `AttemptResult.Detached` — see
 [`08-upload-transport.md`](08-upload-transport.md). `launch` must be idempotent per item id.
-`cancelAll` is safe to over-call: an item still owed survives and is re-handed on the next drain or
-lease expiry.
+`isRehandOff` is `true` after an expired lease, when the previous executor may have finished without
+reporting. `cancelAll` is safe to over-call: an item still owed survives and is re-handed on the next
+drain or lease expiry.
+
+## `UploadHandler<P : Any>` (since 1.5.0)
+
+```kotlin
+public abstract class UploadHandler<P : Any>(transport: UploadTransport) : UploaderHandler<P> {
+    public abstract suspend fun prepareUpload(context: AttemptContext, payload: P): UploadPreparation
+    public abstract suspend fun classify(payload: P, result: UploadResult): SettleResult
+    public open suspend fun onUploadProgress(payload: P, fraction: Float)
+    public open suspend fun onDelivered(payload: P)
+    public open suspend fun onSettled(payload: P, attempts: Int, result: SettleResult)
+    final override suspend fun execute(context: AttemptContext, payload: P): AttemptResult
+}
+
+public sealed interface UploadPreparation {
+    public data class Proceed(val request: UploadRequest) : UploadPreparation
+    public data class Drop(val reason: String) : UploadPreparation
+    public data class Park(val reason: String) : UploadPreparation
+}
+```
+
+| Member | Called | A throw means |
+|---|---|---|
+| `prepareUpload` | at hand-off, and again when the transport runs the attempt (`wasDetached = true`) | hand-off: a retry; run time: the item stays in flight for the lease |
+| `classify` | with the raw outcome | `SettleResult.Failed` |
+| `onUploadProgress` | per whole percent, while in flight | logged, ignored |
+| `onDelivered` | for `Delivered`, before the row is removed | logged, ignored |
+| `onSettled` | after the item settled; `attempts` as at hand-off | logged, ignored |
+
+`execute`: `Proceed` → `transport.launch(id, wasDetached, request)` and `Detached(transport.leaseMillis)`
+(a non-positive lease parks); `Drop`/`Park` → the same `AttemptResult`.
+
+## `UploadGateway` (since 1.5.0)
+
+```kotlin
+public object UploadGateway {
+    public val DEFAULT_ENGINE_WAIT: Duration // 60 s
+    public suspend fun prepareAttempt(itemId: String, engineWait: Duration = DEFAULT_ENGINE_WAIT): UploadAttempt
+    public suspend fun progress(itemId: String, fraction: Float)
+    public suspend fun complete(itemId: String, result: UploadResult, engineWait: Duration = DEFAULT_ENGINE_WAIT): Boolean
+}
+
+public sealed interface UploadAttempt {
+    public data class Ready(val request: UploadRequest) : UploadAttempt
+    public data object NothingOwed : UploadAttempt
+    public data object EngineUnavailable : UploadAttempt
+}
+```
+
+How a transport for `UploadHandler` items reaches the engine registered in `UploaderEngineRegistry`.
+`prepareAttempt` is `NothingOwed` for an item gone, not in flight, dropped or parked by its handler, or
+whose preparation threw. `complete` returns `false` only when no engine registered within the wait.
+`progress` is best effort and never waits.
 
 ## `UploadRequest` / `UploadField`
 
@@ -253,6 +307,8 @@ default.
 | `createWorkManagerUploadTransport(context, config, classify, logger)` | See [`08-upload-transport.md`](08-upload-transport.md) |
 | `UploadTransportConfig(uniqueWorkNamePrefix = null, workTag = null, requiresNetwork = true, leaseMillis = 15.minutes, workBackoff = 30.seconds, engineWait = 5.seconds, connectTimeoutMillis = 30_000, readTimeoutMillis = 60_000)` | `uniqueWorkNamePrefix` defaults to `<applicationId>.uploader.upload.` |
 | `UploaderUploadWorker` | Constructed reflectively by WorkManager; needs no manifest entry |
+| `createWorkManagerUploadHandlerTransport(context, config, logger)` | Since 1.5.0. For `UploadHandler` items; the job stores only the item id |
+| `UploadHandlerWorker` | Since 1.5.0. Open, with `protected open fun readItemId(inputData)` for taking over an earlier worker's jobs; input keys in its companion |
 
 ## iOS
 
@@ -261,7 +317,10 @@ default.
 | `createBackgroundTaskWakeScheduler(config, logger)` | Returns the scheduler; keep the reference |
 | `BackgroundTaskWakeConfig(taskIdentifier = null, requiresNetworkConnectivity = true, requiresExternalPower = false, engineWait = 5.seconds, drainBudget = 25.seconds)` | `taskIdentifier` defaults to `<bundleId>.uploader.drain` |
 | `BackgroundTaskWakeScheduler.taskIdentifier` | The resolved string — must be in `Info.plist` |
-| `BackgroundTaskWakeScheduler.handleWake(onDone)` | Call from your Swift `BGTaskScheduler` handler |
+| `BackgroundTaskWakeScheduler.handleWake(onDone)` | Call from your Swift `BGTaskScheduler` handler; `onDone` runs even if the drain throws |
+| `createBackgroundUploadTransport(config, logger)` | Since 1.5.0. Background `NSURLSession` per item, for `UploadHandler` items |
+| `BackgroundUploadConfig(sessionIdentifierPrefix = null, lease = 60.minutes, rehandFlushWindow = 3.seconds)` | `sessionIdentifierPrefix` defaults to `<bundleId>.uploader.upload.` |
+| `BackgroundUploadRelaunch.handleEvents(identifier, completion)` | Call from `handleEventsForBackgroundURLSession` |
 
 ## `kmptoolkit-uploader-testing`
 
@@ -274,5 +333,6 @@ default.
 | `RecordingWakeScheduler` | Counts arming and disarming |
 | `MutableConstraintProvider` | A constraint you flip by hand |
 | `MutableUploaderClock` | A wall clock you move by hand, including backwards |
+| `RecordingUploadTransport` | Since 1.5.0. Records hand-offs for an `UploadHandler`; settle through `UploadGateway` |
 
 See [`06-testing.md`](06-testing.md).

@@ -2,8 +2,10 @@ package io.github.jamal_wia.kmptoolkit.uploader
 
 /**
  * Optional, ready-made executor for the common case of [AttemptResult.Detached]: a multipart HTTP
- * upload that must keep going after the process dies. Android's is `createWorkManagerUploadTransport`
- * (`WorkManager`); no iOS transport ships yet — see `docs/kmptoolkit-uploader/08-upload-transport.md`.
+ * upload that must keep going after the process dies. Android ships two on `WorkManager` —
+ * `createWorkManagerUploadTransport` and, for an [UploadHandler], `createWorkManagerUploadHandlerTransport`
+ * — and iOS ships `createBackgroundUploadTransport` on a background `NSURLSession`. See
+ * `docs/kmptoolkit-uploader/08-upload-transport.md`.
  *
  * A handler that uploads calls [launch] from [UploaderHandler.execute] and returns
  * `AttemptResult.Detached(transport.leaseMillis)`:
@@ -27,6 +29,24 @@ public interface UploadTransport {
 
     /** Starts (or rejoins) the upload for the outbox item [itemId]. */
     public fun launch(itemId: String, request: UploadRequest)
+
+    /**
+     * [launch], told whether this is a re-hand after an expired lease.
+     *
+     * A re-hand is the one moment a transport must be careful: the previous executor may have
+     * *finished* without managing to report, and starting the upload again would deliver it twice. A
+     * transport that can find out — iOS's background session, whose completion events are buffered
+     * until the app asks for them — waits for that answer before starting afresh. [UploadHandler]
+     * calls this overload, passing [AttemptContext.wasDetached].
+     *
+     * The default ignores [isRehandOff] and calls [launch], so a transport written before this member
+     * existed keeps its behaviour.
+     *
+     * @since 1.5.0
+     */
+    public fun launch(itemId: String, isRehandOff: Boolean, request: UploadRequest) {
+        launch(itemId, request)
+    }
 
     /**
      * Cancels every delivery this transport is running. Safe to over-cancel: a still-owed item's

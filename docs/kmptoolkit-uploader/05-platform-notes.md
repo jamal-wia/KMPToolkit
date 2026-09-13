@@ -140,6 +140,15 @@ it does not replace that.
 `requiresExternalPower` defaults to `false` deliberately: requiring power makes an already
 opportunistic wake considerably rarer.
 
+## iOS — background uploads
+
+`createBackgroundUploadTransport` needs one thing from your app, and without it an upload that finishes
+while the app is dead waits for its lease and is sent again: forward
+`application(_:handleEventsForBackgroundURLSession:completionHandler:)` to
+`BackgroundUploadRelaunch.shared.handleEvents`. See
+[`08-upload-transport.md`](08-upload-transport.md#the-relaunch-hook--required). Background sessions
+need no `Info.plist` entry and no background mode.
+
 ## Both platforms
 
 - **The wake layer is optional.** Without it, the engine's promise is "delivered while the app runs,

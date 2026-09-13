@@ -181,6 +181,34 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/SettleResult$Park : i
 	public fun toString ()Ljava/lang/String;
 }
 
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/UploadAttempt {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadAttempt$EngineUnavailable : io/github/jamal_wia/kmptoolkit/uploader/UploadAttempt {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/UploadAttempt$EngineUnavailable;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadAttempt$NothingOwed : io/github/jamal_wia/kmptoolkit/uploader/UploadAttempt {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/UploadAttempt$NothingOwed;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadAttempt$Ready : io/github/jamal_wia/kmptoolkit/uploader/UploadAttempt {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadAttempt$Ready;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploadAttempt$Ready;Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadAttempt$Ready;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRequest ()Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/UploadField {
 }
 
@@ -210,6 +238,80 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/UploadField$Text : io
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getName ()Ljava/lang/String;
 	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadGateway {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/UploadGateway;
+	public final fun complete-exY8QGI (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResult;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun complete-exY8QGI$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploadGateway;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResult;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun getDEFAULT_ENGINE_WAIT-UwyO8pc ()J
+	public final fun prepareAttempt-8Mi8wO0 (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun prepareAttempt-8Mi8wO0$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploadGateway;Ljava/lang/String;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun progress (Ljava/lang/String;FLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract class io/github/jamal_wia/kmptoolkit/uploader/UploadHandler : io/github/jamal_wia/kmptoolkit/uploader/UploaderHandler {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/uploader/UploadTransport;)V
+	public abstract fun classify (Ljava/lang/Object;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResult;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun execute (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptContext;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun getConstraintKeys ()Ljava/util/Set;
+	public fun getRetryPolicy ()Lio/github/jamal_wia/kmptoolkit/uploader/RetryPolicy;
+	public fun getSchemaVersion ()I
+	public fun onDelivered (Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun onSettled (Ljava/lang/Object;ILio/github/jamal_wia/kmptoolkit/uploader/SettleResult;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun onUploadProgress (Ljava/lang/Object;FLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun orderingKey (Ljava/lang/Object;)Ljava/lang/String;
+	public abstract fun prepareUpload (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptContext;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public class io/github/jamal_wia/kmptoolkit/uploader/UploadHandlerWorker : androidx/work/CoroutineWorker {
+	public static final field CONNECT_TIMEOUT_MILLIS_KEY Ljava/lang/String;
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/UploadHandlerWorker$Companion;
+	public static final field ENGINE_WAIT_MILLIS_KEY Ljava/lang/String;
+	public static final field ITEM_ID_KEY Ljava/lang/String;
+	public static final field READ_TIMEOUT_MILLIS_KEY Ljava/lang/String;
+	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;)V
+	public fun doWork (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	protected fun readItemId (Landroidx/work/Data;)Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadHandlerWorker$Companion {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/UploadPreparation {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Drop : io/github/jamal_wia/kmptoolkit/uploader/UploadPreparation {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Drop;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Drop;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Drop;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Park : io/github/jamal_wia/kmptoolkit/uploader/UploadPreparation {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Park;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Park;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Park;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Proceed : io/github/jamal_wia/kmptoolkit/uploader/UploadPreparation {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Proceed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Proceed;Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadPreparation$Proceed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getRequest ()Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -265,6 +367,11 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/UploadTr
 	public abstract fun cancelAll ()V
 	public abstract fun getLeaseMillis ()J
 	public abstract fun launch (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
+	public fun launch (Ljava/lang/String;ZLio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadTransport$DefaultImpls {
+	public static fun launch (Lio/github/jamal_wia/kmptoolkit/uploader/UploadTransport;Ljava/lang/String;ZLio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
 }
 
 public final class io/github/jamal_wia/kmptoolkit/uploader/UploadTransportConfig {
@@ -449,6 +556,11 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderItemState : j
 public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderUploadWorker : androidx/work/CoroutineWorker {
 	public fun <init> (Landroid/content/Context;Landroidx/work/WorkerParameters;)V
 	public fun doWork (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/WorkManagerUploadHandlerTransportKt {
+	public static final fun createWorkManagerUploadHandlerTransport (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/uploader/UploadTransportConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadTransport;
+	public static synthetic fun createWorkManagerUploadHandlerTransport$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/uploader/UploadTransportConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploadTransport;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/uploader/WorkManagerUploadTransportKt {

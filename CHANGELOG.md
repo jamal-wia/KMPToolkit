@@ -46,6 +46,19 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   requireExplicitConfirmation)` for a per-call confirming tap, and `launchEnrollment()`, which on
   Android opens the enrolment wizard or — for a user already enrolled, for whom the wizard closes
   itself — the biometrics management screen. `ScriptedBiometricGate` records both.
+- `kmptoolkit-uploader`: `UploadHandler`, an `UploaderHandler` whose delivery is a multipart upload.
+  `prepareUpload` runs at hand-off and again when the platform starts the upload, `classify` turns the
+  raw outcome into a settlement with the payload at hand, and `onUploadProgress` / `onDelivered` /
+  `onSettled` hooks run isolated. `UploadGateway` is how a transport prepares, reports progress and
+  settles such an item. `UploadTransport.launch(itemId, isRehandOff, request)` has a default body.
+- `kmptoolkit-uploader` (Android): `createWorkManagerUploadHandlerTransport` and `UploadHandlerWorker` —
+  the WorkManager job stores only the item id, so no request or `Authorization` header is persisted in
+  WorkManager's database, a re-run of a settled item uploads nothing, and progress is reported. The
+  worker is open so an app can keep an earlier worker's class name for jobs already queued on devices.
+- `kmptoolkit-uploader` (iOS): `createBackgroundUploadTransport` — one background `NSURLSession` per
+  item that keeps uploading after the app is killed — and `BackgroundUploadRelaunch.handleEvents` for
+  the app delegate's `handleEventsForBackgroundURLSession`.
+- `kmptoolkit-uploader-testing`: `RecordingUploadTransport`.
 - `kmptoolkit-audio-player`: `AudioPlayer.unload()` frees the loaded source's native handle but keeps
   the player usable, for a player that outlives the screens borrowing it — `release()` stays the
   permanent teardown. The member has a default body calling `stop()`, so the change is
@@ -79,6 +92,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-uploader` (iOS): `BackgroundTaskWakeScheduler.handleWake` calls `onDone` even when the
+  drain throws, so iOS always hears that the background task finished.
 - `kmptoolkit-permission` (Android): on Android 11+, backing out of the **first** permission dialog —
   back, or a tap outside it — returned `PermanentlyDenied`, and every later `request` skipped the
   dialog, although Android would still show it. The handler now also remembers whether the user ever

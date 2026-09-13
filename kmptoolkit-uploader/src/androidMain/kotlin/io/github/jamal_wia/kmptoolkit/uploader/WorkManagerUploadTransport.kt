@@ -13,11 +13,6 @@ import androidx.work.WorkerParameters
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
-import java.io.File
-import java.io.OutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -135,83 +130,8 @@ public class UploaderUploadWorker(
             inputData.readConnectTimeoutMillis(UploadTransportConfig.DEFAULT_CONNECT_TIMEOUT_MILLIS)
         val readTimeoutMillis: Int = inputData.readReadTimeoutMillis(UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS)
 
-        val outcome: UploadResult = performUpload(request, connectTimeoutMillis, readTimeoutMillis)
+        val outcome: UploadResult = performMultipartUpload(request, connectTimeoutMillis, readTimeoutMillis)
         engine.settle(itemId, classify(outcome))
         return Result.success()
-    }
-
-    private fun performUpload(
-        request: UploadRequest,
-        connectTimeoutMillis: Int,
-        readTimeoutMillis: Int,
-    ): UploadResult {
-        // Pre-flight the file parts so a vanished source reads as a transport failure the
-        // handler's next attempt can react to, instead of an exception mid-stream.
-        request.fields.filterIsInstance<UploadField.File>().forEach { part ->
-            if (!File(part.path).canRead()) {
-                return UploadResult.TransportFailure("source file missing/unreadable: ${part.path}")
-            }
-        }
-        val boundary = "kmptoolkit-uploader-${UUID.randomUUID()}"
-        var connection: HttpURLConnection? = null
-        return try {
-            connection = (URL(request.url).openConnection() as HttpURLConnection).apply {
-                requestMethod = request.method
-                doOutput = true
-                // Stream straight from disk — never buffer a multi-megabyte body in memory.
-                setChunkedStreamingMode(0)
-                connectTimeout = connectTimeoutMillis
-                readTimeout = readTimeoutMillis
-                request.headers.forEach { (name, value) -> setRequestProperty(name, value) }
-                setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
-            }
-            connection.outputStream.use { out -> writeMultipartBody(out, boundary, request) }
-            val statusCode: Int = connection.responseCode
-            UploadResult.Completed(statusCode)
-        } catch (e: Exception) {
-            // A server can reject-and-close before the chunked body finishes (size cap, proxy
-            // 4xx) — the write then throws, but a status may still be readable. Prefer the real
-            // status so classify() can react to a permanent rejection instead of retrying a
-            // "transport failure" forever.
-            val lateStatus: Int? = connection?.let { conn ->
-                runCatching { conn.responseCode }.getOrNull()?.takeIf { it >= HTTP_BAD_REQUEST }
-            }
-            if (lateStatus != null) {
-                UploadResult.Completed(lateStatus)
-            } else {
-                UploadResult.TransportFailure(e.message ?: e::class.simpleName)
-            }
-        } finally {
-            connection?.disconnect()
-        }
-    }
-
-    private fun writeMultipartBody(out: OutputStream, boundary: String, request: UploadRequest) {
-        fun writeText(text: String) {
-            out.write(text.encodeToByteArray())
-        }
-        request.fields.forEach { field ->
-            writeText("--$boundary\r\n")
-            when (field) {
-                is UploadField.Text -> {
-                    writeText("Content-Disposition: form-data; name=\"${field.name}\"\r\n\r\n")
-                    writeText(field.value)
-                }
-                is UploadField.File -> {
-                    writeText(
-                        "Content-Disposition: form-data; name=\"${field.name}\"; " +
-                            "filename=\"${field.fileName}\"\r\n",
-                    )
-                    writeText("Content-Type: ${field.contentType}\r\n\r\n")
-                    File(field.path).inputStream().use { input -> input.copyTo(out) }
-                }
-            }
-            writeText("\r\n")
-        }
-        writeText("--$boundary--\r\n")
-    }
-
-    private companion object {
-        const val HTTP_BAD_REQUEST = 400
     }
 }
