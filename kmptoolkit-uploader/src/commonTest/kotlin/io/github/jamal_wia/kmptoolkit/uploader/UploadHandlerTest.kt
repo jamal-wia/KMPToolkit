@@ -50,6 +50,18 @@ class UploadHandlerTest {
     }
 
     @Test
+    fun `the lease is claimed before the transport launches so a job that starts at once finds it owed`() = runTest {
+        val handler = TestUploadHandler(transport)
+        val engine: UploaderEngine = startEngine(handler, backgroundScope)
+        engine.enqueue(handler, "payload")
+        transport.onLaunch = { itemId -> transport.statesAtLaunch += store.find(itemId)?.state }
+
+        engine.drain()
+
+        assertEquals(listOf<UploaderItemState?>(UploaderItemState.IN_FLIGHT), transport.statesAtLaunch)
+    }
+
+    @Test
     fun `a re-hand after an expired lease tells the transport`() = runTest {
         val handler = TestUploadHandler(transport)
         val engine: UploaderEngine = startEngine(handler, backgroundScope)
@@ -162,6 +174,23 @@ class UploadHandlerTest {
 
         assertEquals(UploadAttempt.NothingOwed, UploadGateway.prepareAttempt("item-1", WAIT))
         assertEquals(UploaderItemState.IN_FLIGHT, store.find("item-1")?.state)
+    }
+
+    @Test
+    fun `a store failure while preparing or settling is reported for a retry and the item stays in flight`() = runTest {
+        val handler = TestUploadHandler(transport)
+        val engine: UploaderEngine = startEngine(handler, backgroundScope)
+        engine.enqueue(handler, "payload")
+        engine.drain()
+
+        store.afterNextGetById = { error("database locked") }
+        assertEquals(UploadAttempt.EngineUnavailable, UploadGateway.prepareAttempt("item-1", WAIT))
+
+        store.afterNextGetById = { error("database locked") }
+        assertEquals(false, UploadGateway.complete("item-1", UploadResult.Completed(200), WAIT))
+
+        assertEquals(UploaderItemState.IN_FLIGHT, store.find("item-1")?.state)
+        assertTrue(handler.classified.isEmpty())
     }
 
     @Test
@@ -284,6 +313,8 @@ class UploadHandlerTest {
     private class RecordingTransport : UploadTransport {
         var lease: Long = LEASE
         var failLaunchWith: Throwable? = null
+        var onLaunch: (String) -> Unit = {}
+        val statesAtLaunch = mutableListOf<UploaderItemState?>()
         val launches = mutableListOf<Launch>()
 
         override val leaseMillis: Long get() = lease
@@ -293,6 +324,7 @@ class UploadHandlerTest {
         }
 
         override fun launch(itemId: String, isRehandOff: Boolean, request: UploadRequest) {
+            onLaunch(itemId)
             failLaunchWith?.let { throw it }
             launches += Launch(itemId, isRehandOff, request)
         }

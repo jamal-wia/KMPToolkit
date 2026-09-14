@@ -10,6 +10,9 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.test.runTest
+import platform.Foundation.create
+import platform.Foundation.stringWithContentsOfFile
+import platform.Foundation.writeToFile
 
 /**
  * The parts of the iOS background transport that do not need `nsurlsessiond`: which session
@@ -79,5 +82,56 @@ class BackgroundUploadTransportTest {
         }
 
         assertEquals(1, completed)
+    }
+
+    @Test
+    fun `the multipart body streams text and file parts into the temporary file`() {
+        val source: String = platform.Foundation.NSTemporaryDirectory() + "/kmptoolkit_upload_test_source.bin"
+        val content: String = "x".repeat(200_000) // larger than one copy chunk
+        writeText(source, content)
+        val bodyPath: String = platform.Foundation.NSTemporaryDirectory() + "/kmptoolkit_upload_test_body.tmp"
+
+        val failure: String? = writeMultipartBody(
+            bodyPath = bodyPath,
+            boundary = "B",
+            fields = listOf(UploadField.Text("note", "hi"), UploadField.File("file", "a.bin", "application/octet-stream", source)),
+        )
+
+        assertNull(failure)
+        val expected: String = "--B\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nhi\r\n" +
+            "--B\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.bin\"\r\n" +
+            "Content-Type: application/octet-stream\r\n\r\n$content\r\n--B--\r\n"
+        assertEquals(expected, readText(bodyPath))
+        remove(source)
+        remove(bodyPath)
+    }
+
+    @Test
+    fun `a missing source file fails the body and leaves nothing behind`() {
+        val bodyPath: String = platform.Foundation.NSTemporaryDirectory() + "/kmptoolkit_upload_test_missing.tmp"
+
+        val failure: String? = writeMultipartBody(
+            bodyPath = bodyPath,
+            boundary = "B",
+            fields = listOf(UploadField.File("file", "a.bin", "application/octet-stream", "/nonexistent/a.bin")),
+        )
+
+        assertTrue(failure != null)
+        assertFalse(platform.Foundation.NSFileManager.defaultManager.fileExistsAtPath(bodyPath))
+    }
+
+    @OptIn(kotlinx.cinterop.BetaInteropApi::class, kotlinx.cinterop.ExperimentalForeignApi::class)
+    private fun writeText(path: String, text: String) {
+        platform.Foundation.NSString.create(string = text)
+            .writeToFile(path, atomically = true, encoding = platform.Foundation.NSUTF8StringEncoding, error = null)
+    }
+
+    @OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+    private fun readText(path: String): String? =
+        platform.Foundation.NSString.stringWithContentsOfFile(path, encoding = platform.Foundation.NSUTF8StringEncoding, error = null)
+
+    @OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+    private fun remove(path: String) {
+        platform.Foundation.NSFileManager.defaultManager.removeItemAtPath(path, error = null)
     }
 }

@@ -17,10 +17,12 @@ import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.i
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Creates the Android [UploadTransport] for an [UploadHandler]: one `WorkManager` job per item, whose
@@ -119,7 +121,7 @@ public open class UploadHandlerWorker(
 
     /**
      * @return `Result.success()` once the outcome reached the engine or nothing was owed;
-     *   `Result.retry()` when no engine was registered to prepare or settle; `Result.failure()` for
+     *   `Result.retry()` when no engine was registered, or its store failed, to prepare or settle; `Result.failure()` for
      *   input data with no item id.
      */
     override suspend fun doWork(): Result {
@@ -137,7 +139,8 @@ public open class UploadHandlerWorker(
 
         val outcome: UploadResult = uploadReportingProgress(itemId, request)
         // An outcome that did not reach the engine must not be lost: re-run. The re-run prepares first,
-        // so an item that settled meanwhile uploads nothing.
+        // so an item that settled meanwhile uploads nothing — but one still in flight uploads again,
+        // which is why the handler's onDelivered must tolerate a repeat.
         return if (UploadGateway.complete(itemId, outcome, engineWait)) Result.success() else Result.retry()
     }
 
@@ -154,15 +157,21 @@ public open class UploadHandlerWorker(
         val fractions: Channel<Float> = Channel(Channel.CONFLATED)
         val forwarder: Job = launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
         try {
-            performMultipartUpload(
-                request = request,
-                connectTimeoutMillis = inputData.getInt(
-                    CONNECT_TIMEOUT_MILLIS_KEY,
-                    UploadTransportConfig.DEFAULT_CONNECT_TIMEOUT_MILLIS,
-                ),
-                readTimeoutMillis = inputData.getInt(READ_TIMEOUT_MILLIS_KEY, UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS),
-                onWholePercent = { fraction -> fractions.trySend(fraction) },
-            )
+            // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO.
+            withContext(Dispatchers.IO) {
+                performMultipartUpload(
+                    request = request,
+                    connectTimeoutMillis = inputData.getInt(
+                        CONNECT_TIMEOUT_MILLIS_KEY,
+                        UploadTransportConfig.DEFAULT_CONNECT_TIMEOUT_MILLIS,
+                    ),
+                    readTimeoutMillis = inputData.getInt(
+                        READ_TIMEOUT_MILLIS_KEY,
+                        UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS,
+                    ),
+                    onWholePercent = { fraction -> fractions.trySend(fraction) },
+                )
+            }
         } finally {
             fractions.close()
             forwarder.join()

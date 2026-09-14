@@ -31,13 +31,13 @@ public object UploadGateway {
      * @return [UploadAttempt.Ready] to upload; [UploadAttempt.NothingOwed] when the item is gone or no
      *   longer in flight, or when the handler dropped or parked it, or when preparing failed transiently
      *   (the item then stays in flight until its lease expires) — in every one of those cases, upload
-     *   nothing; [UploadAttempt.EngineUnavailable] when no engine registered within [engineWait], in
-     *   which case the executor should retry later rather than conclude anything.
+     *   nothing; [UploadAttempt.EngineUnavailable] when no engine registered within [engineWait], or its
+     *   store failed to read the item, in which case the executor should retry later rather than
+     *   conclude anything.
      */
     public suspend fun prepareAttempt(itemId: String, engineWait: Duration = DEFAULT_ENGINE_WAIT): UploadAttempt {
         val engine: DefaultUploaderEngine = awaitEngine(engineWait) ?: return UploadAttempt.EngineUnavailable
-        val request: UploadRequest = engine.prepareUploadAttempt(itemId) ?: return UploadAttempt.NothingOwed
-        return UploadAttempt.Ready(request)
+        return engine.prepareUploadAttempt(itemId)
     }
 
     /**
@@ -53,8 +53,10 @@ public object UploadGateway {
      * Settles [itemId] with the raw [result]: the handler classifies it, [UploadHandler.onDelivered]
      * runs for a delivery, the item settles, then [UploadHandler.onSettled] runs.
      *
-     * @return `false` when no engine registered within [engineWait] — the outcome did not land, and the
-     *   executor should keep it and retry. A later retry of an item that settled meanwhile is harmless.
+     * @return `false` when no engine registered within [engineWait], or its store failed while settling —
+     *   the outcome did not land, and the executor should keep it and retry. A later retry of an item that
+     *   settled meanwhile is harmless; one that did not settle uploads again, so [UploadHandler.onDelivered]
+     *   must tolerate running twice.
      */
     public suspend fun complete(
         itemId: String,
@@ -62,8 +64,7 @@ public object UploadGateway {
         engineWait: Duration = DEFAULT_ENGINE_WAIT,
     ): Boolean {
         val engine: DefaultUploaderEngine = awaitEngine(engineWait) ?: return false
-        engine.settleUpload(itemId, result)
-        return true
+        return engine.settleUpload(itemId, result)
     }
 
     private suspend fun awaitEngine(wait: Duration): DefaultUploaderEngine? =
@@ -83,6 +84,6 @@ public sealed interface UploadAttempt {
     /** Upload nothing: the item is settled, finished by its handler, or not ready to prepare. */
     public data object NothingOwed : UploadAttempt
 
-    /** No engine to ask. Retry later; do not treat the item as settled. */
+    /** No engine to ask, or its store could not read the item. Retry later; do not treat the item as settled. */
     public data object EngineUnavailable : UploadAttempt
 }

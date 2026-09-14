@@ -8,7 +8,6 @@ import kotlin.concurrent.AtomicInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -170,16 +169,16 @@ public class BackgroundTaskWakeScheduler internal constructor(
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             // onDone must run even if the drain throws — a store failure, say — or iOS never hears that
             // the task finished and holds it against the app's future background time.
-            val drained: Boolean = try {
+            var drained = false
+            try {
                 val engine: UploaderEngine? = UploaderEngineRegistry.await(config.engineWait)
-                engine?.awaitDrained(config.drainBudget) == true
-            } catch (e: CancellationException) {
-                throw e
+                drained = engine?.awaitDrained(config.drainBudget) == true
             } catch (e: Throwable) {
+                // This scope is never cancelled, so even a CancellationException here is a leaked one.
                 logger.w(e) { "The uploader wake failed to drain; reporting it as unfinished." }
-                false
+            } finally {
+                onDone(drained)
             }
-            onDone(drained)
         }
     }
 }

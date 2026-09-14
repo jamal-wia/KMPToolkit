@@ -9,8 +9,8 @@ There are two ways to use it, and for new code the first is the one to pick.
 | | `UploadHandler` + a handler transport | a plain handler + `createWorkManagerUploadTransport` |
 |---|---|---|
 | Platforms | Android (`createWorkManagerUploadHandlerTransport`) and iOS (`createBackgroundUploadTransport`) | Android only |
-| What the platform job stores | the item id | the whole request, headers included |
-| Request built | when the upload actually runs | when the item is handed off |
+| What the platform job stores | Android: the item id. iOS: the request, which a background session needs up front | the whole request, headers included |
+| Request built | Android: when the upload actually runs. iOS: at hand-off | when the item is handed off |
 | Classification | per handler, with the payload | one process-wide function |
 | Progress | whole percents to the handler | none |
 | A failed hand-off | retried under the handler's policy | logged and swallowed; the lease recovers it |
@@ -123,12 +123,23 @@ val transport: UploadTransport = createBackgroundUploadTransport(
 
 One background `NSURLSession` per item, its identifier the prefix plus the item id. The system daemon
 `nsurlsessiond` keeps uploading after the app is suspended or killed. The multipart body is written to
-a temporary file — background uploads must come from a file — and removed when the upload completes.
+a temporary file — background uploads must come from a file — streamed from the source files in
+chunks, so a large recording is never held in memory, and removed when the upload completes.
+
+A background session takes the whole request when the task is created, so on iOS the request is the
+one `prepareUpload` returned at hand-off, not one prepared when the transfer starts, and
+`nsurlsessiond` keeps its headers until the transfer ends. Size an `Authorization` token's lifetime —
+or the lease — for that.
 
 - **Idempotent launch.** A session live in this process is joined. In a new process, a re-hand
   rejoins a task the daemon is still running. A re-hand that finds nothing running waits
   `rehandFlushWindow` (3 s) for buffered completion events before starting afresh: the previous
   process may have finished without settling, and uploading again would deliver twice.
+- **Cancellation.** `cancelAll` cancels the live sessions without settling them: a cancelled upload
+  spends no retry budget.
+- **A relaunch that brings no completion** — the result was already settled, or iOS woke the app for
+  another reason — releases its session once events drain, so a later hand-off starts a fresh upload
+  instead of joining an idle session.
 - **Lease.** 60 minutes by default. iOS may run a background session long after the hand-off; the
   identifier rejoin keeps a shorter lease safe too.
 

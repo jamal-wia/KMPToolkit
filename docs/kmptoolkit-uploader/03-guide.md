@@ -224,8 +224,9 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
 ```
 
 `prepareUpload` runs again when the platform actually starts the upload, so the token is fresh and a
-job re-run for an item that settled meanwhile uploads nothing. The platform job stores only the item
-id. Register the engine in `UploaderEngineRegistry`: the transport settles through `UploadGateway`,
+job re-run for an item that settled meanwhile uploads nothing. On Android the platform job stores only
+the item id; an iOS background session needs the request up front and uses the one prepared at
+hand-off. Register the engine in `UploaderEngineRegistry`: the transport settles through `UploadGateway`,
 which finds the engine there. See [`08-upload-transport.md`](08-upload-transport.md) for the full
 contract, the hooks, the iOS relaunch hook your app delegate must forward, and the older
 classifier-based Android transport.

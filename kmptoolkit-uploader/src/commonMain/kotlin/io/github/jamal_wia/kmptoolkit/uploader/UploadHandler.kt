@@ -8,11 +8,13 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * and every decision around it stays in one place in your code:
  *
  * - **[prepareUpload] runs when the upload actually starts**, not only when the item is first handed
- *   off. A transport that supports it — the `WorkManager` handler transport, the iOS background
- *   transport — persists nothing but the item id and asks [UploadGateway.prepareAttempt] for the
- *   request right before the transfer. So a token in a header is fresh when it is used and never sits
- *   in a scheduler's database, a request larger than a platform job's data limit is not a problem,
- *   and a re-run of an item that was settled meanwhile finds nothing owed and uploads nothing.
+ *   off. A transport that supports it — the `WorkManager` handler transport — persists nothing but the
+ *   item id and asks [UploadGateway.prepareAttempt] for the request right before the transfer. So a
+ *   token in a header is fresh when it is used and never sits in a scheduler's database, a request
+ *   larger than a platform job's data limit is not a problem, and a re-run of an item that was settled
+ *   meanwhile finds nothing owed and uploads nothing. The iOS background transport cannot: a background
+ *   `NSURLSession` needs the whole request up front, so it uses the one prepared at hand-off, and the
+ *   system daemon keeps its headers for the life of the transfer.
  *   Return [UploadPreparation.Drop] or [UploadPreparation.Park] from it to finish an item that should
  *   no longer upload — a deleted source file, a submission the server already has.
  * - **[classify] turns the raw outcome into a [SettleResult]**, with the payload at hand: a 401 can
@@ -55,7 +57,7 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * @since 1.5.0
  */
 public abstract class UploadHandler<P : Any>(
-    private val transport: UploadTransport,
+    internal val transport: UploadTransport,
 ) : UploaderHandler<P> {
 
     /**
@@ -95,7 +97,12 @@ public abstract class UploadHandler<P : Any>(
      */
     public open suspend fun onSettled(payload: P, attempts: Int, result: SettleResult) {}
 
-    /** Prepares the request and hands it to the transport; the transport settles through [UploadGateway]. */
+    /**
+     * Prepares the request and hands it to the transport; the transport settles through [UploadGateway].
+     *
+     * The engine does not call this: it runs the same steps itself so it can claim the item's lease
+     * **before** the transport launches. This implementation is for code that drives a handler directly.
+     */
     final override suspend fun execute(context: AttemptContext, payload: P): AttemptResult =
         when (val preparation: UploadPreparation = prepareUpload(context, payload)) {
             is UploadPreparation.Drop -> AttemptResult.Drop(preparation.reason)

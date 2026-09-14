@@ -10,11 +10,20 @@ import kotlin.concurrent.Volatile
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
-import kotlinx.cinterop.BetaInteropApi
+import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.UByteVar
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.convert
+import kotlinx.cinterop.plus
+import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.usePinned
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -26,10 +35,10 @@ import platform.Foundation.NSData
 import platform.Foundation.NSError
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSHTTPURLResponse
+import platform.Foundation.NSInputStream
 import platform.Foundation.NSLock
-import platform.Foundation.NSMutableData
 import platform.Foundation.NSMutableURLRequest
-import platform.Foundation.NSString
+import platform.Foundation.NSOutputStream
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLSession
@@ -37,15 +46,11 @@ import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDataDelegateProtocol
 import platform.Foundation.NSURLSessionDataTask
 import platform.Foundation.NSURLSessionTask
-import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSUUID
-import platform.Foundation.appendBytes
-import platform.Foundation.create
-import platform.Foundation.dataUsingEncoding
-import platform.Foundation.dataWithContentsOfFile
+import platform.Foundation.inputStreamWithFileAtPath
+import platform.Foundation.outputStreamToFileAtPath
 import platform.Foundation.setHTTPMethod
 import platform.Foundation.setValue
-import platform.Foundation.writeToFile
 import platform.darwin.NSObject
 
 /**
@@ -217,9 +222,14 @@ internal class BackgroundSessionUploadTransport(
     private val logger: Logger,
 ) : UploadTransport {
 
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // A failure in a settlement coroutine is logged, never allowed to terminate the process.
+    private val scope: CoroutineScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, failure ->
+            logger.e(failure) { "Background upload coroutine failed." }
+        },
+    )
 
-    /** One live session per item in this process; the delegate removes its entry when it completes. */
+    /** One live session per item in this process; the delegate removes its own entry when it completes. */
     private val liveLock = NSLock()
     private val liveUploads: MutableMap<String, LiveUpload> = mutableMapOf()
 
@@ -245,10 +255,10 @@ internal class BackgroundSessionUploadTransport(
                 running > 0 -> logger.i { "Rejoined a running upload — item=$itemId" }
                 isRehandOff -> scope.launch {
                     delay(config.rehandFlushWindow)
-                    if (!live.delegate.receivedAnyEvent) startUpload(live.session, itemId, request)
+                    if (!live.delegate.receivedAnyEvent) startUpload(live, itemId, request)
                 }
 
-                else -> startUpload(live.session, itemId, request)
+                else -> startUpload(live, itemId, request)
             }
         }
     }
@@ -259,6 +269,9 @@ internal class BackgroundSessionUploadTransport(
         liveLock.lock()
         try {
             liveUploads.values.forEach { live ->
+                // Cancelled tasks still report completion; marked first, they settle nothing and spend no
+                // retry budget.
+                live.delegate.cancelled = true
                 live.session.invalidateAndCancel()
                 removeTemporaryBody(live.delegate.itemId)
             }
@@ -272,7 +285,16 @@ internal class BackgroundSessionUploadTransport(
     fun handleRelaunchEvents(itemId: String, onDone: () -> Unit) {
         val (live: LiveUpload, created: Boolean) = obtainLive(itemId)
         if (created) logger.i { "Relaunch settlement — item=$itemId" }
-        live.delegate.notifyWhenDrained(onDone)
+        live.delegate.notifyWhenDrained {
+            onDone()
+            releaseIfIdle(itemId, live)
+        }
+        // The drained signal may never come; a session left open with nothing running would make every later
+        // hand-off of this item join it and upload nothing.
+        scope.launch {
+            delay(RELAUNCH_IDLE_CHECK)
+            releaseIfIdle(itemId, live)
+        }
     }
 
     /** The live session for [itemId], created under the lock if absent; and whether this call created it. */
@@ -289,10 +311,7 @@ internal class BackgroundSessionUploadTransport(
                 itemId = itemId,
                 scope = scope,
                 logger = logger,
-                onTerminal = {
-                    removeTemporaryBody(itemId)
-                    releaseSession(itemId)
-                },
+                onTerminal = ::releaseAfterTerminal,
             )
             val session: NSURLSession = NSURLSession.sessionWithConfiguration(
                 configuration = configuration,
@@ -307,84 +326,177 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
-    private fun releaseSession(itemId: String) {
+    /**
+     * Forgets [delegate]'s session and its body file — unless a newer session for the same item has taken
+     * the slot since, whose body file the same path now holds.
+     */
+    private fun releaseAfterTerminal(delegate: UploadSessionDelegate) {
         liveLock.lock()
         try {
-            liveUploads.remove(itemId)
+            val current: LiveUpload? = liveUploads[delegate.itemId]
+            if (current != null && current.delegate !== delegate) return
+            liveUploads.remove(delegate.itemId)
+            removeTemporaryBody(delegate.itemId)
         } finally {
             liveLock.unlock()
         }
     }
 
-    @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
-    private fun startUpload(session: NSURLSession, itemId: String, request: UploadRequest) {
-        // The URL is parsed before anything is written, so an early return leaves no body — which may
-        // embed a user's recording — behind in tmp.
+    /** Invalidates and forgets [live] when it has no task and never saw a completion. */
+    private fun releaseIfIdle(itemId: String, live: LiveUpload) {
+        if (live.delegate.terminalDelivered) return
+        live.session.getTasksWithCompletionHandler { dataTasks, uploadTasks, downloadTasks ->
+            val running: Int = (dataTasks?.size ?: 0) + (uploadTasks?.size ?: 0) + (downloadTasks?.size ?: 0)
+            if (running > 0 || live.delegate.terminalDelivered || live.delegate.receivedAnyEvent) return@getTasksWithCompletionHandler
+            liveLock.lock()
+            try {
+                if (liveUploads[itemId] === live) liveUploads.remove(itemId)
+            } finally {
+                liveLock.unlock()
+            }
+            logger.i { "Released an idle relaunch session — item=$itemId" }
+            live.session.finishTasksAndInvalidate()
+        }
+    }
+
+    private fun startUpload(live: LiveUpload, itemId: String, request: UploadRequest) {
         val url: NSURL = NSURL.URLWithString(request.url) ?: run {
-            failBeforeStart(session, itemId, "malformed url: ${request.url}")
+            failBeforeStart(live, itemId, "malformed url: ${request.url}")
             return
         }
         val boundary = "kmptoolkit-uploader-${NSUUID().UUIDString}"
-        val body = NSMutableData()
-        for (field in request.fields) {
-            body.appendString("--$boundary\r\n")
-            when (field) {
-                is UploadField.Text -> {
-                    body.appendString("Content-Disposition: form-data; name=\"${field.name}\"\r\n\r\n")
-                    body.appendString(field.value)
-                }
-
-                is UploadField.File -> {
-                    val fileData: NSData = NSData.dataWithContentsOfFile(field.path) ?: run {
-                        failBeforeStart(session, itemId, "source file missing/unreadable: ${field.path}")
-                        return
-                    }
-                    body.appendString(
-                        "Content-Disposition: form-data; name=\"${field.name}\"; filename=\"${field.fileName}\"\r\n",
-                    )
-                    body.appendString("Content-Type: ${field.contentType}\r\n\r\n")
-                    body.appendBytes(fileData.bytes, fileData.length)
-                }
-            }
-            body.appendString("\r\n")
-        }
-        body.appendString("--$boundary--\r\n")
-
         val bodyPath: String = temporaryBodyPath(itemId)
-        body.writeToFile(bodyPath, atomically = true)
+        writeMultipartBody(bodyPath, boundary, request.fields)?.let { failure ->
+            failBeforeStart(live, itemId, failure)
+            return
+        }
 
         val urlRequest: NSMutableURLRequest = NSMutableURLRequest.requestWithURL(url)
         urlRequest.setHTTPMethod(request.method)
         request.headers.forEach { (name, value) -> urlRequest.setValue(value, forHTTPHeaderField = name) }
         urlRequest.setValue("multipart/form-data; boundary=$boundary", forHTTPHeaderField = "Content-Type")
         logger.i { "Starting upload — item=$itemId" }
-        session.uploadTaskWithRequest(urlRequest, fromFile = NSURL.fileURLWithPath(bodyPath)).resume()
+        live.session.uploadTaskWithRequest(urlRequest, fromFile = NSURL.fileURLWithPath(bodyPath)).resume()
     }
 
-    private fun failBeforeStart(session: NSURLSession, itemId: String, message: String) {
+    private fun failBeforeStart(live: LiveUpload, itemId: String, message: String) {
         logger.e { "Upload cannot start — item=$itemId: $message" }
+        // No task was created, so no completion will come to settle and release it; do both here. Marked
+        // cancelled first, the invalidation below reports nothing of its own.
+        live.delegate.cancelled = true
+        live.session.invalidateAndCancel()
         scope.launch {
-            UploadGateway.complete(itemId, UploadResult.TransportFailure(message))
-            releaseSession(itemId)
+            if (!UploadGateway.complete(itemId, UploadResult.TransportFailure(message))) {
+                logger.w { "Upload failure did not reach an engine — item=$itemId" }
+            }
+            releaseAfterTerminal(live.delegate)
         }
-        session.invalidateAndCancel()
     }
 
     private class LiveUpload(val session: NSURLSession, val delegate: UploadSessionDelegate)
+
+    private companion object {
+        val RELAUNCH_IDLE_CHECK: Duration = 30.seconds
+    }
+}
+
+/**
+ * Writes the multipart body for [fields] to [bodyPath], streaming each file in chunks so a large source is
+ * never held in memory.
+ *
+ * @return `null` on success; otherwise why the body could not be written, with nothing left at [bodyPath]
+ *   — the body may embed a user's recording.
+ */
+@OptIn(ExperimentalForeignApi::class)
+internal fun writeMultipartBody(bodyPath: String, boundary: String, fields: List<UploadField>): String? {
+    fields.filterIsInstance<UploadField.File>().firstOrNull { !NSFileManager.defaultManager.isReadableFileAtPath(it.path) }
+        ?.let { missing -> return "source file missing/unreadable: ${missing.path}" }
+    val output: NSOutputStream = NSOutputStream.outputStreamToFileAtPath(bodyPath, append = false)
+    output.open()
+    val failure: String? = try {
+        writeMultipartParts(output, boundary, fields)
+    } finally {
+        output.close()
+    }
+    if (failure != null) removeFile(bodyPath)
+    return failure
 }
 
 @OptIn(ExperimentalForeignApi::class)
+private fun writeMultipartParts(output: NSOutputStream, boundary: String, fields: List<UploadField>): String? {
+    val writeFailure = "cannot write the upload body to temporary storage"
+    for (field in fields) {
+        if (!output.writeText("--$boundary\r\n")) return writeFailure
+        when (field) {
+            is UploadField.Text -> {
+                val part = "Content-Disposition: form-data; name=\"${field.name}\"\r\n\r\n${field.value}"
+                if (!output.writeText(part)) return writeFailure
+            }
+
+            is UploadField.File -> {
+                val header = "Content-Disposition: form-data; name=\"${field.name}\"; filename=\"${field.fileName}\"\r\n" +
+                    "Content-Type: ${field.contentType}\r\n\r\n"
+                if (!output.writeText(header)) return writeFailure
+                val input: NSInputStream = NSInputStream.inputStreamWithFileAtPath(field.path)
+                    ?: return "source file missing/unreadable: ${field.path}"
+                input.open()
+                val copied: Boolean = try {
+                    output.copyFrom(input)
+                } finally {
+                    input.close()
+                }
+                if (!copied) return "source file unreadable or body unwritable: ${field.path}"
+            }
+        }
+        if (!output.writeText("\r\n")) return writeFailure
+    }
+    return if (output.writeText("--$boundary--\r\n")) null else writeFailure
+}
+
+/** Copies [input] to its end; `false` when either stream fails. */
+@OptIn(ExperimentalForeignApi::class)
+private fun NSOutputStream.copyFrom(input: NSInputStream): Boolean {
+    val buffer = ByteArray(COPY_CHUNK_BYTES)
+    return buffer.usePinned { pinned ->
+        val pointer: CPointer<UByteVar> = pinned.addressOf(0).reinterpret()
+        var read: Long = input.read(pointer, COPY_CHUNK_BYTES.convert()).convert()
+        while (read > 0L && writeFully(pointer, read)) {
+            read = input.read(pointer, COPY_CHUNK_BYTES.convert()).convert()
+        }
+        read == 0L
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun NSOutputStream.writeText(text: String): Boolean {
+    val bytes: ByteArray = text.encodeToByteArray()
+    if (bytes.isEmpty()) return true
+    return bytes.usePinned { pinned -> writeFully(pinned.addressOf(0).reinterpret(), bytes.size.toLong()) }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun NSOutputStream.writeFully(bytes: CPointer<UByteVar>, length: Long): Boolean {
+    var offset = 0L
+    while (offset < length) {
+        val written: Long = write(bytes + offset, (length - offset).convert()).convert()
+        if (written <= 0L) return false
+        offset += written
+    }
+    return true
+}
+
 private fun removeTemporaryBody(itemId: String) {
-    NSFileManager.defaultManager.removeItemAtPath(temporaryBodyPath(itemId), error = null)
+    removeFile(temporaryBodyPath(itemId))
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun removeFile(path: String) {
+    NSFileManager.defaultManager.removeItemAtPath(path, error = null)
 }
 
 internal fun temporaryBodyPath(itemId: String): String = NSTemporaryDirectory() + "/kmptoolkit_upload_$itemId.tmp"
 
-@OptIn(BetaInteropApi::class, ExperimentalForeignApi::class)
-private fun NSMutableData.appendString(string: String) {
-    val data: NSData = NSString.create(string = string).dataUsingEncoding(NSUTF8StringEncoding) ?: return
-    appendBytes(data.bytes, data.length)
-}
+private const val COPY_CHUNK_BYTES: Int = 64 * 1024
 
 private const val FALLBACK_BUNDLE_ID: String = "io.github.jamal_wia.kmptoolkit.uploader.unbundled"
 
@@ -400,12 +512,20 @@ private class UploadSessionDelegate(
     val itemId: String,
     private val scope: CoroutineScope,
     private val logger: Logger,
-    private val onTerminal: () -> Unit,
+    private val onTerminal: (UploadSessionDelegate) -> Unit,
 ) : NSObject(), NSURLSessionDataDelegateProtocol {
 
     /** Any event at all tells a re-hand's flush window not to start a fresh upload. */
     @Volatile
     var receivedAnyEvent: Boolean = false
+
+    /** Set when the session was cancelled on purpose: its completion settles nothing. */
+    @Volatile
+    var cancelled: Boolean = false
+
+    /** Set synchronously by the completion callback, before its settlement runs. */
+    @Volatile
+    var terminalDelivered: Boolean = false
 
     @Volatile
     private var terminalHandled: Boolean = false
@@ -413,10 +533,15 @@ private class UploadSessionDelegate(
     @Volatile
     private var onAllEventsDelivered: (() -> Unit)? = null
 
+    /**
+     * Progress goes through one conflated channel and one forwarder, so fractions reach the handler in order
+     * and the forwarder is joined before the settlement — never a progress call after the item settled.
+     */
+    private val fractions: Channel<Float> = Channel(Channel.CONFLATED)
+    private val forwarder: Job = scope.launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
+
     private val progress: WholePercentProgress = WholePercentProgress(totalBytes = PERCENT_BASIS) { fraction ->
-        // Best effort: a settled row drops the signal engine-side, so a late progress coroutine cannot
-        // resurrect a finished upload.
-        scope.launch { UploadGateway.progress(itemId, fraction) }
+        fractions.trySend(fraction)
     }
 
     /** Chains [callback] to "the buffered events are drained"; fires at once if they already are. */
@@ -426,8 +551,9 @@ private class UploadSessionDelegate(
     }
 
     private fun fireDrained() {
-        onAllEventsDelivered?.invoke()
+        val callback: (() -> Unit)? = onAllEventsDelivered
         onAllEventsDelivered = null
+        callback?.invoke()
     }
 
     override fun URLSession(session: NSURLSession, dataTask: NSURLSessionDataTask, didReceiveData: NSData) {
@@ -452,19 +578,23 @@ private class UploadSessionDelegate(
 
     override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
         receivedAnyEvent = true
+        terminalDelivered = true
         val statusCode: Long = (task.response as? NSHTTPURLResponse)?.statusCode ?: STATUS_UNKNOWN
         val outcome: UploadResult = when {
             didCompleteWithError != null -> UploadResult.TransportFailure(didCompleteWithError.localizedDescription)
             statusCode == STATUS_UNKNOWN -> UploadResult.TransportFailure("no HTTP response")
             else -> UploadResult.Completed(statusCode.toInt())
         }
-        logger.i { "Upload completed — item=$itemId, outcome=$outcome" }
+        val wasCancelled: Boolean = cancelled
+        logger.i { "Upload completed — item=$itemId, outcome=$outcome, cancelled=$wasCancelled" }
         scope.launch {
-            if (!UploadGateway.complete(itemId, outcome)) {
+            fractions.close()
+            forwarder.join()
+            if (!wasCancelled && !UploadGateway.complete(itemId, outcome)) {
                 // The row stays in flight and the lease expiry re-hands it.
                 logger.w { "Upload outcome did not reach an engine — item=$itemId" }
             }
-            onTerminal()
+            onTerminal(this@UploadSessionDelegate)
             // The terminal event was the buffered work: once it is settled, the OS completion handler need
             // not wait for the safety timeout — DidFinishEvents may never come after invalidation.
             terminalHandled = true
