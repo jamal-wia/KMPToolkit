@@ -59,10 +59,11 @@ public interface Notifier {
      *
      * The default implementation ignores [options] and calls the two-argument [post], so a
      * [Notifier] written against an earlier version of this interface keeps compiling and keeps
-     * posting. The notifiers this library creates override it. **A decorator must override it too**
+     * posting. The Android notifier overrides it; the iOS one inherits the default, since iOS has no use for
+     * any option. **A decorator must override it**
      * and forward [options]; inheriting the default would silently drop them.
      *
-     * @since 1.4.0
+     * @since 1.5.0
      */
     public suspend fun post(
         id: String,

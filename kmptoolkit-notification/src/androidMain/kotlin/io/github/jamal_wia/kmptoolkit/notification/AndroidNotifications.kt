@@ -17,7 +17,7 @@ import android.os.Build
  *
  * @param id the id you pass, or will pass, to [Notifier.post]. Must not be blank.
  * @throws IllegalArgumentException if [id] is blank, as [Notifier.post] does.
- * @since 1.4.0
+ * @since 1.5.0
  */
 public fun notificationIdOf(id: String): Int {
     requireValidNotificationId(id)
@@ -56,7 +56,7 @@ public fun notificationIdOf(id: String): Int {
  * @throws IllegalArgumentException if [id] is blank, or if [notification]'s small icon does not
  *   resolve to a resource — `startForeground` would otherwise crash the service with a far less
  *   telling error.
- * @since 1.4.0
+ * @since 1.5.0
  */
 public fun buildForegroundNotification(
     context: Context,
@@ -98,7 +98,7 @@ private const val HEX_RADIX: Int = 16
  *
  * Both are no-ops below API 26, where channels do not exist.
  *
- * @since 1.4.0
+ * @since 1.5.0
  */
 public object NotificationChannels {
 

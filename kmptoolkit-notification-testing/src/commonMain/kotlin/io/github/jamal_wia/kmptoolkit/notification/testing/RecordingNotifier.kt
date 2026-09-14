@@ -140,10 +140,11 @@ public data class PostedNotification(
      * [Notifier.post].
      *
      * Declared outside the constructor so that adding it did not change how this class is
-     * constructed, copied or destructured; for the same reason it takes no part in [equals]. Compare
-     * it on its own: `assertFalse(notifier.posted.last().options.alertOnce)`.
+     * constructed, copied or destructured; for the same reason it takes no part in [equals], and `copy()`
+     * does not carry it — a copy reads [NotificationOptions.DEFAULT]. Compare it on its own, on the
+     * recorded instance: `assertFalse(notifier.posted.last().options.alertOnce)`.
      *
-     * @since 1.4.0
+     * @since 1.5.0
      */
     public var options: NotificationOptions = NotificationOptions.DEFAULT
         internal set

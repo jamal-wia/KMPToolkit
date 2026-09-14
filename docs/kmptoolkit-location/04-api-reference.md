@@ -38,7 +38,7 @@ per request internally; nothing here needs releasing.
 public fun LocationProvider.withSystemServicesPrompt(): LocationProvider
 ```
 
-*Since 1.4.0.* A decorator whose `promptToEnableService()` answers `ALREADY_ON` when the service is
+*Since 1.5.0.* A decorator whose `promptToEnableService()` answers `ALREADY_ON` when the service is
 on, and otherwise starts a one-shot `CLLocationManager` request — which makes iOS raise its own "Turn
 On Location Services" alert for an authorized app — and answers `PROMPTED`. Every other member is
 forwarded unchanged. Requests no authorization. `PROMPTED` means the request was made; whether iOS

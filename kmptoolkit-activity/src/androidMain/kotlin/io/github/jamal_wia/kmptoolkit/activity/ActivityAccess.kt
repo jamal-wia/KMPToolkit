@@ -93,9 +93,9 @@ public interface ActivitySubscription {
  *   permission launcher the moment it resumes, simply for being the most recent one. Passing
  *   `{ it is MainActivity }` makes the answer "the activity I mean", not "the activity on top".
  *
- *   An untracked activity resuming does not displace the tracked one: [withActivity] keeps
- *   answering with the tracked activity underneath, and stops only when *that* one goes away. The
- *   predicate is called on the main thread during `onActivityResumed` and should be a cheap type
+ *   An untracked activity resuming never becomes the answer. Your tracked activity was paused when
+ *   the untracked one covered it, so [ActivityAccess.withActivity] answers `null` while it is covered
+ *   and answers with your activity again when it resumes. The predicate is called on the main thread during `onActivityResumed` and should be a cheap type
  *   check.
  */
 public fun createActivityAccess(

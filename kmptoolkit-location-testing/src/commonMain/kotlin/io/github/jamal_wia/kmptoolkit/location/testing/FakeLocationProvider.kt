@@ -45,7 +45,7 @@ public class FakeLocationProvider(
      * to stand in for a provider that can raise a dialog. While [locationEnabled] is `true` the
      * answer is always [LocationServicePrompt.ALREADY_ON], as on a real provider.
      *
-     * @since 1.4.0
+     * @since 1.5.0
      */
     public var servicePromptAnswer: LocationServicePrompt? = null
 
@@ -53,7 +53,7 @@ public class FakeLocationProvider(
      * How many times [promptToEnableService] has been called, including calls that found the service
      * already on.
      *
-     * @since 1.4.0
+     * @since 1.5.0
      */
     public var promptCount: Int = 0
         private set

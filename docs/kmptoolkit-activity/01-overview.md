@@ -26,7 +26,7 @@ One interface, `ActivityAccess`, created from your `Application`:
 - **You say which activities count.** By default every activity in the process is tracked, which is
   right when the thing being driven belongs to whichever activity the user is looking at. When it is
   not — a photo picker, a sign-in flow, or a `ComponentActivity` an SDK declared in its own manifest
-  — a predicate narrows it, and an untracked activity resuming does not displace yours.
+  — a predicate narrows it, and an untracked activity resuming is never handed out in place of yours.
 
 ## What it is not
 

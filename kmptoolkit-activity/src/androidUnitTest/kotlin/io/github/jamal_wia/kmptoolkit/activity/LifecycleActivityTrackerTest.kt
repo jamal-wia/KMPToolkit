@@ -231,13 +231,19 @@ class LifecycleActivityTrackerTest {
             .also { it.register() }
         tracked.setup()
 
+        // As Android does it: the tracked activity pauses before the one covering it resumes.
+        tracked.pause()
         val other: ActivityController<Activity> = launchActivity()
         other.setup()
 
+        assertNull(filtered.withActivity { activity -> activity }, "the untracked activity was handed out")
+
+        other.pause()
+        tracked.resume()
         assertSame(
             tracked.get(),
             filtered.withActivity { activity -> activity },
-            "the untracked activity replaced the tracked one",
+            "the tracked activity was not answered again once it resumed",
         )
         filtered.release()
     }

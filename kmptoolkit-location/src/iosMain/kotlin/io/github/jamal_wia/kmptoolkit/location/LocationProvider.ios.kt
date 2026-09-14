@@ -100,6 +100,9 @@ private class IosLocationProvider(
             },
         )
         var manager: CLLocationManager? = null
+        // CLLocationManager.delegate is weak: this capture, released in awaitClose, is what keeps the
+        // delegate alive for as long as the flow is collected.
+        var retainedDelegate: StreamingDelegate? = delegate
 
         dispatch_async(dispatch_get_main_queue()) {
             val started: CLLocationManager = CLLocationManager().apply {
@@ -120,8 +123,9 @@ private class IosLocationProvider(
         awaitClose {
             dispatch_async(dispatch_get_main_queue()) {
                 manager?.stopUpdatingLocation()
-                manager?.delegate = null
+                retainedDelegate?.let { manager?.delegate = null }
                 manager = null
+                retainedDelegate = null
             }
         }
     }

@@ -59,6 +59,6 @@ callbacks. The parameter is `Application` and not `Context` on purpose: passing 
 something that outlives every activity would be a mistake the compiler could not catch.
 
 `isTracked` decides which activities this instance is willing to answer with. The default accepts
-every activity in the process. An untracked activity resuming does **not** displace the tracked one:
-`withActivity` keeps answering with the tracked activity underneath, and stops only when that one
-goes away. See [`03-guide.md`](03-guide.md) for when to narrow it.
+every activity in the process. An untracked activity resuming never becomes the answer: your tracked
+activity was paused when it was covered, so `withActivity` answers `null` while it is covered and
+answers with your activity again when it resumes. See [`03-guide.md`](03-guide.md) for when to narrow it.

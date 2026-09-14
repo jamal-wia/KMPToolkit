@@ -5,6 +5,7 @@ import android.app.Application
 import android.os.Bundle
 import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * [ActivityAccess] backed by `Application.ActivityLifecycleCallbacks`.
@@ -24,9 +25,11 @@ internal class LifecycleActivityTracker(
     private val isTracked: (Activity) -> Boolean = { true },
 ) : ActivityAccess, Application.ActivityLifecycleCallbacks {
 
-    /** The only reference to an activity this class holds, and it is weak. */
-    @Volatile
-    private var current: WeakReference<Activity>? = null
+    /**
+     * The only reference to an activity this class holds, and it is weak. Atomic so a caller on another
+     * thread clearing a stale activity cannot erase one that resumed in the meantime.
+     */
+    private val current: AtomicReference<WeakReference<Activity>?> = AtomicReference(null)
 
     /** Copy-on-write so a listener that subscribes or cancels during dispatch cannot break it. */
     private val listeners: CopyOnWriteArrayList<(Activity) -> Unit> = CopyOnWriteArrayList()
@@ -39,9 +42,10 @@ internal class LifecycleActivityTracker(
     }
 
     override fun <R> withActivity(block: (Activity) -> R): R? {
-        val activity: Activity = current?.get() ?: return null
+        val reference: WeakReference<Activity> = current.get() ?: return null
+        val activity: Activity = reference.get() ?: return null
         if (activity.isFinishing || activity.isDestroyed) {
-            current = null
+            current.compareAndSet(reference, null)
             return null
         }
         return block(activity)
@@ -50,7 +54,7 @@ internal class LifecycleActivityTracker(
     override fun addOnActivityResumedListener(listener: (Activity) -> Unit): ActivitySubscription {
         if (released) return NoopSubscription
         listeners.add(listener)
-        current?.get()?.let { activity ->
+        current.get()?.get()?.let { activity ->
             if (!activity.isFinishing && !activity.isDestroyed) listener(activity)
         }
         return ListenerSubscription(listener)
@@ -60,19 +64,19 @@ internal class LifecycleActivityTracker(
         if (released) return
         released = true
         application.unregisterActivityLifecycleCallbacks(this)
-        current = null
+        current.set(null)
         listeners.clear()
     }
 
     /**
      * An activity the caller does not track is ignored outright rather than replacing the current
      * one. That is the whole point of the predicate: a picker or a sign-in screen resuming over the
-     * app must not inherit what the app asked for, and the app's own activity underneath must still
-     * be reachable when it comes back.
+     * app must not inherit what the app asked for. The app's own activity was paused when it was
+     * covered, so it is not reachable while covered either; it becomes current again when it resumes.
      */
     override fun onActivityResumed(activity: Activity) {
         if (!isTracked(activity)) return
-        current = WeakReference(activity)
+        current.set(WeakReference(activity))
         listeners.forEach { listener -> listener(activity) }
     }
 
@@ -99,14 +103,15 @@ internal class LifecycleActivityTracker(
      * objects, and during a configuration change both exist at once.
      */
     private fun clearIfCurrent(activity: Activity) {
-        if (current?.get() === activity) current = null
+        val reference: WeakReference<Activity>? = current.get()
+        if (reference?.get() === activity) current.compareAndSet(reference, null)
     }
 
     /**
      * Test seam: the actual field, so a test can prove the tracker holds nothing but a weak
      * reference.
      */
-    internal fun activityReferenceForTest(): WeakReference<Activity>? = current
+    internal fun activityReferenceForTest(): WeakReference<Activity>? = current.get()
 
     private inner class ListenerSubscription(
         private val listener: (Activity) -> Unit,

@@ -38,7 +38,7 @@ internal class AlarmReceiver : BroadcastReceiver() {
                 // can be built after it, and building them may be arbitrarily expensive.
                 val handler: AlarmHandler? = try {
                     registration.handlerProvider().handlerFor(alarm.type)
-                } catch (@Suppress("TooGenericExceptionCaught") failure: RuntimeException) {
+                } catch (@Suppress("TooGenericExceptionCaught") failure: Exception) {
                     // A provider that cannot answer — typically a DI container not started yet in a
                     // process the alarm itself created — drops this alarm, as documented. Its own
                     // failure is not the handler's, so it must not take the process down with it.

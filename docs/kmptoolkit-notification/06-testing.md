@@ -25,7 +25,7 @@ public class RecordingNotifier(
 }
 
 public data class PostedNotification(public val id: String, public val notification: LocalNotification) {
-    public var options: NotificationOptions                 // since 1.4.0; not part of equals
+    public var options: NotificationOptions                 // since 1.5.0; not part of equals, not kept by copy()
 }
 ```
 

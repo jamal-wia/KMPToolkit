@@ -12,7 +12,7 @@ public interface Notifier {
         id: String,
         notification: LocalNotification,
         options: NotificationOptions,
-    ): NotificationResult                                   // since 1.4.0
+    ): NotificationResult                                   // since 1.5.0
     public fun cancel(id: String)
     public fun cancelAll()
 }
@@ -29,8 +29,8 @@ The one type shared code depends on.
   does not suspend in practice.
 - **`post(id, notification, options)`** — the same post, presented according to
   `NotificationOptions`. The interface default ignores `options` and calls the two-argument form, so
-  an older implementation keeps working; the library's notifiers override it, and a decorator must
-  override it too. The two-argument form is the same as passing `NotificationOptions.DEFAULT`.
+  an older implementation keeps working; the Android notifier overrides it (the iOS one ignores options
+  and keeps the default), and a decorator must override it. The two-argument form is the same as passing `NotificationOptions.DEFAULT`.
 - **`cancel`** — removes the notification under `id` and forgets its progress-coalescing state. A
   no-op for an id that is not showing, including one this instance never posted. Reports nothing,
   because neither platform reports anything.
@@ -78,7 +78,7 @@ when the user has notifications off in your own settings.
 
 ## Android helpers
 
-*Since 1.4.0.* Plain functions, usable without a `Notifier`.
+*Since 1.5.0.* Plain functions, usable without a `Notifier`.
 
 ```kotlin
 public fun notificationIdOf(id: String): Int
@@ -123,7 +123,7 @@ public class NotificationOptions(
 }
 ```
 
-*Since 1.4.0.* How one post is presented. **Android only**; iOS ignores every field. A plain class
+*Since 1.5.0.* How one post is presented. **Android only**; iOS ignores every field. A plain class
 with value equality, not a data class, so it can grow without changing how it is constructed.
 
 | Field | Android behavior |

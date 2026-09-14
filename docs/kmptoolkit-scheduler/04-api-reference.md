@@ -34,7 +34,7 @@ public fun createAlarmScheduler(
 ): AlarmScheduler
 ```
 
-*Since 1.4.0.* The same scheduler, with handlers looked up **at fire time**: `handlerProvider` is
+*Since 1.5.0.* The same scheduler, with handlers looked up **at fire time**: `handlerProvider` is
 called on a background thread for every fired alarm and never during this call. For handlers that
 depend on the scheduler themselves, which the list overload turns into a construction cycle.
 

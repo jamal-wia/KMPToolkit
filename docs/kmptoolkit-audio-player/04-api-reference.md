@@ -58,7 +58,7 @@ entirely after `release()`.
 
 | Member | Contract |
 |---|---|
-| `fun unload()` | Abandons a load in flight, frees the loaded source's native handle, stops polling, resets to `Idle`/`0`. Keeps `playbackSpeed` and the engine listener; the next `prepare` works. No effect after `release()`. The interface default only calls `stop()` — a decorator must delegate it. *Since 1.4.0.* |
+| `fun unload()` | Abandons a load in flight, frees the loaded source's native handle, stops polling, resets to `Idle`/`0`. Keeps `playbackSpeed` and the engine listener; the next `prepare` works. No effect after `release()`. The interface default only calls `stop()` — a decorator must delegate it. *Since 1.5.0.* |
 | `fun release()` | Frees the native handle, cancels polling, detaches the engine listener, resets to `Idle`/`0`. **Idempotent.** Not reversible. |
 | `override fun close()` | Alias for `release()`, so a player works with `use { }`. |
 

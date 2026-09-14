@@ -34,7 +34,7 @@ import platform.darwin.NSObject
  * still off.
  *
  * @return a provider that behaves as this one, apart from [LocationProvider.promptToEnableService].
- * @since 1.4.0
+ * @since 1.5.0
  */
 public fun LocationProvider.withSystemServicesPrompt(): LocationProvider =
     SystemServicesPromptLocationProvider(delegate = this, alert = CoreLocationServicesAlert())

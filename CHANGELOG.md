@@ -136,6 +136,16 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   notification on older devices. The check is skipped below 33.
 - `kmptoolkit-location` (iOS): `openLocationSettings()` reached `UIApplication` on the calling thread;
   it now hops to the main thread, as the "any thread" contract promises.
+- `kmptoolkit-location` (iOS): `observeLocation()` held its `CLLocationManager` delegate only weakly,
+  so after a garbage collection updates could stop while the flow stayed open.
+- `kmptoolkit-activity` (Android): a `withActivity` on another thread that found a finishing activity
+  could clear an activity that resumed at the same moment.
+- `kmptoolkit-scheduler` (Android): a handler provider throwing a checked exception crashed the process
+  instead of dropping the alarm, as documented.
+- Documentation: `kmptoolkit-activity` said an untracked activity resuming over a tracked one left the
+  tracked activity reachable underneath. The tracked activity is paused while covered, so
+  `withActivity` answers `null` until it resumes. `kmptoolkit-notification` said the iOS notifier
+  overrides the three-argument `post`; it keeps the default.
 - Documentation: `kmptoolkit-biometric` said `ComponentActivity` can host the prompt. It is
   `FragmentActivity`'s superclass — and a Compose activity's default base — so `authenticate` from it
   returns `NoPromptHost`. `kmptoolkit-audio-player` said the playback audio session keeps audio going
