@@ -176,9 +176,13 @@ app sharing that code with desktop could not compile it for desktop without the 
   characters, which would break this module's contract that a long value round-trips, and it lives in
   the Windows registry on one OS and a plist on another. A properties file behaves the same
   everywhere.
-- **Durability.** Every write rewrites the whole file into a temporary sibling and atomically renames
-  it over the old one, so a process killed mid-write leaves the previous contents. Every read reads
-  the file afresh. The store is meant for a handful of small values; it is not a database.
+- **Durability.** Every write rewrites the whole file into a temporary sibling, syncs it to the device
+  and atomically renames it over the old one, so a process killed — or a machine losing power —
+  mid-write leaves the previous contents. A temporary file a killed write left behind is removed by
+  `clear()`. Every read reads the file afresh.
+- **Failures.** A corrupted or hand-edited file (a malformed `\uXXXX` escape), a name the file system
+  rejects (`:` or `*` on Windows) and a denied security check arrive as `OperationFailed`, never as an
+  exception. The store is meant for a handful of small values; it is not a database.
 - **Concurrency.** Instances over the same file in one process share a lock. Two *processes* writing
   the same file are not coordinated — keep one writer per file.
 - **No secure store.** The JVM has no platform key store this module could keep a key in without

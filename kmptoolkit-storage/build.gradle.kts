@@ -10,7 +10,8 @@ kmptoolkitPublish {
     pomName.set("KMPToolkit Storage")
     pomDescription.set(
         "Key-value storage for Kotlin Multiplatform: one KeyValueStorage interface over " +
-            "SharedPreferences and NSUserDefaults, a SecureKeyValueStorage backed by the Android " +
+            "SharedPreferences, NSUserDefaults and, on desktop, a properties file, typed Int/Long/Boolean " +
+            "accessors, a SecureKeyValueStorage backed by the Android " +
             "Keystore and the iOS Keychain, and a DeviceIdProvider for a stable per-install id. " +
             "Every store name, keystore alias and Keychain service is derived from your own " +
             "application id, so two apps — or two features of one app — never share a store. " +

@@ -74,7 +74,10 @@ enforces.
   focus goes to the Activity.
 - **Before the dialog's content.** A consumed key never reaches a `Modifier.onKeyEvent` inside the
   dialog, nor the dialog's own back handling if you consume `KEYCODE_BACK`. Return `false` for the
-  back key unless you intend to disable dismissing by back.
+  back key unless you intend to disable dismissing by back — and do not rely on consuming it: with
+  predictive back on Android 16+ the gesture never arrives as a key event (see
+  [`05-platform-notes.md`](05-platform-notes.md#the-back-key)).
+- **In a `Popup`, only on API 28 and higher.** Below 28 the effect does nothing there.
 
 ## Dialog windows other code has decorated
 

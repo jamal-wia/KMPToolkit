@@ -9,7 +9,8 @@ import java.io.File
  * identifier to derive one from, so both halves of the location are yours: [directory] is where the
  * app keeps its own files (typically a folder under the user's home or the OS's application-data
  * directory), and [config]'s name — **required here** — names the file inside it. The file is
- * `<name>.kmptoolkit.storage.properties`; nothing else is written to [directory].
+ * `<name>.kmptoolkit.storage.properties`. The only other file written to [directory] is that file's
+ * temporary sibling during a write; one left by a process killed mid-write is removed by `clear()`.
  *
  * ```kotlin
  * val storage: KeyValueStorage = createKeyValueStorage(
@@ -18,8 +19,9 @@ import java.io.File
  * )
  * ```
  *
- * Every write replaces the file atomically — a temporary file in the same directory, then an atomic
- * rename — so a process killed mid-write leaves the previous contents, never a truncated file. Two
+ * Every write replaces the file atomically — a temporary file in the same directory, synced to the
+ * device, then an atomic rename — so a process killed or a machine losing power mid-write leaves the
+ * previous contents, never a truncated file. Two
  * instances over the same file in one process share a lock and see each other's writes. Two
  * *processes* writing the same file are not coordinated; keep one writer per file.
  *

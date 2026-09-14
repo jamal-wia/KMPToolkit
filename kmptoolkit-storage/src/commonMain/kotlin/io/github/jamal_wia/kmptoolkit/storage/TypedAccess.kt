@@ -20,10 +20,10 @@ package io.github.jamal_wia.kmptoolkit.storage
  */
 
 /** The `Int` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
-public fun KeyValueStorage.getInt(key: String): StorageResult<Int?> = getParsed(key, String::toInt)
+public fun KeyValueStorage.getInt(key: String): StorageResult<Int?> = getParsed(key) { requireDecimal(it).toInt() }
 
 /** The `Long` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
-public fun KeyValueStorage.getLong(key: String): StorageResult<Long?> = getParsed(key, String::toLong)
+public fun KeyValueStorage.getLong(key: String): StorageResult<Long?> = getParsed(key) { requireDecimal(it).toLong() }
 
 /**
  * The `Boolean` stored under [key], `Success(null)` when absent. Anything other than exactly `"true"`
@@ -56,6 +56,17 @@ public fun KeyValueStorage.getLongOr(key: String, default: Long): Long = getLong
 /** The `Boolean` stored under [key], or [default] when it is absent, unreadable, or not a boolean. */
 public fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean =
     getBoolean(key).getOrNull() ?: default
+
+/**
+ * Exactly the form the `put` side writes — an optional minus and ASCII digits. `String.toInt` alone would
+ * also take a leading `+` and, on the JVM, non-ASCII digits.
+ */
+private fun requireDecimal(value: String): String {
+    require(DECIMAL.matches(value)) { "Not a decimal integer: '$value'" }
+    return value
+}
+
+private val DECIMAL: Regex = Regex("-?[0-9]+")
 
 private inline fun <T : Any> KeyValueStorage.getParsed(
     key: String,

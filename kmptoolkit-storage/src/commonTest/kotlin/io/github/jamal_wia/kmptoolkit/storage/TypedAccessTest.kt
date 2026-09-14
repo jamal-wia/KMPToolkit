@@ -47,9 +47,11 @@ class TypedAccessTest {
         storage.entries["i"] = "forty-two"
         storage.entries["l"] = "12.5"
         storage.entries["b"] = "TRUE"
+        storage.entries["plus"] = "+42"
+        storage.entries["space"] = " 7"
 
-        listOf(storage.getInt("i"), storage.getLong("l"), storage.getBoolean("b"))
-            .zip(listOf("i", "l", "b"))
+        listOf(storage.getInt("i"), storage.getLong("l"), storage.getBoolean("b"), storage.getInt("plus"), storage.getLong("space"))
+            .zip(listOf("i", "l", "b", "plus", "space"))
             .forEach { (result, key) ->
                 val error = assertIs<StorageError.OperationFailed>(result.errorOrNull())
                 assertEquals(StorageOperation.GET, error.operation)

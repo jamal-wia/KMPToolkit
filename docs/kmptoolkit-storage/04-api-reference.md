@@ -155,7 +155,7 @@ public fun KeyValueStorage.getLongOr(key: String, default: Long): Long
 public fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean
 ```
 
-Encoding: `Int` and `Long` as decimal strings, `Boolean` as exactly `"true"` or `"false"`.
+Encoding: `Int` and `Long` as decimal strings — an optional `-` and ASCII digits, nothing else (`"+42"` or `" 7"` reads as a failure) — and `Boolean` as exactly `"true"` or `"false"`.
 
 | Stored value | `getInt` / `getLong` / `getBoolean` | `...Or(key, default)` |
 |---|---|---|

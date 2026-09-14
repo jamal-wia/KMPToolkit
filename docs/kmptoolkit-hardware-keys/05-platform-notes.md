@@ -23,10 +23,24 @@ consumes it, to the `PhoneWindow` fallback that implements system behaviour such
 - **Windows without a callback** (a focusable `Popup`, which is a bare view added to the
   `WindowManager`). There is no callback to wrap, and here `ViewRootImpl` does offer unhandled keys
   to `View.OnUnhandledKeyEventListener` before falling back. The effect adds one through
-  `ViewCompat.addOnUnhandledKeyEventListener`.
+  `ViewCompat.addOnUnhandledKeyEventListener` — **on API 28 and higher only**. Below 28 the platform
+  does not dispatch these listeners; androidx emulates them only inside a `ComponentActivity` or
+  `ComponentDialog`, where a `Popup` never reaches them. The effect is a no-op in a `Popup` there.
 - **The Activity's own window.** No `DialogWindowProvider` is present, so the effect takes the
-  listener path. It is harmless there: whatever the Activity's own handling consumed never reaches the
-  listener.
+  listener path. On API 28+ it is harmless there: whatever the Activity's own handling consumed never
+  reaches the listener. Below 28 the androidx emulation would run the listener *before*
+  `Activity.onKeyDown`, so the effect installs nothing.
+
+### One interception per window
+
+Calling the effect twice in the same dialog window — an app-wide dialog wrapper plus a shared component
+that calls it too — installs one wrapper, not two, so the interceptor runs once per key event.
+
+### The back key
+
+With predictive back (the default for apps targeting API 36 on Android 16+), the back gesture reaches
+`OnBackInvokedCallback` without passing through `Window.Callback` as a `KEYCODE_BACK` event, so the
+interceptor cannot consume it. Handle back with Compose's `BackHandler` inside the dialog instead.
 
 ### The wrapper forwards the Java default methods by hand
 

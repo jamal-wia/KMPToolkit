@@ -84,6 +84,57 @@ class DialogWindowHardwareKeyEffectUiTest {
     }
 
     @Test
+    fun `two effects in one dialog window run the policy once per key`() = runComposeUiTest {
+        var calls = 0
+        DialogWindowHardwareKeyPolicy.install { _ ->
+            calls++
+            false
+        }
+        var window: Window? = null
+
+        setContent {
+            Dialog(onDismissRequest = {}) {
+                window = dialogWindow()
+                DialogWindowHardwareKeyEffect()
+                DialogWindowHardwareKeyEffect()
+            }
+        }
+        waitForIdle()
+
+        assertNotNull(window).callback.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP))
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun `a window already composed keeps its policy through a recomposition`() = runComposeUiTest {
+        val consulted = mutableListOf<String>()
+        DialogWindowHardwareKeyPolicy.install { _ ->
+            consulted += "first"
+            true
+        }
+        var tick by mutableStateOf(0)
+        var window: Window? = null
+
+        setContent {
+            Dialog(onDismissRequest = {}) {
+                window = dialogWindow()
+                tick.let { DialogWindowHardwareKeyEffect() }
+            }
+        }
+        waitForIdle()
+        DialogWindowHardwareKeyPolicy.uninstall()
+        DialogWindowHardwareKeyPolicy.install { _ ->
+            consulted += "second"
+            true
+        }
+        tick++
+        waitForIdle()
+
+        assertNotNull(window).callback.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP))
+        assertEquals(listOf("first"), consulted)
+    }
+
+    @Test
     fun `leaving composition restores the callback the dialog had`() = runComposeUiTest {
         DialogWindowHardwareKeyPolicy.install { true }
         var withEffect by mutableStateOf(true)

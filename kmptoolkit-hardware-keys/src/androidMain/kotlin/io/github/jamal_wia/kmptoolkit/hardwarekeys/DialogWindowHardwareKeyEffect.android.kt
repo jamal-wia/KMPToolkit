@@ -9,6 +9,7 @@ import android.view.Window
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.ViewCompat
@@ -80,13 +81,20 @@ public actual fun DialogWindowHardwareKeyEffect() {
     // `Dialog` and so own a `Window`; null in a `Popup` — a bare view added straight to the
     // WindowManager — and in regular activity content.
     val window: Window? = (view.parent as? DialogWindowProvider)?.window
-    val interceptor: ((KeyEvent) -> Boolean)? = DialogWindowHardwareKeyPolicy.interceptor
+    // Read once per window: a policy installed or removed later does not reach a window already composed,
+    // whether or not this scope happens to recompose.
+    val interceptor: ((KeyEvent) -> Boolean)? = remember(view, window) { DialogWindowHardwareKeyPolicy.interceptor }
 
     DisposableEffect(view, window, interceptor) {
         if (interceptor == null) {
             return@DisposableEffect onDispose { }
         }
         if (window != null) {
+            if (window.callback is KeyInterceptingWindowCallback) {
+                // Another effect in this window — an app-wide dialog wrapper plus a shared component that
+                // calls it too — already intercepts. A second wrapper would run the policy twice per key.
+                return@DisposableEffect onDispose { }
+            }
             // A window with a `Window.Callback` must be intercepted there: it is the only point ahead
             // of the `PhoneWindow` fallback that shows the system volume panel. An
             // OnUnhandledKeyEventListener would run too late (DecorView lets PhoneWindow handle the
@@ -104,6 +112,14 @@ public actual fun DialogWindowHardwareKeyEffect() {
         // listener the right hook: `ViewRootImpl` offers unhandled keys to it precisely for windows
         // without a callback, before the system falls back to its own volume handling. Harmless in the
         // activity window too — whatever the Activity's onKeyDown consumed never reaches it.
+        //
+        // Only from API 28, where the platform dispatches these listeners. Below it, androidx emulates them
+        // only for a ComponentActivity or ComponentDialog, and then *ahead of* Activity.onKeyDown — so in a
+        // Popup the listener would never run, and in the Activity window it would take keys the Activity
+        // meant to handle.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return@DisposableEffect onDispose { }
+        }
         val listener = ViewCompat.OnUnhandledKeyEventListenerCompat { _, event -> interceptor(event) }
         ViewCompat.addOnUnhandledKeyEventListener(view, listener)
         onDispose { ViewCompat.removeOnUnhandledKeyEventListener(view, listener) }

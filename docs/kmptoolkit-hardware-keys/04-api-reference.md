@@ -16,8 +16,9 @@ composed in, for as long as it stays in composition.
 
 | Platform | Behaviour |
 |---|---|
-| Android, inside a `Dialog` / `ModalBottomSheet` / `DatePickerDialog` / other window with a `DialogWindowProvider` | Wraps the window's `Window.Callback`; key dispatch goes to the interceptor first. On dispose, restores the original callback if the wrapper is still installed. |
-| Android, inside a focusable `Popup` or the Activity's own content | Adds a `ViewCompat` unhandled-key listener on the composition's view; removes it on dispose. |
+| Android, inside a `Dialog` / `ModalBottomSheet` / `DatePickerDialog` / other window with a `DialogWindowProvider` | Wraps the window's `Window.Callback`; key dispatch goes to the interceptor first. On dispose, restores the original callback if the wrapper is still installed. A window already wrapped by another effect is left as it is. |
+| Android API 28+, inside a focusable `Popup` or the Activity's own content | Adds a `ViewCompat` unhandled-key listener on the composition's view; removes it on dispose. |
+| Android below API 28, inside a `Popup` or the Activity's own content | No-op. |
 | Android, no policy installed | No-op. |
 | iOS | No-op. |
 | Desktop (`jvm`) | No-op. |

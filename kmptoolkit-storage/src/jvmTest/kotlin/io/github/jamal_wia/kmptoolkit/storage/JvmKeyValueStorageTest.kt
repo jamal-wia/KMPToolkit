@@ -36,6 +36,29 @@ class JvmKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
+    fun `a corrupted file is reported on every operation not thrown`() {
+        val storage: KeyValueStorage = create()
+        File(directory, "${plainStoreId(NAME)}.properties").writeText("broken=\\u12")
+
+        assertIs<StorageError.OperationFailed>(storage.get("broken").errorOrNull())
+        assertIs<StorageError.OperationFailed>(storage.put("k", "v").errorOrNull())
+        assertIs<StorageError.OperationFailed>(storage.remove("k").errorOrNull())
+        assertTrue(storage.clear().isSuccess)
+        assertTrue(storage.put("k", "v").isSuccess)
+    }
+
+    @Test
+    fun `clear removes a temporary file a killed write left behind`() {
+        val storage: KeyValueStorage = create()
+        storage.put("k", "v")
+        val leftover = File(directory, "${plainStoreId(NAME)}.properties123456.tmp").apply { writeText("partial") }
+
+        assertTrue(storage.clear().isSuccess)
+
+        assertFalse(leftover.exists())
+    }
+
+    @Test
     fun `a missing directory is created on the first write`() {
         val nested = File(Files.createTempDirectory("kmptoolkit-storage").toFile(), "a/b")
 
