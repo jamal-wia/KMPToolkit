@@ -185,7 +185,7 @@ public fun createPermissionHandler(
 ): PermissionHandler
 ```
 
-*Since 1.4.0.* The same handler over an `ActivityAccess` from `kmptoolkit-activity` that your app
+*Since 1.5.0.* The same handler over an `ActivityAccess` from `kmptoolkit-activity` that your app
 already owns — typically one narrowed with `isTracked` to your own activities — instead of a tracker
 of its own. The rationale is asked of, and settings are opened from, the activity that access
 reports.

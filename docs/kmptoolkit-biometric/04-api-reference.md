@@ -226,7 +226,7 @@ public fun createBiometricGate(               // since 1.5.0; options ignored
 ): BiometricGate
 ```
 
-The Android three-argument overload throws `IllegalArgumentException` for `BiometricStrength.WEAK`
+Both three-argument overloads throw `IllegalArgumentException` for `BiometricStrength.WEAK`
 with `BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL`.
 
 Two signatures rather than one `expect fun`, per

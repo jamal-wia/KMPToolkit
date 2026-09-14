@@ -24,6 +24,7 @@ import platform.AVFoundation.AVMediaTypeVideo
 import platform.AVFoundation.authorizationStatusForMediaType
 import platform.AVFoundation.requestAccessForMediaType
 import platform.Foundation.NSURL
+import platform.CoreLocation.CLAuthorizationStatus
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationOpenSettingsURLString
 import platform.UserNotifications.UNAuthorizationOptionAlert
@@ -75,7 +76,8 @@ private class IosPermissionHandler(private val logger: Logger) : PermissionHandl
         Permission.MICROPHONE -> checkMicrophone()
         Permission.CAMERA -> checkCamera()
         Permission.LOCATION -> foregroundLocationStatus(LocationAuthorization.current())
-        Permission.LOCATION_BACKGROUND -> backgroundLocationStatus(LocationAuthorization.current())
+        Permission.LOCATION_BACKGROUND ->
+            backgroundLocationStatus(LocationAuthorization.current(), LocationAuthorization.alwaysUpgradeAsked)
         Permission.MEDIA_AUDIO -> mediaLibraryStatus(MediaLibraryAuthorization.current())
         Permission.BLUETOOTH_CONNECT -> bluetoothStatus(BluetoothAuthorization.current())
     }
@@ -122,7 +124,8 @@ private class IosPermissionHandler(private val logger: Logger) : PermissionHandl
             LocationAuthorization.requestWhenInUse()
             return backgroundLocationStatus(LocationAuthorization.current())
         }
-        return backgroundLocationStatus(LocationAuthorization.requestAlways())
+        val status: CLAuthorizationStatus = LocationAuthorization.requestAlways()
+        return backgroundLocationStatus(status, LocationAuthorization.alwaysUpgradeAsked)
     }
 
     override fun openAppSettings(): Boolean {

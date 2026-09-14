@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.permission
 
 import kotlin.coroutines.resume
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -57,11 +58,16 @@ internal fun foregroundLocationStatus(status: CLAuthorizationStatus): Permission
 /**
  * [Permission.LOCATION_BACKGROUND]: only "always" is granted. "When in use" is a refusal the app may
  * still ask about once more — iOS can offer the upgrade to "always" — which is exactly what
- * `Denied(shouldShowRationale = true)` says.
+ * `Denied(shouldShowRationale = true)` says; once that upgrade has been asked for ([upgradeAsked]) and
+ * the status stayed "when in use", iOS will not offer it again and only settings can change it.
  */
-internal fun backgroundLocationStatus(status: CLAuthorizationStatus): PermissionStatus = when (status) {
+internal fun backgroundLocationStatus(
+    status: CLAuthorizationStatus,
+    upgradeAsked: Boolean = false,
+): PermissionStatus = when (status) {
     kCLAuthorizationStatusAuthorizedAlways -> PermissionStatus.Granted
-    kCLAuthorizationStatusAuthorizedWhenInUse -> PermissionStatus.Denied(shouldShowRationale = true)
+    kCLAuthorizationStatusAuthorizedWhenInUse ->
+        if (upgradeAsked) PermissionStatus.PermanentlyDenied else PermissionStatus.Denied(shouldShowRationale = true)
     kCLAuthorizationStatusDenied, kCLAuthorizationStatusRestricted -> PermissionStatus.PermanentlyDenied
     else -> PermissionStatus.NotDetermined
 }
@@ -95,6 +101,16 @@ internal object LocationAuthorization {
 
     private val pending: MutableSet<AuthorizationDelegate> = mutableSetOf()
 
+    /**
+     * Whether this process has asked for the "always" upgrade from "when in use". iOS offers it at most
+     * once per install and reports nothing when it declines, so this is the only way to tell "may still
+     * be asked" from "settings only". Kept in memory: after a restart one more request finds out again.
+     */
+    @Volatile
+    var alwaysUpgradeAsked: Boolean = false
+        private set
+
+    // Read on the calling thread: hopping to the main queue would deadlock a caller that blocks it.
     fun current(): CLAuthorizationStatus = CLLocationManager().authorizationStatus
 
     /**
@@ -117,7 +133,7 @@ internal object LocationAuthorization {
                 startRequest(before, onChange) { manager -> manager.requestAlwaysAuthorization() }
             },
             fallback = ::current,
-        )
+        ).also { if (before == kCLAuthorizationStatusAuthorizedWhenInUse) alwaysUpgradeAsked = true }
     }
 
     private suspend fun request(ask: (CLLocationManager) -> Unit): CLAuthorizationStatus =
@@ -222,6 +238,13 @@ internal object BluetoothAuthorization {
                 queue = null,
                 options = mapOf<Any?, Any?>(CBCentralManagerOptionShowPowerAlertKey to false),
             )
+            continuation.invokeOnCancellation {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0), dispatch_get_main_queue()) {
+                    delegate.manager?.delegate = null
+                    delegate.manager = null
+                    pending -= delegate
+                }
+            }
         }
     }
 }
@@ -234,7 +257,9 @@ private class BluetoothStateDelegate(
     private var updated: Boolean = false
 
     override fun centralManagerDidUpdateState(central: CBCentralManager) {
-        if (updated) return
+        // A state update can arrive while the prompt is still on screen; only a decided authorization
+        // answers the request.
+        if (updated || CBManager.authorization == CBManagerAuthorizationNotDetermined) return
         updated = true
         onUpdated(this)
     }

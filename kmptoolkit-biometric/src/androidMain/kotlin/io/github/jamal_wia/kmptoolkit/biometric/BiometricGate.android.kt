@@ -12,8 +12,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 /**
  * Creates the Android [BiometricGate], backed by `androidx.biometric.BiometricPrompt`.
  *
- * Build it once — in your `Application`, or wherever you assemble dependencies — and pass the
- * resulting [BiometricGate] into shared code.
+ * Build it once — in `Application.onCreate` — and pass the resulting [BiometricGate] into shared code.
+ * It learns which activity is resumed from the activity-resumed callback, so a gate created after your
+ * activity resumed — a lazy DI singleton first injected by a screen — answers
+ * [BiometricResult.NoPromptHost] until that activity pauses and resumes again.
  *
  * @param context any `Context`; its application context is retained to query `BiometricManager`
  *   for [BiometricGate.availability] and to track the currently resumed activity, which the
@@ -111,7 +113,11 @@ internal class AndroidBiometricGate(
         authenticate(prompt, config.requireExplicitConfirmation)
 
     override suspend fun launchEnrollment(): BiometricEnrollmentLaunch =
-        enrollmentLauncher.launch(enrolled = availability() == BiometricAvailability.Available)
+        // Only "nothing enrolled" goes to the enrolment wizard: it closes itself at once for any other state,
+        // a lockout or a pending security update included, where the management screen is the useful one.
+        enrollmentLauncher.launch(
+            enrolled = availability() != BiometricAvailability.Unavailable(BiometricUnavailability.NOT_ENROLLED),
+        )
 
     override suspend fun authenticate(
         prompt: BiometricPromptText,

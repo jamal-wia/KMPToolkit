@@ -52,7 +52,7 @@ rest.
 | no | `true` | — | — | `Denied(shouldShowRationale = true)`; "refused before" is recorded |
 | no | `false` | no | — | `NotDetermined` |
 | no | `false` | yes | yes | `PermanentlyDenied` |
-| no | `false` | yes | no | `NotDetermined` — a dismissed dialog, which Android 11+ shows again (an asked entry written before 1.4.0 reads `PermanentlyDenied` instead; see below) |
+| no | `false` | yes | no | `NotDetermined` — a dismissed dialog, which Android 11+ shows again (an asked entry written before 1.5.0 reads `PermanentlyDenied` instead; see below) |
 | no | no activity to ask | no | — | `NotDetermined` |
 | no | no activity to ask | yes | — | `Denied(shouldShowRationale = false)` — nothing permanent is concluded without an answer |
 
@@ -73,13 +73,13 @@ tell them apart is to remember whether the dialog was ever shown, and whether th
 it there — which is why the Android factory takes a `KeyValueStorage`.
 
 - Two entries per permission: `"<prefix>.asked.<PERMISSION NAME>"` and
-  `"<prefix>.rationale.<PERMISSION NAME>"` (since 1.4.0), where `<prefix>` defaults to
+  `"<prefix>.rationale.<PERMISSION NAME>"` (since 1.5.0), where `<prefix>` defaults to
   `"<your application id>.kmptoolkit.permission"`. Configurable through `PermissionConfig`; nothing
   is hardcoded to this library's own namespace.
 - The `rationale` entry is written the first time Android asks for a rationale — which it does only
   after a refusal through the dialog — and only then, by `check` as well as by `request`: once per
   permission, since a set flag is never written again.
-- The `asked` entry holds `dialog-shown` since 1.4.0. Versions before it wrote `true` and recorded no
+- The `asked` entry holds `dialog-shown` since 1.5.0. Versions before it wrote `true` and recorded no
   refusals, so a `true` entry is read as they read it: with no rationale, `PermanentlyDenied`. A
   permission those versions recorded as permanently denied therefore stays so after an upgrade; the
   dismissal fix applies from the next grant, or on a fresh install.
@@ -150,7 +150,13 @@ there is no resumed activity it falls back to the application context with
 **iOS shows its permission dialog at most once per install.** A refusal is final; only system
 settings can change it. So the iOS handler never returns `Denied` — a refusal is
 `PermanentlyDenied` immediately — and `shouldShowRationale` is never `true`, because there is no
-second dialog for a rationale to precede.
+second dialog for a rationale to precede. The single exception is `LOCATION_BACKGROUND` — see the
+table below: "while in use" can still be upgraded once, which is what `Denied(shouldShowRationale =
+true)` says.
+
+**`LOCATION` and `LOCATION_BACKGROUND` need iOS 14 or later.** They read the instance
+`CLLocationManager.authorizationStatus` and listen to `locationManagerDidChangeAuthorization`, both
+iOS 14 APIs; an app that still deploys to iOS 13 must not use these two entries.
 
 The practical consequence for your UI: if a permission needs explaining, explain it *before*
 calling `request()`, while the status is still `NotDetermined`. See
@@ -179,7 +185,7 @@ settings is still the only place it could possibly change, which is exactly what
 `PermanentlyDenied` promises. Nothing in this module claims a settings trip will *succeed*.
 
 | `LOCATION` | `CLLocationManager.authorizationStatus` + `requestWhenInUseAuthorization` | **Folded.** "While in use" and "always" are both granted. The answer arrives through the delegate, which `request` awaits; a manager and its delegate are held until it does. Reduced (approximate) accuracy is still granted — precision is a property of the fix, not the permission. |
-| `LOCATION_BACKGROUND` | the same manager + `requestAlwaysAuthorization` | **Folded, with one inference.** Only "always" is granted; "while in use" is `Denied(shouldShowRationale = true)`, because iOS may still offer the upgrade. iOS shows that upgrade prompt **at most once** and says nothing when it declines, so `request` waits for a changed status or — if the app did not resign active within a second, meaning no prompt covered it — returns the status as it is. While location is not determined, a request asks for "while in use" first, as iOS itself requires. |
+| `LOCATION_BACKGROUND` | the same manager + `requestAlwaysAuthorization` | **Folded, with one inference.** Only "always" is granted; "while in use" is `Denied(shouldShowRationale = true)`, because iOS may still offer the upgrade. iOS shows that upgrade prompt **at most once** and says nothing when it declines, so `request` waits for a changed status or — if the app did not resign active within a second, meaning no prompt covered it — returns the status as it is. Once the upgrade has been asked for in this process and the status stayed "while in use", `check` and `request` report `PermanentlyDenied`, so a request flow moves on to settings instead of asking again. The fact is kept in memory: after a restart, one more request finds it out again. While location is not determined, a request asks for "while in use" first, as iOS itself requires. |
 | `MEDIA_AUDIO` | `MPMediaLibrary.authorizationStatus` + `requestAuthorization` | **Clean.** The user's music library. Restricted is permanently denied. |
 | `BLUETOOTH_CONNECT` | `CBManager.authorization` + a `CBCentralManager` created to raise the prompt | **Clean, indirectly requested.** iOS has no "request Bluetooth permission" call: the prompt appears when the app first creates a central manager, which `request` does with the power alert turned off, and the answer is read once the manager reports its state. iOS has one Bluetooth permission, so this entry is it. |
 

@@ -46,6 +46,18 @@ class PlatformAuthorizationMappingTest {
     }
 
     @Test
+    fun `when-in-use after the always upgrade was asked is permanently denied`() {
+        assertEquals(
+            PermissionStatus.PermanentlyDenied,
+            backgroundLocationStatus(kCLAuthorizationStatusAuthorizedWhenInUse, upgradeAsked = true),
+        )
+        assertEquals(
+            PermissionStatus.Granted,
+            backgroundLocationStatus(kCLAuthorizationStatusAuthorizedAlways, upgradeAsked = true),
+        )
+    }
+
+    @Test
     fun `the media library maps restricted to permanently denied`() {
         assertEquals(PermissionStatus.Granted, mediaLibraryStatus(MPMediaLibraryAuthorizationStatusAuthorized))
         assertEquals(PermissionStatus.PermanentlyDenied, mediaLibraryStatus(MPMediaLibraryAuthorizationStatusDenied))

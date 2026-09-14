@@ -166,15 +166,18 @@ left and no refusal remembered — a dismissal — which must read `NotDetermine
 
 ## What the module tests itself
 
-For reference when judging whether your own coverage is enough — 108 tests:
+For reference when judging whether your own coverage is enough:
 
-- **50 in `commonTest`**, run on both Android and iOS: every row of the flow's transition table, the
+- **`commonTest`**, run on both Android and iOS: every row of the flow's transition table, the
   no-op behavior of every method outside its state, the `Requesting` lock, the revoked-while-away
   paths, and the key derivation.
-- **34 in `androidUnitTest`** under Robolectric: the status logic against a real `PackageManager`,
+- **`androidUnitTest`** under Robolectric: the status logic against a real `PackageManager`,
   the asked flag's lifecycle, the notifications branch on both sides of API 33, the platform string
-  each permission maps to, the settings intent, the version-gated `SpecialPermission` branches
+  each permission maps to, the location, audio-media and Bluetooth entries on both sides of their API
+  thresholds, `observe` re-checking on resume, the settings intent, the version-gated `SpecialPermission` branches
   (`EXACT_ALARM` below API 31, `ALL_FILES_ACCESS` below API 30), and the assertion that the merged
   library manifest contributes no permission at all.
-- **24 in `kmptoolkit-permission-testing`**: both fixtures' own contracts, including the places each
+- **`iosTest`**: the mapping from each CoreLocation, MediaPlayer and CoreBluetooth authorization
+  status to a `PermissionStatus`, including the "always" upgrade that was already asked for.
+- **`kmptoolkit-permission-testing`**: both fixtures' own contracts, including the places each
   claims to model the OS.

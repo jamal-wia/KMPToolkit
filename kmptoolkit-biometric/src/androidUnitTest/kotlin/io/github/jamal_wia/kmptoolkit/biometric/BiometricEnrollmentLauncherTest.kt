@@ -27,9 +27,11 @@ class BiometricEnrollmentLauncherTest {
     private var now: Long = 10_000
     private val started = mutableListOf<Intent>()
     private val unresolvable = mutableSetOf<String>()
+    private val forbidden = mutableSetOf<String>()
 
     private val starter = EnrollmentScreenStarter { intent ->
         if (intent.action in unresolvable) throw ActivityNotFoundException(intent.action)
+        if (intent.action in forbidden) throw SecurityException(intent.action)
         started += intent
         true
     }
@@ -132,6 +134,29 @@ class BiometricEnrollmentLauncherTest {
         )
 
         assertEquals(BiometricEnrollmentLaunch.LAUNCHED, gate.launchEnrollment())
+        assertEquals(Settings.ACTION_BIOMETRIC_ENROLL, started.single().action)
+    }
+
+    @Test
+    fun `a locked-out user with an enrolment is sent to the management screen not the wizard`() = runTest {
+        val gate = AndroidBiometricGate(
+            status = BiometricStatusPort { BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE },
+            prompt = BiometricPromptPort { _, _, _ -> null },
+            config = BiometricGateConfig(),
+            enrollment = starter,
+            sdkInt = Build.VERSION_CODES.VANILLA_ICE_CREAM,
+            elapsedRealtimeMillis = { now },
+        )
+
+        assertEquals(BiometricEnrollmentLaunch.LAUNCHED, gate.launchEnrollment())
+        assertEquals(ACTION_COMBINED_BIOMETRICS_SETTINGS, started.first().action)
+    }
+
+    @Test
+    fun `a protected screen falls through to the next candidate instead of crashing`() {
+        forbidden += ACTION_COMBINED_BIOMETRICS_SETTINGS
+
+        assertEquals(BiometricEnrollmentLaunch.LAUNCHED, launcher().launch(enrolled = true))
         assertEquals(Settings.ACTION_BIOMETRIC_ENROLL, started.single().action)
     }
 

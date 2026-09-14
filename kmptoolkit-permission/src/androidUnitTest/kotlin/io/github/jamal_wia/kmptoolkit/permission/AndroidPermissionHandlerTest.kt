@@ -584,7 +584,7 @@ class AndroidPermissionHandlerTest {
     }
 
     private companion object {
-        /** The value 1.4.0 writes under the asked key; 1.3.x wrote "true". */
+        /** The value 1.5.0 writes under the asked key; 1.3.x wrote "true". */
         const val ASKED_BY_THIS_VERSION = "dialog-shown"
     }
 }

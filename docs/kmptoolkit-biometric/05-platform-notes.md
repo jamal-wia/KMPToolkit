@@ -71,6 +71,11 @@ none — the app is backgrounded, a configuration change is in flight — or whe
 is not a `FragmentActivity`, `authenticate` returns `BiometricResult.NoPromptHost` and nothing is
 shown. It is deliberately not a `ClassCastException`, and deliberately not `Cancelled`.
 
+**Create the gate before your activity resumes** — in `Application.onCreate`. The tracker learns which
+activity is resumed from the resumed callback, and Android offers no way to ask afterwards. A gate
+created lazily, on its first injection into a screen, is created after `MainActivity` resumed: it
+answers `NoPromptHost` until the activity pauses and resumes again.
+
 ### Authenticator strength
 
 `BIOMETRIC_ONLY` maps to `BIOMETRIC_STRONG` by default and never silently to `BIOMETRIC_WEAK`. The weak
@@ -92,7 +97,9 @@ again, reporting `Rejected` only once it gives up — and after five failures on
 the sensor, a lockout that only the device credential clears. With
 `BiometricGateOptions(singleAttempt = true)` the first non-match ends the prompt: `authenticate`
 returns `Rejected` and the sheet is dismissed. The cancellation that dismissal causes is not reported.
-Use it when each attempt is an event your app counts and acts on itself.
+Use it when each attempt is an event your app counts and acts on itself. Under a policy that allows the
+device credential, the first non-match dismisses the prompt before the user can switch to the PIN, so
+`singleAttempt` belongs with `BIOMETRIC_ONLY`.
 
 ### Opening enrolment
 

@@ -63,6 +63,9 @@ internal class BiometricEnrollmentLauncher(
                 starter.start(intent)
             } catch (_: ActivityNotFoundException) {
                 false
+            } catch (_: SecurityException) {
+                // A settings screen some builds do not export: try the next candidate rather than crash.
+                false
             }
             if (started) return BiometricEnrollmentLaunch.LAUNCHED
         }

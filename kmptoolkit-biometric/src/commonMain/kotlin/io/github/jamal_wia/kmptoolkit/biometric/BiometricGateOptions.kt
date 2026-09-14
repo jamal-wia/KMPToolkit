@@ -15,14 +15,16 @@ import kotlin.time.Duration.Companion.seconds
  *   [BiometricStrength.STRONG], the tier [BiometricPolicy.BIOMETRIC_ONLY] has always meant.
  *   [BiometricStrength.WEAK] is only valid with [BiometricPolicy.BIOMETRIC_ONLY]: widening to the
  *   device credential already accepts something weaker than any sensor, and Android cannot combine
- *   the weak tier with it. **Android only**; iOS has one tier.
+ *   the weak tier with it. The rule is checked on both platforms, but only Android has a second tier.
  * @param singleAttempt whether one unrecognised biometric ends the prompt. `false` — the default —
  *   leaves the platform's own retry loop in place: the prompt stays up and the user tries again, until
  *   the platform gives up with [BiometricResult.Rejected] or locks the sensor. `true` ends the prompt
  *   on the first non-match with [BiometricResult.Rejected], so that one [BiometricGate.authenticate]
  *   is exactly one sensor attempt. Choose it when each attempt is an event your app counts itself —
  *   a supervised check on a shared device — and when letting the platform retry would walk the user
- *   into a lockout only the device credential clears. **Android only**; iOS offers no such control.
+ *   into a lockout only the device credential clears. With a policy that allows the device credential,
+ *   the first non-match also ends the prompt before the user could switch to the credential.
+ *   **Android only**; iOS offers no such control.
  * @param enrollmentThrottle the shortest interval between two [BiometricGate.launchEnrollment] calls
  *   that actually start a settings screen; a call inside the window returns
  *   [BiometricEnrollmentLaunch.THROTTLED]. It keeps a double tap from stacking two settings tasks.

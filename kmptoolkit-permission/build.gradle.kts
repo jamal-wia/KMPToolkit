@@ -11,7 +11,7 @@ kmptoolkitPublish {
     pomName.set("KMPToolkit Permission")
     pomDescription.set(
         "A runtime-permission seam plus the flow around it: a PermissionHandler that checks and " +
-            "requests notifications, microphone and camera on Android and iOS, a PermissionStatus " +
+            "requests notifications, microphone, camera, location, audio media and Bluetooth on Android and iOS, a PermissionStatus " +
             "that tells a first refusal apart from a permanent one, and a headless " +
             "PermissionRequestFlow state machine covering rationale, request and the trip to " +
             "system settings. Pick this module if shared Kotlin code has to decide what to show a " +

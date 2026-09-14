@@ -44,7 +44,7 @@ private const val FLAG_SET: String = "true"
  */
 private const val ASKED: String = "dialog-shown"
 
-/** The value versions before 1.4.0 wrote under an [askedKey]. */
+/** The value versions before 1.5.0 wrote under an [askedKey]. */
 private const val LEGACY_ASKED: String = "true"
 
 /**
@@ -104,7 +104,7 @@ public fun createPermissionHandler(
  * @param activityAccess the tracker the rationale question and the settings screen go through.
  *   It must have been created before the activity that requests a permission first resumed.
  * @param logger where a dialog that could not be shown, or an unreadable flag, is reported.
- * @since 1.4.0
+ * @since 1.5.0
  */
 public fun createPermissionHandler(
     context: Context,
@@ -189,7 +189,7 @@ private suspend fun ActivityAccess.awaitResumed(timeout: Duration) {
  *   remembered ("rationale seen").
  * - **Rationale `false`, asked, and a refusal remembered** is a permanent refusal — the second
  *   "Don't allow" on Android 11+, "Don't ask again" before it. So is an asked flag written by a
- *   version before 1.4.0, which recorded no refusals and read every such state as permanent.
+ *   version before 1.5.0, which recorded no refusals and read every such state as permanent.
  * - **Rationale `false`, asked, but never refused** is a dialog the user dismissed — back, or a tap
  *   outside it. On Android 11+ that is not a refusal at all and the dialog appears again, so it reads
  *   `NotDetermined`. Treating it as permanent was a bug: it sent every user who backed out of the
