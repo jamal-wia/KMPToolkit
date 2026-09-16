@@ -9,6 +9,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-16
+
 ### Added
 
 - `kmptoolkit-hijri` — `HijriDate` and `LocalDate.toHijriDate()`, converting a civil date to the
