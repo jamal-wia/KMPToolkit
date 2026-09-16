@@ -56,6 +56,10 @@ zone with no offset. That is not an approximation — it is what makes the conve
 local zone would mean midnight in one place is the previous evening in another, and the same
 `LocalDate` would convert to two different Hijri dates depending on where the phone is.
 
+The module's tests hold this with the device set to UTC+14 and to UTC−11: a conversion that took
+midnight in the phone's zone would slip a day in the first, and one that read UTC midnight with a
+calendar in the phone's zone would slip a day in the second. CI runs in UTC, where neither shows.
+
 Deciding which civil day it currently is *does* depend on a zone, and that decision stays with the
 caller: `Clock.System.todayIn(zone)`.
 

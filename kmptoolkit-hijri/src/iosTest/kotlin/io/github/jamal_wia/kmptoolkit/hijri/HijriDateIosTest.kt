@@ -13,6 +13,14 @@ class HijriDateIosTest {
         HijriDateContract.anchorDatesConvertToPublishedValues()
 
     @Test
+    fun aLeapDayConvertsLikeAnyOtherDay() =
+        HijriDateContract.aLeapDayConvertsLikeAnyOtherDay()
+
+    @Test
+    fun theDeviceTimeZoneDoesNotMoveTheDate() =
+        HijriDateContract.theDeviceTimeZoneDoesNotMoveTheDate()
+
+    @Test
     fun monthIsOneBasedAndDayIsInRange() =
         HijriDateContract.monthIsOneBasedAndDayIsInRange()
 
