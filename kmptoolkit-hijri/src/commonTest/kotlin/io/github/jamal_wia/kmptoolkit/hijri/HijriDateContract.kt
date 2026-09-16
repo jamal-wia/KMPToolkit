@@ -20,9 +20,36 @@ import kotlin.test.assertTrue
 internal object HijriDateContract {
 
     fun anchorDatesConvertToPublishedValues() {
-        assertEquals(HijriDate(year = 1447, month = 7, dayOfMonth = 12), LocalDate(2026, 1, 1).toHijriDate())
-        assertEquals(HijriDate(year = 1448, month = 4, dayOfMonth = 5), LocalDate(2026, 9, 16).toHijriDate())
-        assertEquals(HijriDate(year = 1420, month = 9, dayOfMonth = 24), LocalDate(2000, 1, 1).toHijriDate())
+        assertAnchorDates(where = "in the test's own zone")
+    }
+
+    /**
+     * The day-by-day checks below walk 2026 and 2027, and neither has a 29 February. 2024 is an
+     * ordinary leap year; 2000 is the century one, a leap year only because it divides by 400.
+     */
+    fun aLeapDayConvertsLikeAnyOtherDay() {
+        assertEquals(HijriDate(year = 1445, month = 8, dayOfMonth = 18), LocalDate(2024, 2, 28).toHijriDate())
+        assertEquals(HijriDate(year = 1445, month = 8, dayOfMonth = 19), LocalDate(2024, 2, 29).toHijriDate())
+        assertEquals(HijriDate(year = 1445, month = 8, dayOfMonth = 20), LocalDate(2024, 3, 1).toHijriDate())
+        assertEquals(HijriDate(year = 1420, month = 11, dayOfMonth = 23), LocalDate(2000, 2, 29).toHijriDate())
+    }
+
+    /**
+     * The phone's zone must not move the date, and it takes both extremes to show it. Midnight taken
+     * in the phone's zone lands on the previous day east of UTC; midnight UTC read by a calendar in
+     * the phone's zone lands on the previous day west of it. A CI machine runs in UTC, where neither
+     * mistake changes a single date.
+     */
+    fun theDeviceTimeZoneDoesNotMoveTheDate() {
+        for (zoneId: String in listOf(FURTHEST_EAST, FURTHEST_WEST)) {
+            withDeviceTimeZone(zoneId) { assertAnchorDates(where = "with the device set to $zoneId") }
+        }
+    }
+
+    private fun assertAnchorDates(where: String) {
+        assertEquals(HijriDate(year = 1447, month = 7, dayOfMonth = 12), LocalDate(2026, 1, 1).toHijriDate(), where)
+        assertEquals(HijriDate(year = 1448, month = 4, dayOfMonth = 5), LocalDate(2026, 9, 16).toHijriDate(), where)
+        assertEquals(HijriDate(year = 1420, month = 9, dayOfMonth = 24), LocalDate(2000, 1, 1).toHijriDate(), where)
     }
 
     /**
@@ -96,4 +123,8 @@ internal object HijriDateContract {
 
     private val FIRST_DAY = LocalDate(2026, 1, 1)
     private const val DAYS_IN_TWO_YEARS: Int = 730
+
+    // UTC+14 and UTC-11 all year round, with no daylight saving to make the offset depend on the date.
+    private const val FURTHEST_EAST: String = "Pacific/Kiritimati"
+    private const val FURTHEST_WEST: String = "Pacific/Pago_Pago"
 }

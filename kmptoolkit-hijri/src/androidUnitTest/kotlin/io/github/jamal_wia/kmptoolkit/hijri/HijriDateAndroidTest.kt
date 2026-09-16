@@ -18,6 +18,14 @@ class HijriDateAndroidTest {
         HijriDateContract.anchorDatesConvertToPublishedValues()
 
     @Test
+    fun `a leap day converts like any other day`() =
+        HijriDateContract.aLeapDayConvertsLikeAnyOtherDay()
+
+    @Test
+    fun `the device time zone does not move the date`() =
+        HijriDateContract.theDeviceTimeZoneDoesNotMoveTheDate()
+
+    @Test
     fun `the month is one-based so it indexes a twelve-name array`() =
         HijriDateContract.monthIsOneBasedAndDayIsInRange()
 
