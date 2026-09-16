@@ -2,7 +2,6 @@ package io.github.jamal_wia.kmptoolkit.hijri
 
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 import kotlin.test.Test
 
 /**
@@ -12,7 +11,6 @@ import kotlin.test.Test
  * without it every call answers "Method setCalculationType not mocked" instead of a date.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
 class HijriDateAndroidTest {
 
     @Test

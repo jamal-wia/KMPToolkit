@@ -2,7 +2,7 @@
 
 This is the maintainer runbook for publishing a new `kmptoolkit-*` version to Maven Central. It is
 not something the assistant runs on its own — publishing always requires the maintainer's explicit
-go-ahead (see `CLAUDE.md` § Publishing).
+go-ahead (see `.claude/CLAUDE.md` § Publishing).
 
 ## One-time setup (per machine)
 
@@ -23,20 +23,20 @@ on the repository (see `.github/workflows/publish.yml`).
 
 1. **Confirm `main` is green.** `./gradlew build checkKotlinAbi` and
    `./gradlew testDebugUnitTest iosSimulatorArm64Test` must both pass on the commit you intend to
-   release (see `CLAUDE.md` § Verification).
+   release (see `.claude/CLAUDE.md` § Verification).
 2. **Bump the version.** Edit `kmptoolkit.version` in `gradle.properties` — this is the single
    source of truth; every `kmptoolkit-*` module and the `kmptoolkit-bom` constraints read it.
-   Follow semver: see `CLAUDE.md` § Public API and compatibility for what qualifies as
+   Follow semver: see `.claude/CLAUDE.md` § Public API and compatibility for what qualifies as
    patch/minor/major.
 3. **Update `CHANGELOG.md`.** Move the `[Unreleased]` entries under a new `## [x.y.z] - YYYY-MM-DD`
    heading.
 4. **Update the root `README.md` install snippet** if the shown version string is pinned literally
    rather than left as a placeholder.
-5. **Commit and push** the version bump on a task branch, per `CLAUDE.md` § Branches and commits.
+5. **Commit and push** the version bump on a task branch, per `.claude/CLAUDE.md` § Branches and commits.
    Do not tag or release from this commit yet — get it reviewed and merged to `main` first.
 6. **Create a GitHub Release** against the merged commit on `main`, tagged `x.y.z` (no `v` prefix,
    matching `kmptoolkit.version`). This is a manual, human action — the assistant does not create
-   GitHub releases (see `CLAUDE.md` § Publishing).
+   GitHub releases (see `.claude/CLAUDE.md` § Publishing).
 7. **The `publish.yml` workflow fires automatically** on the release. It runs `checkKotlinAbi`, the test
    suite, then `publishAndReleaseToMavenCentral` for every module.
 8. **Monitor the deployment** in the [Central Portal](https://central.sonatype.com/publishing) —

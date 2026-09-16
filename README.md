@@ -2,8 +2,8 @@
 
 # KMPToolkit
 
-A collection of small, independent Kotlin Multiplatform libraries (Android + iOS) — coroutines
-dispatcher seams, haptics, audio record/playback, local scheduling, secure key-value storage,
+A collection of small, independent Kotlin Multiplatform libraries (Android + iOS) — haptics,
+audio record/playback, local scheduling, secure key-value storage,
 permissions, notifications, raw accelerometer readings, and a database-agnostic transactional
 uploader. Each module is published as its own artifact — take only what you need — and the whole
 suite is released together on a single version, so two KMPToolkit artifacts on one classpath can
