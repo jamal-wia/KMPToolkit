@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for considering a contribution to KMPToolkit. This file covers the mechanics; see
-`CLAUDE.md` for the full set of repository rules (language policy, library invariants, API
+`.claude/CLAUDE.md` for the full set of repository rules (language policy, library invariants, API
 compatibility, branching, testing, documentation).
 
 ## Before you start
@@ -18,8 +18,8 @@ compatibility, branching, testing, documentation).
 
 1. Branch from `develop` (never commit directly to `main` or `develop`).
 2. Make the change. Every public symbol needs KDoc; every behavioral change needs a matching update
-   to that module's `docs/<module>/` (see `CLAUDE.md` § Documentation is mandatory).
-3. Add tests. See `CLAUDE.md` § Tests — cases are derived from requirements, not from what the
+   to that module's `docs/<module>/` (see `.claude/CLAUDE.md` § Documentation is mandatory).
+3. Add tests. See `.claude/CLAUDE.md` § Tests — cases are derived from requirements, not from what the
    implementation happens to do; boundary and platform-specific cases are not optional.
 4. Run the checks locally before opening a pull request:
    ```bash
@@ -33,13 +33,13 @@ compatibility, branching, testing, documentation).
 ## Code style
 
 SOLID / KISS / YAGNI, composition over inheritance, immutability by default, explicit type
-annotations wherever a declaration's type isn't otherwise visible — see `CLAUDE.md` § Code style
+annotations wherever a declaration's type isn't otherwise visible — see `.claude/CLAUDE.md` § Code style
 for the full list with examples.
 
 ## Language
 
 Everything in the repository — code, comments, KDoc, commit messages, documentation — is in
-English. See `CLAUDE.md` § Language policy.
+English. See `.claude/CLAUDE.md` § Language policy.
 
 ## Reporting issues
 

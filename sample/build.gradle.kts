@@ -35,7 +35,8 @@ android {
     }
 }
 
-// The sample exists to prove the published artifacts actually resolve and work — see CLAUDE.md § 6.
+// The sample exists to prove the published artifacts actually resolve and work — see
+// .claude/CLAUDE.md § 6.
 //
 // Two modes:
 //   * default — project dependencies, so `./gradlew build` works on a fresh clone with nothing

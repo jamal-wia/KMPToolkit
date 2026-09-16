@@ -64,14 +64,18 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-downloader` | Resumable background-download engine | [`kmptoolkit-downloader/`](kmptoolkit-downloader/01-overview.md) |
 | `kmptoolkit-language` | App language selection, a supported-language catalog, and the platform-locale side effect | [`kmptoolkit-language/`](kmptoolkit-language/01-overview.md) |
 | `kmptoolkit-language-compose` | Compose wiring for `kmptoolkit-language` | [`kmptoolkit-language-compose/`](kmptoolkit-language-compose/01-overview.md) |
+| `kmptoolkit-hijri` | Umm al-Qura (Hijri) date conversion | [`kmptoolkit-hijri/`](kmptoolkit-hijri/01-overview.md) |
 
 Most of these also publish a `-testing` companion artifact holding their test double, documented in
-the same folder's `06-testing.md` rather than a folder of their own. `kmptoolkit-logging`,
-`kmptoolkit-logging-overlay`, `kmptoolkit-language`, `kmptoolkit-language-compose` and
-`kmptoolkit-hardware-keys` do not, whose
-seams are already interfaces a test implements directly — see each module's own `04-api-reference.md`
-for the four-line fake. `kmptoolkit-systembars` publishes doubles for both of its controllers — see
-its `06-testing.md`.
+the same folder's `06-testing.md` rather than a folder of their own. `kmptoolkit-activity`,
+`kmptoolkit-logging`, `kmptoolkit-logging-overlay`, `kmptoolkit-language`,
+`kmptoolkit-language-compose` and `kmptoolkit-hardware-keys` do not: their seams are already
+interfaces a test implements directly — see each module's own `04-api-reference.md` for the
+four-line fake. Two more ship no double for a reason of their own — `kmptoolkit-uploader-sqldelight`,
+whose fixtures are storage-agnostic and already live in `kmptoolkit-uploader-testing`, and
+`kmptoolkit-hijri`, where `toHijriDate` is a pure function with no seam to fake: call it in your
+test and assert the date. `kmptoolkit-systembars` publishes doubles for both of its controllers —
+see its `06-testing.md`.
 
 The rest of the suite is on the roadmap — see the root [`README.md`](../README.md) module table and
 [`CHANGELOG.md`](../CHANGELOG.md).

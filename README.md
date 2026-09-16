@@ -2,8 +2,8 @@
 
 # KMPToolkit
 
-A collection of small, independent Kotlin Multiplatform libraries (Android + iOS) — coroutines
-dispatcher seams, haptics, audio record/playback, local scheduling, secure key-value storage,
+A collection of small, independent Kotlin Multiplatform libraries (Android + iOS) — haptics,
+audio record/playback, local scheduling, secure key-value storage,
 permissions, notifications, raw accelerometer readings, and a database-agnostic transactional
 uploader. Each module is published as its own artifact — take only what you need — and the whole
 suite is released together on a single version, so two KMPToolkit artifacts on one classpath can
@@ -64,6 +64,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-accelerometer-testing` | `ScriptedAccelerometer` double, for `testImplementation` | `accelerometer` | Available | [docs](docs/kmptoolkit-accelerometer/06-testing.md) |
 | `kmptoolkit-language` | App language selection (`AppLanguageHolder`), a supported-language catalog you populate, and the platform-locale side effect — including the Android `Application` wiring that keeps a chosen language from reverting. Also publishes `jvm`, for code shared with desktop | — | Available | [docs](docs/kmptoolkit-language/01-overview.md) |
 | `kmptoolkit-language-compose` | Compose wiring (`AppLocale`, `mirrorOnRtl`/`mirrorOnLtr`) for `kmptoolkit-language`. Also publishes `jvm` | `language` | Available | [docs](docs/kmptoolkit-language-compose/01-overview.md) |
+| `kmptoolkit-hijri` | Umm al-Qura date conversion: `LocalDate.toHijriDate()`. Also publishes `jvm` | — | Available | [docs](docs/kmptoolkit-hijri/01-overview.md) |
 
 See [`docs/README.md`](docs/README.md) for the full documentation index and the recommended reading
 order.

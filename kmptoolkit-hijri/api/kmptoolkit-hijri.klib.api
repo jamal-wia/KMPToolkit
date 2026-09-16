@@ -1,0 +1,28 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-hijri>
+final class io.github.jamal_wia.kmptoolkit.hijri/HijriDate { // io.github.jamal_wia.kmptoolkit.hijri/HijriDate|null[0]
+    constructor <init>(kotlin/Int, kotlin/Int, kotlin/Int) // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.<init>|<init>(kotlin.Int;kotlin.Int;kotlin.Int){}[0]
+
+    final val dayOfMonth // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.dayOfMonth|{}dayOfMonth[0]
+        final fun <get-dayOfMonth>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.dayOfMonth.<get-dayOfMonth>|<get-dayOfMonth>(){}[0]
+    final val month // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.month|{}month[0]
+        final fun <get-month>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.month.<get-month>|<get-month>(){}[0]
+    final val year // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.year|{}year[0]
+        final fun <get-year>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.year.<get-year>|<get-year>(){}[0]
+
+    final fun component1(): kotlin/Int // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.component1|component1(){}[0]
+    final fun component2(): kotlin/Int // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.component2|component2(){}[0]
+    final fun component3(): kotlin/Int // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.component3|component3(){}[0]
+    final fun copy(kotlin/Int = ..., kotlin/Int = ..., kotlin/Int = ...): io.github.jamal_wia.kmptoolkit.hijri/HijriDate // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.copy|copy(kotlin.Int;kotlin.Int;kotlin.Int){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.hijri/HijriDate.toString|toString(){}[0]
+}
+
+final fun (kotlinx.datetime/LocalDate).io.github.jamal_wia.kmptoolkit.hijri/toHijriDate(): io.github.jamal_wia.kmptoolkit.hijri/HijriDate // io.github.jamal_wia.kmptoolkit.hijri/toHijriDate|toHijriDate@kotlinx.datetime.LocalDate(){}[0]

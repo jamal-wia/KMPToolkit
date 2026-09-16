@@ -64,6 +64,7 @@ include(":kmptoolkit-downloader")
 include(":kmptoolkit-downloader-testing")
 include(":kmptoolkit-language")
 include(":kmptoolkit-language-compose")
+include(":kmptoolkit-hijri")
 
 include(":kmptoolkit-bom")
 
