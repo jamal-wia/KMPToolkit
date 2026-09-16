@@ -24,6 +24,10 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
 
+    // The jvm half is real, not a stub: the JDK ships the same Umm al-Qura tables as
+    // `java.time.chrono.HijrahDate`, so code shared with desktop converts dates there too.
+    jvm()
+
     sourceSets {
         commonMain.dependencies {
             // The one dependency, and it is the API: a calendar library that cannot take a date

@@ -38,6 +38,17 @@ Umm al-Qura calendar explicitly, so the answer is the same regardless of what th
 That is what makes the two platforms agree; if you want to follow the device setting instead, that
 is a different function and it belongs in your app.
 
+## Desktop (jvm)
+
+Backed by `java.time.chrono.HijrahDate`, part of the JDK.
+
+**Nothing to pin here.** The JDK ships exactly one Hijrah variant and it is `Hijrah-umalqura` — the
+same published tables the other two platforms read. Where the Android half has to name its
+calculation type explicitly, this one has no choice to get wrong.
+
+**No time zone is involved at all.** `HijrahDate.from(LocalDate)` converts a date to a date. That is
+what the other two platforms go to the trouble of reading in UTC to achieve.
+
 ## Both
 
 **The conversion is read in UTC.** The input is a date with no hour, and the calendar is asked in a

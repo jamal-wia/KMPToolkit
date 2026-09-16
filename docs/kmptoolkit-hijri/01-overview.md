@@ -8,7 +8,7 @@ val hijri: HijriDate = today.toHijriDate()   // HijriDate(year = 1448, month = 4
 ```
 
 That call site is the whole point. It does not know that Android answers through ICU's
-`IslamicCalendar` and iOS through `NSCalendar`, that one of them counts months from zero and the
+`IslamicCalendar`, iOS through `NSCalendar` and desktop through the JDK's `HijrahDate`, that one of them counts months from zero and the
 other from one, or that leaving the calendar to be resolved from the locale makes the date change
 under the reader on an OS upgrade.
 

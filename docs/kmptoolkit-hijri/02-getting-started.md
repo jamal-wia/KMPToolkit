@@ -21,6 +21,8 @@ commonMain.dependencies {
 }
 ```
 
+Android, iOS and `jvm` — so a screen shared with a desktop build compiles too.
+
 It brings `kotlinx-datetime` with it, as an `api` dependency — the conversion takes a `LocalDate`,
 so you get the type without declaring it twice.
 

@@ -18,7 +18,11 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   calculation type pinned to `ISLAMIC_UMALQURA` rather than left to the locale; iOS goes through
   `NSCalendar(NSCalendarIdentifierIslamicUmmAlQura)` rather than `Calendar.current`, so the
   answer does not follow the device's calendar setting. Both read in UTC, which is what keeps
-  the conversion date-to-date. No test double is published — the function is pure.
+  the conversion date-to-date. Desktop goes through the JDK's `java.time.chrono.HijrahDate`,
+  which ships as Umm al-Qura and nothing else, so `jvm` is published too and a screen shared
+  with a desktop build compiles. One contract object in `commonTest` is run by all three
+  platform test classes, so the three readings of the tables are checked against each other.
+  No test double is published — the function is pure.
 
 ## [1.5.0] - 2026-09-13
 

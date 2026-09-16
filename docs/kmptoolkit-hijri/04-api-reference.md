@@ -59,6 +59,7 @@ is being pure.
 |---|---|
 | Android | `android.icu.util.IslamicCalendar` with `CalculationType.ISLAMIC_UMALQURA`, read in UTC |
 | iOS | `NSCalendar(NSCalendarIdentifierIslamicUmmAlQura)`, read in UTC |
+| Desktop (jvm) | `java.time.chrono.HijrahDate`, which the JDK ships as Umm al-Qura and nothing else |
 
 See [`05-platform-notes.md`](05-platform-notes.md) for why the calculation type is pinned and why
 the zone is fixed.
