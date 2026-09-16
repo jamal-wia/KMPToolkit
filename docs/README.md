@@ -58,11 +58,13 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates | [`kmptoolkit-location/`](kmptoolkit-location/01-overview.md) |
 | `kmptoolkit-proximity` | Proximity sensor (near/far, event-driven) | [`kmptoolkit-proximity/`](kmptoolkit-proximity/01-overview.md) |
 | `kmptoolkit-downloader` | Resumable background-download engine | [`kmptoolkit-downloader/`](kmptoolkit-downloader/01-overview.md) |
+| `kmptoolkit-hijri` | Umm al-Qura (Hijri) date conversion | [`kmptoolkit-hijri/`](kmptoolkit-hijri/01-overview.md) |
 
 Most of these also publish a `-testing` companion artifact holding their test double, documented in
-the same folder's `06-testing.md` rather than a folder of their own. Three do not:
+the same folder's `06-testing.md` rather than a folder of their own. Four do not:
 `kmptoolkit-logging`, `kmptoolkit-logging-overlay` and `kmptoolkit-systembars`, whose seams are
-already interfaces a test implements directly.
+already interfaces a test implements directly, and `kmptoolkit-hijri`, which is a pure function
+with no seam to fake.
 
 The rest of the suite is on the roadmap — see the root [`README.md`](../README.md) module table and
 [`CHANGELOG.md`](../CHANGELOG.md).

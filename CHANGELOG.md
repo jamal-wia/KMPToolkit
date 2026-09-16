@@ -9,6 +9,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Added
+
+- `kmptoolkit-hijri` — `HijriDate` and `LocalDate.toHijriDate()`, converting a civil date to the
+  Umm al-Qura calendar. Android goes through `android.icu.util.IslamicCalendar` with the
+  calculation type pinned to `ISLAMIC_UMALQURA` rather than left to the locale; iOS goes through
+  `NSCalendar(NSCalendarIdentifierIslamicUmmAlQura)` rather than `Calendar.current`, so the
+  answer does not follow the device's calendar setting. Both read in UTC, which is what keeps
+  the conversion date-to-date. No test double is published — the function is pure.
+
 ## [1.0.1] - 2026-08-29
 
 ### Removed

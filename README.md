@@ -59,6 +59,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow`, m/s² on both platforms | — | Available | [docs](docs/kmptoolkit-accelerometer/01-overview.md) |
 | `kmptoolkit-accelerometer-testing` | `ScriptedAccelerometer` double, for `testImplementation` | `accelerometer` | Available | [docs](docs/kmptoolkit-accelerometer/06-testing.md) |
+| `kmptoolkit-hijri` | Umm al-Qura date conversion: `LocalDate.toHijriDate()` | — | Available | [docs](docs/kmptoolkit-hijri/01-overview.md) |
 
 See [`docs/README.md`](docs/README.md) for the full documentation index and the recommended reading
 order.

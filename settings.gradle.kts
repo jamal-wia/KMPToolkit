@@ -65,6 +65,7 @@ include(":kmptoolkit-proximity")
 include(":kmptoolkit-proximity-testing")
 include(":kmptoolkit-downloader")
 include(":kmptoolkit-downloader-testing")
+include(":kmptoolkit-hijri")
 
 include(":kmptoolkit-bom")
 
