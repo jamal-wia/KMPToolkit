@@ -33,10 +33,23 @@ abstract interface io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsContro
         abstract fun <get-preferredStatusBarStyle>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.preferredStatusBarStyle.<get-preferredStatusBarStyle>|<get-preferredStatusBarStyle>(){}[0]
     abstract val prefersStatusBarHidden // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersStatusBarHidden|{}prefersStatusBarHidden[0]
         abstract fun <get-prefersStatusBarHidden>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersStatusBarHidden.<get-prefersStatusBarHidden>|<get-prefersStatusBarHidden>(){}[0]
+    open val prefersHomeIndicatorAutoHidden // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersHomeIndicatorAutoHidden|{}prefersHomeIndicatorAutoHidden[0]
+        open fun <get-prefersHomeIndicatorAutoHidden>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.prefersHomeIndicatorAutoHidden.<get-prefersHomeIndicatorAutoHidden>|<get-prefersHomeIndicatorAutoHidden>(){}[0]
 
     abstract var hostViewController // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.hostViewController|{}hostViewController[0]
         abstract fun <get-hostViewController>(): platform.UIKit/UIViewController? // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.hostViewController.<get-hostViewController>|<get-hostViewController>(){}[0]
         abstract fun <set-hostViewController>(platform.UIKit/UIViewController?) // io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController.hostViewController.<set-hostViewController>|<set-hostViewController>(platform.UIKit.UIViewController?){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.systembars/ScreenWakeLockController { // io.github.jamal_wia.kmptoolkit.systembars/ScreenWakeLockController|null[0]
+    abstract fun setKeepScreenOn(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.systembars/ScreenWakeLockController.setKeepScreenOn|setKeepScreenOn(kotlin.Boolean){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.systembars/StatusBarLuminanceProbe { // io.github.jamal_wia.kmptoolkit.systembars/StatusBarLuminanceProbe|null[0]
+    abstract val triggers // io.github.jamal_wia.kmptoolkit.systembars/StatusBarLuminanceProbe.triggers|{}triggers[0]
+        abstract fun <get-triggers>(): kotlinx.coroutines.flow/SharedFlow<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.systembars/StatusBarLuminanceProbe.triggers.<get-triggers>|<get-triggers>(){}[0]
+
+    abstract fun triggerRecalculation() // io.github.jamal_wia.kmptoolkit.systembars/StatusBarLuminanceProbe.triggerRecalculation|triggerRecalculation(){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController { // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController|null[0]
@@ -138,13 +151,20 @@ final class io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility { // 
     }
 }
 
+final const val io.github.jamal_wia.kmptoolkit.systembars/DEFAULT_SAMPLE_INTERVAL_MS // io.github.jamal_wia.kmptoolkit.systembars/DEFAULT_SAMPLE_INTERVAL_MS|{}DEFAULT_SAMPLE_INTERVAL_MS[0]
+    final fun <get-DEFAULT_SAMPLE_INTERVAL_MS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.systembars/DEFAULT_SAMPLE_INTERVAL_MS.<get-DEFAULT_SAMPLE_INTERVAL_MS>|<get-DEFAULT_SAMPLE_INTERVAL_MS>(){}[0]
+
 final val io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop|#static{}io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop[0]
 final val io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop|#static{}io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop[0]
 final val io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsVisibility$stableprop // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsVisibility$stableprop|#static{}io_github_jamal_wia_kmptoolkit_systembars_SystemBarsVisibility$stableprop[0]
 
+final fun io.github.jamal_wia.kmptoolkit.systembars/AutoSystemBarsIconStyle(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController, io.github.jamal_wia.kmptoolkit.systembars/StatusBarLuminanceProbe, kotlin/Boolean, kotlin/Long, kotlin/Function1<kotlin/Long, kotlin/Unit>?, kotlin/Function2<androidx.compose.runtime/Composer, kotlin/Int, kotlin/Unit>, androidx.compose.runtime/Composer?, kotlin/Int, kotlin/Int) // io.github.jamal_wia.kmptoolkit.systembars/AutoSystemBarsIconStyle|AutoSystemBarsIconStyle(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsController;io.github.jamal_wia.kmptoolkit.systembars.StatusBarLuminanceProbe;kotlin.Boolean;kotlin.Long;kotlin.Function1<kotlin.Long,kotlin.Unit>?;kotlin.Function2<androidx.compose.runtime.Composer,kotlin.Int,kotlin.Unit>;androidx.compose.runtime.Composer?;kotlin.Int;kotlin.Int){}[0]
 final fun io.github.jamal_wia.kmptoolkit.systembars/DialogWindowSystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController, androidx.compose.runtime/Composer?, kotlin/Int) // io.github.jamal_wia.kmptoolkit.systembars/DialogWindowSystemBarsEffect|DialogWindowSystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsController;androidx.compose.runtime.Composer?;kotlin.Int){}[0]
 final fun io.github.jamal_wia.kmptoolkit.systembars/SystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController, io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle?, io.github.jamal_wia.kmptoolkit.systembars/SystemBarIconStyle?, io.github.jamal_wia.kmptoolkit.systembars/SystemBarsVisibility?, androidx.compose.runtime/Composer?, kotlin/Int, kotlin/Int) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsEffect|SystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsController;io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle?;io.github.jamal_wia.kmptoolkit.systembars.SystemBarIconStyle?;io.github.jamal_wia.kmptoolkit.systembars.SystemBarsVisibility?;androidx.compose.runtime.Composer?;kotlin.Int;kotlin.Int){}[0]
 final fun io.github.jamal_wia.kmptoolkit.systembars/SystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController, io.github.jamal_wia.kmptoolkit.systembars/SystemBarsOverride, androidx.compose.runtime/Composer?, kotlin/Int) // io.github.jamal_wia.kmptoolkit.systembars/SystemBarsEffect|SystemBarsEffect(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsController;io.github.jamal_wia.kmptoolkit.systembars.SystemBarsOverride;androidx.compose.runtime.Composer?;kotlin.Int){}[0]
+final fun io.github.jamal_wia.kmptoolkit.systembars/createHeadlessSystemBarsController(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig = ...): io.github.jamal_wia.kmptoolkit.systembars/SystemBarsController // io.github.jamal_wia.kmptoolkit.systembars/createHeadlessSystemBarsController|createHeadlessSystemBarsController(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig){}[0]
+final fun io.github.jamal_wia.kmptoolkit.systembars/createScreenWakeLockController(): io.github.jamal_wia.kmptoolkit.systembars/ScreenWakeLockController // io.github.jamal_wia.kmptoolkit.systembars/createScreenWakeLockController|createScreenWakeLockController(){}[0]
+final fun io.github.jamal_wia.kmptoolkit.systembars/createStatusBarLuminanceProbe(): io.github.jamal_wia.kmptoolkit.systembars/StatusBarLuminanceProbe // io.github.jamal_wia.kmptoolkit.systembars/createStatusBarLuminanceProbe|createStatusBarLuminanceProbe(){}[0]
 final fun io.github.jamal_wia.kmptoolkit.systembars/createSystemBarsController(io.github.jamal_wia.kmptoolkit.systembars/SystemBarsConfig = ...): io.github.jamal_wia.kmptoolkit.systembars/IosSystemBarsController // io.github.jamal_wia.kmptoolkit.systembars/createSystemBarsController|createSystemBarsController(io.github.jamal_wia.kmptoolkit.systembars.SystemBarsConfig){}[0]
 final fun io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop_getter(): kotlin/Int // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop_getter|io_github_jamal_wia_kmptoolkit_systembars_SystemBarsConfig$stableprop_getter(){}[0]
 final fun io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop_getter(): kotlin/Int // io.github.jamal_wia.kmptoolkit.systembars/io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop_getter|io_github_jamal_wia_kmptoolkit_systembars_SystemBarsOverride$stableprop_getter(){}[0]

@@ -75,10 +75,12 @@ prove it does not crash or wedge if it is wrong.
   never races your test's collection. If your test genuinely needs to prove registration/release
   timing, that is a property of the real Android implementation, not of this fixture, and belongs in
   an `androidUnitTest` with Robolectric instead.
-- **It does not hang on an absent sensor.** Collecting the real `observe()` on a device with no
-  sensor never emits and never completes — correct, but unusable in a test that wants to assert
-  "nothing came through" with something like `toList()`. `FakeProximitySensor.observe()` returns an
-  already-completed empty `Flow` instead when `isAvailable` is `false`, so that assertion terminates.
+- **It does not hang on an absent sensor.** Collecting the real `observe()` on an Android device
+  with no sensor never emits and never completes — correct, but unusable in a test that wants to
+  assert "nothing came through" with something like `toList()`. `FakeProximitySensor.observe()`
+  returns an already-completed empty `Flow` instead when `isAvailable` is `false`, so that assertion
+  terminates. That is also exactly what the real iOS implementation does — see
+  [`05-platform-notes.md`](05-platform-notes.md#ios).
 - **It does not apply `ProximityRule` for you.** There is no raw-distance input to a fixture that
   only ever deals in the already-folded boolean — `ProximityRule.isNear` is pure and takes no
   fake at all; call it directly in a test if you are exercising it.
@@ -92,11 +94,10 @@ Useful as a model, and as an answer to "is the Android sensor mapping actually v
 | Suite | Where | What it pins |
 |---|---|---|
 | `ProximityRuleTest` | `kmptoolkit-proximity/commonTest` (JVM + iOS) | The one subtle branch: comparing against the smaller of `NEAR_CM` and the sensor's own maximum |
-| `AndroidProximitySensorTest` | `kmptoolkit-proximity/androidUnitTest`, Robolectric | `isAvailable`, including a zero-range sensor counting as absent |
+| `AndroidProximitySensorTest` | `kmptoolkit-proximity/androidUnitTest`, Robolectric | `isAvailable`, including a zero-range sensor counting as absent; that a collection holds a listener exactly as long as it runs; that raw `SensorEvent` distances reach the collector as near/far through `ProximityRule`, once per change; and that no usable sensor means no listener and a silent, open flow |
 | `IosProximitySensorTest` | `kmptoolkit-proximity/iosTest` | The documented always-absent contract |
 | `FakeProximitySensorTest` | `kmptoolkit-proximity-testing/commonTest` | The fixture's own contract — replay, availability gating, `emitCount` |
 
-The `SensorEventListener` registration and event-mapping wiring itself is not separately simulated
-under Robolectric — the registration is thin plumbing, while the translation logic it drives
-(`ProximityRule`) is pinned directly. What that wiring does with a `SensorEvent` is exactly
-`ProximityRule.isNear`, already covered without any Android dependency at all.
+The threshold itself is pinned by `ProximityRuleTest` without any Android dependency; the Robolectric
+suite only checks that events actually pass through it, and that registration and release follow the
+collection.

@@ -23,9 +23,25 @@ public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricAvailabilit
 	public static final fun isTransient (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;)Z
 }
 
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricEnrollmentLaunch : java/lang/Enum {
+	public static final field LAUNCHED Lio/github/jamal_wia/kmptoolkit/biometric/BiometricEnrollmentLaunch;
+	public static final field THROTTLED Lio/github/jamal_wia/kmptoolkit/biometric/BiometricEnrollmentLaunch;
+	public static final field UNAVAILABLE Lio/github/jamal_wia/kmptoolkit/biometric/BiometricEnrollmentLaunch;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricEnrollmentLaunch;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/biometric/BiometricEnrollmentLaunch;
+}
+
 public abstract interface class io/github/jamal_wia/kmptoolkit/biometric/BiometricGate {
 	public abstract fun authenticate (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPromptText;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun authenticate (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPromptText;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun availability (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun launchEnrollment (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGate$DefaultImpls {
+	public static fun authenticate (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricPromptText;ZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static fun launchEnrollment (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig {
@@ -43,8 +59,20 @@ public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig 
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions {
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricStrength;ZJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricStrength;ZJLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEnrollmentThrottle-UwyO8pc ()J
+	public final fun getSingleAttempt ()Z
+	public final fun getStrength ()Lio/github/jamal_wia/kmptoolkit/biometric/BiometricStrength;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGate_androidKt {
 	public static final fun createBiometricGate (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
+	public static final fun createBiometricGate (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
 	public static synthetic fun createBiometricGate$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
 }
 
@@ -124,6 +152,14 @@ public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricResult$Unav
 	public final fun getReason ()Lio/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricStrength : java/lang/Enum {
+	public static final field STRONG Lio/github/jamal_wia/kmptoolkit/biometric/BiometricStrength;
+	public static final field WEAK Lio/github/jamal_wia/kmptoolkit/biometric/BiometricStrength;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricStrength;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/biometric/BiometricStrength;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricUnavailability : java/lang/Enum {

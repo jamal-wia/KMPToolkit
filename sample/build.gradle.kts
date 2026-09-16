@@ -37,16 +37,17 @@ android {
 
 // The sample exists to prove the published artifacts actually resolve and work — see CLAUDE.md § 6.
 //
-// Two modes, because one alone is not enough:
+// Two modes:
 //   * default — project dependencies, so `./gradlew build` works on a fresh clone with nothing
 //     published anywhere;
-//   * `-PuseMavenLocal` — resolves the same modules by Maven coordinates through the BOM, which is
-//     the only way to catch a broken POM, a missing variant, or a publication that omits a target.
-//     Run `./gradlew publishToMavenLocal` first.
-val useMavenLocal: Boolean = providers.gradleProperty("useMavenLocal").isPresent
+//   * `-PusePublishedArtifacts` — resolves the real thing from Maven Central through the BOM, AFTER a
+//     release, to confirm that what consumers get is what was meant. Resolving by coordinate is the
+//     only way to catch a broken POM, a missing variant, or a publication that omits a target — a
+//     unit test cannot see any of those.
+val usePublishedArtifacts: Boolean = providers.gradleProperty("usePublishedArtifacts").isPresent
 
 dependencies {
-    if (useMavenLocal) {
+    if (usePublishedArtifacts) {
         implementation(platform("io.github.jamal-wia:kmptoolkit-bom:${providers.gradleProperty("kmptoolkit.version").get()}"))
         implementation("io.github.jamal-wia:kmptoolkit-logging")
         implementation("io.github.jamal-wia:kmptoolkit-storage")

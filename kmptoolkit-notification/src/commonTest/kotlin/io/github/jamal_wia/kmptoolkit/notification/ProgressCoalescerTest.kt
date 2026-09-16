@@ -278,4 +278,38 @@ class ProgressCoalescerTest {
 
         assertEquals(11, posts)
     }
+
+    // --- content ---------------------------------------------------------------------------
+
+    @Test
+    fun `a frame whose content changed posts even inside the same bucket`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.shouldPost("a", NotificationProgress.Determinate(40), content = "Downloading page 1")
+
+        assertTrue(coalescer.shouldPost("a", NotificationProgress.Determinate(41), content = "Downloading page 2"))
+    }
+
+    @Test
+    fun `a frame whose content changed is still held to the rate limit`() {
+        // A body carrying the percentage changes on every step; bypassing the rate as well as the
+        // bucket for it would switch coalescing off for the notifications that need it most.
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        coalescer.shouldPost("a", NotificationProgress.Determinate(40), content = "40%")
+        time += 100.milliseconds
+
+        assertFalse(coalescer.shouldPost("a", NotificationProgress.Determinate(41), content = "41%"))
+
+        time += 400.milliseconds
+        assertTrue(coalescer.shouldPost("a", NotificationProgress.Determinate(42), content = "42%"))
+    }
+
+    @Test
+    fun `a frame with unchanged content inside the same bucket is still suppressed`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.shouldPost("a", NotificationProgress.Determinate(40), content = "Downloading")
+
+        assertFalse(coalescer.shouldPost("a", NotificationProgress.Determinate(41), content = "Downloading"))
+        assertTrue(coalescer.wouldSuppress("a", NotificationProgress.Determinate(42), content = "Downloading"))
+        assertFalse(coalescer.wouldSuppress("a", NotificationProgress.Determinate(42), content = "Paused"))
+    }
 }

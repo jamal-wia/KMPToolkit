@@ -203,6 +203,26 @@ class AndroidAlarmSchedulerTest {
         assertEquals(10_000L, next.triggerAtTime)
     }
 
+    @Config(sdk = [34], shadows = [AlarmLimitShadowAlarmManager::class])
+    @Test
+    fun `an alarm manager refusing the alarm is reported as a platform error, not thrown`() = runTest {
+        ShadowAlarmManager.setCanScheduleExactAlarms(true)
+
+        val result: AlarmScheduleResult = scheduler().schedule(alarm("a", 10_000L))
+
+        assertEquals(AlarmScheduleResult.Failed(AlarmFailure.PlatformError(ALARM_LIMIT_MESSAGE)), result)
+    }
+
+    @Config(sdk = [34], shadows = [AlarmLimitShadowAlarmManager::class])
+    @Test
+    fun `a refusal on the inexact path is reported as a platform error too`() = runTest {
+        ShadowAlarmManager.setCanScheduleExactAlarms(false)
+
+        val result: AlarmScheduleResult = scheduler().schedule(alarm("a", 10_000L))
+
+        assertEquals(AlarmScheduleResult.Failed(AlarmFailure.PlatformError(ALARM_LIMIT_MESSAGE)), result)
+    }
+
     @Test
     fun `the alarm intent scheme defaults to the application id`() = runTest {
         scheduler().schedule(alarm("a", 10_000L))
@@ -237,7 +257,23 @@ class AndroidAlarmSchedulerTest {
         }
     }
 
+    /** Rejects every set call the way Android 12+ does once an app holds 500 alarms. */
+    @Implements(AlarmManager::class)
+    class AlarmLimitShadowAlarmManager : ShadowAlarmManager() {
+
+        @Implementation
+        public override fun setExactAndAllowWhileIdle(type: Int, triggerAtTime: Long, operation: PendingIntent?) {
+            throw IllegalStateException(ALARM_LIMIT_MESSAGE)
+        }
+
+        @Implementation
+        public override fun setAndAllowWhileIdle(type: Int, triggerAtTime: Long, operation: PendingIntent?) {
+            throw IllegalStateException(ALARM_LIMIT_MESSAGE)
+        }
+    }
+
     private companion object {
         const val WINDOW_EXACT = 0L
+        const val ALARM_LIMIT_MESSAGE = "Maximum limit of concurrent alarms 500 reached"
     }
 }

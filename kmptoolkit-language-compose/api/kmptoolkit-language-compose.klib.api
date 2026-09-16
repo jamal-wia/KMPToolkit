@@ -1,0 +1,11 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-language-compose>
+final fun (androidx.compose.ui/Modifier).io.github.jamal_wia.kmptoolkit.language.compose/mirrorOnLtr(androidx.compose.runtime/Composer?, kotlin/Int): androidx.compose.ui/Modifier // io.github.jamal_wia.kmptoolkit.language.compose/mirrorOnLtr|mirrorOnLtr@androidx.compose.ui.Modifier(androidx.compose.runtime.Composer?;kotlin.Int){}[0]
+final fun (androidx.compose.ui/Modifier).io.github.jamal_wia.kmptoolkit.language.compose/mirrorOnRtl(androidx.compose.runtime/Composer?, kotlin/Int): androidx.compose.ui/Modifier // io.github.jamal_wia.kmptoolkit.language.compose/mirrorOnRtl|mirrorOnRtl@androidx.compose.ui.Modifier(androidx.compose.runtime.Composer?;kotlin.Int){}[0]
+final fun io.github.jamal_wia.kmptoolkit.language.compose/AppLocale(io.github.jamal_wia.kmptoolkit.language/AppLanguage, io.github.jamal_wia.kmptoolkit.language/AppLanguage, kotlin/Function2<androidx.compose.runtime/Composer, kotlin/Int, kotlin/Unit>, androidx.compose.runtime/Composer?, kotlin/Int) // io.github.jamal_wia.kmptoolkit.language.compose/AppLocale|AppLocale(io.github.jamal_wia.kmptoolkit.language.AppLanguage;io.github.jamal_wia.kmptoolkit.language.AppLanguage;kotlin.Function2<androidx.compose.runtime.Composer,kotlin.Int,kotlin.Unit>;androidx.compose.runtime.Composer?;kotlin.Int){}[0]

@@ -4,7 +4,7 @@ package io.github.jamal_wia.kmptoolkit.biometric
  * Asks the operating system to confirm that the person holding the device is the device's owner.
  *
  * This is the only type your shared code should depend on. The concrete instance is built in
- * platform code — `createBiometricGate(activityAccess, config)` on Android,
+ * platform code — `createBiometricGate(context, config)` on Android,
  * `createBiometricGate(config)` on iOS — and handed to common code as this interface, which is
  * what keeps `FragmentActivity` and `LAContext` out of `commonMain` without an `expect`
  * declaration that would have to lie about its parameters.
@@ -60,4 +60,38 @@ public interface BiometricGate {
      *   app do.
      */
     public suspend fun authenticate(prompt: BiometricPromptText): BiometricResult
+
+    /**
+     * [authenticate], with the confirming tap for a passive biometric decided by this call rather than
+     * by [BiometricGateConfig.requireExplicitConfirmation].
+     *
+     * For a flow where the stakes change between calls — confirm the first check of a session, not the
+     * ones after it — without building a second gate. **Android only**; iOS decides confirmation itself.
+     *
+     * The default ignores [requireExplicitConfirmation] and calls [authenticate], so an implementation
+     * written before this member existed keeps its behaviour. A decorator should forward it.
+     *
+     * @since 1.5.0
+     */
+    public suspend fun authenticate(
+        prompt: BiometricPromptText,
+        requireExplicitConfirmation: Boolean,
+    ): BiometricResult = authenticate(prompt)
+
+    /**
+     * Opens the system screen where the user enrols a biometric — or, when one is enrolled already,
+     * manages the enrolled ones, since Android's enrolment wizard closes itself at once for a user who
+     * has one.
+     *
+     * The answer to [BiometricUnavailability.NOT_ENROLLED]: a shortcut to fix it. The app is
+     * backgrounded; nothing reports what the user did there, so read [availability] again when your
+     * screen resumes. Calls closer together than [BiometricGateOptions.enrollmentThrottle] start
+     * nothing the second time.
+     *
+     * The default starts nothing and returns [BiometricEnrollmentLaunch.UNAVAILABLE] — which is also
+     * the iOS answer, as iOS offers no way to open its biometric settings. A decorator should forward it.
+     *
+     * @since 1.5.0
+     */
+    public suspend fun launchEnrollment(): BiometricEnrollmentLaunch = BiometricEnrollmentLaunch.UNAVAILABLE
 }

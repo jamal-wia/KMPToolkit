@@ -1,0 +1,15 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/activity/ActivityAccess {
+	public abstract fun addOnActivityResumedListener (Lkotlin/jvm/functions/Function1;)Lio/github/jamal_wia/kmptoolkit/activity/ActivitySubscription;
+	public abstract fun release ()V
+	public abstract fun withActivity (Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/activity/ActivityAccessKt {
+	public static final fun createActivityAccess (Landroid/app/Application;Lkotlin/jvm/functions/Function1;)Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;
+	public static synthetic fun createActivityAccess$default (Landroid/app/Application;Lkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/activity/ActivitySubscription {
+	public abstract fun cancel ()V
+}
+

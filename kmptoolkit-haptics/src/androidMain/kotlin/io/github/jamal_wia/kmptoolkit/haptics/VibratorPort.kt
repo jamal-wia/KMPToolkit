@@ -46,13 +46,18 @@ internal interface VibratorPort {
  *
  * `minSdk` for this library is 24, so the pre-`VibrationEffect` branch is not dead code.
  *
- * **Every request is attributed as touch feedback.** An unattributed `vibrate()` is classified
- * `USAGE_UNKNOWN`, which the platform treats as an unclassified vibration: it is not scaled by the
- * user's touch-feedback intensity slider, not silenced by the touch-feedback switch, and is
- * filtered differently under Do Not Disturb. Attribution is what makes "the user's settings are
- * respected" true rather than aspirational.
+ * **Attribution is per instance**, see [HapticAttribution]. [HapticAttribution.TOUCH] attributes
+ * every request as touch feedback: an unattributed `vibrate()` is classified `USAGE_UNKNOWN`, which
+ * the platform does not scale by the user's touch-feedback intensity slider, does not silence with
+ * the touch-feedback switch, and filters differently under Do Not Disturb — attribution is what makes
+ * "the user's touch settings are respected" true rather than aspirational.
+ * [HapticAttribution.NONE] is precisely that unattributed call, for vibrations those settings must
+ * not swallow.
  */
-internal class SystemVibratorPort(private val vibrator: Vibrator?) : VibratorPort {
+internal class SystemVibratorPort(
+    private val vibrator: Vibrator?,
+    private val attribution: HapticAttribution = HapticAttribution.TOUCH,
+) : VibratorPort {
 
     // Cheap and immutable, so it is built once. Its API-33+ counterpart cannot be: VibrationAttributes
     // did not exist before then, and hoisting it into a field would need an annotation (and a
@@ -86,7 +91,9 @@ internal class SystemVibratorPort(private val vibrator: Vibrator?) : VibratorPor
                     is AndroidVibration.Waveform ->
                         VibrationEffect.createWaveform(vibration.timings.toLongArray(), NO_REPEAT)
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (attribution == HapticAttribution.NONE) {
+                    target.vibrate(effect)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     val attributes: VibrationAttributes = VibrationAttributes.Builder()
                         .setUsage(VibrationAttributes.USAGE_TOUCH)
                         .build()
@@ -95,12 +102,16 @@ internal class SystemVibratorPort(private val vibrator: Vibrator?) : VibratorPor
                     target.vibrate(effect, audioAttributes)
                 }
             } else {
+                // Only the attributed overloads take AudioAttributes; NONE passes null, which is
+                // what the unattributed overloads forward internally.
+                val legacyAttributes: AudioAttributes? =
+                    if (attribution == HapticAttribution.NONE) null else audioAttributes
                 @Suppress("DEPRECATION")
                 when (vibration) {
                     is AndroidVibration.OneShot ->
-                        target.vibrate(vibration.durationMs, audioAttributes)
+                        target.vibrate(vibration.durationMs, legacyAttributes)
                     is AndroidVibration.Waveform ->
-                        target.vibrate(vibration.timings.toLongArray(), NO_REPEAT, audioAttributes)
+                        target.vibrate(vibration.timings.toLongArray(), NO_REPEAT, legacyAttributes)
                 }
             }
             HapticResult.PERFORMED

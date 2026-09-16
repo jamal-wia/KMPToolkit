@@ -25,7 +25,10 @@ starts asking for a fifth fails the build here rather than arriving silently in 
 
 Notably **absent**, and asserted absent:
 
-- `INTERNET` — the engine never opens a socket; your handlers do, through your own HTTP client.
+- `INTERNET` — the engine itself never opens a socket. `UploaderUploadWorker` does, but only if you
+  opt in by calling `createWorkManagerUploadTransport` — and even then this module declares nothing:
+  `INTERNET` is a normal permission every networked app already carries in its own manifest, the
+  same as a handler making its own HTTP calls always required.
 - Every dangerous permission (camera, microphone, storage, contacts, location, notifications).
 - `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` — the backoff alarm is a coroutine `delay`, not an
   `AlarmManager` alarm. If you need real exact-time scheduling, that is
@@ -136,6 +139,15 @@ it does not replace that.
 
 `requiresExternalPower` defaults to `false` deliberately: requiring power makes an already
 opportunistic wake considerably rarer.
+
+## iOS — background uploads
+
+`createBackgroundUploadTransport` needs one thing from your app, and without it an upload that finishes
+while the app is dead waits for its lease and is sent again: forward
+`application(_:handleEventsForBackgroundURLSession:completionHandler:)` to
+`BackgroundUploadRelaunch.shared.handleEvents`. See
+[`08-upload-transport.md`](08-upload-transport.md#the-relaunch-hook--required). Background sessions
+need no `Info.plist` entry and no background mode.
 
 ## Both platforms
 

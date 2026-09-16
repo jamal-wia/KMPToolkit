@@ -117,7 +117,9 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/scheduler/AlarmSo
 
 public final class io/github/jamal_wia/kmptoolkit/scheduler/AndroidAlarmSchedulerKt {
 	public static final fun createAlarmScheduler (Landroid/content/Context;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/scheduler/AlarmSchedulerConfig;)Lio/github/jamal_wia/kmptoolkit/scheduler/AlarmScheduler;
+	public static final fun createAlarmScheduler (Landroid/content/Context;Lkotlin/jvm/functions/Function0;Lio/github/jamal_wia/kmptoolkit/scheduler/AlarmSchedulerConfig;)Lio/github/jamal_wia/kmptoolkit/scheduler/AlarmScheduler;
 	public static synthetic fun createAlarmScheduler$default (Landroid/content/Context;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/scheduler/AlarmSchedulerConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/scheduler/AlarmScheduler;
+	public static synthetic fun createAlarmScheduler$default (Landroid/content/Context;Lkotlin/jvm/functions/Function0;Lio/github/jamal_wia/kmptoolkit/scheduler/AlarmSchedulerConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/scheduler/AlarmScheduler;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/scheduler/InexactReason : java/lang/Enum {

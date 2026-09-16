@@ -18,10 +18,13 @@ import platform.CoreLocation.CLLocationManager
 import platform.CoreLocation.CLLocationManagerDelegateProtocol
 import platform.CoreLocation.kCLLocationAccuracyHundredMeters
 import platform.Foundation.NSError
+import platform.Foundation.NSThread
 import platform.Foundation.NSURL
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationOpenSettingsURLString
 import platform.darwin.NSObject
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
 
 /**
  * Creates the iOS [LocationProvider], on top of `CLLocationManager`.
@@ -34,6 +37,11 @@ import platform.darwin.NSObject
  *
  * The `CLLocationManager` and its delegate are retained for the duration of a request — otherwise
  * CoreLocation silently drops the callbacks.
+ *
+ * Every manager is created and started on the **main queue**: CoreLocation delivers its delegate
+ * callbacks on the run loop of the thread that created the manager, and a caller reaching this from
+ * `Dispatchers.Default` — a Kotlin/Native worker with no run loop — would otherwise see the fix and
+ * the failure alike simply never arrive, suspending forever rather than timing out or erroring.
  *
  * @param config tuning for update throttling and the single-fix timeout; see
  *   [LocationProviderConfig]. `minUpdateIntervalMillis` is ignored on iOS — CoreLocation has no
@@ -53,9 +61,6 @@ private class IosLocationProvider(
     override suspend fun getCurrentLocation(): GeoCoordinates? =
         withTimeoutOrNull(config.singleFixTimeoutMillis) {
             suspendCancellableCoroutine { continuation ->
-                val manager: CLLocationManager = CLLocationManager().apply {
-                    desiredAccuracy = kCLLocationAccuracyHundredMeters
-                }
                 val delegate = SingleShotDelegate(
                     onLocation = { coordinates: GeoCoordinates? ->
                         if (continuation.isActive) continuation.resume(coordinates)
@@ -65,24 +70,28 @@ private class IosLocationProvider(
                         if (continuation.isActive) continuation.resume(null)
                     },
                 )
-                manager.delegate = delegate
-                // Hold a strong reference until the callback fires.
-                delegate.manager = manager
-                manager.requestLocation()
+
+                dispatch_async(dispatch_get_main_queue()) {
+                    val manager: CLLocationManager = CLLocationManager().apply {
+                        desiredAccuracy = kCLLocationAccuracyHundredMeters
+                        this.delegate = delegate
+                    }
+                    // Hold a strong reference until the callback fires.
+                    delegate.manager = manager
+                    manager.requestLocation()
+                }
 
                 continuation.invokeOnCancellation {
-                    manager.stopUpdatingLocation()
-                    manager.delegate = null
-                    delegate.manager = null
+                    dispatch_async(dispatch_get_main_queue()) {
+                        delegate.manager?.stopUpdatingLocation()
+                        delegate.manager?.delegate = null
+                        delegate.manager = null
+                    }
                 }
             }
         }
 
     override fun observeLocation(): Flow<GeoCoordinates?> = callbackFlow {
-        val manager: CLLocationManager = CLLocationManager().apply {
-            desiredAccuracy = kCLLocationAccuracyHundredMeters
-            distanceFilter = config.minUpdateDistanceMeters.toDouble()
-        }
         val delegate = StreamingDelegate(
             onLocation = { coordinates: GeoCoordinates? -> trySend(coordinates) },
             onError = { error: NSError ->
@@ -90,17 +99,34 @@ private class IosLocationProvider(
                 trySend(null)
             },
         )
-        manager.delegate = delegate
-        manager.startUpdatingLocation()
+        var manager: CLLocationManager? = null
+        // CLLocationManager.delegate is weak: this capture, released in awaitClose, is what keeps the
+        // delegate alive for as long as the flow is collected.
+        var retainedDelegate: StreamingDelegate? = delegate
 
-        // Seed with the last known location (or null) so the flow is never silent on subscribe. If
-        // no update ever arrives (service on but no fix / no signal), without this the flow would
-        // emit nothing and downstream combines would hang on their initial value.
-        trySend(manager.location?.toGeoCoordinates())
+        dispatch_async(dispatch_get_main_queue()) {
+            val started: CLLocationManager = CLLocationManager().apply {
+                desiredAccuracy = kCLLocationAccuracyHundredMeters
+                distanceFilter = config.minUpdateDistanceMeters.toDouble()
+                this.delegate = delegate
+            }
+            manager = started
+            started.startUpdatingLocation()
+
+            // Seed with the last known location (or null) so the flow is never silent on
+            // subscribe. If no update ever arrives (service on but no fix / no signal), without
+            // this the flow would emit nothing and downstream combines would hang on their
+            // initial value.
+            trySend(started.location?.toGeoCoordinates())
+        }
 
         awaitClose {
-            manager.stopUpdatingLocation()
-            manager.delegate = null
+            dispatch_async(dispatch_get_main_queue()) {
+                manager?.stopUpdatingLocation()
+                retainedDelegate?.let { manager?.delegate = null }
+                manager = null
+                retainedDelegate = null
+            }
         }
     }
 
@@ -111,16 +137,18 @@ private class IosLocationProvider(
     }
 
     // iOS exposes no deep link to the system Location Services toggle, so the best available
-    // fallback is the app's own settings page.
+    // fallback is the app's own settings page. UIApplication may only be used on the main thread,
+    // and this method is documented as callable from any thread.
     override fun openLocationSettings() {
-        val url: NSURL? = NSURL.URLWithString(UIApplicationOpenSettingsURLString)
-        if (url != null) {
+        val url: NSURL = NSURL.URLWithString(UIApplicationOpenSettingsURLString) ?: return
+        val open: () -> Unit = {
             UIApplication.sharedApplication.openURL(
                 url,
                 options = mapOf<Any?, Any?>(),
                 completionHandler = null,
             )
         }
+        if (NSThread.isMainThread) open() else dispatch_async(dispatch_get_main_queue(), open)
     }
 }
 

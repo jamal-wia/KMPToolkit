@@ -38,27 +38,32 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-audio-recorder-testing` | `FakeAudioRecorder`, for `testImplementation` | `audio-recorder` | Available | [docs](docs/kmptoolkit-audio-recorder/06-testing.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Available | [docs](docs/kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
-| `kmptoolkit-storage` | Key-value storage, plain and encrypted, plus a stable device id | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
+| `kmptoolkit-storage` | Key-value storage, plain and encrypted, with typed `Int`/`Long`/`Boolean` accessors and a stable device id. Also publishes `jvm` (a plain properties-file store), for code shared with desktop | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
 | `kmptoolkit-storage-testing` | `InMemoryKeyValueStorage`, for `testImplementation` | `storage` | Available | [docs](docs/kmptoolkit-storage/06-testing.md) |
-| `kmptoolkit-biometric` | Biometric gate with typed outcomes; prompt copy is yours | — | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
+| `kmptoolkit-biometric` | Biometric gate with typed outcomes, an enrolment shortcut and opt-in weak-tier / single-attempt checks; prompt copy is yours | — | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-biometric-testing` | `ScriptedBiometricGate`, for `testImplementation` | `biometric` | Available | [docs](docs/kmptoolkit-biometric/06-testing.md) |
-| `kmptoolkit-permission` | Runtime permission request flow | `storage` | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
-| `kmptoolkit-permission-testing` | `RecordingPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
-| `kmptoolkit-notification` | Local notifications, channels, actions | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
+| `kmptoolkit-permission` | Runtime permission request flow for notifications, microphone, camera, location, audio files and Bluetooth, with status observation, plus special-access permissions (exact alarms, overlay, …) | `storage`, `activity` (Android) | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
+| `kmptoolkit-permission-testing` | `RecordingPermissionHandler` / `RecordingSpecialPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
+| `kmptoolkit-notification` | Local notifications, channels, actions, and the notification a foreground service starts with | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |
-| `kmptoolkit-uploader` | Transactional uploader engine (storage-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-uploader/01-overview.md) |
-| `kmptoolkit-uploader-testing` | `InMemoryUploaderStore`, `UploaderStoreContract`, `FakeUploader`, for `testImplementation` | `uploader` | Available | [docs](docs/kmptoolkit-uploader/06-testing.md) |
+| `kmptoolkit-uploader` | Transactional uploader engine (storage-agnostic), with `UploadHandler` and built-in background HTTP upload transports on Android (WorkManager) and iOS (background `NSURLSession`) | `logging` | Available | [docs](docs/kmptoolkit-uploader/01-overview.md) |
+| `kmptoolkit-uploader-testing` | `InMemoryUploaderStore`, `UploaderStoreContract`, `FakeUploader`, `RecordingUploadTransport`, for `testImplementation` | `uploader` | Available | [docs](docs/kmptoolkit-uploader/06-testing.md) |
 | `kmptoolkit-uploader-sqldelight` | SQLDelight-backed `UploaderStore`, the reference SPI implementation | `uploader` | Available | [docs](docs/kmptoolkit-uploader-sqldelight/01-overview.md) |
-| `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates, service-enabled check | `logging` | Available | [docs](docs/kmptoolkit-location/01-overview.md) |
+| `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates, service-enabled check and re-enable prompt | `logging` | Available | [docs](docs/kmptoolkit-location/01-overview.md) |
 | `kmptoolkit-location-testing` | `FakeLocationProvider`, for `testImplementation` | `location` | Available | [docs](docs/kmptoolkit-location/06-testing.md) |
 | `kmptoolkit-proximity` | Proximity sensor (`ProximitySensor` + `ProximityRule`) | — | Available | [docs](docs/kmptoolkit-proximity/01-overview.md) |
 | `kmptoolkit-proximity-testing` | `FakeProximitySensor` double, for `testImplementation` | `proximity` | Available | [docs](docs/kmptoolkit-proximity/06-testing.md) |
 | `kmptoolkit-downloader` | Resumable background-download engine (transfer-agnostic) | `logging` | Available | [docs](docs/kmptoolkit-downloader/01-overview.md) |
 | `kmptoolkit-downloader-testing` | `FakeDownloader`, `FakeDownloaderStorage`, for `testImplementation` | `downloader` | Available | [docs](docs/kmptoolkit-downloader/06-testing.md) |
-| `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership | — | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
+| `kmptoolkit-activity` | Scoped access to the currently resumed `Activity`, with no getter to leak through and a predicate deciding which activities count. The one **Android-only** module: there is no iOS counterpart to an Activity | — | Available | [docs](docs/kmptoolkit-activity/01-overview.md) |
+| `kmptoolkit-systembars` | Compose system-bar control with per-axis ownership, optional pixel-sampled auto icon styling, and a keep-screen-awake primitive. Also publishes `jvm`, so a UI tree shared with desktop still compiles | `activity` (Android) | Available | [docs](docs/kmptoolkit-systembars/01-overview.md) |
+| `kmptoolkit-hardware-keys` | Keeps an app's hardware-key policy (volume and other keys) in force inside Compose dialog windows and sheets on Android, where the Activity's key handling cannot reach. Compose; no-op on iOS; also publishes `jvm` | `logging` (Android) | Available | [docs](docs/kmptoolkit-hardware-keys/01-overview.md) |
+| `kmptoolkit-systembars-testing` | `RecordingSystemBarsController` / `RecordingScreenWakeLockController` doubles, for `testImplementation` | `systembars` | Available | [docs](docs/kmptoolkit-systembars/06-testing.md) |
 | `kmptoolkit-logging-overlay` | Compose in-app log overlay (debug builds only) | `logging` | Available | [docs](docs/kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-accelerometer` | Raw accelerometer readings as a cold `Flow`, m/s² on both platforms | — | Available | [docs](docs/kmptoolkit-accelerometer/01-overview.md) |
 | `kmptoolkit-accelerometer-testing` | `ScriptedAccelerometer` double, for `testImplementation` | `accelerometer` | Available | [docs](docs/kmptoolkit-accelerometer/06-testing.md) |
+| `kmptoolkit-language` | App language selection (`AppLanguageHolder`), a supported-language catalog you populate, and the platform-locale side effect — including the Android `Application` wiring that keeps a chosen language from reverting. Also publishes `jvm`, for code shared with desktop | — | Available | [docs](docs/kmptoolkit-language/01-overview.md) |
+| `kmptoolkit-language-compose` | Compose wiring (`AppLocale`, `mirrorOnRtl`/`mirrorOnLtr`) for `kmptoolkit-language`. Also publishes `jvm` | `language` | Available | [docs](docs/kmptoolkit-language-compose/01-overview.md) |
 | `kmptoolkit-hijri` | Umm al-Qura date conversion: `LocalDate.toHijriDate()` | — | Available | [docs](docs/kmptoolkit-hijri/01-overview.md) |
 
 See [`docs/README.md`](docs/README.md) for the full documentation index and the recommended reading

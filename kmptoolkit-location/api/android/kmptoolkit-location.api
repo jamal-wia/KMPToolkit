@@ -16,6 +16,11 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/location/Location
 	public abstract fun isLocationEnabled (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun observeLocation ()Lkotlinx/coroutines/flow/Flow;
 	public abstract fun openLocationSettings ()V
+	public fun promptToEnableService (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationProvider$DefaultImpls {
+	public static fun promptToEnableService (Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/location/LocationProviderConfig {
@@ -45,5 +50,15 @@ public final class io/github/jamal_wia/kmptoolkit/location/LocationProviderConfi
 public final class io/github/jamal_wia/kmptoolkit/location/LocationProvider_androidKt {
 	public static final fun createLocationProvider (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
 	public static synthetic fun createLocationProvider$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationServicePrompt : java/lang/Enum {
+	public static final field ALREADY_ON Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static final field NOT_NOW Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static final field PROMPTED Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static final field UNSUPPORTED Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
 }
 

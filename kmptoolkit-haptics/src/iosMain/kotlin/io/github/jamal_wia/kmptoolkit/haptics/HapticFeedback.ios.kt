@@ -23,6 +23,10 @@ public fun createHapticFeedback(): HapticFeedback = IosHapticFeedback()
 @OptIn(ExperimentalForeignApi::class)
 internal class IosHapticFeedback : HapticFeedback {
 
+    // Stated rather than inherited from the interface default: `true` here is a decision about iOS
+    // (UIKit cannot report the hardware), not an accident of which default happened to apply.
+    override val isAvailable: Boolean get() = true
+
     override fun perform(type: HapticType): HapticResult {
         // UIKit's feedback generators are UIKit objects and must be used on the main thread. The
         // hop is unconditional rather than "only if we are off-main": dispatch_async from the main

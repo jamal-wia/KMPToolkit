@@ -19,22 +19,24 @@ import androidx.biometric.BiometricPrompt
 internal fun buildPromptInfo(
     prompt: BiometricPromptText,
     config: BiometricGateConfig,
+    strength: BiometricStrength = BiometricStrength.STRONG,
+    requireConfirmation: Boolean = config.requireExplicitConfirmation,
 ): BiometricPrompt.PromptInfo {
     val builder: BiometricPrompt.PromptInfo.Builder = BiometricPrompt.PromptInfo.Builder()
         .setTitle(prompt.title)
         .setSubtitle(prompt.subtitle)
-        .setConfirmationRequired(config.requireExplicitConfirmation)
+        .setConfirmationRequired(requireConfirmation)
 
     val credentialAllowed: Boolean = config.policy == BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL
     when {
         credentialAllowed && supportsCombinedAuthenticators() ->
-            builder.setAllowedAuthenticators(config.allowedAuthenticators())
+            builder.setAllowedAuthenticators(config.allowedAuthenticators(strength))
 
         credentialAllowed ->
             builder.setDeviceCredentialAllowed(true)
 
         else -> builder
-            .setAllowedAuthenticators(config.allowedAuthenticators())
+            .setAllowedAuthenticators(config.allowedAuthenticators(strength))
             .setNegativeButtonText(prompt.cancelLabel)
     }
     return builder.build()

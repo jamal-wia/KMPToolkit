@@ -11,6 +11,10 @@ Everything public in the module. The `-testing` artifact's `ScriptedBiometricGat
 public interface BiometricGate {
     public suspend fun availability(): BiometricAvailability
     public suspend fun authenticate(prompt: BiometricPromptText): BiometricResult
+
+    // since 1.5.0 — both have default bodies
+    public suspend fun authenticate(prompt: BiometricPromptText, requireExplicitConfirmation: Boolean): BiometricResult
+    public suspend fun launchEnrollment(): BiometricEnrollmentLaunch
 }
 ```
 
@@ -39,6 +43,41 @@ Use it to decide what UI to show. It is a snapshot, not a guard: see
 ### `authenticate(prompt: BiometricPromptText): BiometricResult`
 
 Shows the system prompt and suspends until the OS decides.
+
+### `authenticate(prompt, requireExplicitConfirmation): BiometricResult`
+
+As `authenticate(prompt)`, with the confirming tap for a passive biometric decided per call instead of
+by `BiometricGateConfig.requireExplicitConfirmation`. Android only; iOS decides confirmation itself.
+The interface default ignores the flag and calls `authenticate(prompt)`; a decorator should forward it.
+
+### `launchEnrollment(): BiometricEnrollmentLaunch`
+
+Opens the system screen to enrol a biometric, or to manage existing ones when something is enrolled.
+`LAUNCHED`, `THROTTLED` (inside `BiometricGateOptions.enrollmentThrottle` of the previous launch) or
+`UNAVAILABLE` (no such screen — always on iOS). The interface default returns `UNAVAILABLE`; a
+decorator should forward it. See [`05-platform-notes.md`](05-platform-notes.md#opening-enrolment).
+
+## `BiometricGateOptions`
+
+```kotlin
+public class BiometricGateOptions(
+    public val strength: BiometricStrength = BiometricStrength.STRONG,
+    public val singleAttempt: Boolean = false,
+    public val enrollmentThrottle: Duration = 1.seconds,
+)
+
+public enum class BiometricStrength { STRONG, WEAK }
+public enum class BiometricEnrollmentLaunch { LAUNCHED, THROTTLED, UNAVAILABLE }
+```
+
+Since 1.5.0. A plain class with value equality, not a data class. All three fields are Android-only
+and ignored on iOS.
+
+| Field | Meaning |
+|---|---|
+| `strength` | `STRONG` = `BIOMETRIC_STRONG`; `WEAK` = `BIOMETRIC_WEAK`, only with `BIOMETRIC_ONLY` |
+| `singleAttempt` | the first non-match ends the prompt with `Rejected` |
+| `enrollmentThrottle` | minimum interval between two launches that start a screen; not negative; `ZERO` disables |
 
 ## `BiometricPromptText`
 
@@ -170,11 +209,25 @@ public fun createBiometricGate(
     config: BiometricGateConfig = BiometricGateConfig(),
 ): BiometricGate
 
+public fun createBiometricGate(               // since 1.5.0
+    context: Context,
+    config: BiometricGateConfig,
+    options: BiometricGateOptions,
+): BiometricGate
+
 // iosMain
 public fun createBiometricGate(
     config: BiometricGateConfig = BiometricGateConfig(),
 ): BiometricGate
+
+public fun createBiometricGate(               // since 1.5.0; options ignored
+    config: BiometricGateConfig,
+    options: BiometricGateOptions,
+): BiometricGate
 ```
+
+Both three-argument overloads throw `IllegalArgumentException` for `BiometricStrength.WEAK`
+with `BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL`.
 
 Two signatures rather than one `expect fun`, per
 [`docs/01-architecture.md`](../01-architecture.md#platform-factories-not-expect-fun): Android needs a

@@ -1,0 +1,9 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-hardware-keys>
+final fun io.github.jamal_wia.kmptoolkit.hardwarekeys/DialogWindowHardwareKeyEffect(androidx.compose.runtime/Composer?, kotlin/Int) // io.github.jamal_wia.kmptoolkit.hardwarekeys/DialogWindowHardwareKeyEffect|DialogWindowHardwareKeyEffect(androidx.compose.runtime.Composer?;kotlin.Int){}[0]

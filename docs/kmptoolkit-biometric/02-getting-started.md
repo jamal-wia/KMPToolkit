@@ -65,8 +65,11 @@ class App : Application() {
 ```
 
 One thing to get right, and it fails quietly rather than loudly: **the activity that hosts the
-prompt must be a `FragmentActivity`.** `ComponentActivity` and `AppCompatActivity` both are; a bare
-`Activity` is not, and every `authenticate` from it returns `BiometricResult.NoPromptHost`.
+prompt must be a `FragmentActivity`.** `AppCompatActivity` is one. `androidx.activity.ComponentActivity`
+is **not** — it is `FragmentActivity`'s superclass, and it is what a Compose project's generated
+`MainActivity` extends — and neither is a bare `Activity`. Every `authenticate` from either returns
+`BiometricResult.NoPromptHost` and shows nothing. For a Compose activity, extend `FragmentActivity`
+instead; `setContent` works on it unchanged.
 
 Build the gate once — in `Application.onCreate`, or wherever you assemble dependencies — and hold
 the result for the process lifetime; a gate built per screen registers its own activity tracking

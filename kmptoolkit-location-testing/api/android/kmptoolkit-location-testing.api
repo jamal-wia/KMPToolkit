@@ -6,9 +6,13 @@ public final class io/github/jamal_wia/kmptoolkit/location/testing/FakeLocationP
 	public fun getCurrentLocation (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getLocationEnabled ()Z
 	public final fun getOpenSettingsCount ()I
+	public final fun getPromptCount ()I
+	public final fun getServicePromptAnswer ()Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
 	public fun isLocationEnabled (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun observeLocation ()Lkotlinx/coroutines/flow/Flow;
 	public fun openLocationSettings ()V
+	public fun promptToEnableService (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun setLocationEnabled (Z)V
+	public final fun setServicePromptAnswer (Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;)V
 }
 

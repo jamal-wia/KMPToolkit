@@ -22,6 +22,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.notification/Notifier { // io.
     abstract fun cancel(kotlin/String) // io.github.jamal_wia.kmptoolkit.notification/Notifier.cancel|cancel(kotlin.String){}[0]
     abstract fun cancelAll() // io.github.jamal_wia.kmptoolkit.notification/Notifier.cancelAll|cancelAll(){}[0]
     abstract suspend fun post(kotlin/String, io.github.jamal_wia.kmptoolkit.notification/LocalNotification): io.github.jamal_wia.kmptoolkit.notification/NotificationResult // io.github.jamal_wia.kmptoolkit.notification/Notifier.post|post(kotlin.String;io.github.jamal_wia.kmptoolkit.notification.LocalNotification){}[0]
+    open suspend fun post(kotlin/String, io.github.jamal_wia.kmptoolkit.notification/LocalNotification, io.github.jamal_wia.kmptoolkit.notification/NotificationOptions): io.github.jamal_wia.kmptoolkit.notification/NotificationResult // io.github.jamal_wia.kmptoolkit.notification/Notifier.post|post(kotlin.String;io.github.jamal_wia.kmptoolkit.notification.LocalNotification;io.github.jamal_wia.kmptoolkit.notification.NotificationOptions){}[0]
 }
 
 sealed interface io.github.jamal_wia.kmptoolkit.notification/NotificationIcon { // io.github.jamal_wia.kmptoolkit.notification/NotificationIcon|null[0]
@@ -250,6 +251,28 @@ final class io.github.jamal_wia.kmptoolkit.notification/NotificationConfig { // 
 
         final val DEFAULT_MIN_PROGRESS_INTERVAL // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.Companion.DEFAULT_MIN_PROGRESS_INTERVAL|{}DEFAULT_MIN_PROGRESS_INTERVAL[0]
             final fun <get-DEFAULT_MIN_PROGRESS_INTERVAL>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.notification/NotificationConfig.Companion.DEFAULT_MIN_PROGRESS_INTERVAL.<get-DEFAULT_MIN_PROGRESS_INTERVAL>|<get-DEFAULT_MIN_PROGRESS_INTERVAL>(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.notification/NotificationOptions { // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions|null[0]
+    constructor <init>(kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.notification/NotificationAction? = ..., kotlin/Boolean = ..., kotlin.collections/Map<kotlin/String, io.github.jamal_wia.kmptoolkit.notification/NotificationIcon> = ...) // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.<init>|<init>(kotlin.Boolean;io.github.jamal_wia.kmptoolkit.notification.NotificationAction?;kotlin.Boolean;kotlin.collections.Map<kotlin.String,io.github.jamal_wia.kmptoolkit.notification.NotificationIcon>){}[0]
+
+    final val actionIcons // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.actionIcons|{}actionIcons[0]
+        final fun <get-actionIcons>(): kotlin.collections/Map<kotlin/String, io.github.jamal_wia.kmptoolkit.notification/NotificationIcon> // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.actionIcons.<get-actionIcons>|<get-actionIcons>(){}[0]
+    final val alertOnce // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.alertOnce|{}alertOnce[0]
+        final fun <get-alertOnce>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.alertOnce.<get-alertOnce>|<get-alertOnce>(){}[0]
+    final val dismissAction // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.dismissAction|{}dismissAction[0]
+        final fun <get-dismissAction>(): io.github.jamal_wia.kmptoolkit.notification/NotificationAction? // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.dismissAction.<get-dismissAction>|<get-dismissAction>(){}[0]
+    final val mediaStyle // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.mediaStyle|{}mediaStyle[0]
+        final fun <get-mediaStyle>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.mediaStyle.<get-mediaStyle>|<get-mediaStyle>(){}[0]
+
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.Companion|null[0]
+        final val DEFAULT // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.Companion.DEFAULT|{}DEFAULT[0]
+            final fun <get-DEFAULT>(): io.github.jamal_wia.kmptoolkit.notification/NotificationOptions // io.github.jamal_wia.kmptoolkit.notification/NotificationOptions.Companion.DEFAULT.<get-DEFAULT>|<get-DEFAULT>(){}[0]
     }
 }
 

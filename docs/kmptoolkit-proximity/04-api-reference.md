@@ -17,12 +17,12 @@ directly.
 | Member | Signature | Contract |
 |---|---|---|
 | `isAvailable` | `val isAvailable: Boolean` | Whether the device has a usable proximity sensor. `false` on every iOS device and on a sensor reporting `maximumRange == 0` |
-| `observe` | `fun observe(): Flow<Boolean>` | Emits whether something is near the screen, only on change. Cold: registers on collection start, releases on collection end. Never emits when `isAvailable` is `false` |
+| `observe` | `fun observe(): Flow<Boolean>` | Emits whether something is near the screen, only on change. Cold: registers on collection start, releases on collection end. Never emits when `isAvailable` is `false` — on Android it stays open until cancelled, on iOS it completes at once (see below) |
 
-Thread-safety: implementations shipped here are safe to collect from any coroutine context; the
-Android one hops nothing itself since `SensorEventListener` callbacks arrive on whichever thread the
-registering `Looper` runs on, which for the default `SENSOR_DELAY_NORMAL` registration used here is
-the calling thread's own looper.
+Thread-safety: implementations shipped here are safe to collect from any coroutine context. The
+Android one passes no `Handler` when it registers, so `SensorManager` delivers every
+`SensorEventListener` callback on the application's **main looper**, whichever thread collected;
+move heavy per-reading work off it with `flowOn`.
 
 ## `object ProximityRule`
 

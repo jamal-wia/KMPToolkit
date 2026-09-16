@@ -28,10 +28,18 @@ Starting with API 31, requesting sensor data faster than 200 Hz requires
 </manifest>
 ```
 
-It is a **normal** permission — granted at install time, no runtime prompt. Without it, the
-platform silently caps delivery at 200 Hz regardless of the `samplingInterval` you request; nothing
-throws, and this module does not detect or report the cap. Only relevant if you pass a
-`samplingInterval` below 5 ms — the default (200 ms) and most reasonable use cases never approach
+It is a **normal** permission — granted at install time, no runtime prompt. What happens without it
+depends on the build, for apps targeting API 31 or higher:
+
+- **Release (non-debuggable) builds:** the platform silently caps delivery at 200 Hz regardless of
+  the `samplingInterval` you request. Nothing throws, and this module does not detect or report the
+  cap.
+- **Debuggable builds:** `SensorManager.registerListener` throws `SecurityException`, which surfaces
+  from the collection of `observe()`. The platform does this on purpose, so the missing permission is
+  found during development rather than as a silent cap in production.
+
+Only relevant if you pass a `samplingInterval` below 5 ms — including zero or a negative interval,
+which ask for the fastest rate. The default (200 ms) and most reasonable use cases never approach
 this limit.
 
 ### Should you declare `<uses-feature android:name="android.hardware.sensor.accelerometer">`?
@@ -86,13 +94,17 @@ smaller than sensor noise on any consumer device.
 |---|---|---|
 | Registered by | `SensorManager.registerListener` | `CMMotionManager.startAccelerometerUpdatesToQueue` |
 | Released by | `SensorManager.unregisterListener` | `CMMotionManager.stopAccelerometerUpdates` |
-| Delivery queue/thread | The thread `registerListener` was called from (this module supplies no `Handler`, so the caller's own looper) | `NSOperationQueue.mainQueue`, explicitly |
-| Registration scope | Per collection of `observe()` — two concurrent collections register two listeners | Per collection of `observe()` — two concurrent collections each call `startAccelerometerUpdatesToQueue`, and the second call replaces the first's handler internally, per Core Motion's own documented behavior |
+| Delivery queue/thread | The application's **main looper** — this module passes no `Handler`, and `SensorManager` then delivers on the main thread whichever thread registered | `NSOperationQueue.mainQueue`, explicitly |
+| Registration scope | Per collection of `observe()` — two concurrent collections register two listeners | Per instance — updates start with the first collection and stop when the last one ends; every collection receives every sample |
 
-The Android/iOS asymmetry in the last row is a Core Motion limitation, not a choice this module
-makes: `CMMotionManager` supports only one active update handler at a time. If your app needs two
-independent collectors on iOS, share one `Accelerometer` instance and fan its `Flow` out with
-`shareIn` rather than calling `observe()` twice.
+The two rows of the last line differ in mechanism, not in what a consumer sees: on both platforms
+any number of concurrent collections of one instance each receive every reading, and one ending
+does not affect the others. iOS needs the fan-out because `CMMotionManager` supports exactly one
+update handler, and `stopAccelerometerUpdates` stops it for everyone — starting and stopping per
+collection would let the first collection to end silence the rest.
+
+Everything a collector does runs on the main thread on both platforms, so keep per-sample work
+light, or move it off with `flowOn` downstream of anything heavy.
 
 ## Behavior identical on both platforms
 

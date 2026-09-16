@@ -187,6 +187,65 @@ On Android such a surface has an insets controller of its own that the activity-
 never reaches, so without this the bars over an open sheet revert to the platform default. Outside
 a dialog window it does nothing. No-op on iOS.
 
+### `AutoSystemBarsIconStyle`
+
+```kotlin
+@Composable
+public fun AutoSystemBarsIconStyle(
+    controller: SystemBarsController,
+    probe: StatusBarLuminanceProbe,
+    enabled: Boolean = true,
+    intervalMs: Long = DEFAULT_SAMPLE_INTERVAL_MS,
+    onSampled: ((durationNanos: Long) -> Unit)? = null,
+    content: @Composable () -> Unit,
+)
+```
+
+Wraps `content` with an automatic icon-style probe for both bars: samples the pixels drawn under
+each on a timer (and on demand via `probe`), derives a contrasting `SystemBarIconStyle` per bar, and
+publishes both as a single [`SystemBarsOverride`](#systembarsoverride) it pushes once and updates in
+place — a layer like any other, so a screen's own `SystemBarsEffect` composed later still wins any
+axis it claims. See [`03-guide.md`](03-guide.md#automatic-icon-styling).
+
+| Parameter | Contract |
+|---|---|
+| `controller` | Receives the derived styles |
+| `probe` | The on-demand trigger source — see [`createStatusBarLuminanceProbe`](#statusbarluminanceprobe) |
+| `enabled` | `false` disables sampling and pushes no override; `content` still composes and is still recorded into the internal layer every frame |
+| `intervalMs` | Periodic sample cadence — [`DEFAULT_SAMPLE_INTERVAL_MS`] (300 ms) by default |
+| `onSampled` | Diagnostics hook called after every sample with how long it took, in nanoseconds. `null` (the default) costs nothing |
+
+Sampling runs only while the host's `Lifecycle` is at least `STARTED`. Place this once, near the
+root, and not under a layer-introducing modifier or composable — see the guide's placement section.
+
+### `StatusBarLuminanceProbe`
+
+```kotlin
+public interface StatusBarLuminanceProbe {
+    public fun triggerRecalculation()
+    public val triggers: SharedFlow<Unit>
+}
+
+public fun createStatusBarLuminanceProbe(): StatusBarLuminanceProbe
+```
+
+| Member | Contract |
+|---|---|
+| `triggerRecalculation()` | Asks `AutoSystemBarsIconStyle` to re-sample on the next composed frame. Bursts are conflated to at most one extra sample |
+| `triggers` | Consumed internally by `AutoSystemBarsIconStyle`. Call `triggerRecalculation()` instead of collecting this yourself |
+
+`createStatusBarLuminanceProbe()` is platform-independent — no `Context` needed on either target.
+Create one per `AutoSystemBarsIconStyle`, hold it, and pass it to both the wrapper and every screen
+that needs to nudge it.
+
+### `DEFAULT_SAMPLE_INTERVAL_MS`
+
+```kotlin
+public const val DEFAULT_SAMPLE_INTERVAL_MS: Long = 300L
+```
+
+The default `intervalMs` for `AutoSystemBarsIconStyle`.
+
 ## Factories
 
 ### Android
@@ -202,6 +261,31 @@ public fun createSystemBarsController(
 taking an `Activity` directly, because the window changes identity on every configuration change;
 the controller re-applies itself to each new one automatically.
 
+```kotlin
+public fun createSystemBarsController(
+    activityAccess: ActivityAccess,
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+): SystemBarsController
+```
+
+The same controller over an `ActivityAccess` (from `kmptoolkit-activity`) that **you** own, which is
+how you say *which* activities count.
+
+Reach for it as soon as your process hosts a window whose appearance you do not own — an in-process
+sign-in flow, a photo picker, a `ComponentActivity` a dependency declared in its own manifest. The
+`Context` overload tracks every activity in the process, so one of those resuming is handed whatever
+the app last asked for, including a fullscreen claim a screen underneath is still holding:
+
+```kotlin
+val activityAccess = createActivityAccess(application) { it is MainActivity }
+val controller = createSystemBarsController(activityAccess)
+val wakeLock = createScreenWakeLockController(activityAccess)
+```
+
+The `ActivityAccess` is yours: the controller does not release it, one instance can back several
+controllers, and `SystemBarsController.release()` leaves it registered. See
+[`../kmptoolkit-activity/03-guide.md`](../kmptoolkit-activity/03-guide.md).
+
 ### iOS
 
 ```kotlin
@@ -209,6 +293,7 @@ public interface IosSystemBarsController : SystemBarsController {
     public var hostViewController: UIViewController?
     public val preferredStatusBarStyle: UIStatusBarStyle
     public val prefersStatusBarHidden: Boolean
+    public val prefersHomeIndicatorAutoHidden: Boolean
 }
 
 public fun createSystemBarsController(
@@ -216,17 +301,114 @@ public fun createSystemBarsController(
 ): IosSystemBarsController
 ```
 
-iOS pulls status-bar appearance from a view controller rather than accepting a push, so the
-controller supplies the two values UIKit asks for and your host returns them. `hostViewController`
-is held strongly and is what gets `setNeedsStatusBarAppearanceUpdate()` on every change; clear it
-(or `release()` the controller) when the host goes away. See
+`prefersHomeIndicatorAutoHidden` is `!visibility.isNavigationBarVisible`. iOS has no navigation bar,
+so that axis would otherwise be inert; the home indicator is the nearest thing a cross-platform
+"hide the bottom bar" claim can mean here. It is auto-hiding only — the indicator returns on the
+next touch near the bottom edge — and it cannot be styled.
+
+iOS pulls this appearance from a view controller rather than accepting a push, so the controller
+supplies the values UIKit asks for and your host returns them. `hostViewController` is held strongly
+and is what gets `setNeedsStatusBarAppearanceUpdate()` and
+`setNeedsUpdateOfHomeIndicatorAutoHidden()` on every change; clear it (or `release()` the controller)
+when the host goes away. See
+[`05-platform-notes.md`](05-platform-notes.md).
+
+### Desktop (`jvm`)
+
+```kotlin
+public fun createSystemBarsController(
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+): SystemBarsController
+```
+
+A desktop window has no system bars, so this returns the headless controller below: the layer stack
+behaves exactly as on a phone and the window write is skipped. It exists so a UI tree shared with a
+phone build compiles and behaves the same way on all three targets — see
+[`../01-architecture.md`](../01-architecture.md) § "Desktop targets".
+
+### Common — headless
+
+```kotlin
+public fun createHeadlessSystemBarsController(
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+): SystemBarsController
+```
+
+A controller with the full layer model and no window behind it, available on every target.
+
+Use it from **production** source where a real one cannot exist — overwhelmingly `@Preview`, which
+compiles into your release source set and therefore cannot reach a `testImplementation` artifact. A
+screen that uses `SystemBarsEffect`, or resolves a controller through a DI container, needs one to
+exist or the preview throws instead of rendering. The same applies to a screenshot harness or a
+design gallery.
+
+It is headless, not inert: overrides stack, the newest wins a shared axis, an override claims only
+the axes it names, and releasing one restores whatever is underneath at that moment. Only the push to
+a window is skipped, so a preview that reads `config` back sees the value it would see on a device.
+
+For asserting what a screen *did* — which configurations it pushed, whether it left a layer behind —
+use `RecordingSystemBarsController` from `kmptoolkit-systembars-testing` instead. This one records
+nothing.
+
+## Wake lock
+
+### `ScreenWakeLockController`
+
+```kotlin
+public interface ScreenWakeLockController {
+    public fun setKeepScreenOn(enabled: Boolean)
+}
+```
+
+Suppresses, or restores, the OS's screen-idle timer — unrelated to the bars, and shipped in this
+module because both are thin wrappers over a single per-window platform flag. See
+[`03-guide.md`](03-guide.md#screenwakelockcontroller-a-different-shape-on-purpose).
+
+| Member | Contract |
+|---|---|
+| `setKeepScreenOn(enabled)` | Idempotent: calling it with the value it already holds is a no-op. There is no `release()` — callers must call `setKeepScreenOn(false)` themselves when the reason to stay awake ends |
+
+### Factories
+
+```kotlin
+// Android
+public fun createScreenWakeLockController(context: Context): ScreenWakeLockController
+public fun createScreenWakeLockController(activityAccess: ActivityAccess): ScreenWakeLockController
+
+// iOS
+public fun createScreenWakeLockController(): ScreenWakeLockController
+```
+
+The Android implementation tracks the currently resumed activity, the same way
+`createSystemBarsController` does — including the choice between the two overloads, and for the same
+reason: the `Context` one keeps whichever activity resumed last awake, so a playback session's wake
+lock follows the user into an in-process file picker. Pass the same `ActivityAccess` you gave the
+system-bars controller and both agree on which window they mean. Either way it re-applies a held
+`true` to each newly resumed activity across configuration changes. The iOS implementation needs no such tracking — see
 [`05-platform-notes.md`](05-platform-notes.md).
 
 ## Testing fixtures
 
-None. This module ships no `-testing` artifact, and deliberately: the part worth faking in a test
-is `SystemBarsController`, which is a five-method interface over three enums with no platform
-types in its signatures — a fake is shorter than the import that would bring one in.
+Both controllers ship a double in `kmptoolkit-systembars-testing`.
+
+```kotlin
+public class RecordingSystemBarsController(
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+) : SystemBarsController {
+    public val applied: List<SystemBarsConfig>
+    public val activeOverrideCount: Int
+    public fun clear()
+}
+```
+
+It layers overrides exactly as the real controller does — newest wins a shared axis, an override
+claims only the axes it names, releasing one restores whatever is underneath it at that moment —
+and records every configuration that would have reached a window in `applied`, skipping mutations
+that changed nothing. `activeOverrideCount` is there to assert a screen leaves no layer behind. Not
+thread-safe, deliberately: see [`06-testing.md`](06-testing.md).
+
+If all you need is somewhere for a configuration to go, the interface is small enough to fake
+inline — no import required:
 
 ```kotlin
 class FakeSystemBarsController : SystemBarsController {
@@ -238,3 +420,23 @@ class FakeSystemBarsController : SystemBarsController {
     override fun release() = Unit
 }
 ```
+
+`ScreenWakeLockController`'s double is `RecordingScreenWakeLockController`, which records every
+`setKeepScreenOn` call. See [`06-testing.md`](06-testing.md).
+
+`StatusBarLuminanceProbe` ships none either, for the same reason as `SystemBarsController`:
+
+```kotlin
+class FakeStatusBarLuminanceProbe : StatusBarLuminanceProbe {
+    private val flow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    override val triggers: SharedFlow<Unit> = flow
+    override fun triggerRecalculation() { flow.tryEmit(Unit) }
+}
+```
+
+`AutoSystemBarsIconStyle` itself is not something to fake — it is a composable that exercises real
+`GraphicsLayer` pixel sampling, and testing it means testing that Compose is drawing what you think
+it is. Test the *decision* it makes by testing your own code against `FakeSystemBarsController` /
+`FakeStatusBarLuminanceProbe`, and trust this module's own test suite (`LuminanceToStyleTest`,
+`ScratchRowSourcesTest`, `PeriodicSampleGateTest`, `IdleTickTest`, `SampleRowsTest`,
+`PublishStylesTest`) for the sampling logic itself.

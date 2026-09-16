@@ -44,6 +44,9 @@ kotlin {
         androidMain.dependencies {
             // NotificationCompat, NotificationManagerCompat, and String.toUri.
             implementation(libs.androidx.core.ktx)
+            // NotificationCompat.MediaStyle, for NotificationOptions.mediaStyle's collapsed row. Small,
+            // and implementation-scoped: no type of it appears in this module's API.
+            implementation(libs.androidx.media)
         }
         androidUnitTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

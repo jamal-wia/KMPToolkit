@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.location.testing
 
 import io.github.jamal_wia.kmptoolkit.location.GeoCoordinates
+import io.github.jamal_wia.kmptoolkit.location.LocationServicePrompt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -62,6 +63,20 @@ class FakeLocationProviderTest {
     }
 
     @Test
+    fun `promptToEnableService reports ALREADY_ON when the service is on`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = true)
+
+        assertEquals(LocationServicePrompt.ALREADY_ON, provider.promptToEnableService())
+    }
+
+    @Test
+    fun `promptToEnableService reports UNSUPPORTED when the service is off`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = false)
+
+        assertEquals(LocationServicePrompt.UNSUPPORTED, provider.promptToEnableService())
+    }
+
+    @Test
     fun `counts how many times openLocationSettings was called`() {
         val provider = FakeLocationProvider()
         assertEquals(0, provider.openSettingsCount)
@@ -70,5 +85,30 @@ class FakeLocationProviderTest {
         provider.openLocationSettings()
 
         assertEquals(2, provider.openSettingsCount)
+    }
+
+    @Test
+    fun `a scripted prompt answer is given while the service is off`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = false)
+        provider.servicePromptAnswer = LocationServicePrompt.NOT_NOW
+
+        assertEquals(LocationServicePrompt.NOT_NOW, provider.promptToEnableService())
+        assertEquals(1, provider.promptCount)
+    }
+
+    @Test
+    fun `with no scripted answer the prompt is unsupported while the service is off`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = false)
+
+        assertEquals(LocationServicePrompt.UNSUPPORTED, provider.promptToEnableService())
+    }
+
+    @Test
+    fun `a scripted answer does not override a service that is already on`() = runTest {
+        val provider = FakeLocationProvider(locationEnabled = true)
+        provider.servicePromptAnswer = LocationServicePrompt.PROMPTED
+
+        assertEquals(LocationServicePrompt.ALREADY_ON, provider.promptToEnableService())
+        assertEquals(1, provider.promptCount)
     }
 }

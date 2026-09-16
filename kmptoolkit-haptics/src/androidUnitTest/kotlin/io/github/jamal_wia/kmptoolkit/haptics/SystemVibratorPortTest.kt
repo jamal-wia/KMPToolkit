@@ -20,6 +20,8 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Exercises [SystemVibratorPort] against the real framework `Vibrator`, on each of the API levels
@@ -96,6 +98,35 @@ class SystemVibratorPortLegacyApiTest {
 
         assertTouchFeedback(AttributeCapturingVibratorShadow.lastAudioAttributes)
     }
+
+    @Test
+    @Config(shadows = [AttributeCapturingVibratorShadow::class])
+    fun `NONE plays the one-shot with no attributes on the pre-VibrationEffect path`() {
+        // Seeded non-null, so a shadow that was never reached cannot pass for "no attributes".
+        AttributeCapturingVibratorShadow.lastAudioAttributes = SENTINEL_ATTRIBUTES
+        AttributeCapturingVibratorShadow.calls = 0
+
+        val result: HapticResult =
+            port(HapticAttribution.NONE).emit(AndroidVibration.OneShot(20L, 128))
+
+        assertEquals(HapticResult.PERFORMED, result)
+        assertEquals(1, AttributeCapturingVibratorShadow.calls)
+        assertNull(AttributeCapturingVibratorShadow.lastAudioAttributes)
+        assertEquals(20L, vibratorShadow().milliseconds)
+    }
+
+    @Test
+    @Config(shadows = [AttributeCapturingVibratorShadow::class])
+    fun `NONE plays the waveform with no attributes on the pre-VibrationEffect path`() {
+        AttributeCapturingVibratorShadow.lastAudioAttributes = SENTINEL_ATTRIBUTES
+        AttributeCapturingVibratorShadow.calls = 0
+
+        port(HapticAttribution.NONE).emit(AndroidVibration.Waveform(listOf(0L, 20L, 60L, 40L)))
+
+        assertEquals(1, AttributeCapturingVibratorShadow.calls)
+        assertNull(AttributeCapturingVibratorShadow.lastAudioAttributes)
+        assertContentEquals(longArrayOf(0L, 20L, 60L, 40L), vibratorShadow().pattern)
+    }
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -137,6 +168,32 @@ class SystemVibratorPortEffectApiTest {
         port().emit(AndroidVibration.OneShot(60L, AndroidVibration.DEFAULT_AMPLITUDE))
 
         assertTouchFeedback(vibratorShadow().audioAttributesFromLastVibration)
+    }
+
+    @Test
+    fun `NONE plays through VibrationEffect with no attributes`() {
+        val haptics: HapticFeedback = createHapticFeedback(context(), HapticAttribution.NONE)
+
+        assertEquals(HapticResult.PERFORMED, haptics.perform(HapticType.HEAVY))
+
+        assertEquals(60L, vibratorShadow().milliseconds)
+        assertNull(vibratorShadow().audioAttributesFromLastVibration)
+    }
+
+    @Test
+    fun `the single-argument factory keeps attributing as touch feedback`() {
+        createHapticFeedback(context()).perform(HapticType.HEAVY)
+
+        assertTouchFeedback(vibratorShadow().audioAttributesFromLastVibration)
+    }
+
+    @Test
+    fun `isAvailable follows the device's motor through the real framework`() {
+        val haptics: HapticFeedback = createHapticFeedback(context())
+
+        assertTrue(haptics.isAvailable)
+        vibratorShadow().setHasVibrator(false)
+        assertFalse(haptics.isAvailable)
     }
 
     @Test
@@ -227,6 +284,21 @@ class SystemVibratorPortVibratorManagerTest {
         assertNotNull(attributes)
         assertEquals(VibrationAttributes.USAGE_TOUCH, (attributes as VibrationAttributes).usage)
     }
+
+    @Test
+    fun `API 33+ NONE carries no usage, exactly like a plain vibrate(effect)`() {
+        // The framework's own unattributed overload fills in an empty VibrationAttributes, whose
+        // usage is USAGE_UNKNOWN — the classification the touch-feedback settings do not apply to.
+        val haptics: HapticFeedback = createHapticFeedback(context(), HapticAttribution.NONE)
+        val vibrator: Vibrator = context().getSystemService(Vibrator::class.java)
+
+        assertEquals(HapticResult.PERFORMED, haptics.perform(HapticType.ERROR))
+
+        assertEquals(340L, shadowOf(vibrator).milliseconds)
+        val attributes: Any? = shadowOf(vibrator).vibrationAttributesFromLastVibration
+        assertNotNull(attributes)
+        assertEquals(VibrationAttributes.USAGE_UNKNOWN, (attributes as VibrationAttributes).usage)
+    }
 }
 
 /**
@@ -284,6 +356,7 @@ class AttributeCapturingVibratorShadow : ShadowSystemVibrator() {
         attributes: AudioAttributes?,
     ) {
         lastAudioAttributes = attributes
+        calls++
         super.vibrate(uid, opPkg, milliseconds, attributes)
     }
 
@@ -296,6 +369,7 @@ class AttributeCapturingVibratorShadow : ShadowSystemVibrator() {
         attributes: AudioAttributes?,
     ) {
         lastAudioAttributes = attributes
+        calls++
         super.vibrate(uid, opPkg, pattern, repeat, attributes)
     }
 
@@ -303,6 +377,10 @@ class AttributeCapturingVibratorShadow : ShadowSystemVibrator() {
         /** Static because Robolectric owns shadow instantiation; reset it per test. */
         @JvmStatic
         var lastAudioAttributes: AudioAttributes? = null
+
+        /** How many times either overload was reached; reset it per test alongside the above. */
+        @JvmStatic
+        var calls: Int = 0
     }
 }
 
@@ -350,8 +428,12 @@ private val EXPECTED_DURATIONS_MS: Map<HapticType, Long> = mapOf(
 
 private fun context(): Context = ApplicationProvider.getApplicationContext()
 
-private fun port(): VibratorPort =
-    SystemVibratorPort(SystemVibratorPort.resolveVibrator(context()))
+private fun port(attribution: HapticAttribution = HapticAttribution.TOUCH): VibratorPort =
+    SystemVibratorPort(SystemVibratorPort.resolveVibrator(context()), attribution)
+
+/** A value no production path produces, so "overwritten with null" is distinguishable from "untouched". */
+private val SENTINEL_ATTRIBUTES: AudioAttributes =
+    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build()
 
 /** The attribution every request must carry before `VibrationAttributes` existed. */
 private fun assertTouchFeedback(attributes: AudioAttributes?) {

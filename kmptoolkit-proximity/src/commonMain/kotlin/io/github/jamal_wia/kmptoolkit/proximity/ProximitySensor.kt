@@ -33,7 +33,9 @@ public interface ProximitySensor {
      * Emits whether something is near the screen — only on change, which may be minutes apart.
      *
      * Cold: the sensor is registered when collection starts and released when it ends. On a device
-     * where [isAvailable] is false it never emits.
+     * where [isAvailable] is false it never emits: the Android implementation stays open until the
+     * collection is cancelled, the iOS one — always absent — completes at once. Check [isAvailable]
+     * rather than relying on either.
      */
     public fun observe(): Flow<Boolean>
 }

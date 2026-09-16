@@ -6,11 +6,25 @@
 // - Show declarations: true
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-location>
+final enum class io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt : kotlin/Enum<io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt> { // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt|null[0]
+    enum entry ALREADY_ON // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.ALREADY_ON|null[0]
+    enum entry NOT_NOW // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.NOT_NOW|null[0]
+    enum entry PROMPTED // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.PROMPTED|null[0]
+    enum entry UNSUPPORTED // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.UNSUPPORTED|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt> // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt> // io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt.values|values#static(){}[0]
+}
+
 abstract interface io.github.jamal_wia.kmptoolkit.location/LocationProvider { // io.github.jamal_wia.kmptoolkit.location/LocationProvider|null[0]
     abstract fun observeLocation(): kotlinx.coroutines.flow/Flow<io.github.jamal_wia.kmptoolkit.location/GeoCoordinates?> // io.github.jamal_wia.kmptoolkit.location/LocationProvider.observeLocation|observeLocation(){}[0]
     abstract fun openLocationSettings() // io.github.jamal_wia.kmptoolkit.location/LocationProvider.openLocationSettings|openLocationSettings(){}[0]
     abstract suspend fun getCurrentLocation(): io.github.jamal_wia.kmptoolkit.location/GeoCoordinates? // io.github.jamal_wia.kmptoolkit.location/LocationProvider.getCurrentLocation|getCurrentLocation(){}[0]
     abstract suspend fun isLocationEnabled(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.location/LocationProvider.isLocationEnabled|isLocationEnabled(){}[0]
+    open suspend fun promptToEnableService(): io.github.jamal_wia.kmptoolkit.location/LocationServicePrompt // io.github.jamal_wia.kmptoolkit.location/LocationProvider.promptToEnableService|promptToEnableService(){}[0]
 }
 
 final class io.github.jamal_wia.kmptoolkit.location/GeoCoordinates { // io.github.jamal_wia.kmptoolkit.location/GeoCoordinates|null[0]
@@ -57,4 +71,5 @@ final class io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig { // 
     }
 }
 
+final fun (io.github.jamal_wia.kmptoolkit.location/LocationProvider).io.github.jamal_wia.kmptoolkit.location/withSystemServicesPrompt(): io.github.jamal_wia.kmptoolkit.location/LocationProvider // io.github.jamal_wia.kmptoolkit.location/withSystemServicesPrompt|withSystemServicesPrompt@io.github.jamal_wia.kmptoolkit.location.LocationProvider(){}[0]
 final fun io.github.jamal_wia.kmptoolkit.location/createLocationProvider(io.github.jamal_wia.kmptoolkit.location/LocationProviderConfig = ..., io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.location/LocationProvider // io.github.jamal_wia.kmptoolkit.location/createLocationProvider|createLocationProvider(io.github.jamal_wia.kmptoolkit.location.LocationProviderConfig;io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]

@@ -40,7 +40,15 @@ class PermissionStatusTest {
     @Test
     fun `the catalog holds only permissions with an exercised mapping on both platforms`() {
         assertEquals(
-            listOf(Permission.NOTIFICATIONS, Permission.MICROPHONE, Permission.CAMERA),
+            listOf(
+                Permission.NOTIFICATIONS,
+                Permission.MICROPHONE,
+                Permission.CAMERA,
+                Permission.LOCATION,
+                Permission.LOCATION_BACKGROUND,
+                Permission.MEDIA_AUDIO,
+                Permission.BLUETOOTH_CONNECT,
+            ),
             Permission.entries.toList(),
         )
     }

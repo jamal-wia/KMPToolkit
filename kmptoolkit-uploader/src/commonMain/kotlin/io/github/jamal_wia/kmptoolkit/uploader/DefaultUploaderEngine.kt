@@ -396,6 +396,10 @@ internal class DefaultUploaderEngine(
             // without managing to report it.
             wasDetached = item.state == UploaderItemState.IN_FLIGHT,
         )
+        if (typedHandler is UploadHandler<*>) {
+            handOffUpload(item, typedHandler as UploadHandler<Any>, context, payload)
+            return
+        }
         val outcome: AttemptResult = try {
             typedHandler.execute(context, payload)
         } catch (e: CancellationException) {
@@ -440,6 +444,57 @@ internal class DefaultUploaderEngine(
             }
 
             is AttemptResult.Retry -> recordRetry(item, handler, outcome.cause)
+        }
+    }
+
+    /**
+     * One attempt of an [UploadHandler]'s item. Unlike a plain [AttemptResult.Detached], the lease is
+     * claimed **before** the transport launches: a platform job may start at once, and one that found the
+     * item still pending would see nothing owed and upload nothing, leaving the claim that lands after it
+     * idle for a whole lease.
+     */
+    private suspend fun handOffUpload(
+        item: UploaderItem,
+        handler: UploadHandler<Any>,
+        context: AttemptContext,
+        payload: Any,
+    ) {
+        val preparation: UploadPreparation = try {
+            handler.prepareUpload(context, payload)
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            recordRetry(item, handler, e)
+            return
+        } catch (e: Throwable) {
+            recordRetry(item, handler, e)
+            return
+        }
+        val request: UploadRequest = when (preparation) {
+            is UploadPreparation.Drop -> return applyOutcome(item, handler, AttemptResult.Drop(preparation.reason))
+            is UploadPreparation.Park -> return applyOutcome(item, handler, AttemptResult.Park(preparation.reason))
+            is UploadPreparation.Proceed -> preparation.request
+        }
+        val transport: UploadTransport = handler.transport
+        val lease: Long = transport.leaseMillis
+        if (lease <= 0) {
+            // A non-positive lease would never read as in flight and re-hand on every pass.
+            store.park(item.id, "UploadTransport.leaseMillis must be > 0, was $lease")
+            logger.e { "Parked ${item.logName} — non-positive transport lease." }
+            return
+        }
+        val leaseUntil: Long = clock.nowEpochMillis() + lease
+        store.markInFlight(item.id, leaseUntil)
+        try {
+            transport.launch(item.id, context.wasDetached, request)
+            logger.i { "Detached ${item.logName} under a ${lease}ms lease." }
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            recordRetry(item, handler, e, expectedLeaseUntil = leaseUntil)
+        } catch (e: Throwable) {
+            // The platform scheduler unavailable, say: this item's attempt fails, guarded by the claim just
+            // made so a settle that already landed is not overwritten.
+            logger.e(e) { "Upload hand-off failed for ${item.logName}." }
+            recordRetry(item, handler, e, expectedLeaseUntil = leaseUntil)
         }
     }
 
@@ -494,6 +549,169 @@ internal class DefaultUploaderEngine(
     private fun cancelAlarm() {
         alarmJob?.cancel()
         alarmJob = null
+    }
+
+    /**
+     * One upload attempt of an [UploadHandler]'s item, prepared at the moment the transport runs it —
+     * see [UploadGateway.prepareAttempt]. A store failure reads as [UploadAttempt.EngineUnavailable], so
+     * the executor retries instead of concluding anything.
+     */
+    suspend fun prepareUploadAttempt(id: String): UploadAttempt = try {
+        prepareUploadRequest(id)?.let(UploadAttempt::Ready) ?: UploadAttempt.NothingOwed
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        logger.e(e) { "Upload attempt for id=$id could not be prepared — store failure; retry later." }
+        UploadAttempt.EngineUnavailable
+    }
+
+    /**
+     * @return `null` when nothing is to be uploaded: the row is gone or no longer in flight, the
+     *   handler dropped or parked it (applied here), or preparation failed transiently (the row stays
+     *   in flight and the lease expiry recovers it).
+     */
+    private suspend fun prepareUploadRequest(id: String): UploadRequest? {
+        val record: UploaderItem? = store.getById(id)
+        if (record == null || record.state != UploaderItemState.IN_FLIGHT) {
+            logger.i { "Upload attempt for id=$id has nothing owed (state=${record?.state})." }
+            return null
+        }
+        val (handler: UploadHandler<Any>, payload: Any) = uploadHandlerAndPayload(record, "upload attempt")
+            ?: return null
+        val context = AttemptContext(
+            id = record.id,
+            attempts = record.attempts,
+            uniqueKey = record.uniqueKey,
+            orderingKey = record.orderingKey,
+            wasDetached = true,
+        )
+        val preparation: UploadPreparation = try {
+            handler.prepareUpload(context, payload)
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            logger.e(e) { "prepareUpload leaked a cancellation for ${record.logName}." }
+            return null
+        } catch (e: Throwable) {
+            logger.e(e) { "prepareUpload failed for ${record.logName}; the lease will recover it." }
+            return null
+        }
+        return when (preparation) {
+            is UploadPreparation.Proceed -> preparation.request
+            is UploadPreparation.Drop -> {
+                store.deleteById(id)
+                logger.i { "Dropped ${record.logName} at upload attempt — ${preparation.reason}." }
+                trigger()
+                null
+            }
+
+            is UploadPreparation.Park -> {
+                store.park(id, preparation.reason)
+                logger.w { "Parked ${record.logName} at upload attempt — ${preparation.reason}." }
+                trigger()
+                null
+            }
+        }
+    }
+
+    /** Routes one progress signal to the handler — see [UploadGateway.progress]. Never parks or retries. */
+    @Suppress("UNCHECKED_CAST")
+    suspend fun reportUploadProgress(id: String, fraction: Float) {
+        val record: UploaderItem = try {
+            store.getById(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            logger.e(e) { "Progress store read failed for id=$id — dropping the signal." }
+            return
+        } ?: return
+        if (record.state != UploaderItemState.IN_FLIGHT) return
+        val handler: UploadHandler<Any> = handlersByType[record.type] as? UploadHandler<Any> ?: return
+        val payload: Any = try {
+            handler.decodePayload(record.payload)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            return // the settle path parks an undecodable payload; a progress hint just drops
+        }
+        runIsolated(record, "onUploadProgress") { handler.onUploadProgress(payload, fraction.coerceIn(0f, 1f)) }
+    }
+
+    /**
+     * Classifies and settles an upload outcome — see [UploadGateway.complete].
+     *
+     * @return `false` when a store failure kept the outcome from landing; the executor keeps it and
+     *   retries.
+     */
+    suspend fun settleUpload(id: String, result: UploadResult): Boolean = try {
+        settleUploadOutcome(id, result)
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        logger.e(e) { "Upload settle($result) for id=$id failed — store failure; the executor retries." }
+        false
+    }
+
+    private suspend fun settleUploadOutcome(id: String, result: UploadResult) {
+        val record: UploaderItem? = store.getById(id)
+        if (record == null) {
+            logger.i { "Upload settle($result) for unknown id=$id — no-op." }
+            return
+        }
+        val (handler: UploadHandler<Any>, payload: Any) = uploadHandlerAndPayload(record, "upload settle")
+            ?: return
+        // classify is feature code: a leaked cancellation or a throw becomes a Failed settlement,
+        // never a lost outcome.
+        val settleResult: SettleResult = try {
+            handler.classify(payload, result)
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            SettleResult.Failed(e)
+        } catch (e: Throwable) {
+            SettleResult.Failed(e)
+        }
+        if (settleResult is SettleResult.Delivered) {
+            // Before the row settles, isolated: the upload already landed, and a local failure must
+            // not make it upload again.
+            runIsolated(record, "onDelivered") { handler.onDelivered(payload) }
+        }
+        settle(id, settleResult)
+        runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
+    }
+
+    /**
+     * The upload handler for [record] and its decoded payload, or `null` after parking a row that has
+     * no upload handler or an undecodable payload — both wiring or migration bugs to keep visible.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun uploadHandlerAndPayload(record: UploaderItem, phase: String): Pair<UploadHandler<Any>, Any>? {
+        val handler: UploadHandler<Any> = handlersByType[record.type] as? UploadHandler<Any> ?: run {
+            store.park(record.id, "$phase for non-upload type '${record.type}'")
+            logger.e { "Parked ${record.logName} — $phase for a type with no UploadHandler." }
+            return null
+        }
+        val payload: Any = try {
+            handler.decodePayload(record.payload)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            store.park(record.id, "undecodable payload on $phase: ${e.message}")
+            logger.e(e) { "Parked ${record.logName} — undecodable payload on $phase." }
+            return null
+        }
+        return handler to payload
+    }
+
+    /** Runs a handler hook, logging and continuing on failure while honouring real cancellation. */
+    private suspend fun runIsolated(record: UploaderItem, hook: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            logger.e(e) { "$hook leaked a cancellation for ${record.logName}." }
+        } catch (e: Throwable) {
+            logger.e(e) { "$hook failed for ${record.logName}." }
+        }
     }
 
     override fun close() {

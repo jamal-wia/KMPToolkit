@@ -94,6 +94,49 @@ final class io.github.jamal_wia.kmptoolkit.uploader.testing/MutableUploaderClock
     final fun nowEpochMillis(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader.testing/MutableUploaderClock.nowEpochMillis|nowEpochMillis(){}[0]
 }
 
+final class io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport : io.github.jamal_wia.kmptoolkit.uploader/UploadTransport { // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport|null[0]
+    constructor <init>(kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.<init>|<init>(kotlin.Long){}[0]
+
+    final val launches // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.launches|{}launches[0]
+        final fun <get-launches>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch> // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.launches.<get-launches>|<get-launches>(){}[0]
+    final val leaseMillis // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.leaseMillis|{}leaseMillis[0]
+        final fun <get-leaseMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.leaseMillis.<get-leaseMillis>|<get-leaseMillis>(){}[0]
+
+    final var cancelAllCount // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.cancelAllCount|{}cancelAllCount[0]
+        final fun <get-cancelAllCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.cancelAllCount.<get-cancelAllCount>|<get-cancelAllCount>(){}[0]
+    final var failLaunchWith // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.failLaunchWith|{}failLaunchWith[0]
+        final fun <get-failLaunchWith>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.failLaunchWith.<get-failLaunchWith>|<get-failLaunchWith>(){}[0]
+        final fun <set-failLaunchWith>(kotlin/Throwable?) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.failLaunchWith.<set-failLaunchWith>|<set-failLaunchWith>(kotlin.Throwable?){}[0]
+
+    final fun cancelAll() // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.cancelAll|cancelAll(){}[0]
+    final fun launch(kotlin/String, io.github.jamal_wia.kmptoolkit.uploader/UploadRequest) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.launch|launch(kotlin.String;io.github.jamal_wia.kmptoolkit.uploader.UploadRequest){}[0]
+    final fun launch(kotlin/String, kotlin/Boolean, io.github.jamal_wia.kmptoolkit.uploader/UploadRequest) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.launch|launch(kotlin.String;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.uploader.UploadRequest){}[0]
+
+    final class Launch { // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch|null[0]
+        constructor <init>(kotlin/String, kotlin/Boolean, io.github.jamal_wia.kmptoolkit.uploader/UploadRequest) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.<init>|<init>(kotlin.String;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.uploader.UploadRequest){}[0]
+
+        final val isRehandOff // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.isRehandOff|{}isRehandOff[0]
+            final fun <get-isRehandOff>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.isRehandOff.<get-isRehandOff>|<get-isRehandOff>(){}[0]
+        final val itemId // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.itemId|{}itemId[0]
+            final fun <get-itemId>(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.itemId.<get-itemId>|<get-itemId>(){}[0]
+        final val request // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.request|{}request[0]
+            final fun <get-request>(): io.github.jamal_wia.kmptoolkit.uploader/UploadRequest // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.request.<get-request>|<get-request>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.component1|component1(){}[0]
+        final fun component2(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.component2|component2(){}[0]
+        final fun component3(): io.github.jamal_wia.kmptoolkit.uploader/UploadRequest // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.component3|component3(){}[0]
+        final fun copy(kotlin/String = ..., kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.uploader/UploadRequest = ...): io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.copy|copy(kotlin.String;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.uploader.UploadRequest){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch.toString|toString(){}[0]
+    }
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Companion|null[0]
+        final const val DEFAULT_LEASE_MILLIS // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Companion.DEFAULT_LEASE_MILLIS|{}DEFAULT_LEASE_MILLIS[0]
+            final fun <get-DEFAULT_LEASE_MILLIS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Companion.DEFAULT_LEASE_MILLIS.<get-DEFAULT_LEASE_MILLIS>|<get-DEFAULT_LEASE_MILLIS>(){}[0]
+    }
+}
+
 final class io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingWakeScheduler : io.github.jamal_wia.kmptoolkit.uploader.spi/WakeScheduler { // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingWakeScheduler|null[0]
     constructor <init>() // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingWakeScheduler.<init>|<init>(){}[0]
 

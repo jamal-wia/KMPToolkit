@@ -162,6 +162,9 @@ public interface AudioRecorder {
      * MPEG-4 `moov` atom — which takes a noticeable fraction of a second on a long recording. That
      * work runs on the factory's `coroutineContext`, not on the caller's thread.
      *
+     * Cancelling the calling coroutine does not abandon it half-way: the stop runs to the end, the
+     * state settles; the caller observes its cancellation no later than its next suspension point.
+     *
      * @return the finished file and how long it ran.
      */
     public suspend fun stop(): RecorderResult<RecordedFile>
@@ -175,6 +178,7 @@ public interface AudioRecorder {
      * file to keep or delete, and silently deleting it here would be a trap.
      *
      * Suspending because it deletes a file; the deletion runs on the factory's `coroutineContext`.
+     * Like [stop], it is not abandoned half-way by cancelling the calling coroutine.
      */
     public suspend fun cancel(): RecorderResult<Unit>
 

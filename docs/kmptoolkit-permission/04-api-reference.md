@@ -6,13 +6,16 @@ Every public symbol, its contract, and its thread-safety. Package
 ## `Permission`
 
 ```kotlin
-public enum class Permission { NOTIFICATIONS, MICROPHONE, CAMERA }
+public enum class Permission {
+    NOTIFICATIONS, MICROPHONE, CAMERA,
+    LOCATION, LOCATION_BACKGROUND, MEDIA_AUDIO, BLUETOOTH_CONNECT, // since 1.5.0
+}
 ```
 
-The closed catalog. Each entry maps to one Android permission string and one iOS authorization API,
-both exercised by tests. Location and the photo library are deliberately absent — see
-[`01-overview.md`](01-overview.md#why-the-catalog-is-closed) and
-[`05-platform-notes.md`](05-platform-notes.md).
+The closed catalog. Each entry maps to Android permission strings and an iOS authorization API, both
+exercised by tests; the full mapping is in [`05-platform-notes.md`](05-platform-notes.md). The photo
+library is deliberately absent — see [`01-overview.md`](01-overview.md#why-the-catalog-is-closed).
+The catalog can grow in a minor release: prefer an `else` branch in a `when` over it.
 
 ## `PermissionStatus`
 
@@ -33,8 +36,8 @@ public val PermissionStatus.canPrompt: Boolean
 | `Granted` | usable now | permission granted; also notifications below API 33 | authorized (also provisional/ephemeral notifications) |
 | `Denied(shouldShowRationale = true)` | refused, another dialog is possible | after the first refusal | never |
 | `Denied(shouldShowRationale = false)` | refused, no rationale asked for | rare; a device that reports no rationale mid-flow | never |
-| `PermanentlyDenied` | no dialog will appear again | second refusal, or "Don't allow" | any refusal; also restricted by MDM or parental controls |
-| `NotDetermined` | never asked | never asked | never asked |
+| `PermanentlyDenied` | no dialog will appear again | second refusal ("Don't allow" twice on Android 11+, "Don't ask again" before it); a dismissed dialog is not a refusal | any refusal; also restricted by MDM or parental controls |
+| `NotDetermined` | the next request shows a dialog, as far as the app can tell | never asked; also a dialog the user dismissed, and — indistinguishably — a permission refused in settings before the app asked or missing from the manifest, for which the request returns at once | never asked |
 
 `isGranted` is `true` only for `Granted`. `canPrompt` is `true` for `NotDetermined` and `Denied` —
 the two cases where requesting would put a dialog on screen.
@@ -46,6 +49,7 @@ public interface PermissionHandler {
     public suspend fun check(permission: Permission): PermissionStatus
     public suspend fun request(permission: Permission): PermissionStatus
     public fun openAppSettings(): Boolean
+    public fun observe(permission: Permission): Flow<PermissionStatus> // since 1.5.0, has a default
 }
 ```
 
@@ -57,6 +61,10 @@ public interface PermissionHandler {
   show nothing either.
 - **`openAppSettings`** opens the OS page for this app. `true` means the screen opened, not that the
   user changed anything; call `check`/`PermissionRequestFlow.refresh` on resume.
+- **`observe`** emits the current status on collection, then each *different* status: on every
+  activity resume on Android, every time the app becomes active on iOS, and after every `request`
+  through the same handler. It never shows UI. The interface default emits the current status once
+  and completes, so a handler written before 1.5.0 still compiles and answers once.
 - **Nothing throws.** Every failure — a missing activity, a launcher that cannot fire, a settings
   screen no app handles — arrives as a status or as `false`.
 - **One at a time.** Drive a handler from a single coroutine; two concurrent `request` calls are not
@@ -163,13 +171,33 @@ public fun createPermissionHandler(
 `context`'s application context is what gets retained; no activity is held directly — the handler
 tracks the currently resumed activity internally, used per call for
 `shouldShowRequestPermissionRationale` and to launch settings from the foreground activity when
-there is one. `storage` comes from `kmptoolkit-storage`'s `createKeyValueStorage(context)`.
+there is one. `storage` comes from `kmptoolkit-storage`'s `createKeyValueStorage(context)`. Create it
+in `Application.onCreate`, like any activity tracker.
+
+```kotlin
+public fun createPermissionHandler(
+    context: Context,
+    host: PermissionRequestHost,
+    storage: KeyValueStorage,
+    activityAccess: ActivityAccess,
+    config: PermissionConfig = PermissionConfig(),
+    logger: Logger = NoopLogger,
+): PermissionHandler
+```
+
+*Since 1.5.0.* The same handler over an `ActivityAccess` from `kmptoolkit-activity` that your app
+already owns — typically one narrowed with `isTracked` to your own activities — instead of a tracker
+of its own. The rationale is asked of, and settings are opened from, the activity that access
+reports.
 
 ## `PermissionRequestHost` (Android only)
 
 ```kotlin
 public interface PermissionRequestHost {
     public fun launch(androidPermission: String, onResult: (Boolean) -> Unit): Boolean
+
+    // since 1.5.0, has a default
+    public fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean
 }
 ```
 
@@ -180,6 +208,12 @@ never happened. Pass `androidPermission` through verbatim — the handler picks 
 the API-level-dependent choices. A full example is in
 [`02-getting-started.md`](02-getting-started.md).
 
+The multi-permission `launch` shows one dialog for all of `androidPermissions`
+(`RequestMultiplePermissions`) and reports each answer; the same exactly-once and `false` rules
+apply. The handler uses it only for `Permission.LOCATION`. Its default forwards a one-element list to
+the single `launch` and returns `false` for more, so an existing host keeps working for every other
+permission.
+
 ## iOS factory
 
 ```kotlin
@@ -187,6 +221,46 @@ public fun createPermissionHandler(logger: Logger = NoopLogger): PermissionHandl
 ```
 
 Nothing else is needed: no context, no activity, no storage.
+
+## `SpecialPermission`
+
+```kotlin
+public enum class SpecialPermission {
+    EXACT_ALARM, OVERLAY, WRITE_SETTINGS, ALL_FILES_ACCESS, USAGE_STATS_ACCESS,
+    IGNORE_BATTERY_OPTIMIZATIONS, NOTIFICATION_LISTENER_ACCESS, DO_NOT_DISTURB_ACCESS,
+}
+```
+
+An Android "special access" grant with no in-app dialog — see
+[`03-guide.md`](03-guide.md#special-access-permissions) for what each maps to and why this is a
+separate type from `Permission`. Every entry is a no-op on iOS.
+
+## `SpecialPermissionHandler`
+
+```kotlin
+public interface SpecialPermissionHandler {
+    public fun isGranted(permission: SpecialPermission): Boolean
+    public fun requestViaSettings(permission: SpecialPermission): Boolean
+}
+```
+
+| Member | Contract |
+|---|---|
+| `isGranted(permission)` | Whether `permission` is currently granted. Always `true` on iOS |
+| `requestViaSettings(permission)` | Opens the system Settings screen for `permission`. No result callback — re-check `isGranted` on resume. Returns whether a screen was actually opened; always `false` on iOS |
+
+### Factories
+
+```kotlin
+// Android
+public fun createSpecialPermissionHandler(context: Context, logger: Logger = NoopLogger): SpecialPermissionHandler
+
+// iOS
+public fun createSpecialPermissionHandler(): SpecialPermissionHandler
+```
+
+The Android factory needs only a `Context` — every operation here is context-level, none of it
+depends on an `Activity`.
 
 ## `kmptoolkit-permission-testing`
 
@@ -202,6 +276,19 @@ public class RecordingPermissionHandler(
     public var settingsAvailable: Boolean
     public fun setStatus(permission: Permission, status: PermissionStatus)
     public fun scriptRequest(permission: Permission, outcome: PermissionStatus)
+    public fun clearRecordings()
+}
+```
+
+```kotlin
+public class RecordingSpecialPermissionHandler(
+    public var defaultGranted: Boolean = true,
+) : SpecialPermissionHandler {
+    public val checks: List<SpecialPermission>
+    public val requestedViaSettings: List<SpecialPermission>
+    public var defaultSettingsAvailable: Boolean
+    public fun setGranted(permission: SpecialPermission, granted: Boolean)
+    public fun setSettingsAvailable(permission: SpecialPermission, available: Boolean)
     public fun clearRecordings()
 }
 ```

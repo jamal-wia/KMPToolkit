@@ -124,6 +124,7 @@ Useful as a model, and as an answer to "is the platform mapping actually verifie
 |---|---|---|
 | `NoOpFlashlightTest`, `FlashPatternContractTest` | `commonTest` (JVM + iOS) | The no-op contract and the declared shape of `FlashPattern` |
 | `RecordingFlashlightTest` | `kmptoolkit-flashlight-testing/commonTest` | The fixture's own contract — recording order, snapshot semantics, `clear` |
+| `TorchBlinkerTest` | `commonTest` (JVM + iOS) | The blink loop both platforms share, against a recording torch: the rhythm and `stop` ending dark; a new pattern's first flash surviving a replacement, a `stop` just before it, and a job replaced while it was still waiting — the last two under a last-in-first-out dispatcher that forces the ordering a thread pool can produce; plus a stress case of hundreds of concurrent `start`s on real threads, which catches an orphaned loop whenever the race occurs rather than deterministically |
 | `AndroidFlashlightTest` | `androidUnitTest`, Robolectric's `ShadowCameraManager` | Hardware detection (flash present, absent, on a second camera, no camera at all) and that the torch always ends up off after `stop`, including after a re-arm |
 | `IosFlashlightTest` | `iosTest` | The simulator's "no torch" contract: `isAvailable` reports `false`, and `start`/`stop`/re-arm all survive it — the same case the Robolectric suite covers on Android |
 

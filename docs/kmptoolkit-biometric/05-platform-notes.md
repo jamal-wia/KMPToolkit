@@ -19,28 +19,104 @@ All three are **install-time** permissions: they show up in your Play Store list
 screen, and none of them triggers a runtime prompt. This module never asks the user for a
 permission.
 
-They are deliberately **not** stripped with `tools:node="remove"`. `androidx.biometric` genuinely
-needs them; removing one trades a line in a listing for a `SecurityException` on somebody's device.
-The module's `LibraryManifestTest` pins the set by name, so a new dependency — or an
+They are deliberately **not** stripped by this module with `tools:node="remove"`. `androidx.biometric`
+genuinely needs them; removing one trades a line in a listing for a `SecurityException` on somebody's
+device. The module's `LibraryManifestTest` pins the set by name, so a new dependency — or an
 `androidx.biometric` upgrade that starts asking for something new — fails the build rather than
 appearing in your listing unannounced.
+
+#### Keeping them out of a variant that never authenticates
+
+An app with several build variants may authenticate in only one of them — a managed-device flavour,
+say — while its public variant never builds a gate at all. The public listing then shows biometric
+permissions for a feature it does not have. Strip them in the manifest of the variant that never
+builds a gate, and **only** there:
+
+```xml
+<!-- src/main/AndroidManifest.xml — merged into every variant -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" tools:node="remove" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" tools:node="remove" />
+</manifest>
+
+<!-- src/managed/AndroidManifest.xml — the variant that does authenticate -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+</manifest>
+```
+
+A removal marker applies to lower-priority manifests — libraries — while a flavour or build-type
+manifest outranks `main`, so the managed variant's own declaration survives. Two rules keep this safe:
+
+- **Never build a gate in a variant whose manifest lost the permission.** Bind a no-op implementation
+  of `BiometricGate` there instead, so the code path that would need the permission does not exist.
+- **Assert the merged manifest per variant** in a test, the same way this module asserts its own. The
+  merge rules are easy to get wrong and silent when you do.
+
+Leave `REORDER_TASKS` alone unless you are sure nothing else in the app needs it; it is not specific
+to biometrics.
 
 ### Your activity must be a `FragmentActivity`
 
 `androidx.biometric.BiometricPrompt` posts a fragment into the hosting activity's fragment manager.
-`ComponentActivity` and `AppCompatActivity` both qualify; a bare `android.app.Activity` does not.
+`FragmentActivity` and its subclass `AppCompatActivity` qualify. `androidx.activity.ComponentActivity`
+does **not**: it is `FragmentActivity`'s *superclass* and has no fragment manager — and it is what a
+Compose project's `MainActivity` extends by default. A bare `android.app.Activity` does not qualify
+either. Switching a Compose activity to `FragmentActivity` changes nothing else: `setContent`,
+`enableEdgeToEdge` and every other `ComponentActivity` API are still there.
 
 The module tracks the *currently resumed* activity internally and holds it weakly. When there is
 none — the app is backgrounded, a configuration change is in flight — or when the resumed activity
 is not a `FragmentActivity`, `authenticate` returns `BiometricResult.NoPromptHost` and nothing is
 shown. It is deliberately not a `ClassCastException`, and deliberately not `Cancelled`.
 
+**Create the gate before your activity resumes** — in `Application.onCreate`. The tracker learns which
+activity is resumed from the resumed callback, and Android offers no way to ask afterwards. A gate
+created lazily, on its first injection into a screen, is created after `MainActivity` resumed: it
+answers `NoPromptHost` until the activity pauses and resumes again.
+
 ### Authenticator strength
 
-`BIOMETRIC_ONLY` maps to `BIOMETRIC_STRONG` and never to `BIOMETRIC_WEAK`. The weak tier includes
-sensors the platform will not let you gate a Keystore key with; accepting them silently would weaken
-what `Authenticated` claims. A device whose only sensor is weak-tier therefore reports
-`NOT_ENROLLED` or `HARDWARE_UNAVAILABLE` rather than authenticating.
+`BIOMETRIC_ONLY` maps to `BIOMETRIC_STRONG` by default and never silently to `BIOMETRIC_WEAK`. The weak
+tier includes sensors the platform will not let you gate a Keystore key with — typically camera-based
+face unlock; accepting them silently would weaken what `Authenticated` claims. A device whose only
+sensor is weak-tier therefore reports `NOT_ENROLLED` or `HARDWARE_UNAVAILABLE` rather than
+authenticating.
+
+Opt into the weak tier explicitly with `BiometricGateOptions(strength = BiometricStrength.WEAK)` — for
+a supervised check on shared tablets whose only sensor is face unlock, where reaching the device
+matters more than spoof resistance and nothing a Keystore key protects hangs on the result. Both
+`availability()` and the prompt then ask for `BIOMETRIC_WEAK`. It cannot be combined with
+`BIOMETRIC_OR_DEVICE_CREDENTIAL`; the factory throws `IllegalArgumentException`.
+
+### One sensor attempt per call
+
+By default the prompt stays up after an unrecognised biometric and the platform lets the user try
+again, reporting `Rejected` only once it gives up — and after five failures on most devices it locks
+the sensor, a lockout that only the device credential clears. With
+`BiometricGateOptions(singleAttempt = true)` the first non-match ends the prompt: `authenticate`
+returns `Rejected` and the sheet is dismissed. The cancellation that dismissal causes is not reported.
+Use it when each attempt is an event your app counts and acts on itself. Under a policy that allows the
+device credential, the first non-match dismisses the prompt before the user can switch to the PIN, so
+`singleAttempt` belongs with `BIOMETRIC_ONLY`.
+
+### Opening enrolment
+
+`launchEnrollment()` starts, in a new task, the first screen the device resolves:
+
+| Situation | Candidates, in order |
+|---|---|
+| API 30+, nothing enrolled for the gate's tier | `Settings.ACTION_BIOMETRIC_ENROLL` with that tier |
+| API 30+, already enrolled | `android.settings.COMBINED_BIOMETRICS_SETTINGS`, then the enrolment wizard |
+| below API 30 | `Settings.ACTION_SECURITY_SETTINGS` |
+
+The split exists because the enrolment wizard is *enrol-if-missing*: for a user who already has an
+enrolment it finishes at once without showing anything. The management screen is not a documented
+constant, hence the literal and the fallback. It also stays inside the Settings app, which matters
+under lock-task mode, where only allowlisted packages can be started. The screen always starts in a
+new task, so a settings screen can never end up at the root of the app's own task. Calls closer than
+`BiometricGateOptions.enrollmentThrottle` (1 s by default) return `THROTTLED` and start nothing.
 
 ### The device credential and API 30
 
@@ -98,7 +174,8 @@ yours, so the library cannot know whether it said "Cancel" or "Use PIN", and gue
 words in your mouth.
 
 `onAuthenticationFailed` — one unrecognised finger, sheet still up — produces **no** result. The
-prompt keeps letting the user try; `Rejected` arrives only once the platform gives up.
+prompt keeps letting the user try; `Rejected` arrives only once the platform gives up — unless the gate
+was built with `singleAttempt`, see above.
 
 ## iOS
 

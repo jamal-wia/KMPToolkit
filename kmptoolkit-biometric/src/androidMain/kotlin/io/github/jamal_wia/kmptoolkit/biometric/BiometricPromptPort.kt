@@ -11,15 +11,20 @@ import androidx.fragment.app.FragmentActivity
  * outcome per call, cancellation dismissing the sheet — can be exercised without an emulator, a
  * fingerprint sensor, or a user's finger, none of which a unit test has.
  */
-internal interface BiometricPromptPort {
+internal fun interface BiometricPromptPort {
 
     /**
      * Shows the system prompt and reports the single terminal outcome through [onOutcome].
      *
+     * @param requireConfirmation whether a passive biometric needs a confirming tap on this prompt.
      * @return a handle for dismissing the prompt, or `null` when there is no activity able to host
      *   it — in which case [onOutcome] is never called and nothing was shown.
      */
-    fun show(prompt: BiometricPromptText, onOutcome: (BiometricResult) -> Unit): PromptHandle?
+    fun show(
+        prompt: BiometricPromptText,
+        requireConfirmation: Boolean,
+        onOutcome: (BiometricResult) -> Unit,
+    ): PromptHandle?
 }
 
 /** A prompt that is (or is about to be) on screen. */
@@ -47,10 +52,12 @@ internal interface PromptHandle {
 internal class ActivityBiometricPromptPort(
     private val activityAccess: ActivityAccess,
     private val config: BiometricGateConfig,
+    private val options: BiometricGateOptions = BiometricGateOptions(),
 ) : BiometricPromptPort {
 
     override fun show(
         prompt: BiometricPromptText,
+        requireConfirmation: Boolean,
         onOutcome: (BiometricResult) -> Unit,
     ): PromptHandle? {
         val activity: FragmentActivity =
@@ -71,10 +78,12 @@ internal class ActivityBiometricPromptPort(
             val systemPrompt = BiometricPrompt(
                 activity,
                 ContextCompat.getMainExecutor(activity),
-                callback(deliverOnce),
+                authenticationCallback(options.singleAttempt, deliverOnce, handle::cancel),
             )
             handle.attach(systemPrompt)
-            runCatching { systemPrompt.authenticate(buildPromptInfo(prompt, config)) }
+            runCatching {
+                systemPrompt.authenticate(buildPromptInfo(prompt, config, options.strength, requireConfirmation))
+            }
                 .onFailure {
                     // The builder validates the authenticator/negative-button combination against
                     // the running API level, and throws rather than degrading. Reaching this is a
@@ -86,19 +95,36 @@ internal class ActivityBiometricPromptPort(
         }
         return handle
     }
+}
 
-    private fun callback(onOutcome: (BiometricResult) -> Unit): BiometricPrompt.AuthenticationCallback =
-        object : BiometricPrompt.AuthenticationCallback() {
+/**
+ * The framework callback for one prompt: every terminal outcome to [onOutcome], and — only when
+ * [singleAttempt] — a non-match as [BiometricResult.Rejected] followed by [dismiss].
+ *
+ * [onOutcome] must deliver at most once; the dismissal's own `ERROR_CANCELED` relies on that to be
+ * dropped rather than reported as the user cancelling.
+ */
+internal fun authenticationCallback(
+    singleAttempt: Boolean,
+    onOutcome: (BiometricResult) -> Unit,
+    dismiss: () -> Unit,
+): BiometricPrompt.AuthenticationCallback = object : BiometricPrompt.AuthenticationCallback() {
 
-            override fun onAuthenticationSucceeded(
-                result: BiometricPrompt.AuthenticationResult,
-            ): Unit = onOutcome(BiometricResult.Authenticated)
+    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult): Unit =
+        onOutcome(BiometricResult.Authenticated)
 
-            override fun onAuthenticationError(errorCode: Int, errString: CharSequence): Unit =
-                onOutcome(mapAuthenticationError(errorCode))
+    override fun onAuthenticationError(errorCode: Int, errString: CharSequence): Unit =
+        onOutcome(mapAuthenticationError(errorCode))
 
-            override fun onAuthenticationFailed(): Unit = Unit // Sheet stays up; not terminal.
-        }
+    override fun onAuthenticationFailed() {
+        // Without singleAttempt the sheet stays up and the platform retries: not terminal.
+        if (!singleAttempt) return
+        // With it, this non-match is the attempt. Delivered before the sheet is dismissed, so the
+        // ERROR_CANCELED that dismissal produces arrives second and is dropped by the at-most-once
+        // guard instead of being reported as the user cancelling.
+        onOutcome(BiometricResult.Rejected)
+        dismiss()
+    }
 }
 
 /**

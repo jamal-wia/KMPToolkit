@@ -2,10 +2,17 @@ package io.github.jamal_wia.kmptoolkit.haptics
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /** Pins the contract documented on [noOpHapticFeedback]. */
 class NoOpHapticFeedbackTest {
+
+    @Test
+    fun `it is never available`() {
+        assertFalse(noOpHapticFeedback().isAvailable)
+    }
 
     @Test
     fun `every haptic type reports UNAVAILABLE`() {
@@ -26,6 +33,19 @@ class NoOpHapticFeedbackTest {
     @Test
     fun `the factory hands back one stateless instance`() {
         assertSame(noOpHapticFeedback(), noOpHapticFeedback())
+    }
+}
+
+/** Pins the default an implementation written before [HapticFeedback.isAvailable] existed inherits. */
+class HapticFeedbackDefaultsTest {
+
+    @Test
+    fun `an implementation that does not override isAvailable reports true`() {
+        val legacy = object : HapticFeedback {
+            override fun perform(type: HapticType): HapticResult = HapticResult.PERFORMED
+        }
+
+        assertTrue(legacy.isAvailable)
     }
 }
 

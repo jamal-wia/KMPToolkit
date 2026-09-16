@@ -219,6 +219,66 @@ class SystemBarsControllerTest {
         assertEquals(SystemBarsConfig.ForLightBackground, controller.currentConfig)
     }
 
+    @Test
+    fun `a handle released after the stack drained does not take a later layer with it`() {
+        // The case the two-handle test above cannot reach: the stack has to go *empty* in between.
+        // While ids were derived from the live layers, an empty stack restarted the sequence and the
+        // dead handle matched the next screen's layer. One screen leaving twice then blanked the
+        // next screen's bars.
+        val controller = RecordingSystemBarsController(SystemBarsConfig.ForLightBackground)
+        val gone: SystemBarsOverrideHandle = controller.applyOverride(
+            SystemBarsOverride(statusBarIcons = SystemBarIconStyle.LightIcons),
+        )
+        gone.release()
+        assertEquals(0, controller.activeOverrideCount)
+
+        val live: SystemBarsOverrideHandle = controller.applyOverride(
+            SystemBarsOverride(visibility = SystemBarsVisibility.Immersive),
+        )
+        gone.release()
+
+        assertEquals(1, controller.activeOverrideCount, "the dead handle released someone else's layer")
+        assertEquals(SystemBarsVisibility.Immersive, controller.currentConfig.visibility)
+        live.release()
+        assertEquals(SystemBarsConfig.ForLightBackground, controller.currentConfig)
+    }
+
+    @Test
+    fun `a handle updated after the stack drained does not overwrite a later layer`() {
+        val controller = RecordingSystemBarsController(SystemBarsConfig.ForLightBackground)
+        val gone: SystemBarsOverrideHandle = controller.applyOverride(
+            SystemBarsOverride(statusBarIcons = SystemBarIconStyle.LightIcons),
+        )
+        gone.release()
+        controller.applyOverride(SystemBarsOverride(visibility = SystemBarsVisibility.Immersive))
+
+        gone.update(SystemBarsOverride(visibility = SystemBarsVisibility.Visible))
+
+        assertEquals(
+            SystemBarsVisibility.Immersive,
+            controller.currentConfig.visibility,
+            "the dead handle rewrote the live layer's override",
+        )
+    }
+
+    @Test
+    fun `a handle taken before the controller was released stays dead afterwards`() {
+        val controller = RecordingSystemBarsController(SystemBarsConfig.ForLightBackground)
+        val stale: SystemBarsOverrideHandle = controller.applyOverride(
+            SystemBarsOverride(statusBarIcons = SystemBarIconStyle.LightIcons),
+        )
+        controller.release()
+
+        val live: SystemBarsOverrideHandle = controller.applyOverride(
+            SystemBarsOverride(visibility = SystemBarsVisibility.Immersive),
+        )
+        stale.release()
+
+        assertEquals(1, controller.activeOverrideCount)
+        assertEquals(SystemBarsVisibility.Immersive, controller.currentConfig.visibility)
+        live.release()
+    }
+
     // --- Updating a live layer ----------------------------------------------------------------
 
     @Test

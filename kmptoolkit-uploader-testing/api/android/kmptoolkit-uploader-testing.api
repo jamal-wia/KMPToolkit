@@ -72,6 +72,40 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/MutableUpload
 	public final fun setNowMillis (J)V
 }
 
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/RecordingUploadTransport : io/github/jamal_wia/kmptoolkit/uploader/UploadTransport {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/testing/RecordingUploadTransport$Companion;
+	public static final field DEFAULT_LEASE_MILLIS J
+	public fun <init> ()V
+	public fun <init> (J)V
+	public synthetic fun <init> (JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun cancelAll ()V
+	public final fun getCancelAllCount ()I
+	public final fun getFailLaunchWith ()Ljava/lang/Throwable;
+	public final fun getLaunches ()Ljava/util/List;
+	public fun getLeaseMillis ()J
+	public fun launch (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
+	public fun launch (Ljava/lang/String;ZLio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
+	public final fun setFailLaunchWith (Ljava/lang/Throwable;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/RecordingUploadTransport$Companion {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/testing/RecordingUploadTransport$Launch {
+	public fun <init> (Ljava/lang/String;ZLio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Z
+	public final fun component3 ()Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;
+	public final fun copy (Ljava/lang/String;ZLio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)Lio/github/jamal_wia/kmptoolkit/uploader/testing/RecordingUploadTransport$Launch;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/testing/RecordingUploadTransport$Launch;Ljava/lang/String;ZLio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/testing/RecordingUploadTransport$Launch;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getItemId ()Ljava/lang/String;
+	public final fun getRequest ()Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;
+	public fun hashCode ()I
+	public final fun isRehandOff ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/uploader/testing/RecordingWakeScheduler : io/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler {
 	public fun <init> ()V
 	public fun cancelWake ()V

@@ -1,3 +1,9 @@
+public final class io/github/jamal_wia/kmptoolkit/notification/AndroidNotificationsKt {
+	public static final fun buildForegroundNotification (Landroid/content/Context;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;)Landroid/app/Notification;
+	public static synthetic fun buildForegroundNotification$default (Landroid/content/Context;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;ILjava/lang/Object;)Landroid/app/Notification;
+	public static final fun notificationIdOf (Ljava/lang/String;)I
+}
+
 public final class io/github/jamal_wia/kmptoolkit/notification/LocalNotification {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/NotificationChannelSpec;Lio/github/jamal_wia/kmptoolkit/notification/NotificationIcon;Lio/github/jamal_wia/kmptoolkit/notification/NotificationProgress;ZZLjava/util/List;Ljava/lang/String;Ljava/util/Map;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/NotificationChannelSpec;Lio/github/jamal_wia/kmptoolkit/notification/NotificationIcon;Lio/github/jamal_wia/kmptoolkit/notification/NotificationProgress;ZZLjava/util/List;Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -70,6 +76,12 @@ public final class io/github/jamal_wia/kmptoolkit/notification/NotificationChann
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/notification/NotificationChannels {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/notification/NotificationChannels;
+	public final fun delete (Landroid/content/Context;Ljava/lang/String;)V
+	public final fun ensure (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/notification/NotificationChannelSpec;)V
+}
+
 public final class io/github/jamal_wia/kmptoolkit/notification/NotificationConfig {
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig$Companion;
 	public static final field DEFAULT_PROGRESS_BUCKET_PERCENT I
@@ -120,6 +132,24 @@ public final class io/github/jamal_wia/kmptoolkit/notification/NotificationImpor
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/notification/NotificationImportance;
 	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/notification/NotificationImportance;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/notification/NotificationOptions {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions$Companion;
+	public fun <init> ()V
+	public fun <init> (ZLio/github/jamal_wia/kmptoolkit/notification/NotificationAction;ZLjava/util/Map;)V
+	public synthetic fun <init> (ZLio/github/jamal_wia/kmptoolkit/notification/NotificationAction;ZLjava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getActionIcons ()Ljava/util/Map;
+	public final fun getAlertOnce ()Z
+	public final fun getDismissAction ()Lio/github/jamal_wia/kmptoolkit/notification/NotificationAction;
+	public final fun getMediaStyle ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/notification/NotificationOptions$Companion {
+	public final fun getDEFAULT ()Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/notification/NotificationProgress {
@@ -231,7 +261,12 @@ public final class io/github/jamal_wia/kmptoolkit/notification/NotificationSound
 public abstract interface class io/github/jamal_wia/kmptoolkit/notification/Notifier {
 	public abstract fun cancel (Ljava/lang/String;)V
 	public abstract fun cancelAll ()V
+	public fun post (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun post (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/notification/Notifier$DefaultImpls {
+	public static fun post (Lio/github/jamal_wia/kmptoolkit/notification/Notifier;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/notification/NotifierKt {

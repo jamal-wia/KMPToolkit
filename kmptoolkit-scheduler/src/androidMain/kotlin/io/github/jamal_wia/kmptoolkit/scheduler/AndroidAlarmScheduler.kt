@@ -32,7 +32,8 @@ import android.os.Build
  *
  * @param context any context; the application context is taken from it.
  * @param handlers one handler per [ScheduledAlarm.type] you schedule. Passing none is legal and
- *   means every fired alarm is dropped — useful only if you never schedule anything.
+ *   means every fired alarm is dropped — useful only if you never schedule anything. When a handler
+ *   needs the scheduler itself, use the `handlerProvider` overload instead.
  * @param config identifiers this module writes into intents; see [AlarmSchedulerConfig].
  */
 public fun createAlarmScheduler(
@@ -43,6 +44,45 @@ public fun createAlarmScheduler(
     val appContext: Context = context.applicationContext
     val keys: AlarmIntentKeys = AlarmIntentKeys.from(config, appContext.packageName)
     AlarmDispatch.install(keys, handlers)
+    return AndroidAlarmScheduler(appContext, keys)
+}
+
+/**
+ * Creates the Android [AlarmScheduler] with handlers that are looked up when an alarm fires rather
+ * than handed over up front.
+ *
+ * The same scheduler as the list overload, for the one situation that overload cannot express:
+ * handlers that depend on the scheduler themselves. A handler that re-arms the next occurrence of a
+ * repeating reminder needs an [AlarmScheduler]; the scheduler, created with a list, needs that
+ * handler first. In a DI container this is a cycle that fails at resolution time. A provider breaks
+ * it — the scheduler can be created, and exposed, before any handler exists:
+ *
+ * ```kotlin
+ * single<AlarmScheduler> {
+ *     createAlarmScheduler(androidContext(), handlerProvider = { getAll<AlarmHandler>() })
+ * }
+ * single { NextReminderHandler(scheduler = get()) } bind AlarmHandler::class
+ * ```
+ *
+ * [handlerProvider] is called on a background thread each time an alarm fires, never during this
+ * call, and whatever it returns then decides which handler runs. It must therefore be cheap to call
+ * repeatedly (a DI lookup of singletons is) and must not throw; an exception from it drops the alarm.
+ *
+ * **Call this from `Application.onCreate`**, exactly as the list overload: an alarm that fires into a
+ * process where no scheduler has been created yet is dropped, provider or not.
+ *
+ * @param context any context; the application context is taken from it.
+ * @param handlerProvider returns the handlers to choose from, one per [ScheduledAlarm.type].
+ * @param config identifiers this module writes into intents; see [AlarmSchedulerConfig].
+ */
+public fun createAlarmScheduler(
+    context: Context,
+    handlerProvider: () -> Collection<AlarmHandler>,
+    config: AlarmSchedulerConfig = AlarmSchedulerConfig(),
+): AlarmScheduler {
+    val appContext: Context = context.applicationContext
+    val keys: AlarmIntentKeys = AlarmIntentKeys.from(config, appContext.packageName)
+    AlarmDispatch.install(keys, handlerProvider)
     return AndroidAlarmScheduler(appContext, keys)
 }
 
@@ -69,6 +109,21 @@ internal class AndroidAlarmScheduler(
     override suspend fun schedule(alarm: ScheduledAlarm): AlarmScheduleResult {
         val manager: AlarmManager = alarmManager
             ?: return AlarmScheduleResult.Failed(AlarmFailure.SchedulerUnavailable)
+        return try {
+            arm(manager, alarm)
+        } catch (refusal: IllegalStateException) {
+            // AlarmManager refuses in ways a caller cannot prevent: since Android 12 an app holding
+            // too many alarms at once (the limit is 500) gets an IllegalStateException from every
+            // set call, inexact ones included. "Never throws for a platform refusal" is the contract,
+            // so the refusal becomes a result the caller can act on instead of a crash.
+            AlarmScheduleResult.Failed(AlarmFailure.PlatformError(refusal.message))
+        } catch (refusal: SecurityException) {
+            // The exact path already downgrades on this; the inexact one has nothing to fall back to.
+            AlarmScheduleResult.Failed(AlarmFailure.PlatformError(refusal.message))
+        }
+    }
+
+    private fun arm(manager: AlarmManager, alarm: ScheduledAlarm): AlarmScheduleResult {
         val pendingIntent: PendingIntent = PendingIntent.getBroadcast(
             context,
             AlarmIntents.requestCode(alarm.id),

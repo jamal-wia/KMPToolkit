@@ -29,6 +29,13 @@ import kotlin.time.TimeSource
  * Either way the id's state is then reset, so the next run starts fresh rather than measuring
  * against a stale bucket.
  *
+ * The bucket only judges frames that differ in nothing but the percentage. An update whose content
+ * changed — a new title, a body with a new figure in it, different buttons — is not held back by the
+ * bucket, because dropping it would leave stale text on screen until the bar next crossed a bucket.
+ * The **rate limit still applies** to it: a body that carries the percentage changes on every step,
+ * and letting content changes bypass the rate as well would turn coalescing off for exactly the
+ * notifications that need it most.
+ *
  * **Thread-safe.** Notifications get posted from whatever thread finished a chunk of work, so the
  * state is guarded internally rather than by a note in the documentation.
  *
@@ -51,9 +58,16 @@ internal class ProgressCoalescer(
      *
      * Calling this **records** the decision: a `true` becomes the baseline the next call is
      * measured against, so call it exactly once per attempted post and honour the answer.
+     *
+     * @param content everything about the post other than [progress], compared by equality. A change
+     *   in it bypasses the bucket but not the rate limit. `null` compares equal to `null`.
      */
-    fun shouldPost(id: String, progress: NotificationProgress?): Boolean = lock.withLock {
-        when (val decision: Decision = decide(id, progress)) {
+    fun shouldPost(
+        id: String,
+        progress: NotificationProgress?,
+        content: Any? = null,
+    ): Boolean = lock.withLock {
+        when (val decision: Decision = decide(id, progress, content)) {
             Decision.Suppress -> false
             Decision.Reset -> {
                 posted.remove(id)
@@ -61,7 +75,7 @@ internal class ProgressCoalescer(
             }
 
             is Decision.Record -> {
-                posted[id] = Post(bucket = decision.bucket, at = timeSource.markNow())
+                posted[id] = Post(bucket = decision.bucket, content = content, at = timeSource.markNow())
                 true
             }
         }
@@ -75,17 +89,18 @@ internal class ProgressCoalescer(
      * answer could outrank "redundant". Nothing here is a commitment: [shouldPost] is what decides,
      * and it may disagree if time has passed in between.
      */
-    fun wouldSuppress(id: String, progress: NotificationProgress?): Boolean =
-        lock.withLock { decide(id, progress) is Decision.Suppress }
+    fun wouldSuppress(id: String, progress: NotificationProgress?, content: Any? = null): Boolean =
+        lock.withLock { decide(id, progress, content) is Decision.Suppress }
 
-    private fun decide(id: String, progress: NotificationProgress?): Decision {
+    private fun decide(id: String, progress: NotificationProgress?, content: Any?): Decision {
         if (progress !is NotificationProgress.Determinate) return Decision.Reset
         val percent: Int = progress.percent.coerceIn(0, NotificationConfig.MAX_PERCENT)
         if (percent == NotificationConfig.MAX_PERCENT) return Decision.Reset
         val bucket: Int = (percent / bucketPercent) * bucketPercent
         val previous: Post = posted[id] ?: return Decision.Record(bucket)
-        val tooSoon: Boolean = previous.at.elapsedNow() < minInterval
-        return if (previous.bucket == bucket || tooSoon) Decision.Suppress else Decision.Record(bucket)
+        if (previous.at.elapsedNow() < minInterval) return Decision.Suppress
+        val redundant: Boolean = previous.bucket == bucket && previous.content == content
+        return if (redundant) Decision.Suppress else Decision.Record(bucket)
     }
 
     /** Forgets [id]'s state, so its next determinate update posts. Called when it is cancelled. */
@@ -94,12 +109,12 @@ internal class ProgressCoalescer(
     /** Forgets every id's state. Called on [Notifier.cancelAll]. */
     fun clear(): Unit = lock.withLock { posted.clear() }
 
-    private data class Post(val bucket: Int, val at: TimeMark)
+    private data class Post(val bucket: Int, val content: Any?, val at: TimeMark)
 
     /** What [decide] concluded, kept separate from acting on it so it can also be asked about. */
     private sealed interface Decision {
 
-        /** Redundant: the bar would not move, or the rate limit has not elapsed. */
+        /** Too soon after the last post, or the same content with the bar in the same bucket. */
         data object Suppress : Decision
 
         /** Always posts and clears the id's state — a terminal or non-determinate frame. */

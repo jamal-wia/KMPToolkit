@@ -30,8 +30,10 @@ arrive, and neither platform tells you *why* in a shape common code can act on.
 - **Both** platforms happily suspend forever indoors or with no signal unless the caller adds its
   own timeout.
 
-`LocationProvider` collapses all of that into three calls that either return a value or `null` —
-never an exception, never a hang past `LocationProviderConfig.singleFixTimeoutMillis`.
+`LocationProvider` collapses all of that into a handful of calls that either return a value or
+`null` — never an exception, never a hang past `LocationProviderConfig.singleFixTimeoutMillis`. One
+of them, `promptToEnableService()`, exists specifically for "the service is off" — see
+[`03-guide.md`](03-guide.md#prompting-to-re-enable-the-service).
 
 ## What this is **not**
 

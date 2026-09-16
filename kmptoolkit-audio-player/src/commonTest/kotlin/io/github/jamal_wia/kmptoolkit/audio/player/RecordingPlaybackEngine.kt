@@ -1,6 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.audio.player
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * Minimal scriptable [PlaybackEngine] for the tests in this module.
@@ -22,6 +25,21 @@ internal class RecordingPlaybackEngine(
     var loadFailure: Throwable? = null
     var loadDelayMs: Long = 0L
 
+    /** Virtual time a cancelled load takes to unwind, like a platform handle that is slow to free. */
+    var unwindDelayMs: Long = 0L
+
+    /**
+     * When non-`null`, a load that is cancelled throws this instead of the cancellation — the way an
+     * engine whose platform reports "released while loading" as an ordinary error behaves.
+     */
+    var failureWhenCancelled: Throwable? = null
+
+    /** Loads currently running, and the most that ever ran at once — the player promises one. */
+    var activeLoads: Int = 0
+        private set
+    var maxConcurrentLoads: Int = 0
+        private set
+
     val loadedSources: MutableList<AudioSource> = mutableListOf()
     val seekTargets: MutableList<Long> = mutableListOf()
     var started: Int = 0
@@ -35,9 +53,22 @@ internal class RecordingPlaybackEngine(
 
     override suspend fun load(source: AudioSource) {
         loadedSources += source
-        if (loadDelayMs > 0L) delay(loadDelayMs)
-        loadFailure?.let { failure: Throwable -> throw failure }
-        position = 0L
+        activeLoads++
+        maxConcurrentLoads = maxOf(maxConcurrentLoads, activeLoads)
+        try {
+            if (loadDelayMs > 0L) {
+                try {
+                    delay(loadDelayMs)
+                } catch (cancellation: CancellationException) {
+                    throw failureWhenCancelled ?: cancellation
+                }
+            }
+            loadFailure?.let { failure: Throwable -> throw failure }
+            position = 0L
+        } finally {
+            if (unwindDelayMs > 0L) withContext(NonCancellable) { delay(unwindDelayMs) }
+            activeLoads--
+        }
     }
 
     override fun start() {

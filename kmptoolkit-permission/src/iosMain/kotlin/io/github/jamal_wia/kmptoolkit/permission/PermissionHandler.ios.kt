@@ -4,6 +4,14 @@ import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.coroutines.resume
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionRecordPermissionDenied
@@ -16,6 +24,7 @@ import platform.AVFoundation.AVMediaTypeVideo
 import platform.AVFoundation.authorizationStatusForMediaType
 import platform.AVFoundation.requestAccessForMediaType
 import platform.Foundation.NSURL
+import platform.CoreLocation.CLAuthorizationStatus
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationOpenSettingsURLString
 import platform.UserNotifications.UNAuthorizationOptionAlert
@@ -45,9 +54,12 @@ import platform.darwin.dispatch_get_main_queue
  *   [PermissionStatus.Denied], and [PermissionStatus.Denied.shouldShowRationale] is never `true` —
  *   there is no second dialog for a rationale to precede. Explain *before* calling [request],
  *   while the status is still [PermissionStatus.NotDetermined].
- * - **Every permission needs an `Info.plist` string.** A missing `NSMicrophoneUsageDescription`,
- *   `NSCameraUsageDescription` — the app is terminated by the OS at the moment of the request, not
- *   handed an error this handler could turn into a status.
+ * - **Every permission you request needs an `Info.plist` string.** A missing
+ *   `NSMicrophoneUsageDescription`, `NSCameraUsageDescription`, `NSLocationWhenInUseUsageDescription`,
+ *   `NSLocationAlwaysAndWhenInUseUsageDescription`, `NSAppleMusicUsageDescription` or
+ *   `NSBluetoothAlwaysUsageDescription` terminates the app at the moment of the request, rather than
+ *   handing this handler an error it could turn into a status. The full table is in the platform
+ *   notes, including what App Store review expects of an app that links this module.
  *
  * @param logger where a rejected authorization request is reported.
  */
@@ -56,13 +68,35 @@ public fun createPermissionHandler(logger: Logger = NoopLogger): PermissionHandl
 
 private class IosPermissionHandler(private val logger: Logger) : PermissionHandler {
 
+    /** A permission whose request just resolved, so every [observe] of it re-reads at once. */
+    private val requestsResolved: MutableSharedFlow<Permission> = MutableSharedFlow(extraBufferCapacity = 16)
+
     override suspend fun check(permission: Permission): PermissionStatus = when (permission) {
         Permission.NOTIFICATIONS -> checkNotifications()
         Permission.MICROPHONE -> checkMicrophone()
         Permission.CAMERA -> checkCamera()
+        Permission.LOCATION -> foregroundLocationStatus(LocationAuthorization.current())
+        Permission.LOCATION_BACKGROUND ->
+            backgroundLocationStatus(LocationAuthorization.current(), LocationAuthorization.alwaysUpgradeAsked)
+        Permission.MEDIA_AUDIO -> mediaLibraryStatus(MediaLibraryAuthorization.current())
+        Permission.BLUETOOTH_CONNECT -> bluetoothStatus(BluetoothAuthorization.current())
     }
 
-    override suspend fun request(permission: Permission): PermissionStatus {
+    override suspend fun request(permission: Permission): PermissionStatus =
+        requestDialog(permission).also { requestsResolved.tryEmit(permission) }
+
+    override fun observe(permission: Permission): Flow<PermissionStatus> =
+        callbackFlow {
+            trySend(Unit)
+            val unregister: () -> Unit = addBecameActiveListener { trySend(Unit) }
+            launch { requestsResolved.collect { resolved -> if (resolved == permission) send(Unit) } }
+            awaitClose { unregister() }
+        }
+            .conflate()
+            .map { check(permission) }
+            .distinctUntilChanged()
+
+    private suspend fun requestDialog(permission: Permission): PermissionStatus {
         val current: PermissionStatus = check(permission)
         // iOS shows nothing for either of these, so asking would suspend on a callback that fires
         // immediately with the same answer. Returning early keeps that explicit.
@@ -73,7 +107,25 @@ private class IosPermissionHandler(private val logger: Logger) : PermissionHandl
             Permission.NOTIFICATIONS -> requestNotifications()
             Permission.MICROPHONE -> requestMicrophone()
             Permission.CAMERA -> requestCamera()
+            Permission.LOCATION -> foregroundLocationStatus(LocationAuthorization.requestWhenInUse())
+            Permission.LOCATION_BACKGROUND -> requestBackgroundLocation()
+            Permission.MEDIA_AUDIO -> mediaLibraryStatus(MediaLibraryAuthorization.request())
+            Permission.BLUETOOTH_CONNECT -> bluetoothStatus(BluetoothAuthorization.request())
         }
+    }
+
+    /**
+     * iOS grants "always" as an upgrade of "when in use": asking for it while location is not
+     * determined shows the "when in use" dialog first, and the upgrade is offered later by the system.
+     * Asking again from "when in use" shows the upgrade prompt — at most once per install.
+     */
+    private suspend fun requestBackgroundLocation(): PermissionStatus {
+        if (LocationAuthorization.current() == platform.CoreLocation.kCLAuthorizationStatusNotDetermined) {
+            LocationAuthorization.requestWhenInUse()
+            return backgroundLocationStatus(LocationAuthorization.current())
+        }
+        val status: CLAuthorizationStatus = LocationAuthorization.requestAlways()
+        return backgroundLocationStatus(status, LocationAuthorization.alwaysUpgradeAsked)
     }
 
     override fun openAppSettings(): Boolean {

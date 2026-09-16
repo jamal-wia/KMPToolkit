@@ -88,9 +88,13 @@ whatever the device reports right now, and a device without a back wide-angle ca
 
 ### The blink loop
 
-Structurally identical to Android's: a `SupervisorJob`-scoped coroutine on `Dispatchers.Default`,
-a `finally` that turns the torch off unconditionally, replaced rather than stacked on a second
-`start`.
+Not just structurally identical to Android's — the same code. Both platforms hand their torch switch
+to one shared loop: a `SupervisorJob`-scoped coroutine on `Dispatchers.Default`, a `finally` that
+turns the torch off unconditionally, replaced rather than stacked on a second `start`. The running
+job is swapped atomically, and every job — a new loop, or a stop's switch-off — first waits for the
+one it replaced to finish, without that wait being cut short if it is itself replaced. That is what
+makes concurrent calls safe and keeps a new pattern's first flash whole after either a replacement or
+a `stop`.
 
 ### `lockForConfiguration`
 
@@ -109,7 +113,7 @@ tries again.
 
 ## Behavior identical on both platforms
 
-No permission, no capture session, no manifest or `Info.plist` entry. Both implementations blink
-on their own coroutine, replace rather than stack a second `start`, and guarantee the torch is off
-once `stop` runs or the blink job is cancelled. Neither platform reports back whether the LED
+No permission, no capture session, no manifest or `Info.plist` entry. Both implementations run the
+same blink loop: they replace rather than stack a second `start` — also when the calls race from
+different threads — and guarantee the torch is off once `stop` runs or the blink job is cancelled. Neither platform reports back whether the LED
 physically lit — `isAvailable` is the only synchronous fact either one can offer.

@@ -29,8 +29,10 @@ Each module has its own `docs/<module>/` folder, numbered in learning order:
 | `07-faq.md` *(if present)* | Answers to recurring real questions |
 
 A module with a substantial extension point may add a page for it — `kmptoolkit-uploader` documents
-implementing its storage SPI in [`07-custom-store.md`](kmptoolkit-uploader/07-custom-store.md), and
-`kmptoolkit-downloader` documents implementing its transfer SPI in
+implementing its storage SPI in [`07-custom-store.md`](kmptoolkit-uploader/07-custom-store.md) and
+its built-in HTTP upload executor in
+[`08-upload-transport.md`](kmptoolkit-uploader/08-upload-transport.md), and `kmptoolkit-downloader`
+documents implementing its transfer SPI in
 [`07-background-downloader.md`](kmptoolkit-downloader/07-background-downloader.md).
 
 Start with the module's `01-overview.md` — if what you need doesn't fit that module's stated scope,
@@ -50,7 +52,9 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-logging-overlay` | On-screen log overlay for debug builds | [`kmptoolkit-logging-overlay/`](kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-permission` | Runtime permission request flow | [`kmptoolkit-permission/`](kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-biometric` | Biometric authentication gate | [`kmptoolkit-biometric/`](kmptoolkit-biometric/01-overview.md) |
+| `kmptoolkit-activity` | The currently resumed Android activity, scoped (Android only) | [`kmptoolkit-activity/`](kmptoolkit-activity/01-overview.md) |
 | `kmptoolkit-systembars` | Status and navigation bar control | [`kmptoolkit-systembars/`](kmptoolkit-systembars/01-overview.md) |
+| `kmptoolkit-hardware-keys` | Hardware-key policy inside Compose dialog windows (Android) | [`kmptoolkit-hardware-keys/`](kmptoolkit-hardware-keys/01-overview.md) |
 | `kmptoolkit-notification` | Local notifications, channels and actions | [`kmptoolkit-notification/`](kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-uploader` | Transactional uploader / offline effect queue | [`kmptoolkit-uploader/`](kmptoolkit-uploader/01-overview.md) |
 | `kmptoolkit-uploader-sqldelight` | SQLDelight-backed store for the uploader | [`kmptoolkit-uploader-sqldelight/`](kmptoolkit-uploader-sqldelight/01-overview.md) |
@@ -58,13 +62,18 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-location` | Device geographic position: one-shot fix, continuous updates | [`kmptoolkit-location/`](kmptoolkit-location/01-overview.md) |
 | `kmptoolkit-proximity` | Proximity sensor (near/far, event-driven) | [`kmptoolkit-proximity/`](kmptoolkit-proximity/01-overview.md) |
 | `kmptoolkit-downloader` | Resumable background-download engine | [`kmptoolkit-downloader/`](kmptoolkit-downloader/01-overview.md) |
+| `kmptoolkit-language` | App language selection, a supported-language catalog, and the platform-locale side effect | [`kmptoolkit-language/`](kmptoolkit-language/01-overview.md) |
+| `kmptoolkit-language-compose` | Compose wiring for `kmptoolkit-language` | [`kmptoolkit-language-compose/`](kmptoolkit-language-compose/01-overview.md) |
 | `kmptoolkit-hijri` | Umm al-Qura (Hijri) date conversion | [`kmptoolkit-hijri/`](kmptoolkit-hijri/01-overview.md) |
 
 Most of these also publish a `-testing` companion artifact holding their test double, documented in
-the same folder's `06-testing.md` rather than a folder of their own. Four do not:
-`kmptoolkit-logging`, `kmptoolkit-logging-overlay` and `kmptoolkit-systembars`, whose seams are
-already interfaces a test implements directly, and `kmptoolkit-hijri`, which is a pure function
-with no seam to fake.
+the same folder's `06-testing.md` rather than a folder of their own. `kmptoolkit-logging`,
+`kmptoolkit-logging-overlay`, `kmptoolkit-language`, `kmptoolkit-language-compose` and
+`kmptoolkit-hardware-keys` do not, whose
+seams are already interfaces a test implements directly — see each module's own `04-api-reference.md`
+for the four-line fake. `kmptoolkit-systembars` publishes doubles for both of its controllers — see
+its `06-testing.md`. `kmptoolkit-hijri` publishes none either, for a different reason: `toHijriDate`
+is a pure function, so there is no seam to fake — call it in your test and assert the date.
 
 The rest of the suite is on the roadmap — see the root [`README.md`](../README.md) module table and
 [`CHANGELOG.md`](../CHANGELOG.md).

@@ -25,6 +25,9 @@ internal class MediaPlayerEngine(
     private val context: Context,
 ) : PlaybackEngine {
 
+    // Volatile: published from Dispatchers.IO during load, read by transport calls on the caller's
+    // thread and cleared by release() wherever that runs.
+    @Volatile
     private var mediaPlayer: MediaPlayer? = null
     private var listener: PlaybackEngineListener? = null
 
@@ -39,30 +42,31 @@ internal class MediaPlayerEngine(
         // URL. MediaPlayer delivers its callbacks on the main looper when the creating thread has
         // no Looper of its own, which is exactly what happens here — so this needs no main-thread
         // dispatcher and the module needs no kotlinx-coroutines-android dependency.
-        val player: MediaPlayer = withContext(Dispatchers.IO) {
-            MediaPlayer().also { player: MediaPlayer ->
-                try {
-                    player.attachSource(source)
-                } catch (failure: Throwable) {
-                    player.release()
-                    throw failure
+        val player: MediaPlayer
+        try {
+            player = withContext(Dispatchers.IO) {
+                // Published before setDataSource, so that a cancellation landing while this block is
+                // still running — withContext then discards its result — cannot orphan the handle:
+                // the catch below releases whatever is published.
+                MediaPlayer().also { created: MediaPlayer ->
+                    mediaPlayer = created
+                    created.attachSource(source)
                 }
             }
-        }
-        mediaPlayer = player
 
-        try {
             suspendCancellableCoroutine { continuation: CancellableContinuation<Unit> ->
-                player.setOnPreparedListener { continuation.resume(Unit) }
+                // Guarded: MediaPlayer can report an error after it reported prepared, before the
+                // steady-state listeners below replace these, and resuming twice would crash.
+                player.setOnPreparedListener { if (continuation.isActive) continuation.resume(Unit) }
                 player.setOnErrorListener { _, what: Int, extra: Int ->
-                    continuation.resumeWithException(mediaPlayerError(what, extra))
+                    if (continuation.isActive) continuation.resumeWithException(mediaPlayerError(what, extra))
                     true
                 }
                 player.prepareAsync()
             }
         } catch (failure: Throwable) {
-            // Covers both a prepare error and cancellation of the awaiting coroutine: either way the
-            // half-prepared player must not outlive this call.
+            // Covers a source that would not attach, a prepare error, and cancellation of the
+            // awaiting coroutine: whichever it was, the half-prepared player must not outlive this call.
             release()
             throw failure
         }

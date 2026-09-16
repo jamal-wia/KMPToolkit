@@ -6,6 +6,18 @@
 // - Show declarations: true
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-biometric>
+final enum class io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch : kotlin/Enum<io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch> { // io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch|null[0]
+    enum entry LAUNCHED // io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch.LAUNCHED|null[0]
+    enum entry THROTTLED // io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch.THROTTLED|null[0]
+    enum entry UNAVAILABLE // io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch.UNAVAILABLE|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch> // io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch // io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch> // io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch.values|values#static(){}[0]
+}
+
 final enum class io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy : kotlin/Enum<io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy> { // io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy|null[0]
     enum entry BIOMETRIC_ONLY // io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy.BIOMETRIC_ONLY|null[0]
     enum entry BIOMETRIC_OR_DEVICE_CREDENTIAL // io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL|null[0]
@@ -15,6 +27,17 @@ final enum class io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy : kotl
 
     final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy // io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy.valueOf|valueOf#static(kotlin.String){}[0]
     final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy> // io.github.jamal_wia.kmptoolkit.biometric/BiometricPolicy.values|values#static(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength : kotlin/Enum<io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength> { // io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength|null[0]
+    enum entry STRONG // io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength.STRONG|null[0]
+    enum entry WEAK // io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength.WEAK|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength> // io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength // io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength> // io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength.values|values#static(){}[0]
 }
 
 final enum class io.github.jamal_wia.kmptoolkit.biometric/BiometricUnavailability : kotlin/Enum<io.github.jamal_wia.kmptoolkit.biometric/BiometricUnavailability> { // io.github.jamal_wia.kmptoolkit.biometric/BiometricUnavailability|null[0]
@@ -37,6 +60,8 @@ final enum class io.github.jamal_wia.kmptoolkit.biometric/BiometricUnavailabilit
 abstract interface io.github.jamal_wia.kmptoolkit.biometric/BiometricGate { // io.github.jamal_wia.kmptoolkit.biometric/BiometricGate|null[0]
     abstract suspend fun authenticate(io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText): io.github.jamal_wia.kmptoolkit.biometric/BiometricResult // io.github.jamal_wia.kmptoolkit.biometric/BiometricGate.authenticate|authenticate(io.github.jamal_wia.kmptoolkit.biometric.BiometricPromptText){}[0]
     abstract suspend fun availability(): io.github.jamal_wia.kmptoolkit.biometric/BiometricAvailability // io.github.jamal_wia.kmptoolkit.biometric/BiometricGate.availability|availability(){}[0]
+    open suspend fun authenticate(io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText, kotlin/Boolean): io.github.jamal_wia.kmptoolkit.biometric/BiometricResult // io.github.jamal_wia.kmptoolkit.biometric/BiometricGate.authenticate|authenticate(io.github.jamal_wia.kmptoolkit.biometric.BiometricPromptText;kotlin.Boolean){}[0]
+    open suspend fun launchEnrollment(): io.github.jamal_wia.kmptoolkit.biometric/BiometricEnrollmentLaunch // io.github.jamal_wia.kmptoolkit.biometric/BiometricGate.launchEnrollment|launchEnrollment(){}[0]
 }
 
 sealed interface io.github.jamal_wia.kmptoolkit.biometric/BiometricAvailability { // io.github.jamal_wia.kmptoolkit.biometric/BiometricAvailability|null[0]
@@ -128,6 +153,21 @@ final class io.github.jamal_wia.kmptoolkit.biometric/BiometricGateConfig { // io
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateConfig.toString|toString(){}[0]
 }
 
+final class io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions { // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength = ..., kotlin/Boolean = ..., kotlin.time/Duration = ...) // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.<init>|<init>(io.github.jamal_wia.kmptoolkit.biometric.BiometricStrength;kotlin.Boolean;kotlin.time.Duration){}[0]
+
+    final val enrollmentThrottle // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.enrollmentThrottle|{}enrollmentThrottle[0]
+        final fun <get-enrollmentThrottle>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.enrollmentThrottle.<get-enrollmentThrottle>|<get-enrollmentThrottle>(){}[0]
+    final val singleAttempt // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.singleAttempt|{}singleAttempt[0]
+        final fun <get-singleAttempt>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.singleAttempt.<get-singleAttempt>|<get-singleAttempt>(){}[0]
+    final val strength // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.strength|{}strength[0]
+        final fun <get-strength>(): io.github.jamal_wia.kmptoolkit.biometric/BiometricStrength // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.strength.<get-strength>|<get-strength>(){}[0]
+
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions.toString|toString(){}[0]
+}
+
 final class io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText { // io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText|null[0]
     constructor <init>(kotlin/String, kotlin/String, kotlin/String) // io.github.jamal_wia.kmptoolkit.biometric/BiometricPromptText.<init>|<init>(kotlin.String;kotlin.String;kotlin.String){}[0]
 
@@ -151,3 +191,4 @@ final val io.github.jamal_wia.kmptoolkit.biometric/isTransient // io.github.jama
     final fun (io.github.jamal_wia.kmptoolkit.biometric/BiometricUnavailability).<get-isTransient>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.biometric/isTransient.<get-isTransient>|<get-isTransient>@io.github.jamal_wia.kmptoolkit.biometric.BiometricUnavailability(){}[0]
 
 final fun io.github.jamal_wia.kmptoolkit.biometric/createBiometricGate(io.github.jamal_wia.kmptoolkit.biometric/BiometricGateConfig = ...): io.github.jamal_wia.kmptoolkit.biometric/BiometricGate // io.github.jamal_wia.kmptoolkit.biometric/createBiometricGate|createBiometricGate(io.github.jamal_wia.kmptoolkit.biometric.BiometricGateConfig){}[0]
+final fun io.github.jamal_wia.kmptoolkit.biometric/createBiometricGate(io.github.jamal_wia.kmptoolkit.biometric/BiometricGateConfig, io.github.jamal_wia.kmptoolkit.biometric/BiometricGateOptions): io.github.jamal_wia.kmptoolkit.biometric/BiometricGate // io.github.jamal_wia.kmptoolkit.biometric/createBiometricGate|createBiometricGate(io.github.jamal_wia.kmptoolkit.biometric.BiometricGateConfig;io.github.jamal_wia.kmptoolkit.biometric.BiometricGateOptions){}[0]

@@ -23,11 +23,34 @@ import io.github.jamal_wia.kmptoolkit.haptics.HapticType
  * thread — or one test coroutine — and assert after the work under test has finished. Making it
  * concurrent would mean an atomic dependency in an artifact whose value is being trivial.
  *
+ * **[isAvailable] and [result] are independent**, like the two facts they stand for: set
+ * `isAvailable = false` to exercise code that checks the hardware up front, and [result] to exercise
+ * code that reacts to what [perform] reported. Neither changes the other.
+ *
  * @param result what [perform] reports back; mutable so a single instance can switch mid-test.
  */
 public class RecordingHapticFeedback(
     public var result: HapticResult = HapticResult.PERFORMED,
 ) : HapticFeedback {
+
+    /**
+     * Creates a double whose [isAvailable] starts as [isAvailable].
+     *
+     * A separate constructor rather than a second defaulted parameter on the primary one, so that
+     * test code compiled against the single-parameter constructor keeps linking.
+     *
+     * @param result what [perform] reports back.
+     * @param isAvailable what [HapticFeedback.isAvailable] reports until the test changes it.
+     */
+    public constructor(
+        result: HapticResult = HapticResult.PERFORMED,
+        isAvailable: Boolean,
+    ) : this(result) {
+        this.isAvailable = isAvailable
+    }
+
+    /** What [HapticFeedback.isAvailable] reports; `true` unless set. Mutable so a test can switch it. */
+    override var isAvailable: Boolean = true
 
     private val recorded: MutableList<HapticType> = mutableListOf()
 

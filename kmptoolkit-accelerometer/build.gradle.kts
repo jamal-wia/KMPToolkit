@@ -31,5 +31,8 @@ kotlin {
             // so kotlinx-coroutines-core is on this module's own public surface.
             api(libs.kotlinx.coroutines.core)
         }
+        commonTest.dependencies {
+            implementation(libs.kotlinx.coroutines.test)
+        }
     }
 }

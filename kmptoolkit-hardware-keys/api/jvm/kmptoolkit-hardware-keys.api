@@ -1,0 +1,4 @@
+public final class io/github/jamal_wia/kmptoolkit/hardwarekeys/DialogWindowHardwareKeyEffect_jvmKt {
+	public static final fun DialogWindowHardwareKeyEffect (Landroidx/compose/runtime/Composer;I)V
+}
+

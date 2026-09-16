@@ -17,9 +17,14 @@ kotlin {
 }
 ```
 
-This module is Compose Multiplatform code and is published for `android`, `iosArm64` and
-`iosSimulatorArm64` — the same target set as every other module in the suite. There is no `iosX64`
-variant.
+This module is Compose Multiplatform code and is published for `android`, `iosArm64`,
+`iosSimulatorArm64` and `jvm`. There is no `iosX64` variant.
+
+The `jvm` (desktop) target is this module's alone — no other module in the suite publishes one. It
+exists so a UI tree shared with desktop still compiles: a screen states what it wants from the bars
+without knowing where it runs, and desktop simply has no bars to give it. Every platform call there
+is a no-op, while the layer stack behaves exactly as it does everywhere else. See
+[`docs/01-architecture.md`](../01-architecture.md) for the full reasoning.
 
 ## 2. Create the controller
 
@@ -46,14 +51,22 @@ class MyApplication : Application() {
 }
 ```
 
-If you want your app drawing behind the bars — you almost certainly do — call `enableEdgeToEdge()`
-in your activity as usual. This module does not do it for you; see
-[`05-platform-notes.md`](05-platform-notes.md).
+**Create it in `Application.onCreate`, as above — not lazily.** The controller learns which activity
+is on screen from the activity-resumed callback, and a controller created after the first activity
+has already resumed cannot style that window until the next resume. If you bind it in a DI
+container, resolve it right after the container starts; a lazy singleton first resolved by your
+theme during composition is created too late, because on Android the first composition runs after
+`onResume`. Details in [`05-platform-notes.md`](05-platform-notes.md).
+
+If you want your app drawing behind the bars — you almost certainly do — go edge-to-edge in your
+activity. This module does not do it for you, and the no-argument `enableEdgeToEdge()` leaves a
+translucent band behind the navigation bar on three-button devices; the two lines that avoid it are
+in [`05-platform-notes.md`](05-platform-notes.md).
 
 ### iOS
 
 iOS does not let anything set the status bar directly: a view controller *declares* what it wants
-and UIKit asks. So the controller supplies the two answers and your Compose host returns them.
+and UIKit asks. So the controller supplies the answers and your Compose host returns them.
 
 ```kotlin
 private val systemBars = createSystemBarsController()
@@ -65,10 +78,10 @@ fun MainViewController(): UIViewController {
 }
 ```
 
-`preferredStatusBarStyle` and `prefersStatusBarHidden` must be returned from the controller that
-UIKit actually asks — with a plain `ComposeUIViewController` that is the host above. The exact
-wiring, including the `Info.plist` requirement, is in
-[`05-platform-notes.md`](05-platform-notes.md).
+`preferredStatusBarStyle`, `prefersStatusBarHidden` and `prefersHomeIndicatorAutoHidden` must be
+returned from the controller that UIKit actually asks — with a plain `ComposeUIViewController` that
+is the host above. The exact wiring, including the `Info.plist` requirement and what the home
+indicator does and does not do, is in [`05-platform-notes.md`](05-platform-notes.md).
 
 ## 3. Let your theme own the base
 
@@ -128,6 +141,47 @@ ModalBottomSheet(onDismissRequest = ::dismiss) {
 ```
 
 No-op on iOS, where the sheet shares the app's one status bar.
+
+## 6. If a screen's background isn't the app theme's
+
+`AutoSystemBarsIconStyle` derives each bar's icon style from what is actually drawn under it, so a
+screen with its own background — an image, a video, a colour the theme does not know about — does
+not have to compute a contrasting style by hand. Wrap it once, near the root, alongside a
+`StatusBarLuminanceProbe` your screens can nudge:
+
+```kotlin
+val probe = createStatusBarLuminanceProbe()
+
+@Composable
+fun App(controller: SystemBarsController) {
+    AutoSystemBarsIconStyle(controller, probe) {
+        // the rest of your app
+    }
+}
+
+@Composable
+fun PhotoViewerScreen(probe: StatusBarLuminanceProbe) {
+    LaunchedEffect(Unit) { probe.triggerRecalculation() }
+    Image(/* ... */)
+}
+```
+
+See [`03-guide.md`](03-guide.md#automatic-icon-styling) for how this interacts with `SystemBarsEffect`.
+
+## 7. If you need to keep the screen awake
+
+`ScreenWakeLockController` is unrelated to the bars, but ships in the same module. Create one the
+same way, hold it for the session that needs it, and clear it explicitly when done — it does not
+tie itself to a composition the way `SystemBarsEffect` does:
+
+```kotlin
+val wakeLock = createScreenWakeLockController(context)   // createScreenWakeLockController() on iOS
+
+fun onRecordingStarted() = wakeLock.setKeepScreenOn(true)
+fun onRecordingStopped() = wakeLock.setKeepScreenOn(false)   // callers must call this explicitly
+```
+
+See [`04-api-reference.md`](04-api-reference.md#screenwakelockcontroller).
 
 ## Next
 

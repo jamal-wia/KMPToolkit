@@ -65,7 +65,10 @@ There is no proximity API this library can build a `Flow<Boolean>` on:
   Android implementation — worse than reporting absent honestly.
 
 `createProximitySensor()` therefore always returns an instance with `isAvailable == false` and an
-`observe()` that never emits. This is permanent, not a placeholder for a future iOS API this module
+`observe()` that never emits. Unlike an Android device without the sensor, whose `observe()` stays
+open until cancelled, this one **completes immediately** — an empty flow. A collector that
+`merge`s it with other sources, or checks `isAvailable` first as it should, sees no difference;
+one that awaits the collection itself returns at once on iOS instead of suspending forever. This is permanent, not a placeholder for a future iOS API this module
 might adopt later — see [`03-guide.md`](03-guide.md#mistakes-worth-naming).
 
 ## Behavior identical on both platforms

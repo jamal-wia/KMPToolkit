@@ -129,3 +129,16 @@ public final class io/github/jamal_wia/kmptoolkit/storage/StorageResultKt {
 	public static final fun isSuccess (Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;)Z
 }
 
+public final class io/github/jamal_wia/kmptoolkit/storage/TypedAccessKt {
+	public static final fun getBoolean (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+	public static final fun getBooleanOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Z)Z
+	public static final fun getInt (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+	public static final fun getIntOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;I)I
+	public static final fun getLong (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+	public static final fun getLongOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;J)J
+	public static final fun getStringOr (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+	public static final fun putBoolean (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;Z)Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+	public static final fun putInt (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;I)Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+	public static final fun putLong (Lio/github/jamal_wia/kmptoolkit/storage/KeyValueStorage;Ljava/lang/String;J)Lio/github/jamal_wia/kmptoolkit/storage/StorageResult;
+}
+

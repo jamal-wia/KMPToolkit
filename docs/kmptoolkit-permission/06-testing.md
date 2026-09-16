@@ -16,7 +16,7 @@ kotlin {
 ```
 
 It ships as a separate artifact so it never reaches your app's runtime classpath — see
-[`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate-testing-artifacts).
+[`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate--testing-artifacts).
 
 ## `RecordingPermissionHandler`
 
@@ -118,11 +118,40 @@ fun `a permission revoked while the app was away disables the feature on resume`
 The same shape covers the settings trip: set the status to `Granted` between `openSettings()` and
 `refresh()`, and assert your screen enables itself.
 
+Code that collects `observe()` instead of refreshing gets the change pushed: every `setStatus`,
+`request` and change of `defaultStatus` re-emits through the double's flows, and only a *different*
+status is emitted. Collect with an `UnconfinedTestDispatcher` so each change is delivered before your
+next line runs.
+
 ## Assert states, not strings
 
 Assert on `PermissionFlowState` and on what your presenter exposes, never on copy. The module ships
 no text, so a test that asserts wording is testing your own strings — which belongs in your
 localization tests, not here.
+
+## Testing code driven by a `SpecialPermissionHandler`
+
+`RecordingSpecialPermissionHandler` is the fixture for this side of the module — a plain map of
+scripted answers plus two recorded call lists, since there is no rationale state or transition table
+to model:
+
+```kotlin
+import io.github.jamal_wia.kmptoolkit.permission.SpecialPermission
+import io.github.jamal_wia.kmptoolkit.permission.testing.RecordingSpecialPermissionHandler
+
+@Test
+fun `prompts for exact alarms only when they are not already granted`() {
+    val handler = RecordingSpecialPermissionHandler()
+    handler.setGranted(SpecialPermission.EXACT_ALARM, granted = false)
+
+    ReminderSettingsPresenter(handler).onExactRemindersToggled(wantExact = true)
+
+    assertEquals(listOf(SpecialPermission.EXACT_ALARM), handler.requestedViaSettings)
+}
+```
+
+`defaultGranted` starts at `true`, matching what both real handlers report for the common case —
+script only the permissions your test actually cares about seeing denied.
 
 ## Testing an Android handler directly
 
@@ -131,18 +160,24 @@ You almost never need to, but if you are wrapping `createPermissionHandler`, the
 answer — and whose ability to answer at all — the test dictates. The cases worth copying are the two
 failure modes a real device produces and a happy-path test never reaches: a host that cannot launch,
 and a host that throws. Neither may be recorded as a refusal, or a launcher bug turns a permission
-permanently denied.
+permanently denied. The third case worth copying is a dialog that answers "denied" with no rationale
+left and no refusal remembered — a dismissal — which must read `NotDetermined`, not
+`PermanentlyDenied`.
 
 ## What the module tests itself
 
-For reference when judging whether your own coverage is enough — 97 tests:
+For reference when judging whether your own coverage is enough:
 
-- **50 in `commonTest`**, run on both Android and iOS: every row of the flow's transition table, the
+- **`commonTest`**, run on both Android and iOS: every row of the flow's transition table, the
   no-op behavior of every method outside its state, the `Requesting` lock, the revoked-while-away
   paths, and the key derivation.
-- **29 in `androidUnitTest`** under Robolectric: the status logic against a real `PackageManager`,
+- **`androidUnitTest`** under Robolectric: the status logic against a real `PackageManager`,
   the asked flag's lifecycle, the notifications branch on both sides of API 33, the platform string
-  each permission maps to, the settings intent, and the assertion that the merged library manifest
-  contributes no permission at all.
-- **18 in `kmptoolkit-permission-testing`**: the fixture's own contract, including the two places it
+  each permission maps to, the location, audio-media and Bluetooth entries on both sides of their API
+  thresholds, `observe` re-checking on resume, the settings intent, the version-gated `SpecialPermission` branches
+  (`EXACT_ALARM` below API 31, `ALL_FILES_ACCESS` below API 30), and the assertion that the merged
+  library manifest contributes no permission at all.
+- **`iosTest`**: the mapping from each CoreLocation, MediaPlayer and CoreBluetooth authorization
+  status to a `PermissionStatus`, including the "always" upgrade that was already asked for.
+- **`kmptoolkit-permission-testing`**: both fixtures' own contracts, including the places each
   claims to model the OS.

@@ -39,13 +39,16 @@ class SettingsAwareHaptics(
     private val isEnabled: () -> Boolean,
 ) : HapticFeedback {
 
+    override val isAvailable: Boolean get() = delegate.isAvailable
+
     override fun perform(type: HapticType): HapticResult =
         if (isEnabled()) delegate.perform(type) else HapticResult.UNAVAILABLE
 }
 ```
 
-`HapticFeedback` is a plain interface with one method precisely so that a decorator costs six
-lines. There is no `setEnabled` on the module's own types, because a mutable flag inside a shared
+`isAvailable` forwards the hardware fact unchanged: the user's switch decides whether to play, not
+whether the device can. `HapticFeedback` is a plain interface precisely so that a decorator costs a
+handful of lines. There is no `setEnabled` on the module's own types, because a mutable flag inside a shared
 object is state two callers can race over — and your app already has a place where settings live.
 
 ## Reacting to the result
@@ -73,6 +76,42 @@ when (haptics.perform(HapticType.SUCCESS)) {
   builds so it never reaches a release. See [`05-platform-notes.md`](05-platform-notes.md).
 - `FAILED` — the platform refused this particular request, or the vibrator service was unreachable.
   Transient and device-specific; the next call may well succeed.
+
+## Checking the hardware before deciding
+
+`perform` tells you a device has no motor only after it tried. When a decision depends on the
+hardware rather than on one tap — whether an attention cue has any channel left to reach the user,
+whether a "vibrate" switch is worth showing — read `isAvailable` first:
+
+```kotlin
+class AttentionCue(private val torch: Flashlight, private val haptics: HapticFeedback) {
+
+    fun start() {
+        if (!torch.isAvailable && !haptics.isAvailable) return // nothing could reach the user
+        torch.start(FlashPattern.Attention)
+        haptics.perform(HapticType.ERROR)
+    }
+}
+```
+
+On iOS it is always `true` — UIKit cannot say otherwise. A decorator you write should forward it
+to the instance it wraps; the interface's default answers `true`.
+
+## Choosing an attribution on Android
+
+`createHapticFeedback(context)` attributes every vibration as touch feedback, so the user's
+touch-feedback switch silences it — the right call for a tap confirming the user's own action. A
+vibration that is *not* a reaction to a touch, and must reach the user even with that switch off,
+takes `HapticAttribution.NONE`:
+
+```kotlin
+val taps: HapticFeedback = createHapticFeedback(context)
+val attention: HapticFeedback = createHapticFeedback(context, HapticAttribution.NONE)
+```
+
+`NONE` is also what an app calling `Vibrator.vibrate(effect)` directly has today; adopting the module
+with it keeps those vibrations behaving as they did. The consequences of each are in
+[`05-platform-notes.md`](05-platform-notes.md#attribution--touch-feedback-or-none).
 
 ## Firing a haptic from shared code that is not on the main thread
 

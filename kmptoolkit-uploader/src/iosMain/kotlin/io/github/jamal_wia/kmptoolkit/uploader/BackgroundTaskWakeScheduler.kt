@@ -167,8 +167,18 @@ public class BackgroundTaskWakeScheduler internal constructor(
         // iOS has already spent the request by launching the task.
         armed.value = 0
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
-            val engine: UploaderEngine? = UploaderEngineRegistry.await(config.engineWait)
-            onDone(engine?.awaitDrained(config.drainBudget) == true)
+            // onDone must run even if the drain throws — a store failure, say — or iOS never hears that
+            // the task finished and holds it against the app's future background time.
+            var drained = false
+            try {
+                val engine: UploaderEngine? = UploaderEngineRegistry.await(config.engineWait)
+                drained = engine?.awaitDrained(config.drainBudget) == true
+            } catch (e: Throwable) {
+                // This scope is never cancelled, so even a CancellationException here is a leaked one.
+                logger.w(e) { "The uploader wake failed to drain; reporting it as unfinished." }
+            } finally {
+                onDone(drained)
+            }
         }
     }
 }

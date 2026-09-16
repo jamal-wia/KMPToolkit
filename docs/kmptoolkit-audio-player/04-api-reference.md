@@ -33,7 +33,10 @@ source, resets the playhead to `0`, and re-applies `playbackSpeed`.
 - **Does not throw on failure** — the platform `Throwable` arrives as `PlayerState.Error`.
 - **Honors cancellation** — the partially loaded engine is released, the state returns to `Idle`,
   and `CancellationException` propagates.
-- After `release()`: sets `Error(AudioPlayerReleasedException)` and loads nothing.
+- **A newer `prepare` replaces this one** — the older load is cancelled and fully unwound before the
+  newer one starts; the replaced call returns normally without writing any state.
+- After `release()`: sets `Error(AudioPlayerReleasedException)` and loads nothing. After `unload()`
+  it works as on a fresh player.
 
 ### Transport
 
@@ -42,7 +45,7 @@ entirely after `release()`.
 
 | Member | Contract |
 |---|---|
-| `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts position polling. Ignored while already `Playing`. From `Completed` it resumes at the end — use `replay()` to restart. |
+| `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts position polling. Ignored while already `Playing`. From `Completed` it starts over from `0`, like `replay()`. |
 | `fun pause()` | `Playing` → `Paused(duration, position)`, stops polling. Ignored in any other state. |
 | `fun stop()` | Any playable → `Ready(duration)` with the playhead at `0`; the source stays loaded. |
 | `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`. |
@@ -55,6 +58,7 @@ entirely after `release()`.
 
 | Member | Contract |
 |---|---|
+| `fun unload()` | Abandons a load in flight, frees the loaded source's native handle, stops polling, resets to `Idle`/`0`. Keeps `playbackSpeed` and the engine listener; the next `prepare` works. No effect after `release()`. The interface default only calls `stop()` — a decorator must delegate it. *Since 1.5.0.* |
 | `fun release()` | Frees the native handle, cancels polling, detaches the engine listener, resets to `Idle`/`0`. **Idempotent.** Not reversible. |
 | `override fun close()` | Alias for `release()`, so a player works with `use { }`. |
 
@@ -207,7 +211,7 @@ The platform seam. Implement it to back `AudioPlayer` with something other than 
 | Member | Contract |
 |---|---|
 | `fun setListener(listener: PlaybackEngineListener?)` | Installs or (with `null`) detaches the event sink. |
-| `suspend fun load(source: AudioSource)` | Loads and suspends until playable. **Throws to report failure**, leaving nothing playable behind. |
+| `suspend fun load(source: AudioSource)` | Loads and suspends until playable. **Throws to report failure**, leaving nothing playable behind. Must honor cancellation and leave nothing loaded when cancelled; must work again after `release()`. Never called while a previous `load` is still running. |
 | `fun start()` / `fun pause()` | Start/suspend output. Must tolerate arriving in an unexpected platform state. |
 | `fun seekTo(positionMs: Long)` | Move the playhead; the caller has already clamped the value. |
 | `fun setSpeed(speed: Float)` | Set the rate; the caller has already clamped the value. |

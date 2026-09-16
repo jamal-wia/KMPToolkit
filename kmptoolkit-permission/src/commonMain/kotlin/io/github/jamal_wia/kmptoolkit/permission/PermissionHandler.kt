@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.permission
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+
 /**
  * The platform seam: one permission checked, one permission requested, one trip to system
  * settings.
@@ -59,4 +62,21 @@ public interface PermissionHandler {
      *   the request, not that the user changed anything.
      */
     public fun openAppSettings(): Boolean
+
+    /**
+     * The status of [permission], now and whenever it may have changed.
+     *
+     * Emits the current status when collected, then again — only when it differs — at the points where
+     * a platform can change it behind the app's back or where this handler changed it:
+     *
+     * - **Android:** every activity resume (a trip to system settings, the system auto-resetting an
+     *   unused app's permissions) and every [request] through this handler.
+     * - **iOS:** every time the app becomes active, and every [request] through this handler.
+     *
+     * Never shows UI. The default implementation emits the current status once and completes, so a
+     * handler written before this member existed still answers correctly for the moment it is asked.
+     *
+     * @since 1.5.0
+     */
+    public fun observe(permission: Permission): Flow<PermissionStatus> = flow { emit(check(permission)) }
 }

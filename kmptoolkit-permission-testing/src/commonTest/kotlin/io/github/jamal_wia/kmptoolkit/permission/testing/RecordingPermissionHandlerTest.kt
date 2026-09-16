@@ -9,6 +9,9 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -218,5 +221,41 @@ class RecordingPermissionHandlerTest {
         handler.setStatus(Permission.CAMERA, PermissionStatus.NotDetermined)
 
         assertEquals(PermissionFlowState.Idle, flow.refresh())
+    }
+
+    @Test
+    fun `observe follows scripted statuses and requests and the default and skips repeats`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val handler = RecordingPermissionHandler()
+            val seen = mutableListOf<PermissionStatus>()
+            val collection = launch { handler.observe(Permission.CAMERA).toList(seen) }
+
+            handler.setStatus(Permission.MICROPHONE, PermissionStatus.Granted) // another permission
+            handler.setStatus(Permission.CAMERA, PermissionStatus.Denied(shouldShowRationale = true))
+            handler.request(Permission.CAMERA)
+            handler.defaultStatus = PermissionStatus.PermanentlyDenied // CAMERA is scripted: no change
+
+            assertEquals(
+                listOf(
+                    PermissionStatus.NotDetermined,
+                    PermissionStatus.Denied(shouldShowRationale = true),
+                    PermissionStatus.Granted,
+                ),
+                seen,
+            )
+            assertTrue(handler.checks.isEmpty())
+            collection.cancel()
+        }
+
+    @Test
+    fun `observe of an unscripted permission follows the default status`() = runTest(UnconfinedTestDispatcher()) {
+        val handler = RecordingPermissionHandler()
+        val seen = mutableListOf<PermissionStatus>()
+        val collection = launch { handler.observe(Permission.LOCATION).toList(seen) }
+
+        handler.defaultStatus = PermissionStatus.Granted
+
+        assertEquals(listOf(PermissionStatus.NotDetermined, PermissionStatus.Granted), seen)
+        collection.cancel()
     }
 }

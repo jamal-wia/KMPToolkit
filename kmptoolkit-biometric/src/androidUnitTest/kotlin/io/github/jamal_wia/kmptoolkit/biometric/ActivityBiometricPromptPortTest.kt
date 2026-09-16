@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.biometric
 
 import android.app.Activity
+import androidx.activity.ComponentActivity
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlin.test.Test
 import kotlin.test.assertNull
@@ -46,7 +47,7 @@ class ActivityBiometricPromptPortTest {
         val port = ActivityBiometricPromptPort(FakeActivityAccess(null), BiometricGateConfig())
         var outcomes = 0
 
-        val handle: PromptHandle? = port.show(promptText) { outcomes++ }
+        val handle: PromptHandle? = port.show(promptText, requireConfirmation = true) { outcomes++ }
 
         assertNull(handle)
         // Nothing was shown, so nothing may be reported: the gate turns the null into NoPromptHost
@@ -61,6 +62,16 @@ class ActivityBiometricPromptPortTest {
         val activity: Activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val port = ActivityBiometricPromptPort(FakeActivityAccess(activity), BiometricGateConfig())
 
-        assertNull(port.show(promptText) { })
+        assertNull(port.show(promptText, requireConfirmation = true) { })
+    }
+
+    @Test
+    fun `a ComponentActivity cannot host the prompt either`() {
+        // The case the documentation once got wrong: ComponentActivity is FragmentActivity's
+        // superclass, not a subclass, and it is what a Compose activity extends by default.
+        val activity: ComponentActivity = Robolectric.buildActivity(ComponentActivity::class.java).setup().get()
+        val port = ActivityBiometricPromptPort(FakeActivityAccess(activity), BiometricGateConfig())
+
+        assertNull(port.show(promptText, requireConfirmation = true) { })
     }
 }

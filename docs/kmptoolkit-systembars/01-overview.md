@@ -70,17 +70,35 @@ Two properties follow from that shape, and they are the reason it exists:
 - **Not a bar background colour.** There is no `statusBarColor` in the configuration. On an
   edge-to-edge app the bars are transparent and the colour behind them is drawn by your own UI, and
   the platform properties that used to set it are deprecated and inert on current Android.
-- **Not automatic.** It does not sample what is drawn under the bars to pick a contrasting icon
-  colour. That is a real technique and a real cost — per-pixel sampling on a timer for as long as
-  it is on screen — and it belongs to the screen that needs it, not to every consumer of this
-  module.
+- **Not automatic by default.** `SystemBarsController` itself never samples what is drawn under the
+  bars — a claim always states an explicit style. Automatic, pixel-sampled icon styling is a real
+  technique with a real cost (a timer running for as long as a screen is on screen), so it is an
+  opt-in composable, [`AutoSystemBarsIconStyle`](04-api-reference.md#autosystembarsiconstyle), not
+  something every consumer of this module pays for.
 - **Not a singleton.** Nothing here is global or static. Two controllers driving one window would
   reintroduce exactly the fight this module exists to end, so create one and pass it.
 
+## Also in this module: automatic icon styling and a wake lock
+
+[`AutoSystemBarsIconStyle`](04-api-reference.md#autosystembarsiconstyle) wraps your content and
+samples the pixels under both bars on a timer, publishing the derived style as one more override on
+top of the layer stack above — no screen needs to compute a contrasting icon style by hand for a
+background it does not fully control. See [`03-guide.md`](03-guide.md#automatic-icon-styling) for
+when to reach for it instead of `SystemBarsEffect`.
+
+### `ScreenWakeLockController`
+
+A second, unrelated primitive lives here for a practical reason, not a conceptual one: keeping the
+screen from auto-locking (`Window.FLAG_KEEP_SCREEN_ON` / `UIApplication.idleTimerDisabled`) is, like
+the bars, a single per-window platform flag that only one owner may hold at a time, reached through
+the same activity-tracking machinery `SystemBarsController` already needs on Android. See
+[`04-api-reference.md`](04-api-reference.md#screenwakelockcontroller) and
+[`06-testing.md`](06-testing.md).
+
 ## Where to go next
 
-- [`02-getting-started.md`](02-getting-started.md) — a working setup on both platforms.
+- [`02-getting-started.md`](02-getting-started.md) — a working setup on each platform.
 - [`03-guide.md`](03-guide.md) — ownership in practice, and the cases worth understanding.
 - [`04-api-reference.md`](04-api-reference.md) — every public symbol.
-- [`05-platform-notes.md`](05-platform-notes.md) — what Android and iOS actually do, and what only
-  one of them can.
+- [`05-platform-notes.md`](05-platform-notes.md) — what Android, iOS and desktop actually do, and
+  what only some of them can.

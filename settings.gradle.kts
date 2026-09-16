@@ -20,12 +20,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // Only reachable for this project's own group, and only used by :sample when run with
-        // -PuseMavenLocal — see sample/build.gradle.kts. Content-filtered so an unrelated stale
-        // artifact in ~/.m2 can never shadow a real one from Maven Central.
-        mavenLocal {
-            content { includeGroup("io.github.jamal-wia") }
-        }
     }
 }
 
@@ -53,7 +47,10 @@ include(":kmptoolkit-permission")
 include(":kmptoolkit-permission-testing")
 include(":kmptoolkit-notification")
 include(":kmptoolkit-notification-testing")
+include(":kmptoolkit-activity")
 include(":kmptoolkit-systembars")
+include(":kmptoolkit-systembars-testing")
+include(":kmptoolkit-hardware-keys")
 include(":kmptoolkit-uploader")
 include(":kmptoolkit-uploader-testing")
 include(":kmptoolkit-uploader-sqldelight")
@@ -65,9 +62,11 @@ include(":kmptoolkit-proximity")
 include(":kmptoolkit-proximity-testing")
 include(":kmptoolkit-downloader")
 include(":kmptoolkit-downloader-testing")
+include(":kmptoolkit-language")
+include(":kmptoolkit-language-compose")
 include(":kmptoolkit-hijri")
 
 include(":kmptoolkit-bom")
 
-// Not published — Android Compose demo, smoke-tests published artifacts from mavenLocal.
+// Not published — Android Compose demo, smoke-tests the released artifacts by coordinate.
 include(":sample")

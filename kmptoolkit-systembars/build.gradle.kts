@@ -20,7 +20,9 @@ kmptoolkitPublish {
             "layered and scoped to composition, so leaving a screen restores exactly the state " +
             "underneath it, and a screen that owns only the status bar never clobbers one that " +
             "owns the navigation bar. It styles the bars; it is not a theming system and not an " +
-            "insets library."
+            "insets library. Also includes AutoSystemBarsIconStyle, an opt-in composable that " +
+            "derives each bar's icon style from the pixels actually drawn under it, and " +
+            "ScreenWakeLockController, an unrelated keep-screen-awake primitive."
     )
 }
 
@@ -31,6 +33,15 @@ android {
 kotlin {
     iosArm64()
     iosSimulatorArm64()
+
+    // A desktop target, under the exception in docs/01-architecture.md § "Desktop targets". A Compose
+    // Multiplatform app that shares a UI tree between phone and desktop cannot compile that tree at
+    // all if the system-bars types it references exist on only two of its three targets — and the
+    // whole point of this module is that a screen states what it wants from the bars without caring
+    // where it is running. Desktop has no system bars, so every platform call here is a no-op; the
+    // layer stack still behaves identically, which is what makes the shared tree compile and behave
+    // the same way. See `docs/kmptoolkit-systembars/05-platform-notes.md`.
+    jvm()
 
     sourceSets {
         commonMain.dependencies {
@@ -45,11 +56,26 @@ kotlin {
             // dialog-window effect, which needs LocalView and DialogWindowProvider on Android.
             implementation(compose.runtime)
             implementation(compose.ui)
+
+            // AutoSystemBarsIconStyle's probe Box: Modifier.fillMaxSize(), WindowInsets.statusBars
+            // / navigationBars.
+            implementation(compose.foundation)
+
+            // AutoSystemBarsIconStyle pauses sampling below Lifecycle.State.STARTED — a backgrounded
+            // screen must be neither read nor written to. This is the one real dependency this pulls
+            // in beyond compose.runtime/compose.ui/compose.foundation: LocalLifecycleOwner +
+            // repeatOnLifecycle.
+            implementation(libs.androidx.lifecycle.runtime.compose)
         }
 
         androidMain.dependencies {
             // WindowCompat / WindowInsetsControllerCompat — the whole Android implementation.
             implementation(libs.androidx.core.ktx)
+
+            // api, not implementation: the createSystemBarsController / createScreenWakeLockController
+            // overloads that let a consumer say which activities count take an ActivityAccess, so it
+            // is part of this module's own Android API.
+            api(project(":kmptoolkit-activity"))
         }
 
         commonTest.dependencies {
@@ -60,6 +86,13 @@ kotlin {
 
         androidUnitTest.dependencies {
             implementation(compose.uiTest)
+            // AutoSystemBarsIconStyleLifecycleTest drives the test clock frame by frame and needs a
+            // real Activity to dispatch window insets into, which is `createAndroidComposeRule` —
+            // the JUnit4 rule, not the `runComposeUiTest` the other UI tests here use. Versioned
+            // through the Compose BOM, as the catalog entry carries no version of its own.
+            implementation(project.dependencies.platform(libs.androidx.compose.bom))
+            implementation(libs.androidx.compose.ui.test.junit4)
+            implementation(libs.androidx.activity.compose)
         }
     }
 }

@@ -11,7 +11,7 @@ kmptoolkitPublish {
     pomName.set("KMPToolkit Permission")
     pomDescription.set(
         "A runtime-permission seam plus the flow around it: a PermissionHandler that checks and " +
-            "requests notifications, microphone and camera on Android and iOS, a PermissionStatus " +
+            "requests notifications, microphone, camera, location, audio media and Bluetooth on Android and iOS, a PermissionStatus " +
             "that tells a first refusal apart from a permanent one, and a headless " +
             "PermissionRequestFlow state machine covering rationale, request and the trip to " +
             "system settings. Pick this module if shared Kotlin code has to decide what to show a " +
@@ -44,6 +44,15 @@ kotlin {
             // api: KeyValueStorage is a parameter of the public Android factory, so a consumer
             // needs it on their compile classpath to call it.
             api(project(":kmptoolkit-storage"))
+
+            // NotificationManagerCompat.getEnabledListenerPackages() — the only way to check
+            // SpecialPermission.NOTIFICATION_LISTENER_ACCESS; the platform SDK has no equivalent.
+            implementation(libs.androidx.core.ktx)
+
+            // api, not implementation: the factory overload that takes an app's own tracker has
+            // ActivityAccess in its signature, so a consumer needs it on their compile classpath to
+            // call it.
+            api(project(":kmptoolkit-activity"))
         }
         androidUnitTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

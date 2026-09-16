@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.haptics
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -26,6 +27,32 @@ class AndroidHapticFeedbackTest {
         override fun emit(vibration: AndroidVibration): HapticResult {
             emitted += vibration
             return outcome
+        }
+    }
+
+    @Test
+    fun `isAvailable is true when the device has a motor and plays nothing to find out`() {
+        val port = FakePort()
+
+        assertTrue(AndroidHapticFeedback(port).isAvailable)
+        assertTrue(port.emitted.isEmpty())
+    }
+
+    @Test
+    fun `isAvailable is false on a device with no motor`() {
+        assertFalse(AndroidHapticFeedback(FakePort(hasVibrator = false)).isAvailable)
+    }
+
+    @Test
+    fun `isAvailable reports the hardware, not the outcome of the last request`() {
+        // A missing permission or a refusing service is a fact about a request, not about the
+        // device: the motor is still there, and a fixed manifest makes the next request work.
+        listOf(HapticResult.PERMISSION_DENIED, HapticResult.FAILED).forEach { outcome ->
+            val haptics: HapticFeedback = AndroidHapticFeedback(FakePort(outcome = outcome))
+
+            haptics.perform(HapticType.MEDIUM)
+
+            assertTrue(haptics.isAvailable, "outcome=$outcome")
         }
     }
 

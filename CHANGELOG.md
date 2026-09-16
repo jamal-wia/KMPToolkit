@@ -18,6 +18,428 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   answer does not follow the device's calendar setting. Both read in UTC, which is what keeps
   the conversion date-to-date. No test double is published — the function is pure.
 
+## [1.5.0] - 2026-09-13
+
+1.4.0 was never published; its changes ship in this release and are listed here.
+
+### Added
+
+- `kmptoolkit-hardware-keys`, a new Compose module: `DialogWindowHardwareKeyEffect()` keeps the app's
+  hardware-key policy in force inside Compose dialog windows, bottom sheets and focusable popups on
+  Android, where an Activity's `onKeyDown` never sees keys, and `DialogWindowHardwareKeyPolicy`
+  registers that policy once for the process. A no-op on iOS; also publishes `jvm`, so shared dialog
+  code compiles for desktop.
+- `kmptoolkit-storage`: typed accessors — `getInt` / `getLong` / `getBoolean`, their `putInt` /
+  `putLong` / `putBoolean` counterparts, and `getStringOr` / `getIntOr` / `getLongOr` / `getBooleanOr`
+  with a default. One encoding for every caller (decimal strings, `"true"`/`"false"`); a stored
+  value that does not parse is a `GET` failure rather than an absent key.
+- `kmptoolkit-storage` and `kmptoolkit-storage-testing` also publish `jvm`, so shared code taking a
+  `KeyValueStorage` compiles for desktop. `createKeyValueStorage(directory, config)` is a plain store
+  in one properties file with atomic writes; there is no secure store on desktop.
+- `kmptoolkit-permission`: `Permission.LOCATION`, `LOCATION_BACKGROUND`, `MEDIA_AUDIO` and
+  `BLUETOOTH_CONNECT`, each with a stated fold onto `PermissionStatus` on both platforms. Location is
+  requested as fine and coarse in one dialog, through a new multi-permission
+  `PermissionRequestHost.launch(List, ...)` (default body: a one-element list goes to the single
+  `launch`, anything larger is not launched). **An exhaustive `when` over `Permission` needs the new
+  entries**; the change is binary-compatible. iOS apps linking the module link CoreLocation,
+  CoreBluetooth and MediaPlayer — see `05-platform-notes.md` for the purpose strings.
+- `kmptoolkit-permission`: `PermissionHandler.observe(permission)` — the status now and on every
+  change, re-read on activity resume (Android), on becoming active (iOS) and after a request. The
+  member has a default body emitting the current status once. `RecordingPermissionHandler` emits on
+  every scripted change.
+- `kmptoolkit-biometric`: `BiometricGateOptions` and a `createBiometricGate(context, config, options)`
+  overload (and an iOS `createBiometricGate(config, options)`, where the options change nothing) —
+  the weak sensor tier (`BiometricStrength.WEAK`, e.g. camera face unlock), one sensor attempt per
+  call (`singleAttempt`: the first non-match ends the prompt with `Rejected`), and an enrolment
+  throttle. New `BiometricGate` members with default bodies: `authenticate(prompt,
+  requireExplicitConfirmation)` for a per-call confirming tap, and `launchEnrollment()`, which on
+  Android opens the enrolment wizard or — for a user already enrolled, for whom the wizard closes
+  itself — the biometrics management screen. `ScriptedBiometricGate` records both.
+- `kmptoolkit-uploader`: `UploadHandler`, an `UploaderHandler` whose delivery is a multipart upload.
+  `prepareUpload` runs at hand-off and again when the platform starts the upload, `classify` turns the
+  raw outcome into a settlement with the payload at hand, and `onUploadProgress` / `onDelivered` /
+  `onSettled` hooks run isolated. `UploadGateway` is how a transport prepares, reports progress and
+  settles such an item. `UploadTransport.launch(itemId, isRehandOff, request)` has a default body.
+- `kmptoolkit-uploader` (Android): `createWorkManagerUploadHandlerTransport` and `UploadHandlerWorker` —
+  the WorkManager job stores only the item id, so no request or `Authorization` header is persisted in
+  WorkManager's database, a re-run of a settled item uploads nothing, and progress is reported. The
+  worker is open so an app can keep an earlier worker's class name for jobs already queued on devices.
+- `kmptoolkit-uploader` (iOS): `createBackgroundUploadTransport` — one background `NSURLSession` per
+  item that keeps uploading after the app is killed — and `BackgroundUploadRelaunch.handleEvents` for
+  the app delegate's `handleEventsForBackgroundURLSession`.
+- `kmptoolkit-uploader-testing`: `RecordingUploadTransport`.
+- `kmptoolkit-audio-player`: `AudioPlayer.unload()` frees the loaded source's native handle but keeps
+  the player usable, for a player that outlives the screens borrowing it — `release()` stays the
+  permanent teardown. The member has a default body calling `stop()`, so the change is
+  binary-compatible and an existing implementation keeps compiling — unless it already declares a
+  `fun unload()` of its own, which then needs `override`. A decorator should forward it.
+- `kmptoolkit-scheduler` (Android): a `createAlarmScheduler(context, handlerProvider, config)`
+  overload. Handlers are looked up when an alarm fires instead of being handed over at creation, so a
+  handler that needs the scheduler itself no longer forms a construction cycle in a DI container.
+- `kmptoolkit-notification`: `NotificationOptions` and a `Notifier.post(id, notification, options)`
+  overload — `alertOnce` (turn it off for a reminder that must sound on every re-post), a
+  `dismissAction` sent when the notification is swiped away, the media layout's collapsed button row,
+  and per-action icons. Android only; iOS ignores them. The new member has a default body calling the
+  two-argument `post`, so existing implementations keep compiling (one that already declares a
+  `post(String, LocalNotification, NotificationOptions)` of its own needs `override`); a decorator
+  must forward it.
+  `RecordingNotifier` records the options on `PostedNotification.options`.
+- `kmptoolkit-notification` (Android): `notificationIdOf(id)`, `buildForegroundNotification(...)` and
+  `NotificationChannels.ensure` / `delete`. A foreground service starts with a notification rendered
+  exactly as `post` renders it — same buttons, same dismissal, same tap target — and later posts under
+  the same id update it. Channels can be created at startup and retired. The module now depends on
+  `androidx.media` (implementation scope) for the media layout.
+- `kmptoolkit-location` (iOS): `LocationProvider.withSystemServicesPrompt()`. Its
+  `promptToEnableService()` asks iOS to show its own "Turn On Location Services" alert and answers
+  `PROMPTED`. `FakeLocationProvider` gains `servicePromptAnswer` and `promptCount`.
+- `kmptoolkit-permission` (Android): a `createPermissionHandler(context, host, storage, activityAccess,
+  ...)` overload, for an app that already owns an `ActivityAccess`. `kmptoolkit-activity` becomes an
+  `api` dependency accordingly.
+- Documentation: `kmptoolkit-location` explains why it stays off Google Play Services and gives a
+  complete recipe for a `FusedLocationProviderClient` decorator, including the in-place "turn on
+  location" dialog.
+
+### Fixed
+
+- `kmptoolkit-uploader` (iOS): `BackgroundTaskWakeScheduler.handleWake` calls `onDone` even when the
+  drain throws, so iOS always hears that the background task finished.
+- `kmptoolkit-permission` (Android): on Android 11+, backing out of the **first** permission dialog —
+  back, or a tap outside it — returned `PermanentlyDenied`, and every later `request` skipped the
+  dialog, although Android would still show it. The handler now also remembers whether the user ever
+  refused through the dialog (a second key, `<prefix>.rationale.<PERMISSION>`), so a dismissal reads
+  `NotDetermined`. A request whose answer arrives before the activity is resumed waits for it before
+  reading the rationale, and no permanent verdict is drawn when there is no activity to ask.
+  Behaviour changes that follow from it:
+  - The asked flag is now written as `dialog-shown`. A flag an earlier version wrote (`true`) keeps
+    being read as those versions read it, so a permission already recorded as permanently denied
+    stays so; the fix applies once the user grants it, or on a fresh install.
+  - A permission the user refused before the app ever asked — in system settings — or one missing
+    from the manifest now reads `NotDetermined`, and `request` returns at once: without a dialog
+    Android reports no rationale, exactly as for a dismissal.
+  - `check` now writes the refusal flag the first time Android reports a rationale, once per
+    permission.
+- `kmptoolkit-audio-player`: a `prepare` that arrived while another was still loading broke both — on
+  Android the first call never returned, on iOS it failed with an error that overwrote the second
+  one's state. Loads are now serialized: the newer one cancels the older, waits for it to unwind, and
+  owns the outcome; the replaced call returns normally.
+- `kmptoolkit-audio-player` (iOS): the playback speed was not applied when playback started or
+  resumed, because the rate was pushed only while `AVPlayer` already reported itself playing.
+- `kmptoolkit-audio-player`: `play()` from `Completed` starts over from the beginning on both
+  platforms, as `MediaPlayer` already did; `AVPlayer` used to sit at the end in a `Playing` state. The
+  documentation said it resumed at the end.
+- `kmptoolkit-audio-player` (Android): a load cancelled while `MediaPlayer` was still attaching its
+  source leaked the handle, and an error reported right after "prepared" could resume the load twice.
+- `kmptoolkit-audio-recorder`: cancelling `prepare` while its storage checks were pending left the
+  recorder in `Preparing`, from which nothing — `prepare` included — was legal again. A `stop` or
+  `cancel` whose caller was cancelled mid-way left the state `Recording` over a stopped engine; both
+  now run to completion; the caller observes its cancellation afterwards.
+- `kmptoolkit-scheduler` (Android): `schedule` threw when `AlarmManager` refused an alarm — Android 12+
+  caps an app at 500 — despite promising never to throw for a platform refusal. It now returns
+  `Failed(PlatformError)`.
+- `kmptoolkit-notification`: a progress update whose title, body or buttons changed was coalesced
+  like any other frame in the same bucket, leaving stale text on screen until the bar crossed into
+  the next one. The bucket now holds back only frames that differ in nothing but the percentage; the
+  rate limit (`minProgressInterval`) still applies to every determinate frame.
+- `kmptoolkit-notification` (Android): below API 33 a post consulted the `PermissionHandler` for
+  `POST_NOTIFICATIONS`, which does not exist there, so a handler answering "denied" silenced every
+  notification on older devices. The check is skipped below 33.
+- `kmptoolkit-location` (iOS): `openLocationSettings()` reached `UIApplication` on the calling thread;
+  it now hops to the main thread, as the "any thread" contract promises.
+- `kmptoolkit-location` (iOS): `observeLocation()` held its `CLLocationManager` delegate only weakly,
+  so after a garbage collection updates could stop while the flow stayed open.
+- `kmptoolkit-activity` (Android): a `withActivity` on another thread that found a finishing activity
+  could clear an activity that resumed at the same moment.
+- `kmptoolkit-scheduler` (Android): a handler provider throwing a checked exception crashed the process
+  instead of dropping the alarm, as documented.
+- Documentation: `kmptoolkit-activity` said an untracked activity resuming over a tracked one left the
+  tracked activity reachable underneath. The tracked activity is paused while covered, so
+  `withActivity` answers `null` until it resumes. `kmptoolkit-notification` said the iOS notifier
+  overrides the three-argument `post`; it keeps the default.
+- Documentation: `kmptoolkit-biometric` said `ComponentActivity` can host the prompt. It is
+  `FragmentActivity`'s superclass — and a Compose activity's default base — so `authenticate` from it
+  returns `NoPromptHost`. `kmptoolkit-audio-player` said the playback audio session keeps audio going
+  at screen lock; that needs the `audio` background mode.
+
+## [1.3.0] - 2026-09-13
+
+### Added
+
+- `kmptoolkit-haptics`: `HapticFeedback.isAvailable` answers whether the device can play haptics at
+  all **without** playing anything — `perform` only reports `UNAVAILABLE` after it has already
+  tried, which is too late for a decision such as "does this attention cue have any way to reach the
+  user". Android reads `hasVibrator()`, iOS answers `true` (UIKit cannot tell), `noOpHapticFeedback()`
+  answers `false`. The member has a default getter returning `true`, so the change is
+  binary-compatible and an existing implementation keeps compiling — unless it already declares a
+  property named `isAvailable`, which then needs `override`. A decorator should forward it. `RecordingHapticFeedback` gains a matching
+  `isAvailable` property and a `(result, isAvailable)` constructor.
+- `kmptoolkit-haptics` (Android): `HapticAttribution` and a `createHapticFeedback(context,
+  attribution)` overload. `TOUCH` is what every instance did until now and remains the default;
+  `NONE` plays the unattributed `vibrate(effect)`, which the user's touch-feedback switch does not
+  silence — for a vibration that is not a reaction to a touch, and for an app adopting the module
+  whose vibrations were unattributed before. The single-argument factory is unchanged. Purely
+  additive.
+- Documentation: `kmptoolkit-downloader` explains how an app that already stored downloads in the
+  same layout under its own directory name keeps them — `DownloaderStorageConfig(baseDirectoryName =
+  ...)` — and what happens to its users if it does not. Pinned by new Robolectric tests; no code
+  change.
+
+### Fixed
+
+- `kmptoolkit-flashlight`: the promise that `Flashlight` is safe to call from any thread did not
+  hold. The running blink job lived in a plain field, so two `start`s racing from different threads
+  could each install a loop, leaving one blinking that no `stop` could reach — a torch that never
+  goes dark. A new pattern's first flash could also be cut short by the previous loop's final "off",
+  after either a replacing `start` or a `stop` just before it. Both platforms now share one blink loop
+  that swaps the job atomically and makes every job wait for the one it replaced to finish; nothing
+  in the public API changes. On iOS the torch is also looked up once per `start` instead of on every
+  switch.
+- `kmptoolkit-accelerometer` (iOS): two concurrent collections of one instance broke each other.
+  `CMMotionManager` has a single update handler, so the second collection replaced the first one's,
+  and whichever ended first called `stopAccelerometerUpdates` and silenced the other. An instance now
+  runs one update stream that starts with the first collection, stops with the last, and delivers
+  every sample to all of them — which is what Android already did.
+- `kmptoolkit-accelerometer` (Android): a `samplingInterval` below 4 µs reached
+  `SensorManager.registerListener` as `0`–`3`, which the platform reads as its `SENSOR_DELAY_*`
+  constants — 3 µs meant `SENSOR_DELAY_NORMAL`, 200 ms — and one longer than `Int.MAX_VALUE` µs
+  overflowed into a negative period. Short and non-positive intervals now request
+  `SENSOR_DELAY_FASTEST`, and long ones are capped.
+- Documentation: `kmptoolkit-accelerometer` and `kmptoolkit-proximity` said sensor callbacks arrive
+  on the collecting thread's looper. With no `Handler` passed, `SensorManager` delivers them on the
+  main looper. `kmptoolkit-proximity` also said an absent sensor's `observe()` never completes; the
+  always-absent iOS implementation completes at once, which is now stated.
+
+## [1.2.0] - 2026-09-13
+
+### Added
+
+- `kmptoolkit-language` and `kmptoolkit-language-compose` now also publish a **`jvm` (desktop)
+  target**. `AppLanguage` is a type consumers put in the public API of their shared modules — a
+  settings repository, a language picker, a screen's state — and a module compiled for desktop could
+  not mention it at all while it resolved on only Android and iOS. Unlike the system-bars desktop
+  target this is not a no-op: `applyLanguageGlobally` sets the JVM default locale for every category,
+  `AppLanguage.System` restores the operating system's language, and `getSystemLanguageCode` reads it
+  from the `user.*` system properties, which `Locale.setDefault` does not rewrite. `AppLocale`
+  re-pins the default if something else moved it and keys the composition on the language code,
+  since a desktop string resource is resolved only when its call composes. The desktop-target
+  exception and its bar are restated in `docs/01-architecture.md` § "Desktop targets". Purely
+  additive.
+
+### Fixed
+
+- `kmptoolkit-language-compose`: on Android, `AppLocale` provided `LocalContext` as the bare result of
+  `createConfigurationContext`. On an activity that delegates to the underlying `ContextImpl`, so the
+  context content saw was not the activity or a wrapper around it, and carried the device-default
+  theme instead of the activity's: `LocalActivity` and every find-the-activity walk returned `null`
+  under `AppLocale`, and an Android View hosted in Compose (a video player, a map) was inflated under
+  the wrong theme. It is now the host context wrapped, with only its resources localized — the
+  activity stays at the end of the chain and its theme stays in effect.
+- Documentation: Android controllers must be created before the first activity resumes, and the
+  docs never said so. The activity tracker learns which activity is current only from
+  `onActivityResumed`, and Android offers no public way to ask for one that resumed before
+  registration — so a controller created later, such as a lazy DI singleton first resolved by the
+  theme during composition (which on Android runs after `onResume`), could not style the window on
+  screen until the next resume. The contract is now stated on `createSystemBarsController`,
+  `createScreenWakeLockController` and `createActivityAccess`, and in both getting-started guides;
+  `ControllerCreationOrderTest` pins it, including the bounded recovery on the next resume.
+- Documentation: the Android platform notes recommended the no-argument `enableEdgeToEdge()`, which
+  installs a translucent navigation-bar scrim on API 26–28 and turns contrast enforcement back on for
+  API 29+. Because this module deliberately never calls `enableEdgeToEdge`, following the docs left a
+  faint band behind the navigation bar on three-button devices. The notes now give the two lines that
+  avoid it.
+- Documentation: the iOS platform notes now cover SwiftUI apps, whose window root is a hosting
+  controller that never asks an embedded Compose view controller about the status bar. They show
+  making the host the root from a `UIWindowSceneDelegate`, and warn off the app-delegate-owned window,
+  which leaves the UIScene lifecycle and builds the UI on background launches. The note on activity
+  recreation, which claimed a replay to an activity resumed before the controller existed, now agrees
+  with the creation-order contract, as does the matching KDoc in `kmptoolkit-activity`.
+- KDoc: `applyLanguageGlobally` said `AppLanguageHolder` applies only on a `setLanguage` that changes
+  the language; it applies on every call. `StatusBarLuminanceProbe` pointed screens at
+  `setStatusBarStyle` / `setNavigationBarStyle`, which do not exist in this API.
+
+## [1.1.0] - 2026-09-12
+
+### Added
+
+- `kmptoolkit-systembars`: `IosSystemBarsController.prefersHomeIndicatorAutoHidden`, to be returned
+  from your host's override of the same name. iOS has no navigation bar, so
+  `SystemBarsVisibility.isNavigationBarVisible` was inert there; it now drives the home indicator,
+  which is the nearest thing a cross-platform "hide the bottom bar" claim can mean on that platform —
+  `SystemBarsVisibility.Immersive` hides both bars on Android and the status bar plus the home
+  indicator on iOS. The controller invalidates it alongside the status bar on every configuration
+  change. Added as a **default interface member**, so no existing implementation of
+  `IosSystemBarsController` needs to change. Purely additive.
+- New `kmptoolkit-activity` module: `ActivityAccess`, `ActivitySubscription` and
+  `createActivityAccess(application, isTracked)` — scoped access to the resumed Android activity,
+  with no getter to leak through and a weak reference cleared by the framework's own lifecycle
+  callbacks. `kmptoolkit-systembars` and `kmptoolkit-permission` each carried a private copy of this
+  code; both now depend on the one artifact, which changes neither module's public API.
+
+  It is the suite's first **Android-only** artifact. Not because iOS support is unfinished, but
+  because UIKit has no counterpart to an `Activity` — an iOS `actual` here could only be an
+  interface that compiles and does nothing. Depend on it from `androidMain`. The bar a second
+  Android-only module would have to clear is in `docs/01-architecture.md` § "One module is
+  Android-only".
+- `kmptoolkit-systembars`: `createSystemBarsController(activityAccess, initialConfig)` and
+  `createScreenWakeLockController(activityAccess)`, so a consumer can say *which* activities the
+  controller is allowed to act on. The `Context` overloads track every activity in the process,
+  which is right when the bars belong to whichever window the user is looking at — and wrong as soon
+  as the process hosts a window the app does not own the appearance of. An in-process picker or
+  sign-in activity would otherwise be handed the configuration the app last set, including a
+  fullscreen one a screen underneath had claimed, and a keep-screen-awake flag would follow the user
+  into it. `createActivityAccess(application) { it is MainActivity }` fixes both. Purely additive;
+  the `Context` overloads are unchanged and still track everything.
+- `kmptoolkit-language`: `AppLanguage(code)` and `isRightToLeft(code)`, deriving reading direction
+  from the writing system instead of making every consumer state it. Which languages an app offers
+  is a product decision this module stays out of; which direction Arabic reads in is not, and
+  `isLtr = true` typed next to `"fa"` lays Persian out left-to-right with nothing failing. An
+  explicit script subtag outranks the language (`az-Arab` is right-to-left, `az` is not), and an
+  unrecognised tag is reported left-to-right — the safe direction to be wrong in. The two-argument
+  constructor still works and still wins. Purely additive.
+- `kmptoolkit-systembars`: `createHeadlessSystemBarsController()`, a controller with the full layer
+  model and no window behind it, in the **main** artifact rather than the testing one. `@Preview`
+  functions compile into production source, so a screen that resolves a controller — or uses
+  `SystemBarsEffect` — cannot reach `RecordingSystemBarsController` from a `testImplementation`
+  artifact, and every consumer with previews was left hand-rolling the same empty
+  `SystemBarsController`. It is headless rather than inert: overrides stack and release exactly as
+  on a device, so a preview reading `config` back sees a real answer. It is also what the `jvm`
+  target's `createSystemBarsController()` returns. Purely additive.
+- `kmptoolkit-systembars-testing` now also publishes a **`jvm` target**, matching
+  `kmptoolkit-systembars`. The fixtures are pure Kotlin with no platform code; without this, the
+  shared phone-and-desktop UI tree the desktop exception exists for could not resolve the double
+  from `commonTest`. Purely additive.
+- `kmptoolkit-systembars-testing`: `RecordingSystemBarsController`, a `SystemBarsController` double
+  that layers overrides exactly as the real controller does and records every configuration that
+  would have reached a window. `activeOverrideCount` exists so a teardown test can assert a screen
+  left no layer behind. Not thread-safe, deliberately — see
+  `docs/kmptoolkit-systembars/06-testing.md`.
+- `kmptoolkit-systembars` now also publishes a **`jvm` (desktop) target** — the only module in the
+  suite that does. The module's premise is that a screen states what it wants from the bars without
+  knowing where it runs, so a Compose Multiplatform app sharing one UI tree between phone and
+  desktop could not compile that tree at all while the types resolved on only two of its three
+  targets. Desktop has no system bars, so every platform call in `jvmMain` is a no-op
+  (`createSystemBarsController()` and `createScreenWakeLockController()` are the JVM factories);
+  the layer stack — per-axis ownership, restore-by-removal, no lost update under concurrency — is
+  `commonMain` and behaves identically, so `config` always holds what the shared tree asked for.
+  Purely additive: no existing target, artifact or symbol changes. See
+  `docs/01-architecture.md` § "One module publishes a desktop target".
+
+- `kmptoolkit-systembars`: `ScreenWakeLockController`, a keep-screen-awake primitive
+  (`Window.FLAG_KEEP_SCREEN_ON` / `UIApplication.idleTimerDisabled`) unrelated to the bars, created
+  with `createScreenWakeLockController(context)` (Android) / `createScreenWakeLockController()`
+  (iOS). Purely additive — `SystemBarsController` and every other existing symbol is unchanged.
+- `kmptoolkit-systembars-testing`: new module holding `RecordingScreenWakeLockController`, a
+  `ScreenWakeLockController` double for `testImplementation`.
+- `kmptoolkit-systembars`: `AutoSystemBarsIconStyle`, an opt-in composable that samples the pixels
+  drawn under both bars and derives a contrasting icon style for each, and
+  `StatusBarLuminanceProbe` / `createStatusBarLuminanceProbe()` for triggering an on-demand
+  re-sample. Ported from Tahfeez's `AutoSystemBarsIconStyle`, adapted to publish its derived style
+  as one `SystemBarsOverride` this composable pushes and updates in place (this module's existing
+  layered-override model) rather than writing a flat controller's icon-style setters directly, so a
+  screen's own `SystemBarsEffect` still wins any axis it explicitly claims. Requires a new
+  `androidx.lifecycle:lifecycle-runtime-compose` dependency in `commonMain`, needed to pause
+  sampling while the host is backgrounded. Purely additive — every existing symbol is unchanged.
+- New `kmptoolkit-language` module: `AppLanguageHolder`, `AppLanguage` (a BCP-47 code and a reading
+  direction — no fixed language list, no display names), `AppLanguageCatalog` /
+  `createAppLanguageCatalog`, `applyLanguageGlobally()` / `getSystemLanguageCode()`, and Android's
+  `localizedContext()` and `LocalizedApplicationResources`. Ported from Tahfeez's `core/language`,
+  generalized to carry no fixed language list or user-facing text and to depend on no storage or DI
+  framework of its own.
+
+  `AppLanguageCatalog` is the module's answer to the questions that need the *set* of supported
+  languages to answer, without the library knowing how many an app has: which language to serve a
+  device whose own language you do not offer (whole tag first, then primary subtag, so `pt-BR` finds
+  your `pt`), what string to persist for a selection, and what a previously persisted string means
+  today. You build one from your own list; display names and flags stay with you. `systemId` — the
+  persisted identity of "follow the device" — is a defaulted parameter rather than a constant, so an
+  app with existing values on disk can keep them.
+
+  `LocalizedApplicationResources` (Android) is the piece most easily missed: Android rebuilds the
+  process-global default locale from the *Application's* resources on every configuration delivery,
+  so without it the app silently reverts to the device language on any change that does not recreate
+  the activity — a 180° rotation, a window resize inside the same size bucket, an external display.
+  Install it by overriding `Application.getResources()`; see
+  `docs/kmptoolkit-language/05-platform-notes.md`.
+
+  `AppLanguageHolder.setLanguage` applies the platform locale on **every** call, including one
+  passing the language already in effect. The platform default is shared state the OS itself
+  rewrites, so re-asserting it is the point; `languageFlow` and `onLanguageChanged` remain
+  change-only.
+- New `kmptoolkit-language-compose` module: `AppLocale` and `Modifier.mirrorOnRtl()` /
+  `mirrorOnLtr()`. Split from `kmptoolkit-language` so the base module stays plain Kotlin.
+
+  `AppLocale(language, resolvedLanguage, content)` takes the selection *and* the resolved
+  language: the first is what the platform locale is pinned to — passing `AppLanguage.System` pins
+  the device's language rather than whatever it is set to today — and only `isLtr` is read from the
+  second. `resolvedLanguage` has no default on purpose: defaulting it to `language` would let
+  `AppLocale(selected) { … }` compile and then read `AppLanguage.System.isLtr`, which is a
+  placeholder, laying an Arabic device on "follow system" out left-to-right with nothing to show for
+  it. Its platform halves differ, deliberately: Android re-pins the process default synchronously
+  before `content` composes and provides a localized `LocalConfiguration`/`LocalContext`, so a
+  language change keeps the subtree's remembered state; iOS keys the composition on the language
+  code, which is the only mechanism available there and does not. See
+  `docs/kmptoolkit-language-compose/05-platform-notes.md`.
+- `kmptoolkit-permission`: `SpecialPermission` and `SpecialPermissionHandler`, for Android's
+  "special access" grants that have no in-app request dialog — `EXACT_ALARM`, `OVERLAY`,
+  `WRITE_SETTINGS`, `ALL_FILES_ACCESS`, `USAGE_STATS_ACCESS`, `IGNORE_BATTERY_OPTIMIZATIONS`,
+  `NOTIFICATION_LISTENER_ACCESS`, `DO_NOT_DISTURB_ACCESS`. Created with
+  `createSpecialPermissionHandler(context, logger)` (Android) / `createSpecialPermissionHandler()`
+  (iOS); every entry is always granted, with nothing to open, on iOS. Ported from Tahfeez's
+  `core/permission`, adapted to this module's factory-function convention (no Koin). Purely
+  additive — `PermissionHandler` and every other existing symbol is unchanged.
+- `kmptoolkit-permission-testing`: `RecordingSpecialPermissionHandler`, a `SpecialPermissionHandler`
+  double for `testImplementation`.
+- `kmptoolkit-location`: `LocationServicePrompt` and `LocationProvider.promptToEnableService()` (a
+  **default interface method**, so no existing `LocationProvider` implementation — including a
+  consumer's own — needs to change). Both factory-built providers only ever report `ALREADY_ON` /
+  `UNSUPPORTED`: an in-place resolution dialog needs Google Play Services on Android, which this
+  module deliberately does not depend on, and iOS exposes no equivalent API at all — see
+  `docs/kmptoolkit-location/05-platform-notes.md`. Purely additive.
+
+- `kmptoolkit-uploader`: `UploadTransport`, a ready-made executor for `AttemptResult.Detached`
+  covering the common case — a plain multipart HTTP upload that must keep going after the process
+  dies. `createWorkManagerUploadTransport` (Android) turns `execute()` into one `WorkManager` job
+  per item (unique-keyed, so a re-hand joins rather than duplicates), streams the multipart body
+  from disk without buffering it, and reports the outcome to whichever `UploaderEngine` is
+  registered through the existing `UploaderEngineRegistry`. `UploadRequest`/`UploadField` are
+  encoded into WorkManager's own primitive `Data` by hand — no new serialization dependency.
+  `classify: (UploadResult) -> SettleResult` (default: `defaultUploadClassification`) lets you map
+  HTTP outcomes onto the queue's vocabulary yourself. No iOS transport yet — a background
+  `NSURLSession` needs your app's own `AppDelegate` to forward
+  `application(_:handleEventsForBackgroundURLSession:completionHandler:)`, the same OS-mandated
+  cooperation the existing iOS wake scheduler already requires for `BGTaskScheduler`; see
+  `docs/kmptoolkit-uploader/08-upload-transport.md`. Purely additive — every existing symbol,
+  including `AttemptResult.Detached` itself, is unchanged.
+
+### Changed
+
+- `kmptoolkit-systembars`: `DialogWindowSystemBarsEffect` now collects the controller's configuration
+  lifecycle-aware (`collectAsStateWithLifecycle`) instead of unconditionally, matching
+  `AutoSystemBarsIconStyle` — a backgrounded dialog window is neither read from nor written to, and
+  the configuration is re-read on the way back to `STARTED`. No API change.
+
+### Fixed
+
+- `kmptoolkit-systembars`: a released `SystemBarsOverrideHandle` could release or overwrite a layer
+  belonging to a *later* override. Override ids were derived from the layers currently on the stack,
+  so an empty stack restarted the sequence and a dead handle came back to life aliasing whatever was
+  pushed next. Reaching it needed the stack to drain in between — one screen leaving, another
+  arriving, and the first then releasing or updating its handle a second time — at which point the
+  arriving screen's bars were silently cleared or rewritten. Ids are now part of the same atomic
+  state as the stack itself and are never reused, including across `SystemBarsController.release()`.
+  `RecordingSystemBarsController` was already correct here and now has the matching parity cases.
+- `kmptoolkit-location`: the iOS `LocationProvider` now creates and starts every `CLLocationManager`
+  on the main queue. Previously a caller reaching `getCurrentLocation()` / `observeLocation()` from
+  `Dispatchers.Default` (a Kotlin/Native worker thread, which has no run loop) could see the manager
+  created there too — CoreLocation delivers delegate callbacks on the run loop of the thread that
+  created the manager, so on such a thread neither a fix nor a failure would ever arrive, and the
+  call would suspend forever rather than time out or fail.
+
+## [1.0.2] - 2026-09-04
+
+No public API change. Re-release of `1.0.1`, whose Maven Central deployment never completed
+because the CI signing step failed on a misconfigured repository secret (see `RELEASING.md`
+§ Troubleshooting). Every `kmptoolkit-*` artifact and the BOM are published at this version.
+
 ## [1.0.1] - 2026-08-29
 
 ### Removed

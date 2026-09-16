@@ -3,9 +3,9 @@ package io.github.jamal_wia.kmptoolkit.systembars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
  * Claims the axes of [override] on [controller] for as long as this composable is in composition,
@@ -92,7 +92,10 @@ public fun SystemBarsEffect(
  */
 @Composable
 public fun DialogWindowSystemBarsEffect(controller: SystemBarsController) {
-    val config: SystemBarsConfig by controller.config.collectAsState()
+    // Lifecycle-aware, like the sampler in AutoSystemBarsIconStyle: a backgrounded dialog window
+    // must be neither read from nor written to. The configuration is re-read on the way back to
+    // STARTED, so nothing is missed by not having followed it while away.
+    val config: SystemBarsConfig by controller.config.collectAsStateWithLifecycle()
     applyDialogWindowSystemBars(config)
 }
 

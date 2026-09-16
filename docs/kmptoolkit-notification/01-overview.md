@@ -85,16 +85,19 @@ Android. No DI framework, no Compose, no push SDK.
 - **Not a permission requester.** It checks `POST_NOTIFICATIONS` and reports what it found; it never
   shows a system prompt. Deciding when to ask, and what to say first, belongs to your UI —
   `kmptoolkit-permission`'s `PermissionRequestFlow` is the piece for that.
-- **Not a foreground-service helper.** It posts notifications; it does not start services, and it
-  will not hand you a `Notification` object for `startForeground`. That call needs the platform type
-  and an Android service lifecycle this module has no view of.
+- **Not a foreground-service helper.** It posts notifications; it does not start, stop or keep alive
+  a service, and it has no view of a service's lifecycle. What it does offer, on Android, is the
+  notification such a service must show: `buildForegroundNotification` renders one exactly as `post`
+  would, and `notificationIdOf` gives the id to start the service with, so the service's notification
+  and later updates posted through `Notifier` stay one notification.
 - **Not a source of user-facing text.** No default channel name, no default title, no English
   string of any kind. Everything visible is a required parameter you supply, already localized.
 - **Not a record of what is showing.** The module keeps no list of posted notifications beyond the
   progress-coalescing state, and cannot tell you whether an id is currently on screen — `cancel` is
   a fire-and-forget request, exactly as it is on both platforms.
 - **Not rich notification content.** No big-picture or inbox styles, no images, no reply inputs, no
-  grouping/summary API, no badges. Those are deep, platform-shaped features; the module covers title,
+  grouping/summary API, no badges, no media session. (The media *layout*, for its collapsed button
+  row, is available through `NotificationOptions.mediaStyle`.) Those are deep, platform-shaped features; the module covers title,
   body, icon, progress, sound, importance, buttons and a tap target.
 - **Not tied to Compose or any UI framework.**
 

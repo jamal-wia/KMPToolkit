@@ -506,11 +506,11 @@ class AndroidNotifierTest {
         val negativeHash = "chat_thread_id_from_push"
         assertTrue(negativeHash.hashCode() < 0)
 
-        assertTrue(AndroidNotifier.notificationId(negativeHash) > 0)
-        assertNotEquals(0, AndroidNotifier.notificationId(""))
+        assertTrue(platformNotificationId(negativeHash) > 0)
+        assertNotEquals(0, platformNotificationId(""))
         assertEquals(
-            AndroidNotifier.notificationId(negativeHash),
-            AndroidNotifier.notificationId(negativeHash),
+            platformNotificationId(negativeHash),
+            platformNotificationId(negativeHash),
         )
     }
 

@@ -154,4 +154,21 @@ class PromptInfoTest {
             ),
         ).forEach { config -> buildPromptInfo(promptText, config) }
     }
+
+    @Test
+    fun `a weak-tier biometric-only prompt asks for the weak tier`() {
+        val info: BiometricPrompt.PromptInfo =
+            buildPromptInfo(promptText, BiometricGateConfig(), strength = BiometricStrength.WEAK)
+
+        assertEquals(BiometricManager.Authenticators.BIOMETRIC_WEAK, info.allowedAuthenticators)
+        assertEquals("Not now", info.negativeButtonText.toString())
+    }
+
+    @Test
+    fun `a per-call confirmation overrides the configured one`() {
+        assertFalse(
+            buildPromptInfo(promptText, BiometricGateConfig(requireExplicitConfirmation = true), requireConfirmation = false)
+                .isConfirmationRequired,
+        )
+    }
 }

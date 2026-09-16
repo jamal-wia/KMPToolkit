@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.location.testing
 
 import io.github.jamal_wia.kmptoolkit.location.GeoCoordinates
 import io.github.jamal_wia.kmptoolkit.location.LocationProvider
+import io.github.jamal_wia.kmptoolkit.location.LocationServicePrompt
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +39,26 @@ public class FakeLocationProvider(
         private set
 
     /**
+     * What [promptToEnableService] answers while the location service is off. `null` (the default)
+     * keeps the interface's own answer, [LocationServicePrompt.UNSUPPORTED] — what both factory-built
+     * providers give. Set it to [LocationServicePrompt.PROMPTED] or [LocationServicePrompt.NOT_NOW]
+     * to stand in for a provider that can raise a dialog. While [locationEnabled] is `true` the
+     * answer is always [LocationServicePrompt.ALREADY_ON], as on a real provider.
+     *
+     * @since 1.5.0
+     */
+    public var servicePromptAnswer: LocationServicePrompt? = null
+
+    /**
+     * How many times [promptToEnableService] has been called, including calls that found the service
+     * already on.
+     *
+     * @since 1.5.0
+     */
+    public var promptCount: Int = 0
+        private set
+
+    /**
      * Publishes [coordinates] as the current fix: the next [getCurrentLocation] call returns it,
      * and every [observeLocation] collector receives it immediately.
      */
@@ -53,5 +74,11 @@ public class FakeLocationProvider(
 
     override fun openLocationSettings() {
         openSettingsCount++
+    }
+
+    override suspend fun promptToEnableService(): LocationServicePrompt {
+        promptCount++
+        if (locationEnabled) return LocationServicePrompt.ALREADY_ON
+        return servicePromptAnswer ?: LocationServicePrompt.UNSUPPORTED
     }
 }

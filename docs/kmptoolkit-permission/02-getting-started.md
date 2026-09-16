@@ -67,6 +67,27 @@ class MainActivity : ComponentActivity(), PermissionRequestHost {
 }
 ```
 
+`Permission.LOCATION` is requested as fine and coarse location in **one** dialog — the only way
+Android 12+ shows the Precise / Approximate choice — so a host that requests location also implements
+the multi-permission `launch`. A host without it can request every other permission; a location
+request then shows nothing and leaves the status as it was.
+
+```kotlin
+    private var pendingGroup: ((Map<String, Boolean>) -> Unit)? = null
+
+    private val groupLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { answers ->
+        pendingGroup?.invoke(answers)
+        pendingGroup = null
+    }
+
+    override fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean {
+        pendingGroup = onResult
+        return runCatching { groupLauncher.launch(androidPermissions.toTypedArray()) }.isSuccess
+    }
+```
+
 ```kotlin
 class MyApplication : Application() {
 
@@ -134,6 +155,21 @@ class RecorderPresenter(handler: PermissionHandler) {
 
 Your UI observes `permissionState` and renders its own dialog for `AwaitingRationale` and
 `AwaitingSettings`. The library never supplies the words.
+
+## 6. If you need a special access permission instead
+
+Exact alarms, drawing over other apps, all-files storage access — none of these go through
+`PermissionHandler`. They have no in-app dialog and no denial bookkeeping to speak of:
+
+```kotlin
+val specialHandler: SpecialPermissionHandler = createSpecialPermissionHandler(context) // createSpecialPermissionHandler() on iOS
+
+if (!specialHandler.isGranted(SpecialPermission.EXACT_ALARM)) {
+    specialHandler.requestViaSettings(SpecialPermission.EXACT_ALARM)
+}
+```
+
+See [`03-guide.md`](03-guide.md#special-access-permissions).
 
 ## What you did **not** have to write
 

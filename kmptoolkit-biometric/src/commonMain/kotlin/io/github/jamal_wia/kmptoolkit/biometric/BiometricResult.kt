@@ -44,7 +44,9 @@ public sealed interface BiometricResult {
      *
      * A single unrecognised finger is *not* this: the platforms keep the prompt on screen and let
      * the user try again, and this module stays silent while they do. By the time you see
-     * `Rejected`, the sheet is gone. It says nothing about the user being an impostor — a wet
+     * `Rejected`, the sheet is gone. The exception is a gate built with
+     * [BiometricGateOptions.singleAttempt], where the first unrecognised finger is the attempt and
+     * ends the prompt with `Rejected`. It says nothing about the user being an impostor — a wet
      * finger and a bad angle look the same to a sensor — so let them retry if your flow allows it,
      * but expect [Unavailable] with [BiometricUnavailability.LOCKED_OUT] soon after.
      */
@@ -69,8 +71,9 @@ public sealed interface BiometricResult {
      *
      * Android's biometric prompt is a fragment; it needs an activity that is on screen. You get
      * this when the call is made from the background, during a configuration change, or from an
-     * `Activity` that does not extend `FragmentActivity` — the last of which is a wiring mistake
-     * to fix rather than a runtime condition to handle.
+     * `Activity` that does not extend `FragmentActivity` — including a plain `ComponentActivity`,
+     * which is its superclass and a Compose activity's default base. That last case is a wiring
+     * mistake to fix, and retrying does not help, rather than a runtime condition to handle.
      *
      * It is distinct from [Cancelled] because the user never saw anything to cancel: retrying once
      * your UI is back on screen is correct, and telling the user "you cancelled" would be a lie.

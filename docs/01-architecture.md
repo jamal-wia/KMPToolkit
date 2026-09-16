@@ -160,16 +160,76 @@ than hidden:
 
 ## Compose modules are opt-in artifacts
 
-Only two modules depend on Compose Multiplatform: `kmptoolkit-systembars` and
-`kmptoolkit-logging-overlay`. Every other module is plain Kotlin with no UI framework dependency —
-adding, say, `kmptoolkit-uploader` to a non-Compose (or non-UI) target never pulls in Compose.
+Only four modules depend on Compose Multiplatform: `kmptoolkit-systembars`,
+`kmptoolkit-logging-overlay`, `kmptoolkit-language-compose`, and `kmptoolkit-hardware-keys`. Every other module is plain Kotlin
+with no UI framework dependency — adding, say, `kmptoolkit-uploader` to a non-Compose (or non-UI)
+target never pulls in Compose. A module whose core capability is useful outside Compose too splits
+into a plain-Kotlin base and a `-compose` companion (`kmptoolkit-language` /
+`kmptoolkit-language-compose`) rather than pulling Compose into the base — see the base module's own
+`01-overview.md` for why.
 
 Apple targets are uniform across the suite: every module publishes `iosArm64` and
 `iosSimulatorArm64`, and none publishes `iosX64`. The legacy Intel simulator is superseded by
 `iosSimulatorArm64` on Apple-silicon Macs, Compose Multiplatform 1.11+ publishes no `iosX64`
-artifact at all, and dropping it keeps the suite's published-file count — 41 modules times five
-coordinates each — inside Maven Central's per-namespace limits (see `RELEASING.md`). The target
+artifact at all, and dropping it keeps the suite's published-file count — five coordinates per
+module, six for each module that also publishes `jvm` — inside Maven Central's
+per-namespace limits (see `RELEASING.md`). The target
 list is recorded in each module's `.klib.api` dump.
+
+## One module is Android-only
+
+`kmptoolkit-activity` publishes `android` and nothing else. It is the only module that does, and the
+reason is not that iOS support is unfinished — it is that there is nothing to support.
+
+The module answers one question: *which `Activity` is resumed right now*. UIKit has no counterpart.
+A view controller is owned by the app's own hierarchy and reached directly, so an iOS `actual` here
+could only be a fiction — an interface that compiles, resolves to nothing, and silently does not
+work for anyone who believed it. Publishing a target to preserve a symmetry that the platform does
+not have is worse for a consumer than publishing no target at all, because the first failure then
+happens at runtime on a device instead of at compile time on a laptop.
+
+That is the bar for a second Android-only module, and it is a high one: the capability must be
+*absent* on iOS, not merely unimplemented or shaped differently there. A capability that exists on
+both platforms in different forms is exactly what `expect`/`actual` is for, and belongs in a
+two-target module like every other one in the suite.
+
+Consumers depend on it from `androidMain`. `kmptoolkit-systembars` and `kmptoolkit-permission` both
+do — each carried a private copy of this code before it had a home of its own.
+
+## Desktop targets
+
+Seven artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-storage`, each with its
+`-testing` fixtures, `kmptoolkit-language` with `kmptoolkit-language-compose`, and
+`kmptoolkit-hardware-keys`. Every other module stays Android + iOS,
+and the exception is narrow and deliberate.
+
+Most modules expose a capability an app either wants on a platform or does not ask for there at all
+— a consumer with no use for haptics on desktop simply does not call into `kmptoolkit-haptics` from
+its desktop source set. These are different, because their types are the kind a consumer puts
+in **shared** code:
+
+- **System bars.** The module's whole premise is that *a screen states what it wants from the bars
+  without knowing where it runs*. An app sharing one UI tree between phone and desktop puts
+  `SystemBarsEffect` in that tree. Desktop windows have no OS status or navigation bar, so every
+  platform call in `jvmMain` is a no-op — but the layer stack (per-axis ownership,
+  restore-by-removal, no lost update) lives in `commonMain` and behaves identically, so a screen
+  claiming and releasing an override behaves the same on every target.
+- **Language.** `AppLanguage` is a type a consumer threads through the public API of its shared
+  modules — a settings repository, a language picker, a screen's state — and `AppLocale` wraps the
+  root of a shared UI tree. Here the JVM half is real rather than a no-op: a desktop JVM has a
+  process-wide default locale, and an operating-system language to return to.
+- **Storage.** `KeyValueStorage` is the type a consumer's shared settings and repository code takes
+  as a parameter. The JVM half is real, like language's: a properties-file store the app points at
+  its own directory. The secure store is deliberately absent on desktop — there is no platform key
+  store to hold its key — so only the plain factory exists there.
+- **Hardware keys.** `DialogWindowHardwareKeyEffect` is called from inside dialog content, and
+  dialog content is typical shared UI. Desktop has no Android-style per-window key routing, so the
+  `jvm` actual is a no-op — the target exists only so that the shared dialog compiles.
+
+In every case, omitting the target would not leave a capability unavailable on desktop; it would stop
+the consumer's shared modules compiling for desktop at all, and push them into fragmenting exactly the
+code these modules exist to keep whole. That is the bar for any further desktop target — *omitting it
+would break a consumer's shared code* — and anything short of it stays Android + iOS.
 
 ### Notes for anyone adding a Compose module
 

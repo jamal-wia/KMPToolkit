@@ -31,8 +31,8 @@ public sealed interface PermissionStatus {
     /**
      * Asking again would not show anything. Only a trip to system settings can change this.
      *
-     * On Android this is a second refusal, or "Don't allow" on Android 11+; on iOS it is any
-     * refusal, and also a restriction imposed by parental controls or an MDM profile, which the
+     * On Android this is a second refusal — the second "Don't allow" on Android 11+, "Don't ask
+     * again" before it; a dialog the user merely dismissed is not one. On iOS it is any refusal, and also a restriction imposed by parental controls or an MDM profile, which the
      * user themselves cannot lift. That last case is why nothing in this module promises that a
      * settings trip *can* succeed — only that it is the only remaining path.
      */

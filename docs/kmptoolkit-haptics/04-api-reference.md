@@ -7,8 +7,8 @@ This file mirrors the committed ABI dumps at `kmptoolkit-haptics/api/` and
 bug.
 
 The whole public surface is four declarations in the production artifact — one interface, two
-enums, one common factory — plus one platform factory per target, and one class in the `-testing`
-artifact.
+enums, one common factory — plus the platform factories (two overloads on Android, one on iOS), one
+Android-only enum, and one class in the `-testing` artifact.
 
 ## `interface HapticFeedback`
 
@@ -16,7 +16,12 @@ The seam. Depend on this in shared code; never on a platform vibration API direc
 
 | Member | Signature | Contract |
 |---|---|---|
+| `isAvailable` | `val isAvailable: Boolean` (default getter: `true`) | Whether the device can play haptics at all, answered without playing anything. Android: the device has a vibration motor — not the permission, not the user's settings. iOS: always `true`. `noOpHapticFeedback()`: always `false`. Cheap, any thread. |
 | `perform` | `fun perform(type: HapticType): HapticResult` | Requests one haptic event. Never throws. Returns as soon as the platform accepted the request — not when the pulse ends. |
+
+`isAvailable` has a default so that an implementation written before it existed keeps compiling
+with the meaning "cannot tell". A **decorator should override it and forward** to the instance it
+wraps.
 
 Thread-safety: implementations shipped here are safe to call from any thread; the iOS one hops to
 the main thread internally because UIKit requires it. A custom implementation should hold that same
@@ -62,7 +67,8 @@ to the app. Ignoring the return value is a legitimate default — the type exist
 
 ## `fun noOpHapticFeedback(): HapticFeedback`
 
-Returns a stateless implementation that does nothing and answers `UNAVAILABLE` for every type. The
+Returns a stateless implementation that does nothing: `isAvailable` is `false` and every type
+answers `UNAVAILABLE`. The
 same instance every time; comparing two results with `===` is true.
 
 Use it as the injected instance when the user turned haptics off, or on a target where you have not
@@ -70,7 +76,9 @@ wired a real one, so shared call sites stay unconditional.
 
 ## `fun createHapticFeedback(context: Context): HapticFeedback` — Android only
 
-Builds the Android implementation on top of the device's default vibrator.
+Builds the Android implementation on top of the device's default vibrator, attributing every
+vibration as `HapticAttribution.TOUCH`. Identical to `createHapticFeedback(context,
+HapticAttribution.TOUCH)`.
 
 - Lives in `androidMain`. There is deliberately **no** `expect`/`actual` pair: Android needs a
   `Context` and iOS needs nothing, so a common signature could only be a lie
@@ -79,6 +87,22 @@ Builds the Android implementation on top of the device's default vibrator.
 - Holds nothing that requires releasing; there is no `close()` and no lifecycle to observe.
 - Resolves the vibrator once, at construction. A device cannot grow a motor at runtime, so this is
   not re-checked per call — but the permission is, because a manifest change ships with a new build.
+
+## `fun createHapticFeedback(context: Context, attribution: HapticAttribution): HapticFeedback` — Android only
+
+The same implementation, with every vibration it plays carrying `attribution`. Everything above
+holds. A separate overload rather than a default parameter, so code compiled against the
+single-argument function keeps linking.
+
+## `enum class HapticAttribution` — Android only
+
+What an instance's vibrations are declared to be for, which decides how the user's system settings
+treat them. Details and the API-level mapping: [`05-platform-notes.md`](05-platform-notes.md#attribution--touch-feedback-or-none).
+
+| Constant | Meaning |
+|---|---|
+| `TOUCH` | Touch feedback. Scaled by the touch-feedback intensity slider and silenced by the touch-feedback switch. The default |
+| `NONE` | No attribution — the plain `vibrate(effect)` call, classified `USAGE_UNKNOWN`. The touch-feedback settings do not apply to it |
 
 ## `fun createHapticFeedback(): HapticFeedback` — iOS only
 
@@ -94,12 +118,15 @@ Package: `io.github.jamal_wia.kmptoolkit.haptics.testing`
 ```kotlin
 public class RecordingHapticFeedback(
     public var result: HapticResult = HapticResult.PERFORMED,
-) : HapticFeedback
+) : HapticFeedback {
+    public constructor(result: HapticResult = HapticResult.PERFORMED, isAvailable: Boolean)
+}
 ```
 
 | Member | Signature | Contract |
 |---|---|---|
 | `result` | `var result: HapticResult` | What `perform` returns. Mutable so one instance can change behavior mid-test |
+| `isAvailable` | `var isAvailable: Boolean` | What `isAvailable` reports. Independent of `result` — neither implies the other |
 | `events` | `val events: List<HapticType>` | Every requested type, oldest first. A snapshot — it does not change as more calls arrive |
 | `perform` | `fun perform(type: HapticType): HapticResult` | Records `type`, then returns `result`. Recording happens regardless of `result` |
 | `clear` | `fun clear()` | Drops the recording; leaves `result` untouched |

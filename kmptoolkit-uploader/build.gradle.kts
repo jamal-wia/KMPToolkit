@@ -52,6 +52,8 @@ kotlin {
         }
         androidUnitTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // WorkManagerTestInitHelper and TestListenableWorkerBuilder, for the upload-handler worker.
+            implementation(libs.androidx.work.testing)
         }
         // No dependency on :kmptoolkit-uploader-testing — that module depends on this one, so the
         // reverse edge would be a project cycle. The tests here use their own store fixture, which

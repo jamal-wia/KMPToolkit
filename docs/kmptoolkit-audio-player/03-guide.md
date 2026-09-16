@@ -29,6 +29,7 @@ Reading it as code:
 | `Completed` | `seekTo(n)` | `Paused` |
 | `Playing` | end of source | `Completed` |
 | any playable | `replay()` | `Playing` from `0` |
+| any | `unload()` | `Idle`, ready for another `prepare` |
 | any | `release()` | `Idle`, permanently |
 
 `isPlayable` is the predicate that decides whether a transport call does anything: `Ready`,
@@ -94,6 +95,41 @@ a silent no-op there is indistinguishable from a hang.
 
 A released player cannot be revived; construct another one.
 
+## Unloading a long-lived player
+
+Some players are meant to outlive the screens that use them — one instance in a DI container that a
+reader screen, a review screen and a background service all borrow. Releasing it when a screen goes
+away would kill it for the next one; never freeing it would keep a decoder and a network stream
+alive for nothing. `unload()` is the call in between:
+
+```kotlin
+override fun onDestroy() {
+    player.unload()   // native handle freed, state Idle, player still usable
+}
+
+// later, another screen:
+player.prepare(AudioSource.File(path))   // works exactly as on a fresh player
+```
+
+It keeps `playbackSpeed`, abandons a `prepare` still in flight (that call returns without touching
+the state), and drops a completion or failure the platform had already posted. The player itself is
+still released exactly once, by whoever owns it — for a process-wide instance, usually never.
+
+## Replacing a load in flight
+
+A `prepare` that arrives while another is still loading replaces it. The older load is cancelled,
+and the newer one starts only after the older one has finished unwinding, so the platform never has
+two sources loading on one handle. The replaced call returns normally without writing any state —
+the caller that replaced it owns the outcome:
+
+```kotlin
+scope.launch { player.prepare(ayah1) }   // returns quietly once replaced
+scope.launch { player.prepare(ayah2) }   // settles on Ready or Error for ayah2
+```
+
+This is what makes "skip to the next track" safe to call from anywhere without first cancelling the
+coroutine that loaded the current one.
+
 **`use { }` works**, since `AudioPlayer` is `AutoCloseable` and `close()` is `release()`:
 
 ```kotlin
@@ -155,7 +191,7 @@ to know the platform's limits. The bounds come from `AudioPlayerConfig` (`0.25f.
 and the chosen rate survives `prepare`, so a podcast app that loads the next episode keeps the
 listener's speed.
 
-The rate is pushed to the platform only while playing and re-applied on the next `play()`. Both
+The rate is pushed to the platform only while playing and applied again on every `play()`. Both
 `MediaPlayer` and `AVPlayer` treat "set a non-zero rate" as "start playing", so applying it to a
 paused player would silently turn a speed change into playback.
 
@@ -211,8 +247,10 @@ between two players.
 
 ## Common mistakes
 
-- **Holding a player in a DI singleton.** Nothing then owns its release, and the native handle lives
-  as long as the process. Scope it to the screen or component that uses it.
+- **Holding a player in a DI singleton and never unloading it.** Nothing then frees the loaded
+  source, and the native handle lives as long as the process. Either scope the player to the screen
+  that uses it and release it there, or keep the singleton and `unload()` it when each screen that
+  borrowed it goes away.
 - **Calling `play()` right after `prepare()` without checking the state.** `prepare` can end in
   `Error`; `play()` on an `Error` is a no-op, so the UI sits there looking like it is loading.
   Branch on `isPlayable`.
@@ -220,8 +258,8 @@ between two players.
   normal for live streams and briefly normal for remote sources.
 - **Collecting `stateFlow` from a leaked scope.** The flow never completes, by design. Collect it
   from a scope that is cancelled with the screen.
-- **Expecting `play()` to restart a `Completed` source.** It resumes from the end and completes
-  again. `replay()` is the restart.
+- **Releasing a shared player from one of its screens.** `release()` is permanent; the next screen's
+  `prepare` reports `AudioPlayerReleasedException`. Use `unload()` for a player you do not own.
 
 ## Read next
 

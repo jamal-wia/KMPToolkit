@@ -194,6 +194,43 @@ and which only then reports `Failed`. That report spends an attempt and returns 
 The consequence is a possible redundant hand-off, never a lost effect — which is the same
 at-least-once bargain the rest of the module makes.
 
+### A ready-made executor for a multipart HTTP upload
+
+Writing your own executor means answering "how do I keep this going after the process dies" for
+yourself. If your detached delivery is a plain multipart HTTP upload, extend `UploadHandler` instead
+of `UploaderHandler`: you describe the request in `prepareUpload`, decide what the outcome means in
+`classify`, and a transport runs it — `createWorkManagerUploadHandlerTransport` on Android,
+`createBackgroundUploadTransport` on a background `NSURLSession` on iOS.
+
+```kotlin
+class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
+    UploadHandler<AvatarUpload>(transport) {
+    override val type: String = "avatar_upload"
+    override fun encodePayload(payload: AvatarUpload): String = json.encodeToString(payload)
+    override fun decodePayload(raw: String): AvatarUpload = json.decodeFromString(raw)
+
+    override suspend fun prepareUpload(context: AttemptContext, payload: AvatarUpload): UploadPreparation =
+        UploadPreparation.Proceed(
+            UploadRequest(
+                url = payload.uploadUrl,
+                headers = mapOf("Authorization" to "Bearer ${auth.token()}"),
+                fields = listOf(UploadField.File("avatar", payload.fileName, "image/jpeg", payload.filePath)),
+            ),
+        )
+
+    override suspend fun classify(payload: AvatarUpload, result: UploadResult): SettleResult =
+        defaultUploadClassification(result)
+}
+```
+
+`prepareUpload` runs again when the platform actually starts the upload, so the token is fresh and a
+job re-run for an item that settled meanwhile uploads nothing. On Android the platform job stores only
+the item id; an iOS background session needs the request up front and uses the one prepared at
+hand-off. Register the engine in `UploaderEngineRegistry`: the transport settles through `UploadGateway`,
+which finds the engine there. See [`08-upload-transport.md`](08-upload-transport.md) for the full
+contract, the hooks, the iOS relaunch hook your app delegate must forward, and the older
+classifier-based Android transport.
+
 ## Draining on demand
 
 ```kotlin

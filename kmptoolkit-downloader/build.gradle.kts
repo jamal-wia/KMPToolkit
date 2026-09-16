@@ -1,6 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
+    id("kmptoolkit.androidtest")
 }
 
 kmptoolkitPublish {

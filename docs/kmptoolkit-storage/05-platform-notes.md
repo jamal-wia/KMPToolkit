@@ -21,11 +21,14 @@ Following the repository rule in `docs/01-architecture.md`, this module declares
 Every identifier is derived from `StorageConfig.name`, which defaults to your application id. Given
 a name `N`:
 
-| | Android | iOS |
-|---|---|---|
-| Plain store | `SharedPreferences` file `N.kmptoolkit.storage` | `NSUserDefaults` suite `N.kmptoolkit.storage` |
-| Secure store | `SharedPreferences` file `N.kmptoolkit.securestorage` | Keychain `kSecAttrService` = `N.kmptoolkit.securestorage` |
-| Encryption key | AndroidKeyStore alias `N.kmptoolkit.securestorage.key` | held by `securityd`; no alias of ours |
+| | Android | iOS | Desktop (`jvm`) |
+|---|---|---|---|
+| Plain store | `SharedPreferences` file `N.kmptoolkit.storage` | `NSUserDefaults` suite `N.kmptoolkit.storage` | file `N.kmptoolkit.storage.properties` in the directory you pass |
+| Secure store | `SharedPreferences` file `N.kmptoolkit.securestorage` | Keychain `kSecAttrService` = `N.kmptoolkit.securestorage` | none — see below |
+| Encryption key | AndroidKeyStore alias `N.kmptoolkit.securestorage.key` | held by `securityd`; no alias of ours | — |
+
+On desktop `N` has no default — there is no application id to derive it from — so
+`StorageConfig.name` is required there.
 
 These strings are an implementation detail — they are documented so you can find your own data with
 `adb shell` or a Keychain dump, not so you can depend on them. They are also the reason
@@ -158,6 +161,33 @@ If you ever edit that file: do not "simplify" it back to a dictionary literal.
 - **The plain store's writes cannot fail.** `NSUserDefaults` reports no status, so those operations
   always return `Success`. That is not a shortcut — there is genuinely no error to surface, and the
   result type exists for the Keychain store's sake.
+
+## Desktop
+
+The `jvm` target exists because `KeyValueStorage` is a type shared code takes as a parameter, and an
+app sharing that code with desktop could not compile it for desktop without the interface — see
+[`../01-architecture.md`](../01-architecture.md#desktop-targets).
+
+- **Where.** `createKeyValueStorage(directory, config)` writes one properties file,
+  `<name>.kmptoolkit.storage.properties`, into the directory you choose. The library does not pick a
+  directory for you: where an app keeps its files on desktop is the app's decision and differs per
+  operating system. The directory is created on the first write.
+- **Why a file and not `java.util.prefs`.** `Preferences` caps a value at 8 KB and a key at 80
+  characters, which would break this module's contract that a long value round-trips, and it lives in
+  the Windows registry on one OS and a plist on another. A properties file behaves the same
+  everywhere.
+- **Durability.** Every write rewrites the whole file into a temporary sibling, syncs it to the device
+  and atomically renames it over the old one, so a process killed — or a machine losing power —
+  mid-write leaves the previous contents. A temporary file a killed write left behind is removed by
+  `clear()`. Every read reads the file afresh.
+- **Failures.** A corrupted or hand-edited file (a malformed `\uXXXX` escape), a name the file system
+  rejects (`:` or `*` on Windows) and a denied security check arrive as `OperationFailed`, never as an
+  exception. The store is meant for a handful of small values; it is not a database.
+- **Concurrency.** Instances over the same file in one process share a lock. Two *processes* writing
+  the same file are not coordinated — keep one writer per file.
+- **No secure store.** The JVM has no platform key store this module could keep a key in without
+  inventing its own — and a key kept next to the data it encrypts protects nothing. Desktop apps that
+  need a secret at rest should use the operating system's credential store directly.
 
 ## Threading
 

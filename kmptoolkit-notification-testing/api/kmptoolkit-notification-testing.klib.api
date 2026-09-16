@@ -14,6 +14,9 @@ final class io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotificati
     final val notification // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.notification|{}notification[0]
         final fun <get-notification>(): io.github.jamal_wia.kmptoolkit.notification/LocalNotification // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.notification.<get-notification>|<get-notification>(){}[0]
 
+    final var options // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.options|{}options[0]
+        final fun <get-options>(): io.github.jamal_wia.kmptoolkit.notification/NotificationOptions // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.options.<get-options>|<get-options>(){}[0]
+
     final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.component1|component1(){}[0]
     final fun component2(): io.github.jamal_wia.kmptoolkit.notification/LocalNotification // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.component2|component2(){}[0]
     final fun copy(kotlin/String = ..., io.github.jamal_wia.kmptoolkit.notification/LocalNotification = ...): io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification // io.github.jamal_wia.kmptoolkit.notification.testing/PostedNotification.copy|copy(kotlin.String;io.github.jamal_wia.kmptoolkit.notification.LocalNotification){}[0]
@@ -42,4 +45,5 @@ final class io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifie
     final fun cancelAll() // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.cancelAll|cancelAll(){}[0]
     final fun clear() // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.clear|clear(){}[0]
     final suspend fun post(kotlin/String, io.github.jamal_wia.kmptoolkit.notification/LocalNotification): io.github.jamal_wia.kmptoolkit.notification/NotificationResult // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.post|post(kotlin.String;io.github.jamal_wia.kmptoolkit.notification.LocalNotification){}[0]
+    final suspend fun post(kotlin/String, io.github.jamal_wia.kmptoolkit.notification/LocalNotification, io.github.jamal_wia.kmptoolkit.notification/NotificationOptions): io.github.jamal_wia.kmptoolkit.notification/NotificationResult // io.github.jamal_wia.kmptoolkit.notification.testing/RecordingNotifier.post|post(kotlin.String;io.github.jamal_wia.kmptoolkit.notification.LocalNotification;io.github.jamal_wia.kmptoolkit.notification.NotificationOptions){}[0]
 }

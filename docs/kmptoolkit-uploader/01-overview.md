@@ -44,7 +44,9 @@ external executor under a self-expiring lease.
   socket — and the queue re-drains the moment it flips.
 - **A platform wake layer.** WorkManager on Android, `BGTaskScheduler` on iOS, both optional.
 - **Detached delivery.** A handler can hand a long upload to an external executor and settle it
-  later, under a lease that expires so a dead executor cannot strand the item forever.
+  later, under a lease that expires so a dead executor cannot strand the item forever. Android ships
+  a ready-made executor for the common case — a plain multipart HTTP upload — as
+  `createWorkManagerUploadTransport`; see [`08-upload-transport.md`](08-upload-transport.md).
 
 ## Storage is yours
 

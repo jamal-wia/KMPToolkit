@@ -110,14 +110,40 @@ Both factories take only an application context on Android, so a store cannot le
 
 ## Working with values that are not strings
 
-Strings in, strings out. Encode and decode at your own boundary:
+The store is string-valued on every platform. For the three types apps store most, the module ships
+extensions that fix one encoding, so every caller writes a value the same way and reads back what
+another caller wrote:
+
+| Type | Stored as | Read | Read with a default |
+|---|---|---|---|
+| `Int` | decimal string, `"-42"` | `getInt(key): StorageResult<Int?>` | `getIntOr(key, default): Int` |
+| `Long` | decimal string | `getLong(key): StorageResult<Long?>` | `getLongOr(key, default): Long` |
+| `Boolean` | exactly `"true"` / `"false"` | `getBoolean(key): StorageResult<Boolean?>` | `getBooleanOr(key, default): Boolean` |
+| `String` | as is | `get(key)` | `getStringOr(key, default): String` |
+
+Writes are `putInt`, `putLong` and `putBoolean`, returning `StorageResult<Unit>` like `put`.
 
 ```kotlin
-fun KeyValueStorage.putBoolean(key: String, value: Boolean) = put(key, value.toString())
-fun KeyValueStorage.getBoolean(key: String): Boolean? = getStringOrNull(key)?.toBooleanStrictOrNull()
+val launches: Int = storage.getIntOr("launch_count", 0)
+storage.putInt("launch_count", launches + 1)
 ```
 
-The module deliberately does not ship these. A typed accessor has to decide what a malformed value
-means — `null`, a default, an error — and that decision belongs to the code that wrote the value,
-not to a library that never sees it. The same goes for JSON: serialize with whatever you already
-use, and remember that a stored payload has a schema you will have to version.
+The two read styles differ in what they do with a value that is there but is not the requested type
+— `"forty-two"` read with `getInt`:
+
+- **`getInt` reports it** as `StorageError.OperationFailed` for `StorageOperation.GET`, with the
+  parse exception as the cause. It is not read as absent: two callers disagreeing about a key's type
+  is a bug worth seeing.
+- **`getIntOr` folds it into the default**, exactly like an absent key or an unreadable store. Use it
+  where a sensible default exists and a wrong value is not worth handling on its own — a counter, a
+  preference, a "hint already shown" flag.
+
+Anything richer — JSON, an enum, a timestamp type — is yours to encode on top of `put` and `get`.
+Serialize with whatever you already use, and remember that a stored payload has a schema you will
+have to version.
+
+A value written by other code with the platform's typed setters (`SharedPreferences.putInt`,
+`NSUserDefaults.setInteger`) is not something these accessors read: this module opens stores of its
+own naming, and a store another component wrote is not one of them. Moving such data across is a
+one-time copy in your own code — read the old store with the platform API, `putInt` the value into
+the new one, and record that the copy is done.

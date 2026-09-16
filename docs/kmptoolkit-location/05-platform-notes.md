@@ -49,25 +49,172 @@ module does not model, and hand the resulting `LocationProvider` to shared code 
 ## Android vs. Play Services
 
 This module's Android implementation is plain `android.location.LocationManager`, **not**
-`com.google.android.gms:play-services-location`'s `FusedLocationProviderClient` — a deliberate
-departure from the donor codebase this module was ported from, and worth understanding before you
-pick this module for a feature that leans on high-frequency, high-accuracy positioning.
+`com.google.android.gms:play-services-location`'s `FusedLocationProviderClient`, and it will stay
+that way. Understand the trade-off before you pick this module for a feature that leans on fast,
+high-accuracy positioning.
 
 | | `LocationManager` (this module) | `FusedLocationProviderClient` |
 |---|---|---|
 | Dependency | none beyond the Android SDK | `play-services-location`, roughly a megabyte, plus a Google Play Services runtime dependency |
 | Works without Play Services / Google Play | yes | no |
 | Fix quality | GPS or network provider, whichever `getBestProvider` picks | blends GPS, Wi-Fi and cell signal through Google's positioning service |
+| Cached last fix | per provider, often empty after a reboot | a fused cache that is usually warm |
 | Typical time-to-fix | slower for a cold GPS fix with no network assistance | usually faster, especially indoors or with poor GPS visibility |
+| In-place "turn on location" dialog | none | `SettingsClient` + `ResolvableApiException` |
 | Power tuning | manual (`minTime`/`minDistance` via `LocationProviderConfig`) | handled by the fused engine |
 
-The trade-off is real: Fused generally produces a fix faster and more reliably in weak-signal
-conditions, at the cost of a dependency no other module in this repository takes on. This
-repository's whole ethos is avoiding a heavy, optional transitive dependency a consumer did not
-choose — the same reasoning that keeps `kmptoolkit-storage` on `AndroidKeyStore` and `Cipher`
-directly instead of Tink. If your app already depends on Play Services and needs Fused's fix
-quality, wrap `FusedLocationProviderClient` behind this module's `LocationProvider` interface
-yourself; the interface is small enough that doing so is a few dozen lines.
+**Why the library does not use it.** A library module that depended on Play Services would force that
+dependency, and a Google Play runtime requirement, on every consumer — including apps built for
+devices without Google Play, where Fused simply returns nothing. This repository does not take on a
+heavy optional transitive dependency the consumer did not choose; the same reasoning keeps
+`kmptoolkit-storage` on `AndroidKeyStore` and `Cipher` directly instead of Tink.
+
+**If your app already depends on Play Services, use Fused through a decorator.** `LocationProvider`
+is small enough to implement over `FusedLocationProviderClient` in your own app, and doing so keeps
+shared code — and every test written against `FakeLocationProvider` — unchanged. The next section is
+the recipe.
+
+## Writing a Play Services decorator (Android)
+
+Implement `LocationProvider` in your app's `androidMain`, backed by Fused, and delegate to a
+factory-built provider for what Fused adds nothing to:
+
+```kotlin
+class FusedLocationProvider(
+    context: Context,
+    private val activityAccess: ActivityAccess,       // from kmptoolkit-activity
+    private val fallback: LocationProvider = createLocationProvider(context),
+) : LocationProvider {
+
+    private val client: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
+
+    @SuppressLint("MissingPermission")
+    override suspend fun getCurrentLocation(): GeoCoordinates? = try {
+        client.lastLocation.await()?.toCoordinates() ?: freshFix()
+    } catch (_: SecurityException) {
+        null                           // no location permission
+    } catch (_: ApiException) {
+        null                           // Play Services missing, outdated or unavailable on this device
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun freshFix(): GeoCoordinates? {
+        val cancellation = CancellationTokenSource()
+        return try {
+            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancellation.token).await()?.toCoordinates()
+        } finally {
+            cancellation.cancel()      // a no-op once the fix arrived; stops the request if we were cancelled
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    override fun observeLocation(): Flow<GeoCoordinates?> = callbackFlow {
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                trySend(result.lastLocation?.toCoordinates())
+            }
+        }
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 15.minutes.inWholeMilliseconds)
+            .setMinUpdateIntervalMillis(5.minutes.inWholeMilliseconds)
+            .build()
+        try {
+            client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+        } catch (_: SecurityException) {
+            trySend(null)
+            close()
+            return@callbackFlow
+        }
+        // Seed at once, with null when there is no cached fix: while the service is off the callback
+        // never fires, and a flow that emits nothing hangs every combine downstream of it.
+        client.lastLocation
+            .addOnSuccessListener { location: Location? -> trySend(location?.toCoordinates()) }
+            .addOnFailureListener { trySend(null) }
+        awaitClose { client.removeLocationUpdates(callback) }
+    }
+
+    override suspend fun isLocationEnabled(): Boolean = fallback.isLocationEnabled()
+
+    override fun openLocationSettings() = fallback.openLocationSettings()
+
+    override suspend fun promptToEnableService(): LocationServicePrompt {
+        if (isLocationEnabled()) return LocationServicePrompt.ALREADY_ON
+        // No resumed activity: nothing to raise the dialog over right now. Not UNSUPPORTED — the
+        // device could ask properly once the user is back.
+        val activity: Activity = activityAccess.withActivity { it } ?: return LocationServicePrompt.NOT_NOW
+        val request = LocationSettingsRequest.Builder()
+            .addLocationRequest(LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 0L).build())
+            .build()
+        return try {
+            LocationServices.getSettingsClient(activity).checkLocationSettings(request).await()
+            LocationServicePrompt.ALREADY_ON
+        } catch (resolvable: ResolvableApiException) {
+            try {
+                resolvable.startResolutionForResult(activity, ENABLE_LOCATION_REQUEST_CODE)
+                LocationServicePrompt.PROMPTED
+            } catch (_: IntentSender.SendIntentException) {
+                LocationServicePrompt.UNSUPPORTED
+            }
+        } catch (_: ApiException) {
+            LocationServicePrompt.UNSUPPORTED
+        }
+    }
+
+    private fun Location.toCoordinates() = GeoCoordinates(latitude = latitude, longitude = longitude)
+
+    private companion object {
+        const val ENABLE_LOCATION_REQUEST_CODE = 4711
+    }
+}
+```
+
+(`await()` is `kotlinx-coroutines-play-services`; with plain listeners, as the observe flow does, the
+same rules apply.)
+
+The rules the recipe encodes, each of which is part of the `LocationProvider` contract and not a
+matter of taste:
+
+- **Nothing throws.** A missing permission surfaces from Fused as `SecurityException`, and a device
+  without a usable Play Services as a failed task (`ApiException`, thrown by `await()`); turn both
+  into `null`, exactly as this module's own providers do. `SettingsClient` failures that are not
+  resolvable are `UNSUPPORTED`, not exceptions.
+- **Cancellation stops the platform work.** `getCurrentLocation(priority, null)` keeps a request
+  running after the caller is gone; pass a `CancellationTokenSource` and cancel it.
+- **`observeLocation()` emits at once** — the cached fix or `null` — and removes its callback in
+  `awaitClose`.
+- **Callbacks on the main looper**, which is where this module's own Android provider delivers them
+  too, so collectors behave the same whichever provider is injected.
+- **`promptToEnableService()` never waits for the dialog's answer.** The answer arrives in the
+  activity's `onActivityResult`, which a provider has no seam into. Return `PROMPTED` once it is up
+  and re-check `isLocationEnabled()` when the screen resumes. `NOT_NOW` when there is no resumed
+  activity (this is what `kmptoolkit-activity`'s `ActivityAccess` is for — never hold an `Activity`
+  in the provider).
+- **Delegate what Fused does not improve.** `isLocationEnabled()` and `openLocationSettings()` come
+  from the factory-built provider, so the settings intent and the service check stay identical.
+
+Bind it where the rest of your app is assembled, and keep the factory-built provider for iOS:
+
+```kotlin
+// androidMain
+single<LocationProvider> { FusedLocationProvider(androidContext(), activityAccess = get()) }
+// iosMain
+single<LocationProvider> { createLocationProvider().withSystemServicesPrompt() }
+```
+
+## The in-place prompt on each platform
+
+`promptToEnableService()` returns `LocationServicePrompt.PROMPTED` from neither factory-built
+provider as it comes:
+
+- **Android** raises its in-place "turn on Location?" dialog only through Play Services'
+  `SettingsClient` — see the decorator above. Without it, the default `promptToEnableService()`
+  answers `UNSUPPORTED` while the service is off, and the route left is `openLocationSettings()`.
+- **iOS** has no public API to switch the service on or to open its settings page. What it has is its
+  own "Turn On Location Services" alert, which it raises when an authorized app asks for a location
+  while the service is off. `createLocationProvider().withSystemServicesPrompt()` makes exactly that
+  ask from `promptToEnableService()` and answers `PROMPTED`. It is opt-in because the system, not the
+  app, decides whether the alert appears: never for an app without location authorization (the
+  decorator does not request it — that stays your call), and not again after the user dismissed it.
+  `PROMPTED` means asked, not shown; re-check `isLocationEnabled()` when the app becomes active.
 
 ## Provider selection and fallback (Android)
 
@@ -92,11 +239,17 @@ platforms.
 
 ## Thread safety
 
-- `LocationProvider` methods are safe to call from any thread.
+- `LocationProvider` methods are safe to call from any thread. On iOS that includes
+  `openLocationSettings()`, which hops to the main thread for `UIApplication` when called from
+  elsewhere.
 - Android: the underlying `LocationListener` callbacks are delivered on `Looper.getMainLooper()`.
-- iOS: `CLLocationManager` delegate callbacks are delivered on whatever queue CoreLocation chooses
-  for the manager (the main run loop, by default, since no custom queue is configured); `emit`/
-  `trySend` calls into the `Flow` are safe from that thread regardless.
+- iOS: every `CLLocationManager` used by this module is created and started on the **main queue**,
+  regardless of which thread `getCurrentLocation()` / `observeLocation()` is called from. This
+  matters because CoreLocation delivers delegate callbacks on the run loop of the thread that
+  *created* the manager — a manager created on a Kotlin/Native worker thread (no run loop, which is
+  what a bare `Dispatchers.Default` caller would produce) would never deliver a callback at all, and
+  the call would suspend forever rather than time out or fail. `trySend`/`resume` calls back into
+  the coroutine are safe from the main queue regardless of which thread is awaiting them.
 - `isLocationEnabled()` on iOS runs on `Dispatchers.Default`, off the caller's thread, because
   `CLLocationManager.locationServicesEnabled()` logs a runtime warning when called on the main
   thread while authorization is still being determined.

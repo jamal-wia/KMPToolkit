@@ -33,6 +33,28 @@ public fun createBiometricGate(config: BiometricGateConfig = BiometricGateConfig
     IosBiometricGate(config)
 
 /**
+ * Creates the iOS [BiometricGate]; [options] exist for parity with Android and change nothing here.
+ *
+ * iOS has a single biometric tier, offers no control over how many attempts its sheet allows, and has
+ * no settings screen to launch for enrolment — so [BiometricGateOptions.strength],
+ * [BiometricGateOptions.singleAttempt] and [BiometricGateOptions.enrollmentThrottle] are all ignored,
+ * and [BiometricGate.launchEnrollment] answers [BiometricEnrollmentLaunch.UNAVAILABLE]. Shared wiring
+ * can still pass the same options on both platforms.
+ *
+ * The one option rule is checked here too, so shared wiring fails the same way on both platforms.
+ *
+ * @throws IllegalArgumentException for [BiometricStrength.WEAK] with any policy but
+ *   [BiometricPolicy.BIOMETRIC_ONLY], as on Android.
+ * @since 1.5.0
+ */
+public fun createBiometricGate(config: BiometricGateConfig, options: BiometricGateOptions): BiometricGate {
+    require(options.strength == BiometricStrength.STRONG || config.policy == BiometricPolicy.BIOMETRIC_ONLY) {
+        "BiometricStrength.WEAK is only valid with BiometricPolicy.BIOMETRIC_ONLY, was ${config.policy}"
+    }
+    return IosBiometricGate(config)
+}
+
+/**
  * `LAContext`-backed gate.
  *
  * The `NSError**` out-parameter of `canEvaluatePolicy` maps to a pointer to an Objective-C object

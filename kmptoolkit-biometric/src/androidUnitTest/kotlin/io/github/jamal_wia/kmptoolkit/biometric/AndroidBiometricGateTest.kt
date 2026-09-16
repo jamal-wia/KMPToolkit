@@ -46,6 +46,8 @@ class AndroidBiometricGateTest {
 
         val shown: MutableList<BiometricPromptText> = mutableListOf()
 
+        val confirmations: MutableList<Boolean> = mutableListOf()
+
         var cancelCount: Int = 0
             private set
 
@@ -53,10 +55,12 @@ class AndroidBiometricGateTest {
 
         override fun show(
             prompt: BiometricPromptText,
+            requireConfirmation: Boolean,
             onOutcome: (BiometricResult) -> Unit,
         ): PromptHandle? {
             if (!hasHost) return null
             shown += prompt
+            confirmations += requireConfirmation
             pending = onOutcome
             return object : PromptHandle {
                 override fun cancel() {
@@ -77,7 +81,38 @@ class AndroidBiometricGateTest {
         port: BiometricPromptPort,
         config: BiometricGateConfig = BiometricGateConfig(),
         status: BiometricStatusPort = BiometricStatusPort { BiometricManager.BIOMETRIC_SUCCESS },
-    ): BiometricGate = AndroidBiometricGate(status = status, prompt = port, config = config)
+        options: BiometricGateOptions = BiometricGateOptions(),
+    ): BiometricGate = AndroidBiometricGate(status = status, prompt = port, config = config, options = options)
+
+    @Test
+    fun `a weak-tier gate asks about the weak tier`() = runTest {
+        var asked: Int? = null
+
+        gate(
+            port = FakePromptPort(),
+            status = BiometricStatusPort { mask -> asked = mask; BiometricManager.BIOMETRIC_SUCCESS },
+            options = BiometricGateOptions(strength = BiometricStrength.WEAK),
+        ).availability()
+
+        assertEquals(BiometricManager.Authenticators.BIOMETRIC_WEAK, asked)
+    }
+
+    @Test
+    fun `the configured confirmation applies unless a call decides otherwise`() = runTest {
+        val port = FakePromptPort()
+        val gate: BiometricGate = gate(port, config = BiometricGateConfig(requireExplicitConfirmation = true))
+
+        val first = async(start = CoroutineStart.UNDISPATCHED) { gate.authenticate(promptText) }
+        port.deliver(BiometricResult.Authenticated)
+        first.await()
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            gate.authenticate(promptText, requireExplicitConfirmation = false)
+        }
+        port.deliver(BiometricResult.Authenticated)
+        second.await()
+
+        assertEquals(listOf(true, false), port.confirmations)
+    }
 
     // --- availability -------------------------------------------------------------------------
 

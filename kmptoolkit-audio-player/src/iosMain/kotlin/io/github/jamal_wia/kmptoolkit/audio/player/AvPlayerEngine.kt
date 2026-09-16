@@ -13,7 +13,6 @@ import platform.AVFoundation.AVPlayerItem
 import platform.AVFoundation.AVPlayerItemDidPlayToEndTimeNotification
 import platform.AVFoundation.AVPlayerItemStatusFailed
 import platform.AVFoundation.AVPlayerItemStatusReadyToPlay
-import platform.AVFoundation.AVPlayerTimeControlStatusPlaying
 import platform.AVFoundation.currentItem
 import platform.AVFoundation.currentTime
 import platform.AVFoundation.duration
@@ -21,7 +20,6 @@ import platform.AVFoundation.pause
 import platform.AVFoundation.play
 import platform.AVFoundation.rate
 import platform.AVFoundation.seekToTime
-import platform.AVFoundation.timeControlStatus
 import platform.CoreMedia.CMTime
 import platform.CoreMedia.CMTimeGetSeconds
 import platform.CoreMedia.CMTimeMakeWithSeconds
@@ -49,6 +47,9 @@ internal class AvPlayerEngine(
     private var completionObserver: NSObjectProtocol? = null
     private var listener: PlaybackEngineListener? = null
 
+    /** The rate [start] plays at. Remembered because a paused AVPlayer cannot be told it yet. */
+    private var speed: Float = NORMAL_SPEED
+
     override fun setListener(listener: PlaybackEngineListener?) {
         this.listener = listener
     }
@@ -72,6 +73,10 @@ internal class AvPlayerEngine(
     override fun start() {
         val current: AVPlayer = player ?: return
         current.play()
+        // Right after play() the player is usually still waiting to reach its rate rather than
+        // playing, so a rate pushed only while "playing" would be lost here. Assigning it now is
+        // what makes a chosen speed hold from the very first play and on every resume.
+        current.rate = speed
     }
 
     override fun pause() {
@@ -89,10 +94,12 @@ internal class AvPlayerEngine(
     }
 
     override fun setSpeed(speed: Float) {
+        this.speed = speed
         val current: AVPlayer = player ?: return
-        // Assigning a non-zero rate to a paused AVPlayer resumes it, so the rate is only pushed
-        // while it is already playing; the player above re-applies it on the next start().
-        if (current.timeControlStatus == AVPlayerTimeControlStatusPlaying) current.rate = speed
+        // Assigning a non-zero rate to a paused AVPlayer resumes it, so the rate is only pushed while
+        // the player is meant to be moving (a non-zero rate, whether or not it is buffering); a
+        // paused one picks the remembered speed up in start().
+        if (current.rate != 0f) current.rate = speed
     }
 
     override fun durationMs(): Long = player?.currentItem?.duration.toMillis()
@@ -181,5 +188,6 @@ internal class AvPlayerEngine(
         /** `CMTime` timescale of 1/1000 s, i.e. millisecond resolution. */
         const val CM_TIME_TIMESCALE: Int = 1000
         const val STATUS_POLL_INTERVAL_MS: Long = 20L
+        const val NORMAL_SPEED: Float = 1.0f
     }
 }

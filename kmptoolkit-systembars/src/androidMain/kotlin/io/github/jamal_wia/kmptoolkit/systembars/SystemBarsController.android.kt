@@ -10,6 +10,9 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
+import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
+import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 
 /**
  * Creates the Android [SystemBarsController].
@@ -18,6 +21,12 @@ import androidx.core.view.WindowInsetsControllerCompat
  *   resumed activity, which the controller needs to reach the window it styles — the bars belong
  *   to whichever activity is resumed *now*, and that identity changes on every rotation, theme
  *   change and font-size change.
+ * **Call this from `Application.onCreate`, before any activity resumes.** The controller learns which
+ * window to style from the activity-resumed callback, and Android offers no way to ask which activity
+ * resumed before the callback was registered — so a controller created later, such as a lazy DI
+ * singleton first resolved by your theme during composition, cannot style the window already on
+ * screen until the next resume. See `docs/kmptoolkit-systembars/05-platform-notes.md`.
+ *
  * @param initialConfig the base configuration to start from, before your theme sets one.
  * @return a controller whose lifetime is yours. Call [SystemBarsController.release] if you tear the
  *   graph down without ending the process.
@@ -25,11 +34,33 @@ import androidx.core.view.WindowInsetsControllerCompat
 public fun createSystemBarsController(
     context: Context,
     initialConfig: SystemBarsConfig = SystemBarsConfig(),
-): SystemBarsController {
-    val activityAccess: ActivityAccess =
-        createActivityTracker(context.applicationContext as Application)
-    return AndroidSystemBarsController(activityAccess, initialConfig)
-}
+): SystemBarsController = createSystemBarsController(
+    activityAccess = createActivityAccess(context.applicationContext as Application),
+    initialConfig = initialConfig,
+)
+
+/**
+ * Creates the Android [SystemBarsController] over an [ActivityAccess] you own.
+ *
+ * Use this instead of the `Context` overload when "the activity on top" is not the activity you
+ * mean. That overload tracks every activity in the process, so anything your app launches into its
+ * own process — a sign-in flow, a photo picker, a `ComponentActivity` an SDK declared in its own
+ * manifest — gets your bar configuration applied to its window the moment it resumes, including a
+ * fullscreen one a screen underneath had claimed. Narrow it with
+ * `createActivityAccess(application) { it is MainActivity }`.
+ *
+ * The [ActivityAccess] is yours: this controller does not release it, so one instance can back
+ * several controllers, and [SystemBarsController.release] leaves it registered. It has to exist
+ * before the first activity resumes — create it, and this controller, in `Application.onCreate`;
+ * see the other overload for why.
+ *
+ * @param activityAccess where the window to style comes from.
+ * @param initialConfig the base configuration to start from, before your theme sets one.
+ */
+public fun createSystemBarsController(
+    activityAccess: ActivityAccess,
+    initialConfig: SystemBarsConfig = SystemBarsConfig(),
+): SystemBarsController = AndroidSystemBarsController(activityAccess, initialConfig)
 
 /**
  * Applies the configuration through `WindowInsetsControllerCompat`, which is the one API that
@@ -46,7 +77,8 @@ private class AndroidSystemBarsController(
 ) : LayeredSystemBarsController(initialConfig) {
 
     /**
-     * Re-applies on every resume, including the immediate one at construction.
+     * Re-applies on every resume the tracker sees, and at construction if the tracker already holds
+     * a resumed activity — which it does only when it existed before that activity resumed.
      *
      * A recreated activity is a brand-new window at platform defaults while this controller still
      * holds the state the previous one had — nothing changed as far as the state is concerned, so

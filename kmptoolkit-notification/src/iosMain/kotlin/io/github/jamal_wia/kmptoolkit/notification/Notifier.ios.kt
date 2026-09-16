@@ -73,7 +73,9 @@ internal class IosNotifier(
         if (!permissionHandler.check(Permission.NOTIFICATIONS).isGranted) {
             return NotificationResult.PermissionDenied
         }
-        if (!coalescer.shouldPost(id, notification.progress)) return NotificationResult.Coalesced
+        if (!coalescer.shouldPost(id, notification.progress, notification.copy(progress = null))) {
+            return NotificationResult.Coalesced
+        }
 
         val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
             identifier = id,

@@ -10,9 +10,9 @@ import kotlin.test.assertFalse
  * [AndroidFlashlightTest] on the JVM side. What is worth pinning here is exactly what that case
  * pins there: the module says up front that there is no torch, and every call survives regardless.
  *
- * The actual blinking — the `lockForConfiguration` dance and the on/off timing — needs a device
- * with a torch to observe and is not exercised by this suite; [IosFlashlight]'s KDoc documents the
- * behavior, and it mirrors [AndroidFlashlight]'s, which the Robolectric suite does cover.
+ * The on/off timing and the concurrency guarantees live in the blink loop both platforms share, and
+ * `TorchBlinkerTest` runs on this target too. What needs a device with a torch to observe is only
+ * the `lockForConfiguration` dance itself, which this suite does not exercise.
  */
 @OptIn(ExperimentalForeignApi::class)
 class IosFlashlightTest {

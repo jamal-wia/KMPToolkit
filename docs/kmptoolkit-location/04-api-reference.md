@@ -32,6 +32,18 @@ public fun createLocationProvider(
 Creates the `CLLocationManager`-backed provider. A new `CLLocationManager` and delegate are created
 per request internally; nothing here needs releasing.
 
+### `withSystemServicesPrompt` (iOS)
+
+```kotlin
+public fun LocationProvider.withSystemServicesPrompt(): LocationProvider
+```
+
+*Since 1.5.0.* A decorator whose `promptToEnableService()` answers `ALREADY_ON` when the service is
+on, and otherwise starts a one-shot `CLLocationManager` request — which makes iOS raise its own "Turn
+On Location Services" alert for an authorized app — and answers `PROMPTED`. Every other member is
+forwarded unchanged. Requests no authorization. `PROMPTED` means the request was made; whether iOS
+showed the alert is not observable.
+
 ## `LocationProvider`
 
 ```kotlin
@@ -40,6 +52,7 @@ public interface LocationProvider {
     public fun observeLocation(): Flow<GeoCoordinates?>
     public suspend fun isLocationEnabled(): Boolean
     public fun openLocationSettings()
+    public suspend fun promptToEnableService(): LocationServicePrompt   // default implementation
 }
 ```
 
@@ -49,10 +62,24 @@ public interface LocationProvider {
 | `observeLocation` | Hot `Flow`, `null` while no fix is available. Registers the underlying platform request on first collection and stops it when the flow is cancelled — see [`03-guide.md`](03-guide.md). Always seeds its first value (a cached fix, or `null`) so a collector is never left waiting. |
 | `isLocationEnabled` | Whether the device-wide location service is on, independent of the app's permission. `suspend` because iOS's equivalent check warns off the main thread. |
 | `openLocationSettings` | Sends the user to the system location settings screen (Android) or the app's own settings page (iOS — there is no deep link to the toggle). Fire-and-forget: no result, no callback. |
+| `promptToEnableService` | Asks for an in-place "turn location back on" prompt where the platform offers one. Has a **default implementation** — `ALREADY_ON` / `UNSUPPORTED` from `isLocationEnabled()` — so it needs no override on either factory-built provider. See [`03-guide.md`](03-guide.md#prompting-to-re-enable-the-service) and [`LocationServicePrompt`](#locationserviceprompt) below. |
 
 Implementations are safe to call from any thread. Nothing here holds a resource that must be closed
 — there is no `close()` on this interface, because there is no persistent platform registration
 outside of an active `observeLocation` collector.
+
+## `LocationServicePrompt`
+
+```kotlin
+public enum class LocationServicePrompt { ALREADY_ON, PROMPTED, UNSUPPORTED, NOT_NOW }
+```
+
+| Value | Meaning |
+|---|---|
+| `ALREADY_ON` | The service was already on — nothing was asked. |
+| `PROMPTED` | The system's own in-place dialog was raised. Not returned by either factory-built provider — see [`03-guide.md`](03-guide.md#prompting-to-re-enable-the-service). |
+| `UNSUPPORTED` | No in-place prompt is available; the only route is `openLocationSettings()`. What both factory-built providers return when the service is off. |
+| `NOT_NOW` | There is a prompt, but no window to raise it over right now. Not returned by either factory-built provider. |
 
 ## `GeoCoordinates`
 

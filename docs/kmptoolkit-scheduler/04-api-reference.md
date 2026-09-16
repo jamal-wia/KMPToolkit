@@ -26,6 +26,22 @@ be given dependencies any other way.
 - Calling it twice **replaces** the previous registration; the earlier handler list stops receiving
   alarms. Pass every handler to one call.
 
+```kotlin
+public fun createAlarmScheduler(
+    context: Context,
+    handlerProvider: () -> Collection<AlarmHandler>,
+    config: AlarmSchedulerConfig = AlarmSchedulerConfig(),
+): AlarmScheduler
+```
+
+*Since 1.5.0.* The same scheduler, with handlers looked up **at fire time**: `handlerProvider` is
+called on a background thread for every fired alarm and never during this call. For handlers that
+depend on the scheduler themselves, which the list overload turns into a construction cycle.
+
+- Same process-scoped registration, same `Application.onCreate` rule, same last-call-wins rule.
+- The provider must be cheap to call repeatedly and must not throw; an exception from it drops that
+  alarm.
+
 ### `createAlarmScheduler` (iOS)
 
 ```kotlin
@@ -53,7 +69,7 @@ Implementations are safe to call from any thread.
 
 | Member | Contract |
 |---|---|
-| `schedule` | Arms `alarm`, replacing any pending alarm with the same `id`. A fire time in the past is legal — Android fires it immediately, iOS clamps the trigger to one second out. Never throws for a permission or platform refusal; those come back in the result. |
+| `schedule` | Arms `alarm`, replacing any pending alarm with the same `id`. A fire time in the past is legal — Android fires it immediately, iOS clamps the trigger to one second out. Never throws for a permission or platform refusal; those come back in the result — including Android's cap of 500 concurrent alarms per app, reported as `Failed(PlatformError)`. |
 | `cancel` | Cancels `id`. Cancelling an id that is not armed is a no-op, not an error — neither platform can tell those apart. |
 | `cancelAll` | Cancels exactly the ids passed, in order. An empty collection is a no-op. It is **not** "cancel everything". |
 
@@ -122,7 +138,7 @@ Android-only; iOS never returns `Inexact`.
 |---|---|
 | `NotificationPermissionDenied` | iOS notification authorization is denied, so a scheduled notification would be discarded. Nothing was armed. |
 | `SchedulerUnavailable` | The platform scheduling service could not be obtained (`ALARM_SERVICE` returned nothing). Not expected on a healthy device. |
-| `PlatformError(message: String?)` | The platform rejected the request for another reason — e.g. iOS's cap of roughly 64 pending local notifications. `message` is the platform's own untranslated diagnostic, for logs only. |
+| `PlatformError(message: String?)` | The platform rejected the request for another reason — e.g. iOS's cap of roughly 64 pending local notifications, or Android's 500 concurrent alarms per app. `message` is the platform's own untranslated diagnostic, for logs only. |
 
 ## `AlarmHandler`
 

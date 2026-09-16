@@ -65,9 +65,10 @@ each case means something a caller can act on.
   and this library has none of its own to offer — `BiometricPromptText` takes all three as required
   parameters with no defaults, so there is no English string of ours you can ship by accident. See
   [`03-guide.md`](03-guide.md#the-words-are-yours).
-- **Not an enrolment or settings UI.** It reports `BiometricUnavailability.NOT_ENROLLED`; sending
-  the user to the right system settings screen is platform UI code in your app, and the intent
-  differs by OS version.
+- **Not an enrolment UI.** It reports `BiometricUnavailability.NOT_ENROLLED`, and on Android
+  `launchEnrollment()` opens the system screen where the user fixes it. What the user does there is
+  the system's business; read `availability()` again when your screen resumes. iOS offers no such
+  screen.
 - **Not a permission requester.** Biometric access needs no runtime permission on either platform,
   and this module declares none of its own — see [`05-platform-notes.md`](05-platform-notes.md) for
   what `androidx.biometric` merges into your manifest and why it is not removed.

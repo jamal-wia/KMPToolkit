@@ -20,7 +20,9 @@ import kotlin.time.Duration.Companion.milliseconds
  *   blank when non-null.
  * @param progressBucketPercent the width, in percent, of a progress bucket. A determinate update
  *   whose percentage falls in the same bucket as the last one actually posted for that id is
- *   suppressed, so a per-byte loop turns into at most `100 / progressBucketPercent + 1` posts.
+ *   suppressed, so a per-byte loop turns into at most `100 / progressBucketPercent + 1` posts — as
+ *   long as only the percentage changes. A frame whose other content changed (a body that repeats the
+ *   percentage, say) is not held back by the bucket, only by [minProgressInterval].
  *   `1` disables bucketing (every distinct percent may post, subject to [minProgressInterval]).
  *   Must be in `1..100`.
  * @param minProgressInterval the shortest time between two posts for the same id while its progress

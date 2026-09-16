@@ -3,24 +3,25 @@ package io.github.jamal_wia.kmptoolkit.permission
 /**
  * Where this module's bookkeeping lives inside the `KeyValueStorage` you hand the Android factory.
  *
- * The Android handler has to remember one fact per permission — *have we ever shown the system
- * dialog for it?* — because Android alone cannot tell "never asked" apart from "asked and
- * permanently refused": both answer `shouldShowRequestPermissionRationale() == false` with the
- * permission not granted. Without that remembered bit, a first-run app sends users to system
- * settings for a permission it has not asked for even once.
+ * The Android handler has to remember two facts per permission — *have we ever shown the system
+ * dialog for it?* and *has the user ever refused it there?* — because Android alone cannot tell
+ * "never asked", "asked and dismissed" and "asked and permanently refused" apart: all three answer
+ * `shouldShowRequestPermissionRationale() == false` with the permission not granted. Without the
+ * first bit, a first-run app sends users to system settings for a permission it has not asked for
+ * even once; without the second, a user who merely backed out of the dialog is sent there too.
  *
- * That fact is written under a key derived from [keyPrefix], and nothing about the key is
+ * Both facts are written under keys derived from [keyPrefix], and nothing about the key is
  * hardcoded to this library's name alone. A library that pinned its own key namespace would
  * collide the moment two libraries built on it — or two features of one app — shared a store; see
  * `docs/01-architecture.md`.
  *
  * ```kotlin
  * // Default: keys namespaced by the consuming app's own identifier.
- * val handler = createPermissionHandler(context, host, activityAccess, storage)
+ * val handler = createPermissionHandler(context, host, storage)
  *
  * // Two independent flows in one app, sharing a store but not their bookkeeping.
  * val onboarding = createPermissionHandler(
- *     context, host, activityAccess, storage, PermissionConfig("com.example.onboarding"),
+ *     context, host, storage, config = PermissionConfig("com.example.onboarding"),
  * )
  * ```
  *
@@ -65,3 +66,11 @@ internal fun PermissionConfig.resolveKeyPrefix(applicationId: String): String =
  */
 internal fun askedKey(prefix: String, permission: Permission): String =
     "$prefix.asked.${permission.name}"
+
+/**
+ * The key holding the "the system has asked us to show a rationale for this permission at least
+ * once" flag — which on Android is the same as "the user has refused it at least once through the
+ * dialog", and is what separates a refusal from a dialog that was merely dismissed.
+ */
+internal fun rationaleSeenKey(prefix: String, permission: Permission): String =
+    "$prefix.rationale.${permission.name}"

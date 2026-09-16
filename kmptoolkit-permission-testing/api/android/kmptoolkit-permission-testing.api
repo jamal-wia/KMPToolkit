@@ -9,11 +9,29 @@ public final class io/github/jamal_wia/kmptoolkit/permission/testing/RecordingPe
 	public final fun getOpenAppSettingsCount ()I
 	public final fun getRequests ()Ljava/util/List;
 	public final fun getSettingsAvailable ()Z
+	public fun observe (Lio/github/jamal_wia/kmptoolkit/permission/Permission;)Lkotlinx/coroutines/flow/Flow;
 	public fun openAppSettings ()Z
 	public fun request (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun scriptRequest (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)V
 	public final fun setDefaultStatus (Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)V
 	public final fun setSettingsAvailable (Z)V
 	public final fun setStatus (Lio/github/jamal_wia/kmptoolkit/permission/Permission;Lio/github/jamal_wia/kmptoolkit/permission/PermissionStatus;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/testing/RecordingSpecialPermissionHandler : io/github/jamal_wia/kmptoolkit/permission/SpecialPermissionHandler {
+	public fun <init> ()V
+	public fun <init> (Z)V
+	public synthetic fun <init> (ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun clearRecordings ()V
+	public final fun getChecks ()Ljava/util/List;
+	public final fun getDefaultGranted ()Z
+	public final fun getDefaultSettingsAvailable ()Z
+	public final fun getRequestedViaSettings ()Ljava/util/List;
+	public fun isGranted (Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;)Z
+	public fun requestViaSettings (Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;)Z
+	public final fun setDefaultGranted (Z)V
+	public final fun setDefaultSettingsAvailable (Z)V
+	public final fun setGranted (Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;Z)V
+	public final fun setSettingsAvailable (Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;Z)V
 }
 

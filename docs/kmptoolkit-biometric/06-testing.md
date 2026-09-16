@@ -28,8 +28,17 @@ public class ScriptedBiometricGate(
     public val prompts: List<BiometricPromptText>
     public val availabilityChecks: Int
     public fun clear()
+
+    // since 1.5.0
+    public var enrollmentLaunch: BiometricEnrollmentLaunch   // default LAUNCHED
+    public val enrollmentLaunches: Int
+    public val confirmations: List<Boolean?>                 // per prompt; null = gate's configuration
 }
 ```
+
+`confirmations` runs parallel to `prompts`: the value a call passed to
+`authenticate(prompt, requireExplicitConfirmation)`, or `null` for the one-argument overload.
+`clear()` resets it along with the enrolment-launch count.
 
 ### Driving a single branch
 
