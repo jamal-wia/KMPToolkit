@@ -39,9 +39,12 @@ espressoCore = "3.7.0"
 robolectric = "4.16.1"
 
 # Video: Media3 (Android engine of kmptoolkit-video-player), VLCJ (GPL-3, desktop engine in
-# kmptoolkit-video-player-vlcj only).
+# kmptoolkit-video-player-vlcj only), OpenJFX (GPL-2 + Classpath Exception, desktop engine in
+# kmptoolkit-video-player-javafx only, compileOnly — the app supplies the runtime). 21 is the LTS
+# line: it runs on JDK 17+, the widest range any maintained OpenJFX release supports.
 media3 = "1.11.1"
 vlcj = "4.12.1"
+openjfx = "21.0.12"
 
 [libraries]
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
@@ -51,6 +54,9 @@ androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exop
 androidx-media3-test-utils = { group = "androidx.media3", name = "media3-test-utils", version.ref = "media3" }
 androidx-media3-test-utils-robolectric = { group = "androidx.media3", name = "media3-test-utils-robolectric", version.ref = "media3" }
 vlcj = { group = "uk.co.caprica", name = "vlcj", version.ref = "vlcj" }
+openjfx-base = { group = "org.openjfx", name = "javafx-base", version.ref = "openjfx" }
+openjfx-graphics = { group = "org.openjfx", name = "javafx-graphics", version.ref = "openjfx" }
+openjfx-media = { group = "org.openjfx", name = "javafx-media", version.ref = "openjfx" }
 # Kotlinx
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }

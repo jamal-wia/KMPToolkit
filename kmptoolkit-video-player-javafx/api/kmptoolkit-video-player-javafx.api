@@ -1,0 +1,21 @@
+public abstract class io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxVideoPlayerException : java/lang/Exception {
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxVideoPlayerException$HeadersNotSupported : io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxVideoPlayerException {
+	public final fun getHeaderNames ()Ljava/util/Set;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxVideoPlayerException$LoadTimedOut : io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxVideoPlayerException {
+	public final fun getTimeoutMs ()J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxVideoPlayerException$RuntimeUnavailable : io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxVideoPlayerException {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/javafx/JavaFxVideoPlayerKt {
+	public static final fun createJavaFxVideoPlayer (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig;Lkotlin/coroutines/CoroutineContext;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;
+	public static synthetic fun createJavaFxVideoPlayer$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig;Lkotlin/coroutines/CoroutineContext;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;
+	public static final fun isJavaFxMediaAvailable ()Z
+}
+
