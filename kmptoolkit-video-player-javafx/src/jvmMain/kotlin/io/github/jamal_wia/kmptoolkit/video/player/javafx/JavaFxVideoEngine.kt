@@ -28,6 +28,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * frame goes through the session under [lock] and is dropped once the session is closed, so nothing
  * reaches the listener after [release] returns, even an event JavaFX had already queued.
  *
+ * Keeps the SPI's no-op `dispose()`: everything this engine holds belongs to one source and is freed
+ * by [release], and the JavaFX toolkit is process-wide — not this engine's to shut down.
+ *
  * @param runtime starts the JavaFX toolkit; a test seam.
  * @param classLoader resolves [VideoSource.Asset] paths as classpath resources.
  * @param maxFrameRate the most snapshots per second copied into [frames] while playing.

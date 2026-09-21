@@ -67,7 +67,9 @@ import platform.darwin.dispatch_get_main_queue
  *
  * **One `AVPlayer` for the engine's whole life.** Each [load] swaps a new `AVPlayerItem` into the
  * same player, and [release] only empties it. That is what lets `kmptoolkit-video-player-compose`
- * attach an `AVPlayerLayer` to [player] once and keep it attached across sources.
+ * attach an `AVPlayerLayer` to [player] once and keep it attached across sources. The engine keeps
+ * the SPI's no-op `dispose()`: `avPlayerOrNull()` promises the same, emptied instance after the
+ * player's release too, and an `AVPlayer` without an item holds nothing worth freeing early.
  *
  * **Threading.** Every AVFoundation call happens on the main thread: [load] hops there, and the
  * transport calls run inline when already on it (the normal case — a screen drives its player) and

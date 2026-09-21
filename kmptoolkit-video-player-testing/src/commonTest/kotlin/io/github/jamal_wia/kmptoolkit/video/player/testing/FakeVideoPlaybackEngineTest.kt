@@ -333,6 +333,22 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
+    fun `dispose is recorded once on release and never on unload`() = runTest {
+        val engine = FakeVideoPlaybackEngine()
+        val player: VideoPlayer = newPlayer(engine)
+
+        player.prepare(source)
+        player.unload()
+        player.prepare(source)
+        assertEquals(0, engine.disposeCount)
+
+        player.release()
+        player.release()
+
+        assertEquals(1, engine.disposeCount)
+    }
+
+    @Test
     fun `events after release are ignored`() = runTest {
         val engine = FakeVideoPlaybackEngine()
         val player: VideoPlayer = newPlayer(engine)

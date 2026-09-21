@@ -283,7 +283,8 @@ The platform seam. It holds no state machine of its own.
 | `fun setVolume(volume: Float)` | Effective output volume in `0f..1f` — `0f` while the player is muted. |
 | `fun setLooping(looping: Boolean)` | Restart the source at its end instead of completing. |
 | `fun durationMs()` / `fun positionMs()` / `fun bufferedPositionMs()` | Cheap (polled off the platform's thread); `0` when unknown, never negative. |
-| `fun release()` | Free every native resource. **Idempotent**, safe after a failed `load`. |
+| `fun release()` | Free the loaded source and keep the engine reusable: `load` works after it. **Idempotent**, safe after a failed `load`. |
+| `fun dispose()` | Free what the engine keeps across sources — the platform player, a native library instance. Called **exactly once**, from `VideoPlayer.release()`, after the last `release()`; no method is called after it. Default: no-op, for an engine whose `release()` already frees everything. |
 
 ```kotlin
 public interface VideoPlaybackEngineListener {
@@ -324,7 +325,7 @@ public annotation class ToolkitInheritanceApi
 ```
 
 Marks, through `@SubclassOptInRequired`, the interfaces only KMPToolkit implements — `VideoPlayer`
-here, and the same kind of interface in the other video-player modules. Using them needs nothing;
+here, and `VideoControlsScope` in `kmptoolkit-video-player-compose`. Using them needs nothing;
 implementing one outside the library is a compile error unless the implementing class opts in
 (`@OptIn(ToolkitInheritanceApi::class)`), which is accepting that a new abstract member in any
 release may break it.

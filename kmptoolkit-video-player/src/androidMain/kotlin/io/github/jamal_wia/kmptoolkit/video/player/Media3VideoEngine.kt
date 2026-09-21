@@ -62,7 +62,7 @@ internal class Media3VideoEngine(
     private val looper: Looper = Looper.getMainLooper(),
     private val playerFactory: (Context, Looper) -> ExoPlayer = ::defaultExoPlayer,
     private val mediaSourceFactory: (Context, VideoSource) -> MediaSource = ::defaultMediaSource,
-) : VideoPlaybackEngine, DisposableVideoPlaybackEngine {
+) : VideoPlaybackEngine {
 
     private val handler: Handler = Handler(looper)
     private val playerDispatcher: CoroutineDispatcher = HandlerDispatcher(handler)

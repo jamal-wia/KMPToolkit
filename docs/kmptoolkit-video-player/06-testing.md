@@ -68,7 +68,7 @@ Nothing moves on its own — there is no wall clock inside.
 | `val isPlaying`, `val positionMs`, `val seekTargets` | Assert what the player asked the platform to do. |
 | `val appliedSpeed`, `val appliedVolume`, `val isLooping` | Assert the settings the platform received — `appliedVolume` is `0f` while the player is muted. |
 | `val loadedSources` | Every source passed to `load`, in order, including failed ones. |
-| `val releaseCount`, `val hasListener` | Assert the release contract. |
+| `val releaseCount`, `val disposeCount`, `val hasListener` | Assert the release contract. `disposeCount` is `1` once the player is released, `0` before — never raised by an unload. |
 
 ## Observing position updates
 
@@ -143,12 +143,13 @@ component.dispose()
 component.dispose()
 
 assertEquals(1, engine.releaseCount)
+assertEquals(1, engine.disposeCount)
 assertFalse(engine.hasListener)
 ```
 
 A component that borrows a long-lived player should `unload()` it instead; the fake tells the two
-apart — an unload frees the engine (`releaseCount` goes up) but keeps the listener attached
-(`hasListener` stays `true`), and the next `prepare` works.
+apart — an unload frees the engine (`releaseCount` goes up) but neither disposes it (`disposeCount`
+stays `0`) nor detaches the listener (`hasListener` stays `true`), and the next `prepare` works.
 
 ## What is not covered by these tests
 

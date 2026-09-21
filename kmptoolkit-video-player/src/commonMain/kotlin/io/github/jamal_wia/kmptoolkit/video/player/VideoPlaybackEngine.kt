@@ -9,7 +9,12 @@ package io.github.jamal_wia.kmptoolkit.video.player
  *
  * ### Contract for implementors
  *
- * - **[release] is idempotent** and safe after a failed [load]; [load] after [release] works.
+ * - **[release] frees the loaded source and keeps the engine reusable.** It is idempotent and safe
+ *   after a failed [load]; [load] after [release] works.
+ * - **[dispose] frees what the engine keeps across sources** — the platform player, a native library
+ *   instance, a render thread. The player calls it exactly once, from [VideoPlayer.release], after
+ *   the last [release]; no method of the engine is called after it. It defaults to a no-op, for an
+ *   engine whose [release] already frees everything.
  * - **[load] honors cancellation**, throws to report failure, and leaves nothing playable behind in
  *   either case. The player never runs two loads at once.
  * - **Never call the listener after [release]**, including callbacks already queued on a platform
@@ -62,8 +67,14 @@ public interface VideoPlaybackEngine {
     /** Buffered-ahead position in milliseconds, or `0` if unknown. */
     public fun bufferedPositionMs(): Long
 
-    /** Frees every native resource. Idempotent. */
+    /** Frees the loaded source, keeping the engine reusable for the next [load]. Idempotent. */
     public fun release()
+
+    /**
+     * Frees what the engine keeps across sources. Called exactly once, from [VideoPlayer.release],
+     * after the last [release]; nothing is called on the engine afterwards. No-op by default.
+     */
+    public fun dispose() {}
 }
 
 /**

@@ -121,6 +121,14 @@ public class FakeVideoPlaybackEngine(
     public var releaseCount: Int = 0
         private set
 
+    /**
+     * How many times [VideoPlaybackEngine.dispose] has been called: `0` until the player is released,
+     * then `1` — the player disposes its engine exactly once, after the last release. Records only;
+     * the fake stays usable, so a test can still drive it to check that late events are ignored.
+     */
+    public var disposeCount: Int = 0
+        private set
+
     /** Whether a [VideoPlaybackEngineListener] is attached — `false` once the player is released. */
     public val hasListener: Boolean
         get() = listener != null
@@ -185,6 +193,10 @@ public class FakeVideoPlaybackEngine(
         isPlaying = false
         positionMs = 0L
         bufferedPositionMs = 0L
+    }
+
+    override fun dispose() {
+        disposeCount++
     }
 
     /**

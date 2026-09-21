@@ -23,6 +23,7 @@ public abstract interface annotation class io/github/jamal_wia/kmptoolkit/video/
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine {
 	public abstract fun bufferedPositionMs ()J
+	public fun dispose ()V
 	public abstract fun durationMs ()J
 	public abstract fun load (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun pause ()V
@@ -34,6 +35,10 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/Vide
 	public abstract fun setSpeed (F)V
 	public abstract fun setVolume (F)V
 	public abstract fun start ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine$DefaultImpls {
+	public static fun dispose (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine;)V
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngineListener {

@@ -22,7 +22,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   calls, the position poll and the engine's events are serialized, so none overwrites a state
   another just wrote. `VideoPlayer` is implemented by the library only, enforced with
   `@SubclassOptInRequired(ToolkitInheritanceApi::class)`. One state machine in common code drives a
-  `VideoPlaybackEngine`: Media3 ExoPlayer (with HLS) on Android and `AVPlayer` on iOS. Also publishes
+  `VideoPlaybackEngine`: Media3 ExoPlayer (with HLS) on Android and `AVPlayer` on iOS. The engine SPI
+  is public for a consumer's own engine; its `release()` frees the loaded source, and its
+  `dispose()` (a no-op by default) frees what the engine keeps across sources, called once from
+  `VideoPlayer.release()`. Also publishes
   `jvm` so shared UI compiles for desktop; the desktop engine is a separate artifact. Media3 merges
   `ACCESS_NETWORK_STATE` and `WAKE_LOCK` into the consuming app's manifest; `INTERNET` stays the
   app's to declare.
@@ -32,14 +35,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   keep-screen-on while playing) on Android, iOS and desktop, and `VideoPlayer` with ready-made
   controls — tap to toggle, auto-hide, pause when the host goes to the background — whose every part
   can be replaced: a `controls` slot over `VideoControlsScope` (used freely; implementing it is
-  opt-in, `@InternalForInheritanceVideoControlsApi`, as it may grow), public building blocks
+  opt-in with the core's `@ToolkitInheritanceApi`, as it may grow), public building blocks
   (`PlayPauseButton`, `VideoSeekBar`, `VideoTimeText`, `MuteButton`, `SpeedButton`,
   `FullscreenButton`, …), and plain `VideoControlsColors` / `VideoControlsDimensions` /
   `VideoControlsLabels` objects. No user-facing text: accessibility labels come from the app.
   `rememberVideoPlayer` creates, prepares and releases a player; `LocalVideoPlayerFactory` lets a
   desktop app choose its engine once at the root.
 - `kmptoolkit-video-player-vlcj` — a JVM-only desktop engine on VLCJ: any format VLC plays, frames
-  rendered into memory for the Compose surface. VLCJ is GPL-3.0 and needs VLC 3.x installed (or
+  rendered into memory for the Compose surface; one libvlc instance per player, kept across sources
+  and freed by `release()`. VLCJ is GPL-3.0 and needs VLC 3.x installed (or
   bundled) for the JVM's CPU architecture; `isVlcAvailable()` checks without crashing.
 - `kmptoolkit-video-player-javafx` — a JVM-only desktop engine on JavaFX Media: nothing to install
   beyond the OpenJFX jars the app adds per OS (GPL-2.0 + Classpath Exception), fewer formats, and a
