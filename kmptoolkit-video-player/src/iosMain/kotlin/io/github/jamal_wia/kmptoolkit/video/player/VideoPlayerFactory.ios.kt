@@ -18,11 +18,24 @@ public fun createVideoPlayer(
     assetSubdirectories: List<String> = emptyList(),
     managesAudioSession: Boolean = true,
     coroutineContext: CoroutineContext = Dispatchers.Default,
-): VideoPlayer = TODO("AVPlayer engine — implemented by the iOS agent")
+): VideoPlayer = createVideoPlayer(
+    engine = AvPlayerVideoEngine(
+        assetBundle = assetBundle,
+        assetSubdirectories = assetSubdirectories,
+        managesAudioSession = managesAudioSession,
+    ),
+    config = config,
+    coroutineContext = coroutineContext,
+)
 
 /**
  * The `AVPlayer` behind a player this module created, for `kmptoolkit-video-player-compose` to
  * attach an `AVPlayerLayer` to; `null` for a player over any other engine. Main thread only.
+ *
+ * The instance is stable for the player's whole life — created on first access (so a layer can be
+ * attached before the first `prepare`), kept across sources, and merely emptied by `release` — so
+ * the layer needs attaching once.
  */
 @ToolkitInternalApi
-public fun VideoPlayer.avPlayerOrNull(): AVPlayer? = TODO("implemented by the iOS agent")
+public fun VideoPlayer.avPlayerOrNull(): AVPlayer? =
+    ((this as? EngineBackedPlayer)?.engine as? AvPlayerVideoEngine)?.player
