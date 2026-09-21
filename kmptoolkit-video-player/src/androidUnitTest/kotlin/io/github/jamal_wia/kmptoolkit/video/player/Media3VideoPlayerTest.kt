@@ -15,6 +15,7 @@ import org.junit.runner.RunWith
 import org.robolectric.shadows.ShadowLooper
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -68,6 +69,22 @@ class Media3VideoPlayerTest {
 
         assertIs<VideoPlayerState.Playing>(player.stateFlow.value)
         assertTrue(requireNotNull(exoPlayer).playWhenReady)
+    }
+
+    @Test
+    fun `a seek after the end leaves the player paused and the ExoPlayer not playing`() {
+        runSuspending { player.prepare(source) }.getOrThrow()
+        player.play()
+        runMainLooperUntil { player.stateFlow.value is VideoPlayerState.Completed }
+
+        player.seekTo(1_000L)
+        repeat(SETTLE_PASSES) { ShadowLooper.idleMainLooper() }
+
+        assertEquals(VideoPlayerState.Paused(SOURCE_DURATION_MS, 1_000L), player.stateFlow.value)
+        val exo: ExoPlayer = requireNotNull(exoPlayer)
+        assertFalse(exo.playWhenReady)
+        assertFalse(exo.isPlaying)
+        assertEquals(1_000L, exo.currentPosition)
     }
 
     @Test
@@ -139,5 +156,10 @@ class Media3VideoPlayerTest {
         override fun positionMs(): Long = 0L
         override fun bufferedPositionMs(): Long = 0L
         override fun release() = Unit
+    }
+
+    private companion object {
+        /** Enough looper passes for a seek to settle and for playback to have started, had it been going to. */
+        const val SETTLE_PASSES: Int = 5
     }
 }

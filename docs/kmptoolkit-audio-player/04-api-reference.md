@@ -62,9 +62,10 @@ entirely after `release()`.
 | `fun release()` | Frees the native handle, cancels polling, detaches the engine listener, resets to `Idle`/`0`. **Idempotent.** Not reversible. |
 | `override fun close()` | Alias for `release()`, so a player works with `use { }`. |
 
-**Threading.** Transport calls are not synchronized — drive one player from one thread. The two
-flows are safe to collect anywhere. `release()` cannot double-free, but a transport call racing a
-release may be applied or dropped.
+**Threading.** Drive one player from one thread. Every transition is serialized inside the player —
+transport calls, the position poll and the platform's end/failure events — so none overwrites a state
+another just wrote. The two flows are safe to collect anywhere. `release()` cannot double-free, but
+a transport call racing a release may be applied or dropped.
 
 ---
 

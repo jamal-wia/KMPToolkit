@@ -58,8 +58,11 @@ against the other.
   app-wide policies; see [`05-platform-notes.md`](05-platform-notes.md).
 - **Not a DI module, and no user-facing text.** A factory function you wrap in your own container;
   `VideoPlayerState.Error` carries a `Throwable`, never a sentence.
-- **Not thread-safe for concurrent transport calls.** Drive one player from one thread (a screen
-  does). The flows are safe to collect anywhere, and `release()` cannot double-free.
+- **Not a place to race your own calls.** Every call is safe from any thread and is one atomic
+  transition, serialized with the position poll and with the platform's own events, so nothing can
+  overwrite a state another transition just wrote and `release()` cannot double-free. Which of two
+  calls made at once from two threads lands first is still up to them; a screen drives its player
+  from one thread.
 - **Not a desktop engine.** The JVM target exists so shared UI code compiles for desktop; the engine
   there is your choice of `kmptoolkit-video-player-vlcj` or `kmptoolkit-video-player-javafx`, each a
   separate artifact so its licence reaches only the apps that opt in.
@@ -70,7 +73,7 @@ against the other.
 |---|---|
 | `VideoPlayer` | The interface: nine flows, the transport controls, settings, `unload()`, `release()`/`close()` |
 | `VideoPlayerState` | `Idle`, `Preparing`, `Ready`, `Playing`, `Paused`, `Completed`, `Error(cause)` |
-| `VideoSource` | `Asset`, `File`, `Remote(url, headers)` — where the video lives |
+| `VideoSource` | `Asset`, `File`, `Remote(url, headers, format)` — where the video lives |
 | `VideoSize` | The decoded picture size, already rotated and pixel-aspect corrected |
 | `RepeatMode` | `Off` (stop at the end) or `One` (loop the source) |
 | `VideoPlayerConfig` | Polling interval and playback-speed bounds |

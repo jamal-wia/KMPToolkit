@@ -6,8 +6,24 @@
 // - Show declarations: true
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-video-player>
+open annotation class io.github.jamal_wia.kmptoolkit.video.player/ToolkitInheritanceApi : kotlin/Annotation { // io.github.jamal_wia.kmptoolkit.video.player/ToolkitInheritanceApi|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.video.player/ToolkitInheritanceApi.<init>|<init>(){}[0]
+}
+
 open annotation class io.github.jamal_wia.kmptoolkit.video.player/ToolkitInternalApi : kotlin/Annotation { // io.github.jamal_wia.kmptoolkit.video.player/ToolkitInternalApi|null[0]
     constructor <init>() // io.github.jamal_wia.kmptoolkit.video.player/ToolkitInternalApi.<init>|<init>(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat : kotlin/Enum<io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat> { // io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat|null[0]
+    enum entry Auto // io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat.Auto|null[0]
+    enum entry Hls // io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat.Hls|null[0]
+    enum entry Progressive // io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat.Progressive|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat> // io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat // io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat> // io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat.values|values#static(){}[0]
 }
 
 final enum class io.github.jamal_wia.kmptoolkit.video.player/RepeatMode : kotlin/Enum<io.github.jamal_wia.kmptoolkit.video.player/RepeatMode> { // io.github.jamal_wia.kmptoolkit.video.player/RepeatMode|null[0]
@@ -172,8 +188,6 @@ sealed interface io.github.jamal_wia.kmptoolkit.video.player/VideoSource { // io
         final val path // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.path|{}path[0]
             final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.path.<get-path>|<get-path>(){}[0]
 
-        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.component1|component1(){}[0]
-        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.copy|copy(kotlin.String){}[0]
         final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.equals|equals(kotlin.Any?){}[0]
         final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.hashCode|hashCode(){}[0]
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.toString|toString(){}[0]
@@ -185,24 +199,21 @@ sealed interface io.github.jamal_wia.kmptoolkit.video.player/VideoSource { // io
         final val path // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.path|{}path[0]
             final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.path.<get-path>|<get-path>(){}[0]
 
-        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.component1|component1(){}[0]
-        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.copy|copy(kotlin.String){}[0]
         final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.equals|equals(kotlin.Any?){}[0]
         final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.hashCode|hashCode(){}[0]
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.toString|toString(){}[0]
     }
 
     final class Remote : io.github.jamal_wia.kmptoolkit.video.player/VideoSource { // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote|null[0]
-        constructor <init>(kotlin/String, kotlin.collections/Map<kotlin/String, kotlin/String> = ...) // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.<init>|<init>(kotlin.String;kotlin.collections.Map<kotlin.String,kotlin.String>){}[0]
+        constructor <init>(kotlin/String, kotlin.collections/Map<kotlin/String, kotlin/String> = ..., io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat = ...) // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.<init>|<init>(kotlin.String;kotlin.collections.Map<kotlin.String,kotlin.String>;io.github.jamal_wia.kmptoolkit.video.player.RemoteFormat){}[0]
 
+        final val format // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.format|{}format[0]
+            final fun <get-format>(): io.github.jamal_wia.kmptoolkit.video.player/RemoteFormat // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.format.<get-format>|<get-format>(){}[0]
         final val headers // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.headers|{}headers[0]
             final fun <get-headers>(): kotlin.collections/Map<kotlin/String, kotlin/String> // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.headers.<get-headers>|<get-headers>(){}[0]
         final val url // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.url|{}url[0]
             final fun <get-url>(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.url.<get-url>|<get-url>(){}[0]
 
-        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.component1|component1(){}[0]
-        final fun component2(): kotlin.collections/Map<kotlin/String, kotlin/String> // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.component2|component2(){}[0]
-        final fun copy(kotlin/String = ..., kotlin.collections/Map<kotlin/String, kotlin/String> = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.copy|copy(kotlin.String;kotlin.collections.Map<kotlin.String,kotlin.String>){}[0]
         final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.equals|equals(kotlin.Any?){}[0]
         final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.hashCode|hashCode(){}[0]
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.toString|toString(){}[0]

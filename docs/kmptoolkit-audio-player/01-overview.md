@@ -66,9 +66,10 @@ None of it survived, and the omissions are deliberate:
 - **Not a DI module.** No Koin, no Hilt. The donor shipped three `AudioPlayerModule` files; the
   public API here is an interface plus a factory function you wrap in whatever container you already
   use.
-- **Not thread-safe for concurrent transport calls.** Drive one player from one thread. The flows
-  are safe to collect anywhere, and `release()` cannot double-free — but `play()` racing `seekTo()`
-  from two threads is not a supported thing to do.
+- **Not a place to race your own calls.** Drive one player from one thread. Internally every
+  transition is serialized — your calls, the player's position poll and the platform's events — so a
+  poll can never overwrite `Paused` or `Completed`, and `release()` cannot double-free; but the order
+  in which `play()` and `seekTo()` from two threads apply is theirs to decide, not yours.
 
 ## What you get
 

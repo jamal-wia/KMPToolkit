@@ -7,6 +7,7 @@ import android.os.Looper
 import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
@@ -14,6 +15,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -348,16 +350,36 @@ private fun defaultExoPlayer(context: Context, looper: Looper): ExoPlayer =
 /**
  * The production source for [source]: one [DefaultDataSource] routing `asset://`, `file://` and
  * `http(s)://` alike — the last through a [DefaultHttpDataSource] carrying the source's headers — and
- * a [DefaultMediaSourceFactory], which picks HLS for a `.m3u8` URI because `media3-exoplayer-hls` is
- * on the classpath and a progressive source for anything else.
+ * the media source its [RemoteFormat] asks for (see [toMediaItem]). With [RemoteFormat.Auto] a
+ * [DefaultMediaSourceFactory] decides from the URI: HLS for a `.m3u8` path, because
+ * `media3-exoplayer-hls` is on the classpath, and a progressive source for anything else.
  */
 internal fun defaultMediaSource(context: Context, source: VideoSource): MediaSource {
     val http: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
     val headers: Map<String, String> = source.requestHeaders()
     if (headers.isNotEmpty()) http.setDefaultRequestProperties(headers)
     val dataSources = DefaultDataSource.Factory(context, http)
-    return DefaultMediaSourceFactory(dataSources).createMediaSource(MediaItem.fromUri(source.toMediaUri()))
+    val item: MediaItem = source.toMediaItem()
+    return if (source.remoteFormat() == RemoteFormat.Progressive) {
+        // A .m3u8 path would still make the default factory pick HLS; progressive was asked for.
+        ProgressiveMediaSource.Factory(dataSources).createMediaSource(item)
+    } else {
+        DefaultMediaSourceFactory(dataSources).createMediaSource(item)
+    }
 }
+
+/**
+ * The [MediaItem] for [this] source. For [RemoteFormat.Hls] it carries the HLS MIME type, which
+ * [DefaultMediaSourceFactory] honours ahead of the URI — so an HLS stream whose URL does not end in
+ * `.m3u8` (a signed or rewritten URL) is still played as HLS rather than failing as a progressive file.
+ */
+internal fun VideoSource.toMediaItem(): MediaItem {
+    val builder: MediaItem.Builder = MediaItem.Builder().setUri(toMediaUri())
+    if (remoteFormat() == RemoteFormat.Hls) builder.setMimeType(MimeTypes.APPLICATION_M3U8)
+    return builder.build()
+}
+
+private fun VideoSource.remoteFormat(): RemoteFormat? = (this as? VideoSource.Remote)?.format
 
 /**
  * The URI Media3 opens for [this] source: `asset:///path` for a bundled asset (AssetDataSource strips

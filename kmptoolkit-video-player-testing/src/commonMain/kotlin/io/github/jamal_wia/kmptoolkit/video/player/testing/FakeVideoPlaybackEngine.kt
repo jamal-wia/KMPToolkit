@@ -20,7 +20,8 @@ import kotlinx.coroutines.delay
  * method is called. A load finishes at once, after [loadDelayMs] of virtual time, or — with
  * [suspendLoads] — only when the test calls [finishLoad] or [failLoad].
  *
- * Not thread-safe, matching the player it feeds — drive it from the test's thread.
+ * Not thread-safe — drive it from the test's thread. (The player built on it serializes its own
+ * transitions, but the fake's recorded properties are plain fields.)
  *
  * ```kotlin
  * val engine = FakeVideoPlaybackEngine(durationMs = 30_000)

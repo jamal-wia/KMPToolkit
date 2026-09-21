@@ -39,11 +39,14 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * ### Threading
  *
- * Transport calls are not synchronized: drive one player from one thread (a UI screen's main
- * thread is the normal choice). [stateFlow] and [playbackPositionFlow] are `StateFlow`s and are
- * safe to collect from anywhere. [release] is safe to call concurrently with the transport calls in
- * the sense that it cannot double-free a native handle, but a transport call racing a release may
- * be either applied or dropped — do not depend on which.
+ * Every transition is serialized inside the player — transport calls, the player's own position
+ * poll (on a background dispatcher by default) and the platform's events (end of media, failure,
+ * delivered on the main thread) — so none of them can overwrite a state another one just wrote.
+ * Driving one player from one thread (a UI screen's main thread is the normal choice) is still the
+ * simplest way to reason about the order of your own calls. [stateFlow] and [playbackPositionFlow]
+ * are `StateFlow`s and are safe to collect from anywhere. [release] is safe to call concurrently with
+ * the transport calls in the sense that it cannot double-free a native handle, but a transport call
+ * racing a release may be either applied or dropped — do not depend on which.
  */
 public interface AudioPlayer : AutoCloseable {
 

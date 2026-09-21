@@ -332,6 +332,31 @@ class VideoPlayerTest {
         }
 
     @Test
+    fun `seekTo keeps a playing player playing and polling from the new position`() = playerTest(
+        engine = RecordingVideoPlaybackEngine(duration = 10_000L),
+        config = VideoPlayerConfig(positionUpdateIntervalMs = 100L),
+    ) { engine, player ->
+        player.prepare(source)
+        player.play()
+        player.seekTo(6_000L)
+
+        assertEquals(
+            VideoPlayerState.Playing(duration = 10_000L, currentPosition = 6_000L),
+            player.stateFlow.value,
+        )
+        assertEquals(6_000L, player.playbackPositionFlow.value)
+        assertEquals(1, engine.started)
+        assertEquals(0, engine.paused)
+
+        engine.position = 6_400L
+        advanceTimeBy(101L)
+        assertEquals(
+            VideoPlayerState.Playing(duration = 10_000L, currentPosition = 6_400L),
+            player.stateFlow.value,
+        )
+    }
+
+    @Test
     fun `seekTo keeps a paused player paused`() =
         playerTest(RecordingVideoPlaybackEngine(duration = 10_000L)) { _, player ->
             player.prepare(source)

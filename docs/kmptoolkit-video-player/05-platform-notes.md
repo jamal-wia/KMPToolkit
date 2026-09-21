@@ -57,12 +57,20 @@ them, remove them in your own manifest — and check Media3's release notes for 
 |---|---|
 | `VideoSource.Asset("videos/intro.mp4")` | `asset:///videos/intro.mp4` — `src/main/assets/videos/intro.mp4`. A leading `/` is ignored; `#`, `?` and spaces in the name are encoded. |
 | `VideoSource.File(path)` | a `file://` URI of `path`. |
-| `VideoSource.Remote(url, headers)` | `url` through `DefaultHttpDataSource` carrying `headers` as default request properties, so they go with every request — for HLS, the playlists and every segment. Cross-protocol redirects (`https` → `http`) are not followed. |
+| `VideoSource.Remote(url, headers, format)` | `url` through `DefaultHttpDataSource` carrying `headers` as default request properties, so they go with every request — for HLS, the playlists and every segment. Cross-protocol redirects (`https` → `http`) are not followed. |
 
-**HLS is chosen by the URL.** Media3's `DefaultMediaSourceFactory` picks HLS when the URL path ends in
-`.m3u8` (a query string after it is fine). A playlist served from a URL without that extension is
-treated as a progressive file and fails to load. DASH and SmoothStreaming are not included — their
-Media3 modules are not dependencies of this library.
+**HLS: by the URL, or by the `format` hint.** With `RemoteFormat.Auto` (the default), Media3's
+`DefaultMediaSourceFactory` picks HLS when the URL path ends in `.m3u8` (a query string after it is
+fine) and a progressive source for anything else — so a signed, rewritten or extension-less HLS URL
+would be treated as a progressive file and fail to load. Say so explicitly:
+
+```kotlin
+VideoSource.Remote(signedUrl, format = RemoteFormat.Hls)
+```
+
+`RemoteFormat.Hls` sets the item's MIME type to `application/x-mpegURL`, which Media3 honours ahead of
+the URL. `RemoteFormat.Progressive` forces a progressive source even for a `.m3u8` path. DASH and
+SmoothStreaming are not included — their Media3 modules are not dependencies of this library.
 
 **Cleartext `http://`** is blocked by Android's default network-security policy and fails the load
 with a `PlaybackException`. Declare the host in a network-security config if you really need it.
@@ -72,8 +80,9 @@ with a `PlaybackException`. Declare the host in a network-security config if you
 ExoPlayer is confined to one *application looper*. This engine uses the **main looper**: it creates
 the ExoPlayer there and marshals every call onto it — a call made on the main thread runs at once, a
 call from another thread is posted, in order. Nothing blocks waiting for the main thread, so
-`createVideoPlayer(context)` and every transport call are safe from any thread (still one thread per
-player).
+`createVideoPlayer(context)` and every transport call are safe from any thread. The player above the
+engine serializes its own transitions, so ExoPlayer's end-of-media event (on the main thread) and a
+poll tick (on `Dispatchers.Default`) can no longer overwrite each other's state.
 
 The player polls the duration, playhead and buffered position from its own coroutine context
 (`Dispatchers.Default` by default), which ExoPlayer would reject. The engine answers those from a
@@ -137,7 +146,9 @@ that one host to `Info.plist`; prefer fixing the URL. `NSAllowsArbitraryLoadsFor
 and is scoped to AVFoundation, but it is still a review-time smell.
 
 **HLS** plays natively — pass the `.m3u8` URL as a `VideoSource.Remote`. No extra dependency, no
-configuration. Adaptive bitrate switching is AVFoundation's own.
+configuration. Adaptive bitrate switching is AVFoundation's own. AVFoundation also goes by the
+content type the server sends, so an HLS stream on an extension-less URL plays with the default
+`RemoteFormat.Auto`.
 
 **HTTP headers** (`VideoSource.Remote.headers`) are passed through the `AVURLAsset` creation option
 `"AVURLAssetHTTPHeaderFieldsKey"`. Be aware that **Apple has never documented this key**: it is not
@@ -214,6 +225,7 @@ runtime requirements reach it. Both render decoded pictures into memory, which
 | Runtime the user needs | VLC 3.x installed, or libvlc bundled; same CPU architecture as the JVM | OpenJFX jars for the OS, added by the app |
 | Formats | whatever VLC plays | MP4 (H.264/AAC), HLS and a few others |
 | Remote headers | `User-Agent` and `Referer` only; any other header fails the load | none; any header fails the load |
+| `RemoteFormat` hint | ignored — VLC probes the stream itself | ignored |
 | CPU cost of rendering | low (direct frame callback) | higher (off-screen snapshots) |
 
 ### Desktop — VLCJ

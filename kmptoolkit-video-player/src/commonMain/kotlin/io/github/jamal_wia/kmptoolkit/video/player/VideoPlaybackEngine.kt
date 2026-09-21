@@ -20,6 +20,12 @@ package io.github.jamal_wia.kmptoolkit.video.player
  *   they are polled from the player's coroutine context, so an engine whose platform object is
  *   confined to one thread answers from values it caches on that thread.
  * - **[setLooping]** makes the platform restart the source at its end without reporting completion.
+ * - **Any method may be called from any thread** — the app's, the polling coroutine's, or the thread
+ *   an event was reported on — though never two at once: the player serializes its calls. An engine
+ *   whose platform object is confined to one thread marshals onto it.
+ * - **The listener may be called from any thread**, including while the engine holds a lock of its
+ *   own and from inside one of the calls above. The player never blocks in a callback: an event that
+ *   arrives while another transition is running is applied right after it.
  */
 public interface VideoPlaybackEngine {
 

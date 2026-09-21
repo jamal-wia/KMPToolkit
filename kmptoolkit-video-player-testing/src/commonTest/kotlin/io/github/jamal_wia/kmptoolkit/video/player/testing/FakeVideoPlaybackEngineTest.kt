@@ -116,6 +116,66 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
+    fun `loadDelayMs holds the player in preparing for that long`() = runTest {
+        val engine = FakeVideoPlaybackEngine().apply { loadDelayMs = 1_000L }
+        val player: VideoPlayer = newPlayer(engine)
+
+        val loading: Job = launch { player.prepare(source) }
+        advanceTimeBy(999L)
+        assertEquals(VideoPlayerState.Preparing, player.stateFlow.value)
+
+        advanceTimeBy(2L)
+        loading.join()
+        assertEquals(VideoPlayerState.Ready(10_000L), player.stateFlow.value)
+        player.release()
+    }
+
+    @Test
+    fun `cancelling a prepare inside the load delay frees the engine and settles on idle`() = runTest {
+        val engine = FakeVideoPlaybackEngine().apply { loadDelayMs = 1_000L }
+        val player: VideoPlayer = newPlayer(engine)
+
+        val loading: Job = launch { player.prepare(source) }
+        advanceTimeBy(500L)
+        loading.cancel()
+        loading.join()
+
+        assertEquals(VideoPlayerState.Idle, player.stateFlow.value)
+        assertEquals(1, engine.releaseCount)
+        assertEquals(listOf(source), engine.loadedSources)
+
+        // And the player is reusable afterwards.
+        engine.loadDelayMs = 0L
+        player.prepare(source)
+        assertEquals(VideoPlayerState.Ready(10_000L), player.stateFlow.value)
+        player.release()
+    }
+
+    @Test
+    fun `a prepare replacing one inside the load delay wins`() = runTest {
+        val engine = FakeVideoPlaybackEngine().apply { loadDelayMs = 1_000L }
+        val player: VideoPlayer = newPlayer(engine)
+        val second: VideoSource = VideoSource.Remote("https://example.test/second.mp4")
+
+        val first: Job = launch { player.prepare(source) }
+        advanceTimeBy(500L)
+        engine.durationMs = 20_000L
+        val replacing: Job = launch { player.prepare(second) }
+        advanceTimeBy(500L)
+        // Replacing cancelled the first load's delay; the second is still inside its own.
+        assertEquals(VideoPlayerState.Preparing, player.stateFlow.value)
+
+        advanceTimeBy(501L)
+        first.join()
+        replacing.join()
+        assertEquals(VideoPlayerState.Ready(20_000L), player.stateFlow.value)
+        assertEquals(listOf(source, second), engine.loadedSources)
+        // The replaced caller returns normally rather than being cancelled.
+        assertFalse(first.isCancelled)
+        player.release()
+    }
+
+    @Test
     fun `finishLoad and failLoad without a pending load do nothing`() {
         val engine = FakeVideoPlaybackEngine()
 
