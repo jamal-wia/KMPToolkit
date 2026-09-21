@@ -17,8 +17,10 @@ public interface VideoFrameSource {
 /**
  * One decoded picture in 32-bit ARGB, row-major, [width] × [height] pixels.
  *
- * A plain class: [pixels] may be reused between frames by the producer, so a frame is only valid
- * until the next one is emitted.
+ * A plain class (no content equality over a whole picture). Producers hand over a **fresh [pixels]
+ * array with every frame** and never write to it after emitting it, so a frame stays valid for as
+ * long as a consumer holds it — [VideoFrameSource.frames] is conflated and read on another thread,
+ * so a reused buffer could be overwritten mid-draw. Consumers must not modify [pixels] either.
  */
 @ToolkitInternalApi
 public class VideoFrame(

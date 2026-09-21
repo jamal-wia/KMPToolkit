@@ -32,3 +32,13 @@ kotlin {
         }
     }
 }
+
+// The real-VLC tests skip themselves when libvlc cannot be loaded. `-Pvlc.required=true` (for a
+// machine or CI job that has VLC installed on purpose) turns that skip into a failure, so a broken
+// VLC setup cannot pass as a green run.
+tasks.withType<Test>().configureEach {
+    systemProperty(
+        "kmptoolkit.vlc.required",
+        providers.gradleProperty("vlc.required").getOrElse("false"),
+    )
+}

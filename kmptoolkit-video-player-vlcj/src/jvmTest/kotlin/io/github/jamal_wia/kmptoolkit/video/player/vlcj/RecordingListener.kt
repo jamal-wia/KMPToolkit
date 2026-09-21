@@ -13,21 +13,29 @@ internal class RecordingListener : VideoPlaybackEngineListener {
 
     val completions: Int get() = events.count { it == "completed" }
 
+    /** Runs after each recorded event, on the thread that delivered it — to react like an app would. */
+    @Volatile var reaction: (event: String) -> Unit = {}
+
+    private fun record(event: String) {
+        events += event
+        reaction(event)
+    }
+
     override fun onCompleted() {
-        events += "completed"
+        record("completed")
     }
 
     override fun onFailed(cause: Throwable) {
         failures += cause
-        events += "failed"
+        record("failed")
     }
 
     override fun onBufferingChanged(isBuffering: Boolean) {
-        events += "buffering=$isBuffering"
+        record("buffering=$isBuffering")
     }
 
     override fun onVideoSizeChanged(size: VideoSize?) {
         sizes += size
-        events += "size=$size"
+        record("size=$size")
     }
 }
