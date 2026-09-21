@@ -63,16 +63,32 @@ In a test that is not about timing, pass a long delay so nothing hides mid-asser
 - **Pure functions** (`commonTest`, all targets): time and speed formatting, the next speed, the
   scale-mode geometry, the seek-bar hit mapping (including RTL).
 - **UI suites** (`src/uiTest`, compiled into both `androidUnitTest` with Robolectric and `jvmTest`
-  with Skia): every control reaching the player; show, hide and auto-hide; the seek bar's
-  single seek on release, ignoring position updates while dragged and holding the target after;
-  custom slots; `pauseOnBackground` at `ON_STOP`, off, and not resuming; `rememberVideoPlayer`
-  preparing per source, cancelling a superseded prepare, `autoPlay`, unloading on `null`,
+  with Skia). The player is the library's own — `createVideoPlayer(FakeVideoPlaybackEngine(…))`
+  from `kmptoolkit-video-player-testing`, a test dependency only — with its position poll parked on
+  a test dispatcher, so nothing races the test. Covered: every control reaching the engine; the
+  centre button deciding on the player's current state, not on the last composed one; transport
+  disabled with nothing loaded and after a failure; show, hide, auto-hide and `setInteracting`
+  holding it off; the seek bar's single seek on release, ignoring position updates while dragged,
+  holding the target after, the scrub time in the position label, and a drag that is cancelled —
+  by the platform, by the bar being disabled, or by the player failing under the finger — leaving
+  nothing frozen and seeking nothing; custom slots; `pauseOnBackground` at `ON_STOP`, off, and not
+  resuming; `rememberVideoPlayer` preparing per source, a superseded prepare cancelled and never
+  starting playback (exactly one start, for the newer source), `autoPlay`, unloading on `null`,
   releasing on dispose; progress reporting only with a known duration; surface sizing per scale
-  mode and keep-screen-on only while playing. A test-only seam replaces the platform surface there,
-  since a fake player has nothing to attach.
+  mode and keep-screen-on only while playing. A test-only seam replaces the platform surface in
+  these suites; the real surfaces have their own tests below.
 - **Desktop** (`jvmTest`): the frame surface draws, replaces, reallocates, fits and clears frames
-  (checked on captured pixels); a missing factory fails with a message naming the fix.
-- **Android** (`androidUnitTest`): the merged manifest's permissions are pinned.
+  (checked on captured pixels); end to end, a real player over an engine that also renders frames
+  reaches the screen through `VideoPlayerSurface` and `VideoPlayer(source = …)`, swapping players
+  switches the frame source, and an anamorphic picture is drawn by its reported display size under
+  `Fit` and `Crop`; a missing factory fails with a message naming the fix.
+- **Android** (`androidUnitTest`): with real ExoPlayers from `createVideoPlayer(context)`, the
+  `SurfaceView` is present and sized, keeps the screen on only while playing, swapping players
+  moves the surface from one ExoPlayer to the other, leaving the composition detaches, and
+  `VideoPlayer(source = …)` leaving the composition releases its player without touching a
+  released ExoPlayer; the merged manifest's permissions are pinned.
+- **iOS** (`iosTest`): the idle-timer reference counting — two surfaces, the app's own value
+  restored by the last one — as pure logic.
 
-Not covered, because it needs a real decoder and display: attaching Media3 to the `SurfaceView`,
-`AVPlayerLayer` rendering, and the iOS idle-timer bookkeeping. Check those on a device.
+Not covered, because it needs a real decoder and display: pictures actually coming out of Media3
+and `AVPlayerLayer`. Check those on a device.

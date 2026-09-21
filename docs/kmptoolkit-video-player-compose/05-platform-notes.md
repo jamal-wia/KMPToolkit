@@ -4,7 +4,11 @@
 
 - **Rendering.** A `SurfaceView` inside an `AndroidView`, attached with
   `Player.setVideoSurfaceView` to the Media3 player behind the `VideoPlayer`, and detached
-  (`clearVideoSurfaceView`) when the view leaves the composition or the player changes. A
+  (`clearVideoSurfaceView`) when the view leaves the composition or the player changes. When
+  `VideoPlayer(source = …)` leaves the composition, its player and the view go in the same pass:
+  Compose releases the view first (it disposes in reverse order of composition), and a detach that
+  did reach an already released ExoPlayer would be a no-op — releasing drops every surface. A test
+  pins this. A
   `SurfaceView` rather than a `TextureView`: the platform composes it directly, which uses less
   power and keeps protected and HDR content working. The surface is sized to the picture's frame
   by Compose and clipped to the player's bounds (the same approach as Media3's own Compose
@@ -57,12 +61,17 @@
   (32-bit ARGB, alpha forced opaque) into one reused native Skia bitmap on the UI thread and
   invalidates only the draw phase, so a playing video costs no recomposition. The bitmap is
   reallocated only when the frame size changes, and freed when the surface leaves the composition.
+- **Picture shape.** The picture box is sized from `videoSizeFlow` — the display size the engine
+  reports, pixel aspect ratio and rotation applied — and each frame is stretched over that box.
+  A frame's own pixel grid is not the display shape for an anamorphic source (1440 × 1080 stored,
+  shown 16:9), so it is used to place the picture only until the engine reports a size.
 - **Keep screen on.** Nothing: desktop has no idle timer an app is expected to hold.
 - **Pause in background.** Compose Desktop's lifecycle stops when the window is minimized.
 
 ## What is not tested automatically
 
-The real attachment of a Media3 player to a `SurfaceView` and of an `AVPlayer` to an
-`AVPlayerLayer` needs a device or simulator with a decoder; the module's tests run on the JVM
-(Robolectric and Skia) with a fake player. The iOS idle-timer bookkeeping is not covered either:
-a test binary has no `UIApplication`. See [`06-testing.md`](06-testing.md).
+Actual video output needs a device or simulator with a decoder. What the JVM can check is: on
+Android (Robolectric), a real `ExoPlayer` from `createVideoPlayer(context)` attaching to, swapping
+on and detaching from the `SurfaceView`; on desktop (Skia), frames going through the whole stack to
+pixels. `AVPlayerLayer` rendering is not covered; the iOS idle-timer bookkeeping is, as pure logic
+(a test binary has no `UIApplication` to write to). See [`06-testing.md`](06-testing.md).

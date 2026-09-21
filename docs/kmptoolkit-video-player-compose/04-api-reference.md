@@ -115,7 +115,10 @@ The picture only. Never changes the player's state; never releases it.
 - **Size**: both dimensions bounded → the bounds. One unbounded → derived from
   `videoSizeFlow`'s aspect ratio, or the minimum constraint until it is known. Both unbounded → the
   minimum constraints.
-- **Picture**: sized by `scaleMode` inside those bounds, centred, clipped to them.
+- **Picture**: sized by `scaleMode` inside those bounds, centred, clipped to them. The ratio is
+  `videoSizeFlow`'s — the display shape, so an anamorphic source is right on every platform; on
+  desktop each frame is stretched over that picture box, and only while no size is known is a
+  frame placed by its own pixel ratio.
 - **Platform**: Android `SurfaceView` attached to the Media3 player; iOS `AVPlayerLayer` with
   `videoGravity` from `scaleMode`; desktop the frames of a memory-rendering engine. A player with no
   such platform object (a fake, a custom engine) shows nothing.
@@ -133,7 +136,9 @@ overflow cropped.
 ### `VideoControlsScope`
 
 A `@Stable` interface, implemented by this library only (members may be added in a minor
-release). Every property is backed by snapshot state.
+release). Implementing it requires opting in to `@InternalForInheritanceVideoControlsApi` — it is
+`@SubclassOptInRequired`, and an implementation outside the library is not covered by any
+compatibility promise. Using a scope needs no opt-in. Every property is backed by snapshot state.
 
 | Property | Contract |
 |---|---|
@@ -236,7 +241,10 @@ the matching `VideoControlsLabels` field (`null` → role only).
 ### `VideoSeekBar`
 
 - Drag: moves the handle only; `onScrub(position)` during the drag, then `onScrub(null)` and
-  **one** `onSeek(position)` when the finger lifts. `onScrub(null)` without a seek when cancelled.
+  **one** `onSeek(position)` when the finger lifts. `onScrub(null)` without a seek when cancelled —
+  by the platform, or because the bar stops being draggable mid-drag (`enabled` turns `false`,
+  `durationMs` drops to `0`, as on a failure or a new source preparing) or leaves the composition.
+  The handle then returns to `positionMs`; nothing stays frozen at the finger's last position.
 - Tap: `onSeek(tapped position)`.
 - While dragging, `positionMs` changes are ignored. After a seek, the handle stays at the target
   until `positionMs` next changes.
