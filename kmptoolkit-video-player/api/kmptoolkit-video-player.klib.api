@@ -1,0 +1,270 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-video-player>
+open annotation class io.github.jamal_wia.kmptoolkit.video.player/ToolkitInternalApi : kotlin/Annotation { // io.github.jamal_wia.kmptoolkit.video.player/ToolkitInternalApi|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.video.player/ToolkitInternalApi.<init>|<init>(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.video.player/RepeatMode : kotlin/Enum<io.github.jamal_wia.kmptoolkit.video.player/RepeatMode> { // io.github.jamal_wia.kmptoolkit.video.player/RepeatMode|null[0]
+    enum entry Off // io.github.jamal_wia.kmptoolkit.video.player/RepeatMode.Off|null[0]
+    enum entry One // io.github.jamal_wia.kmptoolkit.video.player/RepeatMode.One|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.video.player/RepeatMode.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.video.player/RepeatMode> // io.github.jamal_wia.kmptoolkit.video.player/RepeatMode.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.video.player/RepeatMode // io.github.jamal_wia.kmptoolkit.video.player/RepeatMode.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.video.player/RepeatMode> // io.github.jamal_wia.kmptoolkit.video.player/RepeatMode.values|values#static(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine|null[0]
+    abstract fun bufferedPositionMs(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.bufferedPositionMs|bufferedPositionMs(){}[0]
+    abstract fun durationMs(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.durationMs|durationMs(){}[0]
+    abstract fun pause() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.pause|pause(){}[0]
+    abstract fun positionMs(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.positionMs|positionMs(){}[0]
+    abstract fun release() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.release|release(){}[0]
+    abstract fun seekTo(kotlin/Long) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.seekTo|seekTo(kotlin.Long){}[0]
+    abstract fun setListener(io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngineListener?) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.setListener|setListener(io.github.jamal_wia.kmptoolkit.video.player.VideoPlaybackEngineListener?){}[0]
+    abstract fun setLooping(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.setLooping|setLooping(kotlin.Boolean){}[0]
+    abstract fun setSpeed(kotlin/Float) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.setSpeed|setSpeed(kotlin.Float){}[0]
+    abstract fun setVolume(kotlin/Float) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.setVolume|setVolume(kotlin.Float){}[0]
+    abstract fun start() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.start|start(){}[0]
+    abstract suspend fun load(io.github.jamal_wia.kmptoolkit.video.player/VideoSource) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.load|load(io.github.jamal_wia.kmptoolkit.video.player.VideoSource){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngineListener { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngineListener|null[0]
+    abstract fun onBufferingChanged(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngineListener.onBufferingChanged|onBufferingChanged(kotlin.Boolean){}[0]
+    abstract fun onCompleted() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngineListener.onCompleted|onCompleted(){}[0]
+    abstract fun onFailed(kotlin/Throwable) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngineListener.onFailed|onFailed(kotlin.Throwable){}[0]
+    abstract fun onVideoSizeChanged(io.github.jamal_wia.kmptoolkit.video.player/VideoSize?) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngineListener.onVideoSizeChanged|onVideoSizeChanged(io.github.jamal_wia.kmptoolkit.video.player.VideoSize?){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer : kotlin/AutoCloseable { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer|null[0]
+    abstract val bufferedPositionFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.bufferedPositionFlow|{}bufferedPositionFlow[0]
+        abstract fun <get-bufferedPositionFlow>(): kotlinx.coroutines.flow/StateFlow<kotlin/Long> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.bufferedPositionFlow.<get-bufferedPositionFlow>|<get-bufferedPositionFlow>(){}[0]
+    abstract val isBufferingFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.isBufferingFlow|{}isBufferingFlow[0]
+        abstract fun <get-isBufferingFlow>(): kotlinx.coroutines.flow/StateFlow<kotlin/Boolean> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.isBufferingFlow.<get-isBufferingFlow>|<get-isBufferingFlow>(){}[0]
+    abstract val isMutedFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.isMutedFlow|{}isMutedFlow[0]
+        abstract fun <get-isMutedFlow>(): kotlinx.coroutines.flow/StateFlow<kotlin/Boolean> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.isMutedFlow.<get-isMutedFlow>|<get-isMutedFlow>(){}[0]
+    abstract val playbackPositionFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.playbackPositionFlow|{}playbackPositionFlow[0]
+        abstract fun <get-playbackPositionFlow>(): kotlinx.coroutines.flow/StateFlow<kotlin/Long> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.playbackPositionFlow.<get-playbackPositionFlow>|<get-playbackPositionFlow>(){}[0]
+    abstract val playbackSpeedFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.playbackSpeedFlow|{}playbackSpeedFlow[0]
+        abstract fun <get-playbackSpeedFlow>(): kotlinx.coroutines.flow/StateFlow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.playbackSpeedFlow.<get-playbackSpeedFlow>|<get-playbackSpeedFlow>(){}[0]
+    abstract val repeatModeFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.repeatModeFlow|{}repeatModeFlow[0]
+        abstract fun <get-repeatModeFlow>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.video.player/RepeatMode> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.repeatModeFlow.<get-repeatModeFlow>|<get-repeatModeFlow>(){}[0]
+    abstract val stateFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.stateFlow|{}stateFlow[0]
+        abstract fun <get-stateFlow>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.stateFlow.<get-stateFlow>|<get-stateFlow>(){}[0]
+    abstract val videoSizeFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.videoSizeFlow|{}videoSizeFlow[0]
+        abstract fun <get-videoSizeFlow>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.video.player/VideoSize?> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.videoSizeFlow.<get-videoSizeFlow>|<get-videoSizeFlow>(){}[0]
+    abstract val volumeFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.volumeFlow|{}volumeFlow[0]
+        abstract fun <get-volumeFlow>(): kotlinx.coroutines.flow/StateFlow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.volumeFlow.<get-volumeFlow>|<get-volumeFlow>(){}[0]
+
+    abstract fun pause() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.pause|pause(){}[0]
+    abstract fun play() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.play|play(){}[0]
+    abstract fun release() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.release|release(){}[0]
+    abstract fun replay() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.replay|replay(){}[0]
+    abstract fun seekBackward(kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.seekBackward|seekBackward(kotlin.Long){}[0]
+    abstract fun seekForward(kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.seekForward|seekForward(kotlin.Long){}[0]
+    abstract fun seekTo(kotlin/Long) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.seekTo|seekTo(kotlin.Long){}[0]
+    abstract fun setMuted(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.setMuted|setMuted(kotlin.Boolean){}[0]
+    abstract fun setPlaybackSpeed(kotlin/Float) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.setPlaybackSpeed|setPlaybackSpeed(kotlin.Float){}[0]
+    abstract fun setRepeatMode(io.github.jamal_wia.kmptoolkit.video.player/RepeatMode) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.setRepeatMode|setRepeatMode(io.github.jamal_wia.kmptoolkit.video.player.RepeatMode){}[0]
+    abstract fun setVolume(kotlin/Float) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.setVolume|setVolume(kotlin.Float){}[0]
+    abstract fun stop() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.stop|stop(){}[0]
+    abstract fun unload() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.unload|unload(){}[0]
+    abstract suspend fun prepare(io.github.jamal_wia.kmptoolkit.video.player/VideoSource) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.prepare|prepare(io.github.jamal_wia.kmptoolkit.video.player.VideoSource){}[0]
+    open fun close() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.close|close(){}[0]
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState|null[0]
+    final class Completed : io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed|null[0]
+        constructor <init>(kotlin/Long) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed.<init>|<init>(kotlin.Long){}[0]
+
+        final val duration // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed.duration|{}duration[0]
+            final fun <get-duration>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed.duration.<get-duration>|<get-duration>(){}[0]
+
+        final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed.component1|component1(){}[0]
+        final fun copy(kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed.copy|copy(kotlin.Long){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Completed.toString|toString(){}[0]
+    }
+
+    final class Error : io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error|null[0]
+        constructor <init>(kotlin/Throwable) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error.<init>|<init>(kotlin.Throwable){}[0]
+
+        final val cause // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error.cause.<get-cause>|<get-cause>(){}[0]
+
+        final fun component1(): kotlin/Throwable // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error.component1|component1(){}[0]
+        final fun copy(kotlin/Throwable = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error.copy|copy(kotlin.Throwable){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Error.toString|toString(){}[0]
+    }
+
+    final class Paused : io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused|null[0]
+        constructor <init>(kotlin/Long, kotlin/Long) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.<init>|<init>(kotlin.Long;kotlin.Long){}[0]
+
+        final val currentPosition // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.currentPosition|{}currentPosition[0]
+            final fun <get-currentPosition>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.currentPosition.<get-currentPosition>|<get-currentPosition>(){}[0]
+        final val duration // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.duration|{}duration[0]
+            final fun <get-duration>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.duration.<get-duration>|<get-duration>(){}[0]
+
+        final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.component1|component1(){}[0]
+        final fun component2(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.component2|component2(){}[0]
+        final fun copy(kotlin/Long = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.copy|copy(kotlin.Long;kotlin.Long){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Paused.toString|toString(){}[0]
+    }
+
+    final class Playing : io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing|null[0]
+        constructor <init>(kotlin/Long, kotlin/Long) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.<init>|<init>(kotlin.Long;kotlin.Long){}[0]
+
+        final val currentPosition // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.currentPosition|{}currentPosition[0]
+            final fun <get-currentPosition>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.currentPosition.<get-currentPosition>|<get-currentPosition>(){}[0]
+        final val duration // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.duration|{}duration[0]
+            final fun <get-duration>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.duration.<get-duration>|<get-duration>(){}[0]
+
+        final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.component1|component1(){}[0]
+        final fun component2(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.component2|component2(){}[0]
+        final fun copy(kotlin/Long = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.copy|copy(kotlin.Long;kotlin.Long){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Playing.toString|toString(){}[0]
+    }
+
+    final class Ready : io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready|null[0]
+        constructor <init>(kotlin/Long) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready.<init>|<init>(kotlin.Long){}[0]
+
+        final val duration // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready.duration|{}duration[0]
+            final fun <get-duration>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready.duration.<get-duration>|<get-duration>(){}[0]
+
+        final fun component1(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready.component1|component1(){}[0]
+        final fun copy(kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready.copy|copy(kotlin.Long){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Ready.toString|toString(){}[0]
+    }
+
+    final object Idle : io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Idle|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Idle.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Idle.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Idle.toString|toString(){}[0]
+    }
+
+    final object Preparing : io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Preparing|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Preparing.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Preparing.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState.Preparing.toString|toString(){}[0]
+    }
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.video.player/VideoSource { // io.github.jamal_wia.kmptoolkit.video.player/VideoSource|null[0]
+    final class Asset : io.github.jamal_wia.kmptoolkit.video.player/VideoSource { // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.<init>|<init>(kotlin.String){}[0]
+
+        final val path // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.path|{}path[0]
+            final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.path.<get-path>|<get-path>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Asset.toString|toString(){}[0]
+    }
+
+    final class File : io.github.jamal_wia.kmptoolkit.video.player/VideoSource { // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.<init>|<init>(kotlin.String){}[0]
+
+        final val path // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.path|{}path[0]
+            final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.path.<get-path>|<get-path>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.File.toString|toString(){}[0]
+    }
+
+    final class Remote : io.github.jamal_wia.kmptoolkit.video.player/VideoSource { // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote|null[0]
+        constructor <init>(kotlin/String, kotlin.collections/Map<kotlin/String, kotlin/String> = ...) // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.<init>|<init>(kotlin.String;kotlin.collections.Map<kotlin.String,kotlin.String>){}[0]
+
+        final val headers // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.headers|{}headers[0]
+            final fun <get-headers>(): kotlin.collections/Map<kotlin/String, kotlin/String> // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.headers.<get-headers>|<get-headers>(){}[0]
+        final val url // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.url|{}url[0]
+            final fun <get-url>(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.url.<get-url>|<get-url>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.component1|component1(){}[0]
+        final fun component2(): kotlin.collections/Map<kotlin/String, kotlin/String> // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.component2|component2(){}[0]
+        final fun copy(kotlin/String = ..., kotlin.collections/Map<kotlin/String, kotlin/String> = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.copy|copy(kotlin.String;kotlin.collections.Map<kotlin.String,kotlin.String>){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSource.Remote.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig|null[0]
+    constructor <init>(kotlin/Long = ..., kotlin/Float = ..., kotlin/Float = ...) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.<init>|<init>(kotlin.Long;kotlin.Float;kotlin.Float){}[0]
+
+    final val maxPlaybackSpeed // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.maxPlaybackSpeed|{}maxPlaybackSpeed[0]
+        final fun <get-maxPlaybackSpeed>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.maxPlaybackSpeed.<get-maxPlaybackSpeed>|<get-maxPlaybackSpeed>(){}[0]
+    final val minPlaybackSpeed // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.minPlaybackSpeed|{}minPlaybackSpeed[0]
+        final fun <get-minPlaybackSpeed>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.minPlaybackSpeed.<get-minPlaybackSpeed>|<get-minPlaybackSpeed>(){}[0]
+    final val positionUpdateIntervalMs // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.positionUpdateIntervalMs|{}positionUpdateIntervalMs[0]
+        final fun <get-positionUpdateIntervalMs>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.positionUpdateIntervalMs.<get-positionUpdateIntervalMs>|<get-positionUpdateIntervalMs>(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.Companion|null[0]
+        final const val DEFAULT_MAX_PLAYBACK_SPEED // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.Companion.DEFAULT_MAX_PLAYBACK_SPEED|{}DEFAULT_MAX_PLAYBACK_SPEED[0]
+            final fun <get-DEFAULT_MAX_PLAYBACK_SPEED>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.Companion.DEFAULT_MAX_PLAYBACK_SPEED.<get-DEFAULT_MAX_PLAYBACK_SPEED>|<get-DEFAULT_MAX_PLAYBACK_SPEED>(){}[0]
+        final const val DEFAULT_MIN_PLAYBACK_SPEED // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.Companion.DEFAULT_MIN_PLAYBACK_SPEED|{}DEFAULT_MIN_PLAYBACK_SPEED[0]
+            final fun <get-DEFAULT_MIN_PLAYBACK_SPEED>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.Companion.DEFAULT_MIN_PLAYBACK_SPEED.<get-DEFAULT_MIN_PLAYBACK_SPEED>|<get-DEFAULT_MIN_PLAYBACK_SPEED>(){}[0]
+        final const val DEFAULT_POSITION_UPDATE_INTERVAL_MS // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.Companion.DEFAULT_POSITION_UPDATE_INTERVAL_MS|{}DEFAULT_POSITION_UPDATE_INTERVAL_MS[0]
+            final fun <get-DEFAULT_POSITION_UPDATE_INTERVAL_MS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig.Companion.DEFAULT_POSITION_UPDATE_INTERVAL_MS.<get-DEFAULT_POSITION_UPDATE_INTERVAL_MS>|<get-DEFAULT_POSITION_UPDATE_INTERVAL_MS>(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerReleasedException : kotlin/IllegalStateException { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerReleasedException|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerReleasedException.<init>|<init>(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.video.player/VideoSize { // io.github.jamal_wia.kmptoolkit.video.player/VideoSize|null[0]
+    constructor <init>(kotlin/Int, kotlin/Int) // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.<init>|<init>(kotlin.Int;kotlin.Int){}[0]
+
+    final val aspectRatio // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.aspectRatio|{}aspectRatio[0]
+        final fun <get-aspectRatio>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.aspectRatio.<get-aspectRatio>|<get-aspectRatio>(){}[0]
+    final val height // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.height|{}height[0]
+        final fun <get-height>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.height.<get-height>|<get-height>(){}[0]
+    final val width // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.width|{}width[0]
+        final fun <get-width>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.width.<get-width>|<get-width>(){}[0]
+
+    final fun component1(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.component1|component1(){}[0]
+    final fun component2(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.component2|component2(){}[0]
+    final fun copy(kotlin/Int = ..., kotlin/Int = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoSize // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.copy|copy(kotlin.Int;kotlin.Int){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.video.player/VideoSize.toString|toString(){}[0]
+}
+
+final const val io.github.jamal_wia.kmptoolkit.video.player/DEFAULT_SEEK_AMOUNT_MS // io.github.jamal_wia.kmptoolkit.video.player/DEFAULT_SEEK_AMOUNT_MS|{}DEFAULT_SEEK_AMOUNT_MS[0]
+    final fun <get-DEFAULT_SEEK_AMOUNT_MS>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.video.player/DEFAULT_SEEK_AMOUNT_MS.<get-DEFAULT_SEEK_AMOUNT_MS>|<get-DEFAULT_SEEK_AMOUNT_MS>(){}[0]
+
+final val io.github.jamal_wia.kmptoolkit.video.player/duration // io.github.jamal_wia.kmptoolkit.video.player/duration|@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState{}duration[0]
+    final fun (io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState).<get-duration>(): kotlin/Long? // io.github.jamal_wia.kmptoolkit.video.player/duration.<get-duration>|<get-duration>@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.video.player/isPlayable // io.github.jamal_wia.kmptoolkit.video.player/isPlayable|@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState{}isPlayable[0]
+    final fun (io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState).<get-isPlayable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/isPlayable.<get-isPlayable>|<get-isPlayable>@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.video.player/isPlaying // io.github.jamal_wia.kmptoolkit.video.player/isPlaying|@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState{}isPlaying[0]
+    final fun (io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState).<get-isPlaying>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.video.player/isPlaying.<get-isPlaying>|<get-isPlaying>@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.video.player/playbackPosition // io.github.jamal_wia.kmptoolkit.video.player/playbackPosition|@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState{}playbackPosition[0]
+    final fun (io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState).<get-playbackPosition>(): kotlin/Long? // io.github.jamal_wia.kmptoolkit.video.player/playbackPosition.<get-playbackPosition>|<get-playbackPosition>@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState(){}[0]
+final val io.github.jamal_wia.kmptoolkit.video.player/progress // io.github.jamal_wia.kmptoolkit.video.player/progress|@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState{}progress[0]
+    final fun (io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerState).<get-progress>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.video.player/progress.<get-progress>|<get-progress>@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState(){}[0]
+
+final fun (io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer).io.github.jamal_wia.kmptoolkit.video.player/avPlayerOrNull(): platform.AVFoundation/AVPlayer? // io.github.jamal_wia.kmptoolkit.video.player/avPlayerOrNull|avPlayerOrNull@io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer(){}[0]
+final fun io.github.jamal_wia.kmptoolkit.video.player/createVideoPlayer(io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine, io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig = ..., kotlin.coroutines/CoroutineContext = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer // io.github.jamal_wia.kmptoolkit.video.player/createVideoPlayer|createVideoPlayer(io.github.jamal_wia.kmptoolkit.video.player.VideoPlaybackEngine;io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerConfig;kotlin.coroutines.CoroutineContext){}[0]
+final fun io.github.jamal_wia.kmptoolkit.video.player/createVideoPlayer(io.github.jamal_wia.kmptoolkit.video.player/VideoPlayerConfig = ..., platform.Foundation/NSBundle = ..., kotlin.collections/List<kotlin/String> = ..., kotlin/Boolean = ..., kotlin.coroutines/CoroutineContext = ...): io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer // io.github.jamal_wia.kmptoolkit.video.player/createVideoPlayer|createVideoPlayer(io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerConfig;platform.Foundation.NSBundle;kotlin.collections.List<kotlin.String>;kotlin.Boolean;kotlin.coroutines.CoroutineContext){}[0]

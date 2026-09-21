@@ -15,4 +15,4 @@ public fun createVideoPlayer(
     engine: VideoPlaybackEngine,
     config: VideoPlayerConfig = VideoPlayerConfig(),
     coroutineContext: CoroutineContext = Dispatchers.Default,
-): VideoPlayer = TODO("EngineVideoPlayer — implemented by the core agent")
+): VideoPlayer = EngineVideoPlayer(engine, config, coroutineContext)
