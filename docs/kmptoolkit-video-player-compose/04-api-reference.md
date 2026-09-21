@@ -136,7 +136,7 @@ overflow cropped.
 ### `VideoControlsScope`
 
 A `@Stable` interface, implemented by this library only (members may be added in a minor
-release). Implementing it requires opting in to `@InternalForInheritanceVideoControlsApi` — it is
+release). Implementing it requires opting in to the core module's `@ToolkitInheritanceApi` — it is
 `@SubclassOptInRequired`, and an implementation outside the library is not covered by any
 compatibility promise. Using a scope needs no opt-in. Every property is backed by snapshot state.
 

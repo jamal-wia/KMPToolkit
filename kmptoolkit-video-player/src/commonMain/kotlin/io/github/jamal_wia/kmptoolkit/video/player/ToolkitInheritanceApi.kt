@@ -9,13 +9,15 @@ package io.github.jamal_wia.kmptoolkit.video.player
  * Implementing such an interface requires opting in to this annotation, which is an explicit
  * acceptance of that risk. There should be no need: to test code that consumes a [VideoPlayer],
  * build a real one over the scriptable engine from `kmptoolkit-video-player-testing` —
- * `createVideoPlayer(FakeVideoPlaybackEngine())`.
+ * `createVideoPlayer(FakeVideoPlaybackEngine())`; a controls scope comes from the Compose
+ * `VideoPlayer`'s `controls` slot or from `rememberVideoControlsScope`.
  */
 @RequiresOptIn(
     level = RequiresOptIn.Level.ERROR,
     message = "Implemented by KMPToolkit only: new abstract members may be added in any release. " +
-        "Use the library's own implementation (for a test double, createVideoPlayer over " +
-        "FakeVideoPlaybackEngine from kmptoolkit-video-player-testing).",
+        "Use the library's own implementation (for a VideoPlayer test double, createVideoPlayer over " +
+        "FakeVideoPlaybackEngine from kmptoolkit-video-player-testing; for a VideoControlsScope, " +
+        "the controls slot or rememberVideoControlsScope).",
 )
 @Retention(AnnotationRetention.BINARY)
 @Target(AnnotationTarget.CLASS)

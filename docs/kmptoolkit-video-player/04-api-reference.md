@@ -325,7 +325,7 @@ public annotation class ToolkitInheritanceApi
 ```
 
 Marks, through `@SubclassOptInRequired`, the interfaces only KMPToolkit implements — `VideoPlayer`
-here, and the same kind of interface in the other video-player modules. Using them needs nothing;
+here, and `VideoControlsScope` in `kmptoolkit-video-player-compose`. Using them needs nothing;
 implementing one outside the library is a compile error unless the implementing class opts in
 (`@OptIn(ToolkitInheritanceApi::class)`), which is accepting that a new abstract member in any
 release may break it.

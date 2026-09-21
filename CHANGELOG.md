@@ -35,7 +35,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   keep-screen-on while playing) on Android, iOS and desktop, and `VideoPlayer` with ready-made
   controls — tap to toggle, auto-hide, pause when the host goes to the background — whose every part
   can be replaced: a `controls` slot over `VideoControlsScope` (used freely; implementing it is
-  opt-in, `@InternalForInheritanceVideoControlsApi`, as it may grow), public building blocks
+  opt-in with the core's `@ToolkitInheritanceApi`, as it may grow), public building blocks
   (`PlayPauseButton`, `VideoSeekBar`, `VideoTimeText`, `MuteButton`, `SpeedButton`,
   `FullscreenButton`, …), and plain `VideoControlsColors` / `VideoControlsDimensions` /
   `VideoControlsLabels` objects. No user-facing text: accessibility labels come from the app.

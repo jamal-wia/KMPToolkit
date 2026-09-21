@@ -14,6 +14,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.AccessibilityManager
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import io.github.jamal_wia.kmptoolkit.video.player.RepeatMode
+import io.github.jamal_wia.kmptoolkit.video.player.ToolkitInheritanceApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
@@ -44,10 +45,10 @@ import kotlinx.coroutines.launch
  *
  * Implemented by this library only — obtain one from [VideoPlayer]'s `controls` slot or from
  * [rememberVideoControlsScope]. New members may be added in a minor release, which is why
- * implementing it requires opting in to [InternalForInheritanceVideoControlsApi].
+ * implementing it requires opting in to the core module's [ToolkitInheritanceApi].
  */
 @Stable
-@SubclassOptInRequired(InternalForInheritanceVideoControlsApi::class)
+@SubclassOptInRequired(ToolkitInheritanceApi::class)
 public interface VideoControlsScope {
 
     /** The player these controls drive. */
@@ -193,7 +194,7 @@ private class AutoHideKey(val shouldHide: Boolean, val activity: Int) {
     override fun hashCode(): Int = 31 * shouldHide.hashCode() + activity
 }
 
-@OptIn(InternalForInheritanceVideoControlsApi::class)
+@OptIn(ToolkitInheritanceApi::class)
 @Stable
 internal class VideoControlsScopeImpl(override val player: VideoPlayer) : VideoControlsScope {
 

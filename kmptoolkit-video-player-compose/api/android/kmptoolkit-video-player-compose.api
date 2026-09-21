@@ -13,9 +13,6 @@ public final class io/github/jamal_wia/kmptoolkit/video/player/compose/DefaultVi
 	public static final fun DefaultVideoControls (Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsScope;Landroidx/compose/ui/Modifier;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsDimensions;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsLabels;Landroidx/compose/ui/text/TextStyle;Lkotlin/jvm/functions/Function0;ZLjava/util/List;JZZZZLkotlin/jvm/functions/Function1;Landroidx/compose/runtime/Composer;III)V
 }
 
-public abstract interface annotation class io/github/jamal_wia/kmptoolkit/video/player/compose/InternalForInheritanceVideoControlsApi : java/lang/annotation/Annotation {
-}
-
 public final class io/github/jamal_wia/kmptoolkit/video/player/compose/PauseOnBackgroundEffectKt {
 	public static final fun PauseOnBackgroundEffect (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;ZLandroidx/compose/runtime/Composer;II)V
 }
