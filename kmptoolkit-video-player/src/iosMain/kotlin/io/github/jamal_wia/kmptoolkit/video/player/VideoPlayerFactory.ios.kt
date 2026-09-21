@@ -38,4 +38,4 @@ public fun createVideoPlayer(
  */
 @ToolkitInternalApi
 public fun VideoPlayer.avPlayerOrNull(): AVPlayer? =
-    ((this as? EngineBackedPlayer)?.engine as? AvPlayerVideoEngine)?.player
+    ((this as? EngineVideoPlayer)?.engine as? AvPlayerVideoEngine)?.player
