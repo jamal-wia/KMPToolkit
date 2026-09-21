@@ -27,10 +27,20 @@ internal object TestClip {
 /**
  * Skips the calling test where JavaFX cannot run — a headless CI machine, or a JDK the OpenJFX jars
  * do not load on. Everything else about the engine is asserted, never skipped.
+ *
+ * With `-Pjavafx.required=true` (forwarded as the [JAVAFX_REQUIRED_PROPERTY] system property) the
+ * skip becomes a failure, so a machine that is meant to run the real-engine tests cannot silently
+ * skip all of them.
  */
 internal fun assumeJavaFxMedia() {
-    Assume.assumeTrue("JavaFX Media is not available on this machine", isJavaFxMediaAvailable())
+    val available: Boolean = isJavaFxMediaAvailable()
+    if (!available && System.getProperty(JAVAFX_REQUIRED_PROPERTY).toBoolean()) {
+        fail("JavaFX Media is not available on this machine, and $JAVAFX_REQUIRED_PROPERTY is set")
+    }
+    Assume.assumeTrue("JavaFX Media is not available on this machine", available)
 }
+
+internal const val JAVAFX_REQUIRED_PROPERTY: String = "kmptoolkit.javafx.required"
 
 internal sealed interface EngineEvent {
     data object Completed : EngineEvent
