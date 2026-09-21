@@ -43,9 +43,11 @@ import kotlinx.coroutines.launch
  * and `false` after the auto-hide delay while playing without interaction.
  *
  * Implemented by this library only — obtain one from [VideoPlayer]'s `controls` slot or from
- * [rememberVideoControlsScope]. New members may be added in a minor release.
+ * [rememberVideoControlsScope]. New members may be added in a minor release, which is why
+ * implementing it requires opting in to [InternalForInheritanceVideoControlsApi].
  */
 @Stable
+@SubclassOptInRequired(InternalForInheritanceVideoControlsApi::class)
 public interface VideoControlsScope {
 
     /** The player these controls drive. */
@@ -191,6 +193,7 @@ private class AutoHideKey(val shouldHide: Boolean, val activity: Int) {
     override fun hashCode(): Int = 31 * shouldHide.hashCode() + activity
 }
 
+@OptIn(InternalForInheritanceVideoControlsApi::class)
 @Stable
 internal class VideoControlsScopeImpl(override val player: VideoPlayer) : VideoControlsScope {
 

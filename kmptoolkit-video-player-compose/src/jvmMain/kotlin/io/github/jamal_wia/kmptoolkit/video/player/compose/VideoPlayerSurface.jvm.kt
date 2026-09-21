@@ -5,6 +5,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.State
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -18,6 +20,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoFrame
 import io.github.jamal_wia.kmptoolkit.video.player.VideoFrameSource
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
+import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import io.github.jamal_wia.kmptoolkit.video.player.frameSourceOrNull
 import java.nio.ByteOrder
 import java.nio.IntBuffer
@@ -42,13 +45,21 @@ internal actual fun PlatformVideoSurface(
     keepScreenOn: Boolean,
 ) {
     val frameSource: VideoFrameSource? = remember(player) { player.frameSourceOrNull() }
-    FrameSourceSurface(frameSource, modifier, scaleMode)
+    val videoSize: State<VideoSize?> = player.videoSizeFlow.collectAsState()
+    FrameSourceSurface(frameSource, modifier, scaleMode, pictureSizeKnown = videoSize.value != null)
 }
 
 /**
- * Draws the latest frame of [frameSource], fitted by [scaleMode]; nothing while it has none or is
- * `null`. Frames are copied into one reused native bitmap on the UI thread, then only the draw phase
- * is invalidated — no recomposition per frame.
+ * Draws the latest frame of [frameSource]; nothing while it has none or is `null`. Frames are copied
+ * into one reused native bitmap on the UI thread, then only the draw phase is invalidated — no
+ * recomposition per frame.
+ *
+ * **Placement.** With [pictureSizeKnown], [VideoPlayerSurface] has already sized this surface to the
+ * picture as it is meant to be displayed — the engine's reported size, pixel aspect and rotation
+ * corrected — so the frame is stretched over the whole surface: its stored pixel grid (1440 × 1080
+ * for a 16:9 anamorphic source, say) is not the display ratio, and fitting it again by its own ratio
+ * would squeeze the picture. Only while no size is known does the bitmap's own ratio place it, by
+ * [scaleMode].
  */
 @OptIn(ToolkitInternalApi::class)
 @Composable
@@ -56,6 +67,7 @@ internal fun FrameSourceSurface(
     frameSource: VideoFrameSource?,
     modifier: Modifier,
     scaleMode: VideoScaleMode,
+    pictureSizeKnown: Boolean,
 ) {
     val renderer: FrameRenderer = remember { FrameRenderer() }
     val frameVersion: MutableIntState = remember { mutableIntStateOf(0) }
@@ -80,7 +92,7 @@ internal fun FrameSourceSurface(
             contentAspectRatio = image.width.toFloat() / image.height.toFloat(),
             boxWidth = size.width,
             boxHeight = size.height,
-            mode = scaleMode,
+            mode = if (pictureSizeKnown) VideoScaleMode.Fill else scaleMode,
         )
         val width: Int = fitted.width.roundToInt()
         val height: Int = fitted.height.roundToInt()

@@ -37,7 +37,9 @@ import kotlin.math.roundToLong
  * **Seeking.** Dragging moves the handle without seeking; [onSeek] is called once, with the
  * position under the finger, when the drag ends. A tap seeks straight to the tapped position.
  * While dragging, [onScrub] reports the position under the finger (for a time label, or to hold
- * the controls open) and `null` when the drag ends or is cancelled.
+ * the controls open) and `null` when the drag ends or is cancelled — including when the bar stops
+ * being draggable mid-drag (the player fails, the duration becomes unknown, [enabled] turns `false`)
+ * or leaves the composition. Such a cancelled drag does not seek.
  *
  * **It does not fight position updates.** While dragging, [positionMs] updates are ignored. After
  * a seek the handle stays at the target until [positionMs] next changes, so it does not jump back
