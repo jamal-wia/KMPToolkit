@@ -95,5 +95,17 @@ ARGB `IntArray` that `kmptoolkit-video-player-compose` draws. The copy is CPU wo
 the picture: negligible for typical web video, noticeable for 4K at 60 fps on slow machines. Scaling
 to the surface happens in Compose, so VLC never renders larger than the source.
 
-A small ring of frame buffers is reused between frames and dropped on `unload`/`release`, so memory
-use is a few frames' worth of pixels, whatever the length of the video.
+Every frame gets a **fresh array**. The frame flow is conflated and drawn on another thread, which may
+hold a frame for as long as it likes, so a reused buffer could be overwritten while it is being drawn
+(a torn picture). The cost is short-lived garbage — about 8 MB per 1080p frame, collected in the young
+generation (the JVM's default G1 collector reclaims such large arrays eagerly); only the frames still
+referenced are in memory at any time.
+
+### Picture size and anamorphic video
+
+VLC hands pictures over at their **stored** size, without applying the sample aspect ratio. For an
+anamorphic source — DVD video stored at 720×480 but shown at 16:9, HDV stored at 1440×1080 — that
+size is not the shape of the picture. `videoSizeFlow` therefore reports the **displayed** size read
+from the parsed track (sample aspect ratio applied, rotation honoured), and the surface stretches each
+stored frame to it. Only when parsing found no size, as for some network streams, does
+`videoSizeFlow` fall back to the stored size of the decoded pictures.

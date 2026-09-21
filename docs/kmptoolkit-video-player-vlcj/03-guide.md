@@ -107,12 +107,22 @@ createVlcjVideoPlayer(vlcArgs = listOf("--network-caching=3000", "--no-audio"))
 ```
 
 An argument libvlc refuses makes every prepare fail with `VlcUnavailableException` (libvlc could not
-be initialised). Each player owns one libvlc instance, created on its first prepare and freed by
-`release`.
+be initialised). Each player owns one libvlc instance, created on its first prepare and kept for the
+player's life — see below.
 
 ## Lifecycle and threading
 
-Nothing here differs from the shared contract, but it is worth knowing what `release` frees on
-desktop: the native media player, the libvlc instance, the frame buffers, and any temporary asset
-copy. Every callback from VLC's own threads is dropped from the moment `release` (or `unload`, or a
-newer `prepare`) starts, including callbacks already queued.
+Nothing here differs from the shared contract, but it is worth knowing what happens on desktop:
+
+- **`unload`, a replacing `prepare`, a cancelled `prepare` and `release`** each close the current
+  source: its native media player, its last frame, and any temporary asset copy. Every callback from
+  VLC's own threads is dropped from the moment the call starts, including callbacks already queued.
+- **The libvlc instance** — the expensive part, whose creation scans VLC's plugins — is created by
+  the first `prepare` and **kept** across all of the above, so switching sources or unloading never
+  rebuilds it. It is freed once a released player is no longer referenced and has been
+  garbage-collected; drop your reference to a released player and the instance goes with it.
+- **Nothing slow runs on the calling thread**, which is usually the UI thread. Locating and loading
+  libvlc and opening the source run on `Dispatchers.IO`. Stopping and freeing a native player — which
+  for a stalled network stream can take as long as libvlc's network timeout — runs on a background
+  thread of the player's own, after the call has returned. `unload` and `release` therefore return
+  at once; the call only makes the old source unreachable before returning.
