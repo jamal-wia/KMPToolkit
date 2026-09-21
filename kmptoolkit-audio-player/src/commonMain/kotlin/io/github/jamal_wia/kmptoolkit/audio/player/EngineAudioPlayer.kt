@@ -67,6 +67,15 @@ public fun createAudioPlayer(
  *
  * Only the most recent load writes state. A superseded [prepare] returns quietly: the caller that
  * replaced it now owns the outcome.
+ *
+ * ### One transition at a time
+ *
+ * Every transition — a transport call, an engine callback, a poll tick, the steps of [prepare] around
+ * the suspended load — runs under one [StateMachineLock], so none can interleave with another. Without
+ * it, a poll tick on a background thread that read `Playing` just before the engine reported the end
+ * on the main thread would write its stale `Playing` over `Completed`, and the player would claim to
+ * be playing forever. Transport calls wait for the lock; engine callbacks and poll ticks never wait —
+ * they are handed to the thread holding it. Everything marked "guarded" is touched only under it.
  */
 @OptIn(ExperimentalAtomicApi::class)
 private class EngineAudioPlayer(
@@ -75,7 +84,10 @@ private class EngineAudioPlayer(
     coroutineContext: CoroutineContext,
 ) : AudioPlayer, PlaybackEngineListener {
 
+    private val gate: StateMachineLock = StateMachineLock()
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + coroutineContext)
+
+    /** The polling coroutine while playing. Guarded. */
     private var positionJob: Job? = null
 
     /** The load in flight, or the last one to finish. Swapped atomically by [prepare], [unload], [release]. */
@@ -92,8 +104,7 @@ private class EngineAudioPlayer(
      */
     private class Load(val job: CompletableJob, val finished: CompletableJob = Job())
 
-    // Volatile, and every mutating path re-checks it: release() may land on a different thread than
-    // the transport calls, and the point of the flag is that no call after it reaches the engine.
+    // Written under the lock; volatile so the unlocked fast-path check in prepare() sees it.
     @Volatile
     private var released: Boolean = false
 
@@ -113,7 +124,7 @@ private class EngineAudioPlayer(
 
     override suspend fun prepare(source: AudioSource) {
         if (released) {
-            _stateFlow.value = PlayerState.Error(AudioPlayerReleasedException())
+            gate.exclusive { _stateFlow.value = PlayerState.Error(AudioPlayerReleasedException()) }
             return
         }
         // A child of the caller's job, so the caller's cancellation still reaches the engine, and a
@@ -125,18 +136,21 @@ private class EngineAudioPlayer(
                 previous.job.cancel()
                 previous.finished.join()
             }
-            if (!isCurrent(load)) return
-
-            stopPositionUpdates()
-            _playbackPositionFlow.value = 0L
-            writeUnlessReleased(PlayerState.Preparing)
+            val started: Boolean = gate.exclusive {
+                if (!isCurrent(load)) return@exclusive false
+                stopPositionUpdates()
+                _playbackPositionFlow.value = 0L
+                _stateFlow.value = PlayerState.Preparing
+                true
+            }
+            if (!started) return
 
             // The failure comes back as a value rather than being thrown out of withContext: an
             // exception crossing that boundary may be replaced by a stack-trace-recovered copy, and
             // PlayerState.Error promises the engine's own Throwable.
             val failure: Throwable? = withContext(load.job) { loadCatching(source) }
             if (failure != null) {
-                if (isCurrent(load)) writeUnlessReleased(PlayerState.Error(failure))
+                gate.exclusive { if (isCurrent(load)) _stateFlow.value = PlayerState.Error(failure) }
                 return
             }
         } catch (cancellation: CancellationException) {
@@ -156,9 +170,11 @@ private class EngineAudioPlayer(
             // first, and release only if nothing newer took over meanwhile. This load stays current
             // until its finally, so a prepare arriving meanwhile waits for all of it.
             withContext(NonCancellable) { previous?.finished?.join() }
-            if (currentLoad.load() === load) {
-                engine.release()
-                if (!released) _stateFlow.value = PlayerState.Idle
+            gate.exclusive {
+                if (currentLoad.load() === load) {
+                    engine.release()
+                    if (!released) _stateFlow.value = PlayerState.Idle
+                }
             }
             throw cancellation
         } finally {
@@ -166,12 +182,108 @@ private class EngineAudioPlayer(
             load.finished.complete()
         }
 
-        if (!isCurrent(load)) return
-        engine.setSpeed(playbackSpeed)
-        writeUnlessReleased(PlayerState.Ready(engine.durationMs()))
+        gate.exclusive {
+            if (!isCurrent(load)) return@exclusive
+            engine.setSpeed(playbackSpeed)
+            _stateFlow.value = PlayerState.Ready(engine.durationMs())
+        }
     }
 
-    override fun play() {
+    override fun play(): Unit = gate.exclusive { playLocked() }
+
+    override fun pause(): Unit = gate.exclusive {
+        if (released) return@exclusive
+        val current: PlayerState = _stateFlow.value
+        if (current !is PlayerState.Playing) return@exclusive
+
+        engine.pause()
+        stopPositionUpdates()
+        val position: Long = engine.positionMs()
+        _playbackPositionFlow.value = position
+        _stateFlow.value = PlayerState.Paused(duration = current.duration, currentPosition = position)
+    }
+
+    override fun stop(): Unit = gate.exclusive {
+        if (released) return@exclusive
+        if (!_stateFlow.value.isPlayable) return@exclusive
+
+        engine.pause()
+        stopPositionUpdates()
+        engine.seekTo(0L)
+        _playbackPositionFlow.value = 0L
+        _stateFlow.value = PlayerState.Ready(engine.durationMs())
+    }
+
+    override fun seekTo(positionMs: Long): Unit = gate.exclusive { seekToLocked(positionMs) }
+
+    override fun seekForward(amountMs: Long): Unit = gate.exclusive {
+        if (released) return@exclusive
+        if (!_stateFlow.value.isPlayable) return@exclusive
+        seekToLocked(engine.positionMs() + amountMs)
+    }
+
+    override fun seekBackward(amountMs: Long): Unit = gate.exclusive {
+        if (released) return@exclusive
+        if (!_stateFlow.value.isPlayable) return@exclusive
+        seekToLocked(engine.positionMs() - amountMs)
+    }
+
+    override fun replay(): Unit = gate.exclusive {
+        if (released) return@exclusive
+        if (!_stateFlow.value.isPlayable) return@exclusive
+        seekToLocked(0L)
+        playLocked()
+    }
+
+    override fun setPlaybackSpeed(speed: Float): Unit = gate.exclusive {
+        playbackSpeed = speed.coerceIn(config.minPlaybackSpeed, config.maxPlaybackSpeed)
+        if (released) return@exclusive
+        if (_stateFlow.value is PlayerState.Playing) engine.setSpeed(playbackSpeed)
+    }
+
+    override fun unload(): Unit = gate.exclusive {
+        if (released) return@exclusive
+        abandonLoad()
+        stopPositionUpdates()
+
+        _stateFlow.value = PlayerState.Idle
+        _playbackPositionFlow.value = 0L
+    }
+
+    override fun release(): Unit = gate.exclusive {
+        if (released) return@exclusive
+        released = true
+
+        stopPositionUpdates()
+        scope.cancel()
+        engine.setListener(null)
+        abandonLoad()
+
+        _stateFlow.value = PlayerState.Idle
+        _playbackPositionFlow.value = 0L
+    }
+
+    // Both callbacks describe a loaded source. One arriving when nothing is loaded — posted by the
+    // platform just before an unload or release detached it — is stale and must not resurrect state.
+    // They arrive on the engine's thread and are submitted, never waited for.
+
+    override fun onCompleted(): Unit = gate.submit {
+        if (released || !_stateFlow.value.isPlayable) return@submit
+        stopPositionUpdates()
+        val duration: Long = engine.durationMs()
+        _playbackPositionFlow.value = duration
+        _stateFlow.value = PlayerState.Completed(duration)
+    }
+
+    override fun onFailed(cause: Throwable): Unit = gate.submit {
+        if (released || !_stateFlow.value.isPlayable) return@submit
+        stopPositionUpdates()
+        _stateFlow.value = PlayerState.Error(cause)
+    }
+
+    // --- Transitions shared by several entry points. Lock held. ---
+
+    private fun playLocked() {
         if (released) return
         val current: PlayerState = _stateFlow.value
         if (!current.isPlayable || current is PlayerState.Playing) return
@@ -192,30 +304,7 @@ private class EngineAudioPlayer(
         startPositionUpdates()
     }
 
-    override fun pause() {
-        if (released) return
-        val current: PlayerState = _stateFlow.value
-        if (current !is PlayerState.Playing) return
-
-        engine.pause()
-        stopPositionUpdates()
-        val position: Long = engine.positionMs()
-        _playbackPositionFlow.value = position
-        _stateFlow.value = PlayerState.Paused(duration = current.duration, currentPosition = position)
-    }
-
-    override fun stop() {
-        if (released) return
-        if (!_stateFlow.value.isPlayable) return
-
-        engine.pause()
-        stopPositionUpdates()
-        engine.seekTo(0L)
-        _playbackPositionFlow.value = 0L
-        _stateFlow.value = PlayerState.Ready(engine.durationMs())
-    }
-
-    override fun seekTo(positionMs: Long) {
+    private fun seekToLocked(positionMs: Long) {
         if (released) return
         val current: PlayerState = _stateFlow.value
         if (!current.isPlayable) return
@@ -235,70 +324,6 @@ private class EngineAudioPlayer(
         }
     }
 
-    override fun seekForward(amountMs: Long) {
-        if (released) return
-        if (!_stateFlow.value.isPlayable) return
-        seekTo(engine.positionMs() + amountMs)
-    }
-
-    override fun seekBackward(amountMs: Long) {
-        if (released) return
-        if (!_stateFlow.value.isPlayable) return
-        seekTo(engine.positionMs() - amountMs)
-    }
-
-    override fun replay() {
-        if (released) return
-        if (!_stateFlow.value.isPlayable) return
-        seekTo(0L)
-        play()
-    }
-
-    override fun setPlaybackSpeed(speed: Float) {
-        playbackSpeed = speed.coerceIn(config.minPlaybackSpeed, config.maxPlaybackSpeed)
-        if (released) return
-        if (_stateFlow.value is PlayerState.Playing) engine.setSpeed(playbackSpeed)
-    }
-
-    override fun unload() {
-        if (released) return
-        abandonLoad()
-        stopPositionUpdates()
-
-        _stateFlow.value = PlayerState.Idle
-        _playbackPositionFlow.value = 0L
-    }
-
-    override fun release() {
-        if (released) return
-        released = true
-
-        stopPositionUpdates()
-        scope.cancel()
-        engine.setListener(null)
-        abandonLoad()
-
-        _stateFlow.value = PlayerState.Idle
-        _playbackPositionFlow.value = 0L
-    }
-
-    // Both callbacks describe a loaded source. One arriving when nothing is loaded — posted by the
-    // platform just before an unload or release detached it — is stale and must not resurrect state.
-
-    override fun onCompleted() {
-        if (released || !_stateFlow.value.isPlayable) return
-        stopPositionUpdates()
-        val duration: Long = engine.durationMs()
-        _playbackPositionFlow.value = duration
-        _stateFlow.value = PlayerState.Completed(duration)
-    }
-
-    override fun onFailed(cause: Throwable) {
-        if (released || !_stateFlow.value.isPlayable) return
-        stopPositionUpdates()
-        _stateFlow.value = PlayerState.Error(cause)
-    }
-
     /** Runs the engine's load, returning its failure instead of throwing it. Cancellation still throws. */
     private suspend fun loadCatching(source: AudioSource): Throwable? = try {
         engine.load(source)
@@ -313,9 +338,9 @@ private class EngineAudioPlayer(
     }
 
     /**
-     * Ends whatever load is current and frees the engine — but only once that load has finished
-     * unwinding, since freeing the engine under a load that is still running on it is exactly the
-     * interleaving this class exists to rule out.
+     * Lock held. Ends whatever load is current and frees the engine — but only once that load has
+     * finished unwinding, since freeing the engine under a load that is still running on it is exactly
+     * the interleaving this class exists to rule out.
      *
      * The load is replaced by an already-cancelled placeholder whose [Load.finished] completes after
      * the engine is freed, so a [prepare] arriving in the meantime still waits for all of it. Swapping
@@ -325,41 +350,47 @@ private class EngineAudioPlayer(
         val placeholder = Load(Job().apply { cancel() })
         val abandoned: Load? = currentLoad.exchange(placeholder)
         abandoned?.job?.cancel()
-        val freeEngine: (Throwable?) -> Unit = {
+        val freeEngine: () -> Unit = {
             engine.release()
             placeholder.finished.complete()
         }
         val unwinding: Job? = abandoned?.finished?.takeUnless { it.isCompleted }
-        if (unwinding == null) freeEngine(null) else unwinding.invokeOnCompletion(freeEngine)
-    }
-
-    /**
-     * Writes [state], then undoes it if [release] landed in between: release may run on another
-     * thread, and a released player's state is [PlayerState.Idle] for good.
-     */
-    private fun writeUnlessReleased(state: PlayerState) {
-        _stateFlow.value = state
-        if (released) _stateFlow.value = PlayerState.Idle
+        if (unwinding == null) {
+            freeEngine()
+        } else {
+            // Completes on whichever thread finishes the abandoned prepare; back under the lock
+            // from there, like every other engine call.
+            unwinding.invokeOnCompletion { gate.submit(freeEngine) }
+        }
     }
 
     private fun isCurrent(load: Load): Boolean = !released && currentLoad.load() === load
 
+    /** Lock held. (Re)starts polling; each tick is submitted, so it is serialized like a callback. */
     private fun startPositionUpdates() {
         stopPositionUpdates()
         positionJob = scope.launch {
+            val poller: Job? = currentCoroutineContext()[Job]
             while (isActive) {
                 delay(config.positionUpdateIntervalMs)
-                val current: PlayerState = _stateFlow.value
-                // Anything other than Playing means someone else already owns the state — a pause,
-                // a completion, a failure. Stop rather than spin; play() restarts the loop.
-                if (current !is PlayerState.Playing) break
-                val position: Long = engine.positionMs()
-                _playbackPositionFlow.value = position
-                _stateFlow.value = current.copy(currentPosition = position)
+                gate.submit { pollLocked(poller) }
             }
         }
     }
 
+    /** Lock held. One poll tick of [poller] — a no-op if polling was stopped or restarted since. */
+    private fun pollLocked(poller: Job?) {
+        if (released || poller == null || positionJob !== poller) return
+        val current: PlayerState = _stateFlow.value
+        if (current !is PlayerState.Playing) return
+        val position: Long = engine.positionMs()
+        // Compare-and-set as well as the lock: the tick must only ever refine the Playing state it
+        // read, never replace a state another transition wrote.
+        if (!_stateFlow.compareAndSet(current, current.copy(currentPosition = position))) return
+        _playbackPositionFlow.value = position
+    }
+
+    /** Lock held. */
     private fun stopPositionUpdates() {
         positionJob?.cancel()
         positionJob = null
