@@ -31,17 +31,18 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerConfig
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
-import kotlinx.coroutines.CompletableDeferred
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
  * Everything around the controls: pausing in the background, the composition-owned player of
  * [rememberVideoPlayer] and of the `VideoPlayer(source = …)` overload, the surface's sizing and its
- * keep-screen-on request. Run on Android (Robolectric) and desktop through thin subclasses.
+ * keep-screen-on request. The players are the library's own over the fake engine (see [TestPlayer]).
+ * Run on Android (Robolectric) and desktop through thin subclasses.
  */
 @OptIn(ExperimentalTestApi::class)
 abstract class VideoPlayerUiTests {
@@ -58,36 +59,38 @@ abstract class VideoPlayerUiTests {
     @Test
     fun `a playing player is paused when the host stops`() = runComposeUiTest {
         val owner = TestLifecycleOwner()
-        val player = FakeVideoPlayer().apply { startPlaying() }
+        val player = TestPlayer().playing()
         setContent {
-            CompositionLocalProvider(LocalLifecycleOwner provides owner) { TestHost { VideoPlayer(player) } }
+            CompositionLocalProvider(LocalLifecycleOwner provides owner) { TestHost { VideoPlayer(player.player) } }
         }
 
         runOnIdle { owner.registry.currentState = Lifecycle.State.CREATED }
 
         assertEquals(listOf("pause"), player.calls)
+        assertIs<VideoPlayerState.Paused>(player.state)
     }
 
     @Test
     fun `playback does not resume when the host starts again`() = runComposeUiTest {
         val owner = TestLifecycleOwner()
-        val player = FakeVideoPlayer().apply { startPlaying() }
+        val player = TestPlayer().playing()
         setContent {
-            CompositionLocalProvider(LocalLifecycleOwner provides owner) { TestHost { VideoPlayer(player) } }
+            CompositionLocalProvider(LocalLifecycleOwner provides owner) { TestHost { VideoPlayer(player.player) } }
         }
 
         runOnIdle { owner.registry.currentState = Lifecycle.State.CREATED }
         runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
 
         assertEquals(listOf("pause"), player.calls)
+        assertIs<VideoPlayerState.Paused>(player.state)
     }
 
     @Test
     fun `a player that is not playing is left alone when the host stops`() = runComposeUiTest {
         val owner = TestLifecycleOwner()
-        val player = FakeVideoPlayer().apply { startPaused() }
+        val player = TestPlayer().paused()
         setContent {
-            CompositionLocalProvider(LocalLifecycleOwner provides owner) { TestHost { VideoPlayer(player) } }
+            CompositionLocalProvider(LocalLifecycleOwner provides owner) { TestHost { VideoPlayer(player.player) } }
         }
 
         runOnIdle { owner.registry.currentState = Lifecycle.State.CREATED }
@@ -98,28 +101,30 @@ abstract class VideoPlayerUiTests {
     @Test
     fun `with pauseOnBackground off the player keeps playing when the host stops`() = runComposeUiTest {
         val owner = TestLifecycleOwner()
-        val player = FakeVideoPlayer().apply { startPlaying() }
+        val player = TestPlayer().playing()
         setContent {
             CompositionLocalProvider(LocalLifecycleOwner provides owner) {
-                TestHost { VideoPlayer(player, pauseOnBackground = false) }
+                TestHost { VideoPlayer(player.player, pauseOnBackground = false) }
             }
         }
 
         runOnIdle { owner.registry.currentState = Lifecycle.State.CREATED }
 
         assertEquals(emptyList(), player.calls)
+        assertIs<VideoPlayerState.Playing>(player.state)
     }
 
     @Test
     fun `VideoPlayer never releases a player it was given`() = runComposeUiTest {
-        val player = FakeVideoPlayer().apply { startPaused() }
+        val player = TestPlayer().paused()
         var shown by mutableStateOf(true)
-        setContent { TestHost { if (shown) VideoPlayer(player) } }
+        setContent { TestHost { if (shown) VideoPlayer(player.player) } }
 
         shown = false
         waitForIdle()
 
-        assertEquals(0, player.releaseCount)
+        assertTrue(player.fake.hasListener, "the player was released")
+        assertIs<VideoPlayerState.Paused>(player.state)
     }
 
     // --- rememberVideoPlayer ---
@@ -133,58 +138,73 @@ abstract class VideoPlayerUiTests {
             setContent { TestHost(factory = factory) { remembered = rememberVideoPlayer(SOURCE_A, config = config) } }
             waitForIdle()
 
-            assertEquals(1, factory.created.size)
-            assertSame(factory.created.single(), remembered)
+            val created: TestPlayer = factory.created.single()
+            assertSame(created.player, remembered)
             assertSame(config, factory.configs.single())
-            assertEquals(listOf(SOURCE_A), factory.created.single().prepared)
-            assertFalse("play" in factory.created.single().calls)
+            assertEquals(listOf(SOURCE_A), created.fake.loadedSources)
+            assertEquals(VideoPlayerState.Ready(TestPlayer.DEFAULT_DURATION_MS), created.state)
+            assertEquals(0, created.engine.starts, "autoPlay is off")
         }
 
     @Test
     fun `a new source is prepared on the same player and cancels the older prepare`() = runComposeUiTest {
-        val gate = CompletableDeferred<Unit>()
-        val factory = RecordingFactory { FakeVideoPlayer().apply { prepareGate = gate } }
+        val factory = RecordingFactory { TestPlayer().apply { fake.suspendLoads = true } }
         var source: VideoSource by mutableStateOf(SOURCE_A)
         setContent { TestHost(factory = factory) { rememberVideoPlayer(source) } }
         waitForIdle()
+        val player: TestPlayer = factory.created.single()
+        assertEquals(listOf(SOURCE_A), player.fake.loadedSources)
 
         source = SOURCE_B
         waitForIdle()
 
-        val player: FakeVideoPlayer = factory.created.single()
-        assertEquals(listOf(SOURCE_A, SOURCE_B), player.prepared)
-        assertEquals(1, player.cancelledPrepares)
+        // The player runs one load at a time: B reaching the engine while A never finished means A
+        // was cancelled.
+        assertEquals(listOf(SOURCE_A, SOURCE_B), player.fake.loadedSources)
+        assertTrue(player.fake.isLoadPending)
+        assertEquals(VideoPlayerState.Preparing, player.state)
+
+        player.fake.finishLoad()
+        waitForIdle()
+        assertEquals(VideoPlayerState.Ready(TestPlayer.DEFAULT_DURATION_MS), player.state)
+        assertEquals(listOf(SOURCE_A, SOURCE_B), player.fake.loadedSources, "nothing loaded again")
     }
 
     @Test
     fun `autoPlay plays once the prepare succeeds`() = runComposeUiTest {
-        val gate = CompletableDeferred<Unit>()
-        val factory = RecordingFactory { FakeVideoPlayer().apply { prepareGate = gate } }
+        val factory = RecordingFactory { TestPlayer().apply { fake.suspendLoads = true } }
         setContent { TestHost(factory = factory) { rememberVideoPlayer(SOURCE_A, autoPlay = true) } }
         waitForIdle()
-        val player: FakeVideoPlayer = factory.created.single()
-        assertFalse("play" in player.calls, "must not play before the prepare finishes")
+        val player: TestPlayer = factory.created.single()
+        assertEquals(0, player.engine.starts, "must not play before the prepare finishes")
 
-        gate.complete(Unit)
+        player.fake.finishLoad()
         waitForIdle()
 
-        assertEquals("play", player.calls.last())
-        assertTrue(player.state.value is VideoPlayerState.Playing)
+        assertEquals(1, player.engine.starts)
+        assertIs<VideoPlayerState.Playing>(player.state)
     }
 
     @Test
     fun `a superseded prepare does not start playback`() = runComposeUiTest {
-        val gate = CompletableDeferred<Unit>()
-        val factory = RecordingFactory { FakeVideoPlayer().apply { prepareGate = gate } }
+        val factory = RecordingFactory { TestPlayer().apply { fake.suspendLoads = true } }
         var source: VideoSource by mutableStateOf(SOURCE_A)
         setContent { TestHost(factory = factory) { rememberVideoPlayer(source, autoPlay = true) } }
         waitForIdle()
+        val player: TestPlayer = factory.created.single()
 
         source = SOURCE_B
         waitForIdle()
+        assertEquals(listOf(SOURCE_A, SOURCE_B), player.fake.loadedSources)
+        assertEquals(0, player.engine.starts, "nothing is ready yet")
 
-        val player: FakeVideoPlayer = factory.created.single()
-        assertEquals(listOf("prepare($SOURCE_A)", "prepare($SOURCE_B)"), player.calls)
+        // Only B's load is still open; letting it finish is the one success autoPlay acts on.
+        player.fake.finishLoad()
+        waitForIdle()
+
+        assertEquals(1, player.engine.starts, "exactly one start, for B: ${player.calls}")
+        assertIs<VideoPlayerState.Playing>(player.state)
+        assertEquals(listOf(SOURCE_A, SOURCE_B), player.fake.loadedSources)
     }
 
     @Test
@@ -193,13 +213,15 @@ abstract class VideoPlayerUiTests {
         var source: VideoSource? by mutableStateOf(SOURCE_A)
         setContent { TestHost(factory = factory) { rememberVideoPlayer(source) } }
         waitForIdle()
+        val player: TestPlayer = factory.created.single()
+        assertIs<VideoPlayerState.Ready>(player.state)
 
         source = null
         waitForIdle()
 
-        val player: FakeVideoPlayer = factory.created.single()
-        assertEquals("unload", player.calls.last())
-        assertEquals(listOf(SOURCE_A), player.prepared)
+        assertEquals(VideoPlayerState.Idle, player.state)
+        assertEquals(listOf(SOURCE_A), player.fake.loadedSources)
+        assertTrue(player.fake.hasListener, "unloaded, not released")
     }
 
     @Test
@@ -212,12 +234,14 @@ abstract class VideoPlayerUiTests {
             waitForIdle()
             source = SOURCE_B
             waitForIdle()
-            assertEquals(0, factory.created.single().releaseCount)
+            val player: TestPlayer = factory.created.single()
+            assertTrue(player.fake.hasListener, "released too early")
 
             shown = false
             waitForIdle()
 
-            assertEquals(1, factory.created.single().releaseCount)
+            assertFalse(player.fake.hasListener, "not released")
+            assertEquals(VideoPlayerState.Idle, player.state)
         }
 
     @Test
@@ -231,17 +255,17 @@ abstract class VideoPlayerUiTests {
         waitForIdle()
 
         assertEquals(2, factory.created.size)
-        assertEquals(1, factory.created[0].releaseCount)
-        assertEquals(0, factory.created[1].releaseCount)
-        assertEquals(listOf(SOURCE_A), factory.created[1].prepared)
+        assertFalse(factory.created[0].fake.hasListener, "the first player was not released")
+        assertTrue(factory.created[1].fake.hasListener)
+        assertEquals(listOf(SOURCE_A), factory.created[1].fake.loadedSources)
+        assertIs<VideoPlayerState.Ready>(factory.created[1].state)
     }
 
     // --- VideoPlayer(source = …) ---
 
     @Test
     fun `the source overload reports progress only while the duration is known`() = runComposeUiTest {
-        val gate = CompletableDeferred<Unit>()
-        val factory = RecordingFactory { FakeVideoPlayer(preparedDurationMs = 80_000L).apply { prepareGate = gate } }
+        val factory = RecordingFactory { TestPlayer(durationMs = 80_000L).apply { fake.suspendLoads = true } }
         val samples: MutableList<Pair<Long, Long>> = mutableListOf()
         setContent {
             TestHost(factory = factory) {
@@ -251,15 +275,33 @@ abstract class VideoPlayerUiTests {
         waitForIdle()
         assertEquals(emptyList(), samples, "nothing while preparing")
 
-        gate.complete(Unit)
+        val player: TestPlayer = factory.created.single()
+        player.fake.finishLoad()
         waitForIdle()
-        val player: FakeVideoPlayer = factory.created.single()
-        player.startPlaying(durationMs = 80_000L, positionMs = 1_000L)
+        player.player.play()
+        player.movePlayhead(1_000L)
         waitForIdle()
-        player.position.value = 2_000L
+        player.movePlayhead(2_000L)
         waitForIdle()
 
         assertEquals(listOf(0L to 80_000L, 1_000L to 80_000L, 2_000L to 80_000L), samples)
+    }
+
+    @Test
+    fun `the source overload never reports a source of unknown length`() = runComposeUiTest {
+        val factory = RecordingFactory { TestPlayer(durationMs = 0L) }
+        val samples: MutableList<Pair<Long, Long>> = mutableListOf()
+        setContent {
+            TestHost(factory = factory) {
+                VideoPlayer(source = SOURCE_A, autoPlay = true, onProgress = { p, d -> samples += p to d })
+            }
+        }
+        waitForIdle()
+        factory.created.single().movePlayhead(5_000L)
+        waitForIdle()
+
+        assertIs<VideoPlayerState.Playing>(factory.created.single().state)
+        assertEquals(emptyList(), samples)
     }
 
     @Test
@@ -268,13 +310,14 @@ abstract class VideoPlayerUiTests {
         var shown by mutableStateOf(true)
         setContent { TestHost(factory = factory) { if (shown) VideoPlayer(source = SOURCE_A, autoPlay = true) } }
         waitForIdle()
-        val player: FakeVideoPlayer = factory.created.single()
-        assertTrue("play" in player.calls)
+        val player: TestPlayer = factory.created.single()
+        assertEquals(1, player.engine.starts)
 
         shown = false
         waitForIdle()
 
-        assertEquals(1, player.releaseCount)
+        assertFalse(player.fake.hasListener, "not released")
+        assertEquals(VideoPlayerState.Idle, player.state)
     }
 
     // --- VideoPlayerSurface ---
@@ -301,11 +344,11 @@ abstract class VideoPlayerUiTests {
 
     @Test
     fun `the surface derives an unbounded height from the picture ratio`() = runComposeUiTest {
-        val player = FakeVideoPlayer().apply { size.value = VideoSize(1920, 1080) }
+        val player = TestPlayer().apply { fake.videoSizeOnLoad = VideoSize(1920, 1080) }.prepare()
         setContent {
             TestHost {
                 Column(Modifier.width(160.dp).verticalScroll(rememberScrollState())) {
-                    VideoPlayerSurface(player, Modifier.fillMaxWidth().testTag("surface"))
+                    VideoPlayerSurface(player.player, Modifier.fillMaxWidth().testTag("surface"))
                 }
             }
         }
@@ -316,15 +359,17 @@ abstract class VideoPlayerUiTests {
     @Test
     fun `the surface asks to keep the screen on only while playing`() = runComposeUiTest {
         val surface = RecordingSurface()
-        val player = FakeVideoPlayer().apply { startPaused() }
+        val player = TestPlayer().paused()
         var keepScreenOn by mutableStateOf(true)
         setContent {
-            TestHost(surface = surface) { VideoPlayerSurface(player, Modifier.fillMaxSize(), keepScreenOn = keepScreenOn) }
+            TestHost(surface = surface) {
+                VideoPlayerSurface(player.player, Modifier.fillMaxSize(), keepScreenOn = keepScreenOn)
+            }
         }
         waitForIdle()
         assertEquals(false, surface.lastKeepScreenOn)
 
-        player.startPlaying()
+        player.player.play()
         waitForIdle()
         assertEquals(true, surface.lastKeepScreenOn)
 
@@ -340,10 +385,10 @@ abstract class VideoPlayerUiTests {
         expectedHeight: Dp,
     ) {
         val surface = RecordingSurface()
-        val player = FakeVideoPlayer().apply { size.value = videoSize }
+        val player = TestPlayer().apply { fake.videoSizeOnLoad = videoSize }.prepare()
         setContent {
             TestHost(surface = surface) {
-                Box(Modifier.size(100.dp)) { VideoPlayerSurface(player, Modifier.fillMaxSize(), scaleMode = mode) }
+                Box(Modifier.size(100.dp)) { VideoPlayerSurface(player.player, Modifier.fillMaxSize(), scaleMode = mode) }
             }
         }
 

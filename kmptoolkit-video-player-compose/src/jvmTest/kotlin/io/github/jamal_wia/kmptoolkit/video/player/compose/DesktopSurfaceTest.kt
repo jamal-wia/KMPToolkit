@@ -49,7 +49,7 @@ class DesktopSurfaceTest {
         val source = FakeFrameSource()
         setContent {
             Box(Modifier.size(80.dp, 40.dp).background(Color.White).testTag("host")) {
-                FrameSourceSurface(source, Modifier.fillMaxSize(), VideoScaleMode.Fit)
+                FrameSourceSurface(source, Modifier.fillMaxSize(), VideoScaleMode.Fit, pictureSizeKnown = false)
             }
         }
         waitForIdle()
@@ -73,7 +73,7 @@ class DesktopSurfaceTest {
         val source = FakeFrameSource().apply { frames.value = solidFrame(4, 2, RED) }
         setContent {
             Box(Modifier.size(80.dp, 40.dp).background(Color.White).testTag("host")) {
-                FrameSourceSurface(source, Modifier.fillMaxSize(), VideoScaleMode.Fit)
+                FrameSourceSurface(source, Modifier.fillMaxSize(), VideoScaleMode.Fit, pictureSizeKnown = false)
             }
         }
         waitForIdle()
@@ -91,7 +91,7 @@ class DesktopSurfaceTest {
         var mode by mutableStateOf(VideoScaleMode.Fit)
         setContent {
             Box(Modifier.size(60.dp).background(Color.White).testTag("host")) {
-                FrameSourceSurface(source, Modifier.fillMaxSize(), mode)
+                FrameSourceSurface(source, Modifier.fillMaxSize(), mode, pictureSizeKnown = false)
             }
         }
         waitForIdle()
@@ -110,7 +110,7 @@ class DesktopSurfaceTest {
         val source = FakeFrameSource().apply { frames.value = solidFrame(4, 2, RED) }
         setContent {
             Box(Modifier.size(80.dp, 40.dp).background(Color.White).testTag("host")) {
-                FrameSourceSurface(source, Modifier.fillMaxSize(), VideoScaleMode.Fill)
+                FrameSourceSurface(source, Modifier.fillMaxSize(), VideoScaleMode.Fill, pictureSizeKnown = false)
             }
         }
         waitForIdle()
@@ -127,7 +127,7 @@ class DesktopSurfaceTest {
         val source = FakeFrameSource()
         setContent {
             Box(Modifier.size(80.dp, 40.dp).background(Color.White).testTag("host")) {
-                FrameSourceSurface(source, Modifier.fillMaxSize(), VideoScaleMode.Fill)
+                FrameSourceSurface(source, Modifier.fillMaxSize(), VideoScaleMode.Fill, pictureSizeKnown = false)
             }
         }
         waitForIdle()
@@ -145,7 +145,7 @@ class DesktopSurfaceTest {
     fun `no frame source draws nothing`() = runComposeUiTest {
         setContent {
             Box(Modifier.size(80.dp, 40.dp).background(Color.White).testTag("host")) {
-                FrameSourceSurface(null, Modifier.fillMaxSize(), VideoScaleMode.Fit)
+                FrameSourceSurface(null, Modifier.fillMaxSize(), VideoScaleMode.Fit, pictureSizeKnown = false)
             }
         }
         waitForIdle()

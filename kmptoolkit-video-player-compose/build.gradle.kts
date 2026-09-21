@@ -36,6 +36,12 @@ kotlin {
             implementation(compose.animation)
             implementation(libs.androidx.lifecycle.runtime.compose)
         }
+        // The UI tests drive the library's real state machine over the fake engine, not a
+        // hand-written VideoPlayer. No cycle: -testing depends on the core, not on this module.
+        commonTest.dependencies {
+            implementation(project(":kmptoolkit-video-player-testing"))
+            implementation(libs.kotlinx.coroutines.test)
+        }
         // The Compose UI tests are written once, in src/uiTest, and compiled into both JVM-hosted
         // test compilations: Robolectric on Android, Skia on desktop. Each side adds only a thin
         // subclass per suite (the Robolectric runner annotation exists on one side only).

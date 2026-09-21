@@ -7,7 +7,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerConfig
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 
 /** Labels the tests find controls by — test fixtures, not library copy. */
@@ -35,8 +34,9 @@ val SOURCE_A: VideoSource = VideoSource.Remote("https://example.test/a.mp4")
 val SOURCE_B: VideoSource = VideoSource.Remote("https://example.test/b.mp4")
 
 /**
- * Stands in for the platform surface, which a fake player has nothing to attach to (the real
- * Media3/AVPlayer attachment is not testable on a JVM). Records what the surface was asked for.
+ * Stands in for the platform surface, which a player over the fake engine has no picture for.
+ * Records what the surface was asked for. The real surfaces are tested without it, in
+ * `DesktopSurfaceTest` and `AndroidSurfaceTest`.
  */
 class RecordingSurface {
     var lastKeepScreenOn: Boolean? = null
@@ -46,17 +46,6 @@ class RecordingSurface {
         lastKeepScreenOn = keepScreenOn
         lastScaleMode = scaleMode
         Box(modifier.testTag(PICTURE_TAG))
-    }
-}
-
-/** Creates [FakeVideoPlayer]s and remembers them, for [rememberVideoPlayer] tests. */
-class RecordingFactory(private val make: () -> FakeVideoPlayer = { FakeVideoPlayer() }) : VideoPlayerFactory {
-    val created: MutableList<FakeVideoPlayer> = mutableListOf()
-    val configs: MutableList<VideoPlayerConfig> = mutableListOf()
-
-    override fun create(config: VideoPlayerConfig): FakeVideoPlayer {
-        configs += config
-        return make().also { created += it }
     }
 }
 
