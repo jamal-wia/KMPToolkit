@@ -61,9 +61,14 @@ What an unsupported source does:
 
 JavaFX Media has no public "give me the decoded frame" callback. The engine therefore keeps an
 off-screen `MediaView`, and on each JavaFX pulse (throttled to at most 30 per second while playing)
-renders it with `Node.snapshot` into a reused `WritableImage` and copies the pixels into one of two
-reused `IntArray`s. That is one scene-graph render, one GPU→CPU readback and one full-frame copy per
+renders it with `Node.snapshot` into a reused `WritableImage` and copies the pixels into a new
+`IntArray`. That is one scene-graph render, one GPU→CPU readback and one full-frame copy per
 displayed frame, on the JavaFX application thread — on top of the decode JavaFX does anyway.
+
+The array is new for every frame on purpose: the consumer holds the latest frame and draws it on its
+own schedule, so an array handed back to the engine could be overwritten mid-draw and tear. The cost
+is one short-lived allocation per displayed frame (`width × height × 4` bytes — about 3.7 MB at 720p,
+8.3 MB at 1080p), which the JVM's garbage collector reclaims cheaply.
 
 Measured on an Apple M1 Pro (10 cores), JDK 21, OpenJFX 21.0.12, H.264 30 fps test clips, process
 CPU over 8 s of playback; "1 fps" copies one frame per second and approximates decode-only cost:
@@ -85,7 +90,10 @@ decoder writes straight into memory without a render-and-read-back step.
 ## Threading and the JavaFX toolkit
 
 - **Starting the toolkit.** The first `prepare` (or `isJavaFxMediaAvailable()`) calls
-  `Platform.startup` if nothing has started JavaFX yet, and tolerates an app that already did. Only
+  `Platform.startup` if nothing has started JavaFX yet, and tolerates an app that already did. That
+  can take up to 10 s, so `prepare` does it — and resolves the source against the disk — on
+  `Dispatchers.IO`, never on the thread that called it; `isJavaFxMediaAvailable()` blocks its caller.
+  Only
   when the engine itself started the toolkit does it call `Platform.setImplicitExit(false)` — it
   never opens a window, and without that JavaFX could shut down when a window of the app's closes.
   An app that runs its own JavaFX windows keeps its own exit policy.
@@ -107,6 +115,12 @@ decoder writes straight into memory without a render-and-read-back step.
   requested position.
 - **Looping** (`RepeatMode.One`) uses JavaFX's own `cycleCount = INDEFINITE`, so JavaFX restarts
   the source itself, and `Completed` is never reported while it is on.
+- **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine
+  pauses it there, so a seek from `Completed` stays `Paused` — in the state and in JavaFX — until
+  `play()`.
+- **Playback speed.** On macOS, `MediaPlayer.play()` starts the native player at normal speed
+  whatever rate JavaFX holds, so a speed set while paused would be lost; the engine applies the rate
+  again after every `play()`.
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from
   `bufferProgressTime`, which is meaningful for progressive HTTP sources (for a local file expect it
   to cover the whole duration).

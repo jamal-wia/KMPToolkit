@@ -21,7 +21,8 @@ Creates a `VideoPlayer` whose engine is JavaFX Media, rendering into memory.
 
 - **Touches no JavaFX class.** Safe to call on a classpath without OpenJFX; the missing runtime is
   reported by the first `prepare` as `Error(JavaFxVideoPlayerException.RuntimeUnavailable)`.
-- **The first `prepare` starts the JavaFX toolkit** if nothing has started it yet — see
+- **The first `prepare` starts the JavaFX toolkit** if nothing has started it yet, on
+  `Dispatchers.IO` — a `prepare` launched from the UI thread never blocks it — see
   [`05-platform-notes.md`](05-platform-notes.md#threading-and-the-javafx-toolkit).
 - `config` and `coroutineContext` mean exactly what they mean for the core module's
   `createVideoPlayer`: `coroutineContext` hosts the position-polling coroutine only.
@@ -43,7 +44,7 @@ could be started.
 - **Remembered:** the first answer (success or failure) holds for the life of the process.
 - **Not a format check:** `true` does not mean every source decodes on this OS.
 - Blocks the calling thread for as long as the toolkit takes to start (typically well under a
-  second, bounded at 10 s). Thread-safe.
+  second, bounded at 10 s), so the first call belongs off the UI thread. Thread-safe.
 
 ## `JavaFxVideoPlayerException`
 

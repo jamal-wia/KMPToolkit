@@ -74,16 +74,19 @@ when (val state = player.stateFlow.value) {
 
 The engine follows the core contract: `release()` is idempotent and final for the listener — no
 state change, buffering flag or frame arrives after it returns, even one JavaFX had already queued —
-and a player that was `unload()`ed can `prepare` again. Releasing frees the native JavaFX player and
-the frame buffers; it does not stop the JavaFX toolkit, which stays running for the next player (and
-for anything else in the app that uses JavaFX).
+and a player that was `unload()`ed can `prepare` again. Unloading frees the native JavaFX player;
+that is all there is to free, since JavaFX binds each `MediaPlayer` to a single `Media` and the next
+source needs a new one anyway — nothing expensive is rebuilt per source. Neither `unload()` nor
+`release()` stops the JavaFX toolkit, the only costly start-up, which happens once per process and
+stays running for the next player (and for anything else in the app that uses JavaFX).
 
 ## Frames and the picture
 
 The engine renders into memory: while playing it copies the picture at most **30 times per second**,
 and while paused it copies only after something changed it (the first picture after `prepare`, a
 seek). A paused player costs no copying at all. The frame handed to the Compose surface is 32-bit
-ARGB at the video's own resolution; the surface scales it (Fit / Fill / Crop).
+ARGB at the video's own resolution, in an array of its own that the engine never writes again, so
+the surface can draw it whenever it gets to it; the surface scales it (Fit / Fill / Crop).
 
 Two consequences worth knowing:
 
