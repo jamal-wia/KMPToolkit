@@ -69,6 +69,7 @@ include(":kmptoolkit-video-player")
 include(":kmptoolkit-video-player-testing")
 include(":kmptoolkit-video-player-compose")
 include(":kmptoolkit-video-player-vlcj")
+include(":kmptoolkit-video-player-javafx")
 
 include(":kmptoolkit-bom")
 
