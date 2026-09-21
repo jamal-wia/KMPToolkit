@@ -80,8 +80,16 @@ fun main() = application {
 ```
 
 Without it, the first `VideoPlayer(source = …)` throws an `IllegalStateException` saying exactly
-this. (`createVlcjVideoPlayer` is the VLCJ artifact's factory; see its own docs for the exact name
-and for installing VLC.)
+this.
+
+Two engines exist, each its own artifact — add one to `jvmMain`:
+
+| Artifact | Factory | Pick it when |
+|---|---|---|
+| [`kmptoolkit-video-player-vlcj`](../kmptoolkit-video-player-vlcj/01-overview.md) | `createVlcjVideoPlayer(config)` | you need any format VLC plays or high resolutions, and your app can live with GPL-3 (or a commercial VLCJ licence) and an installed VLC |
+| [`kmptoolkit-video-player-javafx`](../kmptoolkit-video-player-javafx/01-overview.md) | `createJavaFxVideoPlayer(config)` | MP4 (H.264/AAC) or HLS is enough and you want nothing installed beyond the OpenJFX jars (GPL-2 + Classpath Exception) |
+
+The rest of your UI is the same either way.
 
 ## Next
 

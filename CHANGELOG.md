@@ -9,6 +9,37 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Added
+
+- `kmptoolkit-video-player` — a headless `VideoPlayer` for shared code, with the contract of
+  `kmptoolkit-audio-player` (`prepare` suspends and never throws on failure, a newer `prepare`
+  replaces an older one, transport calls outside a playable state are ignored, `release` is
+  idempotent and final) plus what a video needs: `volumeFlow`/`isMutedFlow`, `RepeatMode`,
+  `isBufferingFlow`, `bufferedPositionFlow` and `videoSizeFlow`. Sources are `Asset`, `File` and
+  `Remote` with optional HTTP headers. One state machine in common code drives a
+  `VideoPlaybackEngine`: Media3 ExoPlayer (with HLS) on Android and `AVPlayer` on iOS. Also publishes
+  `jvm` so shared UI compiles for desktop; the desktop engine is a separate artifact. Media3 merges
+  `ACCESS_NETWORK_STATE` and `WAKE_LOCK` into the consuming app's manifest; `INTERNET` stays the
+  app's to declare.
+- `kmptoolkit-video-player-testing` — `FakeVideoPlaybackEngine`, a scriptable engine for testing
+  code that consumes `VideoPlayer` without a device or a video file.
+- `kmptoolkit-video-player-compose` — `VideoPlayerSurface` (scale modes `Fit`/`Fill`/`Crop`,
+  keep-screen-on while playing) on Android, iOS and desktop, and `VideoPlayer` with ready-made
+  controls — tap to toggle, auto-hide, pause when the host goes to the background — whose every part
+  can be replaced: a `controls` slot over `VideoControlsScope`, public building blocks
+  (`PlayPauseButton`, `VideoSeekBar`, `VideoTimeText`, `MuteButton`, `SpeedButton`,
+  `FullscreenButton`, …), and plain `VideoControlsColors` / `VideoControlsDimensions` /
+  `VideoControlsLabels` objects. No user-facing text: accessibility labels come from the app.
+  `rememberVideoPlayer` creates, prepares and releases a player; `LocalVideoPlayerFactory` lets a
+  desktop app choose its engine once at the root.
+- `kmptoolkit-video-player-vlcj` — a JVM-only desktop engine on VLCJ: any format VLC plays, frames
+  rendered into memory for the Compose surface. VLCJ is GPL-3.0 and needs VLC 3.x installed (or
+  bundled) for the JVM's CPU architecture; `isVlcAvailable()` checks without crashing.
+- `kmptoolkit-video-player-javafx` — a JVM-only desktop engine on JavaFX Media: nothing to install
+  beyond the OpenJFX jars the app adds per OS (GPL-2.0 + Classpath Exception), fewer formats, and a
+  higher CPU cost because frames are captured by off-screen snapshots.
+- `kmptoolkit.library.jvm` — a build convention for JVM-only modules.
+
 ## [1.6.0] - 2026-09-16
 
 ### Added

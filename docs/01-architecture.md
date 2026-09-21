@@ -160,19 +160,21 @@ than hidden:
 
 ## Compose modules are opt-in artifacts
 
-Only four modules depend on Compose Multiplatform: `kmptoolkit-systembars`,
-`kmptoolkit-logging-overlay`, `kmptoolkit-language-compose`, and `kmptoolkit-hardware-keys`. Every other module is plain Kotlin
+Only five modules depend on Compose Multiplatform: `kmptoolkit-systembars`,
+`kmptoolkit-logging-overlay`, `kmptoolkit-language-compose`, `kmptoolkit-hardware-keys` and
+`kmptoolkit-video-player-compose`. Every other module is plain Kotlin
 with no UI framework dependency — adding, say, `kmptoolkit-uploader` to a non-Compose (or non-UI)
 target never pulls in Compose. A module whose core capability is useful outside Compose too splits
 into a plain-Kotlin base and a `-compose` companion (`kmptoolkit-language` /
-`kmptoolkit-language-compose`) rather than pulling Compose into the base — see the base module's own
+`kmptoolkit-language-compose`, `kmptoolkit-video-player` / `kmptoolkit-video-player-compose`) rather
+than pulling Compose into the base — see the base module's own
 `01-overview.md` for why.
 
 Apple targets are uniform across the suite: every module publishes `iosArm64` and
 `iosSimulatorArm64`, and none publishes `iosX64`. The legacy Intel simulator is superseded by
 `iosSimulatorArm64` on Apple-silicon Macs, Compose Multiplatform 1.11+ publishes no `iosX64`
 artifact at all, and dropping it keeps the suite's published-file count — five coordinates per
-module, six for each module that also publishes `jvm` — inside Maven Central's
+module, six for each module that also publishes `jvm`, two for a JVM-only module — inside Maven Central's
 per-namespace limits (see `RELEASING.md`). The target
 list is recorded in each module's `.klib.api` dump.
 
@@ -198,10 +200,13 @@ do — each carried a private copy of this code before it had a home of its own.
 
 ## Desktop targets
 
-Seven artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-storage`, each with its
-`-testing` fixtures, `kmptoolkit-language` with `kmptoolkit-language-compose`, and
-`kmptoolkit-hardware-keys`. Every other module stays Android + iOS,
-and the exception is narrow and deliberate.
+Eleven artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-storage`, each with its
+`-testing` fixtures, `kmptoolkit-language` with `kmptoolkit-language-compose`,
+`kmptoolkit-hardware-keys`, `kmptoolkit-hijri`, and `kmptoolkit-video-player` with its `-testing` and
+`-compose` companions. Two more are **JVM-only** — the desktop video engines
+`kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`, built with the
+`kmptoolkit.library.jvm` convention. Every other module stays Android + iOS, and the exception is
+narrow and deliberate.
 
 Most modules expose a capability an app either wants on a platform or does not ask for there at all
 — a consumer with no use for haptics on desktop simply does not call into `kmptoolkit-haptics` from
@@ -225,6 +230,17 @@ in **shared** code:
 - **Hardware keys.** `DialogWindowHardwareKeyEffect` is called from inside dialog content, and
   dialog content is typical shared UI. Desktop has no Android-style per-window key routing, so the
   `jvm` actual is a no-op — the target exists only so that the shared dialog compiles.
+
+- **Video player.** A video screen is shared UI: `VideoPlayer(...)` and `rememberVideoPlayer(...)`
+  sit in the same tree on every target. Unlike the modules above, the desktop half is a real
+  capability — but its engine is the one thing the core must not choose for the app: both desktop
+  engines carry their own licence (VLCJ is GPL-3, OpenJFX GPL-2 + Classpath Exception) and their own
+  runtime requirement (an installed VLC, or the OpenJFX jars per OS). So the core and Compose modules
+  publish `jvm` with no engine at all, each engine is a separate JVM-only artifact the app opts into,
+  and the app picks one once at its root (`LocalVideoPlayerFactory`). The MIT core never makes a
+  consumer inherit a GPL dependency it did not ask for.
+- **Hijri.** `toHijriDate` is a pure date conversion a consumer calls from shared code; the JDK's
+  `HijrahDate` is Umm al-Qura, so the JVM half is real.
 
 In every case, omitting the target would not leave a capability unavailable on desktop; it would stop
 the consumer's shared modules compiling for desktop at all, and push them into fragmenting exactly the

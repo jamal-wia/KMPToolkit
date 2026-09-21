@@ -46,6 +46,10 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-haptics` | Haptic feedback | [`kmptoolkit-haptics/`](kmptoolkit-haptics/01-overview.md) |
 | `kmptoolkit-flashlight` | Camera-torch blink cue | [`kmptoolkit-flashlight/`](kmptoolkit-flashlight/01-overview.md) |
 | `kmptoolkit-audio-player` | Audio playback | [`kmptoolkit-audio-player/`](kmptoolkit-audio-player/01-overview.md) |
+| `kmptoolkit-video-player` | Video playback, headless | [`kmptoolkit-video-player/`](kmptoolkit-video-player/01-overview.md) |
+| `kmptoolkit-video-player-compose` | Video surface and replaceable controls | [`kmptoolkit-video-player-compose/`](kmptoolkit-video-player-compose/01-overview.md) |
+| `kmptoolkit-video-player-vlcj` | Desktop video engine (VLCJ) | [`kmptoolkit-video-player-vlcj/`](kmptoolkit-video-player-vlcj/01-overview.md) |
+| `kmptoolkit-video-player-javafx` | Desktop video engine (JavaFX) | [`kmptoolkit-video-player-javafx/`](kmptoolkit-video-player-javafx/01-overview.md) |
 | `kmptoolkit-audio-recorder` | Audio recording | [`kmptoolkit-audio-recorder/`](kmptoolkit-audio-recorder/01-overview.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | [`kmptoolkit-scheduler/`](kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-storage` | Key-value storage, plain and encrypted | [`kmptoolkit-storage/`](kmptoolkit-storage/01-overview.md) |

@@ -34,6 +34,11 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-flashlight-testing` | `RecordingFlashlight` double, for `testImplementation` | `flashlight` | Available | [docs](docs/kmptoolkit-flashlight/06-testing.md) |
 | `kmptoolkit-audio-player` | Audio playback (`MediaPlayer` / `AVPlayer`) behind a pluggable engine | — | Available | [docs](docs/kmptoolkit-audio-player/01-overview.md) |
 | `kmptoolkit-audio-player-testing` | `FakePlaybackEngine`, for `testImplementation` | `audio-player` | Available | [docs](docs/kmptoolkit-audio-player/06-testing.md) |
+| `kmptoolkit-video-player` | Headless video playback (Media3 ExoPlayer / `AVPlayer`) behind a pluggable engine: state, position, buffering, picture size, volume, mute, repeat. Also publishes `jvm`; the desktop engine is a separate artifact | — | Available | [docs](docs/kmptoolkit-video-player/01-overview.md) |
+| `kmptoolkit-video-player-testing` | `FakeVideoPlaybackEngine`, for `testImplementation`. Also publishes `jvm` | `video-player` | Available | [docs](docs/kmptoolkit-video-player/06-testing.md) |
+| `kmptoolkit-video-player-compose` | Compose surface (`VideoPlayerSurface`) and a `VideoPlayer` with ready-made controls whose every part can be replaced or restyled. Also publishes `jvm` | `video-player` | Available | [docs](docs/kmptoolkit-video-player-compose/01-overview.md) |
+| `kmptoolkit-video-player-vlcj` | Desktop (JVM-only) video engine on VLCJ — any format VLC plays. VLCJ is **GPL-3**; VLC must be installed | `video-player` | Available | [docs](docs/kmptoolkit-video-player-vlcj/01-overview.md) |
+| `kmptoolkit-video-player-javafx` | Desktop (JVM-only) video engine on JavaFX Media — nothing to install, fewer formats. OpenJFX is GPL-2 + Classpath Exception | `video-player` | Available | [docs](docs/kmptoolkit-video-player-javafx/01-overview.md) |
 | `kmptoolkit-audio-recorder` | Audio recording (`MediaRecorder` / `AVAudioRecorder`), typed errors instead of throws | — | Available | [docs](docs/kmptoolkit-audio-recorder/01-overview.md) |
 | `kmptoolkit-audio-recorder-testing` | `FakeAudioRecorder`, for `testImplementation` | `audio-recorder` | Available | [docs](docs/kmptoolkit-audio-recorder/06-testing.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Available | [docs](docs/kmptoolkit-scheduler/01-overview.md) |
