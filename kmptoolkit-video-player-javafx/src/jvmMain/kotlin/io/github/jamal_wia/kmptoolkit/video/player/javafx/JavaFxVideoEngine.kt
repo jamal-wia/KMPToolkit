@@ -9,9 +9,11 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerReleasedException
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -64,8 +66,12 @@ internal class JavaFxVideoEngine(
     }
 
     override suspend fun load(source: VideoSource) {
-        val uri: String = resolveSourceUri(source, classLoader)
-        runtime.ensureStarted()
+        // Both may block: resolving touches the disk, and the first start of the toolkit waits up to
+        // FxThread's start timeout for the FX thread. The player calls load() from whatever
+        // dispatcher prepare() runs on — in a Compose app, the UI thread — so neither runs there.
+        val uri: String = withContext(Dispatchers.IO) {
+            resolveSourceUri(source, classLoader).also { runtime.ensureStarted() }
+        }
         currentCoroutineContext().ensureActive()
 
         // A new source replaces the loaded one, which stops talking to the listener right here.
@@ -133,6 +139,9 @@ internal class JavaFxVideoEngine(
     override fun release() {
         synchronized(lock) { session }?.close()
     }
+
+    /** The loaded player's settings and status as JavaFX holds them, or `null`; a test seam. */
+    internal suspend fun inspectPlayback(): FxPlayback.Inspection? = activePlayback()?.inspect()
 
     private fun currentSession(): Session? = synchronized(lock) { session }
 

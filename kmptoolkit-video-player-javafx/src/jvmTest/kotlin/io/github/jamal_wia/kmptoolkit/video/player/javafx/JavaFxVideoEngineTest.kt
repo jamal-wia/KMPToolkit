@@ -176,6 +176,30 @@ class JavaFxVideoEngineTest {
     }
 
     @Test
+    fun seekAfterCompletionStaysPaused() {
+        load()
+        engine.seekTo(2_600L)
+        engine.start()
+        awaitTrue(message = { "events ${listener.events}" }) { EngineEvent.Completed in listener.events }
+
+        // JavaFX itself leaves its status at PLAYING here; on a backend that honours it, the seek
+        // below would resume playback. The engine must have paused it.
+        awaitTrue(message = { "status ${inspect().status}" }) { inspect().status == "PAUSED" }
+
+        // The player reports Paused after this seek; the engine must not quietly play on from here.
+        engine.seekTo(1_000L)
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() in 900L..1_100L }
+        Thread.sleep(700L)
+        assertTrue(engine.positionMs() in 900L..1_100L, "moved on to ${engine.positionMs()}")
+        assertEquals("PAUSED", inspect().status)
+        assertEquals(1, listener.events.count { it == EngineEvent.Completed }, "${listener.events}")
+
+        // And start() resumes from the seek target, not from the beginning.
+        engine.start()
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 1_300L }
+    }
+
+    @Test
     fun loopingRestartsWithoutCompleting() {
         load()
         engine.setLooping(true)
@@ -198,12 +222,59 @@ class JavaFxVideoEngineTest {
         engine.setVolume(0f)
         engine.setSpeed(2f)
         load()
-        engine.seekTo(2_600L)
+
+        // The settings are posted to the FX thread; read them back from JavaFX once they land.
+        awaitTrue(message = { "settings ${inspect().describe()}" }) {
+            inspect().let { it.volume == 0.0 && it.rate == 2.0 && it.cycleCount == INDEFINITE }
+        }
+
+        // And they take effect: at double speed a second of wall clock covers about two of media
+        // (normal speed would cover one; the clip is 3 s, so this ends before the loop wraps).
+        engine.seekTo(0L)
         engine.start()
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 100L }
+        val from: Long = engine.positionMs()
+        Thread.sleep(1_000L)
+        val covered: Long = engine.positionMs() - from
+        assertTrue(covered >= 1_500L, "covered $covered ms of media in 1 s at speed 2")
+
+        // Looping: past the end, the playhead wraps around without completing.
+        engine.seekTo(2_600L)
         awaitTrue(timeoutMs = 6_000L, message = { "position ${engine.positionMs()}" }) {
             engine.positionMs() in 1L..1_500L
         }
         assertTrue(listener.events.none { it == EngineEvent.Completed }, "${listener.events}")
+    }
+
+    @Test
+    fun speedSetWhilePausedHoldsAfterResuming() {
+        load()
+        engine.start()
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 100L }
+        engine.pause()
+        // Set while paused: on macOS, play() alone would restart the native player at speed 1.
+        engine.setSpeed(2f)
+        engine.seekTo(0L)
+        engine.start()
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 100L }
+        val from: Long = engine.positionMs()
+        Thread.sleep(1_000L)
+        val covered: Long = engine.positionMs() - from
+        assertTrue(covered >= 1_500L, "covered $covered ms of media in 1 s at speed 2")
+    }
+
+    @Test
+    fun settingsChangedAfterLoadReachThePlayer() {
+        load()
+        engine.setVolume(0.25f)
+        engine.setSpeed(0.5f)
+        engine.setLooping(true)
+        awaitTrue(message = { "settings ${inspect().describe()}" }) {
+            inspect().let { it.volume == 0.25 && it.rate == 0.5 && it.cycleCount == INDEFINITE }
+        }
+
+        engine.setLooping(false)
+        awaitTrue(message = { "settings ${inspect().describe()}" }) { inspect().cycleCount == 1 }
     }
 
     @Test
@@ -299,21 +370,36 @@ class JavaFxVideoEngineTest {
     }
 
     @Test
-    fun framesUseTwoAlternatingBuffers() {
+    fun everyFrameOwnsItsPixels() {
         load()
         engine.start()
-        val first: VideoFrame = awaitFrame()
-        val second: VideoFrame = awaitFrame { it !== first }
-        val third: VideoFrame = awaitFrame { it !== second }
-        // Consecutive frames never share a buffer, so a consumer drawing one is not written over.
-        assertTrue(first.pixels !== second.pixels)
-        assertTrue(second.pixels !== third.pixels)
+        // A consumer may hold any frame for as long as it likes (the flow is conflated): no two
+        // frames may share an array, or a later frame would be written over one still being drawn.
+        val frames: MutableList<VideoFrame> = mutableListOf(awaitFrame())
+        repeat(5) { frames += awaitFrame { candidate -> frames.none { it === candidate } } }
+        for (i in frames.indices) {
+            for (j in i + 1 until frames.size) {
+                assertTrue(frames[i].pixels !== frames[j].pixels, "frames $i and $j share an array")
+            }
+        }
+        // The first frame still holds its picture after the others were produced.
+        val centre: Int = frames.first().pixels[(TestClip.HEIGHT / 2) * TestClip.WIDTH + TestClip.WIDTH / 2]
+        assertTrue((centre shr 16) and 0xFF > 180, "centre pixel #${Integer.toHexString(centre)}")
         assertNotNull(engine.frames.value)
     }
+
+    private fun inspect(): FxPlayback.Inspection =
+        assertNotNull(runBlocking { engine.inspectPlayback() }, "nothing loaded")
+
+    private fun FxPlayback.Inspection.describe(): String =
+        "volume=$volume rate=$rate cycleCount=$cycleCount status=$status"
 
     private fun VideoFrame.describe(): String = "${width}x$height"
 
     private companion object {
         const val LOAD_TIMEOUT_MS: Long = 10_000L
+
+        /** `MediaPlayer.INDEFINITE`, without touching a JavaFX class from a test constant. */
+        const val INDEFINITE: Int = -1
     }
 }

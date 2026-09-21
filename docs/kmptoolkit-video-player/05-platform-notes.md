@@ -255,7 +255,8 @@ your UI.
   `linux-aarch64`, `win`) — or a JDK that bundles JavaFX. Nothing needs installing on the user's
   machine, except FFmpeg's `libavcodec` on Linux. A display is required; on a headless machine the
   load fails with `JavaFxVideoPlayerException.RuntimeUnavailable`. `isJavaFxMediaAvailable()` checks
-  up front.
+  up front. The first `prepare` starts the JavaFX toolkit on `Dispatchers.IO`, never on the calling
+  (UI) thread.
 - **Formats:** MP4/M4V and HLS with H.264 or HEVC video and AAC audio; nothing else for video.
 - **Sources:** `Asset` is a classpath resource path. `Remote` with `headers` is rejected with
   `JavaFxVideoPlayerException.HeadersNotSupported` — JavaFX cannot send headers, so use a signed URL.

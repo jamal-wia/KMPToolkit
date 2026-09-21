@@ -61,8 +61,14 @@ internal class FxPlayback private constructor(
     /** Completes once, with READY or the first error; later errors go to [Sink.onFailed]. */
     private val ready: CompletableDeferred<Unit> = CompletableDeferred()
     private var image: WritableImage? = null
-    private val buffers: Array<IntArray?> = arrayOfNulls(2)
-    private var nextBuffer: Int = 0
+
+    /**
+     * Where the next snapshot is copied. Handed over with the frame it becomes and never touched
+     * again — the consumer holds the latest frame through a conflated flow and may draw it at any
+     * time, so a recycled array could be overwritten mid-draw. Kept only while a snapshot is not
+     * published (no picture yet).
+     */
+    private var scratch: IntArray? = null
     private var lastSnapshotNanos: Long = 0L
     private var awaitingPicture: Boolean = true
     private var refreshUntilNanos: Long = 0L
@@ -93,6 +99,11 @@ internal class FxPlayback private constructor(
             // is already starting the next one — that is not an end.
             if (looping) return@setOnEndOfMedia
             atEnd = true
+            // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
+            // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
+            // seek would resume playback on a backend that honours the status, and the pulse
+            // would keep copying frames of a picture that does not move.
+            player.pause()
             reportTimes()
             sink.onCompleted()
         }
@@ -118,6 +129,7 @@ internal class FxPlayback private constructor(
             player.seek(player.startTime)
         }
         player.play()
+        reapplyRate()
     }
 
     fun pause(): Unit = FxThread.post {
@@ -145,6 +157,13 @@ internal class FxPlayback private constructor(
         player.cycleCount = if (looping) MediaPlayer.INDEFINITE else 1
     }
 
+    /** What JavaFX currently holds, read on the FX thread — for tests; settings have no getter. */
+    class Inspection(val volume: Double, val rate: Double, val cycleCount: Int, val status: String)
+
+    suspend fun inspect(): Inspection = FxThread.call {
+        Inspection(player.volume, player.rate, player.cycleCount, player.status.toString())
+    }
+
     /** Stops the pulse and frees the native player. Idempotent; any thread. */
     fun dispose(): Unit = FxThread.post {
         if (disposed) return@post
@@ -154,7 +173,20 @@ internal class FxPlayback private constructor(
         view.mediaPlayer = null
         player.dispose()
         image = null
-        buffers.fill(null)
+        scratch = null
+    }
+
+    /**
+     * Pushes the rate JavaFX already holds down to the native player again. On macOS, play() starts
+     * the native player at normal speed whatever the rate property says — a rate set while paused
+     * (every rate set before the first play) is silently lost. The property only forwards a change,
+     * so it is nudged away and back.
+     */
+    private fun reapplyRate() {
+        val rate: Double = player.rate
+        if (rate == 1.0) return
+        player.rate = 1.0
+        player.rate = rate
     }
 
     /** The first error only: JavaFX reports one failure through both the player and the media. */
@@ -216,24 +248,18 @@ internal class FxPlayback private constructor(
         if (width <= 0 || height <= 0) return
         val target: WritableImage = image
             ?.takeIf { it.width.toInt() == width && it.height.toInt() == height }
-            ?: WritableImage(width, height).also {
-                image = it
-                buffers.fill(null)
-            }
+            ?: WritableImage(width, height).also { image = it }
         view.snapshot(snapshotParameters, target)
-        // Two buffers, alternated: the consumer may still be drawing the previous frame while this
-        // one is written.
-        val index: Int = nextBuffer
-        nextBuffer = 1 - nextBuffer
-        val pixels: IntArray = buffers[index] ?: IntArray(width * height).also { buffers[index] = it }
+        val pixels: IntArray = scratch?.takeIf { it.size == width * height } ?: IntArray(width * height)
         target.pixelReader.getPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(), pixels, 0, width)
         if (pixels[(height / 2) * width + width / 2] ushr 24 == 0) {
             // The view has no decoded picture yet: nothing to show, and nothing was published, so
-            // the buffer can be written again next time.
-            nextBuffer = index
+            // the array can be written again next time.
+            scratch = pixels
             return
         }
         awaitingPicture = false
+        scratch = null
         sink.onFrame(VideoFrame(width, height, pixels))
     }
 

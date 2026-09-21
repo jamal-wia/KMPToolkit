@@ -27,22 +27,34 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
     -c:a aac -b:a 16k -movflags +faststart -shortest red-64x48-3s.mp4
   ```
 
-- **Skipped, not failed, where JavaFX cannot run.** Every real-engine test calls
-  `Assume.assumeTrue(isJavaFxMediaAvailable())`, so on a headless CI machine they are reported as
-  skipped. The checks that need no toolkit — header rejection, missing asset/file, blank input, an
-  unavailable runtime (through an internal seam), calls before any load — always run.
-- **Covered:** loading from classpath and from a file, duration and picture size, a non-video file
-  and an unreachable URL failing (and leaving nothing behind), frames of the right size and content,
-  a first frame without playing, play/pause/seek, completion once, restart after completion,
-  looping without completion, settings applied before load, release idempotency, no listener call
-  or frame after release, load after release, replacing a source, cancelling a load mid-way,
-  release during a load, and the two alternating frame buffers.
+- **Skipped, not failed, where JavaFX cannot run** — unless asked not to. Every real-engine test
+  calls `assumeJavaFxMedia()`, so on a headless CI machine they are reported as skipped. Pass
+  `-Pjavafx.required=true` and a machine where JavaFX cannot run fails them instead: use it wherever
+  the real-engine tests are meant to run, so they cannot all be skipped without anyone noticing.
+- **Always run, JavaFX or not:** header rejection, missing asset/file, blank input, an unavailable
+  runtime (through an internal seam), calls before any load; that `prepare` starts the toolkit off
+  the thread that called it (a runtime seam that blocks); and, in a class loader that cannot see
+  OpenJFX at all, that `createJavaFxVideoPlayer()` creates a player without touching JavaFX, that
+  `frameSourceOrNull()` is non-null, and that `prepare` settles on
+  `Error(JavaFxVideoPlayerException.RuntimeUnavailable)` — twice, the failure being remembered.
+- **Covered on the real engine:** loading from classpath and from a file, duration and picture
+  size, a non-video file and an unreachable URL failing (and leaving nothing behind), frames of the
+  right size and content, a first frame without playing, play/pause/seek, completion once, restart
+  after completion, a seek after completion staying paused (in JavaFX's own status too) and `start`
+  resuming from there, looping without completion, settings given before load and changed after it
+  read back from JavaFX (volume, rate, cycle count) and taking effect (double speed measured
+  against the wall clock, also after a pause), release idempotency, no listener call or frame after
+  release, load after release, replacing a source, cancelling a load mid-way, release during a
+  load, and every frame owning its pixel array. Through the whole `VideoPlayer`: the public factory,
+  the frame source staying the engine across sources, and `Completed` → seek → `Paused` → `play`.
+- **Reading JavaFX back.** Volume, rate and status have no getter on the engine contract; an
+  internal `inspectPlayback()` reads them from the `MediaPlayer` on the FX thread for the tests.
 
 Run it with:
 
 ```sh
-./gradlew :kmptoolkit-video-player-javafx:jvmTest
+./gradlew :kmptoolkit-video-player-javafx:jvmTest -Pjavafx.required=true
 ```
 
-The suite takes about 30 s, most of it real playback time. The CI workflow does not run `jvmTest`;
+The suite takes about 40 s, most of it real playback time. The CI workflow does not run `jvmTest`;
 run it locally on a machine with a display before changing the engine.

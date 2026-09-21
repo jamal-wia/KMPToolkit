@@ -63,3 +63,12 @@ kotlin {
         }
     }
 }
+
+// `-Pjavafx.required=true` turns the real-engine tests' skip (no display, no OpenJFX) into a
+// failure; see assumeJavaFxMedia() in the tests.
+tasks.withType<Test>().configureEach {
+    systemProperty(
+        "kmptoolkit.javafx.required",
+        providers.gradleProperty("javafx.required").getOrElse("false"),
+    )
+}
