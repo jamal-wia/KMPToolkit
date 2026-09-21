@@ -119,8 +119,9 @@ Nothing here differs from the shared contract, but it is worth knowing what happ
   VLC's own threads is dropped from the moment the call starts, including callbacks already queued.
 - **The libvlc instance** — the expensive part, whose creation scans VLC's plugins — is created by
   the first `prepare` and **kept** across all of the above, so switching sources or unloading never
-  rebuilds it. It is freed once a released player is no longer referenced and has been
-  garbage-collected; drop your reference to a released player and the instance goes with it.
+  rebuilds it. `release()` frees it, on the player's background teardown thread after the last
+  native media player. A player dropped without `release()` still frees it once garbage-collected,
+  as a safety net — but release every player you create rather than relying on that.
 - **Nothing slow runs on the calling thread**, which is usually the UI thread. Locating and loading
   libvlc and opening the source run on `Dispatchers.IO`. Stopping and freeing a native player — which
   for a stalled network stream can take as long as libvlc's network timeout — runs on a background

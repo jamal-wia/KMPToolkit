@@ -21,21 +21,6 @@ import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.CoroutineContext
 
 /**
- * An engine that holds something [VideoPlaybackEngine.release] deliberately keeps: the platform
- * player object a surface is attached to, which survives an unload so the surface does not have to
- * re-attach for every source. [dispose] frees it for good; the player calls it once, from its own
- * [VideoPlayer.release], after the engine's last [VideoPlaybackEngine.release].
- *
- * Internal because it describes the built-in engines' shape, not a promise to consumers: a
- * consumer-supplied engine frees everything in [VideoPlaybackEngine.release], as the SPI says.
- */
-internal interface DisposableVideoPlaybackEngine {
-
-    /** Frees the platform player itself. Called at most once, after the final release. */
-    fun dispose()
-}
-
-/**
  * The whole [VideoPlayer] state machine, once, in common code — every platform engine only
  * translates calls. Modelled on `kmptoolkit-audio-player`'s `EngineAudioPlayer` and keeping its
  * guarantees: one load at a time on the engine, a newer [prepare] replaces an older one and waits for
@@ -417,8 +402,7 @@ internal class EngineVideoPlayer(
      * [Load.finished] completes after the engine is freed, so a [prepare] arriving meanwhile still
      * waits for all of it.
      *
-     * @param dispose also free the platform player behind a [DisposableVideoPlaybackEngine] — only on
-     *   the final [release].
+     * @param dispose also [VideoPlaybackEngine.dispose] the engine — only on the final [release].
      */
     private fun abandonLoad(dispose: Boolean) {
         val placeholder = Load(Job().apply { cancel() })
@@ -426,7 +410,7 @@ internal class EngineVideoPlayer(
         abandoned?.job?.cancel()
         val freeEngine: () -> Unit = {
             engine.release()
-            if (dispose) (engine as? DisposableVideoPlaybackEngine)?.dispose()
+            if (dispose) engine.dispose()
             placeholder.finished.complete()
         }
         val unwinding: Job? = abandoned?.finished?.takeUnless { it.isCompleted }

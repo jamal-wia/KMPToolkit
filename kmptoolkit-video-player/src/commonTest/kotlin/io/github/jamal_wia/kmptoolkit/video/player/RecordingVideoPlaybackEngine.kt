@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
  */
 internal class RecordingVideoPlaybackEngine(
     var duration: Long = DEFAULT_DURATION_MS,
-) : VideoPlaybackEngine, DisposableVideoPlaybackEngine {
+) : VideoPlaybackEngine {
 
     var listener: VideoPlaybackEngineListener? = null
         private set

@@ -283,7 +283,8 @@ The platform seam. It holds no state machine of its own.
 | `fun setVolume(volume: Float)` | Effective output volume in `0f..1f` — `0f` while the player is muted. |
 | `fun setLooping(looping: Boolean)` | Restart the source at its end instead of completing. |
 | `fun durationMs()` / `fun positionMs()` / `fun bufferedPositionMs()` | Cheap (polled off the platform's thread); `0` when unknown, never negative. |
-| `fun release()` | Free every native resource. **Idempotent**, safe after a failed `load`. |
+| `fun release()` | Free the loaded source and keep the engine reusable: `load` works after it. **Idempotent**, safe after a failed `load`. |
+| `fun dispose()` | Free what the engine keeps across sources — the platform player, a native library instance. Called **exactly once**, from `VideoPlayer.release()`, after the last `release()`; no method is called after it. Default: no-op, for an engine whose `release()` already frees everything. |
 
 ```kotlin
 public interface VideoPlaybackEngineListener {

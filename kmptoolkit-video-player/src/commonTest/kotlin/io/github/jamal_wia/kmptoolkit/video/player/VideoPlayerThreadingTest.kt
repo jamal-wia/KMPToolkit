@@ -275,7 +275,7 @@ class VideoPlayerThreadingTest {
      * tick then spans a real window another thread can land in — and it counts what matters: frees,
      * calls after the final dispose, and calls that overlapped another call.
      */
-    private class ConcurrentEngine(private val duration: Long) : VideoPlaybackEngine, DisposableVideoPlaybackEngine {
+    private class ConcurrentEngine(private val duration: Long) : VideoPlaybackEngine {
         private val listener: AtomicReference<VideoPlaybackEngineListener?> = AtomicReference(null)
         private val position: AtomicLong = AtomicLong(0L)
         private val inCall: AtomicInt = AtomicInt(0)

@@ -50,6 +50,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngi
     abstract fun setVolume(kotlin/Float) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.setVolume|setVolume(kotlin.Float){}[0]
     abstract fun start() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.start|start(){}[0]
     abstract suspend fun load(io.github.jamal_wia.kmptoolkit.video.player/VideoSource) // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.load|load(io.github.jamal_wia.kmptoolkit.video.player.VideoSource){}[0]
+    open fun dispose() // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngine.dispose|dispose(){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngineListener { // io.github.jamal_wia.kmptoolkit.video.player/VideoPlaybackEngineListener|null[0]

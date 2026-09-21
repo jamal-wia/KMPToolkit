@@ -2,8 +2,11 @@ package io.github.jamal_wia.kmptoolkit.video.player.vlcj
 
 import io.github.jamal_wia.kmptoolkit.video.player.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoFrame
+import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
+import io.github.jamal_wia.kmptoolkit.video.player.createVideoPlayer
+import io.github.jamal_wia.kmptoolkit.video.player.isPlayable
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
@@ -200,6 +203,24 @@ class VlcjVideoEngineSessionTest {
         val runtimeRelease: Int = runtime.log.indexOfFirst { it.startsWith("runtime.release@") }
         assertTrue(lastPlayerRelease in 0 until runtimeRelease, "libvlc is freed after its players: ${runtime.log}")
         assertEquals("runtime.release@$TEARDOWN_THREAD", runtime.log[runtimeRelease])
+    }
+
+    @Test
+    fun `releasing the player frees libvlc while unloading it keeps the instance`() = runBlocking<Unit> {
+        val player: VideoPlayer = createVideoPlayer(engine)
+        player.prepare(VideoSource.File(TestClip.file.path))
+        assertTrue(player.stateFlow.value.isPlayable, "the fake runtime prepares the clip: ${player.stateFlow.value}")
+
+        player.unload()
+        drainTeardown()
+        assertEquals(0, runtime.released, "unload must keep the libvlc instance")
+
+        player.release()
+        player.release()
+        drainTeardown()
+
+        assertEquals(1, runtimeCreations.get())
+        assertEquals(1, runtime.released, "release must free the libvlc instance exactly once")
     }
 
     @Test

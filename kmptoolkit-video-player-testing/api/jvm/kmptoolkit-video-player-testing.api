@@ -6,6 +6,7 @@ public final class io/github/jamal_wia/kmptoolkit/video/player/testing/FakeVideo
 	public final fun advancePositionTo (J)V
 	public fun bufferedPositionMs ()J
 	public final fun completePlayback ()V
+	public fun dispose ()V
 	public fun durationMs ()J
 	public final fun failLoad (Ljava/lang/Throwable;)V
 	public final fun failPlayback (Ljava/lang/Throwable;)V
@@ -13,6 +14,7 @@ public final class io/github/jamal_wia/kmptoolkit/video/player/testing/FakeVideo
 	public final fun getAppliedSpeed ()F
 	public final fun getAppliedVolume ()F
 	public final fun getBufferedPositionMs ()J
+	public final fun getDisposeCount ()I
 	public final fun getDurationMs ()J
 	public final fun getHasListener ()Z
 	public final fun getLoadDelayMs ()J

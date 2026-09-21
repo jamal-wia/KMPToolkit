@@ -32,8 +32,8 @@ Creates a `VideoPlayer` backed by VLC, in `VideoPlayerState.Idle`.
   fails, the prepare settles on `Error(VlcUnavailableException)`.
 - **Resources.** The player owns one libvlc instance (created by the first `prepare` and kept
   across `unload`, a replacing `prepare` and a cancelled one) and one native media player per loaded
-  source. `unload()` and `release()` free the media player at once; the libvlc instance is freed
-  once the released player is garbage-collected (see [`03-guide.md`](03-guide.md) § "Lifecycle and
+  source. `unload()` and `release()` free the media player at once; `release()` also frees the
+  libvlc instance, after the media player (see [`03-guide.md`](03-guide.md) § "Lifecycle and
   threading").
 - **Rendering.** Frames are decoded to memory as 32-bit ARGB and exposed to
   `kmptoolkit-video-player-compose` through the core module's `@ToolkitInternalApi`

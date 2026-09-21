@@ -255,8 +255,10 @@ component that only draws a seek bar.
 val player: VideoPlayer = createVideoPlayer(engine = MyEngine())
 ```
 
-Read its KDoc first. The rules that matter: `release()` is idempotent and `load()` must work after
-it; `load()` honors cancellation and throws to report failure, leaving nothing playable; the listener
+Read its KDoc first. The rules that matter: `release()` frees the loaded source, is idempotent, and
+`load()` must work after it; `dispose()` (a no-op by default) frees what the engine keeps across
+sources — a platform player, a native library instance — and is called exactly once, from the
+player's `release()`, after the last `release()`, with nothing called after it; `load()` honors cancellation and throws to report failure, leaving nothing playable; the listener
 is never called after `release()`; transport calls tolerate the wrong platform state;
 `durationMs()`/`positionMs()`/`bufferedPositionMs()` are cheap and `0` when unknown;
 `setLooping(true)` means the platform restarts the source itself and never reports completion. Any
@@ -264,8 +266,8 @@ method may be called from any thread (never two at once), and the listener may b
 thread — even while your engine holds its own lock, even from inside one of its methods: the player
 never blocks in a callback.
 
-The player takes ownership of the engine: it installs itself as the listener and releases the engine
-from its own `release()`. One engine per player.
+The player takes ownership of the engine: it installs itself as the listener, and its own
+`release()` releases and then disposes the engine. One engine per player.
 
 ## Common mistakes
 

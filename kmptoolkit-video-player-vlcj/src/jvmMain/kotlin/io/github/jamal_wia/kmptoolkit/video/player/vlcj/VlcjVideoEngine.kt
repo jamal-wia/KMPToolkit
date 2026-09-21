@@ -35,9 +35,11 @@ import kotlinx.coroutines.withContext
  *
  * - One libvlc instance ([VlcRuntime]) per engine, created by the first [load] and **kept across
  *   [release]**: the player calls [release] on every unload and every abandoned prepare, and
- *   rebuilding libvlc (a plugin scan) each time would make those slow. It is freed by [dispose], or
- *   — since the core offers no public hook that calls [dispose] from `VideoPlayer.release()` — when
- *   the engine is garbage-collected ([Cleaner]).
+ *   rebuilding libvlc (a plugin scan) each time would make those slow. It is freed by [dispose],
+ *   which the player calls once from `VideoPlayer.release()`. A [Cleaner] stays registered only as
+ *   a safety net for a player that is dropped without being released: it frees the instance when
+ *   the engine is garbage-collected rather than leaking a native library instance for the life of
+ *   the process.
  * - One native media player per loaded source (a *session*), so events still queued from a
  *   previous source can be recognised and dropped by identity.
  *
@@ -245,9 +247,9 @@ internal class VlcjVideoEngine(
 
     /**
      * Releases, then frees the libvlc instance — after every native player, on the [teardown]
-     * thread. Final and idempotent; mirrors the core's internal `DisposableVideoPlaybackEngine`.
+     * thread. Final and idempotent: a [load] after it throws.
      */
-    fun dispose() {
+    override fun dispose() {
         release()
         cleanable.clean()
     }
