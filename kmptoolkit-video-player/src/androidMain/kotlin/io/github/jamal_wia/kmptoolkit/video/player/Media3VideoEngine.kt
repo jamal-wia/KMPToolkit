@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -25,6 +26,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.roundToInt
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.VideoSize as Media3VideoSize
 
 /**
@@ -57,6 +59,10 @@ import androidx.media3.common.VideoSize as Media3VideoSize
  * @param mediaSourceFactory turns a [VideoSource] into what ExoPlayer plays — overridden by tests to
  *   supply a fake source; production uses [defaultMediaSource].
  */
+// Media3 marks setMediaSource and the media-source factories @UnstableApi: they are what a per-source
+// header set and an explicit HLS/progressive choice need, and this is internal code pinned to one Media3
+// version by the catalog, so an API change surfaces here at compile time rather than in a consumer.
+@OptIn(markerClass = [UnstableApi::class])
 internal class Media3VideoEngine(
     private val context: Context,
     private val looper: Looper = Looper.getMainLooper(),
@@ -115,6 +121,9 @@ internal class Media3VideoEngine(
                     listener?.onCompleted()
                     return
                 }
+
+                // Buffering is reported below for every state; idle carries nothing to act on here.
+                Player.STATE_BUFFERING, Player.STATE_IDLE -> Unit
             }
             if (loaded) reportBuffering(playbackState == Player.STATE_BUFFERING)
         }
@@ -344,6 +353,8 @@ private fun now(): Long = SystemClock.elapsedRealtime()
 
 private fun Long.orZero(): Long = if (this == C.TIME_UNSET || this < 0L) 0L else this
 
+// setLooper is @UnstableApi; the engine confines ExoPlayer to that looper (see the class KDoc).
+@OptIn(markerClass = [UnstableApi::class])
 private fun defaultExoPlayer(context: Context, looper: Looper): ExoPlayer =
     ExoPlayer.Builder(context).setLooper(looper).build()
 
@@ -354,6 +365,7 @@ private fun defaultExoPlayer(context: Context, looper: Looper): ExoPlayer =
  * [DefaultMediaSourceFactory] decides from the URI: HLS for a `.m3u8` path, because
  * `media3-exoplayer-hls` is on the classpath, and a progressive source for anything else.
  */
+@OptIn(markerClass = [UnstableApi::class])
 internal fun defaultMediaSource(context: Context, source: VideoSource): MediaSource {
     val http: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
     val headers: Map<String, String> = source.requestHeaders()
