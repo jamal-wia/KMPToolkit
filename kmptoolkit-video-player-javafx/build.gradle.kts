@@ -1,11 +1,6 @@
-@file:OptIn(org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation::class)
-
-// JVM only, so this module cannot use `kmptoolkit.library` — that convention always adds the
-// Android target. It restates the two things that convention contributes and a JVM-only module
-// still needs — strict explicitApi() and ABI validation — and nothing else. If the suite grows a
-// shared JVM-only convention, this block is what it replaces.
 plugins {
-    id("org.jetbrains.kotlin.multiplatform")
+    // JVM only: JavaFX Media is a desktop runtime. See build-logic's JvmLibraryConventionPlugin.
+    id("kmptoolkit.library.jvm")
     id("kmptoolkit.publish")
 }
 
@@ -45,21 +40,10 @@ fun openJfx(library: Provider<MinimalExternalModuleDependency>): String {
 }
 
 kotlin {
-    explicitApi()
-
     // No Android, no iOS: this artifact exists only to put a desktop engine behind the core
     // module's jvm target. Its licence (GPL-2 + Classpath Exception) therefore reaches only an app
     // that adds this artifact, never one that uses the core module alone.
-    jvm()
-
-    abiValidation {
-        referenceDumpDir.set(layout.projectDirectory.dir("api"))
-    }
-
     sourceSets {
-        commonTest.dependencies {
-            implementation(kotlin("test"))
-        }
         jvmMain.dependencies {
             // api: createJavaFxVideoPlayer() returns VideoPlayer, and the engine implements the
             // core module's VideoPlaybackEngine and VideoFrameSource.
