@@ -80,20 +80,30 @@ private class PlayerLayerView : UIView(frame = CGRectZero.readValue()) {
     }
 }
 
+/** The app's `UIApplication.idleTimerDisabled`, shared by every surface that wants the screen on. */
+internal val IdleTimer: IdleTimerHolds = IdleTimerHolds(
+    read = { UIApplication.sharedApplication.idleTimerDisabled },
+    write = { disabled -> UIApplication.sharedApplication.idleTimerDisabled = disabled },
+)
+
 /**
- * `UIApplication.idleTimerDisabled`, shared by every surface that wants the screen on: the first
- * holder saves the app's own value and disables the timer, the last one restores the saved value —
- * so an app that disabled the timer itself keeps it disabled. Main thread only, like composition.
+ * Reference-counted holds on an "idle timer disabled" flag read by [read] and written by [write]:
+ * the first holder saves the current value and disables the timer, the last one restores the saved
+ * value — so an app that disabled the timer itself keeps it disabled. A [release] without a matching
+ * [acquire] does nothing. Main thread only, like composition.
  */
-internal object IdleTimer {
+internal class IdleTimerHolds(
+    private val read: () -> Boolean,
+    private val write: (Boolean) -> Unit,
+) {
 
     private var holders: Int = 0
     private var savedValue: Boolean = false
 
     fun acquire() {
         if (holders == 0) {
-            savedValue = UIApplication.sharedApplication.idleTimerDisabled
-            UIApplication.sharedApplication.idleTimerDisabled = true
+            savedValue = read()
+            write(true)
         }
         holders++
     }
@@ -101,7 +111,7 @@ internal object IdleTimer {
     fun release() {
         if (holders == 0) return
         holders--
-        if (holders == 0) UIApplication.sharedApplication.idleTimerDisabled = savedValue
+        if (holders == 0) write(savedValue)
     }
 }
 
