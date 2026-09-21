@@ -13,12 +13,20 @@ import kotlinx.coroutines.flow.StateFlow
  * mute, a [RepeatMode], buffering, buffered position and picture size.
  *
  * Obtain one from a platform factory (`createVideoPlayer(context)` on Android, `createVideoPlayer()`
- * on iOS) or from [createVideoPlayer] with your own [VideoPlaybackEngine]; never implement this
- * interface yourself, so the state machine stays shared.
+ * on iOS) or from [createVideoPlayer] with your own [VideoPlaybackEngine]. Do not implement this
+ * interface yourself — the state machine stays shared, and new members may be added in any release;
+ * implementing it requires opting in to [ToolkitInheritanceApi], which exists to make that explicit.
+ * A test double is `createVideoPlayer(FakeVideoPlaybackEngine())` from
+ * `kmptoolkit-video-player-testing`.
  *
- * **Threading.** Drive one player from one thread (normally the main thread — a screen does). The
- * flows are safe to collect anywhere.
+ * **Threading.** Every method may be called from any thread, and the flows are safe to collect
+ * anywhere. Each call is one atomic transition: it is serialized with the other calls, with the
+ * position poll and with the platform's own events (an end of media, a failure), so none of those
+ * can overwrite a state another one just wrote. A call returns with its transition applied — after
+ * `pause()`, [stateFlow] already holds `Paused`. Driving a player from one thread (normally the main
+ * thread, as a screen does) is still the simplest way to reason about the order of your own calls.
  */
+@SubclassOptInRequired(ToolkitInheritanceApi::class)
 public interface VideoPlayer : AutoCloseable {
 
     /** Current state. Starts at [VideoPlayerState.Idle], never completes. */
