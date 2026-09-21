@@ -236,6 +236,11 @@ runtime requirements reach it. Both render decoded pictures into memory, which
   `IllegalArgumentException`); `bufferedPositionFlow` is the duration for local sources and the
   playhead for remote ones, since VLC does not report a buffered position; `RepeatMode.One` re-opens
   the input at the end, so a short gap is possible; assets are classpath resources.
+- **Lifecycle and threads.** The libvlc instance is created by the first `prepare` and kept across
+  `unload` and source switches (freed once the released player is garbage-collected); native
+  teardown runs on a background thread, so `unload` and `release` never block the UI thread on a
+  stalled stream. `videoSizeFlow` is the displayed size (sample aspect ratio applied), so anamorphic
+  sources keep their shape.
 
 Details: [`docs/kmptoolkit-video-player-vlcj/`](../kmptoolkit-video-player-vlcj/01-overview.md),
 especially its [`05-platform-notes.md`](../kmptoolkit-video-player-vlcj/05-platform-notes.md).

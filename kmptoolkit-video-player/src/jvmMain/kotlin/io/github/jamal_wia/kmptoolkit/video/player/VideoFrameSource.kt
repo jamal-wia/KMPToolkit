@@ -17,10 +17,11 @@ public interface VideoFrameSource {
 /**
  * One decoded picture in 32-bit ARGB, row-major, [width] × [height] pixels.
  *
- * Each frame owns its [pixels]: a producer never writes to the array again once it has emitted the
- * frame, so a consumer may read it for as long as it holds the frame — [VideoFrameSource.frames] is
- * conflated, and the consumer draws whenever it gets to it. A plain class, not a data class: two
- * frames are never compared by content.
+ * Each frame owns its [pixels]: a producer hands over a fresh array with every frame and never writes
+ * to it after emitting it, so a frame stays valid for as long as a consumer holds it —
+ * [VideoFrameSource.frames] is conflated and read on another thread, so a reused buffer could be
+ * overwritten mid-draw. Consumers must not modify [pixels] either. A plain class, not a data class:
+ * two frames are never compared by content.
  */
 @ToolkitInternalApi
 public class VideoFrame(

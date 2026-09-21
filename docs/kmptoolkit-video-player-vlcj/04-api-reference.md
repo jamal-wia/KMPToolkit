@@ -30,13 +30,18 @@ Creates a `VideoPlayer` backed by VLC, in `VideoPlayerState.Idle`.
 
 - **Never throws, never touches VLC.** VLC is located and loaded on the first `prepare`; if that
   fails, the prepare settles on `Error(VlcUnavailableException)`.
-- **Resources.** The player owns one libvlc instance (created by the first `prepare`) and one native
-  media player per loaded source. `release()` frees them; so does `unload()` for the media player.
+- **Resources.** The player owns one libvlc instance (created by the first `prepare` and kept
+  across `unload`, a replacing `prepare` and a cancelled one) and one native media player per loaded
+  source. `unload()` and `release()` free the media player at once; the libvlc instance is freed
+  once the released player is garbage-collected (see [`03-guide.md`](03-guide.md) § "Lifecycle and
+  threading").
 - **Rendering.** Frames are decoded to memory as 32-bit ARGB and exposed to
   `kmptoolkit-video-player-compose` through the core module's `@ToolkitInternalApi`
   `frameSourceOrNull()`, which returns non-null for players created here.
 - **Threading.** As for every `VideoPlayer`: drive it from one thread, collect its flows anywhere.
-  VLC's own threads never call into your code except through those flows.
+  VLC's own threads never call into your code except through those flows. Nothing slow runs on the
+  calling thread: locating and loading libvlc and opening the source run on `Dispatchers.IO`, and
+  native teardown on a background thread of the player's own.
 
 ## `isVlcAvailable`
 
@@ -100,4 +105,4 @@ For reference when reading the core module's contract — details in [`03-guide.
 | `setPlaybackSpeed` | VLC rate. |
 | `RepeatMode.One` | VLCJ repeat; the input is re-opened at the end, possibly with a short gap. |
 | `bufferedPositionFlow` | Duration for local sources, playhead for remote ones. |
-| `videoSizeFlow` | First video track's size after parsing (sample aspect ratio and rotation applied), then the decoder's picture size once playing. |
+| `videoSizeFlow` | First video track's displayed size after parsing (sample aspect ratio and rotation applied). The decoder's stored picture size is used only when parsing found no size (some network streams). |

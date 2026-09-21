@@ -7,11 +7,17 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoPlaybackEngine
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlaybackEngineListener
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
+import java.lang.ref.Cleaner
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
+import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.concurrent.thread
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -20,22 +26,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import uk.co.caprica.vlcj.factory.MediaPlayerFactory
-import uk.co.caprica.vlcj.factory.discovery.NativeDiscovery
-import uk.co.caprica.vlcj.media.Media
-import uk.co.caprica.vlcj.media.MediaEventAdapter
-import uk.co.caprica.vlcj.media.MediaParsedStatus
-import uk.co.caprica.vlcj.media.ParseFlag
-import uk.co.caprica.vlcj.media.TrackInfo
-import uk.co.caprica.vlcj.media.VideoTrackInfo
-import uk.co.caprica.vlcj.player.base.MediaPlayer
-import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
-import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer
-import uk.co.caprica.vlcj.player.embedded.videosurface.CallbackVideoSurface
-import uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormat
-import uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormatCallback
-import uk.co.caprica.vlcj.player.embedded.videosurface.callback.RenderCallback
-import uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32BufferFormat
 
 /**
  * The [VideoPlaybackEngine] over VLC (through VLCJ), rendering into memory for
@@ -43,10 +33,13 @@ import uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32Buffe
  *
  * ### Lifecycle
  *
- * One libvlc instance ([MediaPlayerFactory]) per engine, created by the first [load] and freed by
- * [release]; one native media player per loaded source (a *session*), so events still queued from a
- * previous source can be recognised and dropped by identity. [load] after [release] builds a new
- * libvlc instance.
+ * - One libvlc instance ([VlcRuntime]) per engine, created by the first [load] and **kept across
+ *   [release]**: the player calls [release] on every unload and every abandoned prepare, and
+ *   rebuilding libvlc (a plugin scan) each time would make those slow. It is freed by [dispose], or
+ *   — since the core offers no public hook that calls [dispose] from `VideoPlayer.release()` — when
+ *   the engine is garbage-collected ([Cleaner]).
+ * - One native media player per loaded source (a *session*), so events still queued from a
+ *   previous source can be recognised and dropped by identity.
  *
  * ### Readiness
  *
@@ -57,35 +50,49 @@ import uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32Buffe
  *
  * ### Threading
  *
+ * - Nothing slow runs on the caller's thread, which is usually the UI thread: resolving the source,
+ *   locating and loading libvlc, and creating the native player run on [Dispatchers.IO]; tearing a
+ *   session down (stopping a stalled network input can take libvlc's whole timeout) and freeing
+ *   libvlc run on one serial [teardown] thread. Only the barrier that makes a closed session
+ *   unreachable is synchronous.
  * - Native calls from the caller's thread go through [lock], and every one checks the session is
- *   still open first, so no call can reach a native player after its release.
+ *   still open first, so no call can reach a native player after its session closed.
  * - VLCJ delivers events on its own event thread and pictures on libvlc's video-output thread;
  *   neither may call back into libvlc (VLCJ's documented rule). Events therefore only update cached
  *   values and notify the listener; a transport call that arrives on one of those threads (a
  *   listener reacting synchronously) is re-submitted to VLCJ's task thread with
- *   [MediaPlayer.submit], and a getter answers from the cache.
+ *   [VlcNativePlayer.submit], and a getter answers from the cache.
  * - The listener is only invoked under [listenerLock] for the current, open session; closing a
  *   session takes that lock first, so no callback — queued or in flight — reaches the listener
  *   after [release] returns.
+ *
+ * @param createRuntime builds the libvlc instance; the seam tests replace.
+ * @param teardown the serial executor native teardown runs on.
+ * @param resolve maps a source onto what VLC opens; blocking, run on [Dispatchers.IO].
  */
 @OptIn(ToolkitInternalApi::class)
 internal class VlcjVideoEngine(
-    private val vlcArgs: List<String>,
+    vlcArgs: List<String>,
     private val discover: () -> Boolean = VlcNativeDiscovery::discover,
     private val classLoader: ClassLoader? = null,
+    createRuntime: (List<String>) -> VlcRuntime = ::VlcjRuntime,
+    private val teardown: Executor = newTeardownExecutor(),
+    private val resolve: (VideoSource, ClassLoader) -> ResolvedMedia = VlcMediaResolver::resolve,
 ) : VideoPlaybackEngine, VideoFrameSource {
 
     private val lock = Any()
     private val listenerLock = Any()
+    private val frameLock = Any()
 
-    /** True on VLCJ's event thread and libvlc's video-output thread while this engine handles a callback. */
+    /** True on VLC's event and video-output threads while this engine handles a callback. */
     private val onVlcThread: ThreadLocal<Boolean> = ThreadLocal.withInitial { false }
+
+    // Captures only constructor parameters, never `this`: it is the Cleaner's action.
+    private val runtime: RuntimeHolder = RuntimeHolder({ createRuntime(vlcArgs) }, teardown)
+    private val cleanable: Cleaner.Cleanable = CLEANER.register(this, runtime)
 
     @Volatile
     private var listener: VideoPlaybackEngineListener? = null
-
-    /** Guarded by [lock]. */
-    private var factory: MediaPlayerFactory? = null
 
     @Volatile
     private var session: Session? = null
@@ -112,10 +119,12 @@ internal class VlcjVideoEngine(
         val loader: ClassLoader = classLoader
             ?: Thread.currentThread().contextClassLoader
             ?: VlcjVideoEngine::class.java.classLoader
-        val media: ResolvedMedia = withContext(Dispatchers.IO) { VlcMediaResolver.resolve(source, loader) }
+        val media: ResolvedMedia = resolveMedia(source, loader)
+        // No suspension point between here and the try: from now on the session owns the media.
         val opened = Session(media)
         try {
-            if (!discover()) {
+            val found: Boolean = withContext(Dispatchers.IO) { discover() }
+            if (!found) {
                 throw VlcUnavailableException(
                     "libvlc was not found, or does not match this JVM's CPU architecture. " +
                         "Install VLC 3.x or bundle libvlc with the application."
@@ -124,13 +133,14 @@ internal class VlcjVideoEngine(
             session = opened
             withContext(Dispatchers.IO) { opened.open() }
             when (opened.parsed.await()) {
-                MediaParsedStatus.DONE, MediaParsedStatus.SKIPPED -> Unit
-                MediaParsedStatus.FAILED -> throw VlcPlaybackException("VLC could not open the source")
-                MediaParsedStatus.TIMEOUT -> throw VlcPlaybackException("VLC timed out opening the source")
+                VlcParseStatus.DONE, VlcParseStatus.SKIPPED -> Unit
+                VlcParseStatus.FAILED -> throw VlcPlaybackException("VLC could not open the source")
+                VlcParseStatus.TIMEOUT -> throw VlcPlaybackException("VLC timed out opening the source")
             }
-            val initialSize: VideoSize? = opened.inspectParsedMedia()
+            val parsedSize: VideoSize? = opened.inspectParsedMedia()
+            opened.parsedSize = parsedSize
             opened.loaded = true
-            if (initialSize != null) opened.reportVideoSize(initialSize)
+            if (parsedSize != null) opened.reportVideoSize(parsedSize)
         } catch (error: Throwable) {
             closeSession(opened)
             throw error
@@ -144,7 +154,7 @@ internal class VlcjVideoEngine(
                 s.player?.submit { start() }
                 return
             }
-            s.player?.controls()?.play()
+            s.player?.play()
             s.started = true
         }
     }
@@ -156,7 +166,7 @@ internal class VlcjVideoEngine(
                 s.player?.submit { pause() }
                 return
             }
-            s.player?.controls()?.setPause(true)
+            s.player?.pause()
         }
     }
 
@@ -165,7 +175,7 @@ internal class VlcjVideoEngine(
             if (!s.loaded) return
             val target: Long = positionMs.coerceAtLeast(0L)
             // Before the first start, and after the end, libvlc has no running input to seek in:
-            // remember the target and apply it when playback begins.
+            // remember the target and apply it when playback begins. Nothing starts playing here.
             if (!s.started || s.ended) {
                 s.pendingSeekMs = target
                 s.timeMs = target
@@ -175,7 +185,7 @@ internal class VlcjVideoEngine(
                 s.player?.submit { seekTo(target) }
                 return
             }
-            s.player?.controls()?.setTime(target)
+            s.player?.setTime(target)
             s.timeMs = target
         }
     }
@@ -193,7 +203,7 @@ internal class VlcjVideoEngine(
     override fun setLooping(looping: Boolean) {
         this.looping = looping
         // A VLCJ-side flag (its own finished-event handler replays the media), not a native call.
-        withOpenSession { s -> s.player?.controls()?.setRepeat(looping) }
+        withOpenSession { s -> s.player?.setRepeat(looping) }
     }
 
     override fun durationMs(): Long {
@@ -209,7 +219,7 @@ internal class VlcjVideoEngine(
         if (s.ended) return durationMs()
         if (s.started && !onVlcThread.get()) {
             withOpenSession { open ->
-                val time: Long = open.player?.status()?.time() ?: -1L
+                val time: Long = open.player?.time() ?: -1L
                 if (time >= 0L) open.timeMs = time
             }
         }
@@ -227,14 +237,38 @@ internal class VlcjVideoEngine(
         return if (s.media.isLocal) durationMs() else positionMs()
     }
 
+    /** Ends the current session; the libvlc instance stays for the next [load] (see [dispose]). */
     override fun release() {
         closeSession(session)
-        val released: MediaPlayerFactory? = synchronized(lock) { factory.also { factory = null } }
-        if (released != null) runOffVlcThread { runCatching { released.release() } }
-        frameFlow.value = null
+        synchronized(frameLock) { frameFlow.value = null }
+    }
+
+    /**
+     * Releases, then frees the libvlc instance — after every native player, on the [teardown]
+     * thread. Final and idempotent; mirrors the core's internal `DisposableVideoPlaybackEngine`.
+     */
+    fun dispose() {
+        release()
+        cleanable.clean()
     }
 
     // --- internals ---------------------------------------------------------------------------
+
+    /**
+     * Resolves [source] on [Dispatchers.IO] without leaking what it produced: when cancellation
+     * lands after the resolution finished, `withContext` still throws, and the temporary asset copy
+     * it made would otherwise be orphaned until JVM exit.
+     */
+    private suspend fun resolveMedia(source: VideoSource, loader: ClassLoader): ResolvedMedia {
+        val result: AtomicReference<ResolvedMedia?> = AtomicReference(null)
+        try {
+            withContext(Dispatchers.IO) { result.set(resolve(source, loader)) }
+        } catch (error: Throwable) {
+            result.get()?.discard()
+            throw error
+        }
+        return checkNotNull(result.get())
+    }
 
     /** Runs [block] under [lock] with the current session, if there is one and it is still open. */
     private inline fun withOpenSession(block: (Session) -> Unit) {
@@ -253,28 +287,12 @@ internal class VlcjVideoEngine(
         //    session after this block.
         synchronized(lock) { if (session === s) session = null }
         s.parsed.cancel()
-        runOffVlcThread {
-            s.player?.let { player: EmbeddedMediaPlayer ->
-                runCatching { player.media().parsing().stop() }
-                runCatching { player.controls().stop() }
-                runCatching { player.release() }
-            }
-            s.media.discard()
-        }
-        frameFlow.value = null
-    }
-
-    /**
-     * Native teardown must not run on a VLC thread (it would wait for that very thread), which can
-     * happen when a listener releases the player from inside a callback — hand it to a new thread
-     * then.
-     */
-    private fun runOffVlcThread(block: () -> Unit) {
-        if (onVlcThread.get()) {
-            thread(name = "kmptoolkit-vlcj-release", isDaemon = true) { block() }
-        } else {
-            block()
-        }
+        // 3. No frame of this session can be published after this block (see publishFrame).
+        synchronized(frameLock) { frameFlow.value = null }
+        // 4. The native teardown itself may block for as long as libvlc takes to give up on an
+        //    input — never on the caller's thread, and never on a VLC thread (it would wait for
+        //    that very thread).
+        teardown.execute { s.teardown() }
     }
 
     private inline fun onVlcCallback(block: () -> Unit) {
@@ -295,21 +313,19 @@ internal class VlcjVideoEngine(
         }
     }
 
-    private fun createFactory(): MediaPlayerFactory = try {
-        MediaPlayerFactory(NativeDiscovery(), vlcArgs)
-    } catch (error: LinkageError) {
-        throw VlcUnavailableException("libvlc could not be loaded", error)
-    } catch (error: RuntimeException) {
-        throw VlcUnavailableException("libvlc could not be initialised with arguments $vlcArgs", error)
+    private fun publishFrame(s: Session, frame: VideoFrame) {
+        synchronized(frameLock) {
+            if (!s.closed) frameFlow.value = frame
+        }
     }
 
     /** One loaded source on its own native media player. */
     private inner class Session(val media: ResolvedMedia) {
 
         val closing: AtomicBoolean = AtomicBoolean(false)
-        val parsed: CompletableDeferred<MediaParsedStatus> = CompletableDeferred()
+        val parsed: CompletableDeferred<VlcParseStatus> = CompletableDeferred()
 
-        @Volatile var player: EmbeddedMediaPlayer? = null
+        @Volatile var player: VlcNativePlayer? = null
         @Volatile var closed: Boolean = false
         @Volatile var loaded: Boolean = false
         @Volatile var started: Boolean = false
@@ -320,52 +336,42 @@ internal class VlcjVideoEngine(
         @Volatile var bufferingReported: Boolean = false
         @Volatile var reportedSize: VideoSize? = null
 
-        // Held so the JNA callbacks inside cannot be garbage-collected while libvlc uses them.
-        private var surface: CallbackVideoSurface? = null
-        private val frameSink: FrameSink = FrameSink(this)
-        private val playerEvents: PlayerEvents = PlayerEvents(this)
-        private val mediaEvents: MediaEvents = MediaEvents(this)
+        /** The displayed size parsing found; when known, the decoder's buffer size never replaces it. */
+        @Volatile var parsedSize: VideoSize? = null
+
+        private val callbacks: Callbacks = Callbacks(this)
 
         /** Creates the native player and starts parsing. Blocking; call off the main thread. */
         fun open() {
+            val libvlc: VlcRuntime = runtime.acquire()
             synchronized(lock) {
                 if (closed) throw CancellationException("The load was abandoned")
-                val libvlc: MediaPlayerFactory = factory ?: createFactory().also { factory = it }
-                val created: EmbeddedMediaPlayer = libvlc.mediaPlayers().newEmbeddedMediaPlayer()
+                val created: VlcNativePlayer = libvlc.newPlayer(callbacks)
                 player = created
-                val videoSurface: CallbackVideoSurface =
-                    libvlc.videoSurfaces().newVideoSurface(frameSink, frameSink, true)
-                surface = videoSurface
-                created.videoSurface().set(videoSurface)
-                created.events().addMediaPlayerEventListener(playerEvents)
-                created.events().addMediaEventListener(mediaEvents)
-                created.controls().setRepeat(looping)
-                if (!created.media().prepare(media.mrl, *media.options.toTypedArray())) {
+                created.setRepeat(looping)
+                if (!created.prepare(media.mrl, media.options)) {
                     throw VlcPlaybackException("VLC rejected the media locator")
                 }
-                if (!created.media().parsing().parse(0, ParseFlag.PARSE_LOCAL, ParseFlag.PARSE_NETWORK)) {
+                if (!created.parse()) {
                     throw VlcPlaybackException("VLC could not start opening the source")
                 }
             }
         }
 
         /**
-         * Reads what parsing learned: the duration, and the picture size of the first video
-         * track. A local source with no track at all is not media VLC can play.
+         * Reads what parsing learned: the duration, and the displayed picture size of the first
+         * video track. A local source with no track at all is not media VLC can play.
          */
         fun inspectParsedMedia(): VideoSize? {
             var size: VideoSize? = null
             withOpenSession { s ->
                 if (s !== this) throw CancellationException("The load was abandoned")
-                val parsedMedia = player?.media() ?: return@withOpenSession
-                val duration: Long = parsedMedia.info().duration()
-                if (duration > 0L) lengthMs = duration
-                val tracks: List<TrackInfo> = parsedMedia.info().tracks().orEmpty()
-                if (tracks.isEmpty() && media.isLocal) {
+                val info: VlcParsedInfo = player?.parsedInfo() ?: return@withOpenSession
+                if (info.durationMs > 0L) lengthMs = info.durationMs
+                if (info.trackCount == 0 && media.isLocal) {
                     throw VlcPlaybackException("VLC found no playable track in the source")
                 }
-                val video: VideoTrackInfo? = parsedMedia.info().videoTracks().orEmpty().firstOrNull()
-                size = video?.let(::displaySize)
+                size = info.videoSize
             }
             if (closed) throw CancellationException("The load was abandoned")
             return size
@@ -373,13 +379,13 @@ internal class VlcjVideoEngine(
 
         /** Re-applies volume and rate, which libvlc only accepts once an output exists. */
         fun applySettings() {
-            val current: EmbeddedMediaPlayer = player ?: return
+            val current: VlcNativePlayer = player ?: return
             if (onVlcThread.get()) {
                 current.submit { withOpenSession { s -> if (s === this) applySettings() } }
                 return
             }
-            current.audio().setVolume(volumePercent(volume))
-            current.controls().setRate(speed)
+            current.setVolume(volumePercent(volume))
+            current.setRate(speed)
         }
 
         fun setBuffering(buffering: Boolean) {
@@ -394,37 +400,30 @@ internal class VlcjVideoEngine(
             notify(this) { it.onVideoSizeChanged(size) }
         }
 
-        // Frame buffers: a small ring, so the consumer can still be copying frame N while N+1 is
-        // decoded. Touched only from libvlc's single video-output thread.
-        private var ring: Array<IntArray> = emptyArray()
-        private var ringIndex: Int = 0
-
-        fun allocateFrames(pixelCount: Int) {
-            ring = Array(FRAME_RING_SIZE) { IntArray(pixelCount) }
-            ringIndex = 0
-        }
-
-        fun nextFrameBuffer(pixelCount: Int): IntArray {
-            if (ring.isEmpty() || ring[0].size != pixelCount) allocateFrames(pixelCount)
-            val buffer: IntArray = ring[ringIndex]
-            ringIndex = (ringIndex + 1) % ring.size
-            return buffer
+        /** Runs on the [teardown] thread: native player first, then the media it had open. */
+        fun teardown() {
+            player?.let { p: VlcNativePlayer ->
+                runCatching { p.stopParsing() }
+                runCatching { p.stop() }
+                runCatching { p.release() }
+            }
+            media.discard()
         }
     }
 
-    private inner class PlayerEvents(private val s: Session) : MediaPlayerEventAdapter() {
+    private inner class Callbacks(private val s: Session) : VlcPlayerCallbacks {
 
-        override fun playing(mediaPlayer: MediaPlayer) = onVlcCallback {
+        override fun playing() = onVlcCallback {
             s.ended = false
             // libvlc accepts a volume and a seek only once the output exists — i.e. now. Not from
             // this thread, though: VLCJ's task thread may call into libvlc.
-            mediaPlayer.submit {
+            s.player?.submit {
                 withOpenSession { open ->
                     if (open !== s) return@withOpenSession
                     s.applySettings()
                     val seek: Long = s.pendingSeekMs
                     if (seek >= 0L) {
-                        mediaPlayer.controls().setTime(seek)
+                        s.player?.setTime(seek)
                         s.timeMs = seek
                         s.pendingSeekMs = -1L
                     }
@@ -432,92 +431,108 @@ internal class VlcjVideoEngine(
             }
         }
 
-        override fun paused(mediaPlayer: MediaPlayer) = onVlcCallback { s.setBuffering(false) }
+        override fun paused() = onVlcCallback { s.setBuffering(false) }
 
-        override fun stopped(mediaPlayer: MediaPlayer) = onVlcCallback { s.setBuffering(false) }
+        override fun stopped() = onVlcCallback { s.setBuffering(false) }
 
-        override fun finished(mediaPlayer: MediaPlayer) = onVlcCallback {
+        override fun finished() = onVlcCallback {
             s.setBuffering(false)
             // While looping VLCJ's own handler replays the media; the end is not an end.
-            if (mediaPlayer.controls().getRepeat()) return@onVlcCallback
+            if (s.player?.repeat() == true) return@onVlcCallback
             s.ended = true
             s.timeMs = s.lengthMs
             notify(s) { it.onCompleted() }
         }
 
-        override fun error(mediaPlayer: MediaPlayer) = onVlcCallback {
+        override fun error() = onVlcCallback {
             s.setBuffering(false)
             s.ended = true
             notify(s) { it.onFailed(VlcPlaybackException("VLC reported an error while playing the source")) }
         }
 
-        override fun buffering(mediaPlayer: MediaPlayer, newCache: Float) = onVlcCallback {
-            if (s.loaded) s.setBuffering(newCache < FULL_CACHE_PERCENT)
+        override fun buffering(cachePercent: Float) = onVlcCallback {
+            if (s.loaded) s.setBuffering(cachePercent < FULL_CACHE_PERCENT)
         }
 
-        override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) = onVlcCallback {
-            if (newLength > 0L) s.lengthMs = newLength
+        override fun lengthChanged(lengthMs: Long) = onVlcCallback {
+            if (lengthMs > 0L) s.lengthMs = lengthMs
         }
 
-        override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) = onVlcCallback {
-            if (newTime >= 0L && s.pendingSeekMs < 0L) s.timeMs = newTime
+        override fun timeChanged(timeMs: Long) = onVlcCallback {
+            if (timeMs >= 0L && s.pendingSeekMs < 0L) s.timeMs = timeMs
+        }
+
+        override fun parsed(status: VlcParseStatus) = onVlcCallback {
+            s.parsed.complete(status)
+        }
+
+        override fun durationChanged(durationMs: Long) = onVlcCallback {
+            if (durationMs > 0L) s.lengthMs = durationMs
+        }
+
+        /**
+         * The buffer is the *stored* picture — for an anamorphic source narrower than it is shown,
+         * since VLC hands pictures over without applying the sample aspect ratio. It is the
+         * reported size only when parsing found none (some network streams).
+         */
+        override fun bufferFormat(width: Int, height: Int) = onVlcCallback {
+            if (width > 0 && height > 0 && s.parsedSize == null) s.reportVideoSize(VideoSize(width, height))
+        }
+
+        /**
+         * Copies into a fresh array per picture: the frame flow is conflated and its consumer may
+         * hold a frame for any length of time, so no buffer can be reused safely.
+         */
+        override fun display(pixels: ByteBuffer, width: Int, height: Int) {
+            if (s.closed || width <= 0 || height <= 0) return
+            val argb = IntArray(width * height)
+            copyRv32ToArgb(pixels, argb, width * height)
+            publishFrame(s, VideoFrame(width, height, argb))
         }
     }
 
-    private inner class MediaEvents(private val s: Session) : MediaEventAdapter() {
+    /**
+     * Owns the libvlc instance. Also the [Cleaner] action, so it must never reference the engine.
+     */
+    private class RuntimeHolder(
+        private val create: () -> VlcRuntime,
+        private val teardown: Executor,
+    ) : Runnable {
 
-        override fun mediaParsedChanged(media: Media, newStatus: MediaParsedStatus) = onVlcCallback {
-            s.parsed.complete(newStatus)
+        private var runtime: VlcRuntime? = null
+        private var disposed: Boolean = false
+
+        /** The libvlc instance, created on first use. Blocking; call off the main thread. */
+        @Synchronized
+        fun acquire(): VlcRuntime {
+            check(!disposed) { "The engine was disposed" }
+            return runtime ?: create().also { runtime = it }
         }
 
-        override fun mediaDurationChanged(media: Media, newDuration: Long) = onVlcCallback {
-            if (newDuration > 0L) s.lengthMs = newDuration
-        }
-    }
-
-    private inner class FrameSink(private val s: Session) : BufferFormatCallback, RenderCallback {
-
-        override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
-            onVlcCallback {
-                s.allocateFrames(sourceWidth * sourceHeight)
-                if (sourceWidth > 0 && sourceHeight > 0) s.reportVideoSize(VideoSize(sourceWidth, sourceHeight))
-            }
-            return RV32BufferFormat(sourceWidth, sourceHeight)
-        }
-
-        override fun newFormatSize(bufferWidth: Int, bufferHeight: Int, displayWidth: Int, displayHeight: Int) {
-            onVlcCallback {
-                if (displayWidth > 0 && displayHeight > 0) s.reportVideoSize(VideoSize(displayWidth, displayHeight))
-            }
-        }
-
-        override fun allocatedBuffers(buffers: Array<out ByteBuffer>) = Unit
-
-        override fun lock(mediaPlayer: MediaPlayer) = Unit
-
-        override fun unlock(mediaPlayer: MediaPlayer) = Unit
-
-        override fun display(
-            mediaPlayer: MediaPlayer,
-            nativeBuffers: Array<out ByteBuffer>,
-            bufferFormat: BufferFormat,
-            displayWidth: Int,
-            displayHeight: Int,
-        ) {
-            if (s.closed || nativeBuffers.isEmpty()) return
-            val width: Int = bufferFormat.width
-            val height: Int = bufferFormat.height
-            if (width <= 0 || height <= 0) return
-            val pixels: IntArray = s.nextFrameBuffer(width * height)
-            copyRv32ToArgb(nativeBuffers[0], pixels, width * height)
-            if (!s.closed) frameFlow.value = VideoFrame(width, height, pixels)
+        /** Frees the instance on [teardown], after every session teardown queued before it. */
+        override fun run() {
+            val released: VlcRuntime = synchronized(this) {
+                disposed = true
+                runtime.also { runtime = null }
+            } ?: return
+            teardown.execute { runCatching { released.release() } }
         }
     }
 
     internal companion object {
-        private const val FRAME_RING_SIZE = 3
         private const val FULL_CACHE_PERCENT = 100f
-        private const val MAX_VLC_VOLUME_PERCENT = 100
+        private const val TEARDOWN_KEEP_ALIVE_SECONDS = 5L
+        private val CLEANER: Cleaner = Cleaner.create()
+
+        /** One serial daemon thread per engine, started on demand and gone when idle. */
+        fun newTeardownExecutor(): ExecutorService = ThreadPoolExecutor(
+            1,
+            1,
+            TEARDOWN_KEEP_ALIVE_SECONDS,
+            TimeUnit.SECONDS,
+            LinkedBlockingQueue(),
+        ) { task: Runnable -> Thread(task, "kmptoolkit-vlcj-teardown").apply { isDaemon = true } }
+            .apply { allowCoreThreadTimeOut(true) }
     }
 }
 
@@ -541,19 +556,3 @@ internal fun copyRv32ToArgb(source: ByteBuffer, target: IntArray, pixelCount: In
 }
 
 private const val OPAQUE_ALPHA: Int = -0x1000000 // 0xFF000000
-
-/** The displayed picture size of a parsed video track: sample aspect ratio applied, rotation honoured. */
-internal fun displaySize(track: VideoTrackInfo): VideoSize? {
-    var width: Int = track.width()
-    val height: Int = track.height()
-    if (width <= 0 || height <= 0) return null
-    val sar: Int = track.sampleAspectRatio()
-    val sarBase: Int = track.sampleAspectRatioBase()
-    if (sar > 0 && sarBase > 0 && sar != sarBase) {
-        width = (width.toLong() * sar / sarBase).toInt().coerceAtLeast(1)
-    }
-    return when (track.orientation()?.name) {
-        "LEFT_TOP", "LEFT_BOTTOM", "RIGHT_TOP", "RIGHT_BOTTOM" -> VideoSize(height, width)
-        else -> VideoSize(width, height)
-    }
-}

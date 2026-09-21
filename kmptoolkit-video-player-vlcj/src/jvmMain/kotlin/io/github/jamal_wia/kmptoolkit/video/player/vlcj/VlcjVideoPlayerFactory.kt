@@ -35,11 +35,18 @@ public fun createVlcjVideoPlayer(
     config: VideoPlayerConfig = VideoPlayerConfig(),
     coroutineContext: CoroutineContext = Dispatchers.Default,
     vlcArgs: List<String> = emptyList(),
-): VideoPlayer = createVideoPlayer(
+): VideoPlayer = createVlcjVideoPlayer(
     engine = VlcjVideoEngine(vlcArgs = vlcArgs.toList()),
     config = config,
     coroutineContext = coroutineContext,
 )
+
+/** [createVlcjVideoPlayer] over a given engine, so tests can supply one with a fake libvlc. */
+internal fun createVlcjVideoPlayer(
+    engine: VlcjVideoEngine,
+    config: VideoPlayerConfig,
+    coroutineContext: CoroutineContext,
+): VideoPlayer = createVideoPlayer(engine = engine, config = config, coroutineContext = coroutineContext)
 
 /**
  * Whether a usable VLC installation can be found and loaded by this JVM — never throws.

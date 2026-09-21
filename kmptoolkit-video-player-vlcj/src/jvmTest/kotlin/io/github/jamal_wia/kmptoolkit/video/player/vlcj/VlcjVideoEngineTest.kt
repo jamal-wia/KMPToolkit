@@ -34,7 +34,8 @@ import org.junit.Assume.assumeTrue
 /**
  * The engine against a real libvlc, playing the checked-in 2-second clip. Skipped — not failed —
  * when [isVlcAvailable] is false, which includes a VLC built for another CPU architecture than the
- * test JVM (see `docs/kmptoolkit-video-player-vlcj/06-testing.md`).
+ * test JVM, unless the build runs with `-Pvlc.required=true`: then a missing VLC fails every case
+ * (see `docs/kmptoolkit-video-player-vlcj/06-testing.md`).
  */
 @OptIn(ToolkitInternalApi::class)
 class VlcjVideoEngineTest {
@@ -43,16 +44,22 @@ class VlcjVideoEngineTest {
     private lateinit var engine: VlcjVideoEngine
     private val servers: MutableList<AutoCloseable> = CopyOnWriteArrayList()
 
+    private val runtime = CapturingRuntime()
+
     @BeforeTest
     fun requireVlc() {
-        assumeTrue("VLC (libvlc) is not available to this JVM", isVlcAvailable())
-        engine = VlcjVideoEngine(vlcArgs = listOf("--quiet", "--aout=dummy"))
+        if (System.getProperty(VLC_REQUIRED_PROPERTY).toBoolean()) {
+            check(isVlcAvailable()) { "VLC (libvlc) is not available to this JVM, and -Pvlc.required=true" }
+        } else {
+            assumeTrue("VLC (libvlc) is not available to this JVM", isVlcAvailable())
+        }
+        engine = VlcjVideoEngine(vlcArgs = VLC_ARGS, createRuntime = { runtime.wrap(VlcjRuntime(it)) })
         engine.setListener(listener)
     }
 
     @AfterTest
     fun tearDown() {
-        if (::engine.isInitialized) engine.release()
+        if (::engine.isInitialized) engine.dispose()
         servers.forEach { runCatching { it.close() } }
     }
 
@@ -237,19 +244,51 @@ class VlcjVideoEngineTest {
         assertTrue(engine.frames.value !== before, "frames must keep coming across the loop point")
     }
 
+    // The clip has no audio track, so libvlc creates no audio output and has no volume to read back
+    // (it reports -1): these check the rate here, and VlcjVideoEngineSessionTest checks that the
+    // volume goes out through the same path at the same moments.
+
     @Test
-    fun `speed and volume can be set before and during playback`() = runBlocking<Unit> {
+    fun `a speed given before playback reaches libvlc once it starts`() = runBlocking<Unit> {
         engine.setVolume(0.2f)
         engine.setSpeed(2f)
         engine.load(VideoSource.File(TestClip.file.path))
         engine.start()
 
+        val player: VlcNativePlayer = runtime.players.last()
+        awaitTrue { player.rate() == 2f }
+    }
+
+    @Test
+    fun `a speed changed during playback reaches libvlc`() = runBlocking<Unit> {
+        engine.load(VideoSource.File(TestClip.file.path))
+        engine.start()
+        val player: VlcNativePlayer = runtime.players.last()
+        awaitTrue { engine.positionMs() > 100L }
+
         engine.setVolume(0f)
         engine.setSpeed(0.5f)
-        engine.setSpeed(2f)
 
-        // At 2x a 2-second clip ends well inside 1x's running time.
-        awaitTrue(timeoutMs = 1_900L) { listener.completions == 1 }
+        awaitTrue { player.rate() == 0.5f }
+    }
+
+    @Test
+    fun `a seek after completion stays paused until start`() = runBlocking<Unit> {
+        engine.load(VideoSource.File(TestClip.file.path))
+        engine.start()
+        awaitTrue(timeoutMs = 8_000L) { listener.completions == 1 }
+        val lastFrame: VideoFrame? = engine.frames.value
+
+        engine.seekTo(500L)
+        delay(700L)
+
+        assertEquals(500L, engine.positionMs())
+        assertTrue(engine.frames.value === lastFrame, "no picture may be decoded before start")
+        assertEquals(1, listener.completions)
+
+        engine.start()
+        awaitTrue { engine.positionMs() in 500L..1_900L && engine.frames.value !== lastFrame }
+        awaitTrue(timeoutMs = 8_000L) { listener.completions == 2 }
     }
 
     // --- release -----------------------------------------------------------------------------------
@@ -274,7 +313,7 @@ class VlcjVideoEngineTest {
     }
 
     @Test
-    fun `load after release works`() = runBlocking<Unit> {
+    fun `load after release works, on the same libvlc instance`() = runBlocking<Unit> {
         engine.load(VideoSource.File(TestClip.file.path))
         engine.release()
 
@@ -337,7 +376,21 @@ class VlcjVideoEngineTest {
         return assertNotNull(value)
     }
 
+    /** Keeps each native player the real runtime creates, so a test can read back what libvlc has. */
+    private class CapturingRuntime {
+        val players: MutableList<VlcNativePlayer> = CopyOnWriteArrayList()
+
+        fun wrap(real: VlcRuntime): VlcRuntime = object : VlcRuntime {
+            override fun newPlayer(callbacks: VlcPlayerCallbacks): VlcNativePlayer =
+                real.newPlayer(callbacks).also { players += it }
+
+            override fun release() = real.release()
+        }
+    }
+
     private companion object {
+        const val VLC_REQUIRED_PROPERTY = "kmptoolkit.vlc.required"
+        val VLC_ARGS: List<String> = listOf("--quiet", "--aout=dummy")
         const val POLL_MS = 20L
         const val LOAD_TIMEOUT_MS = 15_000L
         const val CANCEL_TIMEOUT_MS = 5_000L
