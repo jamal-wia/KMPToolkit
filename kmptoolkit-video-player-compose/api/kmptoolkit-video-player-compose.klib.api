@@ -6,6 +6,10 @@
 // - Show declarations: true
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-video-player-compose>
+open annotation class io.github.jamal_wia.kmptoolkit.video.player.compose/InternalForInheritanceVideoControlsApi : kotlin/Annotation { // io.github.jamal_wia.kmptoolkit.video.player.compose/InternalForInheritanceVideoControlsApi|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.video.player.compose/InternalForInheritanceVideoControlsApi.<init>|<init>(){}[0]
+}
+
 final enum class io.github.jamal_wia.kmptoolkit.video.player.compose/VideoScaleMode : kotlin/Enum<io.github.jamal_wia.kmptoolkit.video.player.compose/VideoScaleMode> { // io.github.jamal_wia.kmptoolkit.video.player.compose/VideoScaleMode|null[0]
     enum entry Crop // io.github.jamal_wia.kmptoolkit.video.player.compose/VideoScaleMode.Crop|null[0]
     enum entry Fill // io.github.jamal_wia.kmptoolkit.video.player.compose/VideoScaleMode.Fill|null[0]

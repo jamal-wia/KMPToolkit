@@ -175,6 +175,10 @@ What the scope gives you, all backed by snapshot state:
   `replay()`, `setMuted(…)`, `toggleMute()`, `setVolume(…)`, `setPlaybackSpeed(…)`,
   `setRepeatMode(…)`. Each also restarts the auto-hide countdown.
 
+You get a scope from the slot or from `rememberVideoControlsScope`; you never implement one. It may
+gain members in a minor release, so implementing it is behind an explicit opt-in
+(`@InternalForInheritanceVideoControlsApi`) that no compatibility promise covers.
+
 `controlsVisible` is a hint: it turns `true` whenever playback stops (paused, completed, failed)
 and `false` `controlsAutoHideDelayMs` after the last interaction while playing. A tap on the
 picture toggles it. Controls that should always be visible just ignore it. `{}` shows no controls
