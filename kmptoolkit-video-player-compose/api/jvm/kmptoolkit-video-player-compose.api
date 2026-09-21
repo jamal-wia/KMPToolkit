@@ -1,0 +1,178 @@
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/BufferingIndicatorKt {
+	public static final fun BufferingIndicator-vz2T9sI (Landroidx/compose/ui/Modifier;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;FFLjava/lang/String;Landroidx/compose/runtime/Composer;II)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/ComposableSingletons$VideoPlayerKt {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/video/player/compose/ComposableSingletons$VideoPlayerKt;
+	public fun <init> ()V
+	public final fun getLambda$-1133930939$io_github_jamal_wia_kmptoolkit_video_player_compose ()Lkotlin/jvm/functions/Function3;
+	public final fun getLambda$189963911$io_github_jamal_wia_kmptoolkit_video_player_compose ()Lkotlin/jvm/functions/Function3;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/DefaultVideoControlsKt {
+	public static final fun DefaultVideoControls (Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsScope;Landroidx/compose/ui/Modifier;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsDimensions;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsLabels;Landroidx/compose/ui/text/TextStyle;Lkotlin/jvm/functions/Function0;ZLjava/util/List;JZZZZLkotlin/jvm/functions/Function1;Landroidx/compose/runtime/Composer;III)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/PauseOnBackgroundEffectKt {
+	public static final fun PauseOnBackgroundEffect (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;ZLandroidx/compose/runtime/Composer;II)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/RememberVideoPlayerKt {
+	public static final fun rememberVideoPlayer (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource;ZLio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig;Landroidx/compose/runtime/Composer;II)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlButtonsKt {
+	public static final fun FullscreenButton-3GLzNTs (ZLkotlin/jvm/functions/Function0;Landroidx/compose/ui/Modifier;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;FFLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsLabels;Landroidx/compose/runtime/Composer;II)V
+	public static final fun MuteButton-1tP8Re8 (ZLkotlin/jvm/functions/Function0;Landroidx/compose/ui/Modifier;ZLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;FFLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsLabels;Landroidx/compose/runtime/Composer;II)V
+	public static final fun PlayPauseButton-1tP8Re8 (ZLkotlin/jvm/functions/Function0;Landroidx/compose/ui/Modifier;ZLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;FFLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsLabels;Landroidx/compose/runtime/Composer;II)V
+	public static final fun ReplayButton-3GLzNTs (Lkotlin/jvm/functions/Function0;Landroidx/compose/ui/Modifier;ZLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;FFLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsLabels;Landroidx/compose/runtime/Composer;II)V
+	public static final fun SeekButton-EQC0FA8 (ZLkotlin/jvm/functions/Function1;Landroidx/compose/ui/Modifier;JZLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;FFLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsLabels;Landroidx/compose/runtime/Composer;II)V
+	public static final fun SpeedButton-f8-ukHw (FLkotlin/jvm/functions/Function1;Landroidx/compose/ui/Modifier;Ljava/util/List;ZLkotlin/jvm/functions/Function1;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;FLandroidx/compose/ui/text/TextStyle;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsLabels;Landroidx/compose/runtime/Composer;II)V
+	public static final fun VideoControlButton-4EFweAY (Landroidx/compose/ui/graphics/vector/ImageVector;Lkotlin/jvm/functions/Function0;Ljava/lang/String;Landroidx/compose/ui/Modifier;ZLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;FFLandroidx/compose/runtime/Composer;II)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors {
+	public static final field $stable I
+	public synthetic fun <init> (JJJJJJJJLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getBufferingIndicator-0d7_KjU ()J
+	public final fun getContent-0d7_KjU ()J
+	public final fun getDisabledContent-0d7_KjU ()J
+	public final fun getScrim-0d7_KjU ()J
+	public final fun getSeekBuffered-0d7_KjU ()J
+	public final fun getSeekProgress-0d7_KjU ()J
+	public final fun getSeekThumb-0d7_KjU ()J
+	public final fun getSeekTrack-0d7_KjU ()J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsDefaults {
+	public static final field $stable I
+	public static final field AutoHideDelayMs J
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsDefaults;
+	public final fun colors-FD3wquc (JJJJJJJJ)Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;
+	public static synthetic fun colors-FD3wquc$default (Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsDefaults;JJJJJJJJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;
+	public final fun dimensions-ETLW93k (FFFFFFFFFF)Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsDimensions;
+	public static synthetic fun dimensions-ETLW93k$default (Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsDefaults;FFFFFFFFFFILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsDimensions;
+	public final fun formatSpeed (F)Ljava/lang/String;
+	public final fun getControlTextStyle ()Landroidx/compose/ui/text/TextStyle;
+	public final fun getSpeeds ()Ljava/util/List;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsDimensions {
+	public static final field $stable I
+	public synthetic fun <init> (FFFFFFFFFFLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getBufferingIndicatorSize-D9Ej5fM ()F
+	public final fun getBufferingIndicatorStrokeWidth-D9Ej5fM ()F
+	public final fun getButtonSize-D9Ej5fM ()F
+	public final fun getCenterButtonSize-D9Ej5fM ()F
+	public final fun getCenterIconSize-D9Ej5fM ()F
+	public final fun getContentPadding-D9Ej5fM ()F
+	public final fun getIconSize-D9Ej5fM ()F
+	public final fun getSeekBarHeight-D9Ej5fM ()F
+	public final fun getSeekThumbRadius-D9Ej5fM ()F
+	public final fun getSeekTrackHeight-D9Ej5fM ()F
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsIcons {
+	public static final field $stable I
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsIcons;
+	public final fun getEnterFullscreen ()Landroidx/compose/ui/graphics/vector/ImageVector;
+	public final fun getExitFullscreen ()Landroidx/compose/ui/graphics/vector/ImageVector;
+	public final fun getPause ()Landroidx/compose/ui/graphics/vector/ImageVector;
+	public final fun getPlay ()Landroidx/compose/ui/graphics/vector/ImageVector;
+	public final fun getReplay ()Landroidx/compose/ui/graphics/vector/ImageVector;
+	public final fun getSeekBackward ()Landroidx/compose/ui/graphics/vector/ImageVector;
+	public final fun getSeekForward ()Landroidx/compose/ui/graphics/vector/ImageVector;
+	public final fun getVolumeOff ()Landroidx/compose/ui/graphics/vector/ImageVector;
+	public final fun getVolumeOn ()Landroidx/compose/ui/graphics/vector/ImageVector;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsLabels {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getBuffering ()Ljava/lang/String;
+	public final fun getEnterFullscreen ()Ljava/lang/String;
+	public final fun getExitFullscreen ()Ljava/lang/String;
+	public final fun getMute ()Ljava/lang/String;
+	public final fun getPause ()Ljava/lang/String;
+	public final fun getPlay ()Ljava/lang/String;
+	public final fun getPlaybackSpeed ()Ljava/lang/String;
+	public final fun getReplay ()Ljava/lang/String;
+	public final fun getSeekBackward ()Ljava/lang/String;
+	public final fun getSeekBar ()Ljava/lang/String;
+	public final fun getSeekForward ()Ljava/lang/String;
+	public final fun getUnmute ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsScope {
+	public abstract fun getBufferedPositionMs ()J
+	public abstract fun getControlsVisible ()Z
+	public abstract fun getDurationMs ()J
+	public abstract fun getPlaybackSpeed ()F
+	public abstract fun getPlayer ()Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;
+	public abstract fun getPlayerState ()Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState;
+	public abstract fun getPositionMs ()J
+	public abstract fun getRepeatMode ()Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;
+	public abstract fun getVideoSize ()Lio/github/jamal_wia/kmptoolkit/video/player/VideoSize;
+	public abstract fun getVolume ()F
+	public abstract fun hideControls ()V
+	public abstract fun isBuffering ()Z
+	public abstract fun isMuted ()Z
+	public abstract fun isPlaying ()Z
+	public abstract fun pause ()V
+	public abstract fun play ()V
+	public abstract fun replay ()V
+	public abstract fun seekBy (J)V
+	public abstract fun seekTo (J)V
+	public abstract fun setInteracting (Z)V
+	public abstract fun setMuted (Z)V
+	public abstract fun setPlaybackSpeed (F)V
+	public abstract fun setRepeatMode (Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;)V
+	public abstract fun setVolume (F)V
+	public abstract fun showControls ()V
+	public abstract fun toggleControls ()V
+	public abstract fun toggleMute ()V
+	public abstract fun togglePlayPause ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsScopeKt {
+	public static final fun rememberVideoControlsScope (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;JLandroidx/compose/runtime/Composer;II)Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsScope;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoPlayerFactory {
+	public abstract fun create (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoPlayerFactoryKt {
+	public static final fun getLocalVideoPlayerFactory ()Landroidx/compose/runtime/ProvidableCompositionLocal;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoPlayerKt {
+	public static final fun VideoPlayer-1YH7lEI (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;Landroidx/compose/ui/Modifier;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoScaleMode;ZZJJLkotlin/jvm/functions/Function3;Landroidx/compose/runtime/Composer;II)V
+	public static final fun VideoPlayer-SPO2TK8 (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource;Landroidx/compose/ui/Modifier;ZLkotlin/jvm/functions/Function2;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoScaleMode;ZZJJLio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig;Lkotlin/jvm/functions/Function3;Landroidx/compose/runtime/Composer;III)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoPlayerSurfaceKt {
+	public static final fun VideoPlayerSurface (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;Landroidx/compose/ui/Modifier;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoScaleMode;ZLandroidx/compose/runtime/Composer;II)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoScaleMode : java/lang/Enum {
+	public static final field Crop Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoScaleMode;
+	public static final field Fill Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoScaleMode;
+	public static final field Fit Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoScaleMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoScaleMode;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoScaleMode;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoSeekBarKt {
+	public static final fun VideoSeekBar-jXF2sa8 (JJLkotlin/jvm/functions/Function1;Landroidx/compose/ui/Modifier;JZLkotlin/jvm/functions/Function1;Lio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;FFFLjava/lang/String;Landroidx/compose/runtime/Composer;III)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/compose/VideoTimeTextKt {
+	public static final fun VideoTimeText (JLandroidx/compose/ui/Modifier;JLio/github/jamal_wia/kmptoolkit/video/player/compose/VideoControlsColors;Landroidx/compose/ui/text/TextStyle;Landroidx/compose/runtime/Composer;II)V
+	public static final fun formatVideoTime (JJ)Ljava/lang/String;
+	public static synthetic fun formatVideoTime$default (JJILjava/lang/Object;)Ljava/lang/String;
+}
+

@@ -33,14 +33,26 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.ui)
             implementation(compose.foundation)
+            implementation(compose.animation)
             implementation(libs.androidx.lifecycle.runtime.compose)
         }
-        androidUnitTest.dependencies {
-            implementation(compose.uiTest)
+        // The Compose UI tests are written once, in src/uiTest, and compiled into both JVM-hosted
+        // test compilations: Robolectric on Android, Skia on desktop. Each side adds only a thin
+        // subclass per suite (the Robolectric runner annotation exists on one side only).
+        androidUnitTest {
+            kotlin.srcDir("src/uiTest/kotlin")
+            dependencies {
+                implementation(compose.uiTest)
+            }
         }
-        jvmTest.dependencies {
-            implementation(compose.uiTest)
-            implementation(compose.desktop.currentOs)
+        jvmTest {
+            kotlin.srcDir("src/uiTest/kotlin")
+            dependencies {
+                implementation(compose.uiTest)
+                // The Skia runtime runComposeUiTest renders through on desktop. Test-only, and for
+                // the machine running the tests — nothing here reaches a published artifact.
+                implementation(compose.desktop.currentOs)
+            }
         }
     }
 }
