@@ -46,6 +46,10 @@ vlcj = "4.12.1"
 [libraries]
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 androidx-media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "media3" }
+# Test-only: TestExoPlayerBuilder, FakeMediaSource and the Robolectric run helpers, for
+# kmptoolkit-video-player's androidUnitTest. Never a dependency of a published source set.
+androidx-media3-test-utils = { group = "androidx.media3", name = "media3-test-utils", version.ref = "media3" }
+androidx-media3-test-utils-robolectric = { group = "androidx.media3", name = "media3-test-utils-robolectric", version.ref = "media3" }
 vlcj = { group = "uk.co.caprica", name = "vlcj", version.ref = "vlcj" }
 # Kotlinx
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
