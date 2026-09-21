@@ -148,6 +148,22 @@ player.bufferedPositionFlow // how far ahead the platform has data, in ms — a 
   when a source finishes loading and on `pause()`. It is `0` when nothing is loaded; for a local file
   it is the duration.
 
+## Remote sources: headers and HLS
+
+```kotlin
+VideoSource.Remote(
+    url = signedPlaylistUrl,                          // no .m3u8 in the path
+    headers = mapOf("Authorization" to "Bearer $token"),
+    format = RemoteFormat.Hls,                        // tell Android it is HLS
+)
+```
+
+`format` defaults to `RemoteFormat.Auto`, which is right whenever an HLS URL ends in `.m3u8` or the
+stream is a plain file. Android decides from the URL path alone, so a signed or rewritten HLS URL
+needs `RemoteFormat.Hls`; see [`05-platform-notes.md`](05-platform-notes.md). The source's
+`toString()` redacts header values, so logging a source does not leak the token — but the URL is
+printed as given.
+
 ## Picture size
 
 ```kotlin
@@ -242,8 +258,11 @@ val player: VideoPlayer = createVideoPlayer(engine = MyEngine())
 Read its KDoc first. The rules that matter: `release()` is idempotent and `load()` must work after
 it; `load()` honors cancellation and throws to report failure, leaving nothing playable; the listener
 is never called after `release()`; transport calls tolerate the wrong platform state;
-`durationMs()`/`positionMs()`/`bufferedPositionMs()` are cheap, thread-safe and `0` when unknown;
-`setLooping(true)` means the platform restarts the source itself and never reports completion.
+`durationMs()`/`positionMs()`/`bufferedPositionMs()` are cheap and `0` when unknown;
+`setLooping(true)` means the platform restarts the source itself and never reports completion. Any
+method may be called from any thread (never two at once), and the listener may be called from any
+thread — even while your engine holds its own lock, even from inside one of its methods: the player
+never blocks in a callback.
 
 The player takes ownership of the engine: it installs itself as the listener and releases the engine
 from its own `release()`. One engine per player.

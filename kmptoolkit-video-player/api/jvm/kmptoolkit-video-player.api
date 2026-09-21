@@ -1,9 +1,21 @@
+public final class io/github/jamal_wia/kmptoolkit/video/player/RemoteFormat : java/lang/Enum {
+	public static final field Auto Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+	public static final field Hls Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+	public static final field Progressive Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/video/player/RepeatMode : java/lang/Enum {
 	public static final field Off Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;
 	public static final field One Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;
 	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;
+}
+
+public abstract interface annotation class io/github/jamal_wia/kmptoolkit/video/player/ToolkitInheritanceApi : java/lang/annotation/Annotation {
 }
 
 public abstract interface annotation class io/github/jamal_wia/kmptoolkit/video/player/ToolkitInternalApi : java/lang/annotation/Annotation {
@@ -213,9 +225,6 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/Vide
 
 public final class io/github/jamal_wia/kmptoolkit/video/player/VideoSource$Asset : io/github/jamal_wia/kmptoolkit/video/player/VideoSource {
 	public fun <init> (Ljava/lang/String;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource$Asset;
-	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource$Asset;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource$Asset;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getPath ()Ljava/lang/String;
 	public fun hashCode ()I
@@ -224,9 +233,6 @@ public final class io/github/jamal_wia/kmptoolkit/video/player/VideoSource$Asset
 
 public final class io/github/jamal_wia/kmptoolkit/video/player/VideoSource$File : io/github/jamal_wia/kmptoolkit/video/player/VideoSource {
 	public fun <init> (Ljava/lang/String;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource$File;
-	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource$File;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource$File;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getPath ()Ljava/lang/String;
 	public fun hashCode ()I
@@ -234,13 +240,10 @@ public final class io/github/jamal_wia/kmptoolkit/video/player/VideoSource$File 
 }
 
 public final class io/github/jamal_wia/kmptoolkit/video/player/VideoSource$Remote : io/github/jamal_wia/kmptoolkit/video/player/VideoSource {
-	public fun <init> (Ljava/lang/String;Ljava/util/Map;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Map;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Ljava/lang/String;
-	public final fun component2 ()Ljava/util/Map;
-	public final fun copy (Ljava/lang/String;Ljava/util/Map;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource$Remote;
-	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource$Remote;Ljava/lang/String;Ljava/util/Map;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource$Remote;
+	public fun <init> (Ljava/lang/String;Ljava/util/Map;Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Map;Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFormat ()Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
 	public final fun getHeaders ()Ljava/util/Map;
 	public final fun getUrl ()Ljava/lang/String;
 	public fun hashCode ()I

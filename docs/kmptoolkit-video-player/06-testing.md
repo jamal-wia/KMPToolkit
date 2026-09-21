@@ -4,8 +4,9 @@ Testing code that consumes a `VideoPlayer`, without a device, a simulator, or a 
 
 ## Why there is a fixture at all
 
-`VideoPlayer` is an interface, so you *could* hand-roll a stub — and it would reproduce only what its
-author remembered about the contract. `kmptoolkit-video-player-testing` ships
+`VideoPlayer` is an interface, but it is implemented by the library only: new members may be added
+in any release, so implementing it needs an explicit `@OptIn(ToolkitInheritanceApi::class)` — and a
+hand-rolled stub would reproduce only what its author remembered about the contract anyway. `kmptoolkit-video-player-testing` ships
 `FakeVideoPlaybackEngine`, an in-memory implementation of the *platform seam* rather than of the
 player. Feeding it to `createVideoPlayer(engine = …)` gives you the same state machine that ships to
 production with only the native part swapped out, so your test asserts against real behavior.
@@ -155,7 +156,9 @@ The fake substitutes the platform, so nothing below it is exercised: Media3's an
 behavior, codecs, HLS parsing, asset resolution, cleartext policy, what the surface draws.
 
 The module's own tests take the same split. The state machine, the release contract, settings,
-buffering and picture size are covered in `commonTest`, on every target. On Android, Robolectric
+buffering and picture size are covered in `commonTest`, on every target — including, with real
+threads, an end of media, a pause and a release racing the position poll, and engine events
+reported from inside one of the player's own calls. On Android, Robolectric
 tests run the real Media3 engine over Media3's test ExoPlayer (fake renderers, a fake clock) and fake
 media sources: loading, completion, looping, buffering on seek, the picture-size mapping, settings,
 marshalling from other threads, `release` versus `dispose`, and the source-to-URI and header mapping.

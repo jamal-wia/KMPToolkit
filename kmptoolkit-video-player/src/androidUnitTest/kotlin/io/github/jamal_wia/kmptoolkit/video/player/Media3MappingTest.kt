@@ -3,13 +3,17 @@ package io.github.jamal_wia.kmptoolkit.video.player
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.media3.common.C
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.Util
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.runner.RunWith
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import androidx.media3.common.VideoSize as Media3VideoSize
 
@@ -53,6 +57,38 @@ class Media3MappingTest {
 
         assertEquals("https://cdn.example.test/course/7/master.m3u8?token=abc", remote.toMediaUri().toString())
         assertEquals(C.CONTENT_TYPE_HLS, Util.inferContentType(remote.toMediaUri()))
+    }
+
+    @Test
+    fun `with the automatic format an m3u8 path plays as HLS and anything else as a progressive file`() {
+        assertIs<HlsMediaSource>(
+            defaultMediaSource(context, VideoSource.Remote("https://cdn.example.test/7/master.m3u8?token=abc")),
+        )
+        assertIs<ProgressiveMediaSource>(
+            defaultMediaSource(context, VideoSource.Remote("https://cdn.example.test/7/stream?sig=abc")),
+        )
+    }
+
+    @Test
+    fun `an HLS hint makes an extension-less url play as HLS`() {
+        val signed = VideoSource.Remote("https://cdn.example.test/7/stream?sig=abc", format = RemoteFormat.Hls)
+
+        assertEquals(MimeTypes.APPLICATION_M3U8, signed.toMediaItem().localConfiguration?.mimeType)
+        assertIs<HlsMediaSource>(defaultMediaSource(context, signed))
+    }
+
+    @Test
+    fun `a progressive hint wins over an m3u8 path`() {
+        val remote = VideoSource.Remote("https://cdn.example.test/7/file.m3u8", format = RemoteFormat.Progressive)
+
+        assertNull(remote.toMediaItem().localConfiguration?.mimeType)
+        assertIs<ProgressiveMediaSource>(defaultMediaSource(context, remote))
+    }
+
+    @Test
+    fun `local sources carry no format hint`() {
+        assertNull(VideoSource.File("/a.m3u8").toMediaItem().localConfiguration?.mimeType)
+        assertNull(VideoSource.Asset("a.mp4").toMediaItem().localConfiguration?.mimeType)
     }
 
     @Test

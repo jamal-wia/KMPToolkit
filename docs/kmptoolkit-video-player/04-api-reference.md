@@ -11,11 +11,15 @@ All positions and durations are **milliseconds**.
 ## `VideoPlayer`
 
 ```kotlin
+@SubclassOptInRequired(ToolkitInheritanceApi::class)
 public interface VideoPlayer : AutoCloseable
 ```
 
-The headless player. Obtain one from a factory; never implement it yourself — implement
-[`VideoPlaybackEngine`](#videoplaybackengine) instead, so the state machine stays shared.
+The headless player. Obtain one from a factory; do not implement it yourself — implement
+[`VideoPlaybackEngine`](#videoplaybackengine) instead, so the state machine stays shared. New members
+may be added to this interface in any release, so implementing it requires opting in to
+[`@ToolkitInheritanceApi`](#toolkitinheritanceapi). For a test double, build a real player over
+`FakeVideoPlaybackEngine` (see [`06-testing.md`](06-testing.md)).
 
 ### Flows
 
@@ -83,9 +87,13 @@ even after `release()`, survive `prepare` and `unload`, and are pushed to every 
 | `fun release()` | Frees every native resource, cancels polling, detaches from the engine, resets to `Idle`. **Idempotent.** Not reversible. |
 | `override fun close()` | Alias for `release()`, for `use { }`. |
 
-**Threading.** Transport and settings calls are not synchronized — drive one player from one thread.
-The flows are safe to collect anywhere. `release()` cannot double-free, but a transport call racing a
-release from another thread may be applied or dropped.
+**Threading.** Every member is safe to call from any thread, and each call is one atomic transition:
+calls, poll ticks and the engine's events are serialized, so none overwrites a state another just
+wrote (a poll tick can no longer turn `Completed` or `Paused` back into `Playing`). A call returns with
+its transition applied — after `pause()`, `stateFlow` already holds `Paused`. An engine event that
+arrives while a call is running is applied right after it. The flows are safe to collect anywhere.
+`release()` cannot double-free; a call racing a release from another thread is applied or dropped
+as a whole, never half-way, and nothing reaches the engine after the release.
 
 ---
 
@@ -127,7 +135,31 @@ public sealed interface VideoSource
 |---|---|---|
 | `Asset(path)` | path relative to the bundled-resource root, **with extension** | Android `assets/`; iOS bundle lookup — see [`05-platform-notes.md`](05-platform-notes.md). |
 | `File(path)` | absolute file path | Read directly. Never created, downloaded or deleted by the library. |
-| `Remote(url, headers = emptyMap())` | absolute URL, extra HTTP request headers | Streamed; progressive files and HLS. `headers` go with every request for the source — for HLS, the playlists and every segment. Cleartext `http://` is blocked by default on both platforms. |
+| `Remote(url, headers = emptyMap(), format = RemoteFormat.Auto)` | absolute URL, extra HTTP request headers, packaging hint | Streamed; progressive files and HLS. `headers` go with every request for the source — for HLS, the playlists and every segment — and are copied, so a later change to the map passed in has no effect. Cleartext `http://` is blocked by default on both platforms. |
+
+Each case is a plain class with value equality (`equals`/`hashCode` over every property), not a
+`data class` — so a case can gain an optional property in a minor release without breaking callers
+compiled against the previous one (there is no `copy` or `componentN` to change shape).
+`toString()` prints the properties, except that `Remote` prints its header **names** only, each
+value replaced with `<redacted>`, so a source logged by accident does not leak an `Authorization`
+token. The URL is printed as given — a signed URL is itself a credential, so do not log it.
+
+### `RemoteFormat`
+
+```kotlin
+public enum class RemoteFormat { Auto, Progressive, Hls }
+```
+
+How a `Remote` source is packaged — a hint, not a conversion. More formats may be added in a minor
+release.
+
+| Value | Meaning |
+|---|---|
+| `Auto` | The default: the platform decides. Android goes by the URL path (`.m3u8` → HLS, anything else progressive); iOS also reads the server's content type. |
+| `Progressive` | A single file (MP4, WebM, …), even if the path ends in `.m3u8`. |
+| `Hls` | An HLS playlist whatever the URL looks like — use it for a signed, rewritten or extension-less HLS URL, which Android would otherwise try to play as a progressive file and fail. |
+
+How each engine honours the hint is in [`05-platform-notes.md`](05-platform-notes.md).
 
 ---
 
@@ -250,7 +282,7 @@ The platform seam. It holds no state machine of its own.
 | `fun setSpeed(speed: Float)` | Set the rate; already clamped. |
 | `fun setVolume(volume: Float)` | Effective output volume in `0f..1f` — `0f` while the player is muted. |
 | `fun setLooping(looping: Boolean)` | Restart the source at its end instead of completing. |
-| `fun durationMs()` / `fun positionMs()` / `fun bufferedPositionMs()` | Cheap and thread-safe (polled off the platform's thread); `0` when unknown, never negative. |
+| `fun durationMs()` / `fun positionMs()` / `fun bufferedPositionMs()` | Cheap (polled off the platform's thread); `0` when unknown, never negative. |
 | `fun release()` | Free every native resource. **Idempotent**, safe after a failed `load`. |
 
 ```kotlin
@@ -266,6 +298,13 @@ Failures while loading are thrown from `load` instead. An engine must not call t
 `release()`, including callbacks already queued on a platform thread. The player drops reports that
 arrive when no source is loaded, so a late one cannot resurrect a state.
 
+**Threading.** The player calls the engine from whichever thread a transition runs on — the app's,
+the polling coroutine's, or the thread an event was reported on — but never two calls at once; an
+engine confined to one thread marshals onto it. The engine may call the listener from any thread,
+even while holding a lock of its own and even from inside one of the calls above: the player never
+blocks in a callback, it applies an event that arrives during another transition right after that
+transition.
+
 ---
 
 ## Constants
@@ -273,6 +312,22 @@ arrive when no source is loaded, so a late one cannot resurrect a state.
 | Symbol | Value |
 |---|---|
 | `DEFAULT_SEEK_AMOUNT_MS` | `10_000L` — default skip for `seekForward` / `seekBackward` |
+
+---
+
+## `@ToolkitInheritanceApi`
+
+```kotlin
+@RequiresOptIn(level = RequiresOptIn.Level.ERROR)
+@Target(AnnotationTarget.CLASS)
+public annotation class ToolkitInheritanceApi
+```
+
+Marks, through `@SubclassOptInRequired`, the interfaces only KMPToolkit implements — `VideoPlayer`
+here, and the same kind of interface in the other video-player modules. Using them needs nothing;
+implementing one outside the library is a compile error unless the implementing class opts in
+(`@OptIn(ToolkitInheritanceApi::class)`), which is accepting that a new abstract member in any
+release may break it.
 
 ---
 

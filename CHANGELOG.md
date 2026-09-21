@@ -16,7 +16,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   replaces an older one, transport calls outside a playable state are ignored, `release` is
   idempotent and final) plus what a video needs: `volumeFlow`/`isMutedFlow`, `RepeatMode`,
   `isBufferingFlow`, `bufferedPositionFlow` and `videoSizeFlow`. Sources are `Asset`, `File` and
-  `Remote` with optional HTTP headers. One state machine in common code drives a
+  `Remote` with optional HTTP headers and a `RemoteFormat` hint (`Auto`, `Progressive`, `Hls` — the
+  last for an HLS URL without `.m3u8`, which Android cannot recognise on its own); they are plain
+  value classes, and `Remote.toString()` redacts header values. Every call is safe from any thread:
+  calls, the position poll and the engine's events are serialized, so none overwrites a state
+  another just wrote. `VideoPlayer` is implemented by the library only, enforced with
+  `@SubclassOptInRequired(ToolkitInheritanceApi::class)`. One state machine in common code drives a
   `VideoPlaybackEngine`: Media3 ExoPlayer (with HLS) on Android and `AVPlayer` on iOS. Also publishes
   `jvm` so shared UI compiles for desktop; the desktop engine is a separate artifact. Media3 merges
   `ACCESS_NETWORK_STATE` and `WAKE_LOCK` into the consuming app's manifest; `INTERNET` stays the
@@ -39,6 +44,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   beyond the OpenJFX jars the app adds per OS (GPL-2.0 + Classpath Exception), fewer formats, and a
   higher CPU cost because frames are captured by off-screen snapshots.
 - `kmptoolkit.library.jvm` — a build convention for JVM-only modules.
+
+### Fixed
+
+- `kmptoolkit-audio-player`: the position poll could overwrite a state written at the same moment on
+  another thread. A poll tick that had read `Playing` just before the platform reported the end (or
+  just before `pause()`) wrote its stale `Playing` over `Completed` (or `Paused`), and the player then
+  claimed to be playing until the next transport call. Every transition — transport calls, poll
+  ticks and the engine's end/failure events — is now serialized inside the player, and a concurrent
+  `release()` can no longer free the engine twice. No API change.
 
 ## [1.6.0] - 2026-09-16
 
