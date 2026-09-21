@@ -30,11 +30,13 @@ import platform.CoreVideo.CVPixelBufferCreate
 import platform.CoreVideo.CVPixelBufferRefVar
 import platform.CoreVideo.CVPixelBufferRelease
 import platform.CoreVideo.kCVPixelFormatType_32BGRA
+import platform.Foundation.NSBundle
 import platform.Foundation.NSDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSRunLoop
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSURL
+import platform.Foundation.NSUUID
 import platform.Foundation.dateWithTimeIntervalSinceNow
 import platform.Foundation.runUntilDate
 import platform.Foundation.timeIntervalSinceNow
@@ -152,3 +154,33 @@ internal fun writeTestMovie(
 internal const val TEST_MOVIE_WIDTH: Int = 160
 internal const val TEST_MOVIE_HEIGHT: Int = 120
 internal const val TEST_MOVIE_FPS: Int = 30
+
+/** A generated movie, told apart from others by its length. */
+internal class TestClip(val name: String, val frameCount: Int) {
+    val durationMs: Long get() = frameCount * MILLIS_PER_SECOND / TEST_MOVIE_FPS
+}
+
+/**
+ * A bundle over a fresh temporary directory holding `clip.mov` copies of the given clips, keyed by
+ * the subdirectory they go in (`""` for the bundle root) — the shape a Compose Multiplatform app's
+ * `compose-resources` directory has, without needing a real app bundle. Built fully before
+ * `NSBundle` sees it, since a bundle may cache its directory listing. Call outside [runOnMainLoop].
+ */
+@OptIn(ExperimentalForeignApi::class)
+internal fun testBundle(name: String, clipsByDirectory: Map<String, TestClip>): NSBundle {
+    val files: NSFileManager = NSFileManager.defaultManager
+    val root = "${NSTemporaryDirectory()}kmptoolkit-video-bundle-$name-${NSUUID().UUIDString}"
+    clipsByDirectory.forEach { (subdirectory: String, clip: TestClip) ->
+        val directory: String = if (subdirectory.isEmpty()) root else "$root/$subdirectory"
+        check(files.createDirectoryAtPath(directory, withIntermediateDirectories = true, attributes = null, error = null)) {
+            "could not create $directory"
+        }
+        val movie: String = writeTestMovie(clip.name, frameCount = clip.frameCount)
+        check(files.copyItemAtPath(movie, toPath = "$directory/clip.mov", error = null)) {
+            "could not copy $movie into $directory"
+        }
+    }
+    return checkNotNull(NSBundle.bundleWithPath(root)) { "no bundle at $root" }
+}
+
+private const val MILLIS_PER_SECOND: Long = 1_000L
