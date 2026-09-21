@@ -1,6 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
+    id("kmptoolkit.androidtest")
 }
 
 kmptoolkitPublish {
@@ -41,6 +42,11 @@ kotlin {
             // api: media3PlayerOrNull() returns androidx.media3.common.Player.
             api(libs.androidx.media3.exoplayer)
             implementation(libs.androidx.media3.exoplayer.hls)
+        }
+        androidUnitTest.dependencies {
+            implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.androidx.media3.test.utils)
+            implementation(libs.androidx.media3.test.utils.robolectric)
         }
     }
 }
