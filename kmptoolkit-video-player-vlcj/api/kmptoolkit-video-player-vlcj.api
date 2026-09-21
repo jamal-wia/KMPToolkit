@@ -1,0 +1,15 @@
+public final class io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcPlaybackException : java/lang/IllegalStateException {
+	public fun <init> (Ljava/lang/String;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcUnavailableException : java/lang/IllegalStateException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/vlcj/VlcjVideoPlayerFactoryKt {
+	public static final fun createVlcjVideoPlayer (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig;Lkotlin/coroutines/CoroutineContext;Ljava/util/List;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;
+	public static synthetic fun createVlcjVideoPlayer$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig;Lkotlin/coroutines/CoroutineContext;Ljava/util/List;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;
+	public static final fun isVlcAvailable ()Z
+}
+
