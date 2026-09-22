@@ -20,37 +20,33 @@ public fun createLocationProvider(
 Creates the `LocationManager`-backed provider. Only `context.applicationContext` is retained, so
 passing an `Activity` here is harmless. `openLocationSettings()` opens the screen with
 `SystemScreenLauncher.SeparateTask` (a task of its own, `FLAG_ACTIVITY_NEW_TASK |
-FLAG_ACTIVITY_NEW_DOCUMENT`) — this factory has no activity to launch from.
+FLAG_ACTIVITY_NEW_DOCUMENT`) — this factory has no activity to launch from. It is the only function
+of this name on Android, so an untyped reference `::createLocationProvider` resolves.
+
+### `createLocationProviderWithLauncher` (Android)
 
 ```kotlin
-public fun createLocationProvider(
+public fun createLocationProviderWithLauncher(
     context: Context,
-    activityAccess: ActivityAccess,
+    systemScreenLauncher: SystemScreenLauncher,
     config: LocationProviderConfig = LocationProviderConfig(),
     logger: Logger = NoopLogger,
 ): LocationProvider
 ```
 
-*Since 1.7.0.* The same provider, whose `openLocationSettings()` uses
-`SystemScreenLauncher.callerTask(activityAccess)`: the screen is started from the resumed activity
-with no task flags, on your task, and falls back to a separate task when no activity is resumed. The
-provider does not release `activityAccess`.
-
-```kotlin
-public fun createLocationProvider(
-    context: Context,
-    config: LocationProviderConfig,
-    logger: Logger,
-    systemScreenLauncher: SystemScreenLauncher,
-): LocationProvider
-```
-
 *Since 1.7.0.* The same provider, whose `openLocationSettings()` calls `systemScreenLauncher` exactly
-once per call, on the caller's thread, with a `SystemScreenRequest` holding one candidate
-(`Settings.ACTION_LOCATION_SOURCE_SETTINGS`, no launch flags) and the kind `LocationSettingsScreen`.
-`false`, or a launcher that throws, is logged as "could not open" at `WARN`; `openLocationSettings()`
-never throws. Every parameter is required, so no call written for the other two overloads can
-resolve to this one.
+once per call, on the caller's thread, with a `SystemScreenRequest` holding one or more candidates,
+most specific first — currently one, `Settings.ACTION_LOCATION_SOURCE_SETTINGS`, without launch
+flags — and the kind `LocationSettingsScreen`. `false`, or a launcher that throws, is logged at `WARN`
+as "Could not open the location settings screen" (with the exception as the cause);
+`openLocationSettings()` never throws.
+
+For an ordinary app pass `SystemScreenLauncher.callerTask(activityAccess)`: the screen is started from
+the resumed activity with no task flags, so Back returns to your screen. It does so only when called
+on the main thread with an activity resumed, and otherwise opens the screen in a separate task. The
+provider does not release `activityAccess`. See
+[`03-guide.md`](03-guide.md#which-task-the-settings-screen-opens-in-android) for the logging and kiosk
+recipes.
 
 ### `LocationSettingsScreen` (Android)
 

@@ -59,12 +59,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `SystemScreenRequest` per logical request — every candidate intent, the application context and an
   open `SystemScreenKind` — and `startFirstResolvable` tries the candidates in order. See
   `docs/kmptoolkit-activity/03-guide.md`.
-- `kmptoolkit-location` (Android): `openLocationSettings()` goes through a `SystemScreenLauncher`.
-  Two new `createLocationProvider` overloads: one taking the app's `ActivityAccess`
-  (`createLocationProvider(context, activityAccess, config, logger)`), which opens the screen on the
-  app's own task with `SystemScreenLauncher.callerTask`, and one taking a launcher of your own
-  (`createLocationProvider(context, config, logger, systemScreenLauncher)`). New kind
-  `LocationSettingsScreen`. The module now depends on `kmptoolkit-activity` on Android. See
+- `kmptoolkit-location` (Android): `createLocationProviderWithLauncher(context, systemScreenLauncher,
+  config, logger)`, whose `openLocationSettings()` hands the screen to the `SystemScreenLauncher` you
+  pass — once per call, with its candidates and the new kind `LocationSettingsScreen`; `false` or a
+  throwing launcher is logged as "could not open" and never reaches the caller. For an ordinary app,
+  `createLocationProviderWithLauncher(context, SystemScreenLauncher.callerTask(activityAccess))` opens
+  the screen on the app's own task, so Back returns to it. `createLocationProvider(context, config,
+  logger)` keeps its signature (and stays the only function of that name, so
+  `::createLocationProvider` still resolves) and opens the screen with `SeparateTask`. The module now
+  depends on `kmptoolkit-activity` on Android. Binary- and source-compatible. See
   `docs/kmptoolkit-location/03-guide.md`.
 - `kmptoolkit-permission`: a choice of how Settings screens open, through `SystemScreenLauncher`.
   `createSpecialPermissionHandler(context, activityAccess, logger)` opens the special-permission
