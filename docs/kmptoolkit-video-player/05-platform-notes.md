@@ -203,6 +203,8 @@ which does not fit a player that swaps its source on every `prepare`.
 
 **Seeking** is frame-accurate (zero tolerance before and after). That is what a seek bar and a
 "watched 95 %" check want; on a long remote stream it can take slightly longer than a keyframe seek.
+`AVPlayer` completes a seek asynchronously, so until it has, `playbackPositionFlow` and the state
+report the seek target rather than `AVPlayer`'s not-yet-updated `currentTime()`.
 
 **Playback speed** is assigned to `AVPlayer.rate` right after `play()` and immediately while playing;
 setting a speed while paused does not start playback.
