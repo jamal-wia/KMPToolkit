@@ -55,7 +55,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   system screen and which task it lands in. Presets: `SystemScreenLauncher.SeparateTask` (a task of
   its own, `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`) and
   `SystemScreenLauncher.callerTask(activityAccess)` (your task, from the resumed activity, falling
-  back to a separate task when there is none). A launcher of your own receives one
+  back to a separate task when there is none or when called off the main thread). A launcher of your own receives one
   `SystemScreenRequest` per logical request — every candidate intent, the application context and an
   open `SystemScreenKind` — and `startFirstResolvable` tries the candidates in order. See
   `docs/kmptoolkit-activity/03-guide.md`.
