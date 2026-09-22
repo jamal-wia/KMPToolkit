@@ -9,6 +9,17 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-09-22
+
+### Fixed
+
+- `kmptoolkit-video-player` (iOS): a seek could be undone for a moment. `AVPlayer` finishes a seek
+  asynchronously and answers its old `currentTime()` until then, and any refresh in that window —
+  `play()` right after the rewind from `Completed`, or a position-poll tick after `seekTo` — read
+  that old position back. `play()` from `Completed` could therefore report `Playing` at the end of the
+  source instead of at 0, and a seek bar could jump back briefly after a seek. The seek target is now
+  reported until `AVPlayer` has completed the seek. No API change.
+
 ## [1.7.0] - 2026-09-22
 
 ### Added

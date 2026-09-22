@@ -88,6 +88,45 @@ class AvPlayerVideoEngineTest {
         }
     }
 
+    // --- Seeking ------------------------------------------------------------------------------
+
+    @Test
+    fun `a rewind is reported at once and survives a start before AVPlayer finished seeking`() {
+        val path: String = movie
+        val engine: AvPlayerVideoEngine = newEngine()
+        runOnMainLoop {
+            engine.load(VideoSource.File(path))
+            engine.start()
+            assertTrue(awaitCondition(3_000) { engine.positionMs() >= 500L }, "the playhead did not advance")
+            engine.pause()
+
+            // All on the main thread, with no suspension in between: AVPlayer cannot have completed
+            // the seek yet, so the start below refreshes against the old currentTime().
+            engine.seekTo(0L)
+            engine.start()
+
+            assertTrue(engine.positionMs() < 300L, "the rewind was undone: ${engine.positionMs()}")
+            engine.release()
+        }
+    }
+
+    @Test
+    fun `after a seek completes the position follows playback again`() {
+        val path: String = movie
+        val engine: AvPlayerVideoEngine = newEngine()
+        runOnMainLoop {
+            engine.load(VideoSource.File(path))
+            engine.seekTo(200L)
+            engine.start()
+
+            assertTrue(
+                awaitCondition(2_000) { engine.positionMs() >= 400L },
+                "the position stayed pinned at the seek target: ${engine.positionMs()}",
+            )
+            engine.release()
+        }
+    }
+
     @Test
     fun `no listener call arrives after release even while playing to the end`() {
         val path: String = movie
