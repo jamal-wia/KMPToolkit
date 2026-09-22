@@ -76,10 +76,13 @@ public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions
 }
 
 public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGate_androidKt {
+	public static final fun createBiometricGate (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
 	public static final fun createBiometricGate (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
 	public static final fun createBiometricGate (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
-	public static final fun createBiometricGate (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions;Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenLauncher;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
+	public static synthetic fun createBiometricGate$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
 	public static synthetic fun createBiometricGate$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
+	public static final fun createBiometricGateWithLauncher (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenLauncher;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions;Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
+	public static synthetic fun createBiometricGateWithLauncher$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenLauncher;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig;Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions;Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/biometric/BiometricGate;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricPolicy : java/lang/Enum {
