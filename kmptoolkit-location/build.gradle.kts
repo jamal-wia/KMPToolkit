@@ -2,7 +2,8 @@ plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
     // Robolectric for androidUnitTest: LibraryManifestTest asserts against a real PackageManager
-    // that neither location permission is in the merged manifest.
+    // that neither location permission is in the merged manifest, and the settings-screen tests
+    // need a real Application, activities and started intents.
     id("kmptoolkit.androidtest")
 }
 
@@ -38,6 +39,12 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+        }
+        androidMain.dependencies {
+            // api, not implementation: the factory overloads that take an app's own tracker or a
+            // launcher have ActivityAccess and SystemScreenLauncher in their signatures, so a
+            // consumer needs them on their compile classpath to call them.
+            api(project(":kmptoolkit-activity"))
         }
     }
 }
