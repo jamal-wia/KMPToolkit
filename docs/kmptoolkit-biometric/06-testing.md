@@ -126,14 +126,14 @@ want to assert.
 
 ## What the module tests itself
 
-115 test functions across four source sets, derived from the contract in
+167 test functions across four source sets, derived from the contract in
 [`01-overview.md`](01-overview.md) and [`04-api-reference.md`](04-api-reference.md) rather than from
 the implementations. The donor module this was ported from had none, so every case here is new.
 
 | Source set        | What it covers                                                                                                                              |
 |-------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | `commonTest`      | `BiometricPromptText` validation (empty, whitespace-only, per-parameter message, `copy` re-validation), `isTransient` pinned across the whole enum, config defaults |
-| `androidUnitTest` | every `canAuthenticate` status and every `BiometricPrompt.ERROR_*` code; the gate's orchestration (authenticator mask, no-host, outcome pass-through, duplicate outcome, cancellation, no pre-check); `PromptInfo` at SDK 24, 29, 30 and 35; the merged-manifest permission set |
+| `androidUnitTest` | every `canAuthenticate` status and every `BiometricPrompt.ERROR_*` code; the gate's orchestration (authenticator mask, no-host, outcome pass-through, duplicate outcome, cancellation, no pre-check); `PromptInfo` at SDK 24, 29, 30 and 35; enrolment — candidates per API level and enrolment state, the throttle, one launcher call per launch, `false`/throwing launchers — and, through the real factories, the task each one opens it in, the context it starts from, and the tracker that hosts the prompt; the merged-manifest permission set |
 | `iosTest`         | every `LAError` code on both the availability and authentication paths, the `biometryType` split, and policy selection                        |
 | `-testing`'s `commonTest` | the fixture's own contract, including that a scripted failure still records the prompt and that `clear()` does not un-script the gate  |
 

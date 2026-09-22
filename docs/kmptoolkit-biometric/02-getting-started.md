@@ -96,9 +96,13 @@ ship rather than after.
 ## 5. Accept the device PIN as well, if that is what you want
 
 ```kotlin
-val gate: BiometricGate = createBiometricGate(
-    config = BiometricGateConfig(policy = BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL),
-)
+val config = BiometricGateConfig(policy = BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL)
+
+// Android
+val gate: BiometricGate = createBiometricGate(context, config)
+
+// iOS
+val gate: BiometricGate = createBiometricGate(config)
 ```
 
 This is a real security decision, not a convenience toggle — read

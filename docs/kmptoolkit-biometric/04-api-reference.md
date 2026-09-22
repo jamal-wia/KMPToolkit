@@ -57,7 +57,7 @@ Opens the system screen to enrol a biometric, or to manage existing ones when so
 `UNAVAILABLE` (no such screen — always on iOS — or, on Android, the gate's `SystemScreenLauncher`
 returned `false` or threw). The interface default returns `UNAVAILABLE`; a decorator should forward
 it. On Android the screen opens through a `SystemScreenLauncher` — `SeparateTask` unless you passed
-one; see [`Platform factories`](#platform-factories) and
+one to `createBiometricGateWithLauncher`; see [`Platform factories`](#platform-factories) and
 [`05-platform-notes.md`](05-platform-notes.md#opening-enrolment).
 
 ## `BiometricGateOptions`
@@ -220,9 +220,17 @@ public fun createBiometricGate(               // since 1.5.0
 
 public fun createBiometricGate(               // since 1.7.0
     context: Context,
-    config: BiometricGateConfig,
-    options: BiometricGateOptions,
+    activityAccess: ActivityAccess,
+    config: BiometricGateConfig = BiometricGateConfig(),
+    options: BiometricGateOptions = BiometricGateOptions(),
+): BiometricGate
+
+public fun createBiometricGateWithLauncher(   // since 1.7.0
+    context: Context,
     systemScreenLauncher: SystemScreenLauncher,
+    config: BiometricGateConfig = BiometricGateConfig(),
+    options: BiometricGateOptions = BiometricGateOptions(),
+    activityAccess: ActivityAccess? = null,
 ): BiometricGate
 
 public object BiometricEnrollmentScreen : SystemScreenKind   // since 1.7.0
@@ -238,7 +246,7 @@ public fun createBiometricGate(               // since 1.5.0; options ignored
 ): BiometricGate
 ```
 
-Every overload taking `options` throws `IllegalArgumentException` for `BiometricStrength.WEAK`
+Every factory taking `options` throws `IllegalArgumentException` for `BiometricStrength.WEAK`
 with `BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL`.
 
 Two signatures rather than one `expect fun`, per
@@ -249,15 +257,21 @@ needs neither.
 - `context` — any `Context`; its application context is retained both for `BiometricManager` and to
   track the currently resumed activity. When no resumed `FragmentActivity` is available,
   `authenticate` returns `BiometricResult.NoPromptHost`.
+- `activityAccess` — your app's activity tracker
+  ([`kmptoolkit-activity`](../kmptoolkit-activity/04-api-reference.md)), which then hosts the prompt
+  in place of a tracker the gate registers itself; its `isTracked` predicate is honoured, and the gate
+  never releases it. It does not decide how enrolment opens. `null` on
+  `createBiometricGateWithLauncher` (the default) means a tracker of the gate's own.
 - `systemScreenLauncher` — how `launchEnrollment()` opens its screen; `SystemScreenLauncher` and
   `SystemScreenKind` are from [`kmptoolkit-activity`](../kmptoolkit-activity/04-api-reference.md),
-  which this module exposes as an `api` dependency on Android. The overloads without it use
-  `SystemScreenLauncher.SeparateTask` (`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from the
-  application context). Each non-throttled `launchEnrollment()` calls it exactly once, on the calling
-  thread, with one `SystemScreenRequest` of kind `BiometricEnrollmentScreen` carrying every candidate
-  in order and no launch flags; a throttled call does not call it. `false` or any `Exception` it
-  throws is reported as `BiometricEnrollmentLaunch.UNAVAILABLE`. See
-  [`03-guide.md`](03-guide.md#how-the-screen-opens-on-android).
+  which this module exposes as an `api` dependency on Android. Every `createBiometricGate` overload
+  uses `SystemScreenLauncher.SeparateTask` (`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from
+  the application context). Each non-throttled `launchEnrollment()` calls it exactly once, on the
+  calling thread, with one `SystemScreenRequest` of kind `BiometricEnrollmentScreen` carrying one or
+  more candidates, most specific first, and no launch flags; a throttled call does not call it.
+  `false` or any `Exception` it throws is reported as `BiometricEnrollmentLaunch.UNAVAILABLE`. For an
+  ordinary (non-kiosk) app, `SystemScreenLauncher.callerTask(activityAccess)` opens the screen on your
+  own task. See [`03-guide.md`](03-guide.md#how-the-screen-opens-on-android).
 - `BiometricEnrollmentScreen` — the `kind` of that request: the enrolment wizard, the biometrics
   management screen, or the security settings below API 30. `toString()` is
   `"BiometricEnrollmentScreen"`.

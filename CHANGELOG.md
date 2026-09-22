@@ -74,14 +74,28 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `SpecialPermissionScreen(permission)` and `AppDetailsScreen`. Existing factories keep their
   signatures; `createSpecialPermissionHandler(context, logger)` defaults to `SeparateTask`, and both
   existing `createPermissionHandler` overloads to `callerTask` on their tracker.
-- `kmptoolkit-biometric`: `createBiometricGate(context, config, options, systemScreenLauncher)` on
-  Android, and `BiometricEnrollmentScreen`, the `SystemScreenKind` of the enrolment screen. Each
-  non-throttled `launchEnrollment()` calls the launcher once with every candidate screen; `false` or a
+- `kmptoolkit-biometric` (Android): `createBiometricGateWithLauncher(context, systemScreenLauncher,
+  config, options, activityAccess)`, which takes a `SystemScreenLauncher` for `launchEnrollment()`
+  and optionally the app's `ActivityAccess` to host the prompt; for an ordinary (non-kiosk) app,
+  `SystemScreenLauncher.callerTask(activityAccess)` opens enrolment on the app's own task. And
+  `createBiometricGate(context, activityAccess, config, options)`, which hosts the prompt through the
+  app's tracker, its `isTracked` predicate honoured, and still opens enrolment with `SeparateTask`.
+  `BiometricEnrollmentScreen` is the `SystemScreenKind` of the enrolment request. Each non-throttled
+  `launchEnrollment()` calls the launcher once with one or more candidate screens; `false` or a
   throwing launcher is reported as `UNAVAILABLE`, and a throttled call never reaches it. A kiosk app
   opens its lock-task allowlist window from such a launcher — see
   `docs/kmptoolkit-biometric/03-guide.md`. The module now exposes `kmptoolkit-activity` as an `api`
   dependency on Android, and hosts its prompt through that module's activity tracker instead of a
   private copy of it.
+
+### Changed
+
+- `kmptoolkit-biometric` (Android): `launchEnrollment()` of the existing factories now starts the
+  screen from the application context, not from the resumed activity; on a multi-display device it
+  may therefore open on the default display rather than the activity's.
+- `kmptoolkit-biometric` (Android): any `Exception` thrown while starting the enrolment screen now
+  maps to `BiometricEnrollmentLaunch.UNAVAILABLE`; up to 1.6.0 only `ActivityNotFoundException` and
+  `SecurityException` did, and anything else crashed the caller.
 
 ### Fixed
 
@@ -113,9 +127,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   returned to that stale page instead of the app. The existing factories now open it with
   `SystemScreenLauncher.SeparateTask` (`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from the
   application context), a task of its own, as the KDoc always promised. On a two-pane Settings (large
-  screens) a page started in a new task can still be handed to the Settings homepage; pass
-  `SystemScreenLauncher.callerTask` if that matters and the app is not a kiosk. No API change to the
-  existing factories.
+  screens) the management screen (`COMBINED_BIOMETRICS_SETTINGS`) started in a new task can still be
+  handed to the Settings homepage — the enrolment wizard is not; if that matters and the app is not a
+  kiosk, pass `SystemScreenLauncher.callerTask(activityAccess)` to `createBiometricGateWithLauncher`.
+  The existing factories keep their signatures.
 
 ## [1.6.0] - 2026-09-16
 
