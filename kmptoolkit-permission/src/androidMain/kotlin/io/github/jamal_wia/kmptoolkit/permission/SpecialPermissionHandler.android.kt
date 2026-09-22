@@ -12,7 +12,6 @@ import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
-import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenKind
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenRequest
@@ -24,8 +23,8 @@ import io.github.jamal_wia.kmptoolkit.logging.w
  * Creates the Android [SpecialPermissionHandler].
  *
  * Settings screens open through [SystemScreenLauncher.SeparateTask]: a task of their own, never a
- * Settings task left in the background. Use the overload that takes an [ActivityAccess] to open them
- * on your app's own task instead, or the one that takes a [SystemScreenLauncher] to decide yourself.
+ * Settings task left in the background. To open them on your app's own task instead, or to decide
+ * yourself, use [createSpecialPermissionHandlerWithLauncher].
  *
  * @param context any `Context`; its application context is what gets retained. Both operations are
  *   context-level, so this does not depend on an Activity.
@@ -35,57 +34,37 @@ import io.github.jamal_wia.kmptoolkit.logging.w
 public fun createSpecialPermissionHandler(
     context: Context,
     logger: Logger = NoopLogger,
-): SpecialPermissionHandler = createSpecialPermissionHandler(
-    context = context,
-    logger = logger,
-    systemScreenLauncher = SystemScreenLauncher.SeparateTask,
-)
+): SpecialPermissionHandler =
+    AndroidSpecialPermissionHandler(context.applicationContext, logger, SystemScreenLauncher.SeparateTask)
 
 /**
- * Creates the Android [SpecialPermissionHandler], opening Settings screens on your app's own task.
+ * Creates the Android [SpecialPermissionHandler] with the [SystemScreenLauncher] its Settings screens
+ * open through.
  *
- * The same handler as the overload that takes only a `Context`, with
- * [SystemScreenLauncher.callerTask] on [activityAccess]: a Settings screen is started from the resumed
- * activity, so the system Back button returns to it and a two-pane Settings shows the screen in a
- * single pane. With no activity resumed it opens in a separate task, as the `Context`-only overload
- * does. Not for a lock-task (kiosk) app — see [SystemScreenLauncher.callerTask].
- *
- * @param context any `Context`; its application context is what gets retained.
- * @param activityAccess the tracker Settings screens are opened from; create it in
- *   `Application.onCreate`.
- * @param logger where a Settings screen that could not be opened, or a platform check that threw, is
- *   reported.
- * @since 1.7.0
- */
-public fun createSpecialPermissionHandler(
-    context: Context,
-    activityAccess: ActivityAccess,
-    logger: Logger = NoopLogger,
-): SpecialPermissionHandler = createSpecialPermissionHandler(
-    context = context,
-    logger = logger,
-    systemScreenLauncher = SystemScreenLauncher.callerTask(activityAccess),
-)
-
-/**
- * Creates the Android [SpecialPermissionHandler] with a [SystemScreenLauncher] of your own.
+ * The same handler as [createSpecialPermissionHandler], which uses [SystemScreenLauncher.SeparateTask].
+ * For an ordinary app, pass `SystemScreenLauncher.callerTask(activityAccess)`: the screen is started
+ * from your resumed activity, on your task, so the system Back button returns to it and a two-pane
+ * Settings shows it in a single pane. Not for a lock-task (kiosk) app — see
+ * [SystemScreenLauncher.callerTask].
  *
  * Each [SpecialPermissionHandler.requestViaSettings] call that has a screen to open calls
  * [systemScreenLauncher] exactly once, with a [SystemScreenRequest] whose `kind` is a
- * [SpecialPermissionScreen] naming the permission. A launcher that returns `false` or throws makes
- * `requestViaSettings` return `false`. An entry that has nothing to open on this API level
- * (`EXACT_ALARM` below API 31, `ALL_FILES_ACCESS` below API 30) never reaches the launcher.
+ * [SpecialPermissionScreen] naming the permission and whose candidates are one or more intents,
+ * most specific first, without launch flags — currently the screen for this app, then the generic
+ * list of the same permission where the platform has one. A launcher that returns `false` or throws
+ * makes `requestViaSettings` return `false`, and is logged. An entry that has nothing to open on this
+ * API level (`EXACT_ALARM` below API 31, `ALL_FILES_ACCESS` below API 30) never reaches the launcher.
  *
  * @param context any `Context`; its application context is what gets retained.
+ * @param systemScreenLauncher decides how, and in which task, each Settings screen opens.
  * @param logger where a Settings screen that could not be opened, or a platform check that threw, is
  *   reported.
- * @param systemScreenLauncher decides how, and in which task, each Settings screen opens.
  * @since 1.7.0
  */
-public fun createSpecialPermissionHandler(
+public fun createSpecialPermissionHandlerWithLauncher(
     context: Context,
-    logger: Logger,
     systemScreenLauncher: SystemScreenLauncher,
+    logger: Logger = NoopLogger,
 ): SpecialPermissionHandler =
     AndroidSpecialPermissionHandler(context.applicationContext, logger, systemScreenLauncher)
 
@@ -163,25 +142,32 @@ internal class AndroidSpecialPermissionHandler(
     /**
      * The intents that open [permission]'s Settings screen, most specific first, without launch flags;
      * empty when there is nothing to open on this API level.
+     *
+     * Where the platform has both, this app's own page comes first and the generic list of the same
+     * permission second: an OEM Settings app that drops the package-specific screen usually keeps the
+     * list, and the list is still one tap from the toggle.
      */
     private fun settingsCandidates(permission: SpecialPermission): List<Intent> = when (permission) {
         // Below API 31 there is no such screen and the permission is already granted — nothing to open.
         SpecialPermission.EXACT_ALARM -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             emptyList()
         } else {
-            // Deep-link straight to this app's toggle rather than the generic list.
-            listOf(forThisPackage(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
+            thisPackageThenList(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
         }
 
-        SpecialPermission.OVERLAY -> listOf(forThisPackage(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
-        SpecialPermission.WRITE_SETTINGS -> listOf(forThisPackage(Settings.ACTION_MANAGE_WRITE_SETTINGS))
-        // Not applicable below API 30 — always granted, nothing to open.
+        SpecialPermission.OVERLAY -> thisPackageThenList(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+        SpecialPermission.WRITE_SETTINGS -> thisPackageThenList(Settings.ACTION_MANAGE_WRITE_SETTINGS)
+        // Not applicable below API 30 — always granted, nothing to open. The list is a separate action.
         SpecialPermission.ALL_FILES_ACCESS -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             emptyList()
         } else {
-            listOf(forThisPackage(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION))
+            listOf(
+                forThisPackage(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION),
+                Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
+            )
         }
 
+        // Already the generic list; the platform has no public per-app usage-access screen.
         SpecialPermission.USAGE_STATS_ACCESS -> listOf(
             Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -190,14 +176,20 @@ internal class AndroidSpecialPermissionHandler(
             },
         )
         // A system dialog rather than a Settings page, but a screen all the same: it goes through the
-        // launcher like every other entry.
-        SpecialPermission.IGNORE_BATTERY_OPTIMIZATIONS ->
-            listOf(forThisPackage(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS))
+        // launcher like every other entry. Its fallback is the Settings list the dialog adds the app to.
+        SpecialPermission.IGNORE_BATTERY_OPTIMIZATIONS -> listOf(
+            forThisPackage(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS),
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+        )
 
-        // No data URI — these special-access screens only accept the generic list.
+        // Only the generic list: the per-app pages need a listener component (notification listener)
+        // or are system-only (Do Not Disturb).
         SpecialPermission.NOTIFICATION_LISTENER_ACCESS -> listOf(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         SpecialPermission.DO_NOT_DISTURB_ACCESS -> listOf(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
     }
+
+    /** [action] for this app, then [action] alone — for the screens whose package URI is optional. */
+    private fun thisPackageThenList(action: String): List<Intent> = listOf(forThisPackage(action), Intent(action))
 
     /** [action] deep-linked to this app's own entry via a `package:` URI. */
     private fun forThisPackage(action: String): Intent =
