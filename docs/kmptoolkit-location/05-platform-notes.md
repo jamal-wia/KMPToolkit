@@ -189,7 +189,9 @@ matter of taste:
   activity (this is what `kmptoolkit-activity`'s `ActivityAccess` is for — never hold an `Activity`
   in the provider).
 - **Delegate what Fused does not improve.** `isLocationEnabled()` and `openLocationSettings()` come
-  from the factory-built provider, so the settings intent and the service check stay identical.
+  from the factory-built provider, so the settings intent, the task it opens in and the service check
+  stay identical — build the fallback with `createLocationProvider(context, activityAccess)` if you
+  want the screen on your own task.
 
 Bind it where the rest of your app is assembled, and keep the factory-built provider for iOS:
 
@@ -216,6 +218,32 @@ provider as it comes:
   decorator does not request it — that stays your call), and not again after the user dismissed it.
   `PROMPTED` means asked, not shown; re-check `isLocationEnabled()` when the app becomes active.
 
+## The location settings screen and tasks (Android)
+
+`openLocationSettings()` goes through a `SystemScreenLauncher`
+([guide](03-guide.md#which-task-the-settings-screen-opens-in-android)), and the task the screen lands
+in is what decides where the user ends up when they leave it.
+
+- **Up to 1.6.0** the screen was started with `FLAG_ACTIVITY_NEW_TASK` alone. That joins any
+  background task with the Settings affinity — a Settings page opened earlier from a quick-settings
+  long-press or a notification — so Back could land on that stale page instead of in your app.
+- **The `Context`-only factory** now uses `SystemScreenLauncher.SeparateTask`:
+  `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from the application context.
+  `NEW_DOCUMENT` skips the affinity lookup, so the screen always gets a fresh task (unless a task is
+  already rooted at that same screen). Two limits remain, both platform behaviour: on a two-pane
+  Settings (large screens, AOSP 12L and later) a page started in a new task hands itself to the
+  Settings homepage, whose task may be a stale one; and a Settings build that declares the screen
+  `singleTask` or `singleInstance` strips `NEW_DOCUMENT`.
+- **The `ActivityAccess` factory** uses `SystemScreenLauncher.callerTask`: no task flags, from your
+  resumed activity, so Back returns to it and a two-pane Settings shows the page on its own. With no
+  resumed activity it falls back to a separate task.
+- **Lock-task (kiosk) apps** keep the separate task — a Settings screen on your task is inside the
+  locked task, where the allowlist no longer confines it — and put the Settings package on the
+  lock-task allowlist, or open an allowlist window around the launch with a launcher of their own.
+
+Why each flag, the two-pane hand-off and lock-task mode in full:
+[`kmptoolkit-activity` — System screens and tasks](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks).
+
 ## Provider selection and fallback (Android)
 
 `getCurrentLocation()` and `observeLocation()` both track `LocationManager.GPS_PROVIDER` and
@@ -241,7 +269,9 @@ platforms.
 
 - `LocationProvider` methods are safe to call from any thread. On iOS that includes
   `openLocationSettings()`, which hops to the main thread for `UIApplication` when called from
-  elsewhere.
+  elsewhere. On Android, `openLocationSettings()` calls its `SystemScreenLauncher` on the caller's
+  thread; both presets are safe from any thread, and a launcher of your own that touches UI switches
+  threads itself.
 - Android: the underlying `LocationListener` callbacks are delivered on `Looper.getMainLooper()`.
 - iOS: every `CLLocationManager` used by this module is created and started on the **main queue**,
   regardless of which thread `getCurrentLocation()` / `observeLocation()` is called from. This

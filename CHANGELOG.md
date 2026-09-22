@@ -59,6 +59,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `SystemScreenRequest` per logical request — every candidate intent, the application context and an
   open `SystemScreenKind` — and `startFirstResolvable` tries the candidates in order. See
   `docs/kmptoolkit-activity/03-guide.md`.
+- `kmptoolkit-location` (Android): `openLocationSettings()` goes through a `SystemScreenLauncher`.
+  Two new `createLocationProvider` overloads: one taking the app's `ActivityAccess`
+  (`createLocationProvider(context, activityAccess, config, logger)`), which opens the screen on the
+  app's own task with `SystemScreenLauncher.callerTask`, and one taking a launcher of your own
+  (`createLocationProvider(context, config, logger, systemScreenLauncher)`). New kind
+  `LocationSettingsScreen`. The module now depends on `kmptoolkit-activity` on Android. See
+  `docs/kmptoolkit-location/03-guide.md`.
 
 ### Fixed
 
@@ -68,6 +75,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   claimed to be playing until the next transport call. Every transition — transport calls, poll
   ticks and the engine's end/failure events — is now serialized inside the player, and a concurrent
   `release()` can no longer free the engine twice. No API change.
+- `kmptoolkit-location` (Android): `openLocationSettings()` started Settings with bare
+  `FLAG_ACTIVITY_NEW_TASK`, which joins any background Settings task (one opened from a deep link,
+  say), so leaving the screen could land the user on a stale Settings page instead of the app.
+  `createLocationProvider(context, config, logger)` now opens it with
+  `SystemScreenLauncher.SeparateTask` (`NEW_TASK | NEW_DOCUMENT`, a task of its own). A screen that
+  could not be opened is still only logged; `openLocationSettings()` never throws.
 
 ## [1.6.0] - 2026-09-16
 

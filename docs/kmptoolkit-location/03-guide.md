@@ -68,6 +68,52 @@ Show your own explanation first. `openLocationSettings()` leaves your app immedi
 nothing about what the user did there — there is no callback, no result, and no way to know whether
 they turned the service back on. Re-check `isLocationEnabled()` when your screen resumes.
 
+### Which task the settings screen opens in (Android)
+
+*Since 1.7.0.* On Android, `openLocationSettings()` hands the screen to a `SystemScreenLauncher` from
+`kmptoolkit-activity`, and which one depends on the factory you called:
+
+| Factory | Launcher | Where the settings screen goes |
+|---|---|---|
+| `createLocationProvider(context, config, logger)` | `SystemScreenLauncher.SeparateTask` | a task of its own; Back leaves Settings |
+| `createLocationProvider(context, activityAccess, config, logger)` | `SystemScreenLauncher.callerTask(activityAccess)` | on top of your resumed activity; Back returns to it. A task of its own when no activity is resumed |
+| `createLocationProvider(context, config, logger, systemScreenLauncher)` | yours | whatever your launcher decides |
+
+For an ordinary app, pass your `ActivityAccess` — the one you create in `Application.onCreate`:
+
+```kotlin
+val location: LocationProvider = createLocationProvider(
+    context = this,
+    activityAccess = activityAccess,
+)
+```
+
+That is also the only way to keep a two-pane Settings on a tablet or foldable from handing the page
+to its own homepage. For a lock-task (kiosk) app keep the separate task — a screen on your task is
+inside the locked task — or write your own launcher, for example to log the request or to open a
+lock-task allowlist window around it:
+
+```kotlin
+val location: LocationProvider = createLocationProvider(
+    context = this,
+    config = LocationProviderConfig(),
+    logger = logger,
+    systemScreenLauncher = SystemScreenLauncher { request ->
+        when (request.kind) {
+            LocationSettingsScreen -> kioskWindow.around { SystemScreenLauncher.SeparateTask.launch(request) }
+            else -> SystemScreenLauncher.SeparateTask.launch(request)
+        }
+    },
+)
+```
+
+Your launcher is called once per `openLocationSettings()` call, on the caller's thread, with one
+candidate (`Settings.ACTION_LOCATION_SOURCE_SETTINGS`, no launch flags) and the kind
+`LocationSettingsScreen`. If it answers `false` or throws, the provider logs "could not open" through
+its `logger` — the same as a device without the screen — and `openLocationSettings()` returns
+normally. The full comparison of the presets is in
+[`kmptoolkit-activity`'s guide](../kmptoolkit-activity/03-guide.md#opening-system-screens).
+
 ## Prompting to re-enable the service
 
 `promptToEnableService()` exists for the platform that *can* raise an in-place "turn location back
