@@ -71,6 +71,11 @@ none — the app is backgrounded, a configuration change is in flight — or whe
 is not a `FragmentActivity`, `authenticate` returns `BiometricResult.NoPromptHost` and nothing is
 shown. It is deliberately not a `ClassCastException`, and deliberately not `Cancelled`.
 
+Pass your app's own tracker instead — `createBiometricGate(context, activityAccess)`, or
+`activityAccess` on `createBiometricGateWithLauncher` — and the prompt is hosted by whichever activity
+*that* tracker answers with: its `isTracked` predicate is honoured, so an activity it does not track
+never hosts the prompt. The gate does not release a tracker it was given.
+
 **Create the gate before your activity resumes** — in `Application.onCreate`. The tracker learns which
 activity is resumed from the resumed callback, and Android offers no way to ask afterwards. A gate
 created lazily, on its first injection into a screen, is created after `MainActivity` resumed: it
@@ -103,7 +108,8 @@ device credential, the first non-match dismisses the prompt before the user can 
 
 ### Opening enrolment
 
-`launchEnrollment()` starts, in a new task, the first screen the device resolves:
+`launchEnrollment()` hands one request to a `SystemScreenLauncher`, which starts the first screen the
+device resolves:
 
 | Situation | Candidates, in order |
 |---|---|
@@ -114,9 +120,54 @@ device credential, the first non-match dismisses the prompt before the user can 
 The split exists because the enrolment wizard is *enrol-if-missing*: for a user who already has an
 enrolment it finishes at once without showing anything. The management screen is not a documented
 constant, hence the literal and the fallback. It also stays inside the Settings app, which matters
-under lock-task mode, where only allowlisted packages can be started. The screen always starts in a
-new task, so a settings screen can never end up at the root of the app's own task. Calls closer than
-`BiometricGateOptions.enrollmentThrottle` (1 s by default) return `THROTTLED` and start nothing.
+under lock-task mode, where only allowlisted packages can be started. Calls closer than
+`BiometricGateOptions.enrollmentThrottle` (1 s by default) return `THROTTLED`, start nothing and never
+reach the launcher.
+
+#### Which task the screen lands in
+
+Unless you pass a launcher of your own, the screen starts with `SystemScreenLauncher.SeparateTask`:
+`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from the application context — also with
+`createBiometricGate(context, activityAccess)`, whose tracker hosts the prompt only. Why both flags,
+and what each preset does, is in
+[`kmptoolkit-activity`'s platform notes](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks);
+for enrolment specifically:
+
+- **Never your task.** A settings screen can never end up at the root of your app's task — under
+  lock-task mode, a settings record left there after a crash makes the task impossible to lock again.
+- **Never a stale Settings task.** Up to 1.6.0 enrolment was started with `FLAG_ACTIVITY_NEW_TASK`
+  alone, which reuses any background task with Settings' affinity. After the user had opened a
+  Settings page from a deep link (a quick-settings long-press, say) and left it with Home, enrolment
+  was pushed on top of that page, and Back — or the end of the wizard — landed on it instead of in
+  your app. `FLAG_ACTIVITY_NEW_DOCUMENT` skips that lookup, so enrolment gets a task of its own.
+  `FLAG_ACTIVITY_CLEAR_TASK` is deliberately not used: it would wipe the matched task, which on some
+  API levels is the user's own Settings session opened from the launcher.
+- **Repeated launches.** A document task is reused when component and data match (extras are
+  ignored): launching the same screen again brings its existing task forward with the requested
+  screen on top, so Back may pass through pages the user opened there earlier. Each different screen
+  — the wizard, the management screen — gets its own card in Recents; up to 1.6.0 they shared one
+  Settings card.
+- **Two-pane Settings, the residual.** On a large screen, AOSP Settings (12L and later) hands a
+  `SettingsActivity` page started in a new task to its homepage (`DeepLinkHomepageActivity`,
+  `singleTask`), whose task can be a stale one; flags cannot change that. Of the enrolment screens
+  only the management screen (`COMBINED_BIOMETRICS_SETTINGS`) is such a page. The enrolment wizard
+  (`BiometricEnrollActivity`) is not a `SettingsActivity` and is not handed off, and below API 30,
+  where the security settings open, there is no two-pane Settings. If it matters to you and your app
+  is not a kiosk, pass `SystemScreenLauncher.callerTask(activityAccess)` to
+  `createBiometricGateWithLauncher` — called on the main thread with an activity resumed, the screen
+  then opens in your task, in a single pane, and Back returns to your activity. OEM Settings apps
+  implement large screens differently; check on the devices you ship to.
+- **Lock-task (kiosk) apps** keep `SeparateTask` and allowlist `com.android.settings` only while the
+  screen is open, from a launcher that matches `BiometricEnrollmentScreen` and closes the window when
+  the launch returns `false` or throws, and again when the app resumes — the recipe is in
+  [`03-guide.md`](03-guide.md#a-kiosk-lock-task-app). While the window is open the whole Settings
+  package is allowlisted, not only the enrolment screen. `callerTask` would put Settings inside the
+  locked task, where the allowlist no longer confines it.
+
+`LAUNCHED` means the screen was handed to the system, not that the user saw it. Since API 29 Android
+blocks an activity start from the background without telling the caller, and a start that violates
+lock-task mode is refused the same silent way; either still reports `LAUNCHED` with nothing on screen.
+Launch from a screen that is in the foreground.
 
 ### The device credential and API 30
 

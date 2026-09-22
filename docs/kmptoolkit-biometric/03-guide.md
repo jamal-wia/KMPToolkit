@@ -63,10 +63,10 @@ If you want *both* — the strong claim normally, the credential as an escape ha
 and pick between them yourself. They are stateless and cost nothing:
 
 ```kotlin
-val strict: BiometricGate = createBiometricGate(context, activityAccess)
+// Android; on iOS the same two calls without the context.
+val strict: BiometricGate = createBiometricGate(context)
 val recoverable: BiometricGate = createBiometricGate(
     context,
-    activityAccess,
     BiometricGateConfig(policy = BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL),
 )
 
@@ -128,6 +128,98 @@ when (gate.launchEnrollment()) {
 
 `UNAVAILABLE` is the only answer on iOS, which has no screen an app can open for this. The gate does
 not remember that it sent the user away; `availability()` is the source of truth on the way back.
+
+### How the screen opens on Android
+
+By default the screen opens **in a task of its own** — `SystemScreenLauncher.SeparateTask` from
+[`kmptoolkit-activity`](../kmptoolkit-activity/03-guide.md#opening-system-screens), which starts it
+with `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT` from the application context. It never
+becomes part of your task, and it never joins a Settings task the user left in the background, so
+Back and the end of the wizard leave Settings instead of landing on an unrelated Settings page. That
+is the default of every factory that takes no launcher:
+
+| Factory | Hosts the prompt through | How enrolment opens |
+|---|---|---|
+| `createBiometricGate(context, config)` | a tracker of its own | `SystemScreenLauncher.SeparateTask` |
+| `createBiometricGate(context, config, options)` | a tracker of its own | `SystemScreenLauncher.SeparateTask` |
+| `createBiometricGate(context, activityAccess, config, options)` (since 1.7.0) | your `activityAccess` | `SystemScreenLauncher.SeparateTask` |
+| `createBiometricGateWithLauncher(context, systemScreenLauncher, config, options, activityAccess)` (since 1.7.0) | your `activityAccess`, or a tracker of its own when `null` | your launcher |
+
+`createBiometricGateWithLauncher` hands every enrolment to a `SystemScreenLauncher` of your choice.
+Each `launchEnrollment()` that is not throttled calls it exactly once, with a `SystemScreenRequest`
+whose `kind` is `BiometricEnrollmentScreen` and whose `candidates` are one or more screens, most
+specific first, without launch flags. A throttled call never reaches it. `false`, or a launcher that
+throws, comes back as `UNAVAILABLE`.
+
+For an ordinary app — not a kiosk — this is the recipe:
+
+```kotlin
+// activityAccess: your app's tracker, created in Application.onCreate
+val gate: BiometricGate = createBiometricGateWithLauncher(
+    context,
+    SystemScreenLauncher.callerTask(activityAccess),
+    activityAccess = activityAccess, // optional: host the prompt through the same tracker
+)
+```
+
+`callerTask` pushes the screen onto your own task: Back returns to your screen, and a two-pane
+Settings on a tablet or foldable has nothing to hand off to its homepage (see
+[`05-platform-notes.md`](05-platform-notes.md#which-task-the-screen-lands-in)). It does so only when
+`launchEnrollment()` is called on the main thread with an activity resumed; otherwise it opens the
+screen in a task of its own, as `SeparateTask` does. Do **not** use it in a lock-task (kiosk) app —
+Settings would then run inside your locked task, where the lock-task allowlist no longer confines it.
+
+If you only want the prompt hosted by your own tracker — to honour its `isTracked` predicate, say —
+and keep the default enrolment, use `createBiometricGate(context, activityAccess)`.
+
+### A kiosk (lock-task) app
+
+A lock-task app can only start activities of allowlisted packages, and `com.android.settings` is
+normally not one of them — so enrolment needs Settings allowlisted for as long as the screen is
+open. Do that in a launcher, not in a decorator around the gate: the launcher only runs when a screen
+is really about to open — never for a throttled tap — it sees which screen it is, and it knows
+whether the launch was handed to the system. Keep `SeparateTask` underneath, so Settings stays out of
+your locked task:
+
+```kotlin
+// settingsWindow is your own code: open() adds com.android.settings to
+// DevicePolicyManager.setLockTaskPackages, close() takes it off again.
+val kioskLauncher = SystemScreenLauncher { request ->
+    when (request.kind) {
+        BiometricEnrollmentScreen -> {
+            settingsWindow.open()
+            val launched: Boolean = try {
+                SystemScreenLauncher.SeparateTask.launch(request)
+            } catch (e: Exception) {
+                settingsWindow.close()
+                throw e
+            }
+            if (!launched) settingsWindow.close()
+            launched
+        }
+        else -> SystemScreenLauncher.SeparateTask.launch(request)
+    }
+}
+
+val gate: BiometricGate = createBiometricGateWithLauncher(context, kioskLauncher, config, options)
+
+// And in your locked activity:
+override fun onResume() {
+    super.onResume()
+    settingsWindow.close() // the user is back: Settings leaves the allowlist
+}
+```
+
+The window opens *before* the launch because a start that is not allowlisted is blocked, and it
+closes at once when the launch returns `false` or throws. It cannot be closed when the launch
+returns: `startActivity` returns before the screen is shown, so close it when your app resumes. While
+it is open the allowlist covers the **whole Settings package**, not just the enrolment screen — the
+user can navigate anywhere in Settings until you close it. The candidates are chosen to stay inside
+the Settings app — see [`05-platform-notes.md`](05-platform-notes.md#opening-enrolment) — so on AOSP
+the one package is enough; an OEM build can route a screen elsewhere, so check on the devices you
+ship to. Keep the `else` branch: `SystemScreenKind` is open, and other modules' screens arrive at the
+same launcher if you share it. The lock-task rules themselves are in
+[`kmptoolkit-activity`'s platform notes](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks).
 
 ## A grace period
 

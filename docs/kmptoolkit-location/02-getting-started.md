@@ -58,7 +58,9 @@ val location: LocationProvider = createLocationProvider()
 ```
 
 Both accept an optional `config: LocationProviderConfig` and `logger: Logger` — defaults are fine to
-start with.
+start with. On Android, if your app already creates an `ActivityAccess` (from `kmptoolkit-activity`),
+use `createLocationProviderWithLauncher(context, SystemScreenLauncher.callerTask(activityAccess))`
+instead so `openLocationSettings()` opens on your own task and Back returns to your screen — see [`03-guide.md`](03-guide.md#which-task-the-settings-screen-opens-in-android).
 
 ## 4. Get a fix
 

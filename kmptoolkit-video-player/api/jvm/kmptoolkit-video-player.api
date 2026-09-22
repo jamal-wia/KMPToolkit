@@ -1,0 +1,257 @@
+public final class io/github/jamal_wia/kmptoolkit/video/player/RemoteFormat : java/lang/Enum {
+	public static final field Auto Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+	public static final field Hls Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+	public static final field Progressive Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/RepeatMode : java/lang/Enum {
+	public static final field Off Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;
+	public static final field One Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;
+}
+
+public abstract interface annotation class io/github/jamal_wia/kmptoolkit/video/player/ToolkitInheritanceApi : java/lang/annotation/Annotation {
+}
+
+public abstract interface annotation class io/github/jamal_wia/kmptoolkit/video/player/ToolkitInternalApi : java/lang/annotation/Annotation {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoFrame {
+	public fun <init> (II[I)V
+	public final fun getHeight ()I
+	public final fun getPixels ()[I
+	public final fun getWidth ()I
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/VideoFrameSource {
+	public abstract fun getFrames ()Lkotlinx/coroutines/flow/StateFlow;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoFrameSourceKt {
+	public static final fun frameSourceOrNull (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoFrameSource;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine {
+	public abstract fun bufferedPositionMs ()J
+	public fun dispose ()V
+	public abstract fun durationMs ()J
+	public abstract fun load (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun pause ()V
+	public abstract fun positionMs ()J
+	public abstract fun release ()V
+	public abstract fun seekTo (J)V
+	public abstract fun setListener (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngineListener;)V
+	public abstract fun setLooping (Z)V
+	public abstract fun setSpeed (F)V
+	public abstract fun setVolume (F)V
+	public abstract fun start ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine$DefaultImpls {
+	public static fun dispose (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine;)V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngineListener {
+	public abstract fun onBufferingChanged (Z)V
+	public abstract fun onCompleted ()V
+	public abstract fun onFailed (Ljava/lang/Throwable;)V
+	public abstract fun onVideoSizeChanged (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSize;)V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayer : java/lang/AutoCloseable {
+	public fun close ()V
+	public abstract fun getBufferedPositionFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getPlaybackPositionFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getPlaybackSpeedFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getRepeatModeFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getStateFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getVideoSizeFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getVolumeFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun isBufferingFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun isMutedFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun pause ()V
+	public abstract fun play ()V
+	public abstract fun prepare (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun release ()V
+	public abstract fun replay ()V
+	public abstract fun seekBackward (J)V
+	public static synthetic fun seekBackward$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;JILjava/lang/Object;)V
+	public abstract fun seekForward (J)V
+	public static synthetic fun seekForward$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;JILjava/lang/Object;)V
+	public abstract fun seekTo (J)V
+	public abstract fun setMuted (Z)V
+	public abstract fun setPlaybackSpeed (F)V
+	public abstract fun setRepeatMode (Lio/github/jamal_wia/kmptoolkit/video/player/RepeatMode;)V
+	public abstract fun setVolume (F)V
+	public abstract fun stop ()V
+	public abstract fun unload ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayer$DefaultImpls {
+	public static fun close (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;)V
+	public static synthetic fun seekBackward$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;JILjava/lang/Object;)V
+	public static synthetic fun seekForward$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;JILjava/lang/Object;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig$Companion;
+	public static final field DEFAULT_MAX_PLAYBACK_SPEED F
+	public static final field DEFAULT_MIN_PLAYBACK_SPEED F
+	public static final field DEFAULT_POSITION_UPDATE_INTERVAL_MS J
+	public fun <init> ()V
+	public fun <init> (JFF)V
+	public synthetic fun <init> (JFFILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getMaxPlaybackSpeed ()F
+	public final fun getMinPlaybackSpeed ()F
+	public final fun getPositionUpdateIntervalMs ()J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig$Companion {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerFactoryKt {
+	public static final fun createVideoPlayer (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine;Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig;Lkotlin/coroutines/CoroutineContext;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;
+	public static synthetic fun createVideoPlayer$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine;Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerConfig;Lkotlin/coroutines/CoroutineContext;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayer;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerKt {
+	public static final field DEFAULT_SEEK_AMOUNT_MS J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerReleasedException : java/lang/IllegalStateException {
+	public fun <init> ()V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Completed : io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState {
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Completed;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Completed;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Completed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDuration ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Error : io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState {
+	public fun <init> (Ljava/lang/Throwable;)V
+	public final fun component1 ()Ljava/lang/Throwable;
+	public final fun copy (Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Error;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Error;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Error;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Idle : io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Idle;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Paused : io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState {
+	public fun <init> (JJ)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun copy (JJ)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Paused;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Paused;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Paused;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentPosition ()J
+	public final fun getDuration ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Playing : io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState {
+	public fun <init> (JJ)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun copy (JJ)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Playing;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Playing;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Playing;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCurrentPosition ()J
+	public final fun getDuration ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Preparing : io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Preparing;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Ready : io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState {
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Ready;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Ready;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState$Ready;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDuration ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoPlayerStateKt {
+	public static final fun getDuration (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState;)Ljava/lang/Long;
+	public static final fun getPlaybackPosition (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState;)Ljava/lang/Long;
+	public static final fun getProgress (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState;)F
+	public static final fun isPlayable (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState;)Z
+	public static final fun isPlaying (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlayerState;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoSize {
+	public fun <init> (II)V
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun copy (II)Lio/github/jamal_wia/kmptoolkit/video/player/VideoSize;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSize;IIILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/video/player/VideoSize;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAspectRatio ()F
+	public final fun getHeight ()I
+	public final fun getWidth ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/VideoSource {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoSource$Asset : io/github/jamal_wia/kmptoolkit/video/player/VideoSource {
+	public fun <init> (Ljava/lang/String;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoSource$File : io/github/jamal_wia/kmptoolkit/video/player/VideoSource {
+	public fun <init> (Ljava/lang/String;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPath ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/video/player/VideoSource$Remote : io/github/jamal_wia/kmptoolkit/video/player/VideoSource {
+	public fun <init> (Ljava/lang/String;Ljava/util/Map;Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/Map;Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFormat ()Lio/github/jamal_wia/kmptoolkit/video/player/RemoteFormat;
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+

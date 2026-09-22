@@ -1,0 +1,50 @@
+public final class io/github/jamal_wia/kmptoolkit/video/player/testing/FakeVideoPlaybackEngine : io/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine {
+	public fun <init> ()V
+	public fun <init> (J)V
+	public synthetic fun <init> (JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun advancePositionBy (J)V
+	public final fun advancePositionTo (J)V
+	public fun bufferedPositionMs ()J
+	public final fun completePlayback ()V
+	public fun dispose ()V
+	public fun durationMs ()J
+	public final fun failLoad (Ljava/lang/Throwable;)V
+	public final fun failPlayback (Ljava/lang/Throwable;)V
+	public final fun finishLoad ()V
+	public final fun getAppliedSpeed ()F
+	public final fun getAppliedVolume ()F
+	public final fun getBufferedPositionMs ()J
+	public final fun getDisposeCount ()I
+	public final fun getDurationMs ()J
+	public final fun getHasListener ()Z
+	public final fun getLoadDelayMs ()J
+	public final fun getLoadFailure ()Ljava/lang/Throwable;
+	public final fun getLoadedSources ()Ljava/util/List;
+	public final fun getPositionMs ()J
+	public final fun getReleaseCount ()I
+	public final fun getSeekTargets ()Ljava/util/List;
+	public final fun getSuspendLoads ()Z
+	public final fun getVideoSizeOnLoad ()Lio/github/jamal_wia/kmptoolkit/video/player/VideoSize;
+	public final fun isLoadPending ()Z
+	public final fun isLooping ()Z
+	public final fun isPlaying ()Z
+	public fun load (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSource;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun pause ()V
+	public fun positionMs ()J
+	public fun release ()V
+	public final fun reportBuffering (Z)V
+	public final fun reportVideoSize (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSize;)V
+	public fun seekTo (J)V
+	public final fun setBufferedPositionMs (J)V
+	public final fun setDurationMs (J)V
+	public fun setListener (Lio/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngineListener;)V
+	public final fun setLoadDelayMs (J)V
+	public final fun setLoadFailure (Ljava/lang/Throwable;)V
+	public fun setLooping (Z)V
+	public fun setSpeed (F)V
+	public final fun setSuspendLoads (Z)V
+	public final fun setVideoSizeOnLoad (Lio/github/jamal_wia/kmptoolkit/video/player/VideoSize;)V
+	public fun setVolume (F)V
+	public fun start ()V
+}
+

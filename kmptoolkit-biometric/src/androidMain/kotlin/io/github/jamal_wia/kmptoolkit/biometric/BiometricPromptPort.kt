@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.biometric
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
 
 /**
  * The narrow slice of `androidx.biometric` this module drives.

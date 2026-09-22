@@ -1,0 +1,41 @@
+package io.github.jamal_wia.kmptoolkit.video.player.vlcj
+
+import io.github.jamal_wia.kmptoolkit.video.player.VideoPlaybackEngineListener
+import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
+import java.util.concurrent.CopyOnWriteArrayList
+
+/** Records every engine callback, from whatever thread VLC delivers it on. */
+internal class RecordingListener : VideoPlaybackEngineListener {
+
+    val events: MutableList<String> = CopyOnWriteArrayList()
+    val failures: MutableList<Throwable> = CopyOnWriteArrayList()
+    val sizes: MutableList<VideoSize?> = CopyOnWriteArrayList()
+
+    val completions: Int get() = events.count { it == "completed" }
+
+    /** Runs after each recorded event, on the thread that delivered it — to react like an app would. */
+    @Volatile var reaction: (event: String) -> Unit = {}
+
+    private fun record(event: String) {
+        events += event
+        reaction(event)
+    }
+
+    override fun onCompleted() {
+        record("completed")
+    }
+
+    override fun onFailed(cause: Throwable) {
+        failures += cause
+        record("failed")
+    }
+
+    override fun onBufferingChanged(isBuffering: Boolean) {
+        record("buffering=$isBuffering")
+    }
+
+    override fun onVideoSizeChanged(size: VideoSize?) {
+        sizes += size
+        record("size=$size")
+    }
+}

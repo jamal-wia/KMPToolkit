@@ -25,6 +25,10 @@ gradlePlugin {
             id = "kmptoolkit.library"
             implementationClass = "io.github.jamal_wia.kmptoolkit.buildlogic.LibraryConventionPlugin"
         }
+        register("libraryJvm") {
+            id = "kmptoolkit.library.jvm"
+            implementationClass = "io.github.jamal_wia.kmptoolkit.buildlogic.JvmLibraryConventionPlugin"
+        }
         register("compose") {
             id = "kmptoolkit.compose"
             implementationClass = "io.github.jamal_wia.kmptoolkit.buildlogic.ComposeConventionPlugin"

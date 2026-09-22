@@ -2,10 +2,13 @@ package io.github.jamal_wia.kmptoolkit.biometric
 
 import android.app.Application
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import androidx.biometric.BiometricManager
+import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
+import io.github.jamal_wia.kmptoolkit.activity.SystemScreenKind
+import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
+import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
@@ -28,6 +31,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * @param config which credentials count and whether passive biometrics need a confirming tap; see
  *   [BiometricGateConfig].
  *
+ * [BiometricGate.launchEnrollment] opens its screen with [SystemScreenLauncher.SeparateTask] — in a
+ * task of its own; [createBiometricGateWithLauncher] takes a launcher of your own.
+ *
  * The app does **not** need `android.permission.USE_BIOMETRIC`: this library declares no permission
  * of its own, on purpose, and `androidx.biometric` does not require the app to declare one either —
  * see `docs/kmptoolkit-biometric/05-platform-notes.md`.
@@ -42,6 +48,10 @@ public fun createBiometricGate(
  * sensor attempt per call, and the enrolment-launch throttle. Otherwise identical to the two-argument
  * overload, including its `FragmentActivity` requirement.
  *
+ * [BiometricGate.launchEnrollment] opens its screen with [SystemScreenLauncher.SeparateTask]: a task
+ * of its own, never the app's and never a Settings task left in the background.
+ * [createBiometricGateWithLauncher] takes a launcher of your own.
+ *
  * @throws IllegalArgumentException if [options] asks for [BiometricStrength.WEAK] together with
  *   [BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL], a combination Android cannot express.
  * @since 1.5.0
@@ -50,26 +60,102 @@ public fun createBiometricGate(
     context: Context,
     config: BiometricGateConfig,
     options: BiometricGateOptions,
+): BiometricGate = buildBiometricGate(context, SystemScreenLauncher.SeparateTask, config, options, activityAccess = null)
+
+/**
+ * Creates the Android [BiometricGate] with the prompt hosted through [activityAccess] — your app's
+ * own activity tracker — instead of one the gate registers itself. Otherwise identical to the
+ * three-argument overload.
+ *
+ * The prompt attaches to whichever activity [activityAccess] answers with, so its `isTracked`
+ * predicate is honoured: an activity it does not track never hosts the prompt, and
+ * [BiometricGate.authenticate] returns [BiometricResult.NoPromptHost] while no tracked
+ * `FragmentActivity` is resumed. The gate does not own [activityAccess] and never releases it.
+ *
+ * [BiometricGate.launchEnrollment] still opens its screen with [SystemScreenLauncher.SeparateTask]:
+ * the tracker hosts the prompt, it does not decide the enrolment task. Pass
+ * `SystemScreenLauncher.callerTask(activityAccess)` to [createBiometricGateWithLauncher] for that.
+ *
+ * @param activityAccess the tracker that hosts the prompt; create it in `Application.onCreate`,
+ *   before any activity resumes.
+ * @throws IllegalArgumentException if [options] asks for [BiometricStrength.WEAK] together with
+ *   [BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL], a combination Android cannot express.
+ * @since 1.7.0
+ */
+public fun createBiometricGate(
+    context: Context,
+    activityAccess: ActivityAccess,
+    config: BiometricGateConfig = BiometricGateConfig(),
+    options: BiometricGateOptions = BiometricGateOptions(),
+): BiometricGate = buildBiometricGate(context, SystemScreenLauncher.SeparateTask, config, options, activityAccess)
+
+/**
+ * Creates the Android [BiometricGate] with [systemScreenLauncher] deciding how
+ * [BiometricGate.launchEnrollment] opens the enrolment screen. Otherwise identical to the
+ * three-argument [createBiometricGate], or — when [activityAccess] is given — to the overload taking
+ * an `ActivityAccess`.
+ *
+ * Each [BiometricGate.launchEnrollment] call that is not throttled calls [systemScreenLauncher]
+ * exactly once, with one `SystemScreenRequest` of kind [BiometricEnrollmentScreen] holding one or
+ * more candidate screens, most specific first, without launch flags. A throttled call never reaches
+ * it. `false`, or a launcher that throws, is reported as [BiometricEnrollmentLaunch.UNAVAILABLE].
+ *
+ * For an ordinary app, `SystemScreenLauncher.callerTask(activityAccess)` is the launcher to pass:
+ * the screen opens on your own task, Back returns to your screen, and a two-pane Settings has
+ * nothing to hand off. A lock-task (kiosk) app keeps [SystemScreenLauncher.SeparateTask] —
+ * `callerTask` would put Settings inside the locked task — and wraps it in a launcher that opens its
+ * lock-task allowlist window only for [BiometricEnrollmentScreen]; see
+ * `docs/kmptoolkit-biometric/03-guide.md`.
+ *
+ * @param systemScreenLauncher how the enrolment screen is opened; called on the thread that called
+ *   [BiometricGate.launchEnrollment].
+ * @param activityAccess the tracker that hosts the prompt, its `isTracked` predicate honoured; `null`
+ *   (the default) makes the gate register a tracker of its own, as the other factories without one do.
+ * @throws IllegalArgumentException if [options] asks for [BiometricStrength.WEAK] together with
+ *   [BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL], a combination Android cannot express.
+ * @since 1.7.0
+ */
+public fun createBiometricGateWithLauncher(
+    context: Context,
+    systemScreenLauncher: SystemScreenLauncher,
+    config: BiometricGateConfig = BiometricGateConfig(),
+    options: BiometricGateOptions = BiometricGateOptions(),
+    activityAccess: ActivityAccess? = null,
+): BiometricGate = buildBiometricGate(context, systemScreenLauncher, config, options, activityAccess)
+
+/** Every factory ends here; `activityAccess == null` registers the gate's own tracker. */
+private fun buildBiometricGate(
+    context: Context,
+    systemScreenLauncher: SystemScreenLauncher,
+    config: BiometricGateConfig,
+    options: BiometricGateOptions,
+    activityAccess: ActivityAccess?,
 ): BiometricGate {
     require(options.strength == BiometricStrength.STRONG || config.policy == BiometricPolicy.BIOMETRIC_ONLY) {
         "BiometricStrength.WEAK is only valid with BiometricPolicy.BIOMETRIC_ONLY, was ${config.policy}"
     }
     val applicationContext: Context = context.applicationContext
     val manager: BiometricManager = BiometricManager.from(applicationContext)
-    val activityAccess: ActivityAccess = createActivityTracker(applicationContext as Application)
+    val promptHost: ActivityAccess = activityAccess ?: createActivityAccess(applicationContext as Application)
     return AndroidBiometricGate(
         status = BiometricStatusPort { allowed -> manager.canAuthenticate(allowed) },
-        prompt = ActivityBiometricPromptPort(activityAccess, config, options),
+        prompt = ActivityBiometricPromptPort(promptHost, config, options),
         config = config,
         options = options,
-        enrollment = EnrollmentScreenStarter { intent ->
-            // From the resumed activity when there is one, the application context otherwise; a new
-            // task either way — see BiometricEnrollment.kt.
-            val launcher: Context = activityAccess.withActivity { activity -> activity } ?: applicationContext
-            launcher.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            true
-        },
+        enrollment = systemScreenLauncher.enrollmentStarter(applicationContext),
     )
+}
+
+/**
+ * The screen [BiometricGate.launchEnrollment] opens — the enrolment wizard, the biometrics management
+ * screen, or the security settings below API 30 — as the `kind` of the `SystemScreenRequest` a
+ * [SystemScreenLauncher] receives from this module. Match it to treat enrolment differently from
+ * other system screens, for example to open a kiosk's lock-task allowlist window around it.
+ *
+ * @since 1.7.0
+ */
+public object BiometricEnrollmentScreen : SystemScreenKind {
+    override fun toString(): String = "BiometricEnrollmentScreen"
 }
 
 /** The `BiometricManager.canAuthenticate` query, isolated so tests can answer it directly. */

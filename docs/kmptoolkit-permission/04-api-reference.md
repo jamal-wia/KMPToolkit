@@ -59,8 +59,11 @@ public interface PermissionHandler {
 - **`request`** shows the system dialog and returns after the user answers. When the current status
   is `Granted` or `PermanentlyDenied` it shows nothing and returns that status, because the OS would
   show nothing either.
-- **`openAppSettings`** opens the OS page for this app. `true` means the screen opened, not that the
-  user changed anything; call `check`/`PermissionRequestFlow.refresh` on resume.
+- **`openAppSettings`** opens the OS page for this app. `true` means the page was handed to the
+  system, not that the user changed anything — nor even saw it: Android has blocked background
+  activity starts silently since API 29. Call `check`/`PermissionRequestFlow.refresh` on resume. On
+  Android, which task the page opens in is decided by a `SystemScreenLauncher` — see the Android
+  factory below.
 - **`observe`** emits the current status on collection, then each *different* status: on every
   activity resume on Android, every time the app becomes active on iOS, and after every `request`
   through the same handler. It never shows UI. The interface default emits the current status once
@@ -190,6 +193,43 @@ already owns — typically one narrowed with `isTracked` to your own activities 
 of its own. The rationale is asked of, and settings are opened from, the activity that access
 reports.
 
+Both factories above open the settings page through `SystemScreenLauncher.callerTask` on their
+tracker: from the resumed activity, with no task flags, when `openAppSettings()` is called on the
+main thread; off the main thread, or with no activity resumed, in a task of its own
+(`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`). See
+[`05-platform-notes.md`](05-platform-notes.md#the-settings-trip).
+
+```kotlin
+public fun createPermissionHandlerWithLauncher(
+    context: Context,
+    host: PermissionRequestHost,
+    storage: KeyValueStorage,
+    activityAccess: ActivityAccess,
+    systemScreenLauncher: SystemScreenLauncher,
+    config: PermissionConfig = PermissionConfig(),
+    logger: Logger = NoopLogger,
+): PermissionHandler
+```
+
+*Since 1.7.0.* The same handler as the `activityAccess` overload, with `openAppSettings()` opening
+through `systemScreenLauncher` instead of `callerTask(activityAccess)`. A name of its own rather than
+another `createPermissionHandler` overload, so existing calls and references resolve as before. Each
+`openAppSettings()` calls the launcher exactly once, with kind `AppDetailsScreen` and one or more
+candidate intents, most specific first, without launch flags — currently only
+`ACTION_APPLICATION_DETAILS_SETTINGS` for this app. `false` or a thrown exception makes
+`openAppSettings()` return `false`, and is logged. `activityAccess` still answers the rationale
+question; the settings page uses it only if your launcher does.
+
+### `AppDetailsScreen` (Android only)
+
+```kotlin
+public object AppDetailsScreen : SystemScreenKind
+```
+
+*Since 1.7.0.* The `SystemScreenKind` of the request `openAppSettings()` hands to a
+`SystemScreenLauncher`, for a launcher that treats this app's details page differently from other
+system screens.
+
 ## `PermissionRequestHost` (Android only)
 
 ```kotlin
@@ -247,7 +287,7 @@ public interface SpecialPermissionHandler {
 | Member | Contract |
 |---|---|
 | `isGranted(permission)` | Whether `permission` is currently granted. Always `true` on iOS |
-| `requestViaSettings(permission)` | Opens the system Settings screen for `permission`. No result callback — re-check `isGranted` on resume. Returns whether a screen was actually opened; always `false` on iOS |
+| `requestViaSettings(permission)` | Opens the system Settings screen for `permission`. No result callback — re-check `isGranted` on resume. Returns whether a screen was handed to the system (not proof the user saw it: Android has blocked background activity starts silently since API 29); always `false` on iOS |
 
 ### Factories
 
@@ -255,12 +295,45 @@ public interface SpecialPermissionHandler {
 // Android
 public fun createSpecialPermissionHandler(context: Context, logger: Logger = NoopLogger): SpecialPermissionHandler
 
+public fun createSpecialPermissionHandlerWithLauncher(   // since 1.7.0
+    context: Context,
+    systemScreenLauncher: SystemScreenLauncher,
+    logger: Logger = NoopLogger,
+): SpecialPermissionHandler
+
 // iOS
 public fun createSpecialPermissionHandler(): SpecialPermissionHandler
 ```
 
-The Android factory needs only a `Context` — every operation here is context-level, none of it
-depends on an `Activity`.
+The two Android factories differ only in how `requestViaSettings` opens a Settings screen — which
+`SystemScreenLauncher` from `kmptoolkit-activity` it goes through:
+
+| Factory | Launcher |
+|---|---|
+| `createSpecialPermissionHandler(context, logger)` | `SystemScreenLauncher.SeparateTask` — a task of its own; there is no activity to launch from |
+| `createSpecialPermissionHandlerWithLauncher(context, systemScreenLauncher, logger)` | yours — for an ordinary app, `SystemScreenLauncher.callerTask(activityAccess)`: your task, from the resumed activity, when called on the main thread; a task of its own otherwise |
+
+`createSpecialPermissionHandlerWithLauncher` has a name of its own so that
+`createSpecialPermissionHandler` stays a single Android function, and an untyped reference to it
+(`::createSpecialPermissionHandler`, as in a DI declaration) still compiles.
+
+The launcher is called exactly once per `requestViaSettings`, with kind
+`SpecialPermissionScreen(permission)` and one or more candidate intents, most specific first,
+without launch flags — currently this app's own page, then the generic list of the same permission
+where the platform has one. `false` or a thrown exception makes `requestViaSettings` return `false`,
+and is logged. An entry with nothing to open on the device's API level never reaches the launcher.
+The candidates per entry are in [`05-platform-notes.md`](05-platform-notes.md#how-the-screens-open).
+
+### `SpecialPermissionScreen` (Android only)
+
+```kotlin
+public class SpecialPermissionScreen(public val permission: SpecialPermission) : SystemScreenKind
+```
+
+*Since 1.7.0.* The `SystemScreenKind` of the request `requestViaSettings(permission)` hands to a
+`SystemScreenLauncher`. Two instances are equal when they name the same `permission`, so a launcher
+can match `SpecialPermissionScreen(SpecialPermission.OVERLAY)`, or any of them with
+`is SpecialPermissionScreen`.
 
 ## `kmptoolkit-permission-testing`
 

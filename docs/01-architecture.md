@@ -160,19 +160,21 @@ than hidden:
 
 ## Compose modules are opt-in artifacts
 
-Only four modules depend on Compose Multiplatform: `kmptoolkit-systembars`,
-`kmptoolkit-logging-overlay`, `kmptoolkit-language-compose`, and `kmptoolkit-hardware-keys`. Every other module is plain Kotlin
+Only five modules depend on Compose Multiplatform: `kmptoolkit-systembars`,
+`kmptoolkit-logging-overlay`, `kmptoolkit-language-compose`, `kmptoolkit-hardware-keys` and
+`kmptoolkit-video-player-compose`. Every other module is plain Kotlin
 with no UI framework dependency — adding, say, `kmptoolkit-uploader` to a non-Compose (or non-UI)
 target never pulls in Compose. A module whose core capability is useful outside Compose too splits
 into a plain-Kotlin base and a `-compose` companion (`kmptoolkit-language` /
-`kmptoolkit-language-compose`) rather than pulling Compose into the base — see the base module's own
+`kmptoolkit-language-compose`, `kmptoolkit-video-player` / `kmptoolkit-video-player-compose`) rather
+than pulling Compose into the base — see the base module's own
 `01-overview.md` for why.
 
 Apple targets are uniform across the suite: every module publishes `iosArm64` and
 `iosSimulatorArm64`, and none publishes `iosX64`. The legacy Intel simulator is superseded by
 `iosSimulatorArm64` on Apple-silicon Macs, Compose Multiplatform 1.11+ publishes no `iosX64`
 artifact at all, and dropping it keeps the suite's published-file count — five coordinates per
-module, six for each module that also publishes `jvm` — inside Maven Central's
+module, six for each module that also publishes `jvm`, two for a JVM-only module — inside Maven Central's
 per-namespace limits (see `RELEASING.md`). The target
 list is recorded in each module's `.klib.api` dump.
 
@@ -193,15 +195,48 @@ That is the bar for a second Android-only module, and it is a high one: the capa
 both platforms in different forms is exactly what `expect`/`actual` is for, and belongs in a
 two-target module like every other one in the suite.
 
-Consumers depend on it from `androidMain`. `kmptoolkit-systembars` and `kmptoolkit-permission` both
-do — each carried a private copy of this code before it had a home of its own.
+Consumers depend on it from `androidMain`. `kmptoolkit-systembars`, `kmptoolkit-permission`,
+`kmptoolkit-biometric` and `kmptoolkit-location` all do — the first three each carried a private copy
+of the tracker before it had a home of its own.
+
+## Opening system screens
+
+A module that opens a system screen — a Settings page, a system wizard — never hard-codes how. It
+builds a `SystemScreenRequest` (every candidate intent, in order, without launch flags, plus a
+`SystemScreenKind` it declares next to its own API) and hands it to a `SystemScreenLauncher` from
+`kmptoolkit-activity`, once per logical request. Which task the screen lands in affects Back,
+Recents, split screen, two-pane Settings and lock-task mode, and no one answer is right for every
+app, so it is the consumer's choice, made in one place for every module.
+
+The rules for a module that does this:
+
+- **Offer a `…WithLauncher` factory** that takes a `SystemScreenLauncher` as a required parameter —
+  a function of its own name, not an overload: a new overload of an existing factory makes an untyped
+  reference to it (`::createLocationProvider`, as in a DI module) ambiguous. A factory name that is
+  already overloaded can take another overload without that cost — `createBiometricGate(context,
+  activityAccess)` is one.
+- **Keep the existing factories' defaults**, documented on each: `SystemScreenLauncher.SeparateTask`
+  where the factory has only a `Context`, and — where a factory already opened a screen from its own
+  activity tracker, as `openAppSettings` does — `callerTask` on that tracker. Screens a lock-task app
+  is known to open (biometric enrolment) default to `SeparateTask` everywhere.
+- **Never bare `FLAG_ACTIVITY_NEW_TASK`.** It reuses any background task with the target's affinity;
+  for Settings that is a stale deep-link task, and the user ends up on an unrelated page. Every
+  `kmptoolkit-*` release up to 1.6.0 had this bug in three modules.
+- **Call the launcher once per logical request with every candidate**, most specific first. Map
+  `false`, or a launcher that throws, to the module's own "could not open" answer, and apply throttles
+  before calling the launcher, so a consumer's launcher never sees a throttled request.
+- **Declare kinds as `object`s or final classes implementing the open `SystemScreenKind`** — never an
+  enum or sealed type, so a new screen is an addition, not a break.
 
 ## Desktop targets
 
-Seven artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-storage`, each with its
-`-testing` fixtures, `kmptoolkit-language` with `kmptoolkit-language-compose`, and
-`kmptoolkit-hardware-keys`. Every other module stays Android + iOS,
-and the exception is narrow and deliberate.
+Eleven artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-storage`, each with its
+`-testing` fixtures, `kmptoolkit-language` with `kmptoolkit-language-compose`,
+`kmptoolkit-hardware-keys`, `kmptoolkit-hijri`, and `kmptoolkit-video-player` with its `-testing` and
+`-compose` companions. Two more are **JVM-only** — the desktop video engines
+`kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`, built with the
+`kmptoolkit.library.jvm` convention. Every other module stays Android + iOS, and the exception is
+narrow and deliberate.
 
 Most modules expose a capability an app either wants on a platform or does not ask for there at all
 — a consumer with no use for haptics on desktop simply does not call into `kmptoolkit-haptics` from
@@ -225,6 +260,17 @@ in **shared** code:
 - **Hardware keys.** `DialogWindowHardwareKeyEffect` is called from inside dialog content, and
   dialog content is typical shared UI. Desktop has no Android-style per-window key routing, so the
   `jvm` actual is a no-op — the target exists only so that the shared dialog compiles.
+
+- **Video player.** A video screen is shared UI: `VideoPlayer(...)` and `rememberVideoPlayer(...)`
+  sit in the same tree on every target. Unlike the modules above, the desktop half is a real
+  capability — but its engine is the one thing the core must not choose for the app: both desktop
+  engines carry their own licence (VLCJ is GPL-3, OpenJFX GPL-2 + Classpath Exception) and their own
+  runtime requirement (an installed VLC, or the OpenJFX jars per OS). So the core and Compose modules
+  publish `jvm` with no engine at all, each engine is a separate JVM-only artifact the app opts into,
+  and the app picks one once at its root (`LocalVideoPlayerFactory`). The MIT core never makes a
+  consumer inherit a GPL dependency it did not ask for.
+- **Hijri.** `toHijriDate` is a pure date conversion a consumer calls from shared code; the JDK's
+  `HijrahDate` is Umm al-Qura, so the JVM half is real.
 
 In every case, omitting the target would not leave a capability unavailable on desktop; it would stop
 the consumer's shared modules compiling for desktop at all, and push them into fragmenting exactly the

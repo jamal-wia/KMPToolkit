@@ -68,6 +68,83 @@ Show your own explanation first. `openLocationSettings()` leaves your app immedi
 nothing about what the user did there — there is no callback, no result, and no way to know whether
 they turned the service back on. Re-check `isLocationEnabled()` when your screen resumes.
 
+### Which task the settings screen opens in (Android)
+
+*Since 1.7.0.* On Android, `openLocationSettings()` hands the screen to a `SystemScreenLauncher` from
+`kmptoolkit-activity`, and which one depends on the factory you called:
+
+| Factory | Launcher | Where the settings screen goes |
+|---|---|---|
+| `createLocationProvider(context, config, logger)` | `SystemScreenLauncher.SeparateTask` (the default, unchanged signature) | a task of its own; Back leaves Settings |
+| `createLocationProviderWithLauncher(context, systemScreenLauncher, config, logger)` | the one you pass | whatever that launcher decides |
+
+**For an ordinary app, this is the recipe** — pass `callerTask` on the `ActivityAccess` you create in
+`Application.onCreate`:
+
+```kotlin
+val location: LocationProvider = createLocationProviderWithLauncher(
+    context,
+    SystemScreenLauncher.callerTask(activityAccess),
+)
+```
+
+The screen is pushed on top of your resumed activity: Back returns to your screen, and a two-pane
+Settings on a tablet or foldable shows the page on its own instead of handing it to its homepage.
+`callerTask` does that only when `openLocationSettings()` is called **on the main thread** with an
+activity resumed; called off the main thread, or with no activity resumed, it opens the screen in a
+separate task, exactly like `SeparateTask`. `SeparateTask` works from any thread. The provider never
+releases `activityAccess`.
+
+The Context-only `createLocationProvider` keeps `SeparateTask`, and it stays a single function, so an
+untyped reference such as `singleOf(::createLocationProvider)` still resolves.
+
+**Logging each request** without changing behaviour — wrap the default this module would use,
+`SeparateTask` (or `callerTask(activityAccess)` if that is what you pass):
+
+```kotlin
+val location: LocationProvider = createLocationProviderWithLauncher(
+    context,
+    SystemScreenLauncher { request ->
+        logger.d { "Opening ${request.kind}" }
+        SystemScreenLauncher.SeparateTask.launch(request)
+    },
+)
+```
+
+**A lock-task (kiosk) app** keeps a separate task — a screen on your task is inside the locked task —
+and opens its lock-task allowlist window only for the launch. While the window is open the allowlist
+covers the whole Settings package, not just this screen. Close it again when the launch answers
+`false` or throws, and otherwise when your app resumes (`startActivity` returns before the screen is
+shown, so there is no earlier point to close it at):
+
+```kotlin
+val location: LocationProvider = createLocationProviderWithLauncher(
+    context,
+    SystemScreenLauncher { request ->
+        kioskWindow.open()                      // your code: adds the Settings package to the allowlist
+        val opened: Boolean = try {
+            SystemScreenLauncher.SeparateTask.launch(request)
+        } catch (failure: Exception) {
+            kioskWindow.close()
+            throw failure
+        }
+        if (!opened) kioskWindow.close()
+        opened                                  // on true, close the window in your activity's onResume
+    },
+)
+```
+
+Your launcher is called once per `openLocationSettings()` call, on the caller's thread, with one or
+more candidates, most specific first — currently one, `Settings.ACTION_LOCATION_SOURCE_SETTINGS`,
+without launch flags — and the kind `LocationSettingsScreen`. If it answers `false` or throws, the
+provider logs "Could not open the location settings screen" at `WARN` through its `logger` (with the
+exception as the cause, when there is one) — the same as a device without the screen — and
+`openLocationSettings()` returns normally. `true` means the start was handed to the system, not that
+the screen is visible: since Android 10 (API 29) a start from the background is blocked silently, and
+a lock-task violation is also answered `true` with nothing on screen. The full comparison of the
+presets and the per-factory defaults of every module are in
+[`kmptoolkit-activity`'s guide](../kmptoolkit-activity/03-guide.md#opening-system-screens).
+
 ## Prompting to re-enable the service
 
 `promptToEnableService()` exists for the platform that *can* raise an in-place "turn location back

@@ -9,6 +9,152 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-22
+
+### Added
+
+- `kmptoolkit-video-player` — a headless `VideoPlayer` for shared code, with the contract of
+  `kmptoolkit-audio-player` (`prepare` suspends and never throws on failure, a newer `prepare`
+  replaces an older one, transport calls outside a playable state are ignored, `release` is
+  idempotent and final) plus what a video needs: `volumeFlow`/`isMutedFlow`, `RepeatMode`,
+  `isBufferingFlow`, `bufferedPositionFlow` and `videoSizeFlow`. Sources are `Asset`, `File` and
+  `Remote` with optional HTTP headers and a `RemoteFormat` hint (`Auto`, `Progressive`, `Hls` — the
+  last for an HLS URL without `.m3u8`, which Android cannot recognise on its own); they are plain
+  value classes, and `Remote.toString()` redacts header values. Every call is safe from any thread:
+  calls, the position poll and the engine's events are serialized, so none overwrites a state
+  another just wrote. `VideoPlayer` is implemented by the library only, enforced with
+  `@SubclassOptInRequired(ToolkitInheritanceApi::class)`. One state machine in common code drives a
+  `VideoPlaybackEngine`: Media3 ExoPlayer (with HLS) on Android and `AVPlayer` on iOS. The engine SPI
+  is public for a consumer's own engine; its `release()` frees the loaded source, and its
+  `dispose()` (a no-op by default) frees what the engine keeps across sources, called once from
+  `VideoPlayer.release()`. Also publishes
+  `jvm` so shared UI compiles for desktop; the desktop engine is a separate artifact. Media3 merges
+  `ACCESS_NETWORK_STATE` and `WAKE_LOCK` into the consuming app's manifest; `INTERNET` stays the
+  app's to declare.
+- `kmptoolkit-video-player-testing` — `FakeVideoPlaybackEngine`, a scriptable engine for testing
+  code that consumes `VideoPlayer` without a device or a video file.
+- `kmptoolkit-video-player-compose` — `VideoPlayerSurface` (scale modes `Fit`/`Fill`/`Crop`,
+  keep-screen-on while playing) on Android, iOS and desktop, and `VideoPlayer` with ready-made
+  controls — tap to toggle, auto-hide, pause when the host goes to the background — whose every part
+  can be replaced: a `controls` slot over `VideoControlsScope` (used freely; implementing it is
+  opt-in with the core's `@ToolkitInheritanceApi`, as it may grow), public building blocks
+  (`PlayPauseButton`, `VideoSeekBar`, `VideoTimeText`, `MuteButton`, `SpeedButton`,
+  `FullscreenButton`, …), and plain `VideoControlsColors` / `VideoControlsDimensions` /
+  `VideoControlsLabels` objects. No user-facing text: accessibility labels come from the app.
+  `rememberVideoPlayer` creates, prepares and releases a player; `LocalVideoPlayerFactory` lets a
+  desktop app choose its engine once at the root.
+- `kmptoolkit-video-player-vlcj` — a JVM-only desktop engine on VLCJ: any format VLC plays, frames
+  rendered into memory for the Compose surface; one libvlc instance per player, kept across sources
+  and freed by `release()`. VLCJ is GPL-3.0 and needs VLC 3.x installed (or
+  bundled) for the JVM's CPU architecture; `isVlcAvailable()` checks without crashing.
+- `kmptoolkit-video-player-javafx` — a JVM-only desktop engine on JavaFX Media: nothing to install
+  beyond the OpenJFX jars the app adds per OS (GPL-2.0 + Classpath Exception), fewer formats, and a
+  higher CPU cost because frames are captured by off-screen snapshots.
+- `kmptoolkit.library.jvm` — a build convention for JVM-only modules.
+- `kmptoolkit-activity`: `SystemScreenLauncher`, the one place that decides how a module opens a
+  system screen and which task it lands in. Presets: `SystemScreenLauncher.SeparateTask` (a task of
+  its own, `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`) and
+  `SystemScreenLauncher.callerTask(activityAccess)` (your task, from the resumed activity, falling
+  back to a separate task when there is none or when called off the main thread). A launcher of your own receives one
+  `SystemScreenRequest` per logical request — every candidate intent, the application context and an
+  open `SystemScreenKind` — and `startFirstResolvable` tries the candidates in order. See
+  `docs/kmptoolkit-activity/03-guide.md`.
+- `kmptoolkit-location` (Android): `createLocationProviderWithLauncher(context, systemScreenLauncher,
+  config, logger)`, whose `openLocationSettings()` hands the screen to the `SystemScreenLauncher` you
+  pass — once per call, with its candidates and the new kind `LocationSettingsScreen`; `false` or a
+  throwing launcher is logged as "could not open" and never reaches the caller. For an ordinary app,
+  `createLocationProviderWithLauncher(context, SystemScreenLauncher.callerTask(activityAccess))` opens
+  the screen on the app's own task, so Back returns to it. `createLocationProvider(context, config,
+  logger)` keeps its signature (and stays the only function of that name, so
+  `::createLocationProvider` still resolves) and opens the screen with `SeparateTask`. The module now
+  depends on `kmptoolkit-activity` on Android. Binary- and source-compatible. See
+  `docs/kmptoolkit-location/03-guide.md`.
+- `kmptoolkit-permission` (Android): a choice of how Settings screens open, through
+  `SystemScreenLauncher`. Two new factories take the launcher:
+  `createSpecialPermissionHandlerWithLauncher(context, systemScreenLauncher, logger = NoopLogger)` and
+  `createPermissionHandlerWithLauncher(context, host, storage, activityAccess, systemScreenLauncher,
+  config = PermissionConfig(), logger = NoopLogger)`. They have names of their own, so the existing
+  `createSpecialPermissionHandler` stays a single function and `::createSpecialPermissionHandler`
+  still compiles as an untyped reference. For an ordinary app,
+  `createSpecialPermissionHandlerWithLauncher(context, SystemScreenLauncher.callerTask(activityAccess))`
+  opens the special-permission screens on the app's own task. New kinds
+  `SpecialPermissionScreen(permission)` and `AppDetailsScreen`. The existing factories keep their
+  signatures and defaults: `createSpecialPermissionHandler(context, logger)` uses `SeparateTask`, and
+  both `createPermissionHandler` overloads use `callerTask` on their tracker. See
+  `docs/kmptoolkit-permission/03-guide.md`.
+- `kmptoolkit-biometric` (Android): `createBiometricGateWithLauncher(context, systemScreenLauncher,
+  config, options, activityAccess)`, which takes a `SystemScreenLauncher` for `launchEnrollment()`
+  and optionally the app's `ActivityAccess` to host the prompt; for an ordinary (non-kiosk) app,
+  `SystemScreenLauncher.callerTask(activityAccess)` opens enrolment on the app's own task. And
+  `createBiometricGate(context, activityAccess, config, options)`, which hosts the prompt through the
+  app's tracker, its `isTracked` predicate honoured, and still opens enrolment with `SeparateTask`.
+  `BiometricEnrollmentScreen` is the `SystemScreenKind` of the enrolment request. Each non-throttled
+  `launchEnrollment()` calls the launcher once with one or more candidate screens; `false` or a
+  throwing launcher is reported as `UNAVAILABLE`, and a throttled call never reaches it. A kiosk app
+  opens its lock-task allowlist window from such a launcher — see
+  `docs/kmptoolkit-biometric/03-guide.md`. The module now exposes `kmptoolkit-activity` as an `api`
+  dependency on Android, and hosts its prompt through that module's activity tracker instead of a
+  private copy of it.
+
+### Changed
+
+- `kmptoolkit-permission` (Android), behaviour of the existing factories:
+  - Each different Settings screen now gets its own task and Recents card; 1.6.0 collapsed them into
+    one Settings card. Opening the same screen again brings its task forward with the screen on top.
+    The battery-optimisation dialog (`IGNORE_BATTERY_OPTIMIZATIONS`) gets its own task too, instead
+    of joining the Settings task.
+  - `requestViaSettings` tries a fallback screen when the device lacks the app's own page: exact
+    alarms, overlay and write-settings the same action without the `package:` URI, all-files access
+    `ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION`, and the battery-optimisation dialog
+    `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`. Where 1.6.0 answered `false`, such a device now
+    shows the permission's list.
+  - `openAppSettings()`: a start that fails from the activity is no longer retried from the
+    application context (the failures it could hit — no such screen, not exported — fail the same way
+    there), and a `singleInstance` activity, or a call off the main thread, now opens the page in a
+    task of its own.
+  - Binary- and source-compatible: no existing signature changed.
+- `kmptoolkit-location` and `kmptoolkit-biometric` (Android): as for permission, the location
+  settings screen and the enrolment screen now get their own task and Recents card, and opening the
+  same screen again brings its task forward with the screen on top.
+- `kmptoolkit-biometric` (Android): `launchEnrollment()` of the existing factories now starts the
+  screen from the application context, not from the resumed activity; on a multi-display device it
+  may therefore open on the default display rather than the activity's.
+- `kmptoolkit-biometric` (Android): any `Exception` thrown while starting the enrolment screen now
+  maps to `BiometricEnrollmentLaunch.UNAVAILABLE`; up to 1.6.0 only `ActivityNotFoundException` and
+  `SecurityException` did, and anything else crashed the caller.
+
+### Fixed
+
+- `kmptoolkit-audio-player`: the position poll could overwrite a state written at the same moment on
+  another thread. A poll tick that had read `Playing` just before the platform reported the end (or
+  just before `pause()`) wrote its stale `Playing` over `Completed` (or `Paused`), and the player then
+  claimed to be playing until the next transport call. Every transition — transport calls, poll
+  ticks and the engine's end/failure events — is now serialized inside the player, and a concurrent
+  `release()` can no longer free the engine twice. No API change.
+- `kmptoolkit-location` (Android): `openLocationSettings()` started Settings with bare
+  `FLAG_ACTIVITY_NEW_TASK`, which joins any background Settings task (one opened from a deep link,
+  say), so leaving the screen could land the user on a stale Settings page instead of the app.
+  `createLocationProvider(context, config, logger)` now opens it with
+  `SystemScreenLauncher.SeparateTask` (`NEW_TASK | NEW_DOCUMENT`, a task of its own). A screen that
+  could not be opened is still only logged; `openLocationSettings()` never throws.
+- `kmptoolkit-permission`: `SpecialPermissionHandler.requestViaSettings` started every Settings screen
+  with a bare `FLAG_ACTIVITY_NEW_TASK`, which brings forward a Settings task left in the background
+  (opened from a notification or a quick-settings long-press, say) and pushes the screen onto it, so
+  Back landed on that stale Settings page instead of the app. The screens now open with
+  `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, in a task of their own. The same fix applies
+  to `PermissionHandler.openAppSettings()` when it has no activity to start from; with one, it still
+  opens from that activity with no task flags.
+- `kmptoolkit-biometric`: `launchEnrollment()` on Android could land the user on an unrelated
+  Settings page. It started the screen with `FLAG_ACTIVITY_NEW_TASK` alone, which reuses a Settings
+  task left in the background (one opened from a deep link, say), so Back or the end of the wizard
+  returned to that stale page instead of the app. The existing factories now open it with
+  `SystemScreenLauncher.SeparateTask` (`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from the
+  application context), a task of its own, as the KDoc always promised. On a two-pane Settings (large
+  screens) the management screen (`COMBINED_BIOMETRICS_SETTINGS`) started in a new task can still be
+  handed to the Settings homepage — the enrolment wizard is not; if that matters and the app is not a
+  kiosk, pass `SystemScreenLauncher.callerTask(activityAccess)` to `createBiometricGateWithLauncher`.
+  The existing factories keep their signatures.
+
 ## [1.6.0] - 2026-09-16
 
 ### Added

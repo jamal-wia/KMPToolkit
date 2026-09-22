@@ -65,6 +65,11 @@ include(":kmptoolkit-downloader-testing")
 include(":kmptoolkit-language")
 include(":kmptoolkit-language-compose")
 include(":kmptoolkit-hijri")
+include(":kmptoolkit-video-player")
+include(":kmptoolkit-video-player-testing")
+include(":kmptoolkit-video-player-compose")
+include(":kmptoolkit-video-player-vlcj")
+include(":kmptoolkit-video-player-javafx")
 
 include(":kmptoolkit-bom")
 

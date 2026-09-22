@@ -10,6 +10,8 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.Looper
 import android.provider.Settings
+import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
+import io.github.jamal_wia.kmptoolkit.activity.SystemScreenRequest
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
@@ -38,6 +40,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * purpose. Without it, [LocationProvider.getCurrentLocation] returns `null` and
  * [LocationProvider.observeLocation] emits `null`, instead of either throwing.
  *
+ * [LocationProvider.openLocationSettings] opens the screen with
+ * [SystemScreenLauncher.SeparateTask]: this factory has no activity to launch from, so the screen
+ * gets a task of its own. To choose how it opens — for an ordinary app, on your own task with
+ * `SystemScreenLauncher.callerTask(activityAccess)` — use [createLocationProviderWithLauncher].
+ *
  * @param context any `Context`; its application context is what gets retained.
  * @param config tuning for update throttling and the single-fix timeout; see
  *   [LocationProviderConfig].
@@ -47,12 +54,49 @@ public fun createLocationProvider(
     context: Context,
     config: LocationProviderConfig = LocationProviderConfig(),
     logger: Logger = NoopLogger,
-): LocationProvider = AndroidLocationProvider(context.applicationContext, config, logger)
+): LocationProvider =
+    createLocationProviderWithLauncher(context, SystemScreenLauncher.SeparateTask, config, logger)
+
+/**
+ * Creates the Android [LocationProvider] — the same one as [createLocationProvider] — whose
+ * [LocationProvider.openLocationSettings] hands the location settings screen to
+ * [systemScreenLauncher].
+ *
+ * For an ordinary app, pass `SystemScreenLauncher.callerTask(activityAccess)`: the screen is pushed
+ * on top of your resumed activity, so Back returns to your screen and a two-pane Settings on a large
+ * screen shows the page on its own instead of handing it to the Settings homepage. `callerTask`
+ * does that only when `openLocationSettings` is called on the main thread with an activity resumed;
+ * otherwise it opens the screen in a separate task. A lock-task (kiosk) app keeps
+ * [SystemScreenLauncher.SeparateTask] — see `docs/kmptoolkit-location/03-guide.md`.
+ *
+ * Each [LocationProvider.openLocationSettings] call makes exactly one
+ * [SystemScreenLauncher.launch] call, with one or more candidate intents, most specific first
+ * (currently one: `Settings.ACTION_LOCATION_SOURCE_SETTINGS`), none carrying launch flags, and the
+ * kind [LocationSettingsScreen]. A launcher that answers `false` or throws is reported through
+ * [logger] as "could not open", exactly like a device without the screen; `openLocationSettings`
+ * itself never throws. The launcher is called on the thread that called `openLocationSettings`.
+ *
+ * @param context any `Context`; its application context is what gets retained.
+ * @param systemScreenLauncher decides how the settings screen opens and which task it lands in; see
+ *   [SystemScreenLauncher.SeparateTask] and [SystemScreenLauncher.callerTask].
+ * @param config tuning for update throttling and the single-fix timeout; see
+ *   [LocationProviderConfig].
+ * @param logger where a missing permission, a screen that could not be opened or an unexpected
+ *   platform failure is reported.
+ * @since 1.7.0
+ */
+public fun createLocationProviderWithLauncher(
+    context: Context,
+    systemScreenLauncher: SystemScreenLauncher,
+    config: LocationProviderConfig = LocationProviderConfig(),
+    logger: Logger = NoopLogger,
+): LocationProvider = AndroidLocationProvider(context.applicationContext, config, logger, systemScreenLauncher)
 
 private class AndroidLocationProvider(
     private val context: Context,
     private val config: LocationProviderConfig,
     private val logger: Logger,
+    private val systemScreenLauncher: SystemScreenLauncher,
 ) : LocationProvider {
 
     private val manager: LocationManager? =
@@ -148,11 +192,18 @@ private class AndroidLocationProvider(
     }
 
     override fun openLocationSettings() {
-        val intent: Intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val request = SystemScreenRequest(
+            candidates = listOf(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)),
+            context = context,
+            kind = LocationSettingsScreen,
+        )
+        val opened: Boolean = try {
+            systemScreenLauncher.launch(request)
+        } catch (failure: Exception) {
+            logger.w(failure) { "Could not open the location settings screen" }
+            return
         }
-        runCatching { context.startActivity(intent) }
-            .onFailure { cause -> logger.w(cause) { "Could not open the location settings screen" } }
+        if (!opened) logger.w { "Could not open the location settings screen" }
     }
 
     private fun bestEnabledProvider(service: LocationManager): String? =

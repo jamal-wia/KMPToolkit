@@ -8,7 +8,8 @@ import kotlinx.coroutines.flow.flow
  * settings.
  *
  * This is the type shared code depends on. The concrete instance is built in platform code —
- * `createPermissionHandler(context, host, activityAccess, storage)` on Android,
+ * `createPermissionHandler(context, host, storage[, activityAccess])` or
+ * `createPermissionHandlerWithLauncher(...)` on Android,
  * `createPermissionHandler()` on iOS — because the two platforms genuinely need different things
  * to construct it, which is why there is no `expect fun` here (see `docs/01-architecture.md`).
  *
@@ -57,9 +58,13 @@ public interface PermissionHandler {
      * The app is backgrounded by this; nothing tells you what the user did there. Re-run [check]
      * — or [PermissionRequestFlow.refresh] — when your screen comes back to the foreground.
      *
+     * On Android the page is opened through a `SystemScreenLauncher` (from `kmptoolkit-activity`),
+     * with one or more candidate screens, most specific first — currently only the app-details page.
+     *
      * @return `false` when the settings screen could not be opened at all, which is rare enough to
      *   be a device oddity rather than a case to design a UI around. `true` means the OS accepted
-     *   the request, not that the user changed anything.
+     *   the request, not that the user changed anything — nor even that the page appeared: Android
+     *   has blocked activity starts from the background silently since API 29.
      */
     public fun openAppSettings(): Boolean
 

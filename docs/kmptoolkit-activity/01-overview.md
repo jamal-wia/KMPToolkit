@@ -28,10 +28,28 @@ One interface, `ActivityAccess`, created from your `Application`:
   not — a photo picker, a sign-in flow, or a `ComponentActivity` an SDK declared in its own manifest
   — a predicate narrows it, and an untracked activity resuming is never handed out in place of yours.
 
+## Opening system screens
+
+Modules that open a system screen — Settings pages, the biometric enrolment wizard, the app-details
+page — all go through one small type from this module, `SystemScreenLauncher`, so you decide in one
+place which task such a screen lands in. Two presets cover most apps:
+
+- `SystemScreenLauncher.SeparateTask` gives the screen a task of its own. Your task is never
+  touched, and an unrelated Settings task left in the background is never joined; only a task
+  already rooted at that same screen is brought forward. The default of every factory except
+  `createPermissionHandler`'s app-details page.
+- `SystemScreenLauncher.callerTask(activityAccess)` pushes the screen onto your task, so Back returns
+  to the screen that asked and a two-pane tablet shows it in a single pane. With no activity resumed,
+  or when called off the main thread, it falls back to `SeparateTask`.
+
+Anything else — a kiosk allowlist window, logging, an explanation first, a result — is a launcher of
+your own, usually a few lines long. See [`03-guide.md`](03-guide.md#opening-system-screens).
+
 ## What it is not
 
 Not a navigator, not a back-stack, not a lifecycle observer. It answers one question — "which
-activity, right now, if any" — and nothing else.
+activity, right now, if any" — plus the one decision every module that opens a system screen needs
+from you: which task that screen goes into.
 
 ## Android only
 
@@ -42,6 +60,12 @@ Depend on it from your `androidMain` source set, not from `commonMain`. See
 
 ## Who uses it
 
-`kmptoolkit-systembars` and `kmptoolkit-permission` both take an `ActivityAccess`; each used to
-carry its own private copy of this code. If you use either, you already have this on your classpath
-and can share one instance with them so everything agrees on which window it means.
+- `kmptoolkit-systembars` and `kmptoolkit-permission` take an `ActivityAccess`: share one instance
+  with them so everything agrees on which window it means.
+- `kmptoolkit-biometric` hosts its prompt through one — its own, or yours via
+  `createBiometricGate(context, activityAccess)`.
+- `kmptoolkit-biometric`, `kmptoolkit-location` and `kmptoolkit-permission` open system screens
+  through a `SystemScreenLauncher`.
+
+`kmptoolkit-systembars`, `kmptoolkit-permission` and `kmptoolkit-biometric` each used to carry a
+private copy of the tracker.

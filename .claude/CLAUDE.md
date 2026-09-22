@@ -36,14 +36,17 @@ artifacts by coordinate.
   `gradle.properties` (the single source of truth every module and the BOM read).
 - Targets: Android + iOS. No JS/wasm. No JVM/desktop either, with one narrow exception —
   `kmptoolkit-systembars` (+ `-testing`), `kmptoolkit-language` (+ `-compose`),
-  `kmptoolkit-storage` (+ `-testing`) and `kmptoolkit-hardware-keys` also publish `jvm`,
-  because their types belong in code a consumer shares with desktop and omitting the target would
-  stop that shared code compiling at all. The reasoning, and the bar any further exception has to
+  `kmptoolkit-storage` (+ `-testing`), `kmptoolkit-hardware-keys`, `kmptoolkit-hijri` and
+  `kmptoolkit-video-player` (+ `-testing`, `-compose`) also publish `jvm`, because their types belong
+  in code a consumer shares with desktop and omitting the target would stop that shared code
+  compiling at all. The desktop video engines `kmptoolkit-video-player-vlcj` and
+  `kmptoolkit-video-player-javafx` are JVM-only artifacts, kept out of the core so their licences
+  (GPL-3 / GPL-2 + Classpath Exception) reach only an app that opts in. The reasoning, and the bar any further exception has to
   clear, are in `docs/01-architecture.md` § "Desktop targets". Do not add a desktop target to another
   module without meeting that bar and discussing it first. `kmptoolkit-activity` is the opposite
   case: Android only, see § "One module is Android-only".
-- Build wiring: convention plugins in `build-logic/` (`kmptoolkit.library`, `kmptoolkit.compose`,
-  `kmptoolkit.publish`, `kmptoolkit.androidtest`) — see that module's own KDoc for what each does
+- Build wiring: convention plugins in `build-logic/` (`kmptoolkit.library`, `kmptoolkit.library.jvm`
+  for a JVM-only module, `kmptoolkit.compose`, `kmptoolkit.publish`, `kmptoolkit.androidtest`) — see that module's own KDoc for what each does
   and why it's a `Plugin<Project>` class rather than a precompiled script plugin.
 - Full module list, dependency graph, and what's planned vs. published: root `README.md`.
 - Design principles: `docs/01-architecture.md`.
@@ -71,7 +74,8 @@ library:
   `docs/<module>/05-platform-notes.md`; never declare it in the module's own
   `AndroidManifest.xml`.
 - **No Compose dependency outside the suite's dedicated Compose modules** (`kmptoolkit-systembars`,
-  `kmptoolkit-logging-overlay`, `kmptoolkit-language-compose`, `kmptoolkit-hardware-keys`). Every other module stays plain
+  `kmptoolkit-logging-overlay`, `kmptoolkit-language-compose`, `kmptoolkit-hardware-keys`,
+  `kmptoolkit-video-player-compose`). Every other module stays plain
   Kotlin so it never forces a UI framework choice on a consumer that doesn't want one. A module that
   needs both a plain-Kotlin core and a Compose-dependent layer splits into two artifacts (the
   `kmptoolkit-language` / `kmptoolkit-language-compose` pair is the reference shape) rather than

@@ -175,6 +175,7 @@ right now, which is exactly what `isGranted()` answers and all it promises.
 
 ```kotlin
 val specialHandler: SpecialPermissionHandler = createSpecialPermissionHandler(context)
+// or, to open the screens on your own task: see "How settings screens open" below
 
 fun onExactRemindersToggled(wantExact: Boolean) {
     if (wantExact && !specialHandler.isGranted(SpecialPermission.EXACT_ALARM)) {
@@ -202,6 +203,117 @@ your screen already re-reads state on resume.
 is no `SpecialPermission` case that maps to anything there. Code that checks before requesting
 (`if (!isGranted(...)) requestViaSettings(...)`) is therefore automatically a no-op on iOS without
 an `expect`/`actual` branch anywhere in your own code.
+
+## How settings screens open (Android)
+
+`openAppSettings()` and `requestViaSettings()` both leave the app for a system screen, and which
+task that screen lands in decides where Back goes, what Recents shows, and whether a kiosk app's
+lock-task allowlist still applies. That decision is a `SystemScreenLauncher` from
+`kmptoolkit-activity`. Every existing factory keeps the default it has always had; a `…WithLauncher`
+factory takes yours.
+
+| Factory | Launcher |
+|---|---|
+| `createPermissionHandler(context, host, storage, …)` | `callerTask` on the tracker it creates |
+| `createPermissionHandler(context, host, storage, activityAccess, …)` | `callerTask(activityAccess)` |
+| `createPermissionHandlerWithLauncher(context, host, storage, activityAccess, systemScreenLauncher, …)` | yours |
+| `createSpecialPermissionHandler(context, …)` | `SeparateTask` — it has no activity to launch from |
+| `createSpecialPermissionHandlerWithLauncher(context, systemScreenLauncher, …)` | yours |
+
+- **`SeparateTask`** opens the screen in a task of its own, from any thread. Back leaves Settings;
+  each different screen gets its own Recents card.
+- **`callerTask(activityAccess)`** puts the screen on your task, from the resumed activity, when it is
+  called on the main thread; off the main thread, or with no activity resumed, it opens the screen
+  in a separate task instead. Back returns to the screen that asked, and a two-pane Settings shows
+  the page in a single pane.
+
+The defaults of all the suite's factories side by side are in
+[`kmptoolkit-activity`'s guide](../kmptoolkit-activity/03-guide.md#opening-system-screens).
+
+### An ordinary app: open special permissions on your own task
+
+For an ordinary app, `callerTask` is what the user expects — Back returns to your screen, and a
+tablet shows the page without handing it to the Settings homepage. Call `requestViaSettings` on the
+main thread (a click handler is):
+
+```kotlin
+// In Application.onCreate
+val activityAccess: ActivityAccess = createActivityAccess(this)
+val specialHandler: SpecialPermissionHandler =
+    createSpecialPermissionHandlerWithLauncher(this, SystemScreenLauncher.callerTask(activityAccess))
+```
+
+`openAppSettings()` already works this way through either `createPermissionHandler`.
+
+### A kiosk (lock-task) app
+
+A lock-task app keeps every screen out of its locked task with `SeparateTask` — `callerTask` would
+put Settings inside it, where the allowlist no longer confines it. Settings in a separate task needs
+its package on the allowlist, and that allows the **whole** Settings package while it is on the
+list, not just the one screen. So open the allowlist only for the screens you expect, close it again
+if the launch did not happen — it returned `false` or threw — and otherwise close it when your app
+resumes. `startActivity` returns before the screen appears, so there is nothing to wrap the launch
+in:
+
+```kotlin
+val kiosk = SystemScreenLauncher { request ->
+    when (request.kind) {
+        SpecialPermissionScreen(SpecialPermission.EXACT_ALARM), AppDetailsScreen -> {
+            settingsWindow.open() // yours: adds the Settings package to the lock-task allowlist
+            val launched: Boolean = try {
+                SystemScreenLauncher.SeparateTask.launch(request)
+            } catch (cause: Exception) {
+                settingsWindow.close()
+                throw cause
+            }
+            if (!launched) settingsWindow.close()
+            launched
+        }
+        else -> SystemScreenLauncher.SeparateTask.launch(request)
+    }
+}
+// …and settingsWindow.close() in your activity's onResume.
+
+val specialHandler = createSpecialPermissionHandlerWithLauncher(context, kiosk, logger)
+val handler = createPermissionHandlerWithLauncher(context, host, storage, activityAccess, kiosk, logger = logger)
+```
+
+### Logging each launch without changing it
+
+A launcher that only observes wraps the **same** default the factory would have used — otherwise
+adding a log line silently moves the screens to another task:
+
+```kotlin
+fun logging(delegate: SystemScreenLauncher): SystemScreenLauncher = SystemScreenLauncher { request ->
+    Log.i("Screens", "opening ${request.kind}")
+    delegate.launch(request)
+}
+
+// createSpecialPermissionHandler's default is SeparateTask…
+val specialHandler = createSpecialPermissionHandlerWithLauncher(
+    context,
+    logging(SystemScreenLauncher.SeparateTask),
+)
+// …and createPermissionHandler's is callerTask on its tracker.
+val handler = createPermissionHandlerWithLauncher(
+    context,
+    host,
+    storage,
+    activityAccess,
+    logging(SystemScreenLauncher.callerTask(activityAccess)),
+)
+```
+
+### What the launcher receives
+
+The launcher is called once per `openAppSettings()` / `requestViaSettings()`, with every candidate
+intent at once: one or more, most specific first — this app's own page, then the generic list of
+the same permission where the platform has one. `SeparateTask` and `callerTask` open the first one
+the device can show. Returning `false`, or throwing, makes that call return `false`, and is logged. A
+special permission with nothing to open on the device's API level never reaches the launcher. The
+candidates per screen are in [`05-platform-notes.md`](05-platform-notes.md#how-the-screens-open);
+tasks, Recents, two-pane Settings and lock-task details in
+[`05-platform-notes.md`](05-platform-notes.md#the-settings-trip).
 
 ## Mistakes worth avoiding
 
