@@ -28,10 +28,26 @@ One interface, `ActivityAccess`, created from your `Application`:
   not — a photo picker, a sign-in flow, or a `ComponentActivity` an SDK declared in its own manifest
   — a predicate narrows it, and an untracked activity resuming is never handed out in place of yours.
 
+## Opening system screens
+
+Modules that open a system screen — Settings pages, the biometric enrolment wizard, the app-details
+page — all go through one small type from this module, `SystemScreenLauncher`, so you decide in one
+place which task such a screen lands in. Two presets cover most apps:
+
+- `SystemScreenLauncher.SeparateTask` gives the screen a task of its own. Your task is never
+  touched, and a Settings task left in the background is never reused — the default wherever a module
+  has no activity to launch from.
+- `SystemScreenLauncher.callerTask(activityAccess)` pushes the screen onto your task, so Back returns
+  to the screen that asked and a two-pane tablet shows it in a single pane.
+
+Anything else — a result, a kiosk allowlist window, logging, an explanation first — is a launcher of
+your own, usually three lines long. See [`03-guide.md`](03-guide.md#opening-system-screens).
+
 ## What it is not
 
 Not a navigator, not a back-stack, not a lifecycle observer. It answers one question — "which
-activity, right now, if any" — and nothing else.
+activity, right now, if any" — plus the one decision every module that opens a system screen needs
+from you: which task that screen goes into.
 
 ## Android only
 
@@ -42,6 +58,8 @@ Depend on it from your `androidMain` source set, not from `commonMain`. See
 
 ## Who uses it
 
-`kmptoolkit-systembars` and `kmptoolkit-permission` both take an `ActivityAccess`; each used to
-carry its own private copy of this code. If you use either, you already have this on your classpath
+`kmptoolkit-systembars`, `kmptoolkit-permission`, `kmptoolkit-biometric` and
+`kmptoolkit-location` all build on it; the first two take an `ActivityAccess`, and the last three open
+system screens through a `SystemScreenLauncher`. Each of the first three used to carry its own private
+copy of the tracker. If you use either, you already have this on your classpath
 and can share one instance with them so everything agrees on which window it means.

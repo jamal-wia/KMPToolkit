@@ -195,8 +195,33 @@ That is the bar for a second Android-only module, and it is a high one: the capa
 both platforms in different forms is exactly what `expect`/`actual` is for, and belongs in a
 two-target module like every other one in the suite.
 
-Consumers depend on it from `androidMain`. `kmptoolkit-systembars` and `kmptoolkit-permission` both
-do — each carried a private copy of this code before it had a home of its own.
+Consumers depend on it from `androidMain`. `kmptoolkit-systembars`, `kmptoolkit-permission`,
+`kmptoolkit-biometric` and `kmptoolkit-location` all do — the first three each carried a private copy
+of the tracker before it had a home of its own.
+
+## Opening system screens
+
+A module that opens a system screen — a Settings page, a system wizard — never hard-codes how. It
+builds a `SystemScreenRequest` (every candidate intent, in order, without launch flags, plus a
+`SystemScreenKind` it declares next to its own API) and hands it to a `SystemScreenLauncher` from
+`kmptoolkit-activity`, once per logical request. Which task the screen lands in affects Back,
+Recents, split screen, two-pane Settings and lock-task mode, and no one answer is right for every
+app, so it is the consumer's choice, made in one place for every module.
+
+The rules for a module that does this:
+
+- **Offer a launcher parameter** on an Android factory overload, and document the default.
+- **Default to `SystemScreenLauncher.SeparateTask`** in a factory that has only a `Context` — there
+  is no activity to launch from — and to `callerTask(activityAccess)` in one that takes the app's
+  `ActivityAccess`, unless the screen is one a lock-task app is known to open, which keeps
+  `SeparateTask` (biometric enrolment).
+- **Never bare `FLAG_ACTIVITY_NEW_TASK`.** It reuses any background task with the target's affinity;
+  for Settings that is a stale deep-link task, and the user ends up on an unrelated page. Every
+  `kmptoolkit-*` release up to 1.6.0 had this bug in three modules.
+- **Map `false`, or a launcher that throws, to the module's own "could not open" answer**, and apply
+  throttles before calling the launcher, so a consumer's launcher never sees a throttled request.
+- **Declare kinds as `object`s or final classes implementing the open `SystemScreenKind`** — never an
+  enum or sealed type, so a new screen is an addition, not a break.
 
 ## Desktop targets
 

@@ -62,3 +62,69 @@ something that outlives every activity would be a mistake the compiler could not
 every activity in the process. An untracked activity resuming never becomes the answer: your tracked
 activity was paused when it was covered, so `withActivity` answers `null` while it is covered and
 answers with your activity again when it resumes. See [`03-guide.md`](03-guide.md) for when to narrow it.
+
+## `SystemScreenLauncher`
+
+```kotlin
+public fun interface SystemScreenLauncher {
+    public fun launch(request: SystemScreenRequest): Boolean
+
+    public companion object {
+        public val SeparateTask: SystemScreenLauncher
+        public fun callerTask(activityAccess: ActivityAccess): SystemScreenLauncher
+    }
+}
+```
+
+Decides how a module opens a system screen. Called once per logical request, on the caller's thread.
+Returns `true` if a screen was handed to the system — not a guarantee the user saw it: Android 14+ can
+block a background activity start silently — and `false` if nothing was opened. A launcher that
+throws is treated as `false` by the calling module. Since 1.7.0.
+
+### `SeparateTask`
+
+Starts the first resolvable candidate from the application context with
+`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`: a task of its own, never your task, and never a
+Settings task left in the background. See [`05-platform-notes.md`](05-platform-notes.md#system-screens-and-tasks)
+for the flags and their limits.
+
+### `callerTask(activityAccess)`
+
+Starts the first resolvable candidate from the activity `activityAccess` reports as resumed, with no
+task flags, so the screen joins your task. Falls back to `SeparateTask` when no activity is resumed or
+the resumed one is `singleInstance`. If an activity is resumed but no candidate resolves, the answer
+is `false` — it does not retry in a separate task, where the same intents would not resolve either.
+
+## `SystemScreenRequest`
+
+```kotlin
+public class SystemScreenRequest(
+    candidates: List<Intent>,
+    context: Context,
+    public val kind: SystemScreenKind,
+) {
+    public val candidates: List<Intent>
+    public val applicationContext: Context
+    public fun startFirstResolvable(start: (Intent) -> Unit): Boolean
+}
+```
+
+One logical request. `candidates` are tried in order, carry no launch flags, and are copied on
+construction; an empty list throws `IllegalArgumentException`. Only `context.applicationContext` is
+kept. The constructor is public for tests and for wrappers that pass a modified request on.
+
+`startFirstResolvable` calls `start` with a copy of each candidate until one does not throw
+`ActivityNotFoundException` or `SecurityException`, and returns whether one succeeded. Any other
+exception propagates. There is no `resolveActivity` pre-check, deliberately: Android 11+ package
+visibility can make it answer "no" for a screen that opens.
+
+## `SystemScreenKind`
+
+```kotlin
+public interface SystemScreenKind
+```
+
+Which screen a request opens. Open on purpose: each module declares its own kinds
+(`BiometricEnrollmentScreen`, `LocationSettingsScreen`, `AppDetailsScreen`,
+`SpecialPermissionScreen(permission)`), and later releases may add more — match with an `else`
+branch.

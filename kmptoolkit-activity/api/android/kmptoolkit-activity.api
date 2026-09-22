@@ -13,3 +13,25 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/activity/Activity
 	public abstract fun cancel ()V
 }
 
+public abstract interface class io/github/jamal_wia/kmptoolkit/activity/SystemScreenKind {
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/activity/SystemScreenLauncher {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenLauncher$Companion;
+	public abstract fun launch (Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenRequest;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/activity/SystemScreenLauncher$Companion {
+	public final fun callerTask (Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;)Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenLauncher;
+	public final fun getSeparateTask ()Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenLauncher;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/activity/SystemScreenRequest {
+	public fun <init> (Ljava/util/List;Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenKind;)V
+	public final fun getApplicationContext ()Landroid/content/Context;
+	public final fun getCandidates ()Ljava/util/List;
+	public final fun getKind ()Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenKind;
+	public final fun startFirstResolvable (Lkotlin/jvm/functions/Function1;)Z
+	public fun toString ()Ljava/lang/String;
+}
+

@@ -82,3 +82,72 @@ captures lives as long as the tracker does. Capture the `ActivityAccess`, not an
 most `Activity` APIs require it, so hop yourself if you are not already there. Listeners are invoked
 synchronously on whatever thread the framework delivers `onActivityResumed` on, which is the main
 thread.
+
+## Opening system screens
+
+`kmptoolkit-biometric` (enrolment), `kmptoolkit-location` (location settings) and
+`kmptoolkit-permission` (app details, the special-permission screens) open Settings screens for you.
+Each of their Android factories has an overload taking a `SystemScreenLauncher`, which decides how.
+
+### Which preset
+
+| | `SeparateTask` | `callerTask(activityAccess)` |
+|---|---|---|
+| Where the screen goes | a task of its own | on top of your resumed activity, in your task |
+| System Back | leaves Settings; Android shows whatever was behind it, normally your app | returns to your activity |
+| Recents | a separate Settings card | one card, your app |
+| Two-pane Settings (tablets, foldables) | hands itself to the Settings homepage, whose task may be a stale one | single pane, no hand-off |
+| Lock-task (kiosk) app | stays out of the locked task | ends up inside the locked task |
+| No activity resumed | — | falls back to `SeparateTask` |
+
+For an ordinary app, `callerTask` is usually what the user expects, and it is the only way to avoid
+the two-pane hand-off. For a lock-task app, keep `SeparateTask`: a screen in your locked task is no
+longer confined by the lock-task allowlist.
+
+Which one a module uses by default is decided per factory and documented there: a factory that only
+has a `Context` uses `SeparateTask`, because it has no activity to launch from; a factory that takes
+your `ActivityAccess` uses `callerTask` on it, except biometric enrolment, which always defaults to a
+separate task.
+
+### Your own launcher
+
+A launcher gets one `SystemScreenRequest` per logical request — every candidate intent at once — and
+answers whether a screen was opened:
+
+```kotlin
+// Log, then delegate to a preset.
+val logged = SystemScreenLauncher { request ->
+    Log.i("Screens", "opening ${request.kind}")
+    SystemScreenLauncher.SeparateTask.launch(request)
+}
+
+// Launch for a result through an ActivityResultLauncher<Intent> your activity registered.
+val forResult = SystemScreenLauncher { request ->
+    request.startFirstResolvable { intent -> settingsResults.launch(intent) }
+}
+
+// A kiosk: allow Settings in lock-task for the duration of this screen only.
+val kiosk = SystemScreenLauncher { request ->
+    when (request.kind) {
+        BiometricEnrollmentScreen -> {
+            allowSettingsWindow.open()
+            SystemScreenLauncher.SeparateTask.launch(request).also { launched ->
+                if (!launched) allowSettingsWindow.close()
+            }
+        }
+        else -> SystemScreenLauncher.SeparateTask.launch(request)
+    }
+}
+```
+
+- **One call per request.** A dialog your launcher shows appears once, however many candidates the
+  request has.
+- **`startFirstResolvable`** tries the candidates in order and moves on when one throws
+  `ActivityNotFoundException` or `SecurityException`; it hands your block a copy, so adding flags is
+  safe. Use it rather than looping yourself.
+- **`false` means nothing was opened.** The calling module turns it into its own "could not open"
+  answer. So does a launcher that throws.
+- **`kind` is open.** Match the kinds you care about and keep an `else` branch: later releases add
+  kinds without breaking you.
+- **Threading.** Modules call the launcher on the thread their caller used. Both presets work from any
+  thread; a launcher of yours that touches UI switches to the main thread itself.

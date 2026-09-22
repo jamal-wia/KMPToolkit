@@ -16,7 +16,9 @@ kmptoolkitPublish {
             "callbacks, and a predicate deciding which activities count — so a photo picker or a " +
             "sign-in screen resuming inside your process does not become 'the' activity. Pick " +
             "this if a controller, a permission launcher, or anything else has to reach a window " +
-            "whose identity changes on every rotation. Android only: there is no iOS counterpart " +
+            "whose identity changes on every rotation. Also SystemScreenLauncher, which decides the " +
+            "task a system screen opened by another kmptoolkit module lands in. Android only: " +
+            "there is no iOS counterpart " +
             "to an Activity."
     )
 }
