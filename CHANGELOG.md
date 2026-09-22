@@ -59,6 +59,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `SystemScreenRequest` per logical request — every candidate intent, the application context and an
   open `SystemScreenKind` — and `startFirstResolvable` tries the candidates in order. See
   `docs/kmptoolkit-activity/03-guide.md`.
+- `kmptoolkit-biometric`: `createBiometricGate(context, config, options, systemScreenLauncher)` on
+  Android, and `BiometricEnrollmentScreen`, the `SystemScreenKind` of the enrolment screen. Each
+  non-throttled `launchEnrollment()` calls the launcher once with every candidate screen; `false` or a
+  throwing launcher is reported as `UNAVAILABLE`, and a throttled call never reaches it. A kiosk app
+  opens its lock-task allowlist window from such a launcher — see
+  `docs/kmptoolkit-biometric/03-guide.md`. The module now exposes `kmptoolkit-activity` as an `api`
+  dependency on Android, and hosts its prompt through that module's activity tracker instead of a
+  private copy of it.
 
 ### Fixed
 
@@ -68,6 +76,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   claimed to be playing until the next transport call. Every transition — transport calls, poll
   ticks and the engine's end/failure events — is now serialized inside the player, and a concurrent
   `release()` can no longer free the engine twice. No API change.
+- `kmptoolkit-biometric`: `launchEnrollment()` on Android could land the user on an unrelated
+  Settings page. It started the screen with `FLAG_ACTIVITY_NEW_TASK` alone, which reuses a Settings
+  task left in the background (one opened from a deep link, say), so Back or the end of the wizard
+  returned to that stale page instead of the app. The existing factories now open it with
+  `SystemScreenLauncher.SeparateTask` (`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from the
+  application context), a task of its own, as the KDoc always promised. On a two-pane Settings (large
+  screens) a page started in a new task can still be handed to the Settings homepage; pass
+  `SystemScreenLauncher.callerTask` if that matters and the app is not a kiosk. No API change to the
+  existing factories.
 
 ## [1.6.0] - 2026-09-16
 

@@ -103,7 +103,8 @@ device credential, the first non-match dismisses the prompt before the user can 
 
 ### Opening enrolment
 
-`launchEnrollment()` starts, in a new task, the first screen the device resolves:
+`launchEnrollment()` hands one request to a `SystemScreenLauncher`, which starts the first screen the
+device resolves:
 
 | Situation | Candidates, in order |
 |---|---|
@@ -114,9 +115,41 @@ device credential, the first non-match dismisses the prompt before the user can 
 The split exists because the enrolment wizard is *enrol-if-missing*: for a user who already has an
 enrolment it finishes at once without showing anything. The management screen is not a documented
 constant, hence the literal and the fallback. It also stays inside the Settings app, which matters
-under lock-task mode, where only allowlisted packages can be started. The screen always starts in a
-new task, so a settings screen can never end up at the root of the app's own task. Calls closer than
-`BiometricGateOptions.enrollmentThrottle` (1 s by default) return `THROTTLED` and start nothing.
+under lock-task mode, where only allowlisted packages can be started. Calls closer than
+`BiometricGateOptions.enrollmentThrottle` (1 s by default) return `THROTTLED`, start nothing and never
+reach the launcher.
+
+#### Which task the screen lands in
+
+Unless you pass a launcher of your own, the screen starts with `SystemScreenLauncher.SeparateTask`:
+`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from the application context. Why both flags,
+and what each preset does, is in
+[`kmptoolkit-activity`'s platform notes](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks);
+for enrolment specifically:
+
+- **Never your task.** A settings screen can never end up at the root of your app's task — under
+  lock-task mode, a settings record left there after a crash makes the task impossible to lock again.
+- **Never a stale Settings task.** Up to 1.6.0 enrolment was started with `FLAG_ACTIVITY_NEW_TASK`
+  alone, which reuses any background task with Settings' affinity. After the user had opened a
+  Settings page from a deep link (a quick-settings long-press, say) and left it with Home, enrolment
+  was pushed on top of that page, and Back — or the end of the wizard — landed on it instead of in
+  your app. `FLAG_ACTIVITY_NEW_DOCUMENT` skips that lookup, so enrolment gets a fresh task.
+  `FLAG_ACTIVITY_CLEAR_TASK` is deliberately not used: it would wipe the matched task, which on some
+  API levels is the user's own Settings session opened from the launcher.
+- **Two-pane Settings, the residual.** On a large screen, AOSP Settings (12L and later) hands a page
+  started in a new task to its homepage (`DeepLinkHomepageActivity`, `singleTask`), whose task can
+  be a stale one; flags cannot change that. If it matters to you and your app is not a kiosk, pass
+  `SystemScreenLauncher.callerTask(activityAccess)` — the screen then opens in your task, in a single
+  pane, and Back returns to your activity. OEM Settings apps implement large screens differently;
+  check on the devices you ship to.
+- **Lock-task (kiosk) apps** keep `SeparateTask` and allowlist `com.android.settings` only while the
+  screen is open, from a launcher that matches `BiometricEnrollmentScreen` — the recipe is in
+  [`03-guide.md`](03-guide.md#a-kiosk-lock-task-app). `callerTask` would put Settings inside the
+  locked task, where the allowlist no longer confines it.
+
+`LAUNCHED` means the screen was handed to the system, not that the user saw it: Android 14+ can
+block a start from the background without telling the caller. Launch from a screen that is in the
+foreground.
 
 ### The device credential and API 30
 

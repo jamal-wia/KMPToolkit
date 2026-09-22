@@ -54,8 +54,11 @@ The interface default ignores the flag and calls `authenticate(prompt)`; a decor
 
 Opens the system screen to enrol a biometric, or to manage existing ones when something is enrolled.
 `LAUNCHED`, `THROTTLED` (inside `BiometricGateOptions.enrollmentThrottle` of the previous launch) or
-`UNAVAILABLE` (no such screen — always on iOS). The interface default returns `UNAVAILABLE`; a
-decorator should forward it. See [`05-platform-notes.md`](05-platform-notes.md#opening-enrolment).
+`UNAVAILABLE` (no such screen — always on iOS — or, on Android, the gate's `SystemScreenLauncher`
+returned `false` or threw). The interface default returns `UNAVAILABLE`; a decorator should forward
+it. On Android the screen opens through a `SystemScreenLauncher` — `SeparateTask` unless you passed
+one; see [`Platform factories`](#platform-factories) and
+[`05-platform-notes.md`](05-platform-notes.md#opening-enrolment).
 
 ## `BiometricGateOptions`
 
@@ -215,6 +218,15 @@ public fun createBiometricGate(               // since 1.5.0
     options: BiometricGateOptions,
 ): BiometricGate
 
+public fun createBiometricGate(               // since 1.7.0
+    context: Context,
+    config: BiometricGateConfig,
+    options: BiometricGateOptions,
+    systemScreenLauncher: SystemScreenLauncher,
+): BiometricGate
+
+public object BiometricEnrollmentScreen : SystemScreenKind   // since 1.7.0
+
 // iosMain
 public fun createBiometricGate(
     config: BiometricGateConfig = BiometricGateConfig(),
@@ -226,7 +238,7 @@ public fun createBiometricGate(               // since 1.5.0; options ignored
 ): BiometricGate
 ```
 
-Both three-argument overloads throw `IllegalArgumentException` for `BiometricStrength.WEAK`
+Every overload taking `options` throws `IllegalArgumentException` for `BiometricStrength.WEAK`
 with `BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL`.
 
 Two signatures rather than one `expect fun`, per
@@ -237,3 +249,15 @@ needs neither.
 - `context` — any `Context`; its application context is retained both for `BiometricManager` and to
   track the currently resumed activity. When no resumed `FragmentActivity` is available,
   `authenticate` returns `BiometricResult.NoPromptHost`.
+- `systemScreenLauncher` — how `launchEnrollment()` opens its screen; `SystemScreenLauncher` and
+  `SystemScreenKind` are from [`kmptoolkit-activity`](../kmptoolkit-activity/04-api-reference.md),
+  which this module exposes as an `api` dependency on Android. The overloads without it use
+  `SystemScreenLauncher.SeparateTask` (`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from the
+  application context). Each non-throttled `launchEnrollment()` calls it exactly once, on the calling
+  thread, with one `SystemScreenRequest` of kind `BiometricEnrollmentScreen` carrying every candidate
+  in order and no launch flags; a throttled call does not call it. `false` or any `Exception` it
+  throws is reported as `BiometricEnrollmentLaunch.UNAVAILABLE`. See
+  [`03-guide.md`](03-guide.md#how-the-screen-opens-on-android).
+- `BiometricEnrollmentScreen` — the `kind` of that request: the enrolment wizard, the biometrics
+  management screen, or the security settings below API 30. `toString()` is
+  `"BiometricEnrollmentScreen"`.
