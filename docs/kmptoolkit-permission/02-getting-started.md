@@ -179,6 +179,8 @@ See [`03-guide.md`](03-guide.md#special-access-permissions).
 - The knowledge that iOS never shows a second dialog, so its denial is permanent immediately.
 - A settings intent with the right action, data URI and task flags, and a fallback for when there is
   no resumed activity to launch it from.
+- For each special permission, the generic Settings list to fall back on when a device lacks the
+  app's own page.
 
 ## Read next
 
