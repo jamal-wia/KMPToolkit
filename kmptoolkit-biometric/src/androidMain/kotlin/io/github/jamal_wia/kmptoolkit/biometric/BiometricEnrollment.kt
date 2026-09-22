@@ -1,15 +1,29 @@
 package io.github.jamal_wia.kmptoolkit.biometric
 
-import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import androidx.biometric.BiometricManager
+import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
+import io.github.jamal_wia.kmptoolkit.activity.SystemScreenRequest
 
-/** Starts one settings screen; `false` or an [ActivityNotFoundException] when the device has none. */
+/**
+ * Hands every candidate of one [BiometricGate.launchEnrollment] call to whatever opens it; `true` if a
+ * screen was opened. May throw — [BiometricEnrollmentLauncher] treats a throw as `false`.
+ */
 internal fun interface EnrollmentScreenStarter {
-    fun start(intent: Intent): Boolean
+    fun start(candidates: List<Intent>): Boolean
 }
+
+/**
+ * The production [EnrollmentScreenStarter]: one [SystemScreenRequest] of kind [BiometricEnrollmentScreen]
+ * per call, carrying every candidate, handed to this launcher once.
+ */
+internal fun SystemScreenLauncher.enrollmentStarter(context: Context): EnrollmentScreenStarter =
+    EnrollmentScreenStarter { candidates ->
+        launch(SystemScreenRequest(candidates, context, BiometricEnrollmentScreen))
+    }
 
 /**
  * The action of the system's modality-agnostic biometrics management screen. Not a public `Settings`
@@ -18,7 +32,9 @@ internal fun interface EnrollmentScreenStarter {
 internal const val ACTION_COMBINED_BIOMETRICS_SETTINGS: String = "android.settings.COMBINED_BIOMETRICS_SETTINGS"
 
 /**
- * [BiometricGate.launchEnrollment] on Android: which screen, in which order, and how often.
+ * [BiometricGate.launchEnrollment] on Android: which screen, in which order, and how often. *How* the
+ * screen is started — which task it lands in — is the [SystemScreenLauncher]'s decision, not this
+ * class's.
  *
  * **Which screen.** `Settings.ACTION_BIOMETRIC_ENROLL` is an *enrol-if-missing* entry point: the
  * platform's enrolment activity checks `canAuthenticate` for the requested tier first and, when that
@@ -30,15 +46,28 @@ internal const val ACTION_COMBINED_BIOMETRICS_SETTINGS: String = "android.settin
  * launched and the documented-looking alternatives resolve to other packages on recent Android.
  * Below API 30 neither exists; the security settings screen is the closest there is.
  *
- * **In which order.** Candidates are tried in turn; the first the device resolves wins.
+ * **In which order.** Every candidate goes to the launcher in one [SystemScreenRequest], in order;
+ * the first the device resolves wins (`SystemScreenRequest.startFirstResolvable`). The intents carry
+ * no launch flags.
  *
- * **In a new task.** Always, even from an activity, so a settings screen can never become part of the
- * app's own task — under lock-task mode, a settings record left at the root of the app's task after a
- * crash makes the task impossible to lock again.
+ * **In a new task.** Always, by default: the factories that take no launcher use
+ * [SystemScreenLauncher.SeparateTask] — `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT` from the
+ * application context — so a settings screen can never become part of the app's own task (under
+ * lock-task mode, a settings record left at the root of the app's task after a crash makes the task
+ * impossible to lock again), and never joins a Settings task left in the background either. Up to
+ * 1.6.0 this was bare `FLAG_ACTIVITY_NEW_TASK`, which reuses any background task with Settings'
+ * affinity — one opened from a deep link, say — so Back or the end of the wizard landed on that stale
+ * page instead of the app. One residual the flags cannot change: on a two-pane Settings (large
+ * screens, AOSP 12L+) a page started in a new task hands itself to the Settings homepage, whose task
+ * may be a stale one. An app that passes its own launcher decides all of this itself.
  *
- * **How often.** At most once per throttle window, stamped before resolution: a launch that opened
- * nothing still consumes the window, so a double tap cannot stack two settings tasks, and the next
- * deliberate tap after the window works again — no latch that only a resume would clear.
+ * **How often.** At most once per throttle window, stamped before the launcher is called: a launch
+ * that opened nothing still consumes the window, so a double tap cannot stack two settings tasks, and
+ * the next deliberate tap after the window works again — no latch that only a resume would clear. A
+ * throttled call never reaches the launcher.
+ *
+ * **Not opened.** A launcher that returns `false` or throws — any `Exception` — maps to
+ * [BiometricEnrollmentLaunch.UNAVAILABLE], the answer for "no screen was started".
  */
 internal class BiometricEnrollmentLauncher(
     private val sdkInt: Int,
@@ -58,18 +87,13 @@ internal class BiometricEnrollmentLauncher(
         if (last != null && now - last < throttleMillis) return BiometricEnrollmentLaunch.THROTTLED
         lastLaunchAtMillis = now
 
-        for (intent in candidates(enrolled)) {
-            val started: Boolean = try {
-                starter.start(intent)
-            } catch (_: ActivityNotFoundException) {
-                false
-            } catch (_: SecurityException) {
-                // A settings screen some builds do not export: try the next candidate rather than crash.
-                false
-            }
-            if (started) return BiometricEnrollmentLaunch.LAUNCHED
+        val started: Boolean = try {
+            starter.start(candidates(enrolled))
+        } catch (_: Exception) {
+            // The app's own launcher failed; nothing was opened, which is an answer, not a crash.
+            false
         }
-        return BiometricEnrollmentLaunch.UNAVAILABLE
+        return if (started) BiometricEnrollmentLaunch.LAUNCHED else BiometricEnrollmentLaunch.UNAVAILABLE
     }
 
     internal fun candidates(enrolled: Boolean): List<Intent> {

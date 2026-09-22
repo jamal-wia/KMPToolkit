@@ -66,7 +66,8 @@ each case means something a caller can act on.
   parameters with no defaults, so there is no English string of ours you can ship by accident. See
   [`03-guide.md`](03-guide.md#the-words-are-yours).
 - **Not an enrolment UI.** It reports `BiometricUnavailability.NOT_ENROLLED`, and on Android
-  `launchEnrollment()` opens the system screen where the user fixes it. What the user does there is
+  `launchEnrollment()` opens the system screen where the user fixes it — in a task of its own by
+  default, or however a `SystemScreenLauncher` of yours decides. What the user does there is
   the system's business; read `availability()` again when your screen resumes. iOS offers no such
   screen.
 - **Not a permission requester.** Biometric access needs no runtime permission on either platform,
@@ -93,7 +94,7 @@ test the unenrolled and locked-out branches, which no emulator will hand you.
 ## Read next
 
 - [`02-getting-started.md`](02-getting-started.md) — a working gate on both platforms in five minutes
-- [`03-guide.md`](03-guide.md) — the copy rules, the device-credential decision, grace periods, mistakes
+- [`03-guide.md`](03-guide.md) — the copy rules, the device-credential decision, how enrolment opens (and kiosk apps), grace periods, mistakes
 - [`04-api-reference.md`](04-api-reference.md) — every public symbol and its contract
 - [`05-platform-notes.md`](05-platform-notes.md) — manifest, `Info.plist`, API levels, error-code tables
 - [`06-testing.md`](06-testing.md) — `ScriptedBiometricGate` and what to assert with it

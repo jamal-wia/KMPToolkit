@@ -63,10 +63,10 @@ If you want *both* — the strong claim normally, the credential as an escape ha
 and pick between them yourself. They are stateless and cost nothing:
 
 ```kotlin
-val strict: BiometricGate = createBiometricGate(context, activityAccess)
+// Android; on iOS the same two calls without the context.
+val strict: BiometricGate = createBiometricGate(context)
 val recoverable: BiometricGate = createBiometricGate(
     context,
-    activityAccess,
     BiometricGateConfig(policy = BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL),
 )
 
@@ -128,6 +128,79 @@ when (gate.launchEnrollment()) {
 
 `UNAVAILABLE` is the only answer on iOS, which has no screen an app can open for this. The gate does
 not remember that it sent the user away; `availability()` is the source of truth on the way back.
+
+### How the screen opens on Android
+
+By default the screen opens **in a task of its own** — `SystemScreenLauncher.SeparateTask` from
+[`kmptoolkit-activity`](../kmptoolkit-activity/03-guide.md#opening-system-screens), which starts it
+with `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT` from the application context. It never
+becomes part of your task, and it never joins a Settings task the user left in the background, so
+Back and the end of the wizard leave Settings instead of landing on an unrelated Settings page. That
+is the default of every factory that takes no launcher:
+
+| Factory | How enrolment opens |
+|---|---|
+| `createBiometricGate(context, config)` | `SystemScreenLauncher.SeparateTask` |
+| `createBiometricGate(context, config, options)` | `SystemScreenLauncher.SeparateTask` |
+| `createBiometricGate(context, config, options, systemScreenLauncher)` (since 1.7.0) | your launcher |
+
+The four-argument overload hands every enrolment to a `SystemScreenLauncher` of your choice. Each
+`launchEnrollment()` that is not throttled calls it exactly once, with a `SystemScreenRequest` whose
+`kind` is `BiometricEnrollmentScreen` and whose `candidates` are every screen worth trying, in order,
+without launch flags. A throttled call never reaches it. `false`, or a launcher that throws, comes
+back as `UNAVAILABLE`.
+
+```kotlin
+val gate: BiometricGate = createBiometricGate(
+    context,
+    BiometricGateConfig(),
+    BiometricGateOptions(),
+    SystemScreenLauncher.callerTask(activityAccess), // your app's tracker, from Application.onCreate
+)
+```
+
+`callerTask` pushes the screen onto your own task instead: Back returns to your activity, and a
+two-pane Settings on a tablet or foldable shows it in a single pane rather than handing it to its
+homepage (see [`05-platform-notes.md`](05-platform-notes.md#opening-enrolment)). Do **not** use it in
+a lock-task (kiosk) app — Settings would then run inside your locked task, where the lock-task
+allowlist no longer confines it.
+
+### A kiosk (lock-task) app
+
+A lock-task app can only start activities of allowlisted packages, and `com.android.settings` is
+normally not one of them — so enrolment needs Settings allowlisted for as long as the screen is
+open. Do that in a launcher, not in a decorator around the gate: the launcher only runs when a screen
+is really about to open — never for a throttled tap — it sees which screen it is, and it knows
+whether the launch worked. Keep `SeparateTask` underneath, so Settings stays out of your locked task:
+
+```kotlin
+// settingsWindow is your own code: it adds com.android.settings to
+// DevicePolicyManager.setLockTaskPackages and takes it off again (on return, or after a timeout).
+val kioskLauncher = SystemScreenLauncher { request ->
+    when (request.kind) {
+        BiometricEnrollmentScreen -> {
+            settingsWindow.open()
+            val launched: Boolean = try {
+                SystemScreenLauncher.SeparateTask.launch(request)
+            } catch (e: Exception) {
+                settingsWindow.close()
+                throw e
+            }
+            if (!launched) settingsWindow.close()
+            launched
+        }
+        else -> SystemScreenLauncher.SeparateTask.launch(request)
+    }
+}
+
+val gate: BiometricGate = createBiometricGate(context, config, options, kioskLauncher)
+```
+
+The window opens *before* the launch because a start that is not allowlisted is blocked, and it
+closes at once when nothing opened. The candidates are chosen to stay inside the Settings app —
+see [`05-platform-notes.md`](05-platform-notes.md#opening-enrolment) — so on AOSP the one package is
+enough; an OEM build can route a screen elsewhere, so check on the devices you ship to. Keep the `else` branch: `SystemScreenKind` is open, and other modules' screens
+arrive at the same launcher if you share it.
 
 ## A grace period
 
