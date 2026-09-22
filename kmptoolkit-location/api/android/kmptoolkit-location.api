@@ -48,7 +48,10 @@ public final class io/github/jamal_wia/kmptoolkit/location/LocationProviderConfi
 }
 
 public final class io/github/jamal_wia/kmptoolkit/location/LocationProvider_androidKt {
+	public static final fun createLocationProvider (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
 	public static final fun createLocationProvider (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
+	public static final fun createLocationProvider (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;Lio/github/jamal_wia/kmptoolkit/activity/SystemScreenLauncher;)Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
+	public static synthetic fun createLocationProvider$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
 	public static synthetic fun createLocationProvider$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/location/LocationProviderConfig;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/location/LocationProvider;
 }
 
@@ -60,5 +63,10 @@ public final class io/github/jamal_wia/kmptoolkit/location/LocationServicePrompt
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
 	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/location/LocationServicePrompt;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/location/LocationSettingsScreen : io/github/jamal_wia/kmptoolkit/activity/SystemScreenKind {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/location/LocationSettingsScreen;
+	public fun toString ()Ljava/lang/String;
 }
 
