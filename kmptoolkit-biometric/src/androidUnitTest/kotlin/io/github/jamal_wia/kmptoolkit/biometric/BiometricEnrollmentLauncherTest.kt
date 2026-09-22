@@ -106,6 +106,21 @@ class BiometricEnrollmentLauncherTest {
     }
 
     @Test
+    fun `at API 30 exactly the wizard and management screen are offered`() {
+        // The boundary: API 30 (R) is the first level with the wizard and the management screen.
+        launcher(sdkInt = Build.VERSION_CODES.R).launch(enrolled = true)
+        launcher(sdkInt = Build.VERSION_CODES.R).launch(enrolled = false)
+
+        assertEquals(
+            listOf(
+                listOf<String?>(ACTION_COMBINED_BIOMETRICS_SETTINGS, Settings.ACTION_BIOMETRIC_ENROLL),
+                listOf<String?>(Settings.ACTION_BIOMETRIC_ENROLL),
+            ),
+            requests.map { it.actions() },
+        )
+    }
+
+    @Test
     fun `the request names the enrolment screen and carries no launch flags`() {
         launcher().launch(enrolled = true)
 
@@ -235,13 +250,13 @@ class BiometricEnrollmentLauncherTest {
     }
 
     @Test
-    fun `the launcher overload rejects the weak tier together with the device credential too`() {
+    fun `the launcher factory rejects the weak tier together with the device credential too`() {
         assertFailsWith<IllegalArgumentException> {
-            createBiometricGate(
+            createBiometricGateWithLauncher(
                 context,
+                systemScreens,
                 BiometricGateConfig(policy = BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL),
                 BiometricGateOptions(strength = BiometricStrength.WEAK),
-                systemScreens,
             )
         }
     }

@@ -3,18 +3,25 @@ package io.github.jamal_wia.kmptoolkit.biometric
 import android.app.Activity
 import android.app.Application
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Bundle
 import android.provider.Settings
 import androidx.biometric.BiometricManager
+import androidx.fragment.app.FragmentActivity
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
+import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenRequest
+import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -31,9 +38,14 @@ import org.robolectric.annotation.Config
  *
  * The 1.6.0 bug lived in the factory's own start lambda — bare `FLAG_ACTIVITY_NEW_TASK`, which joins
  * a Settings task left in the background — and no test reached it. So these go through
- * `createBiometricGate` itself: the default path of every existing factory must start the screen with
- * exactly `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT` (a task of its own), and the launcher
- * overload must hand the app's launcher one request of kind [BiometricEnrollmentScreen].
+ * `createBiometricGate` itself: the default path of every factory without a launcher must start the
+ * screen with exactly `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT` (a task of its own), from
+ * the application context and never from a resumed activity; `createBiometricGateWithLauncher` must
+ * hand the app's launcher one request of kind [BiometricEnrollmentScreen]; and a tracker passed in
+ * must be the one that hosts the prompt.
+ *
+ * Robolectric records starts from an activity and from the application in one queue, so a start
+ * "from the activity" is proven with [RecordingActivity], which records its own starts instead.
  *
  * Robolectric is told to fail unresolvable starts (`checkActivities`), so "the device has no such
  * screen" is the platform's own `ActivityNotFoundException`. The screens are registered per test, so
@@ -78,6 +90,7 @@ class BiometricGateFactoryTest {
         assertEquals(BiometricEnrollmentLaunch.LAUNCHED, gate.launchEnrollment())
 
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
+        assertNull(shadowOf(application).nextStartedActivity, "exactly one screen is started")
     }
 
     @Test
@@ -91,6 +104,7 @@ class BiometricGateFactoryTest {
         val started: Intent = assertNotNull(shadowOf(application).nextStartedActivity)
         assertEquals(Settings.ACTION_BIOMETRIC_ENROLL, started.action)
         assertEquals(SEPARATE_TASK, started.flags)
+        assertNull(shadowOf(application).nextStartedActivity, "exactly one screen is started")
     }
 
     @Test
@@ -103,19 +117,20 @@ class BiometricGateFactoryTest {
         val started: Intent = assertNotNull(shadowOf(application).nextStartedActivity)
         assertEquals(Settings.ACTION_SECURITY_SETTINGS, started.action)
         assertEquals(SEPARATE_TASK, started.flags)
+        assertNull(shadowOf(application).nextStartedActivity, "exactly one screen is started")
     }
 
     @Test
     fun `a resumed activity does not pull enrolment into the app's task`() = runTest {
         registerScreen(Settings.ACTION_BIOMETRIC_ENROLL)
+        // Created before the activity resumes, so the gate's own tracker does see it: the 1.6.0 code
+        // started enrolment from exactly that activity.
         val gate: BiometricGate = createBiometricGate(application)
-        launch(Activity::class.java).setup() // resumed: the 1.6.0 code started enrolment from it
+        val activity: RecordingActivity = launch(RecordingActivity::class.java).setup().get()
 
-        gate.launchEnrollment()
+        assertEquals(BiometricEnrollmentLaunch.LAUNCHED, gate.launchEnrollment())
 
-        // Robolectric records starts from any context in one queue, so the flags are the evidence: a
-        // caller-task start would carry none, and the 1.6.0 start from this activity carried NEW_TASK
-        // alone.
+        assertEquals(emptyList(), activity.starts, "nothing is started from the resumed activity")
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
         assertNull(shadowOf(application).nextStartedActivity, "exactly one screen is started")
     }
@@ -127,13 +142,65 @@ class BiometricGateFactoryTest {
         assertNull(shadowOf(application).nextStartedActivity)
     }
 
+    // --- createBiometricGate(context, activityAccess, …) ---
+
     @Test
-    fun `the launcher overload hands the app's launcher one request of the enrolment kind`() = runTest {
+    fun `the tracker overload hosts the prompt through the tracker it was given`() = runTest {
+        val tracker = FakeActivityAccess(activity = null)
+        val gate: BiometricGate = createBiometricGate(application, tracker)
+
+        assertEquals(BiometricResult.NoPromptHost, gate.authenticate(PROMPT))
+        assertTrue(tracker.withActivityCalls > 0, "the prompt host was asked of the app's tracker")
+        assertEquals(0, tracker.releaseCalls, "the gate does not own the app's tracker")
+    }
+
+    @Test
+    fun `the tracker overload honours the tracker's isTracked predicate`() = runTest {
+        // A tracker that tracks nothing: a resumed FragmentActivity could host the prompt, but not
+        // through this tracker. A gate with a tracker of its own would have found it.
+        val tracker: ActivityAccess = createActivityAccess(application) { false }
+        try {
+            val gate: BiometricGate = createBiometricGate(application, tracker)
+            launch(FragmentActivity::class.java).setup()
+
+            assertEquals(BiometricResult.NoPromptHost, gate.authenticate(PROMPT))
+        } finally {
+            tracker.release()
+        }
+    }
+
+    @Test
+    fun `the tracker overload still starts enrolment in a task of its own`() = runTest {
+        registerScreen(Settings.ACTION_BIOMETRIC_ENROLL)
+        val activity: RecordingActivity = launch(RecordingActivity::class.java).setup().get()
+        val gate: BiometricGate = createBiometricGate(application, FakeActivityAccess(activity))
+
+        assertEquals(BiometricEnrollmentLaunch.LAUNCHED, gate.launchEnrollment())
+
+        assertEquals(emptyList(), activity.starts, "the tracker hosts the prompt, not the enrolment start")
+        assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
+        assertNull(shadowOf(application).nextStartedActivity, "exactly one screen is started")
+    }
+
+    @Test
+    fun `the tracker overload rejects the weak tier together with the device credential`() {
+        assertFailsWith<IllegalArgumentException> {
+            createBiometricGate(
+                application,
+                FakeActivityAccess(activity = null),
+                BiometricGateConfig(policy = BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL),
+                BiometricGateOptions(strength = BiometricStrength.WEAK),
+            )
+        }
+    }
+
+    // --- createBiometricGateWithLauncher ---
+
+    @Test
+    fun `the launcher factory hands the app's launcher one request of the enrolment kind`() = runTest {
         val requests: MutableList<SystemScreenRequest> = mutableListOf()
-        val gate: BiometricGate = createBiometricGate(
+        val gate: BiometricGate = createBiometricGateWithLauncher(
             application,
-            BiometricGateConfig(),
-            BiometricGateOptions(),
             SystemScreenLauncher { request -> requests += request; true },
         )
 
@@ -154,14 +221,26 @@ class BiometricGateFactoryTest {
     }
 
     @Test
-    fun `the launcher overload throttles before the launcher`() = runTest {
-        var calls = 0
-        val gate: BiometricGate = createBiometricGate(
+    fun `the launcher factory passes the options' tier to the wizard`() = runTest {
+        val requests: MutableList<SystemScreenRequest> = mutableListOf()
+        val gate: BiometricGate = createBiometricGateWithLauncher(
             application,
-            BiometricGateConfig(),
-            BiometricGateOptions(),
-            SystemScreenLauncher { calls++; true },
+            SystemScreenLauncher { request -> requests += request; true },
+            options = BiometricGateOptions(strength = BiometricStrength.WEAK),
         )
+
+        gate.launchEnrollment()
+
+        assertEquals(
+            BiometricManager.Authenticators.BIOMETRIC_WEAK,
+            requests.single().candidates.last().getIntExtra(Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED, -1),
+        )
+    }
+
+    @Test
+    fun `the launcher factory throttles before the launcher`() = runTest {
+        var calls = 0
+        val gate: BiometricGate = createBiometricGateWithLauncher(application, SystemScreenLauncher { calls++; true })
 
         gate.launchEnrollment()
 
@@ -170,41 +249,112 @@ class BiometricGateFactoryTest {
     }
 
     @Test
-    fun `the launcher overload reports a launcher answering false as unavailable`() = runTest {
-        val gate: BiometricGate = createBiometricGate(
-            application,
-            BiometricGateConfig(),
-            BiometricGateOptions(),
-            SystemScreenLauncher { false },
-        )
+    fun `the launcher factory reports a launcher answering false as unavailable`() = runTest {
+        var calls = 0
+        val gate: BiometricGate = createBiometricGateWithLauncher(application, SystemScreenLauncher { calls++; false })
 
         assertEquals(BiometricEnrollmentLaunch.UNAVAILABLE, gate.launchEnrollment())
+        assertEquals(1, calls, "one request, not one call per candidate")
     }
 
     @Test
-    fun `the launcher overload reports a throwing launcher as unavailable`() = runTest {
-        val gate: BiometricGate = createBiometricGate(
+    fun `the launcher factory reports a throwing launcher as unavailable`() = runTest {
+        var calls = 0
+        val gate: BiometricGate = createBiometricGateWithLauncher(
             application,
-            BiometricGateConfig(),
-            BiometricGateOptions(),
-            SystemScreenLauncher { throw IllegalStateException("the app's launcher failed") },
+            SystemScreenLauncher { calls++; throw IllegalStateException("the app's launcher failed") },
         )
 
         assertEquals(BiometricEnrollmentLaunch.UNAVAILABLE, gate.launchEnrollment())
+        assertEquals(1, calls)
     }
 
     @Test
-    fun `the launcher overload with SeparateTask behaves like the default`() = runTest {
+    fun `the launcher factory with SeparateTask behaves like the default`() = runTest {
         registerScreen(Settings.ACTION_BIOMETRIC_ENROLL)
-        val gate: BiometricGate = createBiometricGate(
-            application,
-            BiometricGateConfig(),
-            BiometricGateOptions(),
-            SystemScreenLauncher.SeparateTask,
-        )
+        val gate: BiometricGate = createBiometricGateWithLauncher(application, SystemScreenLauncher.SeparateTask)
 
         assertEquals(BiometricEnrollmentLaunch.LAUNCHED, gate.launchEnrollment())
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
+        assertNull(shadowOf(application).nextStartedActivity, "exactly one screen is started")
+    }
+
+    @Test
+    fun `the launcher factory with callerTask starts enrolment from the resumed activity`() = runTest {
+        val activity: RecordingActivity = launch(RecordingActivity::class.java).setup().get()
+        val tracker = FakeActivityAccess(activity)
+        val gate: BiometricGate = createBiometricGateWithLauncher(application, SystemScreenLauncher.callerTask(tracker))
+
+        assertEquals(BiometricEnrollmentLaunch.LAUNCHED, gate.launchEnrollment())
+
+        val started: Intent = activity.starts.single()
+        assertEquals(0, started.flags, "on the app's own task: no task flags")
+        assertTrue(started.action in ENROLMENT_ACTIONS, "started ${started.action}")
+        assertNull(shadowOf(application).nextStartedActivity, "nothing else is started")
+    }
+
+    @Test
+    fun `the launcher factory hosts the prompt through a tracker it was given`() = runTest {
+        val tracker = FakeActivityAccess(activity = null)
+        val gate: BiometricGate = createBiometricGateWithLauncher(
+            application,
+            SystemScreenLauncher.SeparateTask,
+            activityAccess = tracker,
+        )
+
+        assertEquals(BiometricResult.NoPromptHost, gate.authenticate(PROMPT))
+        assertTrue(tracker.withActivityCalls > 0, "the prompt host was asked of the app's tracker")
+    }
+
+    @Test
+    fun `the launcher factory rejects the weak tier together with the device credential`() {
+        assertFailsWith<IllegalArgumentException> {
+            createBiometricGateWithLauncher(
+                application,
+                SystemScreenLauncher.SeparateTask,
+                BiometricGateConfig(policy = BiometricPolicy.BIOMETRIC_OR_DEVICE_CREDENTIAL),
+                BiometricGateOptions(strength = BiometricStrength.WEAK),
+            )
+        }
+    }
+
+    // --- overload resolution ---
+
+    @Test
+    fun `every documented call shape resolves to exactly one factory`() {
+        // Compiling this test is the assertion: an ambiguous call, or one that resolves to a different
+        // overload than intended, fails the build (the expected types pin which one was chosen).
+        val config = BiometricGateConfig()
+        val options = BiometricGateOptions()
+        val tracker = FakeActivityAccess(activity = null)
+
+        val gates: List<BiometricGate> = listOf(
+            createBiometricGate(application),
+            createBiometricGate(application, config),
+            createBiometricGate(application, config = config),
+            createBiometricGate(application, config, options),
+            createBiometricGate(application, config = config, options = options),
+            createBiometricGate(application, tracker),
+            createBiometricGate(application, tracker, config),
+            createBiometricGate(application, tracker, options = options),
+            createBiometricGate(application, activityAccess = tracker, config = config, options = options),
+            createBiometricGateWithLauncher(application, SystemScreenLauncher.SeparateTask),
+            createBiometricGateWithLauncher(application, SystemScreenLauncher.callerTask(tracker), config, options),
+            createBiometricGateWithLauncher(application, SystemScreenLauncher.SeparateTask, activityAccess = tracker),
+        )
+        assertEquals(12, gates.size)
+
+        // Typed references pick one overload each; the new name has a single declaration, so even an
+        // untyped reference (a DI `singleOf(::createBiometricGateWithLauncher)`) is unambiguous.
+        val twoArgument: (Context, BiometricGateConfig) -> BiometricGate = ::createBiometricGate
+        val threeArgument: (Context, BiometricGateConfig, BiometricGateOptions) -> BiometricGate = ::createBiometricGate
+        val withTracker: (Context, ActivityAccess, BiometricGateConfig, BiometricGateOptions) -> BiometricGate =
+            ::createBiometricGate
+        val withLauncher = ::createBiometricGateWithLauncher
+        assertNotNull(twoArgument(application, config))
+        assertNotNull(threeArgument(application, config, options))
+        assertNotNull(withTracker(application, tracker, config, options))
+        assertNotNull(withLauncher(application, SystemScreenLauncher.SeparateTask, config, options, null))
     }
 
     @Test
@@ -224,7 +374,37 @@ class BiometricGateFactoryTest {
         }
     }
 
+    /** A real, resumable activity that records the starts made from it instead of performing them. */
+    class RecordingActivity : Activity() {
+        val starts: MutableList<Intent> = mutableListOf()
+
+        override fun startActivity(intent: Intent, options: Bundle?) {
+            starts += intent
+        }
+    }
+
+    /** An app's tracker, as far as the gate can tell: counts how it is used. */
+    private class FakeActivityAccess(private val activity: Activity?) : ActivityAccess {
+        var withActivityCalls: Int = 0
+        var releaseCalls: Int = 0
+
+        override fun <R> withActivity(block: (Activity) -> R): R? {
+            withActivityCalls++
+            return activity?.let(block)
+        }
+
+        override fun addOnActivityResumedListener(listener: (Activity) -> Unit): ActivitySubscription =
+            object : ActivitySubscription {
+                override fun cancel(): Unit = Unit
+            }
+
+        override fun release() {
+            releaseCalls++
+        }
+    }
+
     private companion object {
+        val PROMPT = BiometricPromptText(title = "Unlock", subtitle = "Confirm it is you", cancelLabel = "Cancel")
         const val SEPARATE_TASK: Int = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT
         val ENROLMENT_ACTIONS: Set<String> = setOf(ACTION_COMBINED_BIOMETRICS_SETTINGS, Settings.ACTION_BIOMETRIC_ENROLL)
     }

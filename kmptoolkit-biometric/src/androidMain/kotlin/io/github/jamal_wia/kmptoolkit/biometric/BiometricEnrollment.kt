@@ -58,8 +58,10 @@ internal const val ACTION_COMBINED_BIOMETRICS_SETTINGS: String = "android.settin
  * 1.6.0 this was bare `FLAG_ACTIVITY_NEW_TASK`, which reuses any background task with Settings'
  * affinity — one opened from a deep link, say — so Back or the end of the wizard landed on that stale
  * page instead of the app. One residual the flags cannot change: on a two-pane Settings (large
- * screens, AOSP 12L+) a page started in a new task hands itself to the Settings homepage, whose task
- * may be a stale one. An app that passes its own launcher decides all of this itself.
+ * screens, AOSP 12L+) the management screen — a `SettingsActivity` — started in a new task hands
+ * itself to the Settings homepage, whose task may be a stale one. The enrolment wizard is not a
+ * `SettingsActivity` and is not handed off; below API 30 there is no two-pane Settings. An app that
+ * passes its own launcher decides all of this itself.
  *
  * **How often.** At most once per throttle window, stamped before the launcher is called: a launch
  * that opened nothing still consumes the window, so a double tap cannot stack two settings tasks, and
