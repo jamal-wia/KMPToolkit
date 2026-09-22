@@ -3,7 +3,6 @@ package io.github.jamal_wia.kmptoolkit.permission
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -14,7 +13,7 @@ import org.robolectric.annotation.Config
 class AndroidSpecialPermissionHandlerTest {
 
     private val context: Application = ApplicationProvider.getApplicationContext()
-    private val handler = AndroidSpecialPermissionHandler(context, NoopLogger)
+    private val handler: SpecialPermissionHandler = createSpecialPermissionHandler(context)
 
     @Test
     @Config(sdk = [30])

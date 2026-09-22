@@ -203,6 +203,56 @@ is no `SpecialPermission` case that maps to anything there. Code that checks bef
 (`if (!isGranted(...)) requestViaSettings(...)`) is therefore automatically a no-op on iOS without
 an `expect`/`actual` branch anywhere in your own code.
 
+## How settings screens open (Android)
+
+`openAppSettings()` and `requestViaSettings()` both leave the app for a system screen, and which
+task that screen lands in decides where Back goes, what Recents shows, and whether a kiosk app's
+lock-task allowlist still applies. That decision is a `SystemScreenLauncher` from
+`kmptoolkit-activity`; every factory has a default, and an overload that takes your own.
+
+| Factory | Default |
+|---|---|
+| `createPermissionHandler(context, host, storage, …)` | `callerTask` on the tracker it creates |
+| `createPermissionHandler(context, host, storage, activityAccess, …)` | `callerTask(activityAccess)` |
+| `createPermissionHandler(context, host, storage, activityAccess, config, logger, systemScreenLauncher)` | yours |
+| `createSpecialPermissionHandler(context)` | `SeparateTask` — it has no activity to launch from |
+| `createSpecialPermissionHandler(context, activityAccess)` | `callerTask(activityAccess)` |
+| `createSpecialPermissionHandler(context, logger, systemScreenLauncher)` | yours |
+
+`callerTask` starts the screen from your resumed activity, on your task, so Back returns to the
+screen that asked; with no activity resumed it falls back to `SeparateTask`, a task of its own. For
+an ordinary app, `callerTask` is usually what the user expects:
+
+```kotlin
+// In Application.onCreate
+val activityAccess: ActivityAccess = createActivityAccess(this)
+val specialHandler: SpecialPermissionHandler = createSpecialPermissionHandler(this, activityAccess)
+```
+
+A lock-task (kiosk) app keeps every screen out of its locked task with `SeparateTask`, and can open
+its allowlist for exactly the screens it expects, matched by kind:
+
+```kotlin
+val kiosk = SystemScreenLauncher { request ->
+    when (request.kind) {
+        SpecialPermissionScreen(SpecialPermission.EXACT_ALARM), AppDetailsScreen ->
+            settingsWindow.around { SystemScreenLauncher.SeparateTask.launch(request) }
+        else -> SystemScreenLauncher.SeparateTask.launch(request)
+    }
+}
+
+val specialHandler = createSpecialPermissionHandler(context, logger, kiosk)
+val handler = createPermissionHandler(context, host, storage, activityAccess, PermissionConfig(), logger, kiosk)
+```
+
+The launcher is called once per `openAppSettings()` / `requestViaSettings()`, with every candidate
+intent at once. Returning `false`, or throwing, makes that call return `false`. A special permission
+with nothing to open on the device's API level never reaches the launcher. The presets, the
+trade-offs between them and writing your own are covered in
+[`kmptoolkit-activity`'s guide](../kmptoolkit-activity/03-guide.md#opening-system-screens); the
+flags, two-pane Settings and lock-task details in
+[`05-platform-notes.md`](05-platform-notes.md#the-settings-trip).
+
 ## Mistakes worth avoiding
 
 - **Requesting without declaring.** A permission missing from your `AndroidManifest.xml` produces no
