@@ -69,14 +69,19 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `::createLocationProvider` still resolves) and opens the screen with `SeparateTask`. The module now
   depends on `kmptoolkit-activity` on Android. Binary- and source-compatible. See
   `docs/kmptoolkit-location/03-guide.md`.
-- `kmptoolkit-permission`: a choice of how Settings screens open, through `SystemScreenLauncher`.
-  `createSpecialPermissionHandler(context, activityAccess, logger)` opens the special-permission
-  screens on your app's task (`callerTask`), and `createSpecialPermissionHandler(context, logger,
-  systemScreenLauncher)` and `createPermissionHandler(context, host, storage, activityAccess, config,
-  logger, systemScreenLauncher)` take a launcher of your own. Their kinds are
-  `SpecialPermissionScreen(permission)` and `AppDetailsScreen`. Existing factories keep their
-  signatures; `createSpecialPermissionHandler(context, logger)` defaults to `SeparateTask`, and both
-  existing `createPermissionHandler` overloads to `callerTask` on their tracker.
+- `kmptoolkit-permission` (Android): a choice of how Settings screens open, through
+  `SystemScreenLauncher`. Two new factories take the launcher:
+  `createSpecialPermissionHandlerWithLauncher(context, systemScreenLauncher, logger = NoopLogger)` and
+  `createPermissionHandlerWithLauncher(context, host, storage, activityAccess, systemScreenLauncher,
+  config = PermissionConfig(), logger = NoopLogger)`. They have names of their own, so the existing
+  `createSpecialPermissionHandler` stays a single function and `::createSpecialPermissionHandler`
+  still compiles as an untyped reference. For an ordinary app,
+  `createSpecialPermissionHandlerWithLauncher(context, SystemScreenLauncher.callerTask(activityAccess))`
+  opens the special-permission screens on the app's own task. New kinds
+  `SpecialPermissionScreen(permission)` and `AppDetailsScreen`. The existing factories keep their
+  signatures and defaults: `createSpecialPermissionHandler(context, logger)` uses `SeparateTask`, and
+  both `createPermissionHandler` overloads use `callerTask` on their tracker. See
+  `docs/kmptoolkit-permission/03-guide.md`.
 - `kmptoolkit-biometric`: `createBiometricGate(context, config, options, systemScreenLauncher)` on
   Android, and `BiometricEnrollmentScreen`, the `SystemScreenKind` of the enrolment screen. Each
   non-throttled `launchEnrollment()` calls the launcher once with every candidate screen; `false` or a
@@ -85,6 +90,24 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `docs/kmptoolkit-biometric/03-guide.md`. The module now exposes `kmptoolkit-activity` as an `api`
   dependency on Android, and hosts its prompt through that module's activity tracker instead of a
   private copy of it.
+
+### Changed
+
+- `kmptoolkit-permission` (Android), behaviour of the existing factories:
+  - Each different Settings screen now gets its own task and Recents card; 1.6.0 collapsed them into
+    one Settings card. Opening the same screen again brings its task forward with the screen on top.
+    The battery-optimisation dialog (`IGNORE_BATTERY_OPTIMIZATIONS`) gets its own task too, instead
+    of joining the Settings task.
+  - `requestViaSettings` tries a fallback screen when the device lacks the app's own page: exact
+    alarms, overlay and write-settings the same action without the `package:` URI, all-files access
+    `ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION`, and the battery-optimisation dialog
+    `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`. Where 1.6.0 answered `false`, such a device now
+    shows the permission's list.
+  - `openAppSettings()`: a start that fails from the activity is no longer retried from the
+    application context (the failures it could hit — no such screen, not exported — fail the same way
+    there), and a `singleInstance` activity, or a call off the main thread, now opens the page in a
+    task of its own.
+  - Binary- and source-compatible: no existing signature changed.
 
 ### Fixed
 
@@ -105,11 +128,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   (opened from a notification or a quick-settings long-press, say) and pushes the screen onto it, so
   Back landed on that stale Settings page instead of the app. The screens now open with
   `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, in a task of their own. The same fix applies
-  to `PermissionHandler.openAppSettings()` when no activity is resumed; with one, it still opens from
-  that activity with no task flags. Two fallback details changed: a start that fails from the
-  activity is no longer retried from the application context (the failures it could hit — no such
-  screen, not exported — fail the same way there), and a `singleInstance` activity now falls back to
-  a task of its own. No API change.
+  to `PermissionHandler.openAppSettings()` when it has no activity to start from; with one, it still
+  opens from that activity with no task flags.
 - `kmptoolkit-biometric`: `launchEnrollment()` on Android could land the user on an unrelated
   Settings page. It started the screen with `FLAG_ACTIVITY_NEW_TASK` alone, which reuses a Settings
   task left in the background (one opened from a deep link, say), so Back or the end of the wizard

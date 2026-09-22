@@ -138,36 +138,39 @@ module answers the permission question only.
 no way to deep-link a single permission toggle.
 
 How it opens is a `SystemScreenLauncher` from `kmptoolkit-activity`, called once per
-`openAppSettings()` with a request whose kind is `AppDetailsScreen`:
+`openAppSettings()` with a request whose kind is `AppDetailsScreen` and whose candidates — one or
+more, most specific first — are currently just that page:
 
-- **Both existing factories** use `SystemScreenLauncher.callerTask` on their activity tracker — the
-  one they create, or the `ActivityAccess` you pass. The page is started from the resumed activity,
-  with no task flags, so it lands on your app's task and the back button returns to it. With no
-  activity resumed it opens from the application context with
+- **Both `createPermissionHandler` factories** use `SystemScreenLauncher.callerTask` on their
+  activity tracker — the one they create, or the `ActivityAccess` you pass. Called on the main
+  thread with an activity resumed, the page is started from that activity with no task flags, so it
+  lands on your app's task and the back button returns to it. Off the main thread, with no activity
+  resumed, or from a `singleInstance` activity, it opens from the application context with
   `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, in a task of its own.
-- **The overload with a `systemScreenLauncher`** (since 1.7.0) uses yours.
+- **`createPermissionHandlerWithLauncher`** (since 1.7.0) uses yours.
 
-Two differences from 1.6.0, both in the fallback:
+What happens with the separate task, being platform behaviour:
 
-- **The fallback adds `FLAG_ACTIVITY_NEW_DOCUMENT`.** 1.6.0 used a bare `FLAG_ACTIVITY_NEW_TASK`,
-  which brings forward any Settings task left in the background — one opened from a notification or
-  a quick-settings long-press — and pushes the page onto whatever it held; Back then lands on that
-  stale page rather than in your app. See
-  [`kmptoolkit-activity` — System screens and tasks](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks).
-- **A start that fails from the activity is not retried from the application context.** 1.6.0
-  retried whenever the activity's `startActivity` threw. The failures `startActivity` reports here —
-  no app handles the page (`ActivityNotFoundException`), or it is not exported
-  (`SecurityException`) — fail the same way from any context, so the retry could not open anything
-  the first attempt did not; it now answers `false` at once. The fallback is taken when there is no
-  activity to start from, or when the resumed one is `singleInstance` (the system would put the page
-  in a new task anyway); 1.6.0 started from a `singleInstance` activity as from any other.
+- **Its own task, never a stale one.** 1.6.0 used a bare `FLAG_ACTIVITY_NEW_TASK`, which brings
+  forward any Settings task left in the background — one opened from a notification or a
+  quick-settings long-press — and pushes the page onto whatever it held; Back then lands on that
+  stale page rather than in your app. `FLAG_ACTIVITY_NEW_DOCUMENT` reuses a task only when one is
+  rooted at the same component with the same data (extras are ignored): opening the same page again
+  brings its existing task forward with the page on top, and Back may then pass through pages the
+  user opened there before. Each different screen gets its own Recents card; 1.6.0 collapsed them
+  into one Settings card.
+- **Two-pane Settings.** On large screens (AOSP 12L+) the app-details page, a Settings page, started
+  in a task of its own hands itself to the Settings homepage, whose task may be a stale one. Only a
+  launch from your activity avoids it.
+- **Lock-task (kiosk).** A page in a separate task needs the Settings package on your lock-task
+  allowlist; a page on your task would be inside the locked task instead. A kiosk app passes
+  `SystemScreenLauncher.SeparateTask` (or a launcher around it) to `createPermissionHandlerWithLauncher`
+  — see [the guide](03-guide.md#a-kiosk-lock-task-app).
+- **`true` is not "the user saw it".** Android has blocked activity starts from the background
+  silently since API 29, and a start refused by lock-task mode also reports success.
 
-What remains with the fallback, being platform behaviour: on a two-pane Settings (large screens,
-AOSP 12L+) a page started in a task of its own hands itself to the Settings homepage, and a
-lock-task (kiosk) app needs Settings on its lock-task allowlist. The first is avoided only from your
-activity; for the second, a kiosk app should pass `SystemScreenLauncher.SeparateTask` rather than
-open Settings inside its locked task. Both are explained in
-[`kmptoolkit-activity`'s platform notes](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks).
+The details are in
+[`kmptoolkit-activity` — System screens and tasks](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks).
 
 ### `minSdk`
 
@@ -245,14 +248,14 @@ and its siblings all work with nothing declared. Actually being granted `EXACT_A
 requires your own manifest to declare `SCHEDULE_EXACT_ALARM` — this module never declares it for
 you, the same rule as every runtime `Permission`.
 
-| `SpecialPermission` | Android API | Settings screen |
+| `SpecialPermission` | Android API | Settings screens, in the order tried |
 |---|---|---|
-| `EXACT_ALARM` | `AlarmManager.canScheduleExactAlarms()` (API 31+; always granted below) | `ACTION_REQUEST_SCHEDULE_EXACT_ALARM` |
-| `OVERLAY` | `Settings.canDrawOverlays()` | `ACTION_MANAGE_OVERLAY_PERMISSION` |
-| `WRITE_SETTINGS` | `Settings.System.canWrite()` | `ACTION_MANAGE_WRITE_SETTINGS` |
-| `ALL_FILES_ACCESS` | `Environment.isExternalStorageManager()` (API 30+; always granted below) | `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` |
-| `USAGE_STATS_ACCESS` | `AppOpsManager` (`OPSTR_GET_USAGE_STATS`) | `ACTION_USAGE_ACCESS_SETTINGS` |
-| `IGNORE_BATTERY_OPTIMIZATIONS` | `PowerManager.isIgnoringBatteryOptimizations()` | `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` |
+| `EXACT_ALARM` | `AlarmManager.canScheduleExactAlarms()` (API 31+; always granted below) | `ACTION_REQUEST_SCHEDULE_EXACT_ALARM` with `package:`, then without |
+| `OVERLAY` | `Settings.canDrawOverlays()` | `ACTION_MANAGE_OVERLAY_PERMISSION` with `package:`, then without |
+| `WRITE_SETTINGS` | `Settings.System.canWrite()` | `ACTION_MANAGE_WRITE_SETTINGS` with `package:`, then without |
+| `ALL_FILES_ACCESS` | `Environment.isExternalStorageManager()` (API 30+; always granted below) | `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` with `package:`, then `ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION` |
+| `USAGE_STATS_ACCESS` | `AppOpsManager` (`OPSTR_GET_USAGE_STATS`) | `ACTION_USAGE_ACCESS_SETTINGS` (with `EXTRA_APP_PACKAGE` from API 29) |
+| `IGNORE_BATTERY_OPTIMIZATIONS` | `PowerManager.isIgnoringBatteryOptimizations()` | `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with `package:` (a dialog), then `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` |
 | `NOTIFICATION_LISTENER_ACCESS` | `NotificationManagerCompat.getEnabledListenerPackages()` | `ACTION_NOTIFICATION_LISTENER_SETTINGS` |
 | `DO_NOT_DISTURB_ACCESS` | `NotificationManager.isNotificationPolicyAccessGranted` | `ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS` |
 
@@ -267,29 +270,55 @@ there.
 
 Every screen in the table goes through a `SystemScreenLauncher` from `kmptoolkit-activity`, called
 once per `requestViaSettings` with a request whose kind is `SpecialPermissionScreen(permission)` and
-whose candidates are the intent in the table (with the `package:` URI where the screen accepts one,
-and `EXTRA_APP_PACKAGE` for usage access from API 29), without launch flags.
-`IGNORE_BATTERY_OPTIMIZATIONS` opens a system dialog rather than a Settings page, and goes through
-the launcher all the same. `EXACT_ALARM` below API 31 and `ALL_FILES_ACCESS` below API 30 have
-nothing to open: `requestViaSettings` answers `false` without calling the launcher.
+whose candidates are the table's last column, in that order, without launch flags. Both presets open
+the first candidate the device can show.
+
+**Why the fallbacks.** Some OEM Settings apps drop a package-specific screen while keeping the list
+it belongs to, and on those `requestViaSettings` used to answer `false`. Since 1.7.0 each entry that
+has both tries this app's own page first and then the generic list of the same permission, one tap
+away from the toggle. Only public platform actions are used, at the API levels that define them:
+
+- `ACTION_REQUEST_SCHEDULE_EXACT_ALARM`, `ACTION_MANAGE_OVERLAY_PERMISSION` and
+  `ACTION_MANAGE_WRITE_SETTINGS` take the `package:` URI as an optional input, so the same action
+  without it is the list. (For overlays, Android 11+ shows the list even with the URI.)
+- All-files access has a separate list action, `ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION`, from
+  the same API level (30) as the per-app one.
+- The battery-optimisation dialog (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) falls back to
+  `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`, the list that dialog adds the app to; there the user
+  picks the app themselves.
+- Usage access, notification listeners and Do Not Disturb have one candidate: their action already
+  is the list. The per-app pages the platform has need a listener component
+  (`ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS`) or are system-only
+  (`ACTION_NOTIFICATION_POLICY_ACCESS_DETAIL_SETTINGS`).
+
+`EXACT_ALARM` below API 31 and `ALL_FILES_ACCESS` below API 30 have nothing to open:
+`requestViaSettings` answers `false` without calling the launcher.
 
 | Factory | Launcher |
 |---|---|
 | `createSpecialPermissionHandler(context, logger)` | `SystemScreenLauncher.SeparateTask` |
-| `createSpecialPermissionHandler(context, activityAccess, logger)` (since 1.7.0) | `SystemScreenLauncher.callerTask(activityAccess)` |
-| `createSpecialPermissionHandler(context, logger, systemScreenLauncher)` (since 1.7.0) | yours |
+| `createSpecialPermissionHandlerWithLauncher(context, systemScreenLauncher, logger)` (since 1.7.0) | yours — `SystemScreenLauncher.callerTask(activityAccess)` for an ordinary app |
 
 `SeparateTask` starts the screen from the application context with
-`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`: a task of its own, never your task and never a
-Settings task left in the background. Up to 1.6.0 these screens used a bare `FLAG_ACTIVITY_NEW_TASK`,
-which brought such a stale Settings task forward and pushed the screen onto it, so Back landed on an
-unrelated Settings page instead of your app.
+`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, from any thread: a task of its own, never your
+task and never a Settings task left in the background. Up to 1.6.0 these screens used a bare
+`FLAG_ACTIVITY_NEW_TASK`, which brought such a stale Settings task forward and pushed the screen onto
+it, so Back landed on an unrelated Settings page instead of your app. What changes with that:
 
-What `SeparateTask` cannot change: on a two-pane Settings (large screens, AOSP 12L+) a screen started
-in a new task hands itself to the Settings homepage, whose task may be a stale one — use the
-`ActivityAccess` overload where that matters. A lock-task (kiosk) app keeps `SeparateTask` and puts
-Settings on its lock-task allowlist; `callerTask` would open Settings inside the locked task. The
-details are in
+- **Recents.** Each different screen now gets its own task and Recents card, the battery dialog
+  included — it used to join the Settings task. Opening the same screen again brings its existing
+  task forward (reuse matches the component and the data, not the extras), with the screen on top.
+- **Two-pane Settings.** On large screens (AOSP 12L+) a Settings page started in a new task hands
+  itself to the Settings homepage, whose task may be a stale one. That applies to every page in the
+  table; it does not apply to the battery-optimisation dialog, which is not a Settings page. Use
+  `callerTask` where that matters.
+- **Lock-task (kiosk).** Keep `SeparateTask` and put Settings on the lock-task allowlist only while
+  you expect it — the allowlist covers the whole Settings package; `callerTask` would open Settings
+  inside the locked task. The recipe is in [the guide](03-guide.md#a-kiosk-lock-task-app).
+- **`callerTask`** puts the screen on your task only when `requestViaSettings` is called on the main
+  thread with an activity resumed; otherwise it opens a separate task, as `SeparateTask` does.
+
+The details are in
 [`kmptoolkit-activity` — System screens and tasks](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks).
 
 ## Read next

@@ -59,10 +59,11 @@ private const val LEGACY_ASKED: String = "true"
  *   `ActivityResultLauncher` belongs to an activity — see [PermissionRequestHost].
  * - An internally tracked activity answers `shouldShowRequestPermissionRationale`, which only an
  *   `Activity` can answer, and opens the settings screen from the foreground activity when there
- *   is one ([SystemScreenLauncher.callerTask]; in a task of its own when there is none). No
+ *   is one and the call is on the main thread ([SystemScreenLauncher.callerTask]; in a task of
+ *   its own otherwise). No
  *   activity is retained: the access is scoped per call. When your app already has an
- *   `ActivityAccess`, or wants to decide how the settings screen opens, pass it through another
- *   overload instead.
+ *   `ActivityAccess`, pass it through the other overload instead; to decide how the settings
+ *   screen opens, use [createPermissionHandlerWithLauncher].
  * - **[storage]** holds two flags per permission. Android cannot distinguish "never asked",
  *   "dismissed" and "permanently denied" on its own — all three look identical through its API — and
  *   without them a first-run app, or a user who backed out of the dialog, is sent to settings for a
@@ -106,8 +107,9 @@ public fun createPermissionHandler(
  * from whichever activity resumed last, and the app does not register a second tracker.
  *
  * [PermissionHandler.openAppSettings] opens through [SystemScreenLauncher.callerTask] on
- * [activityAccess]: from the resumed activity, on your app's task, or — with no activity resumed — in
- * a task of its own. Use the overload that takes a [SystemScreenLauncher] to decide yourself.
+ * [activityAccess]: from the resumed activity, on your app's task, when called on the main thread;
+ * off the main thread, or with no activity resumed, in a task of its own. Use
+ * [createPermissionHandlerWithLauncher] to decide yourself.
  *
  * @param context any `Context`; its application context is what gets retained.
  * @param activityAccess the tracker the rationale question and the settings screen go through.
@@ -122,44 +124,62 @@ public fun createPermissionHandler(
     activityAccess: ActivityAccess,
     config: PermissionConfig = PermissionConfig(),
     logger: Logger = NoopLogger,
-): PermissionHandler = createPermissionHandler(
+): PermissionHandler = buildPermissionHandler(
     context = context,
     host = host,
     storage = storage,
     activityAccess = activityAccess,
+    systemScreenLauncher = SystemScreenLauncher.callerTask(activityAccess),
     config = config,
     logger = logger,
-    systemScreenLauncher = SystemScreenLauncher.callerTask(activityAccess),
 )
 
 /**
- * Creates the Android [PermissionHandler] with a [SystemScreenLauncher] of your own for the settings
- * screen.
+ * Creates the Android [PermissionHandler] with the [SystemScreenLauncher] its settings screen opens
+ * through.
  *
- * The same handler as the overload without [systemScreenLauncher]; only
- * [PermissionHandler.openAppSettings] changes. Each call hands [systemScreenLauncher] exactly one
- * [SystemScreenRequest], whose `kind` is [AppDetailsScreen] and whose one candidate is
- * `ACTION_APPLICATION_DETAILS_SETTINGS` for this app, without launch flags. A launcher that returns
- * `false` or throws makes `openAppSettings` return `false`.
+ * The same handler as the [createPermissionHandler] overload that takes an [ActivityAccess], which
+ * uses `SystemScreenLauncher.callerTask(activityAccess)`; only [PermissionHandler.openAppSettings]
+ * changes. Each call hands [systemScreenLauncher] exactly one [SystemScreenRequest], whose `kind` is
+ * [AppDetailsScreen] and whose candidates are one or more intents, most specific first, without
+ * launch flags — currently only `ACTION_APPLICATION_DETAILS_SETTINGS` for this app. A launcher that
+ * returns `false` or throws makes `openAppSettings` return `false`, and is logged.
  *
  * @param context any `Context`; its application context is what gets retained.
  * @param activityAccess the tracker the rationale question goes through. It must have been created
  *   before the activity that requests a permission first resumed. It is not used for the settings
  *   screen unless [systemScreenLauncher] uses it.
+ * @param systemScreenLauncher decides how, and in which task, the settings screen opens.
  * @param logger where a dialog that could not be shown, an unreadable flag, or a settings screen
  *   that could not be opened is reported.
- * @param systemScreenLauncher decides how, and in which task, the settings screen opens — for
- *   example `SystemScreenLauncher.callerTask(activityAccess)`, the other overload's choice.
  * @since 1.7.0
  */
-public fun createPermissionHandler(
+public fun createPermissionHandlerWithLauncher(
     context: Context,
     host: PermissionRequestHost,
     storage: KeyValueStorage,
     activityAccess: ActivityAccess,
+    systemScreenLauncher: SystemScreenLauncher,
+    config: PermissionConfig = PermissionConfig(),
+    logger: Logger = NoopLogger,
+): PermissionHandler = buildPermissionHandler(
+    context = context,
+    host = host,
+    storage = storage,
+    activityAccess = activityAccess,
+    systemScreenLauncher = systemScreenLauncher,
+    config = config,
+    logger = logger,
+)
+
+private fun buildPermissionHandler(
+    context: Context,
+    host: PermissionRequestHost,
+    storage: KeyValueStorage,
+    activityAccess: ActivityAccess,
+    systemScreenLauncher: SystemScreenLauncher,
     config: PermissionConfig,
     logger: Logger,
-    systemScreenLauncher: SystemScreenLauncher,
 ): PermissionHandler {
     val applicationContext: Context = context.applicationContext
     return AndroidPermissionHandler(
