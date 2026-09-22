@@ -210,16 +210,19 @@ app, so it is the consumer's choice, made in one place for every module.
 
 The rules for a module that does this:
 
-- **Offer a launcher parameter** on an Android factory overload, and document the default.
-- **Default to `SystemScreenLauncher.SeparateTask`** in a factory that has only a `Context` — there
-  is no activity to launch from — and to `callerTask(activityAccess)` in one that takes the app's
-  `ActivityAccess`, unless the screen is one a lock-task app is known to open, which keeps
-  `SeparateTask` (biometric enrolment).
+- **Offer a `…WithLauncher` factory** that takes a `SystemScreenLauncher` as a required parameter —
+  a function of its own name, not an overload: a new overload of an existing factory makes an untyped
+  reference to it (`::createLocationProvider`, as in a DI module) ambiguous.
+- **Keep the existing factories' defaults**, documented on each: `SystemScreenLauncher.SeparateTask`
+  where the factory has only a `Context`, and — where a factory already opened a screen from its own
+  activity tracker, as `openAppSettings` does — `callerTask` on that tracker. Screens a lock-task app
+  is known to open (biometric enrolment) default to `SeparateTask` everywhere.
 - **Never bare `FLAG_ACTIVITY_NEW_TASK`.** It reuses any background task with the target's affinity;
   for Settings that is a stale deep-link task, and the user ends up on an unrelated page. Every
   `kmptoolkit-*` release up to 1.6.0 had this bug in three modules.
-- **Map `false`, or a launcher that throws, to the module's own "could not open" answer**, and apply
-  throttles before calling the launcher, so a consumer's launcher never sees a throttled request.
+- **Call the launcher once per logical request with every candidate**, most specific first. Map
+  `false`, or a launcher that throws, to the module's own "could not open" answer, and apply throttles
+  before calling the launcher, so a consumer's launcher never sees a throttled request.
 - **Declare kinds as `object`s or final classes implementing the open `SystemScreenKind`** — never an
   enum or sealed type, so a new screen is an addition, not a break.
 

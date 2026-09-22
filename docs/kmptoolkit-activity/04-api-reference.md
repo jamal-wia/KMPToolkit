@@ -77,23 +77,25 @@ public fun interface SystemScreenLauncher {
 ```
 
 Decides how a module opens a system screen. Called once per logical request, on the caller's thread.
-Returns `true` if a screen was handed to the system — not a guarantee the user saw it: Android 14+ can
-block a background activity start silently — and `false` if nothing was opened. A launcher that
-throws is treated as `false` by the calling module. Since 1.7.0.
+Returns `true` if a screen was handed to the system and `false` if nothing was opened. `true` is not
+a guarantee the user saw it: since Android 10 an activity start from the background is blocked
+silently, and a start that lock-task mode forbids returns normally too. A launcher that throws is
+treated as `false` by the calling module. Since 1.7.0.
 
 ### `SeparateTask`
 
 Starts the first resolvable candidate from the application context with
 `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`: a task of its own, never your task, and never a
-Settings task left in the background. See [`05-platform-notes.md`](05-platform-notes.md#system-screens-and-tasks)
-for the flags and their limits.
+Settings task left in the background. Works from any thread. See
+[`05-platform-notes.md`](05-platform-notes.md#system-screens-and-tasks) for the flags and their limits.
 
 ### `callerTask(activityAccess)`
 
 Starts the first resolvable candidate from the activity `activityAccess` reports as resumed, with no
-task flags, so the screen joins your task. Falls back to `SeparateTask` when no activity is resumed or
-the resumed one is `singleInstance`. If an activity is resumed but no candidate resolves, the answer
-is `false` — it does not retry in a separate task, where the same intents would not resolve either.
+task flags, so the screen joins your task. Falls back to `SeparateTask` when no activity is resumed,
+the resumed one is `singleInstance`, or the call is not on the main thread. If an activity is
+resumed but no candidate resolves, the answer is `false` — it does not retry in a separate task,
+where the same intents would not resolve either.
 
 ## `SystemScreenRequest`
 
@@ -109,14 +111,17 @@ public class SystemScreenRequest(
 }
 ```
 
-One logical request. `candidates` are tried in order, carry no launch flags, and are copied on
-construction; an empty list throws `IllegalArgumentException`. Only `context.applicationContext` is
-kept. The constructor is public for tests and for wrappers that pass a modified request on.
+One logical request. `candidates` are tried in order and carry no launch flags; the list and every
+intent are copied on construction, and each read of `candidates` returns fresh copies. An empty list
+throws `IllegalArgumentException`. Only `context.applicationContext` is kept. The constructor is
+public so a launcher of your own can be tested.
 
 `startFirstResolvable` calls `start` with a copy of each candidate until one does not throw
 `ActivityNotFoundException` or `SecurityException`, and returns whether one succeeded. Any other
-exception propagates. There is no `resolveActivity` pre-check, deliberately: Android 11+ package
-visibility can make it answer "no" for a screen that opens.
+exception propagates. There is no `resolveActivity` pre-check, deliberately: which package serves a
+Settings screen varies by manufacturer, and starting is the only answer that is always right.
+
+`toString()` is for diagnostics only; its format is not stable.
 
 ## `SystemScreenKind`
 
@@ -127,4 +132,4 @@ public interface SystemScreenKind
 Which screen a request opens. Open on purpose: each module declares its own kinds
 (`BiometricEnrollmentScreen`, `LocationSettingsScreen`, `AppDetailsScreen`,
 `SpecialPermissionScreen(permission)`), and later releases may add more — match with an `else`
-branch.
+branch. A kind's `toString()` is for diagnostics only.
