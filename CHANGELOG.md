@@ -9,6 +9,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-22
+
 ### Added
 
 - `kmptoolkit-video-player` — a headless `VideoPlayer` for shared code, with the contract of
@@ -49,6 +51,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   beyond the OpenJFX jars the app adds per OS (GPL-2.0 + Classpath Exception), fewer formats, and a
   higher CPU cost because frames are captured by off-screen snapshots.
 - `kmptoolkit.library.jvm` — a build convention for JVM-only modules.
+- `kmptoolkit-activity`: `SystemScreenLauncher`, the one place that decides how a module opens a
+  system screen and which task it lands in. Presets: `SystemScreenLauncher.SeparateTask` (a task of
+  its own, `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`) and
+  `SystemScreenLauncher.callerTask(activityAccess)` (your task, from the resumed activity, falling
+  back to a separate task when there is none). A launcher of your own receives one
+  `SystemScreenRequest` per logical request — every candidate intent, the application context and an
+  open `SystemScreenKind` — and `startFirstResolvable` tries the candidates in order. See
+  `docs/kmptoolkit-activity/03-guide.md`.
 
 ### Fixed
 
