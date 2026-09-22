@@ -96,7 +96,8 @@ public enum class BiometricEnrollmentLaunch {
 
     /**
      * Nothing was started: the platform has no such screen (iOS, or an Android device that resolves
-     * none of the candidates). Point the user at the system settings yourself.
+     * none of the candidates), or, on Android, the app's own `SystemScreenLauncher` returned `false`
+     * or threw. Point the user at the system settings yourself.
      */
     UNAVAILABLE,
 }

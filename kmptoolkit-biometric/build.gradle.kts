@@ -41,6 +41,12 @@ kotlin {
         }
         androidMain.dependencies {
             implementation(libs.androidx.biometric)
+
+            // api, not implementation: the factory overload that takes a SystemScreenLauncher has it in
+            // its signature, and BiometricEnrollmentScreen implements SystemScreenKind, so a consumer
+            // needs kmptoolkit-activity on their compile classpath. Also the activity tracker the
+            // prompt is hosted through.
+            api(project(":kmptoolkit-activity"))
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
