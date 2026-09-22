@@ -59,6 +59,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `SystemScreenRequest` per logical request — every candidate intent, the application context and an
   open `SystemScreenKind` — and `startFirstResolvable` tries the candidates in order. See
   `docs/kmptoolkit-activity/03-guide.md`.
+- `kmptoolkit-permission`: a choice of how Settings screens open, through `SystemScreenLauncher`.
+  `createSpecialPermissionHandler(context, activityAccess, logger)` opens the special-permission
+  screens on your app's task (`callerTask`), and `createSpecialPermissionHandler(context, logger,
+  systemScreenLauncher)` and `createPermissionHandler(context, host, storage, activityAccess, config,
+  logger, systemScreenLauncher)` take a launcher of your own. Their kinds are
+  `SpecialPermissionScreen(permission)` and `AppDetailsScreen`. Existing factories keep their
+  signatures; `createSpecialPermissionHandler(context, logger)` defaults to `SeparateTask`, and both
+  existing `createPermissionHandler` overloads to `callerTask` on their tracker.
 
 ### Fixed
 
@@ -68,6 +76,16 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   claimed to be playing until the next transport call. Every transition — transport calls, poll
   ticks and the engine's end/failure events — is now serialized inside the player, and a concurrent
   `release()` can no longer free the engine twice. No API change.
+- `kmptoolkit-permission`: `SpecialPermissionHandler.requestViaSettings` started every Settings screen
+  with a bare `FLAG_ACTIVITY_NEW_TASK`, which brings forward a Settings task left in the background
+  (opened from a notification or a quick-settings long-press, say) and pushes the screen onto it, so
+  Back landed on that stale Settings page instead of the app. The screens now open with
+  `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`, in a task of their own. The same fix applies
+  to `PermissionHandler.openAppSettings()` when no activity is resumed; with one, it still opens from
+  that activity with no task flags. Two fallback details changed: a start that fails from the
+  activity is no longer retried from the application context (the failures it could hit — no such
+  screen, not exported — fail the same way there), and a `singleInstance` activity now falls back to
+  a task of its own. No API change.
 
 ## [1.6.0] - 2026-09-16
 
