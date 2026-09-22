@@ -112,7 +112,7 @@ longer confined by the lock-task allowlist.
 | `createLocationProvider(context, config, logger)` | location settings | `SeparateTask` |
 | `createSpecialPermissionHandler(context, logger)` | special-permission screens | `SeparateTask` |
 | `createPermissionHandler(…)` (both overloads) | app details (`openAppSettings`) | `callerTask` on its tracker — the one you pass, or the one it creates |
-| `create…WithLauncher(context, launcher, …)` | the module's screens | the launcher you pass |
+| `create…WithLauncher(…, systemScreenLauncher, …)` | the module's screens | the launcher you pass |
 
 So in an ordinary app, opting every screen into your own task looks like this:
 
@@ -183,12 +183,15 @@ fun launchInsideAllowlistWindow(request: SystemScreenRequest): Boolean {
 a launcher that wants a result starts without task flags from your activity, through an
 `ActivityResultLauncher` that activity registered. Look it up when the launcher runs rather than
 capturing it: the launcher outlives every activity instance, and a captured `ActivityResultLauncher`
-stops working after a rotation.
+stops working after a rotation. Like `callerTask`, it only starts from the activity on the main
+thread.
 
 ```kotlin
 interface HasSettingsResults { val settingsResults: ActivityResultLauncher<Intent> }
 
 val forResult = SystemScreenLauncher { request ->
+    val onMainThread: Boolean = Looper.myLooper() == Looper.getMainLooper()
+    if (!onMainThread) return@SystemScreenLauncher SystemScreenLauncher.SeparateTask.launch(request)
     activityAccess.withActivity { activity ->
         val results = (activity as? HasSettingsResults)?.settingsResults ?: return@withActivity null
         request.startFirstResolvable { intent -> results.launch(intent) }

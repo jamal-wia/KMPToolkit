@@ -256,7 +256,8 @@ class SystemScreenLauncherTest {
         val activity: RecordingActivity = resumed(RecordingActivity::class.java)
         activity.finish()
 
-        SystemScreenLauncher.callerTask(fixedAccess(activity)).launch(request(RESOLVABLE))
+        // The real tracker, not a fake: its refusal to report a finishing activity is the contract.
+        SystemScreenLauncher.callerTask(activityAccess).launch(request(RESOLVABLE))
 
         assertTrue(activity.started.isEmpty())
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)

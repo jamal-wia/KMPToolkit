@@ -35,10 +35,12 @@ page — all go through one small type from this module, `SystemScreenLauncher`,
 place which task such a screen lands in. Two presets cover most apps:
 
 - `SystemScreenLauncher.SeparateTask` gives the screen a task of its own. Your task is never
-  touched, and a Settings task left in the background is never reused — the default wherever a module
-  has no activity to launch from.
+  touched, and an unrelated Settings task left in the background is never joined; only a task
+  already rooted at that same screen is brought forward. The default of every factory except
+  `createPermissionHandler`'s app-details page.
 - `SystemScreenLauncher.callerTask(activityAccess)` pushes the screen onto your task, so Back returns
-  to the screen that asked and a two-pane tablet shows it in a single pane.
+  to the screen that asked and a two-pane tablet shows it in a single pane. With no activity resumed,
+  or when called off the main thread, it falls back to `SeparateTask`.
 
 Anything else — a kiosk allowlist window, logging, an explanation first, a result — is a launcher of
 your own, usually a few lines long. See [`03-guide.md`](03-guide.md#opening-system-screens).
@@ -65,4 +67,5 @@ Depend on it from your `androidMain` source set, not from `commonMain`. See
 - `kmptoolkit-biometric`, `kmptoolkit-location` and `kmptoolkit-permission` open system screens
   through a `SystemScreenLauncher`.
 
-Each of the first three used to carry its own private copy of the tracker.
+`kmptoolkit-systembars`, `kmptoolkit-permission` and `kmptoolkit-biometric` each used to carry a
+private copy of the tracker.

@@ -85,8 +85,9 @@ treated as `false` by the calling module. Since 1.7.0.
 ### `SeparateTask`
 
 Starts the first resolvable candidate from the application context with
-`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`: a task of its own, never your task, and never a
-Settings task left in the background. Works from any thread. See
+`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`: a task of its own, never your task, and never
+an unrelated Settings task left in the background — only a task already rooted at the same screen,
+with the same data, is brought forward. Works from any thread. See
 [`05-platform-notes.md`](05-platform-notes.md#system-screens-and-tasks) for the flags and their limits.
 
 ### `callerTask(activityAccess)`

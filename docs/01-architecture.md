@@ -212,7 +212,9 @@ The rules for a module that does this:
 
 - **Offer a `…WithLauncher` factory** that takes a `SystemScreenLauncher` as a required parameter —
   a function of its own name, not an overload: a new overload of an existing factory makes an untyped
-  reference to it (`::createLocationProvider`, as in a DI module) ambiguous.
+  reference to it (`::createLocationProvider`, as in a DI module) ambiguous. A factory name that is
+  already overloaded can take another overload without that cost — `createBiometricGate(context,
+  activityAccess)` is one.
 - **Keep the existing factories' defaults**, documented on each: `SystemScreenLauncher.SeparateTask`
   where the factory has only a `Context`, and — where a factory already opened a screen from its own
   activity tracker, as `openAppSettings` does — `callerTask` on that tracker. Screens a lock-task app

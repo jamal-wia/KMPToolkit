@@ -8,7 +8,8 @@ import kotlinx.coroutines.flow.flow
  * settings.
  *
  * This is the type shared code depends on. The concrete instance is built in platform code —
- * `createPermissionHandler(context, host, activityAccess, storage)` on Android,
+ * `createPermissionHandler(context, host, storage[, activityAccess])` or
+ * `createPermissionHandlerWithLauncher(...)` on Android,
  * `createPermissionHandler()` on iOS — because the two platforms genuinely need different things
  * to construct it, which is why there is no `expect fun` here (see `docs/01-architecture.md`).
  *

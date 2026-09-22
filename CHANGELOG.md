@@ -113,6 +113,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
     there), and a `singleInstance` activity, or a call off the main thread, now opens the page in a
     task of its own.
   - Binary- and source-compatible: no existing signature changed.
+- `kmptoolkit-location` and `kmptoolkit-biometric` (Android): as for permission, the location
+  settings screen and the enrolment screen now get their own task and Recents card, and opening the
+  same screen again brings its task forward with the screen on top.
 - `kmptoolkit-biometric` (Android): `launchEnrollment()` of the existing factories now starts the
   screen from the application context, not from the resumed activity; on a multi-display device it
   may therefore open on the default display rather than the activity's.

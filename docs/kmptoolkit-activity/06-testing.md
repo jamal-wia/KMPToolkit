@@ -5,7 +5,7 @@ There is no `-testing` artifact: both seams here are interfaces a test implement
 
 ## Faking `ActivityAccess`
 
-A four-line fake that always answers with one activity, or with none:
+A small fake that always answers with one activity, or with none:
 
 ```kotlin
 class FixedActivityAccess(private val activity: Activity?) : ActivityAccess {

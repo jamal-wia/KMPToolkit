@@ -14,8 +14,9 @@ import android.os.Looper
  * Every `kmptoolkit-*` module that opens such a screen builds a [SystemScreenRequest] and hands it
  * to a launcher; nothing else about the launch is hard-coded. Pick a preset, or write your own:
  *
- * - [SeparateTask] — the screen gets a task of its own, never joins yours, and never joins a Settings
- *   task left in the background. The default wherever a module has no activity to launch from.
+ * - [SeparateTask] — the screen gets a task of its own, never joins yours, and never joins an
+ *   unrelated Settings task left in the background; only a task already rooted at the same screen is
+ *   brought forward. The default of most factories; each documents its own.
  * - [callerTask] — the screen is pushed onto your app's task from the resumed activity, so Back
  *   returns to the screen that asked, and a two-pane tablet shows it in a single pane. Falls back to
  *   [SeparateTask] when there is no activity to launch from, or when called off the main thread.
