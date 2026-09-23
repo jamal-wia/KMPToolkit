@@ -160,6 +160,34 @@ handler.observe(Permission.LOCATION)
 It re-reads the status whenever the app comes back to the foreground and after every request through
 the same handler, and emits only on a change.
 
+## Scanning for Bluetooth devices
+
+A device picker that lists what is nearby and then connects to the chosen device needs two entries:
+`BLUETOOTH_SCAN` to list and `BLUETOOTH_CONNECT` to connect. Drive them one after the other; from
+Android 12 both are in the "Nearby devices" dialog, and once the first is granted Android grants the
+second without showing anything.
+
+```kotlin
+suspend fun canOpenPicker(): Boolean =
+    handler.request(Permission.BLUETOOTH_SCAN).isGranted &&
+        handler.request(Permission.BLUETOOTH_CONNECT).isGranted
+```
+
+Two things differ from every other entry:
+
+- **Below Android 12 the scan permission is location.** `BLUETOOTH_SCAN` then reports and requests
+  exactly what `LOCATION` does, so the user sees the location dialog. Say in your own copy, before the
+  request, that listing Bluetooth devices is why.
+- **From Android 12 the manifest decides.** Declare `BLUETOOTH_SCAN` with
+  `android:usesPermissionFlags="neverForLocation"`. Without it the entry reads `NotDetermined` and a
+  request shows nothing — the same symptom as an undeclared permission — and the handler logs a
+  warning naming the attribute.
+
+A granted scan still finds nothing with Bluetooth off, or — below Android 12 — with location services
+off; neither is a permission. If all the picker has to do is let the user choose one device to pair
+with, Android's `CompanionDeviceManager` shows a system chooser that needs neither permission. The
+details are in [`05-platform-notes.md`](05-platform-notes.md#location-audio-files-and-bluetooth).
+
 ## Special access permissions
 
 `SpecialPermissionHandler` is not a variant of `PermissionHandler` — it is a different contract for
@@ -321,6 +349,10 @@ tasks, Recents, two-pane Settings and lock-task details in
   dialog and an immediate denial with no rationale — which reads exactly like a dismissed dialog, so
   the status stays `NotDetermined` and every request returns at once without showing anything. On iOS a missing `Info.plist` usage string terminates the
   app. Check [`05-platform-notes.md`](05-platform-notes.md) first.
+- **Declaring `BLUETOOTH_SCAN` without `neverForLocation`.** Android then withholds scan results from
+  an app without fine location, so `BLUETOOTH_SCAN` reads `NotDetermined` and a request shows nothing
+  on Android 12 and later. Add the flag, or — if the app does derive location from scans — call the
+  platform API instead of this entry.
 - **Building the handler before the launcher is registered.** `registerForActivityResult` must be
   called while the activity is below `RESUMED`. Register it as a field initializer, as in
   [`02-getting-started.md`](02-getting-started.md); the handler itself can be built whenever.

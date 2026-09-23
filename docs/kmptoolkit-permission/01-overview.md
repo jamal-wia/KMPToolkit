@@ -63,8 +63,8 @@ the product:
   asserting it against a real `PackageManager`. Every permission you request must be declared in
   *your* app's manifest and, on iOS, backed by an `Info.plist` usage string. See
   [`05-platform-notes.md`](05-platform-notes.md).
-- **Not an open permission catalog.** `Permission` has seven entries — notifications, microphone,
-  camera, location, background location, audio files and Bluetooth — and adding another is a change
+- **Not an open permission catalog.** `Permission` has eight entries — notifications, microphone,
+  camera, location, background location, audio files, Bluetooth connection and Bluetooth scanning — and adding another is a change
   to this library, not a string you can pass in. See [the next section](#why-the-catalog-is-closed).
 - **Not a multi-permission batch.** One flow drives one permission. The rationale you would show for
   the camera is not the one you would show for the microphone, and a batch would have to collapse
@@ -84,7 +84,10 @@ either way loses the one fact a photo picker cares about.
 So an entry joins the enum only together with a contract that says how its platform distinctions
 fold into the four cases. Location did, in 1.5.0: "while in use" is `LOCATION` granted, "always" is
 `LOCATION_BACKGROUND` granted, and iOS's delegate-delivered answers are awaited inside `request`
-rather than exposed. Every mapping is exercised by a test. If you need a permission that is missing,
+rather than exposed. Bluetooth scanning did, in 1.8.0: below Android 12 its results need location, so
+`BLUETOOTH_SCAN` *is* `LOCATION` there — status, dialog and remembered refusals — and from Android 12
+it is `BLUETOOTH_SCAN` alone, declared with `neverForLocation`, rather than a fold of two permission
+groups. Every mapping is exercised by a test. If you need a permission that is missing,
 call the platform API in platform code — or ask for it here together with such a contract.
 
 The enum can therefore grow in a minor release. That is binary-compatible, but an exhaustive `when`

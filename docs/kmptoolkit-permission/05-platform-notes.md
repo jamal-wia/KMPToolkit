@@ -22,6 +22,20 @@ So each permission you intend to request is yours to declare, on both platforms:
 | `LOCATION_BACKGROUND` | `android.permission.ACCESS_BACKGROUND_LOCATION` (API 29+), plus the two above | `NSLocationAlwaysAndWhenInUseUsageDescription`, plus the one above, and the `location` background mode if you use it |
 | `MEDIA_AUDIO` | `android.permission.READ_MEDIA_AUDIO` (API 33+) and `android.permission.READ_EXTERNAL_STORAGE` with `android:maxSdkVersion="32"` | `NSAppleMusicUsageDescription` |
 | `BLUETOOTH_CONNECT` | `android.permission.BLUETOOTH_CONNECT` (API 31+) and `android.permission.BLUETOOTH` with `android:maxSdkVersion="30"` | `NSBluetoothAlwaysUsageDescription` |
+| `BLUETOOTH_SCAN` | `android.permission.BLUETOOTH_SCAN` (API 31+) **with `android:usesPermissionFlags="neverForLocation"`**; below API 31 `android.permission.BLUETOOTH` and `android.permission.BLUETOOTH_ADMIN` with `android:maxSdkVersion="30"`, plus the two `LOCATION` permissions — with `android:maxSdkVersion="30"` only if nothing else in the app requests `LOCATION` | `NSBluetoothAlwaysUsageDescription` |
+
+For Bluetooth scanning the declaration is the whole difference between a scan that finds devices and
+one that finds nothing:
+
+```xml
+<!-- Drop the maxSdkVersion on the two location lines if the app also requests LOCATION. -->
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+    android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
+```
 
 **App Store review looks at what the binary links, not at what it calls.** Linking this module links
 CoreLocation, CoreBluetooth and MediaPlayer into your iOS app even if you only ever request the
@@ -113,6 +127,32 @@ right store.
   and this entry reports whatever `LOCATION` reports.
 - **`MEDIA_AUDIO`** requests `READ_MEDIA_AUDIO` from API 33 and `READ_EXTERNAL_STORAGE` below it.
 - **`BLUETOOTH_CONNECT`** has no runtime grant below API 31 and reports `Granted` there.
+- **`BLUETOOTH_SCAN`** is two different things on either side of API 31, because Android's scan results
+  are gated differently there:
+  - **API 31 and up:** `BLUETOOTH_SCAN`, requested alone — it shares the "Nearby devices" dialog with
+    `BLUETOOTH_CONNECT`, and once one of them is granted Android grants the other without a second
+    dialog. This holds only when the manifest declares it with `neverForLocation`. Without that flag
+    Android delivers scan results only to an app that *also* holds fine location, and has location
+    services switched on — a second permission group and a second dialog that this entry will not fold
+    into one answer. So the handler reads the flag from the app's own `PackageInfo`, once, and without it
+    reports `NotDetermined`, launches nothing, records nothing, and logs one warning naming the
+    attribute: the same answer as for a permission missing from the manifest. An app that genuinely
+    derives location from scan results calls the platform API itself. The flag also makes Android
+    filter some BLE beacons out of the results; a headset or a peripheral is not affected.
+  - **Below API 31:** there is no Bluetooth runtime grant, but scan results reach only an app holding
+    location — fine location on Android 10 and 11 for an app targeting API 29 or higher, coarse
+    otherwise. The entry is therefore `LOCATION` there in every
+    respect: the same status, the location dialog on a request, and a refusal remembered as a refusal
+    of `LOCATION`, so a location the user refused for good reads `PermanentlyDenied` through both
+    entries, and observing either sees a request of the other. Your in-app copy before the request
+    should say why a Bluetooth feature asks for location. `LOCATION` counts an approximate-only grant;
+    for scanning, declare fine location as well, as the table above does.
+  - **Not a permission, so not in the status:** Bluetooth switched on, and — below API 31 — location
+    services switched on. With either off, a granted scan finds nothing. Scanning from the background
+    on API 29–30 also needs `LOCATION_BACKGROUND`.
+  - **To pick one device to pair or connect to, you may not need this entry at all.**
+    `CompanionDeviceManager` shows a system device chooser that needs neither `BLUETOOTH_SCAN` nor
+    location.
 
 ### Watching for changes
 
@@ -220,7 +260,8 @@ settings is still the only place it could possibly change, which is exactly what
 | `LOCATION` | `CLLocationManager.authorizationStatus` + `requestWhenInUseAuthorization` | **Folded.** "While in use" and "always" are both granted. The answer arrives through the delegate, which `request` awaits; a manager and its delegate are held until it does. Reduced (approximate) accuracy is still granted — precision is a property of the fix, not the permission. |
 | `LOCATION_BACKGROUND` | the same manager + `requestAlwaysAuthorization` | **Folded, with one inference.** Only "always" is granted; "while in use" is `Denied(shouldShowRationale = true)`, because iOS may still offer the upgrade. iOS shows that upgrade prompt **at most once** and says nothing when it declines, so `request` waits for a changed status or — if the app did not resign active within a second, meaning no prompt covered it — returns the status as it is. Once the upgrade has been asked for in this process and the status stayed "while in use", `check` and `request` report `PermanentlyDenied`, so a request flow moves on to settings instead of asking again. The fact is kept in memory: after a restart, one more request finds it out again. While location is not determined, a request asks for "while in use" first, as iOS itself requires. |
 | `MEDIA_AUDIO` | `MPMediaLibrary.authorizationStatus` + `requestAuthorization` | **Clean.** The user's music library. Restricted is permanently denied. |
-| `BLUETOOTH_CONNECT` | `CBManager.authorization` + a `CBCentralManager` created to raise the prompt | **Clean, indirectly requested.** iOS has no "request Bluetooth permission" call: the prompt appears when the app first creates a central manager, which `request` does with the power alert turned off, and the answer is read once the manager reports its state. iOS has one Bluetooth permission, so this entry is it. |
+| `BLUETOOTH_CONNECT` | `CBManager.authorization` + a `CBCentralManager` created to raise the prompt | **Clean, indirectly requested.** iOS has no "request Bluetooth permission" call: the prompt appears when the app first creates a central manager, which `request` does with the power alert turned off, and the answer is read once the manager reports its state. iOS has one Bluetooth permission, so this entry and `BLUETOOTH_SCAN` always report the same status. |
+| `BLUETOOTH_SCAN` | the same as `BLUETOOTH_CONNECT` | **Clean, the same permission.** A request for either Bluetooth entry answers both, and observing one sees a request of the other. |
 
 ### What is not in the catalog, and why
 
@@ -231,8 +272,9 @@ These were considered and left out rather than shipped as untested scaffolding:
   picker cares about. Android's string, meanwhile, depends on the API level and splits per media
   type (`READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, plus the visual-media-picker path that needs no
   permission at all).
-- **Contacts, calendar, health, SMS, phone state, Bluetooth scanning and advertising.** No mapping
-  was written and none is claimed.
+- **Contacts, calendar, health, SMS, phone state, Bluetooth advertising.** No mapping was written
+  and none is claimed. Bluetooth scanning was on this list until 1.8.0, when `BLUETOOTH_SCAN` joined
+  the catalog with the fold described above.
 - **Exact alarms.** Not in `Permission`, and never will be: Android's `SCHEDULE_EXACT_ALARM` is a
   settings-only grant with no runtime dialog, so it does not fit `PermissionHandler`'s shape at all.
   It is `SpecialPermission.EXACT_ALARM` instead — see below.
