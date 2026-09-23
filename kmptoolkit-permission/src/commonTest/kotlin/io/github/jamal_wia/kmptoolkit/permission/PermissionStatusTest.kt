@@ -48,6 +48,7 @@ class PermissionStatusTest {
                 Permission.LOCATION_BACKGROUND,
                 Permission.MEDIA_AUDIO,
                 Permission.BLUETOOTH_CONNECT,
+                Permission.BLUETOOTH_SCAN,
             ),
             Permission.entries.toList(),
         )

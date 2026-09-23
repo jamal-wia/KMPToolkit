@@ -38,7 +38,14 @@ public sealed interface PermissionStatus {
      */
     public data object PermanentlyDenied : PermissionStatus
 
-    /** Never asked. The next request will show the system dialog. */
+    /**
+     * Never asked — the next request shows the system dialog, as far as the app can tell.
+     *
+     * On Android the same answer also covers states in which a request returns at once without a
+     * dialog, because the platform reports them identically or the app is misconfigured: a dismissed
+     * dialog, a permission refused in settings before the app asked, a permission missing from the
+     * manifest, and [Permission.BLUETOOTH_SCAN] declared without `neverForLocation` (API 31+).
+     */
     public data object NotDetermined : PermissionStatus
 }
 

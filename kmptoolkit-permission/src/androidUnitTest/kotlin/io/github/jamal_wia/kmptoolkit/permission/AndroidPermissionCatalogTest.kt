@@ -6,6 +6,8 @@ import android.os.Build
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
+import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
@@ -60,12 +62,14 @@ class AndroidPermissionCatalogTest {
         host: PermissionRequestHost = MultiHost(),
         sdkInt: Int = Build.VERSION_CODES.TIRAMISU,
         rationale: Boolean? = false,
+        neverForLocation: Boolean = true,
+        logger: Logger = NoopLogger,
     ): AndroidPermissionHandler = AndroidPermissionHandler(
         context = application,
         host = host,
         storage = storage,
         keyPrefix = "test",
-        logger = NoopLogger,
+        logger = logger,
         sdkInt = sdkInt,
         shouldShowRationale = { rationale },
         awaitActivity = {},
@@ -78,7 +82,14 @@ class AndroidPermissionCatalogTest {
             }
         },
         startSettings = { true },
+        disavowsLocationForScan = {
+            manifestReads++
+            neverForLocation
+        },
     )
+
+    /** How often a handler read the `neverForLocation` declaration. */
+    private var manifestReads: Int = 0
 
     private fun grant(vararg permissions: String) = shadowOf(application).grantPermissions(*permissions)
 
@@ -232,6 +243,197 @@ class AndroidPermissionCatalogTest {
         )
     }
 
+    // --- Bluetooth scanning, API 31+ ----------------------------------------------------------
+
+    @Test
+    fun `bluetooth scanning reads BLUETOOTH_SCAN from API 31`() = runTest {
+        grant(Manifest.permission.BLUETOOTH_SCAN)
+        deny(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+
+        assertEquals(PermissionStatus.Granted, handler(sdkInt = Build.VERSION_CODES.S).check(Permission.BLUETOOTH_SCAN))
+    }
+
+    @Test
+    fun `bluetooth scanning is requested as BLUETOOTH_SCAN alone, never with location`() = runTest {
+        deny(
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        )
+        val host = MultiHost(answers = mapOf(Manifest.permission.BLUETOOTH_SCAN to true))
+
+        val status: PermissionStatus = handler(host, sdkInt = Build.VERSION_CODES.S).request(Permission.BLUETOOTH_SCAN)
+
+        assertEquals(listOf(Manifest.permission.BLUETOOTH_SCAN), host.single)
+        assertEquals(emptyList(), host.groups)
+        assertEquals(PermissionStatus.Granted, status)
+    }
+
+    @Test
+    fun `a refused bluetooth scan is remembered under its own entry, not under location`() = runTest {
+        deny(Manifest.permission.BLUETOOTH_SCAN)
+
+        handler(MultiHost(), sdkInt = Build.VERSION_CODES.S).request(Permission.BLUETOOTH_SCAN)
+
+        assertEquals("dialog-shown", storage.getStringOrNull(askedKey("test", Permission.BLUETOOTH_SCAN)))
+        assertNull(storage.getStringOrNull(askedKey("test", Permission.LOCATION)))
+    }
+
+    @Test
+    fun `without neverForLocation a granted bluetooth scan reads not determined`() = runTest {
+        grant(Manifest.permission.BLUETOOTH_SCAN)
+
+        assertEquals(
+            PermissionStatus.NotDetermined,
+            handler(sdkInt = Build.VERSION_CODES.S, neverForLocation = false).check(Permission.BLUETOOTH_SCAN),
+        )
+    }
+
+    @Test
+    fun `without neverForLocation a bluetooth scan request shows nothing and records nothing`() = runTest {
+        deny(Manifest.permission.BLUETOOTH_SCAN)
+        val host = MultiHost(answers = mapOf(Manifest.permission.BLUETOOTH_SCAN to true))
+
+        val status: PermissionStatus =
+            handler(host, sdkInt = Build.VERSION_CODES.S, neverForLocation = false).request(Permission.BLUETOOTH_SCAN)
+
+        assertEquals(PermissionStatus.NotDetermined, status)
+        assertEquals(emptyList(), host.single)
+        assertEquals(emptyList(), host.groups)
+        assertNull(storage.getStringOrNull(askedKey("test", Permission.BLUETOOTH_SCAN)))
+        assertNull(storage.getStringOrNull(askedKey("test", Permission.LOCATION)))
+    }
+
+    @Test
+    fun `a missing neverForLocation is read and warned about once per handler`() = runTest {
+        grant(Manifest.permission.BLUETOOTH_SCAN)
+        val logger = RecordingLogger()
+        val handler: AndroidPermissionHandler =
+            handler(sdkInt = Build.VERSION_CODES.S, neverForLocation = false, logger = logger)
+
+        repeat(3) { handler.check(Permission.BLUETOOTH_SCAN) }
+        handler.request(Permission.BLUETOOTH_SCAN)
+
+        assertEquals(1, manifestReads)
+        assertEquals(1, logger.warnings.count { "neverForLocation" in it })
+    }
+
+    @Test
+    fun `the declaration is not read for any other permission`() = runTest {
+        grant(Manifest.permission.CAMERA, Manifest.permission.BLUETOOTH_CONNECT)
+        val handler: AndroidPermissionHandler = handler(sdkInt = Build.VERSION_CODES.S, neverForLocation = false)
+
+        handler.check(Permission.CAMERA)
+        handler.check(Permission.BLUETOOTH_CONNECT)
+
+        assertEquals(0, manifestReads)
+    }
+
+    // --- Bluetooth scanning below API 31: location --------------------------------------------
+
+    @Test
+    fun `below API 31 bluetooth scanning reports what location reports`() = runTest {
+        grant(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        deny(Manifest.permission.BLUETOOTH_SCAN)
+
+        listOf(Build.VERSION_CODES.R, Build.VERSION_CODES.Q, Build.VERSION_CODES.N).forEach { sdkInt ->
+            assertEquals(PermissionStatus.Granted, handler(sdkInt = sdkInt).check(Permission.BLUETOOTH_SCAN), "API $sdkInt")
+        }
+    }
+
+    @Test
+    fun `below API 31 bluetooth scanning without location is not granted`() = runTest {
+        // Even with the string itself granted: below API 31 it gates nothing.
+        grant(Manifest.permission.BLUETOOTH_SCAN)
+        deny(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+
+        assertEquals(
+            PermissionStatus.NotDetermined,
+            handler(sdkInt = Build.VERSION_CODES.R).check(Permission.BLUETOOTH_SCAN),
+        )
+    }
+
+    @Test
+    fun `below API 31 bluetooth scanning is requested as the location dialog`() = runTest {
+        deny(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        val host = MultiHost(
+            answers = mapOf(
+                Manifest.permission.ACCESS_FINE_LOCATION to true,
+                Manifest.permission.ACCESS_COARSE_LOCATION to true,
+            ),
+        )
+
+        val status: PermissionStatus = handler(host, sdkInt = Build.VERSION_CODES.R).request(Permission.BLUETOOTH_SCAN)
+
+        assertEquals(
+            listOf(listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)),
+            host.groups,
+        )
+        assertEquals(emptyList(), host.single)
+        assertEquals(PermissionStatus.Granted, status)
+    }
+
+    @Test
+    fun `below API 31 a refusal of bluetooth scanning is a refusal of location`() = runTest {
+        deny(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+
+        handler(MultiHost(), sdkInt = Build.VERSION_CODES.R).request(Permission.BLUETOOTH_SCAN)
+
+        assertEquals("dialog-shown", storage.getStringOrNull(askedKey("test", Permission.LOCATION)))
+        assertNull(storage.getStringOrNull(askedKey("test", Permission.BLUETOOTH_SCAN)))
+    }
+
+    @Test
+    fun `below API 31 a permanently refused location keeps bluetooth scanning permanently denied`() = runTest {
+        deny(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        // First refusal of location: the rationale is shown, and remembered.
+        handler(MultiHost(), rationale = true).request(Permission.LOCATION)
+        // Second refusal: Android stops asking and the rationale turns false.
+        val host = MultiHost()
+        val handler: AndroidPermissionHandler = handler(host, sdkInt = Build.VERSION_CODES.R, rationale = false)
+
+        assertEquals(PermissionStatus.PermanentlyDenied, handler.check(Permission.BLUETOOTH_SCAN))
+        assertEquals(PermissionStatus.PermanentlyDenied, handler.request(Permission.BLUETOOTH_SCAN))
+        assertEquals(emptyList(), host.groups)
+    }
+
+    @Test
+    fun `below API 31 the neverForLocation declaration plays no part`() = runTest {
+        grant(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+
+        val status: PermissionStatus =
+            handler(sdkInt = Build.VERSION_CODES.R, neverForLocation = false).check(Permission.BLUETOOTH_SCAN)
+
+        assertEquals(PermissionStatus.Granted, status)
+        assertEquals(0, manifestReads)
+    }
+
+    @Test
+    fun `below API 31 observing location sees a bluetooth scan request, and the other way round`() =
+        runTest(UnconfinedTestDispatcher()) {
+            deny(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            val host = object : PermissionRequestHost {
+                override fun launch(androidPermission: String, onResult: (Boolean) -> Unit): Boolean = false
+                override fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean {
+                    grant(*androidPermissions.toTypedArray())
+                    onResult(androidPermissions.associateWith { true })
+                    return true
+                }
+            }
+            val handler: AndroidPermissionHandler = handler(host, sdkInt = Build.VERSION_CODES.R)
+            val location = mutableListOf<PermissionStatus>()
+            val scan = mutableListOf<PermissionStatus>()
+            val locationCollection = launch { handler.observe(Permission.LOCATION).toList(location) }
+            val scanCollection = launch { handler.observe(Permission.BLUETOOTH_SCAN).toList(scan) }
+
+            handler.request(Permission.BLUETOOTH_SCAN)
+
+            assertEquals(listOf(PermissionStatus.NotDetermined, PermissionStatus.Granted), location)
+            assertEquals(listOf(PermissionStatus.NotDetermined, PermissionStatus.Granted), scan)
+            locationCollection.cancel()
+            scanCollection.cancel()
+        }
+
     // --- observe ------------------------------------------------------------------------------
 
     @Test
@@ -282,5 +484,18 @@ class AndroidPermissionCatalogTest {
 
     private fun resumeActivity() {
         resumeListeners.toList().forEach { it() }
+    }
+
+    /** Keeps every warning's text. */
+    private class RecordingLogger : Logger {
+        val warnings: MutableList<String> = mutableListOf()
+
+        override val tag: String = "test"
+
+        override fun isLoggable(level: LogLevel): Boolean = true
+
+        override fun log(level: LogLevel, throwable: Throwable?, message: () -> String) {
+            if (level == LogLevel.WARN) warnings += message()
+        }
     }
 }

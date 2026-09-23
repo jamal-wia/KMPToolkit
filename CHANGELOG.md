@@ -9,6 +9,29 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-23
+
+### Added
+
+- `kmptoolkit-permission`: `Permission.BLUETOOTH_SCAN` — discovering nearby Bluetooth devices, with
+  `check`, `request` and `observe` like every other entry. Its fold onto `PermissionStatus`:
+  - **Android 12 (API 31) and later:** `BLUETOOTH_SCAN` alone. The manifest must declare it with
+    `android:usesPermissionFlags="neverForLocation"`; without that flag Android withholds scan results
+    from an app that lacks fine location, so the entry reads `NotDetermined`, a request shows nothing
+    and records nothing, and the handler logs one warning naming the attribute. It never asks for
+    location on these API levels.
+  - **Below API 31:** scan results need location, so the entry *is* `LOCATION` — the same status, the
+    location dialog on a request, and a refusal remembered as a refusal of `LOCATION`. It does not
+    report `Granted` merely because there is no Bluetooth runtime grant there.
+  - **iOS:** the same `CBManager` authorization as `BLUETOOTH_CONNECT`; a request of either updates an
+    observation of the other.
+
+  This reverses a documented decision: `05-platform-notes.md` listed Bluetooth scanning among the
+  permissions with no mapping. **An exhaustive `when` over `Permission` needs the new entry**; the
+  change is binary-compatible. See `docs/kmptoolkit-permission/05-platform-notes.md` for the manifest
+  declarations, and the preconditions a status cannot report (Bluetooth and, below API 31, location
+  services switched on).
+
 ## [1.7.1] - 2026-09-22
 
 ### Fixed

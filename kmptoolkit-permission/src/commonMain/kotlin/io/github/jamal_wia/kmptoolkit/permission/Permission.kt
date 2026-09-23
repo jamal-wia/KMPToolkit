@@ -16,6 +16,8 @@ package io.github.jamal_wia.kmptoolkit.permission
  * - **Location precision.** Android's approximate-only grant and iOS 14's reduced accuracy both count
  *   as [LOCATION] granted. Whether the fix is precise is a property of the location, not of the
  *   permission, and `kmptoolkit-location` reports it there.
+ * - **Bluetooth scanning below Android 12.** Scan results need location there, so [BLUETOOTH_SCAN]
+ *   is [LOCATION] on those API levels rather than a grant of its own.
  * - **Photos, contacts, calendar, health, SMS, phone.** Not in the catalog. Photos in particular has
  *   iOS's `Limited` state, which is neither granted nor refused. Call the platform API in platform code.
  *
@@ -95,9 +97,35 @@ public enum class Permission {
      *
      * - Android: `BLUETOOTH_CONNECT` from API 31; below it there is no runtime grant and this reports
      *   [PermissionStatus.Granted] (the install-time `BLUETOOTH` permission covers it).
-     * - iOS: `CBManager` authorization. There is one Bluetooth permission on iOS, so this is it.
+     * - iOS: `CBManager` authorization. There is one Bluetooth permission on iOS, so this entry and
+     *   [BLUETOOTH_SCAN] always report the same status.
      *
      * @since 1.5.0
      */
     BLUETOOTH_CONNECT,
+
+    /**
+     * Discover nearby Bluetooth devices — classic discovery and BLE scanning — and receive what the scan
+     * finds. [PermissionStatus.Granted] means scan results will be delivered as far as permissions go.
+     *
+     * - Android from API 31: `BLUETOOTH_SCAN`, which your manifest must declare with
+     *   `android:usesPermissionFlags="neverForLocation"`. Without that flag Android also withholds scan
+     *   results from an app that lacks fine location, so this entry then reports
+     *   [PermissionStatus.NotDetermined] and a request returns at once without a dialog — the same
+     *   answer as for a permission missing from the manifest — and the handler logs a warning once.
+     *   It never asks for location on these API levels; an app that does derive location from scans
+     *   calls the platform API itself.
+     * - Android below API 31: there is no Bluetooth runtime grant, but scan results are delivered only
+     *   to an app holding location — fine location for an app targeting API 29 or higher. This entry is
+     *   therefore [LOCATION] there in every respect: it reports what [LOCATION] reports, a request shows
+     *   the location dialog, and a refusal is remembered as a refusal of [LOCATION].
+     * - iOS: `CBManager` authorization — the same single Bluetooth permission as [BLUETOOTH_CONNECT].
+     *
+     * Scanning has preconditions that are not permissions, and a status cannot report them: Bluetooth
+     * switched on, and — below API 31 — location services switched on. See
+     * `docs/kmptoolkit-permission/05-platform-notes.md`.
+     *
+     * @since 1.8.0
+     */
+    BLUETOOTH_SCAN,
 }

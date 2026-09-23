@@ -174,7 +174,8 @@ For reference when judging whether your own coverage is enough:
 - **`androidUnitTest`** under Robolectric: the status logic against a real `PackageManager`,
   the asked flag's lifecycle, the notifications branch on both sides of API 33, the platform string
   each permission maps to, the location, audio-media and Bluetooth entries on both sides of their API
-  thresholds, `observe` re-checking on resume, the settings intent, the version-gated `SpecialPermission` branches
+  thresholds (Bluetooth scanning also with and without `neverForLocation`, read from a real
+  `PackageInfo`), `observe` re-checking on resume, the settings intent, the version-gated `SpecialPermission` branches
   (`EXACT_ALARM` below API 31, `ALL_FILES_ACCESS` below API 30), and the assertion that the merged
   library manifest contributes no permission at all.
 - **`iosTest`**: the mapping from each CoreLocation, MediaPlayer and CoreBluetooth authorization

@@ -8,6 +8,7 @@
 // Library unique name: <io.github.jamal-wia:kmptoolkit-permission>
 final enum class io.github.jamal_wia.kmptoolkit.permission/Permission : kotlin/Enum<io.github.jamal_wia.kmptoolkit.permission/Permission> { // io.github.jamal_wia.kmptoolkit.permission/Permission|null[0]
     enum entry BLUETOOTH_CONNECT // io.github.jamal_wia.kmptoolkit.permission/Permission.BLUETOOTH_CONNECT|null[0]
+    enum entry BLUETOOTH_SCAN // io.github.jamal_wia.kmptoolkit.permission/Permission.BLUETOOTH_SCAN|null[0]
     enum entry CAMERA // io.github.jamal_wia.kmptoolkit.permission/Permission.CAMERA|null[0]
     enum entry LOCATION // io.github.jamal_wia.kmptoolkit.permission/Permission.LOCATION|null[0]
     enum entry LOCATION_BACKGROUND // io.github.jamal_wia.kmptoolkit.permission/Permission.LOCATION_BACKGROUND|null[0]

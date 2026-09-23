@@ -120,6 +120,7 @@ class AndroidPermissionHandlerTest {
             }
         },
         startSettings = settings,
+        disavowsLocationForScan = { true },
     )
 
     /** Every resume listener an [AndroidPermissionHandler.observe] collection registered and has not cancelled. */

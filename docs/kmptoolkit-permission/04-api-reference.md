@@ -9,12 +9,15 @@ Every public symbol, its contract, and its thread-safety. Package
 public enum class Permission {
     NOTIFICATIONS, MICROPHONE, CAMERA,
     LOCATION, LOCATION_BACKGROUND, MEDIA_AUDIO, BLUETOOTH_CONNECT, // since 1.5.0
+    BLUETOOTH_SCAN, // since 1.8.0
 }
 ```
 
 The closed catalog. Each entry maps to Android permission strings and an iOS authorization API, both
 exercised by tests; the full mapping is in [`05-platform-notes.md`](05-platform-notes.md). The photo
 library is deliberately absent — see [`01-overview.md`](01-overview.md#why-the-catalog-is-closed).
+`BLUETOOTH_SCAN` is `LOCATION` below Android 12, and from Android 12 requires `neverForLocation` on
+its manifest declaration; see [`05-platform-notes.md`](05-platform-notes.md#location-audio-files-and-bluetooth).
 The catalog can grow in a minor release: prefer an `else` branch in a `when` over it.
 
 ## `PermissionStatus`
@@ -37,7 +40,7 @@ public val PermissionStatus.canPrompt: Boolean
 | `Denied(shouldShowRationale = true)` | refused, another dialog is possible | after the first refusal | never |
 | `Denied(shouldShowRationale = false)` | refused, no rationale asked for | rare; a device that reports no rationale mid-flow | never |
 | `PermanentlyDenied` | no dialog will appear again | second refusal ("Don't allow" twice on Android 11+, "Don't ask again" before it); a dismissed dialog is not a refusal | any refusal; also restricted by MDM or parental controls |
-| `NotDetermined` | the next request shows a dialog, as far as the app can tell | never asked; also a dialog the user dismissed, and — indistinguishably — a permission refused in settings before the app asked or missing from the manifest, for which the request returns at once | never asked |
+| `NotDetermined` | the next request shows a dialog, as far as the app can tell | never asked; also a dialog the user dismissed, and — indistinguishably — a permission refused in settings before the app asked or missing from the manifest, for which the request returns at once; `BLUETOOTH_SCAN` declared without `neverForLocation` (API 31+) reads the same | never asked |
 
 `isGranted` is `true` only for `Granted`. `canPrompt` is `true` for `NotDetermined` and `Denied` —
 the two cases where requesting would put a dialog on screen.

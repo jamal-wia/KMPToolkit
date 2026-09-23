@@ -79,7 +79,20 @@ class PlatformAuthorizationMappingTest {
         // with nothing granted, each answers without throwing.
         val handler: PermissionHandler = createPermissionHandler()
 
-        listOf(Permission.LOCATION, Permission.LOCATION_BACKGROUND, Permission.MEDIA_AUDIO, Permission.BLUETOOTH_CONNECT)
-            .forEach { permission -> handler.check(permission) }
+        listOf(
+            Permission.LOCATION,
+            Permission.LOCATION_BACKGROUND,
+            Permission.MEDIA_AUDIO,
+            Permission.BLUETOOTH_CONNECT,
+            Permission.BLUETOOTH_SCAN,
+        ).forEach { permission -> handler.check(permission) }
+    }
+
+    @Test
+    fun `bluetooth scanning reports the one Bluetooth authorization bluetooth connect reports`() = runTest {
+        val handler: PermissionHandler = createPermissionHandler()
+
+        assertEquals(bluetoothStatus(BluetoothAuthorization.current()), handler.check(Permission.BLUETOOTH_SCAN))
+        assertEquals(handler.check(Permission.BLUETOOTH_CONNECT), handler.check(Permission.BLUETOOTH_SCAN))
     }
 }
