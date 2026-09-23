@@ -79,7 +79,7 @@ private class IosPermissionHandler(private val logger: Logger) : PermissionHandl
         Permission.LOCATION_BACKGROUND ->
             backgroundLocationStatus(LocationAuthorization.current(), LocationAuthorization.alwaysUpgradeAsked)
         Permission.MEDIA_AUDIO -> mediaLibraryStatus(MediaLibraryAuthorization.current())
-        Permission.BLUETOOTH_CONNECT -> bluetoothStatus(BluetoothAuthorization.current())
+        Permission.BLUETOOTH_CONNECT, Permission.BLUETOOTH_SCAN -> bluetoothStatus(BluetoothAuthorization.current())
     }
 
     override suspend fun request(permission: Permission): PermissionStatus =
@@ -89,12 +89,18 @@ private class IosPermissionHandler(private val logger: Logger) : PermissionHandl
         callbackFlow {
             trySend(Unit)
             val unregister: () -> Unit = addBecameActiveListener { trySend(Unit) }
-            launch { requestsResolved.collect { resolved -> if (resolved == permission) send(Unit) } }
+            launch {
+                requestsResolved.collect { resolved -> if (resolved.statusSource() == permission.statusSource()) send(Unit) }
+            }
             awaitClose { unregister() }
         }
             .conflate()
             .map { check(permission) }
             .distinctUntilChanged()
+
+    /** iOS has one Bluetooth permission: a request for either Bluetooth entry answers both. */
+    private fun Permission.statusSource(): Permission =
+        if (this == Permission.BLUETOOTH_SCAN) Permission.BLUETOOTH_CONNECT else this
 
     private suspend fun requestDialog(permission: Permission): PermissionStatus {
         val current: PermissionStatus = check(permission)
@@ -110,7 +116,7 @@ private class IosPermissionHandler(private val logger: Logger) : PermissionHandl
             Permission.LOCATION -> foregroundLocationStatus(LocationAuthorization.requestWhenInUse())
             Permission.LOCATION_BACKGROUND -> requestBackgroundLocation()
             Permission.MEDIA_AUDIO -> mediaLibraryStatus(MediaLibraryAuthorization.request())
-            Permission.BLUETOOTH_CONNECT -> bluetoothStatus(BluetoothAuthorization.request())
+            Permission.BLUETOOTH_CONNECT, Permission.BLUETOOTH_SCAN -> bluetoothStatus(BluetoothAuthorization.request())
         }
     }
 

@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -199,7 +200,29 @@ private fun buildPermissionHandler(
         startSettings = { intent ->
             systemScreenLauncher.launch(SystemScreenRequest(listOf(intent), applicationContext, AppDetailsScreen))
         },
+        disavowsLocationForScan = { applicationContext.declaresScanNeverForLocation(logger) },
     )
+}
+
+/**
+ * Whether this app's manifest declares `BLUETOOTH_SCAN` with `android:usesPermissionFlags="neverForLocation"`.
+ *
+ * Android reads the same flag, from the same `PackageInfo`, to decide whether a scan's results need fine
+ * location as well; `false` when the permission is not declared at all, or on an API level without
+ * the flag (below 31, where it is never asked).
+ */
+internal fun Context.declaresScanNeverForLocation(logger: Logger): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+    return try {
+        @Suppress("DEPRECATION") // The flags overload is API 33+; this one is what API 31 and 32 have.
+        val info: PackageInfo = packageManager.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
+        val index: Int = info.requestedPermissions?.indexOf(Manifest.permission.BLUETOOTH_SCAN) ?: -1
+        val flags: Int = info.requestedPermissionsFlags?.getOrNull(index) ?: 0
+        index >= 0 && flags and PackageInfo.REQUESTED_PERMISSION_NEVER_FOR_LOCATION != 0
+    } catch (cause: Exception) {
+        logger.w(cause) { "Could not read this app's declared permissions" }
+        false
+    }
 }
 
 /**
@@ -285,36 +308,81 @@ internal class AndroidPermissionHandler(
     private val addResumedListener: (() -> Unit) -> ActivitySubscription,
     /** Opens the settings screen for an intent without launch flags; `false` if nothing opened. */
     private val startSettings: (Intent) -> Boolean,
+    /**
+     * Whether the manifest declares `BLUETOOTH_SCAN` with `neverForLocation`. Read at most once: a
+     * manifest does not change while the app runs.
+     */
+    disavowsLocationForScan: () -> Boolean,
 ) : PermissionHandler {
 
     /** A permission whose request just resolved, so every [observe] of it re-reads at once. */
     private val requestsResolved: MutableSharedFlow<Permission> = MutableSharedFlow(extraBufferCapacity = 16)
 
-    override suspend fun check(permission: Permission): PermissionStatus = currentStatus(permission)
+    /** Read, and warned about, on first use — so a status observed on every resume warns once. */
+    private val scanDisavowsLocation: Boolean by lazy {
+        disavowsLocationForScan().also { disavowed ->
+            if (!disavowed) {
+                logger.w {
+                    "${Permission.BLUETOOTH_SCAN} reads NotDetermined: declare " +
+                        "android.permission.BLUETOOTH_SCAN in the manifest with " +
+                        "android:usesPermissionFlags=\"neverForLocation\""
+                }
+            }
+        }
+    }
 
-    override suspend fun request(permission: Permission): PermissionStatus =
-        requestDialog(permission).also { requestsResolved.tryEmit(permission) }
+    override suspend fun check(permission: Permission): PermissionStatus = currentStatus(permission.statusSource())
+
+    override suspend fun request(permission: Permission): PermissionStatus {
+        val source: Permission = permission.statusSource()
+        return requestDialog(source, requested = permission).also { requestsResolved.tryEmit(source) }
+    }
 
     /**
      * Re-reads [permission] when collection starts, on every activity resume, and after every [request]
-     * of it through this handler. A resume is where a change made in system settings — or by the
-     * system itself, auto-resetting an unused app's permissions — becomes visible to the app.
+     * of it — or of the entry it stands for on this API level — through this handler. A resume is where a
+     * change made in system settings — or by the system itself, auto-resetting an unused app's
+     * permissions — becomes visible to the app.
      */
-    override fun observe(permission: Permission): Flow<PermissionStatus> =
-        callbackFlow {
+    override fun observe(permission: Permission): Flow<PermissionStatus> {
+        val source: Permission = permission.statusSource()
+        return callbackFlow {
             trySend(Unit)
             val subscription: ActivitySubscription = addResumedListener { trySend(Unit) }
-            launch { requestsResolved.collect { resolved -> if (resolved == permission) send(Unit) } }
+            launch { requestsResolved.collect { resolved -> if (resolved == source) send(Unit) } }
             awaitClose { subscription.cancel() }
         }
             .conflate()
-            .map { currentStatus(permission) }
+            .map { currentStatus(source) }
             .distinctUntilChanged()
+    }
 
-    private suspend fun requestDialog(permission: Permission): PermissionStatus {
+    /**
+     * The entry whose status, dialog and remembered refusals [this] is on this API level: itself, except
+     * for [Permission.BLUETOOTH_SCAN] below API 31, where scanning is gated by location and nothing else.
+     * Sharing the entry, not just its Android strings, is what keeps the two from disagreeing: a
+     * refusal recorded under one key and read under another would read as never refused, and a
+     * permanently refused location would turn into a request that returns at once forever.
+     */
+    private fun Permission.statusSource(): Permission =
+        if (this == Permission.BLUETOOTH_SCAN && sdkInt < Build.VERSION_CODES.S) Permission.LOCATION else this
+
+    /**
+     * `BLUETOOTH_SCAN` declared without `neverForLocation`: Android would withhold scan results without
+     * fine location, which this entry never asks for, so it reads like a permission missing from the
+     * manifest.
+     */
+    private fun Permission.isScanWithoutDisavowal(): Boolean =
+        this == Permission.BLUETOOTH_SCAN && !scanDisavowsLocation
+
+    /** [requested] is only for the log: the entry the caller asked for, when [permission] stands for it. */
+    private suspend fun requestDialog(permission: Permission, requested: Permission): PermissionStatus {
         val current: PermissionStatus = currentStatus(permission)
         if (current is PermissionStatus.Granted || current is PermissionStatus.PermanentlyDenied) {
-            logger.d { "Not showing a dialog for $permission: already $current" }
+            logger.d {
+                val entry: String = if (requested == permission) "$permission" else "$requested (as $permission)"
+                "Not showing a dialog for $entry: already $current"
+            }
             return current
         }
         if (permission == Permission.LOCATION_BACKGROUND && !isForegroundLocationGranted()) {
@@ -324,6 +392,9 @@ internal class AndroidPermissionHandler(
             logger.w { "Not requesting $permission: request ${Permission.LOCATION} first" }
             return current
         }
+        // Nothing is launched and nothing is recorded: the dialog could not make scanning work, and a
+        // refusal recorded now would outlive the manifest fix.
+        if (permission.isScanWithoutDisavowal()) return current
 
         val androidPermissions: List<String> = permission.androidPermissions()
         val granted: Boolean = launchDialog(androidPermissions)?.let { answers ->
@@ -370,6 +441,7 @@ internal class AndroidPermissionHandler(
         }
 
         if (permission.isRuntimeGrantAbsent()) return PermissionStatus.Granted
+        if (permission.isScanWithoutDisavowal()) return PermissionStatus.NotDetermined
         if (permission == Permission.LOCATION_BACKGROUND && sdkInt < Build.VERSION_CODES.Q) {
             // Before API 29 there is no separate background grant: foreground location covers it.
             return currentStatus(Permission.LOCATION)
@@ -449,7 +521,8 @@ internal class AndroidPermissionHandler(
      * The `android.Manifest.permission` strings this [Permission] is requested as, for this API level.
      *
      * Only called for permissions that have a runtime grant on this API level — see
-     * [isRuntimeGrantAbsent] and the pre-29 background-location branch in [currentStatus].
+     * [isRuntimeGrantAbsent], the pre-29 background-location branch in [currentStatus], and
+     * [statusSource], which turns Bluetooth scanning into location below API 31.
      */
     private fun Permission.androidPermissions(): List<String> = when (this) {
         Permission.NOTIFICATIONS -> listOf(Manifest.permission.POST_NOTIFICATIONS)
@@ -469,6 +542,7 @@ internal class AndroidPermissionHandler(
             },
         )
         Permission.BLUETOOTH_CONNECT -> listOf(Manifest.permission.BLUETOOTH_CONNECT)
+        Permission.BLUETOOTH_SCAN -> listOf(Manifest.permission.BLUETOOTH_SCAN)
     }
 
     /**

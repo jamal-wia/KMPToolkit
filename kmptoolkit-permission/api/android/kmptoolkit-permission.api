@@ -5,6 +5,7 @@ public final class io/github/jamal_wia/kmptoolkit/permission/AppDetailsScreen : 
 
 public final class io/github/jamal_wia/kmptoolkit/permission/Permission : java/lang/Enum {
 	public static final field BLUETOOTH_CONNECT Lio/github/jamal_wia/kmptoolkit/permission/Permission;
+	public static final field BLUETOOTH_SCAN Lio/github/jamal_wia/kmptoolkit/permission/Permission;
 	public static final field CAMERA Lio/github/jamal_wia/kmptoolkit/permission/Permission;
 	public static final field LOCATION Lio/github/jamal_wia/kmptoolkit/permission/Permission;
 	public static final field LOCATION_BACKGROUND Lio/github/jamal_wia/kmptoolkit/permission/Permission;
