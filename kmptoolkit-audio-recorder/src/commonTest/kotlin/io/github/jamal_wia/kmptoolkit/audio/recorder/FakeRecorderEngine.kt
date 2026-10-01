@@ -20,6 +20,25 @@ internal class FakeRecorderEngine : RecorderEngine {
     /** Set to make `prepare` suspend until completed, so a test can cancel mid-preparation. */
     var prepareGate: CompletableDeferred<Unit>? = null
 
+    /**
+     * What each `peakDbfs()` call answers, consumed in order; once empty, [defaultPeak] is the
+     * answer. `null` entries model a platform that could not answer.
+     */
+    val peakSamples: ArrayDeque<Float?> = ArrayDeque()
+
+    /** Answer once [peakSamples] is exhausted. Digital silence unless a test says otherwise. */
+    var defaultPeak: Float? = Float.NEGATIVE_INFINITY
+
+    /**
+     * Runs inside every `peakDbfs()` call, before it answers, so a test can land a transition
+     * exactly while a sample is being taken — the race the metering coroutine has to survive.
+     */
+    var onPeak: () -> Unit = {}
+
+    /** How many times `peakDbfs()` was called, priming call included. */
+    var peakCalls: Int = 0
+        private set
+
     val calls: MutableList<String> = mutableListOf()
     var releaseCount: Int = 0
         private set
@@ -50,6 +69,14 @@ internal class FakeRecorderEngine : RecorderEngine {
     override fun resume() {
         calls += "resume"
         failures[RecorderOperation.RESUME]?.let { throw it }
+    }
+
+    override fun peakDbfs(): Float? {
+        // Deliberately not in `calls`: it ticks every interval and would bury the lifecycle calls
+        // the existing tests assert on; peakCalls counts it instead.
+        peakCalls++
+        onPeak()
+        return if (peakSamples.isEmpty()) defaultPeak else peakSamples.removeFirst()
     }
 
     override fun stop() {

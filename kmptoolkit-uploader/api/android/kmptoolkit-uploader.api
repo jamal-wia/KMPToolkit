@@ -380,6 +380,7 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/UploadTransportConfig
 	public static final field DEFAULT_READ_TIMEOUT_MILLIS I
 	public static final field WORK_NAME_PREFIX_SUFFIX Ljava/lang/String;
 	public static final field WORK_TAG_SUFFIX Ljava/lang/String;
+	public fun <init> ()V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ZJJJIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;ZJJJIILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
@@ -435,6 +436,7 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderClock$Compani
 public final class io/github/jamal_wia/kmptoolkit/uploader/UploaderConfig {
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/UploaderConfig$Companion;
 	public static final field DEFAULT_CLOCK_ANOMALY_FACTOR I
+	public fun <init> ()V
 	public synthetic fun <init> (JJJIILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public synthetic fun <init> (JJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1-UwyO8pc ()J
@@ -571,6 +573,7 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/WorkManagerUploadTran
 public final class io/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig {
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/WorkManagerWakeConfig$Companion;
 	public static final field WORK_NAME_SUFFIX Ljava/lang/String;
+	public fun <init> ()V
 	public synthetic fun <init> (Ljava/lang/String;ZJJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public synthetic fun <init> (Ljava/lang/String;ZJJJLkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;

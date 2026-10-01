@@ -1,7 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 /**
- * The platform recorder, reduced to the six calls the state machine needs.
+ * The platform recorder, reduced to the seven calls the state machine needs.
  *
  * Everything the toolkit contributes — legality of transitions, permission and storage
  * pre-checks, elapsed-time bookkeeping, typed errors — lives in [DefaultAudioRecorder] and is
@@ -41,6 +41,18 @@ internal interface RecorderEngine {
 
     /** Continues capture after [pause]. */
     fun resume()
+
+    /**
+     * Loudest input since the previous call, in dBFS (`<= 0`, [Float.NEGATIVE_INFINITY] for digital
+     * silence), or `null` when nothing is recording or the platform could not answer. The first call
+     * after capture begins has no previous call to measure from, so its value covers an unspecified
+     * stretch and is meant to be discarded.
+     *
+     * Unlike the other calls this one must never throw: it runs on the metering coroutine,
+     * concurrently with transitions on the caller's thread, and may land just after the native
+     * recorder was paused, stopped or released.
+     */
+    fun peakDbfs(): Float?
 
     /** Finalizes and closes the output file. Blocking; already called on the worker context. */
     fun stop()

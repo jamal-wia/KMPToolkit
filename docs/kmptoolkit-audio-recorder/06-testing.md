@@ -56,6 +56,7 @@ testing behavior the real recorder also has. What it adds is control:
 | Knob | Effect |
 |---|---|
 | `advanceElapsed(duration)` | moves `elapsed` forward. Time never passes on its own — no scheduler, no virtual clock, exact assertions |
+| `emitLevel(value)` | sets `level` **and** emits `value` on `levelSamples`, repeats included, as if the microphone had just peaked there. `value` must be within `0f..1f`; ignored unless the fake is `Recording` |
 | `permissionGranted = false` | `prepare()` fails with `PermissionDenied` |
 | `failNextOperationWith = error` | the next otherwise-legal operation fails with that `RecorderError`, then the knob clears |
 
@@ -69,7 +70,34 @@ and observation:
 | `releaseCount` | whether the code under test released the recorder — at most `1`, since `release` is idempotent |
 
 `advanceElapsed` only moves time while the fake is `Recording`, matching the real recorder, and is
-ignored elsewhere so a test can advance unconditionally between steps.
+ignored elsewhere so a test can advance unconditionally between steps. `emitLevel` follows the same
+rule, because a real recorder reports no level while paused or stopped. `level` returns to `0f`
+after every transition out of `Recording` (pause, stop, cancel, release, a scripted failure), and
+`start` and `resume` leave it at `0f` until the next `emitLevel`. Those resets are not samples, so
+`levelSamples` carries only what `emitLevel` emitted. Because `level` is a `StateFlow` it shows
+equal repeats once; `levelSamples` delivers each call, which is what a waveform test should collect.
+The stream is hot, as on the real recorder: a sample emitted while nobody collects is gone, so start
+collecting before emitting:
+
+```kotlin
+@Test
+fun `the waveform keeps growing while the user is silent`() = runTest {
+    val recorder = FakeAudioRecorder()
+    val samples = mutableListOf<Float>()
+    backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+        recorder.levelSamples.collect { samples += it }
+    }
+    recorder.prepare()
+    recorder.start()
+
+    recorder.emitLevel(0.8f)
+    recorder.emitLevel(0f)
+    recorder.emitLevel(0f)
+    recorder.emitLevel(0f)
+
+    assertEquals(listOf(0.8f, 0f, 0f, 0f), samples)
+}
+```
 
 ### Testing an error path
 
@@ -118,6 +146,10 @@ recorder.
   own; script them with `failNextOperationWith`.
 - **No format validation.** `UnsupportedFormat` likewise.
 - **Not thread-safe**, exactly like the recorder it replaces.
+- **No subscription-driven metering.** The real recorder samples the microphone only while `level`
+  or `levelSamples` has a collector. The fake has no engine whose work could be spared, so
+  `emitLevel` takes effect whether or not anyone is collecting. Test the idle-when-unobserved
+  behavior against the real recorder's suite, not this fake.
 - **No `Preparing` state.** `prepare` suspends to match the interface but completes at once, so the
   fake never sits in `RecorderState.Preparing`. If your code branches on that state, test it against
   the real recorder's suite instead.

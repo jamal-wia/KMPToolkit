@@ -269,7 +269,7 @@ your UI.
 - **Licence:** OpenJFX is GPL-2.0 with the Classpath Exception, so linking it does not put your app
   under the GPL. It is a `compileOnly` dependency of the engine: nothing reaches an app that does not
   opt in.
-- **Runtime:** JDK 21+, and the OpenJFX 21+ jars (`javafx-base`, `javafx-graphics`, `javafx-media`)
+- **Runtime:** JDK 25+, and the OpenJFX 27+ jars (`javafx-base`, `javafx-graphics`, `javafx-media`)
   added by the app with the classifier of each OS it ships to (`mac`, `mac-aarch64`, `linux`,
   `linux-aarch64`, `win`) — or a JDK that bundles JavaFX. Nothing needs installing on the user's
   machine, except FFmpeg's `libavcodec` on Linux. A display is required; on a headless machine the

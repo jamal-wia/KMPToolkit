@@ -9,6 +9,64 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [1.9.0]
+
+### Added
+
+- `kmptoolkit-audio-recorder`: `AudioRecorder.level`, a `StateFlow<Float>` with the live peak input
+  loudness, `0f` to `1f`, and `AudioRecorder.levelSamples`, a `Flow<Float>` of every sample the
+  meter takes, for a messenger-style waveform. Use `level` for a pulsing indicator and
+  `levelSamples` for a waveform: `level` is a `StateFlow`, so it conflates equal consecutive values
+  and in silence emits nothing, while `levelSamples` keeps delivering the repeated `0f`, one per
+  interval. The scale is linear in decibels between `AudioRecorderConfig.levelFloorDbfs` (`0f`) and
+  full scale (`1f`), so quiet speech is visible, and each value is the loudest input since the
+  previous one. It is not smoothed.
+  - **Measured only while `Recording` and collected.** A recorder whose `level` and `levelSamples`
+    nobody collects does no metering work, and the two share one meter when both are collected.
+    `level` is `0f` in every other state, and as soon as the last collector leaves. Pause, stop,
+    cancel, and release reset it at once, `levelSamples` emits nothing while paused, and nothing is
+    published after `release()`. `levelSamples` is hot and not replayed, and a collector more than
+    64 samples behind loses the oldest.
+  - **New settings:** `AudioRecorderConfig.levelUpdateInterval` (default 50 ms) and `levelFloorDbfs`
+    (default `-50`), with `DEFAULT_LEVEL_UPDATE_INTERVAL` and `DEFAULT_LEVEL_FLOOR_DBFS`. They are
+    appended after `minimumFreeSpaceBytes`, so existing positional calls keep compiling. There is no
+    on/off flag: collecting `level` or `levelSamples` is the switch.
+  - **Platforms:** Android reads `MediaRecorder.getMaxAmplitude()`; iOS enables `AVAudioRecorder`
+    metering in `prepare()` and reads the loudest `peakPowerForChannel`. Both are peaks, so the same
+    voice draws the same bar. See `docs/kmptoolkit-audio-recorder/05-platform-notes.md`.
+- `kmptoolkit-audio-recorder-testing`: `FakeAudioRecorder.level`, `FakeAudioRecorder.levelSamples`
+  and `FakeAudioRecorder.emitLevel`, which sets the level and emits a sample (repeats included)
+  while the fake is `Recording` and is ignored otherwise. The level returns to `0f` on every
+  transition out of `Recording`, without emitting a sample. `levelSamples` is hot, as on the real
+  recorder.
+
+`AudioRecorder` gains two members: a class implementing it outside this library (rather than using
+`FakeAudioRecorder`) must add `level` and `levelSamples`. Code compiled against 1.8.x must be
+recompiled, because adding parameters to the data class `AudioRecorderConfig` changes the JVM
+signatures of its constructor and `copy`; source code needs no change.
+
+### Changed
+
+- **`kmptoolkit-video-player-javafx` now requires OpenJFX 27 and JDK 25+ in the consuming app.**
+  OpenJFX 27 is compiled with `--release 25`, so it cannot load on an older JDK. The artifact still
+  declares OpenJFX `compileOnly`, so nothing changes in its POM; update the `javafx-*` jars you add
+  yourself, and the JDK your app runs on. See
+  `docs/kmptoolkit-video-player-javafx/02-getting-started.md`.
+- Dependency updates that reach a consumer's resolved graph (old to new): Kotlin 2.4.10 to 2.4.20,
+  Compose Multiplatform 1.11.1 to 1.12.1 (the Compose modules), AndroidX Core KTX 1.19.0 to 1.19.1
+  (`kmptoolkit-hardware-keys`, `-notification`, `-permission`, `-systembars`), `androidx.media`
+  1.7.0 to 1.8.0 (`kmptoolkit-notification`), WorkManager 2.11.2 to 2.12.0 (`kmptoolkit-uploader`),
+  AndroidX SQLite 2.7.0 to 2.7.1 (`kmptoolkit-downloader`, iOS), SQLDelight 2.3.2 to 2.4.0
+  (`kmptoolkit-uploader-sqldelight`). `androidx.biometric` stays at 1.2.0-alpha05.
+- Compiling with Kotlin 2.4.20 adds a JVM no-argument constructor to the config classes whose
+  parameters all have defaults and include a `Duration`: `AudioRecorderConfig`,
+  `BiometricGateOptions`, `NotificationConfig`, `UploadTransportConfig`, `UploaderConfig` and
+  `WorkManagerWakeConfig`. It is additive: Java callers can now write `new AudioRecorderConfig()`,
+  and no existing signature changed.
+- `kmptoolkit-uploader-sqldelight`: the generated `KmpToolkitUploaderDatabase.Companion` gains
+  `allTableNames()`, added by SQLDelight 2.4.0 to every generated database. The class was already
+  public API of this module; nothing existing changed.
+
 ## [1.8.0] - 2026-09-23
 
 ### Added

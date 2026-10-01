@@ -65,6 +65,7 @@ public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGateConfig 
 }
 
 public final class io/github/jamal_wia/kmptoolkit/biometric/BiometricGateOptions {
+	public fun <init> ()V
 	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricStrength;ZJILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/biometric/BiometricStrength;ZJLkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun equals (Ljava/lang/Object;)Z

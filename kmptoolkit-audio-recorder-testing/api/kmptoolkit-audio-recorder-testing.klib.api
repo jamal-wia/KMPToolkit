@@ -15,6 +15,10 @@ final class io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecor
         final fun <get-deletedPaths>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.deletedPaths.<get-deletedPaths>|<get-deletedPaths>(){}[0]
     final val elapsed // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.elapsed|{}elapsed[0]
         final fun <get-elapsed>(): kotlinx.coroutines.flow/StateFlow<kotlin.time/Duration> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.elapsed.<get-elapsed>|<get-elapsed>(){}[0]
+    final val level // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.level|{}level[0]
+        final fun <get-level>(): kotlinx.coroutines.flow/StateFlow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.level.<get-level>|<get-level>(){}[0]
+    final val levelSamples // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.levelSamples|{}levelSamples[0]
+        final fun <get-levelSamples>(): kotlinx.coroutines.flow/Flow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.levelSamples.<get-levelSamples>|<get-levelSamples>(){}[0]
     final val preparedPaths // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.preparedPaths|{}preparedPaths[0]
         final fun <get-preparedPaths>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.preparedPaths.<get-preparedPaths>|<get-preparedPaths>(){}[0]
     final val state // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.state|{}state[0]
@@ -30,6 +34,7 @@ final class io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecor
         final fun <get-releaseCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.releaseCount.<get-releaseCount>|<get-releaseCount>(){}[0]
 
     final fun advanceElapsed(kotlin.time/Duration) // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.advanceElapsed|advanceElapsed(kotlin.time.Duration){}[0]
+    final fun emitLevel(kotlin/Float) // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.emitLevel|emitLevel(kotlin.Float){}[0]
     final fun pause(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.pause|pause(){}[0]
     final fun release() // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.release|release(){}[0]
     final fun resume(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.resume|resume(){}[0]

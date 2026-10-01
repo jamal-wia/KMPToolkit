@@ -9,8 +9,12 @@ import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage
 import kotlin.time.Duration
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
@@ -24,6 +28,8 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * - **Time does not pass by itself.** [elapsed] only moves when a test calls [advanceElapsed], so a
  *   duration assertion is exact and no virtual clock has to be advanced.
+ * - **The input level is scripted.** [level] and [levelSamples] only move when a test calls
+ *   [emitLevel], and [level] returns to `0f` whenever the real recorder would stop reporting one.
  * - **Failures are scripted.** Set [permissionGranted] to `false`, or [failNextOperationWith] to
  *   any [RecorderError], and the next operation fails with it — including error cases (a full disk,
  *   a dead encoder) that are impossible to provoke on a real device.
@@ -34,6 +40,12 @@ import kotlinx.coroutines.flow.asStateFlow
  * interface but resolve immediately, so the fake never passes through [RecorderState.Preparing].
  * That state exists in the real recorder only while a suspending call is genuinely in flight, and
  * there is no filesystem here to wait on.
+ *
+ * It does not model subscription-driven metering: the real recorder samples the microphone only
+ * while [level] or [levelSamples] has a collector, but a fake has no engine whose work could be
+ * spared, so [emitLevel] takes effect whether or not anyone is collecting. [levelSamples] is hot,
+ * as on the real recorder: a sample emitted while nobody collects is gone, and a collector sees
+ * only what is emitted after it subscribed.
  *
  * Not thread-safe, exactly like the recorder it stands in for. Drive it from the test's own thread.
  *
@@ -63,6 +75,15 @@ public class FakeAudioRecorder(
 
     private val _elapsed: MutableStateFlow<Duration> = MutableStateFlow(Duration.ZERO)
     override val elapsed: StateFlow<Duration> = _elapsed.asStateFlow()
+
+    private val _level: MutableStateFlow<Float> = MutableStateFlow(0f)
+    override val level: StateFlow<Float> = _level.asStateFlow()
+
+    private val _levelSamples: MutableSharedFlow<Float> = MutableSharedFlow(
+        extraBufferCapacity = LEVEL_SAMPLE_BUFFER,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    override val levelSamples: Flow<Float> = _levelSamples.asSharedFlow()
 
     /** When `false`, [prepare] fails with [RecorderError.PermissionDenied]. Defaults to `true`. */
     public var permissionGranted: Boolean = true
@@ -148,6 +169,7 @@ public class FakeAudioRecorder(
         if (current !is RecorderState.Recording) return illegal(current, RecorderOperation.PAUSE)
         consumeScriptedFailure()?.let { error -> return RecorderResult.Failure(error) }
 
+        _level.value = 0f
         _state.value = RecorderState.Paused(current.outputPath, _elapsed.value)
         return SUCCESS
     }
@@ -170,6 +192,9 @@ public class FakeAudioRecorder(
             is RecorderState.Paused -> current.outputPath
             else -> return illegal(current, RecorderOperation.STOP)
         }
+        // Zeroed before the scripted failure is consulted: a failed stop leaves Failed, and the
+        // real recorder reports no level from there either.
+        _level.value = 0f
         consumeScriptedFailure()?.let { error -> return fail(error) }
 
         val recording = RecordedFile(path = path, duration = _elapsed.value)
@@ -193,6 +218,7 @@ public class FakeAudioRecorder(
 
         _deletedPaths += path
         _elapsed.value = Duration.ZERO
+        _level.value = 0f
         _state.value = RecorderState.Idle
         return SUCCESS
     }
@@ -202,6 +228,7 @@ public class FakeAudioRecorder(
         released = true
         releaseCount++
         _elapsed.value = Duration.ZERO
+        _level.value = 0f
         _state.value = RecorderState.Released
     }
 
@@ -217,6 +244,27 @@ public class FakeAudioRecorder(
         require(duration >= Duration.ZERO) { "cannot rewind elapsed time, was $duration" }
         if (_state.value !is RecorderState.Recording) return
         _elapsed.value += duration
+    }
+
+    /**
+     * Sets [level] to [value] and emits it on [levelSamples], as if the microphone had just peaked
+     * there. A repeat of the previous value is emitted too, which [level] alone cannot show: it is
+     * a `StateFlow` and conflates equal values, while [levelSamples] delivers every call.
+     *
+     * Ignored unless the fake is in [RecorderState.Recording] — a paused or stopped real recorder
+     * reports no level, so neither does this one, and a test can emit unconditionally between steps
+     * without producing a state the real recorder never reaches. [level] is back at `0f` after every
+     * transition out of [RecorderState.Recording] (pause, stop, cancel, release, a scripted
+     * failure), and [start] and [resume] leave it at `0f` until the next call here. Those resets
+     * are not samples: nothing is emitted on [levelSamples] by a transition.
+     *
+     * @param value the normalised level, in `0f..1f` as [AudioRecorder.level] defines it.
+     */
+    public fun emitLevel(value: Float) {
+        require(value in 0f..1f) { "level must be within 0f..1f, was $value" }
+        if (_state.value !is RecorderState.Recording) return
+        _level.value = value
+        _levelSamples.tryEmit(value)
     }
 
     private fun generatePath(): String {
@@ -248,6 +296,8 @@ public class FakeAudioRecorder(
 
         /** Directory generated paths use unless the constructor is given another. */
         public const val DEFAULT_FAKE_DIRECTORY: String = "/fake/recordings"
+
+        private const val LEVEL_SAMPLE_BUFFER: Int = 64
 
         private val SUCCESS: RecorderResult<Unit> = RecorderResult.Success(Unit)
     }

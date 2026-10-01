@@ -1,8 +1,8 @@
 [versions]
 # --- Toolchain ---
-agp = "9.2.1"
-kotlin = "2.4.10"
-composeMultiplatform = "1.11.1"
+agp = "9.4.1"
+kotlin = "2.4.20"
+composeMultiplatform = "1.12.1"
 mavenPublish = "0.37.0"
 
 # --- SDK levels — single source of truth, read via libs.versions.compileSdk / .minSdk ---
@@ -16,35 +16,36 @@ serialization = "1.11.0"
 atomicfu = "0.33.0"
 
 # --- AndroidX (consumed by kmptoolkit-platform, -permission, -notification, -biometric, -uploader, sample) ---
-coreKtx = "1.19.0"
-androidxMedia = "1.7.0"
+coreKtx = "1.19.1"
+androidxMedia = "1.8.0"
 lifecycleRuntimeKtx = "2.11.0"
 activityCompose = "1.13.0"
 biometric = "1.2.0-alpha05"
-workRuntime = "2.11.2"
+workRuntime = "2.12.0"
 
 # --- Persistence (kmptoolkit-uploader-sqldelight) ---
-sqldelight = "2.3.2"
+sqldelight = "2.4.0"
 
 # --- Persistence (kmptoolkit-downloader, iOS-only integrity checks over SQLite-backed units) ---
-androidxSqlite = "2.7.0"
+androidxSqlite = "2.7.1"
 
 # --- Demo module only (classic Jetpack Compose, not Compose Multiplatform) ---
-composeBom = "2026.02.01"
+composeBom = "2026.09.00"
 
 # --- Test tooling ---
 junit = "4.13.2"
 androidxTestExtJunit = "1.3.0"
 espressoCore = "3.7.0"
-robolectric = "4.16.1"
+robolectric = "4.17"
 
 # Video: Media3 (Android engine of kmptoolkit-video-player), VLCJ (GPL-3, desktop engine in
 # kmptoolkit-video-player-vlcj only), OpenJFX (GPL-2 + Classpath Exception, desktop engine in
-# kmptoolkit-video-player-javafx only, compileOnly — the app supplies the runtime). 21 is the LTS
-# line: it runs on JDK 17+, the widest range any maintained OpenJFX release supports.
+# kmptoolkit-video-player-javafx only, compileOnly — the app supplies the runtime). 27 needs JDK 25+
+# (it is compiled with `--release 25`); the suite requires current toolchains, so the older
+# 21 / JDK 17+ line is no longer the baseline.
 media3 = "1.11.1"
 vlcj = "4.12.1"
-openjfx = "21.0.12"
+openjfx = "27"
 
 [libraries]
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }

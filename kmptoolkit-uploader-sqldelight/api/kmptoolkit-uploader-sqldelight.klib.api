@@ -36,6 +36,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db/KmpTool
         final val Schema // io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db/KmpToolkitUploaderDatabase.Companion.Schema|{}Schema[0]
             final fun <get-Schema>(): app.cash.sqldelight.db/SqlSchema<app.cash.sqldelight.db/QueryResult.Value<kotlin/Unit>> // io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db/KmpToolkitUploaderDatabase.Companion.Schema.<get-Schema>|<get-Schema>(){}[0]
 
+        final fun allTableNames(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db/KmpToolkitUploaderDatabase.Companion.allTableNames|allTableNames(){}[0]
         final fun invoke(app.cash.sqldelight.db/SqlDriver): io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db/KmpToolkitUploaderDatabase // io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db/KmpToolkitUploaderDatabase.Companion.invoke|invoke(app.cash.sqldelight.db.SqlDriver){}[0]
     }
 }

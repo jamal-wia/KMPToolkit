@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import kotlin.concurrent.Volatile
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.ObjCObjectVar
@@ -44,7 +45,11 @@ import platform.Foundation.NSURL
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 internal class AvAudioRecorderEngine : RecorderEngine {
 
+    // Volatile because peakDbfs() reads it from the metering coroutine while release() nulls it on
+    // the caller's thread — the one cross-thread read in this class.
+    @Volatile
     private var recorder: AVAudioRecorder? = null
+    private var channelCount: Int = 1
     private var sessionActive: Boolean = false
 
     @Suppress("DEPRECATION")
@@ -77,6 +82,13 @@ internal class AvAudioRecorderEngine : RecorderEngine {
             recorder
         }
 
+        // Always on, never toggled on a live recorder: enabling metering is a flag on a pipeline
+        // that is running anyway and costs nothing measurable, whereas flipping it while recording
+        // is exactly the kind of mid-flight state change this class avoids. Whether anything reads
+        // the meters is decided by DefaultAudioRecorder, which only calls peakDbfs() on demand.
+        created.meteringEnabled = true
+        channelCount = config.channelCount
+
         if (!created.prepareToRecord()) {
             created.deleteRecording()
             deactivateAudioSession()
@@ -95,6 +107,19 @@ internal class AvAudioRecorderEngine : RecorderEngine {
 
     override fun resume() {
         check(requireRecorder().record()) { "AVAudioRecorder.record() failed on resume" }
+    }
+
+    override fun peakDbfs(): Float? {
+        val current: AVAudioRecorder = recorder ?: return null
+        if (!current.recording) return null
+        current.updateMeters()
+        // peakPower, not averagePower: MediaRecorder reports a peak, and the two platforms must
+        // draw the same bar for the same voice. The loudest channel wins, as on Android.
+        var peak: Float = Float.NEGATIVE_INFINITY
+        for (channel in 0 until channelCount) {
+            peak = maxOf(peak, current.peakPowerForChannel(channel.toULong()))
+        }
+        return peak
     }
 
     override fun stop() {

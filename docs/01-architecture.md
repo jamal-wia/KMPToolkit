@@ -287,8 +287,11 @@ one does not rediscover them:
   block. It must be `debugImplementation` — an `androidUnitTest` dependency merges into the
   manifest too late, and the failure is an opaque *"Unable to resolve activity for Intent …
   ComponentActivity"*. The debug variant is never published, so nothing reaches consumers.
-- Those tests also need `@Config(sdk = [34])`. The default is `compileSdk` 37, which no released
-  Robolectric emulates, and the failure names no SDK level.
+- Those tests also need `@Config(sdk = [34])` (or the module-wide pin below). Robolectric 4.17
+  ships SDK 36 and 37 images, but Compose UI tests fail on them with `NoSuchMethodException:
+  android.hardware.input.InputManager.getInstance()`, and every SDK 36+ run additionally needs
+  `--add-exports=java.base/jdk.internal.access=ALL-UNNAMED` on the test JVM. The default is
+  `compileSdk` 37, so an unpinned test lands on exactly that.
 - `compose.uiTest` requires `@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)`
   at the top of the build file.
 - `androidx.compose.ui.test.runComposeUiTest` is deprecated in 1.11; import

@@ -18,8 +18,9 @@ Not legal advice — if licensing matters to your distribution, read the licence
 
 ## Runtime requirements
 
-- **JDK 21 or newer.** The suite's `jvm` artifacts are compiled for Java 21.
-- **OpenJFX 21 or newer**, added by the app per OS — see
+- **JDK 25 or newer.** OpenJFX 27 is compiled with `--release 25`; the suite's own `jvm` artifacts
+  are compiled for an older Java level, but the OpenJFX runtime they need is not.
+- **OpenJFX 27 or newer**, added by the app per OS — see
   [`02-getting-started.md`](02-getting-started.md#2-add-the-openjfx-runtime). Classifiers published
   on Maven Central: `mac`, `mac-aarch64`, `linux`, `linux-aarch64`, `win`.
 - **A display.** The JavaFX toolkit needs a graphics environment even though the engine never opens
@@ -31,7 +32,7 @@ Not legal advice — if licensing matters to your distribution, read the licence
 
 ## Formats
 
-From the [OpenJFX 21 media documentation](https://openjfx.io/javadoc/21/javafx.media/javafx/scene/media/package-summary.html):
+From the [OpenJFX 27 media documentation](https://openjfx.io/javadoc/27/javafx.media/javafx/scene/media/package-summary.html):
 
 | Container | Video | Audio |
 |---|---|---|
@@ -70,7 +71,8 @@ own schedule, so an array handed back to the engine could be overwritten mid-dra
 is one short-lived allocation per displayed frame (`width × height × 4` bytes — about 3.7 MB at 720p,
 8.3 MB at 1080p), which the JVM's garbage collector reclaims cheaply.
 
-Measured on an Apple M1 Pro (10 cores), JDK 21, OpenJFX 21.0.12, H.264 30 fps test clips, process
+Measured on an Apple M1 Pro (10 cores), JDK 21, OpenJFX 21.0.12 (before the move to OpenJFX 27; not
+re-measured since), H.264 30 fps test clips, process
 CPU over 8 s of playback; "1 fps" copies one frame per second and approximates decode-only cost:
 
 | Resolution | Copying 1 fps | Copying 30 fps | Cost of the copy |

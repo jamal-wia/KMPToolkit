@@ -15,6 +15,10 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -23,6 +27,7 @@ import kotlinx.coroutines.test.runTest
  * on `AudioRecorder`, the same source the production recorder's own suite works from, so the two
  * cannot quietly drift apart.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class FakeAudioRecorderTest {
 
     @Test
@@ -416,5 +421,310 @@ class FakeAudioRecorderTest {
         assertFailsWith<IllegalArgumentException> {
             FakeAudioRecorder().advanceElapsed((-1).seconds)
         }
+    }
+
+    @Test
+    fun `level starts at zero and stays there until a level is emitted`() = runTest {
+        val recorder = FakeAudioRecorder()
+        assertEquals(0f, recorder.level.value)
+
+        recorder.prepare()
+        recorder.start()
+
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `an emitted level is published while recording`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(0.75f)
+        assertEquals(0.75f, recorder.level.value)
+
+        recorder.emitLevel(0.1f)
+        assertEquals(0.1f, recorder.level.value)
+    }
+
+    @Test
+    fun `the bounds of the level range are accepted`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(1f)
+        assertEquals(1f, recorder.level.value)
+
+        recorder.emitLevel(0f)
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `a level outside zero to one is rejected`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(-0.01f) }
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(1.01f) }
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(Float.NaN) }
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(Float.POSITIVE_INFINITY) }
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `a level is rejected even when it would have been ignored`() {
+        // The range is the caller's mistake in every state, so a test cannot hide it by emitting
+        // while the fake happens not to be recording.
+        assertFailsWith<IllegalArgumentException> { FakeAudioRecorder().emitLevel(2f) }
+    }
+
+    @Test
+    fun `a level emitted when not recording is ignored`() = runTest {
+        val recorder = FakeAudioRecorder()
+
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "idle")
+
+        recorder.prepare()
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "ready")
+
+        recorder.start()
+        recorder.pause()
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "paused")
+
+        recorder.resume()
+        recorder.stop()
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "completed")
+
+        recorder.release()
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "released")
+    }
+
+    @Test
+    fun `pause resets the level and resume leaves it at zero until the next emission`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.pause()
+        assertEquals(0f, recorder.level.value)
+
+        recorder.resume()
+        assertEquals(0f, recorder.level.value)
+
+        recorder.emitLevel(0.3f)
+        assertEquals(0.3f, recorder.level.value)
+    }
+
+    @Test
+    fun `stop resets the level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.stop()
+
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `cancel resets the level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.cancel()
+
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `release resets the level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.release()
+
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `a scripted stop failure resets the level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.STOP)
+
+        recorder.stop()
+
+        assertTrue(recorder.state.value is RecorderState.Failed)
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `a scripted pause failure keeps the level because the recording keeps running`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.PAUSE)
+
+        recorder.pause()
+
+        assertTrue(recorder.state.value is RecorderState.Recording)
+        assertEquals(0.6f, recorder.level.value)
+    }
+
+    @Test
+    fun `a new recording starts with a zero level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.9f)
+        recorder.stop()
+
+        recorder.prepare()
+        recorder.start()
+
+        assertEquals(0f, recorder.level.value)
+    }
+
+    /** Collects [FakeAudioRecorder.levelSamples] eagerly, so every emission is seen at once. */
+    private fun TestScope.collectSamples(recorder: FakeAudioRecorder): List<Float> {
+        val seen: MutableList<Float> = mutableListOf()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            recorder.levelSamples.collect { seen += it }
+        }
+        return seen
+    }
+
+    @Test
+    fun `every emitted level arrives as a sample in order`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(0.2f)
+        recorder.emitLevel(0.9f)
+        recorder.emitLevel(0.4f)
+
+        assertEquals(listOf(0.2f, 0.9f, 0.4f), samples)
+    }
+
+    @Test
+    fun `repeated equal levels each arrive as a sample`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(0f)
+        recorder.emitLevel(0f)
+        recorder.emitLevel(0f)
+        recorder.emitLevel(1f)
+        recorder.emitLevel(1f)
+
+        assertEquals(listOf(0f, 0f, 0f, 1f, 1f), samples, "a StateFlow would have shown two values")
+    }
+
+    @Test
+    fun `samples and level carry the same values`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(0.7f)
+
+        assertEquals(0.7f, recorder.level.value)
+        assertEquals(listOf(0.7f), samples)
+    }
+
+    @Test
+    fun `a level emitted when not recording produces no sample`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+
+        recorder.emitLevel(0.5f)
+        recorder.prepare()
+        recorder.emitLevel(0.5f)
+        recorder.start()
+        recorder.pause()
+        recorder.emitLevel(0.5f)
+        recorder.resume()
+        recorder.stop()
+        recorder.emitLevel(0.5f)
+        recorder.release()
+        recorder.emitLevel(0.5f)
+
+        assertTrue(samples.isEmpty(), "nothing was emitted while Recording")
+    }
+
+    @Test
+    fun `an out of range level produces no sample`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(1.5f) }
+
+        assertTrue(samples.isEmpty())
+    }
+
+    @Test
+    fun `transitions reset level without emitting a sample`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.pause()
+
+        assertEquals(0f, recorder.level.value)
+        assertEquals(listOf(0.6f), samples, "the reset to zero is not a measurement")
+    }
+
+    @Test
+    fun `the sample stream is hot so a sample with no collector is gone`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.8f)
+
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.emitLevel(0.3f)
+
+        assertEquals(listOf(0.3f), samples, "no replay of what was emitted before subscribing")
+    }
+
+    @Test
+    fun `samples keep arriving across a pause and resume`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.1f)
+        recorder.pause()
+        recorder.emitLevel(0.9f)
+        recorder.resume()
+
+        recorder.emitLevel(0.2f)
+
+        assertEquals(listOf(0.1f, 0.2f), samples)
     }
 }
