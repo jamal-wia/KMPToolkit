@@ -15,6 +15,10 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -23,6 +27,7 @@ import kotlinx.coroutines.test.runTest
  * on `AudioRecorder`, the same source the production recorder's own suite works from, so the two
  * cannot quietly drift apart.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class FakeAudioRecorderTest {
 
     @Test
@@ -594,5 +599,132 @@ class FakeAudioRecorderTest {
         recorder.start()
 
         assertEquals(0f, recorder.level.value)
+    }
+
+    /** Collects [FakeAudioRecorder.levelSamples] eagerly, so every emission is seen at once. */
+    private fun TestScope.collectSamples(recorder: FakeAudioRecorder): List<Float> {
+        val seen: MutableList<Float> = mutableListOf()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            recorder.levelSamples.collect { seen += it }
+        }
+        return seen
+    }
+
+    @Test
+    fun `every emitted level arrives as a sample in order`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(0.2f)
+        recorder.emitLevel(0.9f)
+        recorder.emitLevel(0.4f)
+
+        assertEquals(listOf(0.2f, 0.9f, 0.4f), samples)
+    }
+
+    @Test
+    fun `repeated equal levels each arrive as a sample`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(0f)
+        recorder.emitLevel(0f)
+        recorder.emitLevel(0f)
+        recorder.emitLevel(1f)
+        recorder.emitLevel(1f)
+
+        assertEquals(listOf(0f, 0f, 0f, 1f, 1f), samples, "a StateFlow would have shown two values")
+    }
+
+    @Test
+    fun `samples and level carry the same values`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(0.7f)
+
+        assertEquals(0.7f, recorder.level.value)
+        assertEquals(listOf(0.7f), samples)
+    }
+
+    @Test
+    fun `a level emitted when not recording produces no sample`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+
+        recorder.emitLevel(0.5f)
+        recorder.prepare()
+        recorder.emitLevel(0.5f)
+        recorder.start()
+        recorder.pause()
+        recorder.emitLevel(0.5f)
+        recorder.resume()
+        recorder.stop()
+        recorder.emitLevel(0.5f)
+        recorder.release()
+        recorder.emitLevel(0.5f)
+
+        assertTrue(samples.isEmpty(), "nothing was emitted while Recording")
+    }
+
+    @Test
+    fun `an out of range level produces no sample`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(1.5f) }
+
+        assertTrue(samples.isEmpty())
+    }
+
+    @Test
+    fun `transitions reset level without emitting a sample`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.pause()
+
+        assertEquals(0f, recorder.level.value)
+        assertEquals(listOf(0.6f), samples, "the reset to zero is not a measurement")
+    }
+
+    @Test
+    fun `the sample stream is hot so a sample with no collector is gone`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.8f)
+
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.emitLevel(0.3f)
+
+        assertEquals(listOf(0.3f), samples, "no replay of what was emitted before subscribing")
+    }
+
+    @Test
+    fun `samples keep arriving across a pause and resume`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val samples: List<Float> = collectSamples(recorder)
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.1f)
+        recorder.pause()
+        recorder.emitLevel(0.9f)
+        recorder.resume()
+
+        recorder.emitLevel(0.2f)
+
+        assertEquals(listOf(0.1f, 0.2f), samples)
     }
 }

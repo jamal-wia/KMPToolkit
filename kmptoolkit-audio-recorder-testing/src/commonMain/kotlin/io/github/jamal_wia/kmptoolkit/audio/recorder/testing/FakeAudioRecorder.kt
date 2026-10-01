@@ -28,8 +28,8 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * - **Time does not pass by itself.** [elapsed] only moves when a test calls [advanceElapsed], so a
  *   duration assertion is exact and no virtual clock has to be advanced.
- * - **The input level is scripted.** [level] only moves when a test calls [emitLevel], and returns
- *   to `0f` whenever the real recorder would stop reporting one.
+ * - **The input level is scripted.** [level] and [levelSamples] only move when a test calls
+ *   [emitLevel], and [level] returns to `0f` whenever the real recorder would stop reporting one.
  * - **Failures are scripted.** Set [permissionGranted] to `false`, or [failNextOperationWith] to
  *   any [RecorderError], and the next operation fails with it — including error cases (a full disk,
  *   a dead encoder) that are impossible to provoke on a real device.
@@ -42,8 +42,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * there is no filesystem here to wait on.
  *
  * It does not model subscription-driven metering: the real recorder samples the microphone only
- * while [level] has a collector, but a fake has no engine whose work could be spared, so
- * [emitLevel] takes effect whether or not anyone is collecting.
+ * while [level] or [levelSamples] has a collector, but a fake has no engine whose work could be
+ * spared, so [emitLevel] takes effect whether or not anyone is collecting. [levelSamples] is hot,
+ * as on the real recorder: a sample emitted while nobody collects is gone, and a collector sees
+ * only what is emitted after it subscribed.
  *
  * Not thread-safe, exactly like the recorder it stands in for. Drive it from the test's own thread.
  *
@@ -245,13 +247,16 @@ public class FakeAudioRecorder(
     }
 
     /**
-     * Sets [level] to [value], as if the microphone had just peaked there.
+     * Sets [level] to [value] and emits it on [levelSamples], as if the microphone had just peaked
+     * there. A repeat of the previous value is emitted too, which [level] alone cannot show: it is
+     * a `StateFlow` and conflates equal values, while [levelSamples] delivers every call.
      *
      * Ignored unless the fake is in [RecorderState.Recording] — a paused or stopped real recorder
      * reports no level, so neither does this one, and a test can emit unconditionally between steps
      * without producing a state the real recorder never reaches. [level] is back at `0f` after every
      * transition out of [RecorderState.Recording] (pause, stop, cancel, release, a scripted
-     * failure), and [start] and [resume] leave it at `0f` until the next call here.
+     * failure), and [start] and [resume] leave it at `0f` until the next call here. Those resets
+     * are not samples: nothing is emitted on [levelSamples] by a transition.
      *
      * @param value the normalised level, in `0f..1f` as [AudioRecorder.level] defines it.
      */
@@ -259,6 +264,7 @@ public class FakeAudioRecorder(
         require(value in 0f..1f) { "level must be within 0f..1f, was $value" }
         if (_state.value !is RecorderState.Recording) return
         _level.value = value
+        _levelSamples.tryEmit(value)
     }
 
     private fun generatePath(): String {
