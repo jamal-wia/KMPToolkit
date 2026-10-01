@@ -9,8 +9,12 @@ import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage
 import kotlin.time.Duration
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
@@ -72,6 +76,12 @@ public class FakeAudioRecorder(
 
     private val _level: MutableStateFlow<Float> = MutableStateFlow(0f)
     override val level: StateFlow<Float> = _level.asStateFlow()
+
+    private val _levelSamples: MutableSharedFlow<Float> = MutableSharedFlow(
+        extraBufferCapacity = LEVEL_SAMPLE_BUFFER,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    override val levelSamples: Flow<Float> = _levelSamples.asSharedFlow()
 
     /** When `false`, [prepare] fails with [RecorderError.PermissionDenied]. Defaults to `true`. */
     public var permissionGranted: Boolean = true
@@ -280,6 +290,8 @@ public class FakeAudioRecorder(
 
         /** Directory generated paths use unless the constructor is given another. */
         public const val DEFAULT_FAKE_DIRECTORY: String = "/fake/recordings"
+
+        private const val LEVEL_SAMPLE_BUFFER: Int = 64
 
         private val SUCCESS: RecorderResult<Unit> = RecorderResult.Success(Unit)
     }

@@ -11,12 +11,16 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
@@ -32,7 +36,8 @@ import kotlinx.coroutines.withContext
  * Not thread-safe by design — see the threading note on [AudioRecorder]. Every mutable field below
  * is read and written only from the caller's thread; the ticker coroutine is handed its start mark
  * by value and writes nothing but [_elapsed], and the meter coroutine reads only [config] and the
- * engine and writes nothing but [_level], so neither shares mutable state with the caller.
+ * engine and writes nothing but [_level] and [_levelSamples], so neither shares mutable state with
+ * the caller.
  *
  * @param workerContext the single place this module decides what thread anything runs on: the
  *   [elapsed] ticker's and [level] meter's scope, and the `withContext` that keeps
@@ -63,6 +68,15 @@ internal class DefaultAudioRecorder(
 
     private val _level: MutableStateFlow<Float> = MutableStateFlow(0f)
     override val level: StateFlow<Float> = _level.asStateFlow()
+
+    // Not a StateFlow: a waveform needs every sample, repeats included, and a StateFlow would drop
+    // each one that equals its predecessor. DROP_OLDEST keeps the meter from ever suspending on a
+    // slow collector, which would stall metering for everyone.
+    private val _levelSamples: MutableSharedFlow<Float> = MutableSharedFlow(
+        extraBufferCapacity = LEVEL_SAMPLE_BUFFER,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    override val levelSamples: Flow<Float> = _levelSamples.asSharedFlow()
 
     private var segmentStart: TimeMark? = null
     private var completedSegments: Duration = Duration.ZERO
@@ -404,10 +418,11 @@ internal class DefaultAudioRecorder(
     }
 
     /**
-     * Meters the input for as long as someone is watching [level]. Collecting `subscriptionCount`
-     * is what makes metering demand-driven: a recorder whose [level] nobody collects never calls
-     * the engine, and the first collector to arrive — or the last to leave — starts or stops the
-     * sampling without any transition on the recorder itself.
+     * Meters the input for as long as someone is watching [level] or [levelSamples]. Collecting
+     * the two `subscriptionCount`s is what makes metering demand-driven: a recorder whose level
+     * nobody collects never calls the engine, and the first collector to arrive — or the last to
+     * leave — starts or stops the sampling without any transition on the recorder itself. The two
+     * flows share this one meter, so watching both does not sample the microphone twice.
      *
      * Nothing here reads a field the caller's thread writes: the interval and floor come from the
      * immutable [config], and the engine's `peakDbfs()` is documented as safe to call concurrently
@@ -416,8 +431,12 @@ internal class DefaultAudioRecorder(
     private fun startMeter() {
         stopMeter()
         meterJob = scope.launch {
-            _level.subscriptionCount
-                .map { subscribers: Int -> subscribers > 0 }
+            combine(
+                _level.subscriptionCount,
+                _levelSamples.subscriptionCount,
+            ) { levelCollectors: Int, sampleCollectors: Int ->
+                levelCollectors + sampleCollectors > 0
+            }
                 .distinctUntilChanged()
                 .collectLatest { subscribed: Boolean ->
                     if (!subscribed) {
@@ -451,10 +470,15 @@ internal class DefaultAudioRecorder(
      * `ensureActive()` drops the common case; the second check handles the remaining window — a
      * cancellation that happened between the first check and the write is already visible by then,
      * because [stopMeter] cancels before it writes `0f`, so this repairs its own stale write.
+     *
+     * A sample already handed to [_levelSamples] cannot be taken back, so that same window can at
+     * worst leave one extra sample, taken just before the pause or stop, in the stream. It is a
+     * real measurement of audio that was being recorded a moment earlier, so it is not repaired.
      */
     private fun CoroutineScope.publishLevel(value: Float) {
         ensureActive()
         _level.value = value
+        _levelSamples.tryEmit(value)
         if (!isActive) _level.value = 0f
     }
 
@@ -488,6 +512,9 @@ internal class DefaultAudioRecorder(
 
     private companion object {
         const val PATH_SEPARATOR = "/"
+
+        /** About three seconds of samples at the default interval; see [_levelSamples]. */
+        const val LEVEL_SAMPLE_BUFFER = 64
         val SUCCESS: RecorderResult<Unit> = RecorderResult.Success(Unit)
     }
 }

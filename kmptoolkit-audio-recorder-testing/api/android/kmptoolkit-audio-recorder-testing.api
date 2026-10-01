@@ -12,6 +12,7 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/testing/FakeAud
 	public fun getElapsed ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getFailNextOperationWith ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;
 	public fun getLevel ()Lkotlinx/coroutines/flow/StateFlow;
+	public fun getLevelSamples ()Lkotlinx/coroutines/flow/Flow;
 	public final fun getPermissionGranted ()Z
 	public final fun getPreparedPaths ()Ljava/util/List;
 	public final fun getReleaseCount ()I

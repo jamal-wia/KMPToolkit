@@ -17,6 +17,8 @@ final class io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecor
         final fun <get-elapsed>(): kotlinx.coroutines.flow/StateFlow<kotlin.time/Duration> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.elapsed.<get-elapsed>|<get-elapsed>(){}[0]
     final val level // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.level|{}level[0]
         final fun <get-level>(): kotlinx.coroutines.flow/StateFlow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.level.<get-level>|<get-level>(){}[0]
+    final val levelSamples // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.levelSamples|{}levelSamples[0]
+        final fun <get-levelSamples>(): kotlinx.coroutines.flow/Flow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.levelSamples.<get-levelSamples>|<get-levelSamples>(){}[0]
     final val preparedPaths // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.preparedPaths|{}preparedPaths[0]
         final fun <get-preparedPaths>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.preparedPaths.<get-preparedPaths>|<get-preparedPaths>(){}[0]
     final val state // io.github.jamal_wia.kmptoolkit.audio.recorder.testing/FakeAudioRecorder.state|{}state[0]

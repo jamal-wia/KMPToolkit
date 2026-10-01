@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import kotlin.time.Duration
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -60,8 +61,8 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * The recorder is **not** thread-safe. Call [prepare], [start], [pause], [resume], [stop],
  * [cancel], and [release] from one thread (or one single-threaded dispatcher) — the same one every
- * time. [state], [elapsed] and [level] are `StateFlow`s and can be read and collected from
- * anywhere.
+ * time. [state], [elapsed] and [level] are `StateFlow`s, and [levelSamples] is a `Flow`; all of them
+ * can be collected from anywhere.
  *
  * ## Permission
  *
@@ -102,14 +103,34 @@ public interface AudioRecorder {
      * [AudioRecorderConfig.levelUpdateInterval]. It is not smoothed: animating bars between values
      * is the UI's choice.
      *
-     * Measured only while [state] is [RecorderState.Recording] **and** at least one collector is
-     * subscribed — a recorder nobody meters does no metering work. `0f` in every other state, and as
-     * soon as the last collector leaves; reading [StateFlow.value] without collecting does not start
-     * metering. After [release] it is `0f` for good.
+     * Measured only while [state] is [RecorderState.Recording] **and** at least one collector of
+     * this or [levelSamples] is subscribed — a recorder nobody meters does no metering work. `0f` in
+     * every other state, and as soon as the last collector leaves; reading [StateFlow.value] without
+     * collecting does not start metering. After [release] it is `0f` for good.
+     *
+     * Being a `StateFlow` it conflates equal consecutive values, so in silence it sits at `0f` and
+     * emits nothing. That suits a pulsing indicator and is wrong for a waveform; use [levelSamples]
+     * for that.
      *
      * @since 1.9.0
      */
     public val level: StateFlow<Float>
+
+    /**
+     * Every sample the level meter takes, on the same `0f..1f` scale as [level], one per
+     * [AudioRecorderConfig.levelUpdateInterval] — repeats included, so silence keeps arriving as
+     * `0f` and a waveform keeps moving while the user is quiet. Collect this to draw a waveform;
+     * collect [level] to draw a meter that shows the current loudness.
+     *
+     * Hot and not replayed: a collector receives the samples taken after it subscribed. Emits only
+     * while [state] is [RecorderState.Recording] — nothing while paused, so a waveform pauses with
+     * the recording — and never after [release]. It does not complete. Collecting it starts metering
+     * exactly as collecting [level] does; the two share one meter. A collector that falls more than
+     * 64 samples behind loses the oldest.
+     *
+     * @since 1.9.0
+     */
+    public val levelSamples: Flow<Float>
 
     /**
      * Acquires the microphone and opens [outputPath] for writing, moving [state] through

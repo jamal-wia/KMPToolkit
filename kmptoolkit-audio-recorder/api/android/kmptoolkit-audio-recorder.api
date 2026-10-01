@@ -12,6 +12,7 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/audio/recorder/Au
 	public abstract fun cancel (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun getElapsed ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun getLevel ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getLevelSamples ()Lkotlinx/coroutines/flow/Flow;
 	public abstract fun getState ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun pause ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
 	public abstract fun prepare (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

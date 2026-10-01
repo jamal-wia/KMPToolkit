@@ -40,6 +40,8 @@ abstract interface io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder {
         abstract fun <get-elapsed>(): kotlinx.coroutines.flow/StateFlow<kotlin.time/Duration> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.elapsed.<get-elapsed>|<get-elapsed>(){}[0]
     abstract val level // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.level|{}level[0]
         abstract fun <get-level>(): kotlinx.coroutines.flow/StateFlow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.level.<get-level>|<get-level>(){}[0]
+    abstract val levelSamples // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.levelSamples|{}levelSamples[0]
+        abstract fun <get-levelSamples>(): kotlinx.coroutines.flow/Flow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.levelSamples.<get-levelSamples>|<get-levelSamples>(){}[0]
     abstract val state // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.state|{}state[0]
         abstract fun <get-state>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.state.<get-state>|<get-state>(){}[0]
 
