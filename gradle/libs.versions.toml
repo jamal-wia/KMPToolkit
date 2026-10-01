@@ -16,7 +16,7 @@ serialization = "1.11.0"
 atomicfu = "0.33.0"
 
 # --- AndroidX (consumed by kmptoolkit-platform, -permission, -notification, -biometric, -uploader, sample) ---
-coreKtx = "1.19.0"
+coreKtx = "1.19.1"
 androidxMedia = "1.7.0"
 lifecycleRuntimeKtx = "2.11.0"
 activityCompose = "1.13.0"
