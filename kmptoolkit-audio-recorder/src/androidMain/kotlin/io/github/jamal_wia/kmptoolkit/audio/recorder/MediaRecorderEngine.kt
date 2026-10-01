@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.os.Build
+import kotlin.math.log10
 
 /**
  * [RecorderEngine] over `android.media.MediaRecorder`.
@@ -63,6 +64,20 @@ internal class MediaRecorderEngine(
         requireRecorder().resume()
     }
 
+    override fun peakDbfs(): Float? {
+        // Snapshotted once: release() on the caller's thread nulls the field, and the reference used
+        // below must not change between the check and the call.
+        val current: MediaRecorder = recorder ?: return null
+        return try {
+            amplitudeToDbfs(current.maxAmplitude)
+        } catch (@Suppress("TooGenericExceptionCaught", "SwallowedException") failure: RuntimeException) {
+            // getMaxAmplitude() throws IllegalStateException outside the recording state, which
+            // includes the moment between a pause()/stop()/release() and the metering coroutine
+            // noticing it. That is an ordinary answer ("nothing to measure"), not a failure.
+            null
+        }
+    }
+
     override fun stop() {
         requireRecorder().stop()
     }
@@ -104,3 +119,16 @@ internal class MediaRecorderEngine(
             MediaRecorder()
         }
 }
+
+/**
+ * Converts a `MediaRecorder.getMaxAmplitude()` reading (`0..32767`, the peak 16-bit sample since
+ * the previous call, already the maximum across channels) to dBFS: `0` is digital silence and
+ * `32767` is full scale. Capped at `0f` because an out-of-range reading must not report a level
+ * above full scale.
+ */
+internal fun amplitudeToDbfs(amplitude: Int): Float {
+    if (amplitude <= 0) return Float.NEGATIVE_INFINITY
+    return minOf(0f, 20f * log10(amplitude / FULL_SCALE_AMPLITUDE))
+}
+
+private const val FULL_SCALE_AMPLITUDE: Float = 32_767f
