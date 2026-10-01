@@ -45,6 +45,28 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 recompiled, because adding parameters to the data class `AudioRecorderConfig` changes the JVM
 signatures of its constructor and `copy`; source code needs no change.
 
+### Changed
+
+- **`kmptoolkit-video-player-javafx` now requires OpenJFX 27 and JDK 25+ in the consuming app.**
+  OpenJFX 27 is compiled with `--release 25`, so it cannot load on an older JDK. The artifact still
+  declares OpenJFX `compileOnly`, so nothing changes in its POM; update the `javafx-*` jars you add
+  yourself, and the JDK your app runs on. See
+  `docs/kmptoolkit-video-player-javafx/02-getting-started.md`.
+- Dependency updates that reach a consumer's resolved graph (old to new): Kotlin 2.4.10 to 2.4.20,
+  Compose Multiplatform 1.11.1 to 1.12.1 (the Compose modules), AndroidX Core KTX 1.19.0 to 1.19.1
+  (`kmptoolkit-hardware-keys`, `-notification`, `-permission`, `-systembars`), `androidx.media`
+  1.7.0 to 1.8.0 (`kmptoolkit-notification`), WorkManager 2.11.2 to 2.12.0 (`kmptoolkit-uploader`),
+  AndroidX SQLite 2.7.0 to 2.7.1 (`kmptoolkit-downloader`, iOS), SQLDelight 2.3.2 to 2.4.0
+  (`kmptoolkit-uploader-sqldelight`). `androidx.biometric` stays at 1.2.0-alpha05.
+- Compiling with Kotlin 2.4.20 adds a JVM no-argument constructor to the config classes whose
+  parameters all have defaults and include a `Duration`: `AudioRecorderConfig`,
+  `BiometricGateOptions`, `NotificationConfig`, `UploadTransportConfig`, `UploaderConfig` and
+  `WorkManagerWakeConfig`. It is additive: Java callers can now write `new AudioRecorderConfig()`,
+  and no existing signature changed.
+- `kmptoolkit-uploader-sqldelight`: the generated `KmpToolkitUploaderDatabase.Companion` gains
+  `allTableNames()`, added by SQLDelight 2.4.0 to every generated database. The class was already
+  public API of this module; nothing existing changed.
+
 ## [1.8.0] - 2026-09-23
 
 ### Added
