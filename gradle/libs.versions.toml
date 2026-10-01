@@ -27,7 +27,7 @@ workRuntime = "2.12.0"
 sqldelight = "2.3.2"
 
 # --- Persistence (kmptoolkit-downloader, iOS-only integrity checks over SQLite-backed units) ---
-androidxSqlite = "2.7.0"
+androidxSqlite = "2.7.1"
 
 # --- Demo module only (classic Jetpack Compose, not Compose Multiplatform) ---
 composeBom = "2026.02.01"
