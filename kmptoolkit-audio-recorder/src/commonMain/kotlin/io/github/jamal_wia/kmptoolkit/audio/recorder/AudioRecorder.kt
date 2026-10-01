@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.StateFlow
  * ## Ownership and release
  *
  * The recorder owns a native handle (`android.media.MediaRecorder` / `AVAudioRecorder`), the
- * microphone, and a coroutine that publishes [elapsed]. **The caller owns the recorder** and must
+ * microphone, and the coroutines that publish [elapsed] and [level]. **The caller owns the recorder** and must
  * call [release] exactly once when done — from `onDestroy`, a Decompose `doOnDestroy`, a `deinit`,
  * or whatever scope holds the instance. Nothing releases it for you and no finalizer runs.
  *
@@ -59,7 +59,7 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * The recorder is **not** thread-safe. Call [prepare], [start], [pause], [resume], [stop],
  * [cancel], and [release] from one thread (or one single-threaded dispatcher) — the same one every
- * time. [state] and [elapsed] are `StateFlow`s and can be read and collected from anywhere.
+ * time. [state], [elapsed] and [level] are `StateFlow`s and can be read and collected from anywhere.
  *
  * ## Permission
  *
@@ -90,6 +90,24 @@ public interface AudioRecorder {
      * file's real duration if you need an exact value.
      */
     public val elapsed: StateFlow<Duration>
+
+    /**
+     * Peak loudness of the microphone input while recording, normalised to `0f..1f`: `0f` at or
+     * below [AudioRecorderConfig.levelFloorDbfs], `1f` at full scale (0 dBFS), linear in decibels
+     * between — a level meter, not an amplitude, so quiet speech is visible.
+     *
+     * Each value is the loudest sample since the previous one, published every
+     * [AudioRecorderConfig.levelUpdateInterval]. It is not smoothed: animating bars between values
+     * is the UI's choice.
+     *
+     * Measured only while [state] is [RecorderState.Recording] **and** at least one collector is
+     * subscribed — a recorder nobody meters does no metering work. `0f` in every other state, and as
+     * soon as the last collector leaves; reading [StateFlow.value] without collecting does not start
+     * metering. After [release] it is `0f` for good.
+     *
+     * @since 1.9.0
+     */
+    public val level: StateFlow<Float>
 
     /**
      * Acquires the microphone and opens [outputPath] for writing, moving [state] through

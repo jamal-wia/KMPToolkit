@@ -64,6 +64,9 @@ public class FakeAudioRecorder(
     private val _elapsed: MutableStateFlow<Duration> = MutableStateFlow(Duration.ZERO)
     override val elapsed: StateFlow<Duration> = _elapsed.asStateFlow()
 
+    private val _level: MutableStateFlow<Float> = MutableStateFlow(0f)
+    override val level: StateFlow<Float> = _level.asStateFlow()
+
     /** When `false`, [prepare] fails with [RecorderError.PermissionDenied]. Defaults to `true`. */
     public var permissionGranted: Boolean = true
 

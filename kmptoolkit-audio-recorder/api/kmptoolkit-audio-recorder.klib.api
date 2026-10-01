@@ -38,6 +38,8 @@ final enum class io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation
 abstract interface io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder { // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder|null[0]
     abstract val elapsed // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.elapsed|{}elapsed[0]
         abstract fun <get-elapsed>(): kotlinx.coroutines.flow/StateFlow<kotlin.time/Duration> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.elapsed.<get-elapsed>|<get-elapsed>(){}[0]
+    abstract val level // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.level|{}level[0]
+        abstract fun <get-level>(): kotlinx.coroutines.flow/StateFlow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.level.<get-level>|<get-level>(){}[0]
     abstract val state // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.state|{}state[0]
         abstract fun <get-state>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState> // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorder.state.<get-state>|<get-state>(){}[0]
 

@@ -176,18 +176,23 @@ class RecorderDispatchTest {
             runCurrent()
             val beforeStart: Int = dispatcher.dispatches
 
-            // Each of start and resume launches the ticker, which is exactly one dispatch. Neither
-            // pause nor either of them does any filesystem work, so nothing else may be dispatched.
+            // Each of start and resume launches two coroutines, the elapsed ticker and the level
+            // meter, which is exactly two dispatches. Neither pause nor either of them does any
+            // filesystem work, so nothing else may be dispatched.
             fixture.recorder.start()
-            assertEquals(beforeStart + 1, dispatcher.dispatches, "start launched the ticker")
-
-            fixture.recorder.pause()
-            assertEquals(beforeStart + 1, dispatcher.dispatches, "pause is a pure state flip")
-
-            fixture.recorder.resume()
-            assertEquals(beforeStart + 2, dispatcher.dispatches, "resume relaunched the ticker")
+            assertEquals(beforeStart + 2, dispatcher.dispatches, "start launched ticker and meter")
 
             fixture.recorder.pause()
             assertEquals(beforeStart + 2, dispatcher.dispatches, "pause is a pure state flip")
+
+            fixture.recorder.resume()
+            assertEquals(
+                beforeStart + 4,
+                dispatcher.dispatches,
+                "resume relaunched ticker and meter",
+            )
+
+            fixture.recorder.pause()
+            assertEquals(beforeStart + 4, dispatcher.dispatches, "pause is a pure state flip")
         }
 }

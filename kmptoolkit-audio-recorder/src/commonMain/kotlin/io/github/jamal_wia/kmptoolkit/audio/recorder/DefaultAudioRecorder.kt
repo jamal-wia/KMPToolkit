@@ -14,23 +14,28 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
  * The whole of this module's behavior: the transition table from [AudioRecorder], the pre-checks
  * that turn a doomed recording into a typed error before the microphone is touched, and the
- * elapsed-time bookkeeping. Everything platform-specific is behind [RecorderEngine] and
+ * elapsed-time bookkeeping and the input-level meter. Everything platform-specific is behind [RecorderEngine] and
  * [RecordingFileSystem], which is what lets all of it be tested on the JVM and in the iOS
  * simulator against fakes.
  *
  * Not thread-safe by design — see the threading note on [AudioRecorder]. Every mutable field below
  * is read and written only from the caller's thread; the ticker coroutine is handed its start mark
- * by value and writes nothing but [_elapsed], so it shares no mutable state with the caller.
+ * by value and writes nothing but [_elapsed], and the meter coroutine reads only [config] and the
+ * engine and writes nothing but [_level], so neither shares mutable state with the caller.
  *
  * @param workerContext the single place this module decides what thread anything runs on: the
- *   [elapsed] ticker's scope, and the `withContext` that keeps `prepare`/`stop`/`cancel`'s
+ *   [elapsed] ticker's and [level] meter's scope, and the `withContext` that keeps `prepare`/`stop`/`cancel`'s
  *   filesystem and encoder work off the caller's thread. The engines deliberately do no dispatching
  *   of their own, so a consumer who passes a context here really does control all of it.
  */
@@ -55,9 +60,13 @@ internal class DefaultAudioRecorder(
     private val _elapsed: MutableStateFlow<Duration> = MutableStateFlow(Duration.ZERO)
     override val elapsed: StateFlow<Duration> = _elapsed.asStateFlow()
 
+    private val _level: MutableStateFlow<Float> = MutableStateFlow(0f)
+    override val level: StateFlow<Float> = _level.asStateFlow()
+
     private var segmentStart: TimeMark? = null
     private var completedSegments: Duration = Duration.ZERO
     private var tickerJob: Job? = null
+    private var meterJob: Job? = null
     private var released: Boolean = false
 
     override suspend fun prepare(outputPath: String?): RecorderResult<String> {
@@ -159,6 +168,7 @@ internal class DefaultAudioRecorder(
         segmentStart = mark
         _elapsed.value = Duration.ZERO
         startTicker(base = Duration.ZERO, mark = mark)
+        startMeter()
         _state.value = RecorderState.Recording(current.outputPath)
         return SUCCESS
     }
@@ -179,6 +189,7 @@ internal class DefaultAudioRecorder(
         }
 
         stopTicker()
+        stopMeter()
         freezeElapsed()
         _state.value = RecorderState.Paused(current.outputPath, _elapsed.value)
         return SUCCESS
@@ -200,6 +211,7 @@ internal class DefaultAudioRecorder(
         val mark: TimeMark = timeSource.markNow()
         segmentStart = mark
         startTicker(base = completedSegments, mark = mark)
+        startMeter()
         _state.value = RecorderState.Recording(current.outputPath)
         return SUCCESS
     }
@@ -214,6 +226,7 @@ internal class DefaultAudioRecorder(
         }
 
         stopTicker()
+        stopMeter()
         freezeElapsed()
         // Runs to completion even if the caller is cancelled on the way in or out. The ticker is
         // already stopped, so abandoning part-way would leave the state saying Recording over an
@@ -254,6 +267,7 @@ internal class DefaultAudioRecorder(
         }
 
         stopTicker()
+        stopMeter()
         // Non-cancellable for the same reason as stop(), and around the whole tail for the same
         // reason: with the ticker gone, a half-finished cancel would leave a live recorder behind a
         // state that still says it is recording.
@@ -275,6 +289,7 @@ internal class DefaultAudioRecorder(
 
         val current: RecorderState = _state.value
         stopTicker()
+        stopMeter()
         // Inline on the calling thread, not on workerContext: release() is not suspending (see its
         // KDoc — a teardown path has no coroutine left to launch in), so there is nowhere to hand
         // this off to that would still have finished by the time the caller's object is gone.
@@ -385,6 +400,61 @@ internal class DefaultAudioRecorder(
     private fun stopTicker() {
         tickerJob?.cancel()
         tickerJob = null
+    }
+
+    /**
+     * Meters the input for as long as someone is watching [level]. Collecting `subscriptionCount`
+     * is what makes metering demand-driven: a recorder whose [level] nobody collects never calls
+     * the engine, and the first collector to arrive — or the last to leave — starts or stops the
+     * sampling without any transition on the recorder itself.
+     *
+     * Nothing here reads a field the caller's thread writes: the interval and floor come from the
+     * immutable [config], and the engine's `peakDbfs()` is documented as safe to call concurrently
+     * with the transitions.
+     */
+    private fun startMeter() {
+        stopMeter()
+        meterJob = scope.launch {
+            _level.subscriptionCount
+                .map { subscribers: Int -> subscribers > 0 }
+                .distinctUntilChanged()
+                .collectLatest { subscribed: Boolean ->
+                    if (!subscribed) {
+                        _level.value = 0f
+                        return@collectLatest
+                    }
+                    // The peak is "since the previous call", so the first call measures an
+                    // arbitrary stretch before anyone was watching. Reading it only to throw it
+                    // away is what makes the first published value cover one interval.
+                    engine.peakDbfs()
+                    while (true) {
+                        delay(config.levelUpdateInterval)
+                        // null: the engine had nothing to say (not recording any more, or the
+                        // platform could not answer). Keep the last value rather than draw a gap.
+                        val dbfs: Float = engine.peakDbfs() ?: continue
+                        publishLevel(normalizedLevel(dbfs, config.levelFloorDbfs))
+                    }
+                }
+        }
+    }
+
+    private fun stopMeter() {
+        meterJob?.cancel()
+        meterJob = null
+        _level.value = 0f
+    }
+
+    /**
+     * Cancelling the meter does not wait for a sample that is already being taken, so a value can
+     * be computed just before [stopMeter] lands and arrive just after it wrote `0f`. The
+     * `ensureActive()` drops the common case; the second check handles the remaining window — a
+     * cancellation that happened between the first check and the write is already visible by then,
+     * because [stopMeter] cancels before it writes `0f`, so this repairs its own stale write.
+     */
+    private fun CoroutineScope.publishLevel(value: Float) {
+        ensureActive()
+        _level.value = value
+        if (!isActive) _level.value = 0f
     }
 
     private fun freezeElapsed() {
