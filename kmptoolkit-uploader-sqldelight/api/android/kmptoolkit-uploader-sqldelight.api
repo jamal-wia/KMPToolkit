@@ -57,6 +57,7 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/sqldelig
 }
 
 public final class io/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/KmpToolkitUploaderDatabase$Companion {
+	public final fun allTableNames ()Ljava/util/List;
 	public final fun getSchema ()Lapp/cash/sqldelight/db/SqlSchema;
 	public final fun invoke (Lapp/cash/sqldelight/db/SqlDriver;)Lio/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/KmpToolkitUploaderDatabase;
 }
