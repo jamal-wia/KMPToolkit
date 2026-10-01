@@ -24,10 +24,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * The whole of this module's behavior: the transition table from [AudioRecorder], the pre-checks
- * that turn a doomed recording into a typed error before the microphone is touched, and the
- * elapsed-time bookkeeping and the input-level meter. Everything platform-specific is behind [RecorderEngine] and
- * [RecordingFileSystem], which is what lets all of it be tested on the JVM and in the iOS
- * simulator against fakes.
+ * that turn a doomed recording into a typed error before the microphone is touched, the
+ * elapsed-time bookkeeping, and the input-level meter. Everything platform-specific is behind
+ * [RecorderEngine] and [RecordingFileSystem], which is what lets all of it be tested on the JVM and
+ * in the iOS simulator against fakes.
  *
  * Not thread-safe by design — see the threading note on [AudioRecorder]. Every mutable field below
  * is read and written only from the caller's thread; the ticker coroutine is handed its start mark
@@ -35,9 +35,10 @@ import kotlinx.coroutines.withContext
  * engine and writes nothing but [_level], so neither shares mutable state with the caller.
  *
  * @param workerContext the single place this module decides what thread anything runs on: the
- *   [elapsed] ticker's and [level] meter's scope, and the `withContext` that keeps `prepare`/`stop`/`cancel`'s
- *   filesystem and encoder work off the caller's thread. The engines deliberately do no dispatching
- *   of their own, so a consumer who passes a context here really does control all of it.
+ *   [elapsed] ticker's and [level] meter's scope, and the `withContext` that keeps
+ *   `prepare`/`stop`/`cancel`'s filesystem and encoder work off the caller's thread. The engines
+ *   deliberately do no dispatching of their own, so a consumer who passes a context here really
+ *   does control all of it.
  */
 internal class DefaultAudioRecorder(
     private val engine: RecorderEngine,

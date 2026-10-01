@@ -32,9 +32,10 @@ import kotlinx.coroutines.flow.StateFlow
  * ## Ownership and release
  *
  * The recorder owns a native handle (`android.media.MediaRecorder` / `AVAudioRecorder`), the
- * microphone, and the coroutines that publish [elapsed] and [level]. **The caller owns the recorder** and must
- * call [release] exactly once when done — from `onDestroy`, a Decompose `doOnDestroy`, a `deinit`,
- * or whatever scope holds the instance. Nothing releases it for you and no finalizer runs.
+ * microphone, and the coroutines that publish [elapsed] and [level]. **The caller owns the
+ * recorder** and must call [release] exactly once when done — from `onDestroy`, a Decompose
+ * `doOnDestroy`, a `deinit`, or whatever scope holds the instance. Nothing releases it for you and
+ * no finalizer runs.
  *
  * After [release] the instance is permanently dead: every operation returns
  * [RecorderError.AlreadyReleased] and [state] stays [RecorderState.Released]. Recording again means
@@ -59,7 +60,8 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * The recorder is **not** thread-safe. Call [prepare], [start], [pause], [resume], [stop],
  * [cancel], and [release] from one thread (or one single-threaded dispatcher) — the same one every
- * time. [state], [elapsed] and [level] are `StateFlow`s and can be read and collected from anywhere.
+ * time. [state], [elapsed] and [level] are `StateFlow`s and can be read and collected from
+ * anywhere.
  *
  * ## Permission
  *
