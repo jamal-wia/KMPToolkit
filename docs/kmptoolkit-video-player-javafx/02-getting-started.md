@@ -34,8 +34,9 @@ implementation("io.github.jamal-wia:kmptoolkit-video-player-javafx")
 ## 2. Add the OpenJFX runtime
 
 This artifact compiles against OpenJFX but does not bring it: the jars are published per operating
-system and CPU, and only your app knows which ones it ships to. Supported: OpenJFX **21 or newer**
-on **JDK 21 or newer** (the suite's `jvm` artifacts are compiled for Java 21).
+system and CPU, and only your app knows which ones it ships to. Supported: OpenJFX **27 or newer**
+on **JDK 25 or newer** (OpenJFX 27 is compiled with `--release 25`, so it cannot load on an older
+JDK).
 
 OpenJFX's POMs choose their native jar through a Maven OS profile that Gradle does not evaluate, so
 the plain coordinate resolves to an empty jar. Choose one of these instead.
@@ -48,7 +49,7 @@ targets anyway, so the build host's classifier is the right one:
 
 ```kotlin
 // desktopApp/build.gradle.kts
-val javafxVersion = "21.0.12"
+val javafxVersion = "27"
 val javafxClassifier: String = run {
     val os = System.getProperty("os.name").lowercase()
     val arm = System.getProperty("os.arch") in setOf("aarch64", "arm64")
@@ -77,7 +78,7 @@ plugins {
 }
 
 javafx {
-    version = "21.0.12"
+    version = "27"
     modules("javafx.media")
 }
 ```
