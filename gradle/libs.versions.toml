@@ -1,6 +1,6 @@
 [versions]
 # --- Toolchain ---
-agp = "9.2.1"
+agp = "9.4.1"
 kotlin = "2.4.10"
 composeMultiplatform = "1.11.1"
 mavenPublish = "0.37.0"
