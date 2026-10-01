@@ -30,7 +30,7 @@ sqldelight = "2.4.0"
 androidxSqlite = "2.7.1"
 
 # --- Demo module only (classic Jetpack Compose, not Compose Multiplatform) ---
-composeBom = "2026.02.01"
+composeBom = "2026.09.00"
 
 # --- Test tooling ---
 junit = "4.13.2"
