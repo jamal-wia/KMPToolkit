@@ -36,7 +36,7 @@ composeBom = "2026.09.00"
 junit = "4.13.2"
 androidxTestExtJunit = "1.3.0"
 espressoCore = "3.7.0"
-robolectric = "4.16.1"
+robolectric = "4.17"
 
 # Video: Media3 (Android engine of kmptoolkit-video-player), VLCJ (GPL-3, desktop engine in
 # kmptoolkit-video-player-vlcj only), OpenJFX (GPL-2 + Classpath Exception, desktop engine in
