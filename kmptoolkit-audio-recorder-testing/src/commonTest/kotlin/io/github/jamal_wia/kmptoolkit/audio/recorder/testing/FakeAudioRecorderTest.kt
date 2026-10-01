@@ -417,4 +417,182 @@ class FakeAudioRecorderTest {
             FakeAudioRecorder().advanceElapsed((-1).seconds)
         }
     }
+
+    @Test
+    fun `level starts at zero and stays there until a level is emitted`() = runTest {
+        val recorder = FakeAudioRecorder()
+        assertEquals(0f, recorder.level.value)
+
+        recorder.prepare()
+        recorder.start()
+
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `an emitted level is published while recording`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(0.75f)
+        assertEquals(0.75f, recorder.level.value)
+
+        recorder.emitLevel(0.1f)
+        assertEquals(0.1f, recorder.level.value)
+    }
+
+    @Test
+    fun `the bounds of the level range are accepted`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+
+        recorder.emitLevel(1f)
+        assertEquals(1f, recorder.level.value)
+
+        recorder.emitLevel(0f)
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `a level outside zero to one is rejected`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(-0.01f) }
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(1.01f) }
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(Float.NaN) }
+        assertFailsWith<IllegalArgumentException> { recorder.emitLevel(Float.POSITIVE_INFINITY) }
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `a level is rejected even when it would have been ignored`() {
+        // The range is the caller's mistake in every state, so a test cannot hide it by emitting
+        // while the fake happens not to be recording.
+        assertFailsWith<IllegalArgumentException> { FakeAudioRecorder().emitLevel(2f) }
+    }
+
+    @Test
+    fun `a level emitted when not recording is ignored`() = runTest {
+        val recorder = FakeAudioRecorder()
+
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "idle")
+
+        recorder.prepare()
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "ready")
+
+        recorder.start()
+        recorder.pause()
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "paused")
+
+        recorder.resume()
+        recorder.stop()
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "completed")
+
+        recorder.release()
+        recorder.emitLevel(0.5f)
+        assertEquals(0f, recorder.level.value, "released")
+    }
+
+    @Test
+    fun `pause resets the level and resume leaves it at zero until the next emission`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.pause()
+        assertEquals(0f, recorder.level.value)
+
+        recorder.resume()
+        assertEquals(0f, recorder.level.value)
+
+        recorder.emitLevel(0.3f)
+        assertEquals(0.3f, recorder.level.value)
+    }
+
+    @Test
+    fun `stop resets the level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.stop()
+
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `cancel resets the level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.cancel()
+
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `release resets the level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+
+        recorder.release()
+
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `a scripted stop failure resets the level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.STOP)
+
+        recorder.stop()
+
+        assertTrue(recorder.state.value is RecorderState.Failed)
+        assertEquals(0f, recorder.level.value)
+    }
+
+    @Test
+    fun `a scripted pause failure keeps the level because the recording keeps running`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.6f)
+        recorder.failNextOperationWith = RecorderError.EngineFailure(RecorderOperation.PAUSE)
+
+        recorder.pause()
+
+        assertTrue(recorder.state.value is RecorderState.Recording)
+        assertEquals(0.6f, recorder.level.value)
+    }
+
+    @Test
+    fun `a new recording starts with a zero level`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.emitLevel(0.9f)
+        recorder.stop()
+
+        recorder.prepare()
+        recorder.start()
+
+        assertEquals(0f, recorder.level.value)
+    }
 }

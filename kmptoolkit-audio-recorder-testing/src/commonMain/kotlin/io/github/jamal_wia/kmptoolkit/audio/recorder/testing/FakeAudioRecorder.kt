@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * - **Time does not pass by itself.** [elapsed] only moves when a test calls [advanceElapsed], so a
  *   duration assertion is exact and no virtual clock has to be advanced.
+ * - **The input level is scripted.** [level] only moves when a test calls [emitLevel], and returns
+ *   to `0f` whenever the real recorder would stop reporting one.
  * - **Failures are scripted.** Set [permissionGranted] to `false`, or [failNextOperationWith] to
  *   any [RecorderError], and the next operation fails with it — including error cases (a full disk,
  *   a dead encoder) that are impossible to provoke on a real device.
@@ -34,6 +36,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * interface but resolve immediately, so the fake never passes through [RecorderState.Preparing].
  * That state exists in the real recorder only while a suspending call is genuinely in flight, and
  * there is no filesystem here to wait on.
+ *
+ * It does not model subscription-driven metering: the real recorder samples the microphone only
+ * while [level] has a collector, but a fake has no engine whose work could be spared, so
+ * [emitLevel] takes effect whether or not anyone is collecting.
  *
  * Not thread-safe, exactly like the recorder it stands in for. Drive it from the test's own thread.
  *
@@ -151,6 +157,7 @@ public class FakeAudioRecorder(
         if (current !is RecorderState.Recording) return illegal(current, RecorderOperation.PAUSE)
         consumeScriptedFailure()?.let { error -> return RecorderResult.Failure(error) }
 
+        _level.value = 0f
         _state.value = RecorderState.Paused(current.outputPath, _elapsed.value)
         return SUCCESS
     }
@@ -173,6 +180,9 @@ public class FakeAudioRecorder(
             is RecorderState.Paused -> current.outputPath
             else -> return illegal(current, RecorderOperation.STOP)
         }
+        // Zeroed before the scripted failure is consulted: a failed stop leaves Failed, and the
+        // real recorder reports no level from there either.
+        _level.value = 0f
         consumeScriptedFailure()?.let { error -> return fail(error) }
 
         val recording = RecordedFile(path = path, duration = _elapsed.value)
@@ -196,6 +206,7 @@ public class FakeAudioRecorder(
 
         _deletedPaths += path
         _elapsed.value = Duration.ZERO
+        _level.value = 0f
         _state.value = RecorderState.Idle
         return SUCCESS
     }
@@ -205,6 +216,7 @@ public class FakeAudioRecorder(
         released = true
         releaseCount++
         _elapsed.value = Duration.ZERO
+        _level.value = 0f
         _state.value = RecorderState.Released
     }
 
@@ -220,6 +232,23 @@ public class FakeAudioRecorder(
         require(duration >= Duration.ZERO) { "cannot rewind elapsed time, was $duration" }
         if (_state.value !is RecorderState.Recording) return
         _elapsed.value += duration
+    }
+
+    /**
+     * Sets [level] to [value], as if the microphone had just peaked there.
+     *
+     * Ignored unless the fake is in [RecorderState.Recording] — a paused or stopped real recorder
+     * reports no level, so neither does this one, and a test can emit unconditionally between steps
+     * without producing a state the real recorder never reaches. [level] is back at `0f` after every
+     * transition out of [RecorderState.Recording] (pause, stop, cancel, release, a scripted
+     * failure), and [start] and [resume] leave it at `0f` until the next call here.
+     *
+     * @param value the normalised level, in `0f..1f` as [AudioRecorder.level] defines it.
+     */
+    public fun emitLevel(value: Float) {
+        require(value in 0f..1f) { "level must be within 0f..1f, was $value" }
+        if (_state.value !is RecorderState.Recording) return
+        _level.value = value
     }
 
     private fun generatePath(): String {
