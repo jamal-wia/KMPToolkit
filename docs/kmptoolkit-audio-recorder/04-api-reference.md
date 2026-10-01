@@ -29,10 +29,11 @@ fixed for the recorder's lifetime — the platform applies encoder settings at p
 changing them means a new recorder.
 
 `coroutineContext` is the single place the module decides what runs where: the `elapsed` ticker's
-and `level` meter's scope, and the `withContext` behind `prepare`/`stop`/`cancel` that keeps their filesystem and
-encoder work off the caller's thread. The platform engines deliberately choose no dispatcher of
-their own, so this parameter really does control all of it. It mirrors `kmptoolkit-audio-player`'s
-factories, so a consumer that pins one module's background work pins the other identically.
+and `level` meter's scope, and the `withContext` behind `prepare`/`stop`/`cancel` that keeps their
+filesystem and encoder work off the caller's thread. The platform engines deliberately choose no
+dispatcher of their own, so this parameter really does control all of it. It mirrors
+`kmptoolkit-audio-player`'s factories, so a consumer that pins one module's background work pins the
+other identically.
 
 The returned instance holds no native resource until the first successful `prepare()`, and holds
 one until `release()`.
@@ -44,6 +45,7 @@ public interface AudioRecorder {
     public val state: StateFlow<RecorderState>
     public val elapsed: StateFlow<Duration>
     public val level: StateFlow<Float> // since 1.9.0
+    public val levelSamples: Flow<Float> // since 1.9.0
 
     public suspend fun prepare(outputPath: String? = null): RecorderResult<String>
     public fun start(): RecorderResult<Unit>
@@ -62,8 +64,8 @@ on the factory's `coroutineContext`. `start`, `pause`, and `resume` are flips of
 recorder's own state and do not. `release` is the documented exception; see below.
 
 **Thread-safety:** the six operations plus `release` are **not** thread-safe and must be called from
-one thread. `state`, `elapsed`, and `level` are `StateFlow`s and are safe to read and collect from any
-thread.
+one thread. `state`, `elapsed`, and `level` are `StateFlow`s and `levelSamples` is a `Flow`; all of
+them are safe to collect from any thread.
 
 ### Transition table
 
@@ -100,19 +102,42 @@ Wall-clock time between `start` and `stop`, not a measurement of the encoded fil
 `config.levelFloorDbfs`, `1f` at full scale (0 dBFS), linear in decibels between. A level meter, not
 an amplitude, so quiet speech is visible.
 
-Each value is the loudest sample since the previous one, published every `config.levelUpdateInterval`.
-It is not smoothed.
+Each value is the loudest sample since the previous one, published every
+`config.levelUpdateInterval`. It is not smoothed.
 
-Measured only while `state` is `Recording` **and** at least one collector is subscribed; a recorder
-nobody meters does no metering work. `0f` in every other state, and as soon as the last collector
-leaves. Reading `level.value` without collecting does not start metering. Pause, stop, cancel, and
-release set it to `0f` immediately, and nothing is published after `release()`. A `pause()` the
-platform refuses leaves the recorder `Recording`, so metering continues.
+Measured only while `state` is `Recording` **and** at least one collector of `level` or
+`levelSamples` is subscribed; a recorder nobody meters does no metering work. `0f` in every other
+state, and as soon as the last collector leaves. Reading `level.value` without collecting does not
+start metering. Pause, stop, cancel, and release set it to `0f` immediately, and nothing is
+published after `release()`. A `pause()` the platform refuses leaves the recorder `Recording`, so
+metering continues.
+
+Being a `StateFlow`, it conflates equal consecutive values: in silence it stays at `0f` and emits
+nothing, and a clamped `1f` repeats the same way. That suits a pulsing indicator; for a waveform use
+`levelSamples`.
 
 The first value after metering starts (on `start`, `resume`, or the first collector arriving) comes
 one interval later, not at once. How each platform produces the number is in
 [`05-platform-notes.md`](05-platform-notes.md#input-level); a scripted stand-in for tests is
 `FakeAudioRecorder.emitLevel`, in [`06-testing.md`](06-testing.md).
+
+### `levelSamples: Flow<Float>`
+
+*Since 1.9.0.* Every sample the level meter takes, on the same `0f..1f` scale as `level`, one per
+`config.levelUpdateInterval` — repeats included, so silence keeps arriving as `0f` and a waveform
+keeps moving while the user is quiet. Collect this to draw a waveform and `level` to draw a meter.
+
+Hot and not replayed: a collector receives the samples taken after it subscribed. It emits only
+while `state` is `Recording` (nothing while paused, so a waveform pauses with the recording), never
+after `release()`, and it does not complete. A reading the platform could not provide produces no
+sample. Collecting it starts metering exactly as collecting `level` does, and the two share one
+meter: collecting both does not sample the microphone twice. A collector that falls more than 64
+samples behind loses the oldest. The public type is `Flow<Float>`, not `SharedFlow`, so no replay
+cache is part of the contract.
+
+A `pause()` or `stop()` that lands while a sample is being taken can leave at most one extra sample
+in the stream, a real reading taken a moment before the transition, since an emitted sample cannot
+be taken back. `level` is repaired to `0f` in that window; the stream is not.
 
 ### `suspend fun prepare(outputPath: String? = null): RecorderResult<String>`
 
@@ -311,9 +336,9 @@ public data class AudioRecorderConfig(
 ```
 
 Companion: `DEFAULT_SAMPLE_RATE`, `DEFAULT_CHANNEL_COUNT`, `DEFAULT_BIT_RATE`,
-`DEFAULT_DURATION_UPDATE_INTERVAL`, `DEFAULT_MINIMUM_FREE_SPACE_BYTES`, `DEFAULT_LEVEL_UPDATE_INTERVAL`,
-`DEFAULT_LEVEL_FLOOR_DBFS`, and `HIGH_QUALITY` (stereo 48 kHz at 256 kbit/s; the level settings stay
-at their defaults).
+`DEFAULT_DURATION_UPDATE_INTERVAL`, `DEFAULT_MINIMUM_FREE_SPACE_BYTES`,
+`DEFAULT_LEVEL_UPDATE_INTERVAL`, `DEFAULT_LEVEL_FLOOR_DBFS`, and `HIGH_QUALITY` (stereo 48 kHz at
+256 kbit/s; the level settings stay at their defaults).
 
 `levelUpdateInterval` is how often `level` publishes while it is being measured. `levelFloorDbfs` is
 the input loudness that reads as `0f`. The `-50` default sits above typical room noise on a phone

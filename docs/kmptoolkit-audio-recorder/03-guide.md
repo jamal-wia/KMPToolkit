@@ -90,40 +90,54 @@ pretending it worked.
 
 ## Showing a live input level
 
-`level` is a `StateFlow<Float>` between `0f` (quiet) and `1f` (full scale), published every 50 ms
-while the recorder is `Recording` — the rate messenger waveforms draw at. Collect it wherever the
-meter is drawn and turn each value into a bar:
+Two flows carry the input loudness, both between `0f` (quiet) and `1f` (full scale) and both
+published every 50 ms while the recorder is `Recording` — the rate messenger waveforms draw at.
+Pick by what you draw:
+
+| You draw | Collect | Why |
+|---|---|---|
+| a pulsing indicator or a single bar showing the current loudness | `level` | a `StateFlow`: always has a current value and a collector sees the latest one |
+| a waveform that grows as the user speaks | `levelSamples` | a plain `Flow` with every sample, repeats included |
+
+The reason there are two is that `level` is a `StateFlow`, and a `StateFlow` drops a value equal to
+its predecessor. In silence `level` sits at `0f` and emits nothing, so a waveform built from it
+stops growing exactly when the user goes quiet; `levelSamples` keeps delivering the `0f`.
 
 ```kotlin
 class VoiceNoteViewModel(private val recorder: AudioRecorder) : ViewModel() {
 
-    val bars: StateFlow<List<Float>> = recorder.level
-        .scan(emptyList<Float>()) { history, level -> (history + level).takeLast(MAX_BARS) }
+    val bars: StateFlow<List<Float>> = recorder.levelSamples
+        .scan(emptyList<Float>()) { history, sample -> (history + sample).takeLast(MAX_BARS) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
 
     private companion object { const val MAX_BARS = 40 }
 }
 ```
 
-A few things about it are worth knowing before you build on it:
+A few things about them are worth knowing before you build on them:
 
-- **Nothing is measured until you collect.** A recorder whose `level` nobody collects never reads
-  the microphone's meter, so a screen that has no waveform pays nothing for the feature. Reading
-  `recorder.level.value` once does not count as collecting. When the last collector leaves, the
-  value returns to `0f` and sampling stops; a new collector starts it again.
-- **It is `0f` unless the recorder is `Recording`.** Pause, stop, cancel, and release all reset it at
-  once, so a frozen bar is never left on screen. After `release()` it is `0f` for good.
+- **Nothing is measured until you collect.** A recorder whose level nobody collects never reads the
+  microphone's meter, so a screen that has no waveform pays nothing for the feature. Reading
+  `recorder.level.value` once does not count as collecting. Collecting `level`, `levelSamples`, or
+  both starts the same single meter; when the last collector of either leaves, `level` returns to
+  `0f` and sampling stops, and a new collector starts it again.
+- **They are `0f` or silent unless the recorder is `Recording`.** Pause, stop, cancel, and release
+  reset `level` at once, so a frozen bar is never left on screen, and `levelSamples` emits nothing
+  while paused, so a waveform pauses with the recording. After `release()` neither moves again.
+- **`levelSamples` is hot.** A collector receives the samples taken after it subscribed; there is no
+  replay, so collect it before `start()` if the first moments matter. A collector that falls more
+  than 64 samples (about three seconds) behind loses the oldest ones rather than slowing the meter.
 - **A value is a peak, not an average.** It is the loudest sample since the previous value, so a
   short click between two updates still shows. It is also not smoothed: a bar that jumps between
   values looks nervous, and easing it is a UI decision, so it is left to you.
 - **The scale is decibels, not amplitude.** `0f` is at or below `levelFloorDbfs` (`-50` by default),
-  `1f` is full scale, and the range between is linear in dB. Normal speech then lands in the upper half
-  of the range and room noise stays at the bottom. Raise the floor to ignore a noisy room; lower it to show
-  whispers. See [`05-platform-notes.md`](05-platform-notes.md#input-level) for how each platform
-  produces the number.
-- **It belongs to one recorder instance.** If you create a recorder per segment, each one has its
-  own `level` and starts at `0f`; a waveform that spans segments has to keep its own history, as
-  the example above does.
+  `1f` is full scale, and the range between is linear in dB. Normal speech then lands in the upper
+  half of the range and room noise stays at the bottom. Raise the floor to ignore a noisy room;
+  lower it to show whispers. See [`05-platform-notes.md`](05-platform-notes.md#input-level) for how
+  each platform produces the number.
+- **They belong to one recorder instance.** If you create a recorder per segment, each one has its
+  own `level` and `levelSamples` and starts at `0f`; a waveform that spans segments has to keep its
+  own history, as the example above does.
 
 ```kotlin
 val recorder = createAudioRecorder(
@@ -227,8 +241,8 @@ Drive one recorder from one thread — the main thread is the usual choice. Note
 `stop()` are not suspending but are not instant either: `stop()` in particular finalizes the
 container (on Android, writing the MPEG-4 `moov` atom) and can block for a noticeable fraction of a
 second on a long recording. If that matters for your frame budget, call them from your own
-background dispatcher — the same one every time. `state`, `elapsed`, and `level` are
-`StateFlow`s and can be collected from anywhere.
+background dispatcher — the same one every time. `state`, `elapsed`, `level`, and `levelSamples` can
+be collected from anywhere.
 
 The recorder runs its `elapsed` ticker and `level` meter on `Dispatchers.Default` and needs no main
 dispatcher, so it works in a plain JVM unit test without a main-dispatcher rule.

@@ -144,23 +144,24 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
 
 ## Input level
 
-`AudioRecorder.level` is built from one reading per platform, converted to dBFS and mapped onto
-`0f..1f` by the same common code, so the two platforms draw the same bar for the same voice. The
-mapping is `0f` at or below `levelFloorDbfs`, `1f` at 0 dBFS, and linear in decibels between;
-`NaN` reads as silence.
+`AudioRecorder.level` and `AudioRecorder.levelSamples` are built from one reading per platform,
+converted to dBFS and mapped onto `0f..1f` by the same common code, so the two platforms draw the
+same bar for the same voice. The mapping is `0f` at or below `levelFloorDbfs`, `1f` at 0 dBFS, and
+linear in decibels between; `NaN` reads as silence.
 
 - **Android.** The reading is `MediaRecorder.getMaxAmplitude()`: the peak 16-bit sample, `0..32767`,
-  across all channels, **since the previous call**. The first call after recording starts only primes
-  that window, which is why the recorder discards it and publishes the first value one interval
-  later. The amplitude is converted with `20 * log10(amplitude / 32767)`, so `0` is digital silence
-  (minus infinity) and `32767` is 0 dBFS. The call throws outside the recording state; the engine
-  turns that into "no answer" rather than letting it escape, since it can land just after a pause,
-  stop, or release.
+  across all channels, **since the previous call**. The first call after recording starts only
+  primes that window, which is why the recorder discards it and publishes the first value one
+  interval later. The amplitude is converted with `20 * log10(amplitude / 32767)`, so `0` is digital
+  silence (minus infinity) and `32767` is 0 dBFS. The call throws outside the recording state; the
+  engine turns that into "no answer" rather than letting it escape, since it can land just after a
+  pause, stop, or release.
 - **iOS.** `AVAudioRecorder.meteringEnabled` is set to `true` in `prepare()` and left on. It is a
   flag on a pipeline that runs anyway and costs nothing measurable, and it avoids toggling it on a
   live recorder. Whether anything is read is decided by the recorder: `updateMeters()` and
-  `peakPowerForChannel` are called only while `level` is collected. The value published is the
-  maximum of `peakPowerForChannel` over the configured channel count, already in dBFS.
+  `peakPowerForChannel` are called only while `level` or `levelSamples` is collected. The value
+  published is the maximum of `peakPowerForChannel` over the configured channel count, already in
+  dBFS.
 - **Peak, not average.** iOS also offers `averagePowerForChannel`. It is not used, because
   Android's reading is a peak, and the same voice would otherwise draw a visibly different bar on
   each platform.
@@ -176,6 +177,5 @@ mapping is `0f` at or below `levelFloorDbfs`, `1f` at 0 dBFS, and linear in deci
 Everything else, because it lives in common code and is covered by one shared suite that runs on
 both targets: the transition table, permission and storage pre-checks, path generation, elapsed-time
 accounting across pause and resume, the dBFS-to-`0f..1f` mapping and subscription-driven metering of
-`level`, deletion of abandoned files, retention of completed ones,
-cancellation of an in-flight `prepare`, release idempotency, and the fact that no public method
-throws.
+`level` and `levelSamples`, deletion of abandoned files, retention of completed ones, cancellation
+of an in-flight `prepare`, release idempotency, and the fact that no public method throws.
