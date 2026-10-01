@@ -29,7 +29,7 @@ fixed for the recorder's lifetime — the platform applies encoder settings at p
 changing them means a new recorder.
 
 `coroutineContext` is the single place the module decides what runs where: the `elapsed` ticker's
-scope, and the `withContext` behind `prepare`/`stop`/`cancel` that keeps their filesystem and
+and `level` meter's scope, and the `withContext` behind `prepare`/`stop`/`cancel` that keeps their filesystem and
 encoder work off the caller's thread. The platform engines deliberately choose no dispatcher of
 their own, so this parameter really does control all of it. It mirrors `kmptoolkit-audio-player`'s
 factories, so a consumer that pins one module's background work pins the other identically.
@@ -43,6 +43,7 @@ one until `release()`.
 public interface AudioRecorder {
     public val state: StateFlow<RecorderState>
     public val elapsed: StateFlow<Duration>
+    public val level: StateFlow<Float> // since 1.9.0
 
     public suspend fun prepare(outputPath: String? = null): RecorderResult<String>
     public fun start(): RecorderResult<Unit>
@@ -61,7 +62,8 @@ on the factory's `coroutineContext`. `start`, `pause`, and `resume` are flips of
 recorder's own state and do not. `release` is the documented exception; see below.
 
 **Thread-safety:** the six operations plus `release` are **not** thread-safe and must be called from
-one thread. `state` and `elapsed` are `StateFlow`s and are safe to read and collect from any thread.
+one thread. `state`, `elapsed`, and `level` are `StateFlow`s and are safe to read and collect from any
+thread.
 
 ### Transition table
 
@@ -91,6 +93,26 @@ Time recorded into the current file, for a timer. Advances only in `Recording`, 
 after `stop`, resets to `ZERO` on `prepare`, `cancel`, and `release`.
 
 Wall-clock time between `start` and `stop`, not a measurement of the encoded file.
+
+### `level: StateFlow<Float>`
+
+*Since 1.9.0.* Peak loudness of the microphone input, normalised to `0f..1f`: `0f` at or below
+`config.levelFloorDbfs`, `1f` at full scale (0 dBFS), linear in decibels between. A level meter, not
+an amplitude, so quiet speech is visible.
+
+Each value is the loudest sample since the previous one, published every `config.levelUpdateInterval`.
+It is not smoothed.
+
+Measured only while `state` is `Recording` **and** at least one collector is subscribed; a recorder
+nobody meters does no metering work. `0f` in every other state, and as soon as the last collector
+leaves. Reading `level.value` without collecting does not start metering. Pause, stop, cancel, and
+release set it to `0f` immediately, and nothing is published after `release()`. A `pause()` the
+platform refuses leaves the recorder `Recording`, so metering continues.
+
+The first value after metering starts (on `start`, `resume`, or the first collector arriving) comes
+one interval later, not at once. How each platform produces the number is in
+[`05-platform-notes.md`](05-platform-notes.md#input-level); a scripted stand-in for tests is
+`FakeAudioRecorder.emitLevel`, in [`06-testing.md`](06-testing.md).
 
 ### `suspend fun prepare(outputPath: String? = null): RecorderResult<String>`
 
@@ -283,14 +305,23 @@ public data class AudioRecorderConfig(
     public val bitRate: Int = 128_000,
     public val durationUpdateInterval: Duration = 100.milliseconds,
     public val minimumFreeSpaceBytes: Long = 8L * 1024 * 1024,
+    public val levelUpdateInterval: Duration = 50.milliseconds, // since 1.9.0
+    public val levelFloorDbfs: Float = -50f,                    // since 1.9.0
 )
 ```
 
 Companion: `DEFAULT_SAMPLE_RATE`, `DEFAULT_CHANNEL_COUNT`, `DEFAULT_BIT_RATE`,
-`DEFAULT_DURATION_UPDATE_INTERVAL`, `DEFAULT_MINIMUM_FREE_SPACE_BYTES`, and `HIGH_QUALITY`
-(stereo 48 kHz at 256 kbit/s).
+`DEFAULT_DURATION_UPDATE_INTERVAL`, `DEFAULT_MINIMUM_FREE_SPACE_BYTES`, `DEFAULT_LEVEL_UPDATE_INTERVAL`,
+`DEFAULT_LEVEL_FLOOR_DBFS`, and `HIGH_QUALITY` (stereo 48 kHz at 256 kbit/s; the level settings stay
+at their defaults).
 
-`sampleRate`, `channelCount`, `bitRate`, and `durationUpdateInterval` must be positive;
+`levelUpdateInterval` is how often `level` publishes while it is being measured. `levelFloorDbfs` is
+the input loudness that reads as `0f`. The `-50` default sits above typical room noise on a phone
+microphone (around -55 to -45 dBFS) and below normal speech (around -30 to -10). There is no on/off
+flag for metering: its cost is controlled by whether `level` is collected.
+
+`sampleRate`, `channelCount`, `bitRate`, `durationUpdateInterval`, and `levelUpdateInterval` must be
+positive; `levelFloorDbfs` must be finite and negative (so `NaN` and the infinities are rejected);
 `minimumFreeSpaceBytes` must not be negative, and `0` disables the free-space check. Violations
 throw `IllegalArgumentException` at construction — these are literals a developer writes, so a wrong
 one is a bug to fix at the call site, not a runtime condition an app recovers from.

@@ -45,9 +45,12 @@ Four things follow from that shape, and they are the reason the module exists:
   the `coroutineContext` the factory was given, so they do not block your thread either.
   `release()` is the one exception, and its reason is under "What this is not" below.
 
-Observing is two `StateFlow`s: `state` for the lifecycle, `elapsed` for a recording timer. They are
-separate on purpose — `state` changes only on real transitions, so a screen that shows "recording"
-is not recomposed ten times a second by a duration that is only rendered in one label.
+Observing is three `StateFlow`s: `state` for the lifecycle, `elapsed` for a recording timer, and
+`level` for a live input meter (a number from `0f` to `1f`, enough to draw a messenger-style
+waveform). They are separate on purpose — `state` changes only on real transitions, so a screen that
+shows "recording" is not recomposed ten times a second by a duration that is only rendered in one
+label. `level` is also the only one that costs anything to produce, so it is measured only while
+something collects it.
 
 ## What this is **not**
 
@@ -57,10 +60,11 @@ is not recomposed ten times a second by a duration that is only rendered in one 
   shows a system prompt, and it never declares `RECORD_AUDIO` in its manifest — see
   [`05-platform-notes.md`](05-platform-notes.md). Asking the user is your flow, with your copy, at
   your moment.
-- **Not an audio-processing pipeline.** There is no PCM buffer callback, no waveform, no amplitude
-  meter, no VAD, no noise suppression, no streaming to a socket. It writes an encoded file with the
-  platform's own recorder and tells you when it is done. If you need samples in memory, you need
-  `AudioRecord` / `AVAudioEngine`, not this.
+- **Not an audio-processing pipeline.** There is no PCM buffer callback, no stored waveform, no
+  VAD, no noise suppression, no streaming to a socket. It writes an encoded file with the platform's
+  own recorder and tells you when it is done. The one live signal it offers is `level`, the peak
+  loudness of the last few tens of milliseconds, which is a meter reading and not samples. If you
+  need samples in memory, you need `AudioRecord` / `AVAudioEngine`, not this.
 - **Not a background-recording service.** It does not hold a wake lock, post a foreground-service
   notification, or survive the process. Recording while the app is backgrounded is a platform
   problem with platform requirements (a foreground service on Android, an audio background mode on

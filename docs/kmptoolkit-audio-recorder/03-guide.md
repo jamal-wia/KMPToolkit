@@ -88,6 +88,50 @@ platform refuses, `pause()` returns `RecorderError.EngineFailure` and **the reco
 running**, which is the honest outcome. Handle it by hiding the pause button rather than by
 pretending it worked.
 
+## Showing a live input level
+
+`level` is a `StateFlow<Float>` between `0f` (quiet) and `1f` (full scale), published every 50 ms
+while the recorder is `Recording` — the rate messenger waveforms draw at. Collect it wherever the
+meter is drawn and turn each value into a bar:
+
+```kotlin
+class VoiceNoteViewModel(private val recorder: AudioRecorder) : ViewModel() {
+
+    val bars: StateFlow<List<Float>> = recorder.level
+        .scan(emptyList<Float>()) { history, level -> (history + level).takeLast(MAX_BARS) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
+
+    private companion object { const val MAX_BARS = 40 }
+}
+```
+
+A few things about it are worth knowing before you build on it:
+
+- **Nothing is measured until you collect.** A recorder whose `level` nobody collects never reads
+  the microphone's meter, so a screen that has no waveform pays nothing for the feature. Reading
+  `recorder.level.value` once does not count as collecting. When the last collector leaves, the
+  value returns to `0f` and sampling stops; a new collector starts it again.
+- **It is `0f` unless the recorder is `Recording`.** Pause, stop, cancel, and release all reset it at
+  once, so a frozen bar is never left on screen. After `release()` it is `0f` for good.
+- **A value is a peak, not an average.** It is the loudest sample since the previous value, so a
+  short click between two updates still shows. It is also not smoothed: a bar that jumps between
+  values looks nervous, and easing it is a UI decision, so it is left to you.
+- **The scale is decibels, not amplitude.** `0f` is at or below `levelFloorDbfs` (`-50` by default),
+  `1f` is full scale, and the range between is linear in dB. Normal speech then lands in the upper half
+  of the range and room noise stays at the bottom. Raise the floor to ignore a noisy room; lower it to show
+  whispers. See [`05-platform-notes.md`](05-platform-notes.md#input-level) for how each platform
+  produces the number.
+- **It belongs to one recorder instance.** If you create a recorder per segment, each one has its
+  own `level` and starts at `0f`; a waveform that spans segments has to keep its own history, as
+  the example above does.
+
+```kotlin
+val recorder = createAudioRecorder(
+    context,
+    AudioRecorderConfig(levelUpdateInterval = 33.milliseconds, levelFloorDbfs = -60f),
+)
+```
+
 ## Where recordings go
 
 Nothing is hardcoded. `RecordingStorage` has three knobs and a default derived from your app:
@@ -133,8 +177,8 @@ times the bytes per second of the default. For speech, the default is already tr
 
 ## Ownership and release
 
-The recorder holds a native handle, the microphone, and one coroutine. Whoever creates it must
-release it exactly once.
+The recorder holds a native handle, the microphone, and the coroutines that publish `elapsed` and
+`level`. Whoever creates it must release it exactly once.
 
 ```kotlin
 // Decompose — note that release() is callable here precisely because it does not suspend
@@ -183,11 +227,11 @@ Drive one recorder from one thread — the main thread is the usual choice. Note
 `stop()` are not suspending but are not instant either: `stop()` in particular finalizes the
 container (on Android, writing the MPEG-4 `moov` atom) and can block for a noticeable fraction of a
 second on a long recording. If that matters for your frame budget, call them from your own
-background dispatcher — the same one every time. `state` and `elapsed` are
+background dispatcher — the same one every time. `state`, `elapsed`, and `level` are
 `StateFlow`s and can be collected from anywhere.
 
-The recorder runs its `elapsed` ticker on `Dispatchers.Default` and needs no main dispatcher, so it
-works in a plain JVM unit test without a main-dispatcher rule.
+The recorder runs its `elapsed` ticker and `level` meter on `Dispatchers.Default` and needs no main
+dispatcher, so it works in a plain JVM unit test without a main-dispatcher rule.
 
 ## Common mistakes
 

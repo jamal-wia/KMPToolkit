@@ -11,6 +11,32 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [1.9.0]
 
+### Added
+
+- `kmptoolkit-audio-recorder`: `AudioRecorder.level`, a `StateFlow<Float>` with the live peak input
+  loudness, `0f` to `1f`, for a messenger-style waveform. The scale is linear in decibels between
+  `AudioRecorderConfig.levelFloorDbfs` (`0f`) and full scale (`1f`), so quiet speech is visible, and
+  each value is the loudest input since the previous one. It is not smoothed.
+  - **Measured only while `Recording` and collected.** A recorder whose `level` nobody collects does
+    no metering work; `0f` in every other state, and as soon as the last collector leaves. Pause,
+    stop, cancel, and release reset it at once, and nothing is published after `release()`.
+  - **New settings:** `AudioRecorderConfig.levelUpdateInterval` (default 50 ms) and
+    `levelFloorDbfs` (default `-50`), with `DEFAULT_LEVEL_UPDATE_INTERVAL` and
+    `DEFAULT_LEVEL_FLOOR_DBFS`. They are appended after `minimumFreeSpaceBytes`, so existing
+    positional calls keep compiling. There is no on/off flag: collecting `level` is the switch.
+  - **Platforms:** Android reads `MediaRecorder.getMaxAmplitude()`; iOS enables
+    `AVAudioRecorder` metering in `prepare()` and reads the loudest `peakPowerForChannel`. Both are
+    peaks, so the same voice draws the same bar. See
+    `docs/kmptoolkit-audio-recorder/05-platform-notes.md`.
+- `kmptoolkit-audio-recorder-testing`: `FakeAudioRecorder.level` and `FakeAudioRecorder.emitLevel`,
+  which sets the level while the fake is `Recording` and is ignored otherwise. The level returns to
+  `0f` on every transition out of `Recording`.
+
+`AudioRecorder` gains a member: a class implementing it outside this library (rather than using
+`FakeAudioRecorder`) must add `level`. Code compiled against 1.8.x must be recompiled, because adding
+parameters to the data class `AudioRecorderConfig` changes the JVM signatures of its constructor and
+`copy`; source code needs no change.
+
 ## [1.8.0] - 2026-09-23
 
 ### Added

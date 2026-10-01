@@ -56,6 +56,7 @@ testing behavior the real recorder also has. What it adds is control:
 | Knob | Effect |
 |---|---|
 | `advanceElapsed(duration)` | moves `elapsed` forward. Time never passes on its own — no scheduler, no virtual clock, exact assertions |
+| `emitLevel(value)` | sets `level`, as if the microphone had just peaked there. `value` must be within `0f..1f`; ignored unless the fake is `Recording` |
 | `permissionGranted = false` | `prepare()` fails with `PermissionDenied` |
 | `failNextOperationWith = error` | the next otherwise-legal operation fails with that `RecorderError`, then the knob clears |
 
@@ -69,7 +70,29 @@ and observation:
 | `releaseCount` | whether the code under test released the recorder — at most `1`, since `release` is idempotent |
 
 `advanceElapsed` only moves time while the fake is `Recording`, matching the real recorder, and is
-ignored elsewhere so a test can advance unconditionally between steps.
+ignored elsewhere so a test can advance unconditionally between steps. `emitLevel` follows the same
+rule, because a real recorder reports no level while paused or stopped. `level` returns to `0f` after
+every transition out of `Recording` (pause, stop, cancel, release, a scripted failure), and `start` and
+`resume` leave it at `0f` until the next `emitLevel`:
+
+```kotlin
+@Test
+fun `the waveform follows the microphone and clears on pause`() = runTest {
+    val recorder = FakeAudioRecorder()
+    val seen = mutableListOf<Float>()
+    backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+        recorder.level.collect { seen += it }
+    }
+    recorder.prepare()
+    recorder.start()
+
+    recorder.emitLevel(0.8f)
+    recorder.emitLevel(0.3f)
+    recorder.pause()
+
+    assertEquals(listOf(0f, 0.8f, 0.3f, 0f), seen)
+}
+```
 
 ### Testing an error path
 
@@ -118,6 +141,10 @@ recorder.
   own; script them with `failNextOperationWith`.
 - **No format validation.** `UnsupportedFormat` likewise.
 - **Not thread-safe**, exactly like the recorder it replaces.
+- **No subscription-driven metering.** The real recorder samples the microphone only while `level`
+  has a collector. The fake has no engine whose work could be spared, so `emitLevel` takes effect
+  whether or not anyone is collecting. Test the idle-when-unobserved behavior against the real
+  recorder's suite, not this fake.
 - **No `Preparing` state.** `prepare` suspends to match the interface but completes at once, so the
   fake never sits in `RecorderState.Preparing`. If your code branches on that state, test it against
   the real recorder's suite instead.
