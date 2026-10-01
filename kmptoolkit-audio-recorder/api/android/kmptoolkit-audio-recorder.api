@@ -34,6 +34,7 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderCo
 	public static final field DEFAULT_LEVEL_FLOOR_DBFS F
 	public static final field DEFAULT_MINIMUM_FREE_SPACE_BYTES J
 	public static final field DEFAULT_SAMPLE_RATE I
+	public fun <init> ()V
 	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;IIIJJJFILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;IIIJJJFLkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordingStorage;
