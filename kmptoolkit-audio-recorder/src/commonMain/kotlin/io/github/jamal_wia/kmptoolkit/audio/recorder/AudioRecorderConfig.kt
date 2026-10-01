@@ -5,7 +5,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Everything an [AudioRecorder] needs to know that is not a per-recording decision: where files go,
- * how audio is encoded, and how often [AudioRecorder.elapsed] ticks.
+ * how audio is encoded, and how often [AudioRecorder.elapsed] and [AudioRecorder.level] tick.
  *
  * Fixed at construction and never mutated afterwards — changing any of it means building another
  * recorder, which is also what the platform APIs require, since encoder settings are applied when
@@ -28,6 +28,14 @@ import kotlin.time.Duration.Companion.milliseconds
  *   microphone, so a doomed recording fails immediately instead of producing a truncated file.
  *   Must not be negative; `0` disables the check. The 8 MiB default is roughly eight minutes at the
  *   default bit rate.
+ * @param levelUpdateInterval how often [AudioRecorder.level] publishes a new value while it is being
+ *   measured. Must be positive. Each value is the loudest input since the previous one, so a longer
+ *   interval does not lose a peak — it only draws a coarser meter. The 50 ms default is 20 bars a
+ *   second, the rate messenger waveforms draw at.
+ * @param levelFloorDbfs the input loudness, in dBFS, that [AudioRecorder.level] reports as `0f`;
+ *   `0 dBFS` (full scale) is always `1f`. Must be finite and negative. Raise it to ignore more
+ *   background noise, lower it to make quiet input visible. The default of `-50` puts typical room
+ *   noise at the bottom of the meter and normal speech in its upper half.
  */
 public data class AudioRecorderConfig(
     public val storage: RecordingStorage = RecordingStorage(),
@@ -37,6 +45,8 @@ public data class AudioRecorderConfig(
     public val bitRate: Int = DEFAULT_BIT_RATE,
     public val durationUpdateInterval: Duration = DEFAULT_DURATION_UPDATE_INTERVAL,
     public val minimumFreeSpaceBytes: Long = DEFAULT_MINIMUM_FREE_SPACE_BYTES,
+    public val levelUpdateInterval: Duration = DEFAULT_LEVEL_UPDATE_INTERVAL,
+    public val levelFloorDbfs: Float = DEFAULT_LEVEL_FLOOR_DBFS,
 ) {
     init {
         // Validated here rather than reported as a RecorderError: these are values a developer
@@ -48,6 +58,13 @@ public data class AudioRecorderConfig(
         require(bitRate > 0) { "bitRate must be positive, was $bitRate" }
         require(durationUpdateInterval > Duration.ZERO) {
             "durationUpdateInterval must be positive, was $durationUpdateInterval"
+        }
+        require(levelUpdateInterval > Duration.ZERO) {
+            "levelUpdateInterval must be positive, was $levelUpdateInterval"
+        }
+        // NaN fails isFinite() too, so one check covers NaN, both infinities and the range.
+        require(levelFloorDbfs.isFinite() && levelFloorDbfs < 0f) {
+            "levelFloorDbfs must be finite and negative, was $levelFloorDbfs"
         }
         require(minimumFreeSpaceBytes >= 0) {
             "minimumFreeSpaceBytes must not be negative, was $minimumFreeSpaceBytes"
@@ -69,6 +86,16 @@ public data class AudioRecorderConfig(
 
         /** 100 ms. */
         public val DEFAULT_DURATION_UPDATE_INTERVAL: Duration = 100.milliseconds
+
+        /** 50 ms — 20 bars a second, the rate messenger waveforms draw at. */
+        public val DEFAULT_LEVEL_UPDATE_INTERVAL: Duration = 50.milliseconds
+
+        /**
+         * -50 dBFS. Room noise on a phone microphone sits around -55 to -45 dBFS and normal speech
+         * around -30 to -10, so this keeps a quiet room at the bottom of the meter and leaves the
+         * speech range to fill most of it.
+         */
+        public const val DEFAULT_LEVEL_FLOOR_DBFS: Float = -50f
 
         /**
          * Stereo 48 kHz at 256 kbit/s, for music or anything that will be listened to critically.

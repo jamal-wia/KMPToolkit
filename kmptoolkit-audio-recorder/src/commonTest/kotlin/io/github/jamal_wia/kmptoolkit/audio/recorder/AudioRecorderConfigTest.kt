@@ -22,6 +22,8 @@ class AudioRecorderConfigTest {
         assertEquals(1, config.channelCount)
         assertEquals(128_000, config.bitRate)
         assertEquals(100.milliseconds, config.durationUpdateInterval)
+        assertEquals(50.milliseconds, config.levelUpdateInterval)
+        assertEquals(-50f, config.levelFloorDbfs)
         assertEquals(8L * 1024 * 1024, config.minimumFreeSpaceBytes)
     }
 
@@ -73,6 +75,47 @@ class AudioRecorderConfigTest {
         assertFailsWith<IllegalArgumentException> {
             AudioRecorderConfig(durationUpdateInterval = Duration.ZERO)
         }
+    }
+
+    @Test
+    fun `a non positive level interval is rejected because it would spin`() {
+        assertFailsWith<IllegalArgumentException> {
+            AudioRecorderConfig(levelUpdateInterval = Duration.ZERO)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            AudioRecorderConfig(levelUpdateInterval = (-1).milliseconds)
+        }
+    }
+
+    @Test
+    fun `a level floor must be a finite negative number of decibels`() {
+        // Zero would map every sound to the bottom of the meter, and a positive floor is above full
+        // scale; NaN and the infinities have no position on a decibel scale at all.
+        assertFailsWith<IllegalArgumentException> { AudioRecorderConfig(levelFloorDbfs = 0f) }
+        assertFailsWith<IllegalArgumentException> { AudioRecorderConfig(levelFloorDbfs = 6f) }
+        assertFailsWith<IllegalArgumentException> { AudioRecorderConfig(levelFloorDbfs = Float.NaN) }
+        assertFailsWith<IllegalArgumentException> {
+            AudioRecorderConfig(levelFloorDbfs = Float.NEGATIVE_INFINITY)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            AudioRecorderConfig(levelFloorDbfs = Float.POSITIVE_INFINITY)
+        }
+    }
+
+    @Test
+    fun `a custom level floor and interval are kept as given`() {
+        val config = AudioRecorderConfig(levelUpdateInterval = 20.milliseconds, levelFloorDbfs = -60f)
+
+        assertEquals(20.milliseconds, config.levelUpdateInterval)
+        assertEquals(-60f, config.levelFloorDbfs)
+    }
+
+    @Test
+    fun `HIGH_QUALITY keeps the default level settings`() {
+        val config = AudioRecorderConfig.HIGH_QUALITY
+
+        assertEquals(AudioRecorderConfig.DEFAULT_LEVEL_UPDATE_INTERVAL, config.levelUpdateInterval)
+        assertEquals(AudioRecorderConfig.DEFAULT_LEVEL_FLOOR_DBFS, config.levelFloorDbfs)
     }
 
     @Test

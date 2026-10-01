@@ -271,7 +271,7 @@ sealed interface io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { /
 }
 
 final class io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig { // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig|null[0]
-    constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage = ..., io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin.time/Duration = ..., kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage;io.github.jamal_wia.kmptoolkit.audio.recorder.AudioFormat;kotlin.Int;kotlin.Int;kotlin.Int;kotlin.time.Duration;kotlin.Long){}[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage = ..., io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin.time/Duration = ..., kotlin/Long = ..., kotlin.time/Duration = ..., kotlin/Float = ...) // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage;io.github.jamal_wia.kmptoolkit.audio.recorder.AudioFormat;kotlin.Int;kotlin.Int;kotlin.Int;kotlin.time.Duration;kotlin.Long;kotlin.time.Duration;kotlin.Float){}[0]
 
     final val bitRate // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.bitRate|{}bitRate[0]
         final fun <get-bitRate>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.bitRate.<get-bitRate>|<get-bitRate>(){}[0]
@@ -281,6 +281,10 @@ final class io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig { 
         final fun <get-durationUpdateInterval>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.durationUpdateInterval.<get-durationUpdateInterval>|<get-durationUpdateInterval>(){}[0]
     final val format // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.format|{}format[0]
         final fun <get-format>(): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.format.<get-format>|<get-format>(){}[0]
+    final val levelFloorDbfs // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.levelFloorDbfs|{}levelFloorDbfs[0]
+        final fun <get-levelFloorDbfs>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.levelFloorDbfs.<get-levelFloorDbfs>|<get-levelFloorDbfs>(){}[0]
+    final val levelUpdateInterval // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.levelUpdateInterval|{}levelUpdateInterval[0]
+        final fun <get-levelUpdateInterval>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.levelUpdateInterval.<get-levelUpdateInterval>|<get-levelUpdateInterval>(){}[0]
     final val minimumFreeSpaceBytes // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.minimumFreeSpaceBytes|{}minimumFreeSpaceBytes[0]
         final fun <get-minimumFreeSpaceBytes>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.minimumFreeSpaceBytes.<get-minimumFreeSpaceBytes>|<get-minimumFreeSpaceBytes>(){}[0]
     final val sampleRate // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.sampleRate|{}sampleRate[0]
@@ -295,7 +299,9 @@ final class io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig { 
     final fun component5(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component5|component5(){}[0]
     final fun component6(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component6|component6(){}[0]
     final fun component7(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component7|component7(){}[0]
-    final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage = ..., io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin.time/Duration = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage;io.github.jamal_wia.kmptoolkit.audio.recorder.AudioFormat;kotlin.Int;kotlin.Int;kotlin.Int;kotlin.time.Duration;kotlin.Long){}[0]
+    final fun component8(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component8|component8(){}[0]
+    final fun component9(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.component9|component9(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordingStorage = ..., io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin/Int = ..., kotlin.time/Duration = ..., kotlin/Long = ..., kotlin.time/Duration = ..., kotlin/Float = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage;io.github.jamal_wia.kmptoolkit.audio.recorder.AudioFormat;kotlin.Int;kotlin.Int;kotlin.Int;kotlin.time.Duration;kotlin.Long;kotlin.time.Duration;kotlin.Float){}[0]
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.toString|toString(){}[0]
@@ -305,6 +311,8 @@ final class io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig { 
             final fun <get-DEFAULT_BIT_RATE>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_BIT_RATE.<get-DEFAULT_BIT_RATE>|<get-DEFAULT_BIT_RATE>(){}[0]
         final const val DEFAULT_CHANNEL_COUNT // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_CHANNEL_COUNT|{}DEFAULT_CHANNEL_COUNT[0]
             final fun <get-DEFAULT_CHANNEL_COUNT>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_CHANNEL_COUNT.<get-DEFAULT_CHANNEL_COUNT>|<get-DEFAULT_CHANNEL_COUNT>(){}[0]
+        final const val DEFAULT_LEVEL_FLOOR_DBFS // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_LEVEL_FLOOR_DBFS|{}DEFAULT_LEVEL_FLOOR_DBFS[0]
+            final fun <get-DEFAULT_LEVEL_FLOOR_DBFS>(): kotlin/Float // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_LEVEL_FLOOR_DBFS.<get-DEFAULT_LEVEL_FLOOR_DBFS>|<get-DEFAULT_LEVEL_FLOOR_DBFS>(){}[0]
         final const val DEFAULT_MINIMUM_FREE_SPACE_BYTES // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_MINIMUM_FREE_SPACE_BYTES|{}DEFAULT_MINIMUM_FREE_SPACE_BYTES[0]
             final fun <get-DEFAULT_MINIMUM_FREE_SPACE_BYTES>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_MINIMUM_FREE_SPACE_BYTES.<get-DEFAULT_MINIMUM_FREE_SPACE_BYTES>|<get-DEFAULT_MINIMUM_FREE_SPACE_BYTES>(){}[0]
         final const val DEFAULT_SAMPLE_RATE // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_SAMPLE_RATE|{}DEFAULT_SAMPLE_RATE[0]
@@ -312,6 +320,8 @@ final class io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig { 
 
         final val DEFAULT_DURATION_UPDATE_INTERVAL // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_DURATION_UPDATE_INTERVAL|{}DEFAULT_DURATION_UPDATE_INTERVAL[0]
             final fun <get-DEFAULT_DURATION_UPDATE_INTERVAL>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_DURATION_UPDATE_INTERVAL.<get-DEFAULT_DURATION_UPDATE_INTERVAL>|<get-DEFAULT_DURATION_UPDATE_INTERVAL>(){}[0]
+        final val DEFAULT_LEVEL_UPDATE_INTERVAL // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_LEVEL_UPDATE_INTERVAL|{}DEFAULT_LEVEL_UPDATE_INTERVAL[0]
+            final fun <get-DEFAULT_LEVEL_UPDATE_INTERVAL>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.DEFAULT_LEVEL_UPDATE_INTERVAL.<get-DEFAULT_LEVEL_UPDATE_INTERVAL>|<get-DEFAULT_LEVEL_UPDATE_INTERVAL>(){}[0]
         final val HIGH_QUALITY // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.HIGH_QUALITY|{}HIGH_QUALITY[0]
             final fun <get-HIGH_QUALITY>(): io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig // io.github.jamal_wia.kmptoolkit.audio.recorder/AudioRecorderConfig.Companion.HIGH_QUALITY.<get-HIGH_QUALITY>|<get-HIGH_QUALITY>(){}[0]
     }
