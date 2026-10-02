@@ -33,9 +33,12 @@ is where these live.
 | Android | `filesDir/kmptoolkit_downloader/` | Configurable via `DownloaderStorageConfig.baseDirectoryName`. |
 | iOS | `Application Support/kmptoolkit_downloader/` | Not `Documents/` — these are re-downloadable assets, and Application Support is excluded from the user-facing "Documents & Data" iCloud backup by default. Also explicitly marked `NSURLIsExcludedFromBackupKey` as a second net. |
 
-Temp files live under `<base>/tmp/`; a `ZipArchive` unit stages its extraction under
-`<base>/tmp/staging-<unit.id>/` — per unit, so two archives extracting at the same time never
-collide.
+Temp files live under `<base>/tmp/`: an unfinished transfer at `<unit.id>.<unit.tempExtension>`,
+and the same file renamed to `<unit.id>.<unit.tempExtension>.complete` once
+`markTempFileComplete` declares it finished. The rename is atomic within one directory on both
+platforms, so a crash leaves either a partial file or a complete one. A `ZipArchive` unit stages
+its extraction under `<base>/tmp/staging-<unit.id>/` — per unit, so two archives extracting at the
+same time never collide.
 
 ### Adopting a directory your app already populated
 
@@ -50,10 +53,17 @@ createDownloaderStorage(context, DownloaderStorageConfig(baseDirectoryName = "re
 ```
 
 Committed resources are then found in place, a half-finished transfer resumes from its current size,
-and the next commit lands beside them. Leave the default instead and every existing user downloads
-everything again while the old copies stay on disk, unreferenced. The base directory is resolved under
-the same root either way — `filesDir` on Android, `Application Support` on iOS — so only the name
-has to match. The adoption cases are pinned by `AndroidDownloaderStorageAdoptionTest`.
+and the next commit lands beside them. A temp file your old code left is always treated as
+`Partial`, even if its transfer had in fact finished: your code never recorded completeness, and
+guessing from the size is exactly what this module refuses to do. Its transfer is resumed with a
+`Range` starting at the file's size; if the file was already whole, the server answers
+`416 Range Not Satisfiable`, which your `BackgroundResourceDownloader` should treat as "already
+complete" and mark it so (see [`07-background-downloader.md`](07-background-downloader.md)).
+
+Leave the default instead and every existing user downloads everything again while the old copies
+stay on disk, unreferenced. The base directory is resolved under the same root either way —
+`filesDir` on Android, `Application Support` on iOS — so only the name has to match. The adoption
+cases are pinned by `AndroidDownloaderStorageAdoptionTest`.
 
 Staging directories are the one part that is not adopted: they are transient by design, and one left
 behind by an interrupted extraction under an old name is simply never reused.
@@ -84,7 +94,7 @@ buffer rather than loading an entry into memory, and both carry zip-slip protect
   fails during the transfer or during commit, and surfaces as whatever your
   `BackgroundResourceDownloader` reports (commonly `DownloadError.Unknown` unless your
   implementation's error message is recognisable) or, for a commit-time failure (a `ZipArchive`
-  extraction, a `SqliteDatabase` write), as `DownloadError.Storage`.
+  extraction, a move into place), as `DownloadError.Storage`.
 - **`DownloaderStorage` keys everything by the unit's own properties (`id`, `relativePath`), never
   by object identity or by any internal per-instance map.** Two `DownloadUnit` instances with the
   same `id` — a host constructing a fresh instance per call is common and expected — always resolve

@@ -26,17 +26,20 @@ their count persisted so a crash loop doesn't retry forever, and — before anyt
 
 ## What you get
 
-- **Resumability, where the platform allows it.** A transfer that dies with a partial temp file on
-  disk resumes from that file rather than restarting; a storage implementation exposes the byte
-  offset so your downloader can issue a ranged request.
+- **Resumability, where the platform allows it — and a partial file is never mistaken for a whole
+  one.** A transfer that dies with a partial temp file on disk resumes from that file rather than
+  restarting; a storage implementation exposes the byte offset so your downloader can issue a
+  ranged request. A partial and a complete temp file are different states, and only one your
+  downloader marked complete is ever committed without a transfer.
 - **Verification before counted present.** A `ResourceFormat.SqliteDatabase` unit is opened and,
   optionally, its own declared row count is checked against the database file's real one; a
   `ResourceFormat.ZipArchive` unit is proven complete by the presence of a marker file the
-  extraction is known to produce. A truncated download fails at commit, not three layers away
-  inside whatever opens the file next.
+  extraction is known to produce; any unit can state a `sha256` that its bytes must match. A
+  corrupt download fails at commit, is downloaded once more, and only then reported — never
+  three layers away inside whatever opens the file next.
 - **Survives process death.** Nothing about an in-flight download is persisted by the engine except
   a stall counter — "is a transfer running" is answered by your `BackgroundResourceDownloader`,
-  "is it done" by the file on disk. A crash needs no recovery pass; the next `ensureAvailable`
+  "is it done" by the files on disk. A crash needs no recovery pass; the next `ensureAvailable`
   re-derives everything from those two questions.
 - **Two surfaces, not one generalized over the other.** A group path for a fixed bundle the app
   ships against — one mutex, aggregate progress, one notification. A per-unit path for a runtime

@@ -27,12 +27,20 @@ public sealed class DownloadError {
     public data class Server(public val statusCode: Int?) : DownloadError()
 
     /**
-     * The bytes arrived but could not be finalized: no room on disk, an unwritable path, a ZIP that
-     * would not extract, or a database that failed its integrity check (see
-     * [ResourceFormat.SqliteDatabase]). Distinct from a transport failure because retrying the
-     * download is not obviously the fix.
+     * The bytes arrived but could not be finalized: no room on disk, an unwritable path, or a ZIP
+     * that would not extract. Distinct from a transport failure because retrying the download is
+     * not obviously the fix.
      */
     public data class Storage(public val message: String? = null) : DownloadError()
+
+    /**
+     * The bytes arrived and failed a check, again after a fresh download: a [DownloadUnit.sha256]
+     * mismatch, or a [ResourceFormat.SqliteDatabase] that does not open or does not hold the rows
+     * it declares. Nothing was committed. Persisting across two downloads usually means the server
+     * is serving different bytes than the host expects — a stale hash in the catalogue, or a
+     * broken upload — rather than anything on the device.
+     */
+    public data class Corrupted(public val message: String? = null) : DownloadError()
 
     /** Anything the host's platform layer could not classify. [message] is for logs, not for users. */
     public data class Unknown(public val message: String? = null) : DownloadError()

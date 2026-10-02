@@ -80,15 +80,15 @@ class DownloaderEngineUnitDownloadTest {
     }
 
     @Test
-    fun `ensureAvailable recovers from an existing temp file without re-downloading`() = runTest {
-        val storage = FakeStorage(tempAvailable = mutableSetOf(asset))
+    fun `ensureAvailable commits a complete temp file without re-downloading`() = runTest {
+        val storage = FakeStorage(tempComplete = mutableSetOf(asset))
         val downloader = NeverAskedDownloader()
         val engine = engine(storage, downloader, this)
 
         engine.ensureAvailable(asset)
 
         assertEquals(UnitDownloadState.Completed, engine.unitDownloadStateFlow(asset).first())
-        assertFalse(downloader.enqueueCalled, "a recovered temp file must commit directly, not re-enqueue")
+        assertFalse(downloader.enqueueCalled, "a complete temp file must commit, not re-enqueue")
     }
 
     @Test
@@ -341,26 +341,28 @@ class DownloaderEngineUnitDownloadTest {
     // Keying by the object silently broke the same-id-different-instance case the engine promises.
     private class FakeStorage(
         available: MutableSet<DownloadUnit> = mutableSetOf(),
-        tempAvailable: MutableSet<DownloadUnit> = mutableSetOf(),
+        tempComplete: MutableSet<DownloadUnit> = mutableSetOf(),
         /** When true, commitResource() returns normally without ever marking the unit available —
          * models a storage bug distinct from commitResource() throwing. */
         private val commitIsANoOp: Boolean = false,
     ) : DownloaderStorage {
         private val availableIds: MutableSet<String> = available.mapTo(mutableSetOf()) { it.id }
-        private val tempAvailableIds: MutableSet<String> = tempAvailable.mapTo(mutableSetOf()) { it.id }
+        private val tempCompleteIds: MutableSet<String> = tempComplete.mapTo(mutableSetOf()) { it.id }
         val tempFileDeletedFor: MutableSet<DownloadUnit> = mutableSetOf()
 
         override fun isResourceAvailable(unit: DownloadUnit): Boolean = unit.id in availableIds
-        override fun isTempFileAvailable(unit: DownloadUnit): Boolean = unit.id in tempAvailableIds
+        override fun tempFileState(unit: DownloadUnit): TempFileState =
+            if (unit.id in tempCompleteIds) TempFileState.Complete else TempFileState.None
         override fun getTempFileSize(unit: DownloadUnit): Long = 0L
+        override fun markTempFileComplete(unit: DownloadUnit) = Unit
         override suspend fun commitResource(unit: DownloadUnit) {
             if (commitIsANoOp) return
-            tempAvailableIds.remove(unit.id)
+            tempCompleteIds.remove(unit.id)
             availableIds += unit.id
         }
 
         override fun deleteTempFile(unit: DownloadUnit) {
-            tempAvailableIds.remove(unit.id)
+            tempCompleteIds.remove(unit.id)
             tempFileDeletedFor += unit
         }
 

@@ -11,7 +11,7 @@ commonTest.dependencies {
 | Fixture | Use it when |
 |---|---|
 | `FakeDownloader` | You are testing code that only *asks* for a resource or observes its state |
-| `FakeDownloaderStorage` | You are testing storage-facing code without real files |
+| `FakeDownloaderStorage` | You are testing storage-facing code without real files; `tempFileStates` sets what a transfer left behind |
 | `TestUnit` / `TestGroup` | You need a catalogue that exists only for the test |
 | `RecordingNotifier` | You want to assert what would have been shown, and in what order |
 | `InMemoryStateStore` | You need a `DownloadStateStore` that does not touch real storage |
@@ -20,9 +20,11 @@ commonTest.dependencies {
 There is no contract-style suite here, unlike `kmptoolkit-uploader-testing`'s `UploaderStoreContract`.
 The donor code this module was ported from has no runnable check of `DownloaderStorage`'s or
 `BackgroundResourceDownloader`'s invariants either — only ad-hoc fakes — so none was invented for
-this port. If you write a custom `DownloaderStorage`, `03-guide.md`'s identity rule (key everything
-by `unit.id` / `unit.relativePath`, never by object identity) is the one invariant worth a
-deliberate test of your own.
+this port. If you write a custom `DownloaderStorage`, two invariants are worth a deliberate test of
+your own: `03-guide.md`'s identity rule (key everything by `unit.id` / `unit.relativePath`, never by
+object identity), and the temp-file rule — a `Partial` file is never committed, only
+`markTempFileComplete` makes one `Complete`, and a check that fails at commit deletes the file and
+throws `ResourceIntegrityException`.
 
 ## Testing code that only asks
 

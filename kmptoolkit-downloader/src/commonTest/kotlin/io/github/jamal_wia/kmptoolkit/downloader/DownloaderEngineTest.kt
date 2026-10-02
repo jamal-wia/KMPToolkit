@@ -175,8 +175,9 @@ class DownloaderEngineTest {
         }
 
         override fun isResourceAvailable(unit: DownloadUnit): Boolean = unit in available
-        override fun isTempFileAvailable(unit: DownloadUnit): Boolean = false
+        override fun tempFileState(unit: DownloadUnit): TempFileState = TempFileState.None
         override fun getTempFileSize(unit: DownloadUnit): Long = 0L
+        override fun markTempFileComplete(unit: DownloadUnit) = Unit
         override suspend fun commitResource(unit: DownloadUnit) = Unit
         override fun deleteTempFile(unit: DownloadUnit) = Unit
         override fun getResourcePath(unit: DownloadUnit): String = ""

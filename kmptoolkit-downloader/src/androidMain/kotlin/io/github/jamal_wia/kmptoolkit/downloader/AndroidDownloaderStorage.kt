@@ -14,6 +14,7 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 
@@ -21,9 +22,15 @@ import java.util.zip.ZipInputStream
  * [DownloaderStorage] over plain files under `filesDir/<config.baseDirectoryName>/`.
  *
  * A downloader implementation writing into the temp file this class names via [getTempFilePath]
- * needs nothing further from here — ordinary `FileOutputStream` (append mode, resuming from
- * [getTempFileSize]) is all a `BackgroundResourceDownloader` needs to stream bytes onto disk. This
- * class only finalizes what already arrived.
+ * needs nothing further from here than [markTempFileComplete] at the end — ordinary
+ * `FileOutputStream` (append mode, resuming from [getTempFileSize]) is all a
+ * `BackgroundResourceDownloader` needs to stream bytes onto disk. This class only finalizes what
+ * already arrived.
+ *
+ * A complete transfer is a different file from a partial one: [markTempFileComplete] renames
+ * `tmp/<id>.<ext>` to `tmp/<id>.<ext>.complete`, an atomic rename within one directory, so no crash
+ * can leave a partial file that reads as complete. A `tmp/<id>.<ext>` left by an earlier version of
+ * this library is therefore partial, and is resumed rather than committed.
  */
 internal class AndroidDownloaderStorage(
     private val context: Context,
@@ -50,9 +57,17 @@ internal class AndroidDownloaderStorage(
         return File(baseDir, "tmp/${unit.id}.${unit.tempExtension}").absolutePath
     }
 
-    override fun isTempFileAvailable(unit: DownloadUnit): Boolean {
-        val tempFile = File(getTempFilePath(unit))
-        return tempFile.exists() && tempFile.length() > 0
+    private fun completeTempFile(unit: DownloadUnit): File =
+        File(baseDir, "tmp/${unit.id}.${unit.tempExtension}.complete")
+
+    override fun tempFileState(unit: DownloadUnit): TempFileState {
+        if (completeTempFile(unit).exists()) return TempFileState.Complete
+        val partial = File(getTempFilePath(unit))
+        return if (partial.exists() && partial.length() > 0) {
+            TempFileState.Partial
+        } else {
+            TempFileState.None
+        }
     }
 
     override fun getTempFileSize(unit: DownloadUnit): Long {
@@ -60,8 +75,18 @@ internal class AndroidDownloaderStorage(
         return if (tempFile.exists()) tempFile.length() else 0L
     }
 
+    override fun markTempFileComplete(unit: DownloadUnit) {
+        val complete: File = completeTempFile(unit)
+        if (complete.exists()) return
+        val partial = File(getTempFilePath(unit))
+        check(partial.exists()) { "No temp file to mark complete for $unit at ${partial.path}" }
+        check(partial.renameTo(complete)) { "Could not mark the temp file of $unit complete" }
+        logger.i { "Marked the temp file of $unit complete (${complete.length()} bytes)" }
+    }
+
     override fun deleteTempFile(unit: DownloadUnit) {
         File(getTempFilePath(unit)).delete()
+        completeTempFile(unit).delete()
     }
 
     override fun getResourceSize(unit: DownloadUnit): Long {
@@ -90,7 +115,11 @@ internal class AndroidDownloaderStorage(
     override suspend fun commitResource(
         unit: DownloadUnit,
     ): Unit = withContext(Dispatchers.IO) {
-        val tempFile = File(getTempFilePath(unit))
+        val tempFile: File = completeTempFile(unit)
+        check(tempFile.exists()) {
+            "No complete temp file for $unit — a partial transfer is resumed, never committed"
+        }
+        verifySha256(tempFile, unit)
         if (unit.isDirectoryResource) {
             val targetDir = File(getResourcePath(unit))
             // Per-unit, not a single shared name — two archive units extracting at the same time
@@ -142,6 +171,35 @@ internal class AndroidDownloaderStorage(
     }
 
     /**
+     * Checks [tempFile] against [DownloadUnit.sha256] when the unit states one. Deletes the file
+     * and throws [ResourceIntegrityException] on a mismatch; a hash that is not 64 hex digits is
+     * the host's mistake, not the download's, and throws [IllegalArgumentException] instead so it
+     * is not answered with a pointless re-download.
+     */
+    private fun verifySha256(tempFile: File, unit: DownloadUnit) {
+        val expected: String = unit.sha256 ?: return
+        require(expected.isSha256Hex()) {
+            "DownloadUnit.sha256 of $unit is not 64 hex digits: '$expected'"
+        }
+        val digest: MessageDigest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(WRITE_BUFFER_SIZE)
+        FileInputStream(tempFile).use { input: FileInputStream ->
+            var read: Int
+            while (input.read(buffer).also { read = it } != -1) {
+                digest.update(buffer, 0, read)
+            }
+        }
+        val actual: String = digest.digest().toLowerHex()
+        if (!actual.equals(expected, ignoreCase = true)) {
+            tempFile.delete()
+            throw ResourceIntegrityException(
+                "Downloaded resource failed integrity check: " +
+                    "SHA-256 is $actual, expected $expected",
+            )
+        }
+    }
+
+    /**
      * Verifies a committed-to-be [ResourceFormat.SqliteDatabase] before it is moved into place.
      *
      * Opening it is the baseline check — bytes that are not a database fail here. When the format
@@ -150,13 +208,16 @@ internal class AndroidDownloaderStorage(
      * which key those are is the host's own domain knowledge, which is why they are values on the
      * unit's [ResourceFormat.SqliteDatabase] rather than anything this library assumes.
      *
-     * Deletes the temp file and throws on any failure: nothing invalid may reach the final path,
-     * not even momentarily.
+     * Deletes the temp file and throws [ResourceIntegrityException] on any failure: nothing invalid
+     * may reach the final path, not even momentarily.
      */
     private fun verifySqlite(tempFile: File, format: ResourceFormat.SqliteDatabase) {
         val counts: Pair<Int, Int?>? = try {
             SQLiteDatabase.openDatabase(tempFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
                 .use { db: SQLiteDatabase ->
+                    // Opening alone proves nothing: SQLite reads the header lazily, so bytes
+                    // that are not a database open fine and fail only at the first read.
+                    queryInt(db, "SELECT COUNT(*) FROM sqlite_master")
                     val table: String? = format.rowCountTable
                     val metaKey: String? = format.declaredRowCountMetaKey
                     if (table == null || metaKey == null) {
@@ -168,7 +229,7 @@ internal class AndroidDownloaderStorage(
                 }
         } catch (e: SQLiteException) {
             tempFile.delete()
-            throw IllegalStateException(
+            throw ResourceIntegrityException(
                 "Downloaded resource failed integrity check: not a valid database (${e.message})",
                 e,
             )
@@ -176,7 +237,10 @@ internal class AndroidDownloaderStorage(
         val (actualCount: Int, declaredCount: Int?) = counts ?: return
         if (declaredCount == null || actualCount != declaredCount) {
             tempFile.delete()
-            error("Downloaded resource failed integrity check: $actualCount rows, meta declares $declaredCount")
+            throw ResourceIntegrityException(
+                "Downloaded resource failed integrity check: " +
+                    "$actualCount rows, meta declares $declaredCount",
+            )
         }
     }
 

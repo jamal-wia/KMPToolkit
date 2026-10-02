@@ -9,6 +9,57 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [2.0.0]
+
+### Breaking
+
+- `kmptoolkit-downloader`: a partial temp file is no longer committed as the finished resource.
+  Before, `ensureAvailable` treated any non-empty temp file as a download that had finished in the
+  background, so a transfer cut short by process death, a reboot or a swipe-away was moved into
+  place truncated, reported `Completed`, and stayed "available" for good. Worse, a second
+  `ensureAvailable` while a transfer was still running (its first caller had left the screen)
+  committed the file the transfer was still writing. Partial and complete are now separate states,
+  and only a complete one is committed without a transfer; a partial one is attached to while its
+  transfer runs and resumed otherwise.
+  - **`DownloaderStorage`:** `isTempFileAvailable(unit): Boolean` is replaced by
+    `tempFileState(unit): TempFileState` (`None`, `Partial`, `Complete`), and
+    `markTempFileComplete(unit)` is new — an atomic rename to `tmp/<id>.<ext>.complete`.
+    `commitResource` now commits only a complete temp file and throws otherwise. A custom
+    `DownloaderStorage` must implement both new members and keep that rule.
+  - **`BackgroundResourceDownloader` implementations** should call
+    `storage.markTempFileComplete(unit)` once the last byte is written and the size checked against
+    `Content-Length` / `Content-Range`, before emitting `FileReady` or committing on their own. The
+    engine marks the file itself when it observes `FileReady`, so an implementation that does not
+    keeps working while the app watches, but a transfer that finished while the process was dead is
+    resumed instead of committed. Its resume asks for a range starting at the file's full size;
+    treat the server's `416` with a matching `Content-Range` total as "already complete". See
+    `docs/kmptoolkit-downloader/07-background-downloader.md`.
+  - **A temp file left by 1.x is partial**, since 1.x never recorded completeness, and is resumed
+    rather than committed on the first `ensureAvailable` after the upgrade.
+  - **`DownloadError.Corrupted`** is a new subclass, so an exhaustive `when` needs a branch for it.
+  - **`ResourceFormat.SqliteDatabase` failures** are now `DownloadError.Corrupted` after one fresh
+    download, not `DownloadError.Storage` at once.
+- `kmptoolkit-downloader-testing`: `FakeDownloaderStorage` implements the new members; what a
+  transfer left behind is set through `FakeDownloaderStorage.tempFileStates`.
+
+### Added
+
+- `kmptoolkit-downloader`: `DownloadUnit.sha256`, an optional SHA-256 (64 hex digits, default
+  `null`) that `commitResource` checks before anything reaches the final path — before the move,
+  the extraction or the database check. It catches what completeness cannot: bytes damaged in
+  transit, and a file stitched from two versions when the remote resource changed between an
+  interrupted transfer and its resume. Hashing streams the file once, at commit.
+- `kmptoolkit-downloader`: `ResourceIntegrityException`, thrown by `commitResource` (after it
+  deletes the temp file) when the bytes fail a check. The engine answers it with one fresh download
+  and then reports `DownloadError.Corrupted`; any other commit failure is still
+  `DownloadError.Storage` at once, without spending a download.
+
+### Fixed
+
+- `kmptoolkit-downloader`: a `ResourceFormat.SqliteDatabase` check now rejects bytes that are not a
+  database. It only opened the file, and SQLite reads the header lazily, so garbage opened fine and
+  was committed whenever the unit named no row-count table. The check now reads the schema.
+
 ## [1.9.0]
 
 ### Added
