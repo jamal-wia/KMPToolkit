@@ -44,6 +44,9 @@ passing a result function:
 val uploader = FakeUploader { call -> if (call.uniqueKey == "already-queued") null else "id" }
 ```
 
+Withdrawals are recorded too: `cancelled` lists the ids passed to `cancel`, `cancelledByTag` the tags
+passed to `cancelByTag`.
+
 ## Testing with the real engine
 
 For anything about delivery, run the engine over `InMemoryUploaderStore`:
@@ -202,6 +205,9 @@ fun `a 401 refreshes the token and retries`() = runTest {
 }
 ```
 
+`RecordingUploadTransport.cancels` lists the ids the engine cancelled, so a test of a withdrawal or a
+`REPLACE` can assert that only the intended upload was stopped.
+
 `UploaderEngineRegistry` is process-wide: close — or unregister — the engine at the end of every test
 that registered one.
 
@@ -210,6 +216,9 @@ that registered one.
 Worth reading if you are extending the engine: `kmptoolkit-uploader/src/commonTest` covers retry and
 backoff under an injected clock, give-up policies, ordering within and across channels, constraint
 gating, poison payloads, schema downgrades, the full detached-delivery protocol (lease expiry,
-settle-twice, a settle racing a re-hand, an executor that died with the process), cancellation,
-transient store failures, and the start/close lifecycle. `androidUnitTest` pins the merged-manifest
-permission set and the derived WorkManager work name.
+settle-twice, a settle racing a re-hand, an executor that died with the process), withdrawal by id,
+by tag and by `REPLACE` (including one racing a hand-off, and two handlers sharing a transport),
+cancellation, transient store failures, and the start/close lifecycle. `androidUnitTest` pins the
+merged-manifest permission set and the derived WorkManager work name, cancels one item's job while
+another's stays queued, and runs a real socket to check that a cancelled transfer never sends a
+complete body.

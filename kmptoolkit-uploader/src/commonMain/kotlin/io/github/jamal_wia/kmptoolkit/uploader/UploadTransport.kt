@@ -49,8 +49,20 @@ public interface UploadTransport {
     }
 
     /**
-     * Cancels every delivery this transport is running. Safe to over-cancel: a still-owed item's
-     * row survives, and the engine re-hands it on the next drain or lease expiry.
+     * Cancels the delivery of [itemId] if this transport is running it — in this process or, where the
+     * platform keeps the transfer outside it, one an earlier process started. A no-op for an id it is
+     * not running, so calling it for an item that already finished, or never launched, is safe.
+     *
+     * A cancelled delivery settles nothing: whoever cancels decides what happens to the item, and
+     * [Uploader.cancel] has already removed its row by the time it calls this.
+     *
+     * Best effort, by nature: a transfer whose last byte already left may have been accepted by the
+     * server, and no cancellation can take that back. An idempotency key — the item id — is what makes
+     * a later re-send of the same effect harmless.
+     *
+     * Must not throw for a runtime condition (a platform scheduler that is unavailable); log and return.
+     *
+     * @since 2.0.0
      */
-    public fun cancelAll()
+    public fun cancel(itemId: String)
 }

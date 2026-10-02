@@ -364,7 +364,7 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/UploadResultKt {
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/UploadTransport {
-	public abstract fun cancelAll ()V
+	public abstract fun cancel (Ljava/lang/String;)V
 	public abstract fun getLeaseMillis ()J
 	public abstract fun launch (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
 	public fun launch (Ljava/lang/String;ZLio/github/jamal_wia/kmptoolkit/uploader/UploadRequest;)V
@@ -414,6 +414,8 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/UploadTransportConfig
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/Uploader {
+	public abstract fun cancel (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun cancelByTag (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun enqueue (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun enqueue$default (Lio/github/jamal_wia/kmptoolkit/uploader/Uploader;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun observe (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;

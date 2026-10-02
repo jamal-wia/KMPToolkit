@@ -119,6 +119,10 @@ public class BackgroundUploadConfig(
  * process rejoins a task the daemon is still running. A re-hand that finds nothing running waits
  * [BackgroundUploadConfig.rehandFlushWindow] for buffered completion events before starting afresh.
  *
+ * **Cancellation by item.** [UploadTransport.cancel] stops that one item's session and nothing else.
+ * An upload an earlier process started is reached through its session identifier, which carries the
+ * item id, so a cancel after a relaunch still finds it.
+ *
  * The multipart body is written to a temporary file first — a background upload must come from a
  * file — and removed when the upload completes. It is rebuilt on every hand-off.
  *
@@ -263,21 +267,48 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
-    override fun cancelAll() {
-        // Invalidated while holding the lock, so a concurrent launch for the same item blocks until the old
-        // session is gone — never two live sessions with one identifier, which Apple leaves undefined.
+    override fun cancel(itemId: String) {
+        // Under the lock, so a concurrent launch for the same item either sees the session gone or is
+        // joined to the one being cancelled — never two live sessions with one identifier, which Apple
+        // leaves undefined — and so startUpload cannot create a task on a session invalidated here.
+        val orphan: LiveUpload?
         liveLock.lock()
         try {
-            liveUploads.values.forEach { live ->
+            val live: LiveUpload? = liveUploads.remove(itemId)
+            if (live != null) {
                 // Cancelled tasks still report completion; marked first, they settle nothing and spend no
                 // retry budget.
                 live.delegate.cancelled = true
                 live.session.invalidateAndCancel()
-                removeTemporaryBody(live.delegate.itemId)
+                removeTemporaryBody(itemId)
+                orphan = null
+            } else {
+                // Not live here — but nsurlsessiond may still be running a transfer an earlier process
+                // started. The identifier carries the item id, so the session can be reattached by name.
+                orphan = createLive(itemId).also { it.delegate.cancelled = true }
+                liveUploads[itemId] = orphan
             }
-            liveUploads.clear()
         } finally {
             liveLock.unlock()
+        }
+        if (orphan == null) {
+            logger.i { "Cancelled the upload — item=$itemId" }
+            return
+        }
+        orphan.session.getTasksWithCompletionHandler { dataTasks, uploadTasks, downloadTasks ->
+            val tasks: List<NSURLSessionTask> = listOfNotNull(dataTasks, uploadTasks, downloadTasks)
+                .flatten()
+                .filterIsInstance<NSURLSessionTask>()
+            tasks.forEach { task -> task.cancel() }
+            liveLock.lock()
+            try {
+                orphan.session.invalidateAndCancel()
+                if (liveUploads[itemId] === orphan) liveUploads.remove(itemId)
+                removeTemporaryBody(itemId)
+            } finally {
+                liveLock.unlock()
+            }
+            logger.i { "Cancelled ${tasks.size} upload task(s) left by an earlier process — item=$itemId" }
         }
     }
 
@@ -302,28 +333,33 @@ internal class BackgroundSessionUploadTransport(
         liveLock.lock()
         try {
             liveUploads[itemId]?.let { existing -> return existing to false }
-            val configuration: NSURLSessionConfiguration =
-                NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier(identifierPrefix + itemId)
-            configuration.allowsCellularAccess = true
-            configuration.sessionSendsLaunchEvents = true
-            configuration.discretionary = false
-            val delegate = UploadSessionDelegate(
-                itemId = itemId,
-                scope = scope,
-                logger = logger,
-                onTerminal = ::releaseAfterTerminal,
-            )
-            val session: NSURLSession = NSURLSession.sessionWithConfiguration(
-                configuration = configuration,
-                delegate = delegate,
-                delegateQueue = null,
-            )
-            val live = LiveUpload(session, delegate)
+            val live: LiveUpload = createLive(itemId)
             liveUploads[itemId] = live
             return live to true
         } finally {
             liveLock.unlock()
         }
+    }
+
+    /** A new background session for [itemId]. The caller holds [liveLock] and records it. */
+    private fun createLive(itemId: String): LiveUpload {
+        val configuration: NSURLSessionConfiguration =
+            NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier(identifierPrefix + itemId)
+        configuration.allowsCellularAccess = true
+        configuration.sessionSendsLaunchEvents = true
+        configuration.discretionary = false
+        val delegate = UploadSessionDelegate(
+            itemId = itemId,
+            scope = scope,
+            logger = logger,
+            onTerminal = ::releaseAfterTerminal,
+        )
+        val session: NSURLSession = NSURLSession.sessionWithConfiguration(
+            configuration = configuration,
+            delegate = delegate,
+            delegateQueue = null,
+        )
+        return LiveUpload(session, delegate)
     }
 
     /**
@@ -375,8 +411,20 @@ internal class BackgroundSessionUploadTransport(
         urlRequest.setHTTPMethod(request.method)
         request.headers.forEach { (name, value) -> urlRequest.setValue(value, forHTTPHeaderField = name) }
         urlRequest.setValue("multipart/form-data; boundary=$boundary", forHTTPHeaderField = "Content-Type")
-        logger.i { "Starting upload — item=$itemId" }
-        live.session.uploadTaskWithRequest(urlRequest, fromFile = NSURL.fileURLWithPath(bodyPath)).resume()
+        // Checked and created under the lock that cancel holds while invalidating: a task created on an
+        // invalidated session raises an Objective-C exception.
+        liveLock.lock()
+        try {
+            if (live.delegate.cancelled) {
+                logger.i { "Upload cancelled before it started — item=$itemId" }
+                removeTemporaryBody(itemId)
+                return
+            }
+            logger.i { "Starting upload — item=$itemId" }
+            live.session.uploadTaskWithRequest(urlRequest, fromFile = NSURL.fileURLWithPath(bodyPath)).resume()
+        } finally {
+            liveLock.unlock()
+        }
     }
 
     private fun failBeforeStart(live: LiveUpload, itemId: String, message: String) {

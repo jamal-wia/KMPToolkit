@@ -164,15 +164,24 @@ internal class DefaultUploaderEngine(
             createdAtEpochMillis = clock.nowEpochMillis(),
             lastError = null,
         )
+        // The items a REPLACE supersedes, read first so their uploads can be cancelled once their rows
+        // are gone. One handed off between this read and the insert cancels itself: its hand-off finds
+        // the row gone right after launching.
+        var superseded: List<UploaderItem> = emptyList()
         val inserted: Boolean = transactionRunner.inTransaction {
             when (conflictPolicy) {
                 ConflictPolicy.KEEP -> store.insertKeep(record)
                 ConflictPolicy.REPLACE -> {
+                    if (uniqueKey != null && handler is UploadHandler<*>) {
+                        superseded = store.getAllActive()
+                            .filter { it.type == handler.type && it.uniqueKey == uniqueKey }
+                    }
                     store.insertReplace(record)
                     true
                 }
             }
         }
+        superseded.forEach { old -> cancelUpload(old, reason = "superseded by ${record.logName}") }
         if (inserted) {
             logger.d { "Enqueued ${record.logName}." }
         } else {
@@ -186,6 +195,46 @@ internal class DefaultUploaderEngine(
     }
 
     override fun observe(type: String): Flow<List<UploaderItem>> = store.observeByType(type)
+
+    override suspend fun cancel(id: String) {
+        val record: UploaderItem? = store.getById(id)
+        if (record == null) {
+            logger.i { "cancel for unknown id=$id — no-op." }
+            return
+        }
+        // Row first: a transport job that starts after this finds nothing owed.
+        store.deleteById(id)
+        cancelUpload(record, reason = "withdrawn")
+        trigger() // an emptied queue lets the drain disarm the wake
+    }
+
+    override suspend fun cancelByTag(tag: String) {
+        // Parked items are not in the active list, and have no upload to cancel.
+        val owed: List<UploaderItem> = store.getAllActive().filter { it.tag == tag }
+        store.deleteByTag(tag)
+        owed.forEach { record -> cancelUpload(record, reason = "withdrawn by tag") }
+        logger.i { "Withdrew every item tagged '$tag' (${owed.size} active)." }
+        trigger()
+    }
+
+    /**
+     * Cancels [record]'s upload when its handler is an [UploadHandler], whose transport the engine
+     * knows. Called for any state: cancelling an id the transport is not running is a no-op, and a
+     * pending item may be mid-hand-off.
+     */
+    private fun cancelUpload(record: UploaderItem, reason: String) {
+        val handler: UploadHandler<*> = handlersByType[record.type] as? UploadHandler<*> ?: run {
+            logger.i { "Withdrew ${record.logName} — $reason." }
+            return
+        }
+        try {
+            handler.transport.cancel(record.id)
+            logger.i { "Withdrew ${record.logName} and cancelled its upload — $reason." }
+        } catch (e: Throwable) {
+            // The row is already gone; a transport that throws must not fail the caller's withdrawal.
+            logger.e(e) { "Withdrew ${record.logName}, but cancelling its upload failed — $reason." }
+        }
+    }
 
     override suspend fun awaitDrained(timeout: Duration): Boolean {
         trigger()
@@ -490,11 +539,19 @@ internal class DefaultUploaderEngine(
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
             recordRetry(item, handler, e, expectedLeaseUntil = leaseUntil)
+            return
         } catch (e: Throwable) {
             // The platform scheduler unavailable, say: this item's attempt fails, guarded by the claim just
             // made so a settle that already landed is not overwritten.
             logger.e(e) { "Upload hand-off failed for ${item.logName}." }
             recordRetry(item, handler, e, expectedLeaseUntil = leaseUntil)
+            return
+        }
+        // A withdrawal, or a REPLACE, that removed the row while this attempt was being prepared found no
+        // upload to cancel yet. Seen from here, after the launch, the row is gone, so cancel it now. A row
+        // gone because a fast upload already settled makes this a harmless no-op.
+        if (store.getById(item.id) == null) {
+            cancelUpload(item, reason = "removed during its hand-off")
         }
     }
 

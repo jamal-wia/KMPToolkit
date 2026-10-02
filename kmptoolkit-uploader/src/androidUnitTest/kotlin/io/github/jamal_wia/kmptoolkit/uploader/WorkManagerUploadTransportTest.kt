@@ -30,7 +30,7 @@ class WorkManagerUploadTransportTest {
         val request = UploadRequest(url = "https://example.com", fields = emptyList())
 
         transport.launch("item-1", request)
-        transport.cancelAll()
+        transport.cancel("item-1")
     }
 
     @Test

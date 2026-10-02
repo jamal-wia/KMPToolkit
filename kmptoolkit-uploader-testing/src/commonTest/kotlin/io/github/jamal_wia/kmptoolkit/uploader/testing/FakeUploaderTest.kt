@@ -93,6 +93,18 @@ class FakeUploaderTest {
     }
 
     @Test
+    fun `cancel and cancelByTag are recorded in order`() = runTest {
+        val uploader = FakeUploader()
+
+        uploader.cancel("fake-id-1")
+        uploader.cancel("never-returned")
+        uploader.cancelByTag("session-1")
+
+        assertEquals(listOf("fake-id-1", "never-returned"), uploader.cancelled)
+        assertEquals(listOf("session-1"), uploader.cancelledByTag)
+    }
+
+    @Test
     fun `observe emits what was pushed filtered by type`() = runTest {
         val uploader = FakeUploader()
         uploader.emitObserved(listOf(item("a", type = "one"), item("b", type = "two")))
@@ -107,11 +119,15 @@ class FakeUploaderTest {
         uploader.enqueue(NoopHandler(), "p")
         uploader.trigger()
         uploader.emitObserved(listOf(item("a")))
+        uploader.cancel("x")
+        uploader.cancelByTag("t")
 
         uploader.reset()
 
         assertEquals(emptyList(), uploader.enqueued)
         assertEquals(0, uploader.triggerCount)
+        assertEquals(emptyList(), uploader.cancelled)
+        assertEquals(emptyList(), uploader.cancelledByTag)
         assertEquals(emptyList(), uploader.observe("test").first())
     }
 

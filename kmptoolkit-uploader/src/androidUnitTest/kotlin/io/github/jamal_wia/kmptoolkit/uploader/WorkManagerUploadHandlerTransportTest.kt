@@ -59,6 +59,37 @@ class WorkManagerUploadHandlerTransportTest {
     }
 
     @Test
+    fun `cancelling one item stops only that item's job`() {
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val transport: UploadTransport = createWorkManagerUploadHandlerTransport(context, config)
+        transport.launch("audio-1", isRehandOff = false, request = secretRequest)
+        transport.launch("voice-1", isRehandOff = false, request = secretRequest)
+
+        transport.cancel("audio-1")
+        transport.cancel("never-launched")
+
+        assertEquals(WorkInfo.State.CANCELLED, uniqueWorkState("outbox_upload_audio-1"))
+        assertEquals(WorkInfo.State.ENQUEUED, uniqueWorkState("outbox_upload_voice-1"))
+    }
+
+    @Test
+    fun `the classifier transport also cancels one item's job only`() {
+        // Here rather than in its own test class, which keeps WorkManager uninitialized on purpose.
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val transport: UploadTransport = createWorkManagerUploadTransport(context, config)
+        transport.launch("audio-2", secretRequest)
+        transport.launch("voice-2", secretRequest)
+
+        transport.cancel("audio-2")
+
+        assertEquals(WorkInfo.State.CANCELLED, uniqueWorkState("outbox_upload_audio-2"))
+        assertEquals(WorkInfo.State.ENQUEUED, uniqueWorkState("outbox_upload_voice-2"))
+    }
+
+    private fun uniqueWorkState(name: String): WorkInfo.State =
+        WorkManager.getInstance(context).getWorkInfosForUniqueWork(name).get().single().state
+
+    @Test
     fun `a worker with no engine to prepare the attempt retries`() = runTest {
         val result: ListenableWorker.Result = worker(workDataOf(
             UploadHandlerWorker.ITEM_ID_KEY to "item-1",
@@ -130,7 +161,7 @@ class WorkManagerUploadHandlerTransportTest {
     private class RecordingTransport : UploadTransport {
         override val leaseMillis: Long = 60_000L
         override fun launch(itemId: String, request: UploadRequest) = Unit
-        override fun cancelAll() = Unit
+        override fun cancel(itemId: String) = Unit
     }
 
     /** Points at a port nothing listens on, and parks whatever comes back so the settle is visible. */

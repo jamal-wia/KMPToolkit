@@ -39,9 +39,15 @@ public class RecordingUploadTransport(
     /** Every hand-off so far, oldest first. A snapshot. */
     public val launches: List<Launch> get() = recorded.toList()
 
-    /** How many times [cancelAll] was called. */
-    public var cancelAllCount: Int = 0
-        private set
+    private val cancelled: MutableList<String> = mutableListOf()
+
+    /**
+     * Every item id passed to [cancel] so far, oldest first, including ids that were never launched.
+     * A snapshot.
+     *
+     * @since 2.0.0
+     */
+    public val cancels: List<String> get() = cancelled.toList()
 
     /** Thrown from the next and every later launch while set — a platform scheduler that is unavailable. */
     public var failLaunchWith: Throwable? = null
@@ -55,8 +61,8 @@ public class RecordingUploadTransport(
         recorded += Launch(itemId, isRehandOff, request)
     }
 
-    override fun cancelAll() {
-        cancelAllCount++
+    override fun cancel(itemId: String) {
+        cancelled += itemId
     }
 
     /** The default lease: long enough that a test's clock never expires it by accident. */

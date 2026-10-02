@@ -153,6 +153,10 @@ need no `Info.plist` entry and no background mode.
 
 - **The wake layer is optional.** Without it, the engine's promise is "delivered while the app runs,
   or on its next launch" — which is already correct behavior, just slower.
+- **Withdrawing an upload stops it, but cannot recall bytes the server already has.**
+  `Uploader.cancel` stops a running Android job mid-body. It cancels an iOS background session, and
+  that includes one started by an earlier process. A body that was sent whole before the cancel may
+  have been accepted. See [`08-upload-transport.md`](08-upload-transport.md).
 - **A wake job must never call `drain()`.** Use `awaitDrained`; single-flight belongs to the started
   engine.
 - **Clocks.** Backoff gates and leases are absolute epoch millis, because they must survive process

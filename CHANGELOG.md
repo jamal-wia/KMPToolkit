@@ -41,6 +41,16 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
     download, not `DownloadError.Storage` at once.
 - `kmptoolkit-downloader-testing`: `FakeDownloaderStorage` implements the new members; what a
   transfer left behind is set through `FakeDownloaderStorage.tempFileStates`.
+- `kmptoolkit-uploader`: `UploadTransport.cancelAll()` is replaced by `cancel(itemId)`. One transport
+  is shared by every handler an app registers on it, so withdrawing one upload with `cancelAll()`
+  also aborted the others' — and on Android it did not even stop the bytes of the one meant (see
+  Fixed). There is no "cancel everything" replacement; withdraw by item or by tag through `Uploader`
+  (see Added). A custom `UploadTransport` must implement `cancel(itemId)` for its own deliveries,
+  as a no-op for an id it is not running.
+- `kmptoolkit-uploader`: `Uploader` has two new members, `cancel` and `cancelByTag`, so a custom
+  `Uploader` implementation or fake must implement them.
+- `kmptoolkit-uploader-testing`: `RecordingUploadTransport.cancelAllCount` is replaced by `cancels`,
+  the ids passed to `cancel` in order.
 
 ### Added
 
@@ -54,8 +64,31 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   and then reports `DownloadError.Corrupted`; any other commit failure is still
   `DownloadError.Storage` at once, without spending a download.
 
+- `kmptoolkit-uploader`: `Uploader.cancel(id)` withdraws one queued effect in any state. It deletes the
+  row, then cancels that one upload on its `UploadHandler`'s transport. Other items are untouched,
+  other handlers' uploads included. `Uploader.cancelByTag(tag)` does the same for every item of a tag
+  and replaces `UploaderStore.deleteByTag` as the logout wipe, which removed rows but left their
+  uploads running. A hand-off racing a withdrawal cancels its own upload once it sees the row gone
+  after launching, so neither order lets a withdrawn item upload. Bytes the server already received
+  cannot be recalled; the docs say so.
+- `kmptoolkit-uploader`: an Android upload stops mid-body when it is cancelled.
+  `createBackgroundUploadTransport` on iOS cancels an upload an earlier process started, reaching it
+  through its session identifier.
+- `kmptoolkit-uploader-testing`: `FakeUploader.cancelled` and `FakeUploader.cancelledByTag` record
+  withdrawals.
+
 ### Fixed
 
+- `kmptoolkit-uploader`: a cancelled Android upload no longer reaches the server. The multipart write
+  is blocking and never checked its job, so cancelling a running `WorkManager` job sent the whole body
+  and discarded only the outcome. The item, still owed, was then uploaded a second time after its
+  lease. The write now checks its job before every chunk. A cancelled transfer drops the connection
+  without closing the chunked body, so the server never receives a complete request.
+- `kmptoolkit-uploader`: `ConflictPolicy.REPLACE` cancels the superseded item's running upload instead
+  of letting it finish next to the new one.
+- `kmptoolkit-uploader`: the iOS transport no longer risks creating an upload task on a session that a
+  concurrent cancellation has just invalidated, an Objective-C exception. The check and the task
+  creation now happen under the same lock.
 - `kmptoolkit-downloader`: a `ResourceFormat.SqliteDatabase` check now rejects bytes that are not a
   database. It only opened the file, and SQLite reads the header lazily, so garbage opened fine and
   was committed whenever the unit named no row-count table. The check now reads the schema.

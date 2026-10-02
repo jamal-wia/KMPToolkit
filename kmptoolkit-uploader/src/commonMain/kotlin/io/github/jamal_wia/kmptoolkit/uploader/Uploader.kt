@@ -5,9 +5,9 @@ import kotlinx.coroutines.flow.Flow
 /**
  * The queue-facing half of the engine — the type your repositories and use cases should depend on.
  *
- * It is deliberately narrow: enqueue an effect, watch what is still owed, poke the drain. Nothing
- * about stores, leases, or platform wake-ups appears here, so a feature coupling to this contract
- * couples to three functions and can be faked in a test with `FakeUploader` from
+ * It is deliberately narrow: enqueue an effect, watch what is still owed, withdraw one, poke the
+ * drain. Nothing about stores, leases, or platform wake-ups appears here, so a feature coupling to
+ * this contract couples to five functions and can be faked in a test with `FakeUploader` from
  * `kmptoolkit-uploader-testing`. The lifecycle operations live one level up, on [UploaderEngine], and
  * belong to whoever owns the engine's lifetime — usually your application bootstrap.
  */
@@ -55,6 +55,42 @@ public interface Uploader {
      * @return items of that type in insertion order; never completes.
      */
     public fun observe(type: String): Flow<List<UploaderItem>>
+
+    /**
+     * Withdraws one queued effect: removes its item, in any state, and cancels its upload if an
+     * [UploadHandler]'s transport is running it. Other items — of this handler or any other sharing
+     * the transport — are untouched.
+     *
+     * The order is what makes this safe against the drain: the row goes first, so a transport job
+     * that starts afterwards finds nothing owed, and a hand-off racing this call sees the row gone
+     * right after it launches and cancels its own upload.
+     *
+     * **Best effort for the bytes.** An upload whose body already reached the server may have been
+     * accepted; nothing can recall it. Use [AttemptContext.id] as an idempotency key, and treat a
+     * withdrawal as "will not be sent from now on", not as "was never sent".
+     *
+     * A delivery that is not an [UploadHandler]'s — a plain handler returning
+     * [AttemptResult.Detached] to an executor of its own — loses its row, so its later settle is a
+     * no-op, but stopping that executor is the handler's business.
+     *
+     * Nothing is settled and no handler hook runs: the caller decided the item's fate, and is the
+     * place to clean up after it — a source file, a "sending" badge.
+     *
+     * @param id the id [enqueue] returned. An unknown id — already delivered, dropped, or never
+     *   queued — is a no-op.
+     * @since 2.0.0
+     */
+    public suspend fun cancel(id: String)
+
+    /**
+     * [cancel] for every item whose [UploaderItem.tag] equals [tag], in any state — the logout wipe:
+     * effects queued under one account must neither replay nor keep uploading under its credentials
+     * once it has signed out.
+     *
+     * @param tag the exact tag to match; items with another tag or none are untouched.
+     * @since 2.0.0
+     */
+    public suspend fun cancelByTag(tag: String)
 
     /**
      * Asks the drain to run.

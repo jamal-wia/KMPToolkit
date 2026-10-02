@@ -329,7 +329,7 @@ class UploadHandlerTest {
             launches += Launch(itemId, isRehandOff, request)
         }
 
-        override fun cancelAll() = Unit
+        override fun cancel(itemId: String) = Unit
 
         companion object {
             const val LEASE: Long = 60_000L

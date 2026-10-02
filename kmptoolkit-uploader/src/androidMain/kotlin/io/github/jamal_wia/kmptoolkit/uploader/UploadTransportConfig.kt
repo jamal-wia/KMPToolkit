@@ -11,9 +11,10 @@ import kotlin.time.Duration.Companion.seconds
  * @param uniqueWorkNamePrefix the WorkManager unique-work name prefix each upload is enqueued under
  *   (suffixed with the item id, so each item gets its own idempotent join point). `null` — the
  *   default — derives it from the application id as `<applicationId>.uploader.upload.`, so two apps
- *   built from this library never collide on WorkManager's global namespace.
- * @param workTag the tag [UploadTransport.cancelAll] cancels by. `null` derives
- *   `<applicationId>.uploader.upload`.
+ *   built from this library never collide on WorkManager's global namespace. It is also what
+ *   [UploadTransport.cancel] cancels by, so only that one item's job stops.
+ * @param workTag the tag every upload job carries, for inspecting them through `WorkManager`. `null`
+ *   derives `<applicationId>.uploader.upload`.
  * @param requiresNetwork whether the job waits for connectivity before running. `true` by default.
  * @param leaseMillis the lease reported to [UploadTransport.leaseMillis] — size it to your uploads'
  *   worst-case completion time. Must be positive.

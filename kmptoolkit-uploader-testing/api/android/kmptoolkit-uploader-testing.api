@@ -2,8 +2,12 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploader 
 	public fun <init> ()V
 	public fun <init> (Lkotlin/jvm/functions/Function1;)V
 	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun cancel (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun cancelByTag (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun emitObserved (Ljava/util/List;)V
 	public fun enqueue (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderHandler;Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/ConflictPolicy;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getCancelled ()Ljava/util/List;
+	public final fun getCancelledByTag ()Ljava/util/List;
 	public final fun getEnqueued ()Ljava/util/List;
 	public final fun getTriggerCount ()I
 	public final fun lastEnqueued ()Lio/github/jamal_wia/kmptoolkit/uploader/testing/FakeUploader$Enqueued;
@@ -78,8 +82,8 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/RecordingUplo
 	public fun <init> ()V
 	public fun <init> (J)V
 	public synthetic fun <init> (JILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public fun cancelAll ()V
-	public final fun getCancelAllCount ()I
+	public fun cancel (Ljava/lang/String;)V
+	public final fun getCancels ()Ljava/util/List;
 	public final fun getFailLaunchWith ()Ljava/lang/Throwable;
 	public final fun getLaunches ()Ljava/util/List;
 	public fun getLeaseMillis ()J

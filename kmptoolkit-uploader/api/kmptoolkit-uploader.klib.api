@@ -106,7 +106,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.uploader/UploadTransport { // 
     abstract val leaseMillis // io.github.jamal_wia.kmptoolkit.uploader/UploadTransport.leaseMillis|{}leaseMillis[0]
         abstract fun <get-leaseMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader/UploadTransport.leaseMillis.<get-leaseMillis>|<get-leaseMillis>(){}[0]
 
-    abstract fun cancelAll() // io.github.jamal_wia.kmptoolkit.uploader/UploadTransport.cancelAll|cancelAll(){}[0]
+    abstract fun cancel(kotlin/String) // io.github.jamal_wia.kmptoolkit.uploader/UploadTransport.cancel|cancel(kotlin.String){}[0]
     abstract fun launch(kotlin/String, io.github.jamal_wia.kmptoolkit.uploader/UploadRequest) // io.github.jamal_wia.kmptoolkit.uploader/UploadTransport.launch|launch(kotlin.String;io.github.jamal_wia.kmptoolkit.uploader.UploadRequest){}[0]
     open fun launch(kotlin/String, kotlin/Boolean, io.github.jamal_wia.kmptoolkit.uploader/UploadRequest) // io.github.jamal_wia.kmptoolkit.uploader/UploadTransport.launch|launch(kotlin.String;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.uploader.UploadRequest){}[0]
 }
@@ -115,6 +115,8 @@ abstract interface io.github.jamal_wia.kmptoolkit.uploader/Uploader { // io.gith
     abstract fun observe(kotlin/String): kotlinx.coroutines.flow/Flow<kotlin.collections/List<io.github.jamal_wia.kmptoolkit.uploader/UploaderItem>> // io.github.jamal_wia.kmptoolkit.uploader/Uploader.observe|observe(kotlin.String){}[0]
     abstract fun trigger() // io.github.jamal_wia.kmptoolkit.uploader/Uploader.trigger|trigger(){}[0]
     abstract suspend fun <#A1: kotlin/Any> enqueue(io.github.jamal_wia.kmptoolkit.uploader/UploaderHandler<#A1>, #A1, kotlin/String? = ..., kotlin/String? = ..., io.github.jamal_wia.kmptoolkit.uploader/ConflictPolicy = ...): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader/Uploader.enqueue|enqueue(io.github.jamal_wia.kmptoolkit.uploader.UploaderHandler<0:0>;0:0;kotlin.String?;kotlin.String?;io.github.jamal_wia.kmptoolkit.uploader.ConflictPolicy){0§<kotlin.Any>}[0]
+    abstract suspend fun cancel(kotlin/String) // io.github.jamal_wia.kmptoolkit.uploader/Uploader.cancel|cancel(kotlin.String){}[0]
+    abstract suspend fun cancelByTag(kotlin/String) // io.github.jamal_wia.kmptoolkit.uploader/Uploader.cancelByTag|cancelByTag(kotlin.String){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.uploader/UploaderEngine : io.github.jamal_wia.kmptoolkit.uploader/Uploader { // io.github.jamal_wia.kmptoolkit.uploader/UploaderEngine|null[0]

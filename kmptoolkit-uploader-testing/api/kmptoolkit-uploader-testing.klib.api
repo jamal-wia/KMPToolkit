@@ -9,6 +9,10 @@
 final class io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader : io.github.jamal_wia.kmptoolkit.uploader/Uploader { // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader|null[0]
     constructor <init>(kotlin/Function1<io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.Enqueued, kotlin/String?> = ...) // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.<init>|<init>(kotlin.Function1<io.github.jamal_wia.kmptoolkit.uploader.testing.FakeUploader.Enqueued,kotlin.String?>){}[0]
 
+    final val cancelled // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.cancelled|{}cancelled[0]
+        final fun <get-cancelled>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.cancelled.<get-cancelled>|<get-cancelled>(){}[0]
+    final val cancelledByTag // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.cancelledByTag|{}cancelledByTag[0]
+        final fun <get-cancelledByTag>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.cancelledByTag.<get-cancelledByTag>|<get-cancelledByTag>(){}[0]
     final val enqueued // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.enqueued|{}enqueued[0]
         final fun <get-enqueued>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.Enqueued> // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.enqueued.<get-enqueued>|<get-enqueued>(){}[0]
     final val triggerCount // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.triggerCount|{}triggerCount[0]
@@ -19,6 +23,8 @@ final class io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader : io.gi
     final fun observe(kotlin/String): kotlinx.coroutines.flow/Flow<kotlin.collections/List<io.github.jamal_wia.kmptoolkit.uploader/UploaderItem>> // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.observe|observe(kotlin.String){}[0]
     final fun trigger() // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.trigger|trigger(){}[0]
     final suspend fun <#A1: kotlin/Any> enqueue(io.github.jamal_wia.kmptoolkit.uploader/UploaderHandler<#A1>, #A1, kotlin/String?, kotlin/String?, io.github.jamal_wia.kmptoolkit.uploader/ConflictPolicy): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.enqueue|enqueue(io.github.jamal_wia.kmptoolkit.uploader.UploaderHandler<0:0>;0:0;kotlin.String?;kotlin.String?;io.github.jamal_wia.kmptoolkit.uploader.ConflictPolicy){0§<kotlin.Any>}[0]
+    final suspend fun cancel(kotlin/String) // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.cancel|cancel(kotlin.String){}[0]
+    final suspend fun cancelByTag(kotlin/String) // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.cancelByTag|cancelByTag(kotlin.String){}[0]
     final suspend fun reset() // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.reset|reset(){}[0]
 
     final class Enqueued { // io.github.jamal_wia.kmptoolkit.uploader.testing/FakeUploader.Enqueued|null[0]
@@ -97,18 +103,18 @@ final class io.github.jamal_wia.kmptoolkit.uploader.testing/MutableUploaderClock
 final class io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport : io.github.jamal_wia.kmptoolkit.uploader/UploadTransport { // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport|null[0]
     constructor <init>(kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.<init>|<init>(kotlin.Long){}[0]
 
+    final val cancels // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.cancels|{}cancels[0]
+        final fun <get-cancels>(): kotlin.collections/List<kotlin/String> // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.cancels.<get-cancels>|<get-cancels>(){}[0]
     final val launches // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.launches|{}launches[0]
         final fun <get-launches>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.Launch> // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.launches.<get-launches>|<get-launches>(){}[0]
     final val leaseMillis // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.leaseMillis|{}leaseMillis[0]
         final fun <get-leaseMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.leaseMillis.<get-leaseMillis>|<get-leaseMillis>(){}[0]
 
-    final var cancelAllCount // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.cancelAllCount|{}cancelAllCount[0]
-        final fun <get-cancelAllCount>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.cancelAllCount.<get-cancelAllCount>|<get-cancelAllCount>(){}[0]
     final var failLaunchWith // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.failLaunchWith|{}failLaunchWith[0]
         final fun <get-failLaunchWith>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.failLaunchWith.<get-failLaunchWith>|<get-failLaunchWith>(){}[0]
         final fun <set-failLaunchWith>(kotlin/Throwable?) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.failLaunchWith.<set-failLaunchWith>|<set-failLaunchWith>(kotlin.Throwable?){}[0]
 
-    final fun cancelAll() // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.cancelAll|cancelAll(){}[0]
+    final fun cancel(kotlin/String) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.cancel|cancel(kotlin.String){}[0]
     final fun launch(kotlin/String, io.github.jamal_wia.kmptoolkit.uploader/UploadRequest) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.launch|launch(kotlin.String;io.github.jamal_wia.kmptoolkit.uploader.UploadRequest){}[0]
     final fun launch(kotlin/String, kotlin/Boolean, io.github.jamal_wia.kmptoolkit.uploader/UploadRequest) // io.github.jamal_wia.kmptoolkit.uploader.testing/RecordingUploadTransport.launch|launch(kotlin.String;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.uploader.UploadRequest){}[0]
 
