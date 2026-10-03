@@ -39,6 +39,18 @@ public interface DownloadUnit {
     public val format: ResourceFormat get() = ResourceFormat.Opaque
 
     /**
+     * The SHA-256 of the downloaded bytes as 64 hex digits (either case), or null for no check.
+     * When set, [DownloaderStorage.commitResource] hashes the complete temp file before anything
+     * reaches the final path, and a mismatch is downloaded again rather than committed.
+     *
+     * The one check that catches what completeness cannot: bytes damaged in transit or on a CDN,
+     * and a file stitched from two versions when the remote resource changed between an interrupted
+     * transfer and its `Range` resume. Hashing reads the whole file once, about a second for a few
+     * hundred megabytes on a current phone, and only at commit.
+     */
+    public val sha256: String? get() = null
+
+    /**
      * True when committing means "extract an archive into a directory" rather than "move one file
      * into place". Derived from [format] — a unit states its shape once, and storage asks this.
      */
@@ -76,7 +88,8 @@ public sealed interface ResourceFormat {
      * A SQLite database, verified before it counts as committed: a truncated or corrupt download
      * fails at commit rather than surfacing later as an unreadable file deep inside a reader.
      *
-     * The file is always opened, which alone rejects bytes that are not a database. A unit whose
+     * The file is always opened and its schema read, which alone rejects bytes that are not a
+     * database (opening by itself does not: SQLite reads the header lazily). A unit whose
      * schema states its own expected size can ask for more: give [rowCountTable] and
      * [declaredRowCountMetaKey] and the row count of that table must equal the value stored under
      * that key in a `meta(key, value)` table. Which table and which key those are is the host's

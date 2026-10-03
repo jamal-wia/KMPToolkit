@@ -38,6 +38,13 @@ interface BackgroundResourceDownloader {
   a re-enqueue (see the storage temp-file offset below), but there is no explicit pause operation.
 - **`cancelDownload` does not delete the temp file.** The engine decides that — deleting it here too
   would race a caller reading `getTempFileSize` to compute a resume offset.
+- **You declare a transfer finished: `storage.markTempFileComplete(unit)`.** Call it when the last
+  byte is written and flushed, before you emit `FileReady` or commit on your own. It is the only
+  thing that makes a temp file `Complete`, and only a complete file is ever committed without a
+  transfer — a file that merely exists, however large, is `Partial` and is resumed. The engine marks
+  the file itself when it observes `FileReady`, so a downloader that forgets still works while the
+  app is watching; what it loses is recovery after process death, where nobody observed the event
+  and the file is resumed instead of committed.
 - **`Error.message` is raw text, not a classified error.** The engine's own keyword-matching
   classifier turns it into a `DownloadError` in one place; do not pre-classify on your side.
 
@@ -53,8 +60,25 @@ val resumeFrom: Long = storage.getTempFileSize(unit)    // 0 if nothing survived
 
 Open an ordinary file handle at `tempPath` in append mode, request bytes starting at `resumeFrom`
 if your transport supports a byte-range request, and stream what arrives. When the transfer
-finishes, emit `BackgroundDownloadEvent.FileReady(unit)` — the engine calls
+finishes, flush and close the file, call `storage.markTempFileComplete(unit)`, then emit
+`BackgroundDownloadEvent.FileReady(unit)` — the engine calls
 `DownloaderStorage.commitResource(unit)` itself; your downloader does not need to.
+
+**Check the length before you mark.** You are the one party that saw the response, so you are the
+one that can tell a whole file from a connection that closed early: the total from `Content-Length`
+(plus `resumeFrom`, on a `206`) or from `Content-Range`'s `/<total>` must equal the file's size.
+On a mismatch, emit `Error` and leave the file partial — the engine's retry resumes it. Two answers
+on a resume need care:
+
+- **`416 Range Not Satisfiable`** to `Range: bytes=<size>-` usually means the file was already
+  whole — a transfer that finished while nothing marked it, such as one left by a version of this
+  library before 2.0.0. If `Content-Range: bytes */<total>` equals the file's size, mark it
+  complete and emit `FileReady`; otherwise delete it and start over.
+- **`200` instead of `206`** means the server ignored the range and is sending the whole file:
+  truncate the temp file and write from zero, or the result is two files glued together.
+
+If the remote file can change between an interrupted transfer and its resume, send `If-Range` with
+the first response's `ETag`, or state `DownloadUnit.sha256` so a stitched file fails at commit.
 
 Resolve the URL to fetch through `DownloadUrlResolver.resolve(unit)` on every attempt — never
 cache the result, since a signed URL is typically short-lived.
@@ -63,8 +87,8 @@ cache the result, since a signed URL is typically short-lived.
 
 The shape most Android implementations converge on: a foreground service so the OS does not kill
 the process mid-transfer, streaming with a plain HTTP client, 1% progress throttling so the engine
-is not flooded, and self-commit on success so a transfer that finishes while the UI process is dead
-is not lost.
+is not flooded, and marking the temp file complete on success so a transfer that finishes while the
+UI process is dead is committed — not resumed — on the next `ensureAvailable`.
 
 ```kotlin
 class MyBackgroundResourceDownloader(
@@ -82,7 +106,9 @@ class MyBackgroundResourceDownloader(
         //   val resumeFrom = storage.getTempFileSize(unit)
         //   stream `url` (Range: bytes=$resumeFrom-) into storage.getTempFilePath(unit), append mode
         //   emit Progress(unit, fraction) as bytes arrive, throttled
-        //   on success: events.tryEmit(BackgroundDownloadEvent.FileReady(unit))
+        //   on success: check the size against Content-Length / Content-Range, then
+        //     storage.markTempFileComplete(unit)
+        //     events.tryEmit(BackgroundDownloadEvent.FileReady(unit))
         //   on failure: events.tryEmit(BackgroundDownloadEvent.Error(unit, e.message ?: "unknown"))
         //   either way: inProgress.remove(unit.id)
     }
@@ -107,16 +133,16 @@ draws from:
   app has been backgrounded and its memory budget shrinks. Streaming directly with a low-level
   connection API, writing each chunk straight to disk, avoids holding the whole response in memory.
 - **Reconnect on relaunch, don't restart.** If your foreground service is killed and restarted by
-  the OS, check `storage.isTempFileAvailable(unit)` / `storage.getTempFileSize(unit)` before
+  the OS, check `storage.tempFileState(unit)` / `storage.getTempFileSize(unit)` before
   re-enqueuing — a resumable transfer that instead starts from zero every relaunch defeats half the
-  point of this module.
+  point of this module, and a `Complete` file needs no transfer at all.
 
 ## A worked skeleton (iOS)
 
 The shape most iOS implementations converge on: one background `NSURLSession` per unit, whose
 session identifier carries the unit's `id` so a relaunch can reconnect to it, and a delegate that
 copies the OS's own completed-download temp file to the path `DownloaderStorage.getTempFilePath`
-names.
+names and then marks it complete.
 
 ```swift
 final class MyBackgroundResourceDownloader {
@@ -128,8 +154,11 @@ final class MyBackgroundResourceDownloader {
 
 Kotlin/Native interop for the `URLSessionDownloadDelegate` side is the same pattern as any
 Kotlin/Native + `NSURLSession` bridge; nothing about it is specific to this module beyond emitting
-`BackgroundDownloadEvent`s from the delegate callbacks and copying the delegate's own temp file to
-`storage.getTempFilePath(unit)` on `didFinishDownloadingTo`.
+`BackgroundDownloadEvent`s from the delegate callbacks and, in `didFinishDownloadingTo`, copying
+the delegate's own temp file to `storage.getTempFilePath(unit)` and calling
+`storage.markTempFileComplete(unit)` before that callback returns — the OS deletes its file as soon
+as it does. Check the response's status code there too: a `URLSession` download task "finishes"
+with an error page's body just as happily as with the resource.
 
 ## Prove it, informally
 
@@ -141,3 +170,5 @@ There is no shipped `BackgroundResourceDownloaderContract` — see
   what turns silence into an `Error`, not this port).
 - Exactly one `Terminal` event per attempt — never zero, never two.
 - `cancelDownload` does not touch the temp file.
+- A transfer cut short — a closed connection, a short body — leaves the temp file `Partial` and
+  emits `Error`; only a whole file is marked complete, and always before `FileReady`.

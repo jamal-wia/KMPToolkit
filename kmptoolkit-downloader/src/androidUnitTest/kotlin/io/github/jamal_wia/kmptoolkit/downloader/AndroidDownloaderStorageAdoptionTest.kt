@@ -18,9 +18,10 @@ import org.junit.runner.RunWith
  * An app that downloaded resources with its own storage has them on its users' devices under a
  * name of its choosing. Pointing [DownloaderStorageConfig.baseDirectoryName] at that name must make
  * every one of them count as present — committed files, unpacked archives, and a half-finished
- * transfer that resumes from where it stopped — or every user re-downloads everything and the old
- * copies are orphaned on disk. These cases write that layout by hand, as the earlier code left it,
- * and only then create the storage.
+ * transfer that resumes from where it stopped (a temp file the earlier code left is partial: it
+ * never recorded completeness, so it is resumed, never committed) — or every user re-downloads
+ * everything and the old copies are orphaned on disk. These cases write that layout by hand, as
+ * the earlier code left it, and only then create the storage.
  */
 @RunWith(AndroidJUnit4::class)
 class AndroidDownloaderStorageAdoptionTest {
@@ -74,21 +75,22 @@ class AndroidDownloaderStorageAdoptionTest {
 
         val storage: DownloaderStorage = storage()
 
-        assertTrue(storage.isTempFileAvailable(unit))
+        assertEquals(TempFileState.Partial, storage.tempFileState(unit))
         assertEquals(1024L, storage.getTempFileSize(unit))
         assertEquals(File(existingRoot, "tmp/quran-db.tmp").absolutePath, storage.getTempFilePath(unit))
     }
 
     @Test
-    fun `a resumed transfer commits into the existing directory`() = runTest {
+    fun `a resumed transfer commits into the existing directory once marked complete`() = runTest {
         val unit = TestUnit(id = "audio-index", relativePath = "audio/index.json")
         File(existingRoot, "tmp/audio-index.tmp").apply { parentFile!!.mkdirs() }.writeText("[1]")
 
         val storage: DownloaderStorage = storage()
+        storage.markTempFileComplete(unit)
         storage.commitResource(unit)
 
         assertEquals("[1]", File(existingRoot, "audio/index.json").readText())
-        assertFalse(storage.isTempFileAvailable(unit))
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
     }
 
     @Test

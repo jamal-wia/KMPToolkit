@@ -18,6 +18,11 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
+import platform.CoreCrypto.CC_SHA256_CTX
+import platform.CoreCrypto.CC_SHA256_DIGEST_LENGTH
+import platform.CoreCrypto.CC_SHA256_Final
+import platform.CoreCrypto.CC_SHA256_Init
+import platform.CoreCrypto.CC_SHA256_Update
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
@@ -52,9 +57,15 @@ import platform.zlib.inflate as zlibInflate
  * [DownloaderStorage] over plain files under `Application Support/<config.baseDirectoryName>/`.
  *
  * A downloader implementation writing into the temp file this class names via [getTempFilePath]
- * needs nothing further from here — an ordinary `NSFileHandle` (or POSIX `fopen`/`fwrite`) opened
- * at that path, appending from [getTempFileSize] to resume, is all a `BackgroundResourceDownloader`
- * needs. This class only finalizes what already arrived.
+ * needs nothing further from here than [markTempFileComplete] at the end — an ordinary
+ * `NSFileHandle` (or POSIX `fopen`/`fwrite`) opened at that path, appending from [getTempFileSize]
+ * to resume, is all a `BackgroundResourceDownloader` needs. This class only finalizes what already
+ * arrived.
+ *
+ * A complete transfer is a different file from a partial one: [markTempFileComplete] renames
+ * `tmp/<id>.<ext>` to `tmp/<id>.<ext>.complete`, an atomic rename within one directory, so no crash
+ * can leave a partial file that reads as complete. A `tmp/<id>.<ext>` left by an earlier version of
+ * this library is therefore partial, and is resumed rather than committed.
  */
 @OptIn(ExperimentalForeignApi::class)
 internal class IosDownloaderStorage(
@@ -101,8 +112,27 @@ internal class IosDownloaderStorage(
         return "$baseDir/tmp/${unit.id}.${unit.tempExtension}"
     }
 
-    override fun isTempFileAvailable(unit: DownloadUnit): Boolean {
-        return fileExists(getTempFilePath(unit))
+    private fun completeTempFilePath(unit: DownloadUnit): String =
+        "$baseDir/tmp/${unit.id}.${unit.tempExtension}.complete"
+
+    override fun tempFileState(unit: DownloadUnit): TempFileState = when {
+        fileExists(completeTempFilePath(unit)) -> TempFileState.Complete
+        getTempFileSize(unit) > 0L -> TempFileState.Partial
+        else -> TempFileState.None
+    }
+
+    override fun markTempFileComplete(unit: DownloadUnit) {
+        val complete: String = completeTempFilePath(unit)
+        if (fileExists(complete)) return
+        val partial: String = getTempFilePath(unit)
+        check(fileExists(partial)) { "No temp file to mark complete for $unit at $partial" }
+        val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
+            srcPath = partial,
+            toPath = complete,
+            error = null,
+        )
+        check(moved) { "Could not mark the temp file of $unit complete" }
+        logger.i { "Marked the temp file of $unit complete" }
     }
 
     override fun getTempFileSize(unit: DownloadUnit): Long {
@@ -116,6 +146,7 @@ internal class IosDownloaderStorage(
 
     override fun deleteTempFile(unit: DownloadUnit) {
         remove(getTempFilePath(unit))
+        remove(completeTempFilePath(unit))
     }
 
     override fun getResourceSize(unit: DownloadUnit): Long {
@@ -158,7 +189,11 @@ internal class IosDownloaderStorage(
     override suspend fun commitResource(
         unit: DownloadUnit,
     ): Unit = withContext(Dispatchers.IO) {
-        val tempFilePath: String = getTempFilePath(unit)
+        val tempFilePath: String = completeTempFilePath(unit)
+        check(fileExists(tempFilePath)) {
+            "No complete temp file for $unit — a partial transfer is resumed, never committed"
+        }
+        verifySha256(tempFilePath, unit)
         if (unit.isDirectoryResource) {
             val targetDir: String = getResourcePath(unit)
             // Per-unit, not a single shared name — two archive units extracting at the same time
@@ -224,6 +259,55 @@ internal class IosDownloaderStorage(
     }
 
     /**
+     * Checks the file at [tempFilePath] against [DownloadUnit.sha256] when the unit states one.
+     * Deletes the file and throws [ResourceIntegrityException] on a mismatch; a hash that is not 64
+     * hex digits is the host's mistake, not the download's, and throws [IllegalArgumentException]
+     * instead so it is not answered with a pointless re-download.
+     */
+    private fun verifySha256(tempFilePath: String, unit: DownloadUnit) {
+        val expected: String = unit.sha256 ?: return
+        require(expected.isSha256Hex()) {
+            "DownloadUnit.sha256 of $unit is not 64 hex digits: '$expected'"
+        }
+        val actual: String = sha256Hex(tempFilePath)
+        if (!actual.equals(expected, ignoreCase = true)) {
+            NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
+            throw ResourceIntegrityException(
+                "Downloaded resource failed integrity check: " +
+                    "SHA-256 is $actual, expected $expected",
+            )
+        }
+    }
+
+    /** Streams the file at [path] through CommonCrypto's SHA-256, never holding it in memory. */
+    private fun sha256Hex(path: String): String = memScoped {
+        val context: CC_SHA256_CTX = alloc()
+        CC_SHA256_Init(context.ptr)
+        val file: CPointer<FILE> = fopen(path, "rb")
+            ?: throw IllegalStateException("Cannot open $path to hash it")
+        try {
+            val buffer = ByteArray(WRITE_BUFFER_SIZE)
+            buffer.usePinned { pinned ->
+                while (true) {
+                    val read: Long = fread(
+                        pinned.addressOf(0),
+                        1u.convert(),
+                        buffer.size.convert(),
+                        file,
+                    ).toLong()
+                    if (read <= 0L) break
+                    CC_SHA256_Update(context.ptr, pinned.addressOf(0), read.convert())
+                }
+            }
+        } finally {
+            fclose(file)
+        }
+        val digest = UByteArray(CC_SHA256_DIGEST_LENGTH)
+        digest.usePinned { pinned -> CC_SHA256_Final(pinned.addressOf(0), context.ptr) }
+        digest.asByteArray().toLowerHex()
+    }
+
+    /**
      * Verifies a committed-to-be [ResourceFormat.SqliteDatabase] before it is moved into place.
      *
      * Opening it is the baseline check — bytes that are not a database fail here. When the format
@@ -232,13 +316,16 @@ internal class IosDownloaderStorage(
      * which key those are is the host's own domain knowledge, which is why they are values on the
      * unit's [ResourceFormat.SqliteDatabase] rather than anything this library assumes.
      *
-     * Deletes the temp file and throws on any failure: nothing invalid may reach the final path,
-     * not even momentarily.
+     * Deletes the temp file and throws [ResourceIntegrityException] on any failure: nothing invalid
+     * may reach the final path, not even momentarily.
      */
     private fun verifySqlite(tempFilePath: String, format: ResourceFormat.SqliteDatabase) {
         val counts: Pair<Int, Int?>? = try {
             val connection: SQLiteConnection = BundledSQLiteDriver().open(tempFilePath)
             try {
+                // Opening alone proves nothing: SQLite reads the header lazily, so bytes that are
+                // not a database open fine and fail only at the first read. Read the schema.
+                queryInt(connection, "SELECT COUNT(*) FROM sqlite_master")
                 val table: String? = format.rowCountTable
                 val metaKey: String? = format.declaredRowCountMetaKey
                 if (table == null || metaKey == null) {
@@ -255,7 +342,7 @@ internal class IosDownloaderStorage(
             }
         } catch (e: SQLiteException) {
             NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
-            throw IllegalStateException(
+            throw ResourceIntegrityException(
                 "Downloaded resource failed integrity check: not a valid database (${e.message})",
                 e,
             )
@@ -263,7 +350,10 @@ internal class IosDownloaderStorage(
         val (actualCount: Int, declaredCount: Int?) = counts ?: return
         if (declaredCount == null || actualCount != declaredCount) {
             NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
-            error("Downloaded resource failed integrity check: $actualCount rows, meta declares $declaredCount")
+            throw ResourceIntegrityException(
+                "Downloaded resource failed integrity check: " +
+                    "$actualCount rows, meta declares $declaredCount",
+            )
         }
     }
 

@@ -41,8 +41,10 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/testing/FakeDownloa
 	public fun getResourceSize (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)J
 	public fun getTempFilePath (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
 	public fun getTempFileSize (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)J
+	public final fun getTempFileStates ()Ljava/util/Map;
 	public fun isResourceAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
-	public fun isTempFileAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+	public fun markTempFileComplete (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public fun tempFileState (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lio/github/jamal_wia/kmptoolkit/downloader/TempFileState;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/downloader/testing/InMemoryStateStore : io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadStateStore {
@@ -106,6 +108,7 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/testing/TestUnit : 
 	public fun getGroup ()Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;
 	public fun getId ()Ljava/lang/String;
 	public fun getRelativePath ()Ljava/lang/String;
+	public fun getSha256 ()Ljava/lang/String;
 	public fun getTempExtension ()Ljava/lang/String;
 	public fun isDirectoryResource ()Z
 	public fun toString ()Ljava/lang/String;

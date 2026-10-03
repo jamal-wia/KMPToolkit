@@ -113,20 +113,46 @@ A key with no registered provider is treated as satisfied and logged as an error
 deliberate — a typo that silently freezes a queue forever is much harder to notice than one extra
 delivery attempt.
 
+## Withdrawing an effect
+
+When a queued effect is no longer wanted — the user reset the task, deleted the draft — withdraw it
+by the id `enqueue` returned:
+
+```kotlin
+val id: String? = uploader.enqueue(audioHandler, recording)
+// later
+id?.let { uploader.cancel(it) }
+```
+
+`cancel` removes the item in any state and, for an `UploadHandler`'s item, cancels that one upload on
+its transport. Other items are untouched, including other handlers' uploads on the same transport. It
+runs no handler hook, so clean up after it yourself — the source file, a "sending" badge.
+
+What it cannot do is recall bytes the server already has: an upload whose body was fully sent may
+have been accepted. Read a withdrawal as "will not be sent from now on". Send `AttemptContext.id` as
+an idempotency key so a second send of the same effect stays harmless.
+
+A plain handler that returned `AttemptResult.Detached` to an executor of its own loses its row, so the
+executor's later `settle` is a no-op, but stopping that executor is up to you.
+
+Replacing a key with `ConflictPolicy.REPLACE` withdraws the old item the same way: its upload, if one
+is running, is cancelled rather than left to finish next to the new one.
+
 ## Wiping a user's queue on logout
 
-Effects enqueued by one account must never replay under another's credentials. Tag them, then wipe
-the tag:
+Effects enqueued by one account must never replay under another's credentials, nor keep uploading
+with them after sign-out. Tag them, then withdraw the tag:
 
 ```kotlin
 uploader.enqueue(handler, payload, tag = "session-$userId")
 
 // on logout
-store.deleteByTag("session-$userId")
+uploader.cancelByTag("session-$userId")
 ```
 
 The tag is opaque — the library never interprets it — and the wipe crosses every state, including
-in-flight and parked items.
+in-flight and parked items. Prefer this to `UploaderStore.deleteByTag`, which removes the rows but
+leaves running uploads going.
 
 ## Making a domain write and its effect atomic
 

@@ -60,6 +60,8 @@ abstract interface io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit { // i
         open fun <get-format>(): io.github.jamal_wia.kmptoolkit.downloader/ResourceFormat // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.format.<get-format>|<get-format>(){}[0]
     open val isDirectoryResource // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.isDirectoryResource|{}isDirectoryResource[0]
         open fun <get-isDirectoryResource>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.isDirectoryResource.<get-isDirectoryResource>|<get-isDirectoryResource>(){}[0]
+    open val sha256 // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.sha256|{}sha256[0]
+        open fun <get-sha256>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.sha256.<get-sha256>|<get-sha256>(){}[0]
     open val tempExtension // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.tempExtension|{}tempExtension[0]
         open fun <get-tempExtension>(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.tempExtension.<get-tempExtension>|<get-tempExtension>(){}[0]
 }
@@ -87,7 +89,8 @@ abstract interface io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage {
     abstract fun getTempFilePath(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.getTempFilePath|getTempFilePath(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     abstract fun getTempFileSize(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Long // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.getTempFileSize|getTempFileSize(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     abstract fun isResourceAvailable(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.isResourceAvailable|isResourceAvailable(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
-    abstract fun isTempFileAvailable(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.isTempFileAvailable|isTempFileAvailable(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    abstract fun markTempFileComplete(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.markTempFileComplete|markTempFileComplete(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    abstract fun tempFileState(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): io.github.jamal_wia.kmptoolkit.downloader/TempFileState // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.tempFileState|tempFileState(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     abstract suspend fun commitResource(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.commitResource|commitResource(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
 
     final object Companion { // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.Companion|null[0]
@@ -140,6 +143,26 @@ sealed interface io.github.jamal_wia.kmptoolkit.downloader/ResourceFormat { // i
     }
 }
 
+sealed interface io.github.jamal_wia.kmptoolkit.downloader/TempFileState { // io.github.jamal_wia.kmptoolkit.downloader/TempFileState|null[0]
+    final object Complete : io.github.jamal_wia.kmptoolkit.downloader/TempFileState { // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.Complete|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.Complete.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.Complete.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.Complete.toString|toString(){}[0]
+    }
+
+    final object None : io.github.jamal_wia.kmptoolkit.downloader/TempFileState { // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.None|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.None.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.None.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.None.toString|toString(){}[0]
+    }
+
+    final object Partial : io.github.jamal_wia.kmptoolkit.downloader/TempFileState { // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.Partial|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.Partial.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.Partial.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/TempFileState.Partial.toString|toString(){}[0]
+    }
+}
+
 final class io.github.jamal_wia.kmptoolkit.downloader/DownloadCancelledException : kotlin/RuntimeException { // io.github.jamal_wia.kmptoolkit.downloader/DownloadCancelledException|null[0]
     constructor <init>(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup, io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit? = ...) // io.github.jamal_wia.kmptoolkit.downloader/DownloadCancelledException.<init>|<init>(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup;io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit?){}[0]
 
@@ -169,6 +192,10 @@ final class io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig { 
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException : kotlin/RuntimeException { // io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException|null[0]
+    constructor <init>(kotlin/String, kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException.<init>|<init>(kotlin.String;kotlin.Throwable?){}[0]
 }
 
 sealed class io.github.jamal_wia.kmptoolkit.downloader/BackgroundDownloadEvent { // io.github.jamal_wia.kmptoolkit.downloader/BackgroundDownloadEvent|null[0]
@@ -237,6 +264,19 @@ sealed class io.github.jamal_wia.kmptoolkit.downloader/BackgroundDownloadEvent {
 }
 
 sealed class io.github.jamal_wia.kmptoolkit.downloader/DownloadError { // io.github.jamal_wia.kmptoolkit.downloader/DownloadError|null[0]
+    final class Corrupted : io.github.jamal_wia.kmptoolkit.downloader/DownloadError { // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted|null[0]
+        constructor <init>(kotlin/String? = ...) // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted.<init>|<init>(kotlin.String?){}[0]
+
+        final val message // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted.message|{}message[0]
+            final fun <get-message>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted.message.<get-message>|<get-message>(){}[0]
+
+        final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted.component1|component1(){}[0]
+        final fun copy(kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted.copy|copy(kotlin.String?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Corrupted.toString|toString(){}[0]
+    }
+
     final class Server : io.github.jamal_wia.kmptoolkit.downloader/DownloadError { // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Server|null[0]
         constructor <init>(kotlin/Int?) // io.github.jamal_wia.kmptoolkit.downloader/DownloadError.Server.<init>|<init>(kotlin.Int?){}[0]
 

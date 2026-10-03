@@ -56,6 +56,7 @@ a `Downloader` ready to use immediately — there is no separate `start()`.
 | `relativePath` | `String` | Relative to the storage's own base directory. |
 | `tempExtension` | `String` | Default `"tmp"`. Cosmetic — the temp name is derived from `id`. |
 | `format` | `ResourceFormat` | Default `Opaque`. |
+| `sha256` | `String?` | Default `null`. 64 hex digits, either case; checked at commit, and a mismatch downloads again. |
 | `isDirectoryResource` | `Boolean` | Derived: `true` iff `format is ZipArchive`. |
 | `group` | `ResourceGroup` | Which group's notification and progress this unit is filed under. |
 
@@ -75,7 +76,9 @@ a `Downloader` ready to use immediately — there is no separate `start()`.
 ## `DownloadError`
 
 `sealed class`: `NoConnection`, `Timeout`, `NotFound`, `Unauthorized`, `Server(statusCode: Int?)`,
-`Storage(message: String? = null)`, `Unknown(message: String? = null)`.
+`Storage(message: String? = null)`, `Corrupted(message: String? = null)`,
+`Unknown(message: String? = null)`. `Corrupted` is bytes that failed a check (`sha256`, a
+`SqliteDatabase`'s) again after one fresh download; nothing was committed.
 
 ## `GroupDownloadState` / `UnitDownloadState`
 
@@ -116,12 +119,20 @@ Neither carries a `group` / `unit` field — the flow you collected is the ident
 | `isResourceAvailable` | `fun isResourceAvailable(unit: DownloadUnit): Boolean` |
 | `getResourcePath` | `fun getResourcePath(unit: DownloadUnit): String` |
 | `getTempFilePath` | `fun getTempFilePath(unit: DownloadUnit): String` |
-| `isTempFileAvailable` | `fun isTempFileAvailable(unit: DownloadUnit): Boolean` |
+| `tempFileState` | `fun tempFileState(unit: DownloadUnit): TempFileState` |
 | `getTempFileSize` | `fun getTempFileSize(unit: DownloadUnit): Long` |
+| `markTempFileComplete` | `fun markTempFileComplete(unit: DownloadUnit)` |
 | `deleteTempFile` | `fun deleteTempFile(unit: DownloadUnit)` |
 | `commitResource` | `suspend fun commitResource(unit: DownloadUnit)` |
 | `getResourceSize` | `fun getResourceSize(unit: DownloadUnit): Long` |
 | `deleteResource` | `fun deleteResource(unit: DownloadUnit)` |
+
+`TempFileState`: `sealed interface` — `None` (no file, or an empty one), `Partial` (an unfinished
+transfer, resumed from `getTempFileSize`), `Complete` (marked by `markTempFileComplete`; the only
+state committed without a transfer). `markTempFileComplete` is atomic, idempotent once complete,
+and throws when there is no file. `commitResource` throws when there is no complete file, and
+throws `ResourceIntegrityException(message, cause)` — after deleting the temp file — when the bytes
+fail a check; the engine answers that with one fresh download.
 
 `createDownloaderStorage(context, config = DownloaderStorageConfig(), logger = NoopLogger)` on
 Android; `createDownloaderStorage(config = DownloaderStorageConfig(), logger = NoopLogger)` on iOS.

@@ -54,11 +54,29 @@ public class FakeUploader(
 
     private var triggers: Int = 0
 
+    private val cancelledIds: MutableList<String> = mutableListOf()
+
+    private val cancelledTags: MutableList<String> = mutableListOf()
+
     /** Every [enqueue] call so far, in order. */
     public val enqueued: List<Enqueued> get() = recorded.toList()
 
     /** How many times [trigger] was called. */
     public val triggerCount: Int get() = triggers
+
+    /**
+     * Every id passed to [cancel], in order, including ids this fake never returned.
+     *
+     * @since 2.0.0
+     */
+    public val cancelled: List<String> get() = cancelledIds.toList()
+
+    /**
+     * Every tag passed to [cancelByTag], in order.
+     *
+     * @since 2.0.0
+     */
+    public val cancelledByTag: List<String> get() = cancelledTags.toList()
 
     /** The single most recent [enqueue] call, or `null` if there has not been one. */
     public fun lastEnqueued(): Enqueued? = recorded.lastOrNull()
@@ -81,6 +99,8 @@ public class FakeUploader(
     public suspend fun reset() {
         mutex.withLock {
             recorded.clear()
+            cancelledIds.clear()
+            cancelledTags.clear()
             triggers = 0
         }
         observed.value = emptyList()
@@ -107,6 +127,14 @@ public class FakeUploader(
 
     override fun observe(type: String): Flow<List<UploaderItem>> =
         observed.map { items -> items.filter { it.type == type } }
+
+    override suspend fun cancel(id: String): Unit = mutex.withLock {
+        cancelledIds += id
+    }
+
+    override suspend fun cancelByTag(tag: String): Unit = mutex.withLock {
+        cancelledTags += tag
+    }
 
     override fun trigger() {
         triggers++

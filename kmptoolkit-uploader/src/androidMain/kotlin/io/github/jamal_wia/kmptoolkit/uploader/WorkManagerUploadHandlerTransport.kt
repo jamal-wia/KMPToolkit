@@ -15,12 +15,14 @@ import androidx.work.workDataOf
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.i
+import io.github.jamal_wia.kmptoolkit.logging.w
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -97,8 +99,11 @@ internal class WorkManagerUploadHandlerTransport(
         )
     }
 
-    override fun cancelAll() {
-        WorkManager.getInstance(context).cancelAllWorkByTag(config.resolveWorkTag(context.packageName))
+    override fun cancel(itemId: String) {
+        // A running job's coroutine is cancelled, which stops the body mid-stream; a queued one never runs.
+        runCatching {
+            WorkManager.getInstance(context).cancelUniqueWork(config.resolveUniqueWorkName(context.packageName, itemId))
+        }.onFailure { failure -> logger.w(failure) { "Could not cancel the upload of item=$itemId" } }
     }
 }
 
@@ -159,6 +164,7 @@ public open class UploadHandlerWorker(
         try {
             // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO.
             withContext(Dispatchers.IO) {
+                val transfer: Job = coroutineContext.job
                 performMultipartUpload(
                     request = request,
                     connectTimeoutMillis = inputData.getInt(
@@ -170,6 +176,7 @@ public open class UploadHandlerWorker(
                         UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS,
                     ),
                     onWholePercent = { fraction -> fractions.trySend(fraction) },
+                    isCancelled = { !transfer.isActive },
                 )
             }
         } finally {

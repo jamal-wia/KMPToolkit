@@ -35,6 +35,9 @@ public enum class ConflictPolicy {
      * in-place edit. Without that, a key replaced over and over could hold the head of its channel
      * indefinitely and starve everything behind it.
      *
+     * A superseded item whose upload an [UploadHandler]'s transport is running is cancelled, as
+     * [Uploader.cancel] would: the old version must not keep uploading next to the new one.
+     *
      * This is the right choice for "only the latest value matters": a draft autosave, a presence
      * update, a settings sync.
      */

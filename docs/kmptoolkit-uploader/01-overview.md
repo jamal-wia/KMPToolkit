@@ -85,7 +85,7 @@ If you use SQLDelight, `kmptoolkit-uploader-sqldelight` is a ready store. If you
 
 | Type | Role |
 |---|---|
-| `Uploader` | What features depend on: `enqueue`, `observe`, `trigger` |
+| `Uploader` | What features depend on: `enqueue`, `observe`, `cancel`, `cancelByTag`, `trigger` |
 | `UploaderEngine` | `Uploader` plus lifecycle: `start`, `drain`, `settle`, `awaitDrained`, `close` |
 | `UploaderHandler<P>` | One per effect type: encode, decode, order, deliver |
 | `AttemptResult` | What a delivery attempt concluded |

@@ -35,12 +35,14 @@ class RecordingUploadTransportTest {
     }
 
     @Test
-    fun `cancelAll is counted and the lease is configurable`() {
+    fun `cancels are recorded per item in order and the lease is configurable`() {
         val transport = RecordingUploadTransport(leaseMillis = 5)
+        transport.launch("a", request)
 
-        transport.cancelAll()
+        transport.cancel("b")
+        transport.cancel("a")
 
-        assertEquals(1, transport.cancelAllCount)
+        assertEquals(listOf("b", "a"), transport.cancels)
         assertEquals(5L, transport.leaseMillis)
     }
 }

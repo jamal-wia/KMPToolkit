@@ -70,6 +70,19 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadCancelledEx
 public abstract class io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
 }
 
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadError$Corrupted : io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Corrupted;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Corrupted;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$Corrupted;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMessage ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadError$NoConnection : io/github/jamal_wia/kmptoolkit/downloader/DownloadError {
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/DownloadError$NoConnection;
 	public fun equals (Ljava/lang/Object;)Z
@@ -148,12 +161,14 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/Downlo
 	public abstract fun getGroup ()Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;
 	public abstract fun getId ()Ljava/lang/String;
 	public abstract fun getRelativePath ()Ljava/lang/String;
+	public fun getSha256 ()Ljava/lang/String;
 	public fun getTempExtension ()Ljava/lang/String;
 	public fun isDirectoryResource ()Z
 }
 
 public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadUnit$DefaultImpls {
 	public static fun getFormat (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat;
+	public static fun getSha256 (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
 	public static fun getTempExtension (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
 	public static fun isDirectoryResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
 }
@@ -202,7 +217,8 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/Downlo
 	public abstract fun getTempFilePath (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
 	public abstract fun getTempFileSize (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)J
 	public abstract fun isResourceAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
-	public abstract fun isTempFileAvailable (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
+	public abstract fun markTempFileComplete (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
+	public abstract fun tempFileState (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lio/github/jamal_wia/kmptoolkit/downloader/TempFileState;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage$Companion {
@@ -305,6 +321,35 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/ResourceFormat$ZipA
 public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/ResourceGroup {
 	public abstract fun getKey ()Ljava/lang/String;
 	public abstract fun getUnits ()Ljava/util/List;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/ResourceIntegrityException : java/lang/RuntimeException {
+	public fun <init> (Ljava/lang/String;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+}
+
+public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/TempFileState {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/TempFileState$Complete : io/github/jamal_wia/kmptoolkit/downloader/TempFileState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/TempFileState$Complete;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/TempFileState$None : io/github/jamal_wia/kmptoolkit/downloader/TempFileState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/TempFileState$None;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/TempFileState$Partial : io/github/jamal_wia/kmptoolkit/downloader/TempFileState {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/downloader/TempFileState$Partial;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public abstract class io/github/jamal_wia/kmptoolkit/downloader/UnitDownloadState {

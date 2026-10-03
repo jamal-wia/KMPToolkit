@@ -32,26 +32,50 @@ public interface DownloaderStorage {
     /** Absolute path of the committed resource — a file, or a directory for an archive unit. */
     public fun getResourcePath(unit: DownloadUnit): String
 
-    /** Absolute path of the in-progress temp file for [unit]. */
+    /**
+     * Absolute path a [BackgroundResourceDownloader] writes [unit]'s bytes into while the transfer
+     * runs. Whatever lies here is [TempFileState.Partial] until [markTempFileComplete] is called.
+     */
     public fun getTempFilePath(unit: DownloadUnit): String
 
-    /** True when a temp file exists — e.g. a background download finished while the app was dead. */
-    public fun isTempFileAvailable(unit: DownloadUnit): Boolean
+    /**
+     * What is left on disk of [unit]'s transfer. Recovery decides from this alone: only
+     * [TempFileState.Complete] is ever committed without a transfer, and [TempFileState.Partial] is
+     * resumed, never committed, however large it is.
+     */
+    public fun tempFileState(unit: DownloadUnit): TempFileState
 
-    /** Size of the temp file, or 0 when absent. Drives the HTTP `Range` offset when resuming. */
+    /** Size of the in-progress file, or 0 when absent. Drives the HTTP `Range` resume offset. */
     public fun getTempFileSize(unit: DownloadUnit): Long
 
-    /** Deletes [unit]'s temp file. Cleanup on error and on cancel; safe when there is none. */
+    /**
+     * Declares [unit]'s transfer finished: the file at [getTempFilePath] holds every byte, and
+     * [tempFileState] reports [TempFileState.Complete] from now on, across process death. Atomic,
+     * so a crash leaves either a partial file or a complete one, never a complete-looking partial
+     * one.
+     *
+     * The [BackgroundResourceDownloader] calls this when the last byte is written and before it
+     * emits [BackgroundDownloadEvent.FileReady] or commits on its own; it is the one party that saw
+     * the whole response, and so the one that can check the length against `Content-Length` first.
+     * Idempotent once complete. Throws when there is no file to mark.
+     */
+    public fun markTempFileComplete(unit: DownloadUnit)
+
+    /** Deletes [unit]'s temp file, partial or complete. For error and cancel; safe when absent. */
     public fun deleteTempFile(unit: DownloadUnit)
 
     /**
-     * Finalizes a completed download: moves the temp file into place, or — for
-     * [ResourceFormat.ZipArchive] — extracts it into the target directory and deletes the archive.
-     * Throws when the resource cannot be finalized.
+     * Finalizes a completed download: moves the [TempFileState.Complete] temp file into place, or
+     * — for [ResourceFormat.ZipArchive] — extracts it into the target directory and deletes the
+     * archive. Throws when there is no complete temp file, and when the resource cannot be
+     * finalized.
      *
-     * An implementation MAY verify the committed bytes against the unit's [DownloadUnit.format]
-     * before returning; nothing here guarantees it does, so a consumer that cannot tolerate a
-     * corrupt file must still check for itself.
+     * Before anything reaches the final path the bytes are checked against [DownloadUnit.sha256]
+     * when the unit states one, and against [ResourceFormat.SqliteDatabase]'s checks for a
+     * database. A failed check deletes the temp file and throws [ResourceIntegrityException],
+     * which the engine answers with a fresh download rather than a failure. A custom
+     * implementation must keep the same rule: nothing that fails a check may reach the final path,
+     * not even momentarily.
      */
     public suspend fun commitResource(unit: DownloadUnit)
 
@@ -61,6 +85,37 @@ public interface DownloaderStorage {
     /** Removes [unit]'s committed resource, file or directory. Safe when it is not present. */
     public fun deleteResource(unit: DownloadUnit)
 }
+
+/**
+ * What is left on disk of a unit's transfer — see [DownloaderStorage.tempFileState].
+ *
+ * Partial and complete are different states with different files, not one file judged by its size:
+ * a transfer killed mid-way leaves a file that exists and is not empty, and before this split it
+ * was committed as if it were the whole resource.
+ */
+public sealed interface TempFileState {
+
+    /** Nothing to resume or commit: no file, or an empty one. */
+    public data object None : TempFileState
+
+    /** Some bytes of an unfinished transfer. Resumed from [DownloaderStorage.getTempFileSize]. */
+    public data object Partial : TempFileState
+
+    /** The transfer finished and was marked so ([DownloaderStorage.markTempFileComplete]). */
+    public data object Complete : TempFileState
+}
+
+/**
+ * Thrown by [DownloaderStorage.commitResource] when the downloaded bytes fail a check: a
+ * [DownloadUnit.sha256] mismatch, or a [ResourceFormat.SqliteDatabase] that does not open or does
+ * not hold the rows it declares. The temp file is already gone when this is thrown.
+ *
+ * Its own type because the right answer differs from every other commit failure: downloading again
+ * is the fix for corrupt bytes, and not for a full disk. The engine retries once and then reports
+ * [DownloadError.Corrupted].
+ */
+public class ResourceIntegrityException(message: String, cause: Throwable? = null) :
+    RuntimeException(message, cause)
 
 /**
  * Which directory a [DownloaderStorage] implementation uses on device — the one thing about the

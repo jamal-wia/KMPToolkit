@@ -53,6 +53,8 @@ final class io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStor
         final fun <get-deletedResources>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedResources.<get-deletedResources>|<get-deletedResources>(){}[0]
     final val deletedTempFiles // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedTempFiles|{}deletedTempFiles[0]
         final fun <get-deletedTempFiles>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedTempFiles.<get-deletedTempFiles>|<get-deletedTempFiles>(){}[0]
+    final val tempFileStates // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.tempFileStates|{}tempFileStates[0]
+        final fun <get-tempFileStates>(): kotlin.collections/MutableMap<kotlin/String, io.github.jamal_wia.kmptoolkit.downloader/TempFileState> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.tempFileStates.<get-tempFileStates>|<get-tempFileStates>(){}[0]
 
     final fun deleteResource(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deleteResource|deleteResource(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     final fun deleteTempFile(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deleteTempFile|deleteTempFile(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
@@ -61,7 +63,8 @@ final class io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStor
     final fun getTempFilePath(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.getTempFilePath|getTempFilePath(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     final fun getTempFileSize(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Long // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.getTempFileSize|getTempFileSize(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     final fun isResourceAvailable(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.isResourceAvailable|isResourceAvailable(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
-    final fun isTempFileAvailable(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.isTempFileAvailable|isTempFileAvailable(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun markTempFileComplete(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.markTempFileComplete|markTempFileComplete(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    final fun tempFileState(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): io.github.jamal_wia.kmptoolkit.downloader/TempFileState // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.tempFileState|tempFileState(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     final suspend fun commitResource(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.commitResource|commitResource(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
 }
 

@@ -115,37 +115,31 @@ internal class DefaultDownloaderEngine(
             val units: List<DownloadUnit> = group.units
 
             // Count only units that require an actual network download.
-            // Units that are already available or have an uncommitted temp file
+            // Units that are already available or have a complete temp file awaiting commit
             // are excluded so progress is always scaled over the real download work.
             // This prevents cases like a two-unit group where one unit is already on disk
             // causing the other to only reach 50 % before reporting Completed.
             val downloadCount: Int = units.count { unit ->
                 !storage.isResourceAvailable(unit) &&
-                    !storage.isTempFileAvailable(unit)
+                    storage.tempFileState(unit) != TempFileState.Complete
             }
 
             var downloadIndex = 0
             for (unit: DownloadUnit in units) {
                 if (storage.isResourceAvailable(unit)) continue
 
-                // Recovery: download completed in background but not yet committed
-                if (storage.isTempFileAvailable(unit)) {
-                    logger.i {
-                        "RECOVERY: Temp file found for $unit " +
-                            "(size=${storage.getTempFileSize(unit)} bytes), committing..."
-                    }
-                    commitUnitAndNotify(group = group, groupState = groupState, unit = unit)
-                    continue
-                }
-                logger.i { "Unit $unit needs download (no temp file, not available)" }
-
+                // A unit recovered from a complete temp file is not in downloadCount. If its bytes
+                // then fail their check it downloads unplanned, over the whole bar rather than
+                // past its end — the never-backwards guard keeps the bar from jumping.
+                val planned: Boolean = storage.tempFileState(unit) != TempFileState.Complete
                 val progressBase: Float =
-                    if (downloadCount > 0) downloadIndex.toFloat() / downloadCount else 0f
+                    if (planned && downloadCount > 0) downloadIndex.toFloat() / downloadCount
+                    else 0f
                 val progressScale: Float =
-                    if (downloadCount > 0) 1f / downloadCount else 1f
-                downloadIndex++
+                    if (planned && downloadCount > 0) 1f / downloadCount else 1f
+                if (planned) downloadIndex++
 
-                downloadUnitWithRetry(
+                fetchAndCommitGroupUnit(
                     group = group,
                     groupState = groupState,
                     unit = unit,
@@ -233,7 +227,56 @@ internal class DefaultDownloaderEngine(
     }
 
     /**
-     * Downloads a single [unit] with automatic retry on error:
+     * Brings one unit of [group] onto disk. A [TempFileState.Complete] temp file is committed
+     * straight away — a transfer that finished while nobody observed it. Anything else transfers
+     * first: [downloadUnitWithRetry] attaches to a transfer still running, or enqueues one that
+     * resumes from a [TempFileState.Partial] file. A partial file is never committed, however
+     * large: a transfer killed mid-way leaves one that exists and is not empty, and committing it
+     * handed the consumer a truncated resource with no error.
+     *
+     * Bytes that fail their integrity check ([ResourceIntegrityException]) are downloaded
+     * [MAX_INTEGRITY_RETRIES] more times before the failure is reported.
+     */
+    private suspend fun fetchAndCommitGroupUnit(
+        group: ResourceGroup,
+        groupState: MutableStateFlow<GroupDownloadState>,
+        unit: DownloadUnit,
+        progressBase: Float,
+        progressScale: Float,
+    ) {
+        var integrityFailures = 0
+        while (true) {
+            if (storage.tempFileState(unit) == TempFileState.Complete) {
+                logger.i { "Complete temp file found for $unit, committing..." }
+            } else {
+                logger.i {
+                    "Unit $unit needs a transfer (tempFileState=${storage.tempFileState(unit)})"
+                }
+                downloadUnitWithRetry(
+                    group = group,
+                    groupState = groupState,
+                    unit = unit,
+                    progressBase = progressBase,
+                    progressScale = progressScale,
+                )
+            }
+            val committed: Boolean = commitUnitAndNotify(
+                group = group,
+                groupState = groupState,
+                unit = unit,
+                lastAttempt = integrityFailures >= MAX_INTEGRITY_RETRIES,
+            )
+            if (committed) return
+            integrityFailures++
+            logger.e {
+                "Integrity check failed for $unit — downloading again " +
+                    "($integrityFailures/$MAX_INTEGRITY_RETRIES)"
+            }
+        }
+    }
+
+    /**
+     * Transfers a single [unit] until its temp file is complete, with automatic retry on error:
      * - Always retries if the previous attempt made progress
      *   (received at least one [BackgroundDownloadEvent.Progress]).
      * - Retries up to [MAX_STALL_RETRIES] additional times without progress as a fallback.
@@ -274,8 +317,8 @@ internal class DefaultDownloaderEngine(
             }
             when (result.terminalEvent) {
                 is BackgroundDownloadEvent.FileReady -> {
-                    logger.i { "FileReady for $unit — committing..." }
-                    commitUnitAndNotify(group = group, groupState = groupState, unit = unit)
+                    logger.i { "FileReady for $unit" }
+                    markCompleteOnFileReady(unit)
                     clearStallCount(unit)
                     return
                 }
@@ -315,12 +358,12 @@ internal class DefaultDownloaderEngine(
     )
 
     /**
-     * Suspends until the background download for [unit] emits a terminal event.
-     * Maps unit-level progress to the overall group progress using [progressBase] and [progressScale].
+     * Suspends until the background download for [unit] emits a terminal event. Maps unit-level
+     * progress to the overall group progress using [progressBase] and [progressScale].
      *
-     * Uses **inactivity timeout** (stall detection) instead of a fixed wall-clock timeout:
-     * - [transformLatest] restarts the inner block on each new event, cancelling the previous [delay].
-     * - If no event arrives within [STALL_TIMEOUT], the delay completes and throws
+     * Uses **inactivity timeout** (stall detection) instead of a fixed wall-clock timeout: -
+     * [transformLatest] restarts the inner block on each new event, cancelling the previous
+     * [delay]. - If no event arrives within [STALL_TIMEOUT], the delay completes and throws
      *   [DownloadResourceStallException].
      * - A slow-but-progressing download (receiving Progress events) will never stall-timeout.
      * - Primary network/transport timeouts are handled by the [BackgroundResourceDownloader].
@@ -404,15 +447,21 @@ internal class DefaultDownloaderEngine(
         return stallCount <= MAX_STALL_RETRIES
     }
 
+    /**
+     * Commits [unit] and, once the whole group is on disk, publishes completion. Returns false when
+     * the bytes failed their integrity check and another download is allowed ([lastAttempt] false);
+     * the temp file is already deleted then. Every other failure is published and thrown.
+     */
     private suspend fun commitUnitAndNotify(
         group: ResourceGroup,
         groupState: MutableStateFlow<GroupDownloadState>,
         unit: DownloadUnit,
-    ) {
+        lastAttempt: Boolean,
+    ): Boolean {
         logger.i {
             "commitUnitAndNotify($unit) — " +
                 "isAvailable=${storage.isResourceAvailable(unit)}, " +
-                "tempAvailable=${storage.isTempFileAvailable(unit)}"
+                "tempFileState=${storage.tempFileState(unit)}"
         }
         try {
             // Guard: the platform downloader may have already committed the resource (self-commit,
@@ -456,16 +505,49 @@ internal class DefaultDownloaderEngine(
                 }
             }
             logger.i { "Resource unit $unit committed successfully" }
+            return true
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ResourceIntegrityException) {
+            logger.e(e) { "Resource $unit failed its integrity check: ${e.message}" }
+            safeDeleteTempFile(unit)
+            if (!lastAttempt) return false
+            failGroupCommit(group, groupState, unit, DownloadError.Corrupted(e.message), e)
         } catch (e: Exception) {
             val errorMessage: String = e.message ?: "Unknown error"
             logger.e(e) { "Failed to commit resource $unit: $errorMessage" }
-            val downloadError: DownloadError = DownloadError.Storage(errorMessage)
-            groupState.value = GroupDownloadState.Error(error = downloadError)
-            notifier.showError(group = group, error = downloadError)
-            safeDeleteTempFile(unit)
-            throw DownloadFailedException(unit = unit, error = downloadError, cause = e)
+            failGroupCommit(group, groupState, unit, DownloadError.Storage(errorMessage), e)
+        }
+    }
+
+    private suspend fun failGroupCommit(
+        group: ResourceGroup,
+        groupState: MutableStateFlow<GroupDownloadState>,
+        unit: DownloadUnit,
+        downloadError: DownloadError,
+        cause: Exception,
+    ): Nothing {
+        groupState.value = GroupDownloadState.Error(error = downloadError)
+        notifier.showError(group = group, error = downloadError)
+        safeDeleteTempFile(unit)
+        throw DownloadFailedException(unit = unit, error = downloadError, cause = cause)
+    }
+
+    /**
+     * [BackgroundDownloadEvent.FileReady] is itself the statement that the transfer finished, so a
+     * temp file the downloader did not mark is marked here. Only recovery after process death,
+     * where no FileReady is observed, depends on the downloader having marked it.
+     *
+     * A failure to mark is logged and left to the commit that follows, which finds no complete file
+     * and reports it as [DownloadError.Storage] through the usual path.
+     */
+    private fun markCompleteOnFileReady(unit: DownloadUnit) {
+        try {
+            if (storage.tempFileState(unit) == TempFileState.Partial) {
+                storage.markTempFileComplete(unit)
+            }
+        } catch (e: Exception) {
+            logger.e(e) { "Failed to mark the temp file of $unit complete: ${e.message}" }
         }
     }
 
@@ -535,11 +617,28 @@ internal class DefaultDownloaderEngine(
                 markUnitOnDisk(unit)
                 return
             }
-            if (storage.isTempFileAvailable(unit)) {
-                commitUnit(unit)
-                return
+            fetchAndCommitUnit(unit)
+        }
+    }
+
+    /**
+     * The per-unit twin of [fetchAndCommitGroupUnit]: commits a [TempFileState.Complete] temp file
+     * straight away, transfers first otherwise (attaching to a running transfer or resuming a
+     * partial file, never committing one), and downloads [MAX_INTEGRITY_RETRIES] more times when
+     * the bytes fail their integrity check.
+     */
+    private suspend fun fetchAndCommitUnit(unit: DownloadUnit) {
+        var integrityFailures = 0
+        while (true) {
+            if (storage.tempFileState(unit) != TempFileState.Complete) {
+                downloadUnitOnly(unit)
             }
-            downloadUnitOnly(unit)
+            if (commitUnit(unit, lastAttempt = integrityFailures >= MAX_INTEGRITY_RETRIES)) return
+            integrityFailures++
+            logger.e {
+                "Integrity check failed for $unit — downloading again " +
+                    "($integrityFailures/$MAX_INTEGRITY_RETRIES)"
+            }
         }
     }
 
@@ -591,6 +690,7 @@ internal class DefaultDownloaderEngine(
      * the same contract as the group path, so the two `ensureAvailable` overloads never differ in
      * whether the caller hears about a failure.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun downloadUnitOnly(unit: DownloadUnit) {
         val stateFlow: MutableStateFlow<UnitDownloadState> = unitStateFlow(unit)
         if (!backgroundDownloader.isDownloadInProgress(unit)) {
@@ -635,7 +735,7 @@ internal class DefaultDownloaderEngine(
         terminalEvent: BackgroundDownloadEvent.Terminal,
     ) {
         when (terminalEvent) {
-            is BackgroundDownloadEvent.FileReady -> commitUnit(unit)
+            is BackgroundDownloadEvent.FileReady -> markCompleteOnFileReady(unit)
             is BackgroundDownloadEvent.Cancelled -> {
                 clearStallCount(unit)
                 stateFlow.value = UnitDownloadState.Idle
@@ -653,7 +753,8 @@ internal class DefaultDownloaderEngine(
         }
     }
 
-    private suspend fun commitUnit(unit: DownloadUnit) {
+    /** The per-unit twin of [commitUnitAndNotify], with the same return contract. */
+    private suspend fun commitUnit(unit: DownloadUnit, lastAttempt: Boolean): Boolean {
         val stateFlow: MutableStateFlow<UnitDownloadState> = unitStateFlow(unit)
         try {
             if (!storage.isResourceAvailable(unit)) {
@@ -669,15 +770,29 @@ internal class DefaultDownloaderEngine(
                 clearStallCount(unit)
                 stateFlow.value = UnitDownloadState.Completed
             }
+            return true
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ResourceIntegrityException) {
+            logger.e(e) { "Resource $unit failed its integrity check: ${e.message}" }
+            safeDeleteTempFile(unit)
+            if (!lastAttempt) return false
+            failUnitCommit(unit, stateFlow, DownloadError.Corrupted(e.message), e)
         } catch (e: Exception) {
             logger.e(e) { "Failed to commit resource $unit: ${e.message}" }
-            val downloadError: DownloadError = DownloadError.Storage(e.message)
-            stateFlow.value = UnitDownloadState.Error(downloadError)
-            safeDeleteTempFile(unit)
-            throw DownloadFailedException(unit = unit, error = downloadError, cause = e)
+            failUnitCommit(unit, stateFlow, DownloadError.Storage(e.message), e)
         }
+    }
+
+    private fun failUnitCommit(
+        unit: DownloadUnit,
+        stateFlow: MutableStateFlow<UnitDownloadState>,
+        downloadError: DownloadError,
+        cause: Exception,
+    ): Nothing {
+        stateFlow.value = UnitDownloadState.Error(downloadError)
+        safeDeleteTempFile(unit)
+        throw DownloadFailedException(unit = unit, error = downloadError, cause = cause)
     }
 
     // -- Stall counter (persisted through the DownloadStateStore port) --------------
@@ -709,6 +824,13 @@ internal class DefaultDownloaderEngine(
 
         /** Max retries without any progress before giving up. */
         private const val MAX_STALL_RETRIES = 2
+
+        /**
+         * Fresh downloads after bytes fail their integrity check, before [DownloadError.Corrupted].
+         * One: a transient corruption is fixed by it, and a persistent one — a stale hash, a broken
+         * upload — is not fixed by any number, so more would only spend the user's data.
+         */
+        private const val MAX_INTEGRITY_RETRIES = 1
 
         /** Lets the UI render a full progress bar before it is replaced by the completed state. */
         private const val COMPLETION_SETTLE_DELAY_MILLIS = 300L

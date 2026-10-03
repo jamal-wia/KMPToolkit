@@ -34,8 +34,9 @@ import kotlinx.coroutines.CoroutineScope
  * - **Persisted retry budgets.** Attempt counts and backoff gates live on the row, so a backoff
  *   survives a restart instead of resetting.
  * - **Nothing is deleted silently.** Every path that removes an item is either a confirmed
- *   delivery or an explicit decision — [AttemptResult.Drop], [SettleResult.Drop], or a
- *   [GiveUpPolicy.DropAfterAttempts] you configured. Everything else parks.
+ *   delivery or an explicit decision — [AttemptResult.Drop], [SettleResult.Drop], a
+ *   [GiveUpPolicy.DropAfterAttempts] you configured, or your own [cancel] / [cancelByTag].
+ *   Everything else parks.
  */
 public interface UploaderEngine : Uploader {
 

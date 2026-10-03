@@ -14,9 +14,13 @@ import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -81,9 +85,10 @@ internal class WorkManagerUploadTransport(
         }.onFailure { failure -> logger.w(failure) { "Could not enqueue upload for item=$itemId" } }
     }
 
-    override fun cancelAll() {
-        runCatching { WorkManager.getInstance(context).cancelAllWorkByTag(config.resolveWorkTag(context.packageName)) }
-            .onFailure { failure -> logger.w(failure) { "Could not cancel uploads" } }
+    override fun cancel(itemId: String) {
+        runCatching {
+            WorkManager.getInstance(context).cancelUniqueWork(config.resolveUniqueWorkName(context.packageName, itemId))
+        }.onFailure { failure -> logger.w(failure) { "Could not cancel the upload of item=$itemId" } }
     }
 }
 
@@ -130,7 +135,17 @@ public class UploaderUploadWorker(
             inputData.readConnectTimeoutMillis(UploadTransportConfig.DEFAULT_CONNECT_TIMEOUT_MILLIS)
         val readTimeoutMillis: Int = inputData.readReadTimeoutMillis(UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS)
 
-        val outcome: UploadResult = performMultipartUpload(request, connectTimeoutMillis, readTimeoutMillis)
+        // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO, polling
+        // its own job so a cancelled job stops the body instead of finishing it unseen.
+        val outcome: UploadResult = withContext(Dispatchers.IO) {
+            val transfer: Job = coroutineContext.job
+            performMultipartUpload(
+                request = request,
+                connectTimeoutMillis = connectTimeoutMillis,
+                readTimeoutMillis = readTimeoutMillis,
+                isCancelled = { !transfer.isActive },
+            )
+        }
         engine.settle(itemId, classify(outcome))
         return Result.success()
     }

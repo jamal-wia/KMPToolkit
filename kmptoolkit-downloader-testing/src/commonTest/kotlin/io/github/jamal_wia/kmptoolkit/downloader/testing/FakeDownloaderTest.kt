@@ -4,6 +4,7 @@ import io.github.jamal_wia.kmptoolkit.downloader.DownloadError
 import io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit
 import io.github.jamal_wia.kmptoolkit.downloader.GroupDownloadState
 import io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup
+import io.github.jamal_wia.kmptoolkit.downloader.TempFileState
 import io.github.jamal_wia.kmptoolkit.downloader.UnitDownloadState
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -90,6 +91,28 @@ class FakeDownloaderTest {
 
         assertFalse(storage.isResourceAvailable(unit))
         assertEquals<List<DownloadUnit>>(listOf(unit), storage.deletedResources)
+    }
+
+    @Test
+    fun `fake storage moves a partial temp file to complete and forgets it on delete`() {
+        val storage = FakeDownloaderStorage()
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+
+        storage.tempFileStates[unit.id] = TempFileState.Partial
+        storage.markTempFileComplete(unit)
+        assertEquals(TempFileState.Complete, storage.tempFileState(unit))
+
+        storage.deleteTempFile(unit)
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+    }
+
+    @Test
+    fun `fake storage does not invent a complete temp file where there was none`() {
+        val storage = FakeDownloaderStorage()
+
+        storage.markTempFileComplete(unit)
+
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
     }
 
     @Test

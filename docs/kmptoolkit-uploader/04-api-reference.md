@@ -11,13 +11,15 @@ The narrow interface features depend on.
 |---|---|---|
 | `enqueue` | `suspend fun <P : Any> enqueue(handler: UploaderHandler<P>, payload: P, uniqueKey: String? = null, tag: String? = null, conflictPolicy: ConflictPolicy = KEEP): String?` | Suspends until persisted. Returns the new item id, or `null` when a `KEEP` conflict left the queued item in place. |
 | `observe` | `fun observe(type: String): Flow<List<UploaderItem>>` | All states, insertion order. Does not suspend — the query runs on collection. |
+| `cancel` | `suspend fun cancel(id: String)` | Since 2.0.0. Withdraws one item in any state: deletes its row, then cancels its upload on its `UploadHandler`'s transport. Touches nothing else. Unknown id: no-op. Best effort for bytes already sent. |
+| `cancelByTag` | `suspend fun cancelByTag(tag: String)` | Since 2.0.0. `cancel` for every item with that exact tag — the logout wipe. |
 | `trigger` | `fun trigger()` | Conflated, non-suspending, safe from anywhere. |
 
 **Suspension rule:** an operation that touches storage suspends; one that only moves in-memory state
-does not. So `enqueue` suspends and `trigger` does not, and you never have to check the docs to know
+does not. So `enqueue` and `cancel` suspend and `trigger` does not, and you never have to check the docs to know
 whether a call can block.
 
-**Thread safety:** all three are safe to call concurrently, subject to your store's own contract.
+**Thread safety:** all of them are safe to call concurrently, subject to your store's own contract.
 
 ## `UploaderEngine : Uploader`
 
@@ -109,15 +111,19 @@ public interface UploadTransport {
     public val leaseMillis: Long
     public fun launch(itemId: String, request: UploadRequest)
     public fun launch(itemId: String, isRehandOff: Boolean, request: UploadRequest) // since 1.5.0, default calls launch(itemId, request)
-    public fun cancelAll()
+    public fun cancel(itemId: String) // since 2.0.0; replaces cancelAll()
 }
 ```
 
 An optional, ready-made executor for `AttemptResult.Detached` — see
 [`08-upload-transport.md`](08-upload-transport.md). `launch` must be idempotent per item id.
 `isRehandOff` is `true` after an expired lease, when the previous executor may have finished without
-reporting. `cancelAll` is safe to over-call: an item still owed survives and is re-handed on the next
-drain or lease expiry.
+reporting. `cancel` stops that one item's delivery — in this process or, where the platform keeps
+the transfer outside it, one an earlier process started — and settles nothing; an id the transport is
+not running is a no-op. Call `Uploader.cancel` rather than this directly for an `UploadHandler`'s
+item: it removes the row first, which is what keeps a job that starts later from uploading. There is
+no "cancel everything" any more: one transport is shared by several handlers, and cancelling all of it
+cancelled their uploads too.
 
 ## `UploadHandler<P : Any>` (since 1.5.0)
 

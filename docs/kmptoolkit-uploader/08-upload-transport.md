@@ -95,6 +95,11 @@ plus timeouts — nothing of the request, so no token at rest in WorkManager's d
 body from disk over `HttpURLConnection`, and settles. It returns `Result.retry()` when no engine is
 registered to prepare or settle, so an outcome is never dropped, and `Result.success()` otherwise.
 
+`cancel(itemId)` cancels that item's unique work and nothing else. A job already uploading stops
+mid-body: the write loop checks its job before every chunk and drops the connection without sending
+the chunked body's terminator, so the server never receives a complete request. Only a cancel that
+lands after the last byte left is too late, and then the server may already have the upload.
+
 ### Taking over jobs an earlier worker of yours enqueued
 
 WorkManager stores the worker's class name with every job. If your app enqueued upload jobs with its
@@ -135,8 +140,9 @@ or the lease — for that.
   rejoins a task the daemon is still running. A re-hand that finds nothing running waits
   `rehandFlushWindow` (3 s) for buffered completion events before starting afresh: the previous
   process may have finished without settling, and uploading again would deliver twice.
-- **Cancellation.** `cancelAll` cancels the live sessions without settling them: a cancelled upload
-  spends no retry budget.
+- **Cancellation.** `cancel(itemId)` cancels that item's session without settling it. An upload an
+  earlier process started is reached through its session identifier, which carries the item id, so a
+  cancel after a relaunch still finds it.
 - **A relaunch that brings no completion** — the result was already settled, or iOS woke the app for
   another reason — releases its session once events drain, so a later hand-off starts a fresh upload
   instead of joining an idle session.
@@ -197,6 +203,9 @@ Its limits are the reason `UploadHandler` exists:
 - **A failed enqueue is logged and swallowed**: the item is still claimed in flight and waits for the
   15-minute lease.
 - **No progress, no hooks, Android only.**
+- **The engine cannot cancel its uploads.** A plain handler does not expose its transport, so
+  `Uploader.cancel` removes the row but leaves the job running. Call `transport.cancel(id)` yourself.
+  It stops the job mid-body, as the handler transport's does.
 
 ## Manifest and permissions
 

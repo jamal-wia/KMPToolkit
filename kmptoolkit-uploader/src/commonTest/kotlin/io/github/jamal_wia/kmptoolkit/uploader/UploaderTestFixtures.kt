@@ -71,7 +71,18 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
      */
     var afterNextGetById: (suspend () -> Unit)? = null
 
+    /**
+     * Runs before the next [getById] reads its row, once, and is then cleared — for something that
+     * changes the row right before a read the test cannot otherwise reach, such as the hand-off's check
+     * after it launched.
+     */
+    var beforeNextGetById: (suspend () -> Unit)? = null
+
     override suspend fun getById(id: String): UploaderItem? {
+        beforeNextGetById?.let { hook ->
+            beforeNextGetById = null
+            hook()
+        }
         val found: UploaderItem? = find(id)
         afterNextGetById?.let { hook ->
             afterNextGetById = null

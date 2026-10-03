@@ -8,13 +8,20 @@ Scenarios in roughly increasing order of subtlety.
 ensureAvailable ─▶ [already available?] ─── yes ──▶ return at once
                           │ no
                           ▼
-                   [temp file on disk?] ── yes ──▶ commit          (transfer finished while
-                          │ no                                      the process was dead)
+                   [temp file Complete?] ─ yes ──▶ commit          (transfer finished while
+                          │ no (None or Partial)                    nobody was observing it)
                           ▼
-                   enqueueDownload ─▶ Progress… ─┬─ FileReady ─▶ commit ─▶ verify ─▶ Completed
-                                                 ├─ Error     ─▶ retry? ─▶ re-enqueue │ give up
-                                                 ├─ Cancelled ─▶ Idle, temp deleted
-                                                 └─ (silence)  ─▶ 5-minute stall ─▶ treated as Error
+                   [transfer running?] ── yes ──▶ attach to it
+                          │ no
+                          ▼
+                   enqueueDownload (resumes a Partial file)
+                          │
+                          ▼
+                   Progress… ─┬─ FileReady ─▶ mark Complete ─▶ commit ─▶ verify ─▶ Completed
+                              │                                  └─ check failed ─▶ download again
+                              ├─ Error     ─▶ retry? ─▶ re-enqueue │ give up
+                              ├─ Cancelled ─▶ Idle, temp deleted
+                              └─ (silence)  ─▶ 5-minute stall ─▶ treated as Error
 ```
 
 Two invariants make the rest of this document make sense:
@@ -24,9 +31,13 @@ Two invariants make the rest of this document make sense:
   (`isDownloadInProgress`); "is it done" is answered by the **file on disk**
   (`isResourceAvailable`). A crash therefore needs no recovery pass — the next `ensureAvailable`
   re-derives everything from those two questions.
-- **The temp file IS the resume state, where the platform allows it.** A downloader that resumes
-  via a ranged request does so only when a partial temp file survived; a user cancel and a final
-  failure both delete it, so those restart from zero.
+- **The temp file IS the resume state, where the platform allows it — and a partial one is never
+  committed.** `DownloaderStorage.tempFileState` tells a `Partial` file from a `Complete` one; they
+  are different files, and only `markTempFileComplete` turns one into the other. A partial file is
+  resumed via a ranged request — or attached to, while its transfer is still running — however
+  large it is: a transfer killed mid-way leaves a file that exists and is not empty, and before
+  2.0.0 the engine committed exactly that as the finished resource. A user cancel and a final
+  failure both delete the temp file, so those restart from zero.
 
 ## Group path vs. per-unit path
 
@@ -59,12 +70,34 @@ deep inside a reader — is what this exists to prevent.
 |---|---|
 | `Opaque` | Move into place; existence is the only possible check |
 | `ZipArchive(availabilityMarker)` | Extract into a staging directory, swap into place, delete the archive; the marker file is what proves completeness, since an interrupted extraction also leaves a directory behind |
-| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Open it — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself |
+| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Open it and read its schema — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself |
 
 The point of the self-check: nobody hardcodes an expected row count anywhere in this library — the
 file states its own expected size. Which table and which key are the host's domain knowledge —
 values on the format, not anything the library assumes. Both shipped storage implementations carry
 zip-slip protection during extraction.
+
+### A stated hash — `DownloadUnit.sha256`
+
+Any unit, whatever its format, can state the SHA-256 of its bytes:
+
+```kotlin
+data class ModelUnit(val manifestEntry: ModelManifestEntry) : DownloadUnit {
+    override val id: String = "model-${manifestEntry.version}"
+    override val apiPath: String = manifestEntry.path
+    override val relativePath: String = "models/${manifestEntry.version}.bin"
+    override val sha256: String = manifestEntry.sha256   // 64 hex digits, either case
+    override val group: ResourceGroup = Models
+}
+```
+
+Commit then hashes the complete temp file before anything else — before the move, before an
+archive is extracted, before a database is opened — and a mismatch deletes it. Completeness
+already rules out a truncated transfer; the hash is what catches bytes damaged in transit or on a
+CDN, and a file stitched from two versions when the remote resource changed between an interrupted
+transfer and its ranged resume. It costs one read of the file at commit, about a second for a few
+hundred megabytes on a current phone. A value that is not 64 hex digits is the host's mistake and
+fails as `DownloadError.Storage` straight away, without a download.
 
 ## Failure, retry, and giving up
 
@@ -72,11 +105,18 @@ The group path's policy, as a table because it is not obvious:
 
 | Terminal event | Made progress this attempt? | Engine does |
 |---|---|---|
-| `FileReady` | — | commit, verify, clear stall count, done |
+| `FileReady` | — | mark the temp file complete (if the downloader did not), commit, verify, clear stall count, done |
 | `Cancelled` | — | clear stall count, delete temp file, `Idle`, throw `DownloadCancelledException` |
 | `Error` | yes | **retry unconditionally**, stall count reset |
 | `Error` | no, count ≤ 2 | increment, re-enqueue |
 | `Error` | no, count > 2 | clear stall count (the next `ensureAvailable` gets a fresh budget), delete temp file, `Error` state + notification, throw `DownloadFailedException` |
+
+A commit whose bytes fail a check — a `sha256` mismatch, a database that does not open or does not
+hold the rows it declares — deletes the temp file and downloads **once more**. A second failure is
+`DownloadError.Corrupted`: persisting across two fresh downloads, it is the server's bytes or the
+host's stated hash that is wrong, and no number of retries fixes either. Any other commit failure
+(a full disk, an unwritable path) is `DownloadError.Storage` at once — downloading again is not the
+fix. Both surfaces share this policy.
 
 Three things make it work:
 
@@ -173,6 +213,9 @@ See its own KDoc for the full contract — one slot, explicit registration, safe
   at-least-once is the **commit**: your transfer implementation may self-commit and the engine
   commits again on the next `ensureAvailable`, so commit checks `isResourceAvailable` first and
   skips.
+- **Only a `Complete` temp file is committed without a transfer.** "Completed while nobody
+  observed it" is a fact the downloader records with `markTempFileComplete`, never something the
+  engine infers from a file's existence or size.
 - **Identity is `unit.id` / `group.key`**, never the object identity — a host may construct a fresh
   `DownloadUnit` per call and still hit the same mutex and the same state.
 - **Cancel deletes the temp file; a coroutine cancellation does not.** Navigating away from a
