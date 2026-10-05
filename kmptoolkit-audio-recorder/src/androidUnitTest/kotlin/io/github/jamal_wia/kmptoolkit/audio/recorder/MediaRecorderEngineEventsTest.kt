@@ -22,7 +22,8 @@ import org.robolectric.shadows.ShadowMediaRecorder
  * them directly the way the platform would.
  *
  * The Android 10 silencing glue (`AudioRecordingMonitor`) has no shadow and is deliberately thin;
- * the debounce and the decision behind it are covered in common tests.
+ * how the engine drives it is covered against a stand-in in [MediaRecorderEngineSilenceTest], the
+ * debounce and the decision behind it in common tests.
  */
 @RunWith(AndroidJUnit4::class)
 class MediaRecorderEngineEventsTest {
@@ -158,6 +159,47 @@ class MediaRecorderEngineEventsTest {
         assertNull(shadow.errorListener)
         assertNull(shadow.infoListener)
         assertNull(engine.activeRecorder)
+    }
+
+    @Test
+    fun `a callback that arrives after release reports nothing`() = runTest {
+        val (recorder, shadow) = prepared()
+        engine.setEventListener { event: EngineEvent -> events += event }
+        val lateError: MediaRecorder.OnErrorListener = shadow.errorListener
+        val lateInfo: MediaRecorder.OnInfoListener = shadow.infoListener
+
+        engine.release()
+        lateError.onError(recorder, MediaRecorder.MEDIA_ERROR_SERVER_DIED, 0)
+        lateInfo.onInfo(recorder, MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED, 0)
+
+        assertTrue(events.isEmpty(), "a released engine has nobody to tell")
+    }
+
+    @Test
+    fun `an error callback that arrives after a normal stop reports nothing`() = runTest {
+        val (recorder, shadow) = prepared()
+        engine.setEventListener { event: EngineEvent -> events += event }
+        engine.start()
+        val lateError: MediaRecorder.OnErrorListener = shadow.errorListener
+
+        engine.stop()
+        lateError.onError(recorder, MediaRecorder.MEDIA_ERROR_SERVER_DIED, 0)
+
+        assertTrue(events.isEmpty(), "stopping is not something the system did")
+    }
+
+    @Test
+    fun `a callback of a replaced listener does not reach the one that replaced it`() = runTest {
+        val (recorder, shadow) = prepared()
+        val first: MutableList<EngineEvent> = mutableListOf()
+        engine.setEventListener { event: EngineEvent -> first += event }
+        val staleError: MediaRecorder.OnErrorListener = shadow.errorListener
+        engine.setEventListener { event: EngineEvent -> events += event }
+
+        staleError.onError(recorder, MediaRecorder.MEDIA_ERROR_SERVER_DIED, 0)
+
+        assertTrue(first.isEmpty())
+        assertTrue(events.isEmpty(), "an in-flight callback belongs to the listener it was installed for")
     }
 
     @Test

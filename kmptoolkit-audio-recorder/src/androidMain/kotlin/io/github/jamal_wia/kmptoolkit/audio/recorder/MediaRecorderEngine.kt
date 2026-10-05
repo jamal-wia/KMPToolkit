@@ -27,6 +27,7 @@ import kotlin.math.log10
  */
 internal class MediaRecorderEngine(
     private val context: Context,
+    private val silenceMonitors: InputSilenceMonitor.Factory = InputSilenceMonitor.Factory(::RecordingSilenceMonitor),
 ) : RecorderEngine {
 
     // Volatile because prepare() assigns it on the worker context while release() may read it from
@@ -40,7 +41,7 @@ internal class MediaRecorderEngine(
     private var listener: ((EngineEvent) -> Unit)? = null
 
     @Volatile
-    private var silenceMonitor: RecordingSilenceMonitor? = null
+    private var silenceMonitor: InputSilenceMonitor? = null
 
     /** The platform recorder, for the module's own tests to reach its Robolectric shadow. */
     internal val activeRecorder: MediaRecorder? get() = recorder
@@ -76,23 +77,35 @@ internal class MediaRecorderEngine(
     }
 
     override fun setEventListener(listener: ((EngineEvent) -> Unit)?) {
+        val current: MediaRecorder? = recorder
+        // Whatever an earlier listener installed goes first: attaching again on top of it would
+        // register a second silence monitor, and every change would then be reported twice.
+        if (current != null) detachCallbacks(current)
         this.listener = listener
-        val current: MediaRecorder = recorder ?: return
-        if (listener == null) detachCallbacks(current) else attachCallbacks(current)
+        if (current != null && listener != null) attachCallbacks(current, listener)
     }
 
-    private fun attachCallbacks(current: MediaRecorder) {
+    /**
+     * Installs the platform callbacks for [attached]. Each one delivers only while [attached] is
+     * still the engine's listener, so a callback that was in flight when the listener was replaced
+     * or removed — the platform can deliver one after `setOnErrorListener(null)` returned — finds
+     * nobody to tell, instead of reaching whatever listener is set by then.
+     */
+    private fun attachCallbacks(current: MediaRecorder, attached: (EngineEvent) -> Unit) {
+        val deliver: (EngineEvent) -> Unit = { event: EngineEvent ->
+            if (listener === attached) attached(event)
+        }
         current.setOnErrorListener { _: MediaRecorder, what: Int, extra: Int ->
-            listener?.invoke(EngineEvent.Interrupted(mapMediaRecorderError(what, extra)))
+            deliver(EngineEvent.Interrupted(mapMediaRecorderError(what, extra)))
         }
         current.setOnInfoListener { _: MediaRecorder, what: Int, _: Int ->
             mapMediaRecorderInfo(what)?.let { reason: InterruptionReason ->
-                listener?.invoke(EngineEvent.Interrupted(reason))
+                deliver(EngineEvent.Interrupted(reason))
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val monitor = RecordingSilenceMonitor(current) { silenced: Boolean ->
-                listener?.invoke(EngineEvent.InputSilenced(silenced))
+            val monitor: InputSilenceMonitor = silenceMonitors.create(current) { silenced: Boolean ->
+                deliver(EngineEvent.InputSilenced(silenced))
             }
             silenceMonitor = monitor
             monitor.register()
@@ -149,8 +162,8 @@ internal class MediaRecorderEngine(
     override fun release() {
         val current: MediaRecorder = recorder ?: return
         recorder = null
-        @Suppress("TooGenericExceptionCaught", "SwallowedException")
         listener = null
+        @Suppress("TooGenericExceptionCaught", "SwallowedException")
         try {
             detachCallbacks(current)
             current.release()
@@ -223,10 +236,14 @@ internal fun mapMediaRecorderError(what: Int, extra: Int): InterruptionReason.En
 
 /**
  * Maps a `MediaRecorder.OnInfoListener` report to the reason it ends a recording for, or `null`
- * when it ends nothing. `MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED` is [InterruptionReason.StorageLow]
- * — the only size limit is the one this library sets from the free space at prepare. A duration
- * limit is never set, so `MAX_DURATION_REACHED` cannot fire and is ignored with every other
- * informational code (including "file size approaching").
+ * when it ends nothing. `MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED` is [InterruptionReason.StorageLow].
+ * Usually that is the limit this library sets from the free space at prepare, but it can also fire
+ * with none reached: the MPEG-4 writer has an implicit limit of its own, derived from the volume
+ * (`fpathconf(_PC_FILESIZEBITS)`, 4 GiB on a FAT32 volume reached through
+ * [RecordingStorage.directoryPath]). The mapping is kept — the recording did end because of the
+ * size of the file — and documented on [InterruptionReason.StorageLow]. A duration limit is never
+ * set, so `MAX_DURATION_REACHED` cannot fire and is ignored with every other informational code
+ * (including "file size approaching").
  */
 internal fun mapMediaRecorderInfo(what: Int): InterruptionReason? = when (what) {
     MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED -> InterruptionReason.StorageLow
@@ -234,29 +251,52 @@ internal fun mapMediaRecorderInfo(what: Int): InterruptionReason? = when (what) 
 }
 
 /**
- * Android 10+ glue (only ever constructed behind an `SDK_INT >= Q` check) between `MediaRecorder`'s `AudioRecordingMonitor` and [EngineEvent.InputSilenced].
- * Kept to registration and one read, with no decisions: whether a silence ends the recording, and
- * after how long, is decided in common code.
+ * The engine's view of the Android 10+ silencing monitor, so a test can stand in for the platform
+ * class that has no Robolectric shadow. Reports through the callback given to [Factory.create]:
+ * `true` when the input was silenced, `false` when it was released again. Takes no decisions —
+ * whether a silence ends the recording, and after how long, is decided in common code.
+ */
+internal interface InputSilenceMonitor {
+
+    /** Starts listening for changes. Best effort: a platform that refuses leaves no detection. */
+    fun register()
+
+    /** Stops listening. Safe to call when never registered or already released. */
+    fun unregister()
+
+    /** Reports `true` when the input is silenced right now; a silenced start has no change to wait for. */
+    fun checkNow()
+
+    fun interface Factory {
+        fun create(recorder: MediaRecorder, onSilenced: (Boolean) -> Unit): InputSilenceMonitor
+    }
+}
+
+/**
+ * Android 10+ glue (only ever constructed behind an `SDK_INT >= Q` check) between `MediaRecorder`'s
+ * `AudioRecordingMonitor` and [EngineEvent.InputSilenced]. Kept to registration and one read.
  *
- * The callback runs on a direct executor, so it needs no Looper and arrives on a binder thread —
- * which is fine, since the listener never blocks. Registration is best effort: a platform that
- * refuses it leaves a recorder that works and merely cannot tell it was silenced, the same as on
- * API 24 to 28.
+ * It is registered with a direct executor, so the callback runs on the monitor's own
+ * `HandlerThread` inside the platform (`AudioRecordingMonitorImpl`) — not on a binder thread and
+ * not on an application Looper. That is fine, since the listener it reports to never blocks.
+ * Registration is best effort: a platform that refuses it leaves a recorder that works and merely
+ * cannot tell it was silenced, the same as on API 24 to 28.
  */
 @TargetApi(Build.VERSION_CODES.Q)
 internal class RecordingSilenceMonitor(
     private val recorder: MediaRecorder,
     private val onSilenced: (Boolean) -> Unit,
-) {
+) : InputSilenceMonitor {
     private val callback: AudioManager.AudioRecordingCallback =
         object : AudioManager.AudioRecordingCallback() {
             override fun onRecordingConfigChanged(configs: List<AudioRecordingConfiguration>) {
-                // A monitor reports its own recorder only; no configuration means not capturing.
+                // The platform hands a monitor the configuration of its own recorder only, so the
+                // first entry is the one that matters; an empty list reports "not silenced".
                 onSilenced(configs.firstOrNull()?.isClientSilenced == true)
             }
         }
 
-    fun register() {
+    override fun register() {
         try {
             recorder.registerAudioRecordingCallback(DirectExecutor, callback)
         } catch (@Suppress("TooGenericExceptionCaught", "SwallowedException") failure: RuntimeException) {
@@ -264,7 +304,7 @@ internal class RecordingSilenceMonitor(
         }
     }
 
-    fun unregister() {
+    override fun unregister() {
         try {
             recorder.unregisterAudioRecordingCallback(callback)
         } catch (@Suppress("TooGenericExceptionCaught", "SwallowedException") failure: RuntimeException) {
@@ -272,8 +312,7 @@ internal class RecordingSilenceMonitor(
         }
     }
 
-    /** Reports `true` when the input is silenced right now; a silenced start has no change to wait for. */
-    fun checkNow() {
+    override fun checkNow() {
         val silenced: Boolean = try {
             recorder.activeRecordingConfiguration?.isClientSilenced == true
         } catch (@Suppress("TooGenericExceptionCaught", "SwallowedException") failure: RuntimeException) {
