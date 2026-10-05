@@ -53,10 +53,19 @@ public expect fun newReentrantLock(): ReentrantLockHandle
  */
 @ToolkitInternalApi
 @OptIn(ExperimentalAtomicApi::class)
-public class StateMachineLock internal constructor(private val lock: ReentrantLockHandle) {
+public class StateMachineLock {
+
+    private val lock: ReentrantLockHandle
 
     /** A lock backed by the platform's own reentrant lock. */
-    public constructor() : this(newReentrantLock())
+    public constructor() {
+        lock = newReentrantLock()
+    }
+
+    /** For the module's own tests, which wrap the platform lock to land a race at an exact point. */
+    internal constructor(lock: ReentrantLockHandle) {
+        this.lock = lock
+    }
 
     /** How deep the holding thread is in [exclusive] sections or queued actions. Guarded by [lock]. */
     private var depth: Int = 0
