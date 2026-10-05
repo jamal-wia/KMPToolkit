@@ -166,13 +166,9 @@ class RecorderPreconditionTest {
 
     @Test
     fun `exactly the minimum free space is enough`() {
-        // A minimum the library's reserve leaves room under: with a toy minimum of a few hundred
-        // bytes the reserve would swallow all of it, which is a separate, documented refusal (see
-        // RecorderStorageWatchdogTest).
-        val minimum: Long = AudioRecorderConfig.DEFAULT_MINIMUM_FREE_SPACE_BYTES
-        val config = AudioRecorderConfig(minimumFreeSpaceBytes = minimum)
+        val config = AudioRecorderConfig(minimumFreeSpaceBytes = 1_000L)
         runRecorderTest(config) { fixture ->
-            fixture.fileSystem.freeSpace = minimum
+            fixture.fileSystem.freeSpace = 1_000L
 
             assertEquals(RecorderResult.Success(GENERATED_PATH), fixture.recorder.prepare())
         }

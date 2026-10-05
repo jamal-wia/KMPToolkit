@@ -802,21 +802,11 @@ internal class DefaultAudioRecorder(
         // watchdog polls: what is free now, less the reserve finalizing needs.
         val reserve: Long = freeSpaceReserve ?: 0L
         val limit: Long = available - reserve
-        // A limit the platform would refuse is not handed over: Android's setMaxFileSize rejects
-        // anything up to 1 KiB, and the RuntimeException it throws would surface as a misleading
-        // EngineFailure(PREPARE). A volume with that little room beyond the reserve cannot hold a
-        // recording that ends cleanly anyway.
-        if (limit < MIN_MAX_FILE_SIZE_BYTES) {
-            return StorageCheck(
-                RecorderError.InsufficientStorage(
-                    path = directory,
-                    requiredBytes = maxOf(config.minimumFreeSpaceBytes, reserve + MIN_MAX_FILE_SIZE_BYTES),
-                    availableBytes = available,
-                ),
-                null,
-            )
-        }
-        return StorageCheck(null, limit)
+        // A limit the platform would reject is omitted, not passed on: Android's setMaxFileSize
+        // throws for anything up to 1 KiB, and that RuntimeException would surface as a misleading
+        // EngineFailure(PREPARE). The backstop is only a backstop; the free-space watchdog still
+        // applies, and prepare() keeps failing only when free space is below the minimum.
+        return StorageCheck(null, limit.takeIf { it >= MIN_MAX_FILE_SIZE_BYTES })
     }
 
     private class StorageCheck(val error: RecorderError?, val maxFileSizeBytes: Long?)
@@ -1019,8 +1009,7 @@ internal const val MIN_FREE_SPACE_RESERVE_BYTES: Long = 2L * 1024 * 1024
 
 /**
  * The smallest size limit worth handing to a platform recorder. Android's `setMaxFileSize` throws
- * for a limit between 1 byte and 1 KiB, so a limit below this is refused by `prepare()` as
- * `InsufficientStorage` instead of being passed on.
+ * for a limit between 1 byte and 1 KiB, so a limit below this is not passed on at all.
  */
 internal const val MIN_MAX_FILE_SIZE_BYTES: Long = 64L * 1024
 

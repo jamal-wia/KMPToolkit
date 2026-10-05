@@ -139,29 +139,19 @@ class RecorderStorageWatchdogTest {
         }
 
     @Test
-    fun `prepare refuses a volume whose room beyond the reserve is below what a platform accepts as a limit`() =
+    fun `a size limit below what a platform accepts is not passed to the engine and prepare succeeds`() =
         runRecorderTest(AudioRecorderConfig(minimumFreeSpaceBytes = 1 * MIB)) { fixture ->
             // Meets the minimum, but the reserve is the whole minimum here: 1000 bytes would be left
             // for a size limit, and Android's setMaxFileSize throws for anything up to 1 KiB.
             fixture.fileSystem.freeSpace = 1 * MIB + 1_000L
 
-            val result: RecorderResult<String> = fixture.recorder.prepare()
+            assertEquals(RecorderResult.Success(GENERATED_PATH), fixture.recorder.prepare())
 
-            assertEquals(
-                RecorderResult.Failure(
-                    RecorderError.InsufficientStorage(
-                        path = DEFAULT_DIRECTORY,
-                        requiredBytes = 1 * MIB + MIN_MAX_FILE_SIZE_BYTES,
-                        availableBytes = 1 * MIB + 1_000L,
-                    )
-                ),
-                result,
-            )
-            assertEquals(emptyList(), fixture.engine.preparedMaxFileSizes, "the engine is never reached")
+            assertEquals(listOf<Long?>(null), fixture.engine.preparedMaxFileSizes)
         }
 
     @Test
-    fun `prepare accepts a volume that leaves exactly the smallest size limit`() =
+    fun `a size limit at the smallest a platform accepts is passed to the engine`() =
         runRecorderTest(AudioRecorderConfig(minimumFreeSpaceBytes = 1 * MIB)) { fixture ->
             fixture.fileSystem.freeSpace = 1 * MIB + MIN_MAX_FILE_SIZE_BYTES
 
