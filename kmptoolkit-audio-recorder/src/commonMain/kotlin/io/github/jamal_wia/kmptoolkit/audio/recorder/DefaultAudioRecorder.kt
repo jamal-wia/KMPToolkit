@@ -65,7 +65,7 @@ import kotlinx.coroutines.withContext
  *   [elapsed] ticker's and [level] meter's scope, and the `withContext` that keeps
  *   `prepare`/`stop`/`cancel`'s filesystem and encoder work off the caller's thread. The engines
  *   deliberately do no dispatching of their own, so a consumer who passes a context here really
- *   does control all of it.
+ *   does control all of it. A [Job] in it is ignored.
  * @param silenceDebounce how long the input must stay silenced before it ends the recording; a
  *   brief handover (an assistant taking the microphone for a moment) must not.
  * @param freeSpacePollInterval how often the free-space watchdog looks, at most, while recording.
@@ -75,7 +75,7 @@ internal class DefaultAudioRecorder(
     private val engine: RecorderEngine,
     private val fileSystem: RecordingFileSystem,
     private val config: AudioRecorderConfig,
-    private val workerContext: CoroutineContext,
+    workerContext: CoroutineContext,
     private val epochClock: EpochClock,
     private val timeSource: TimeSource = TimeSource.Monotonic,
     private val silenceDebounce: Duration = DEFAULT_SILENCE_DEBOUNCE,
@@ -83,10 +83,21 @@ internal class DefaultAudioRecorder(
 ) : AudioRecorder {
 
     /**
+     * The consumer's context without any [Job] it carries. A Job in the context handed to the
+     * factory (say a `viewModelScope`'s) would replace the [SupervisorJob] below, so [release] would
+     * cancel the consumer's own Job, and every `withContext(workerContext)` run from a
+     * non-cancellable finalization would become a child of it and be cancelled with it — skipping
+     * `engine.release()` and leaving the microphone held. Stripped once, here, and used for the
+     * scope and for every hop to the worker. (`this.` where an initializer uses it: there the
+     * constructor parameter of the same name would shadow it.)
+     */
+    private val workerContext: CoroutineContext = workerContext.minusKey(Job)
+
+    /**
      * Owned by this recorder and cancelled by [release]. Visible to the module's own tests so they
      * can assert that release really does stop the ticker rather than merely resetting [elapsed].
      */
-    internal val scope: CoroutineScope = CoroutineScope(SupervisorJob() + workerContext)
+    internal val scope: CoroutineScope = CoroutineScope(SupervisorJob() + this.workerContext)
 
     private val gate: StateMachineLock = StateMachineLock()
 

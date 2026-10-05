@@ -32,6 +32,8 @@ import platform.Foundation.timeIntervalSince1970
  *   encoder work behind [AudioRecorder.prepare], [AudioRecorder.stop], and [AudioRecorder.cancel].
  *   [Dispatchers.Default] rather than [Dispatchers.Main] by default: none of that work touches UI,
  *   and `AVAudioSession` and `AVAudioRecorder` are both safe to drive off the main thread.
+ *   A [kotlinx.coroutines.Job] in it is ignored: the recorder runs under a job of its own, so releasing
+ *   it never cancels a job that belongs to the caller.
  */
 @OptIn(ExperimentalForeignApi::class)
 public fun createAudioRecorder(
