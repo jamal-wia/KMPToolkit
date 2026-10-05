@@ -49,6 +49,13 @@ internal class FakeRecorderEngine : RecorderEngine {
     /** Every listener ever registered, oldest first — so a test can fire one a later session replaced. */
     val registeredListeners: MutableList<(EngineEvent) -> Unit> = mutableListOf()
 
+    /**
+     * Every `setEventListener` call in order, `true` for a registration and `false` for a removal.
+     * Kept apart from [calls], whose exact sequence the lifecycle tests assert, so a test can still
+     * check that the recorder never re-registers a listener after release or on a refused call.
+     */
+    val listenerCalls: MutableList<Boolean> = mutableListOf()
+
     /** How many times a non-null listener was registered. */
     var listenerRegistrations: Int = 0
         private set
@@ -65,6 +72,9 @@ internal class FakeRecorderEngine : RecorderEngine {
 
     /** Runs inside `resume()`, after it succeeded. */
     var onResume: () -> Unit = {}
+
+    /** Runs inside `release()`, after it was counted and with no recorder lock held. */
+    var onRelease: () -> Unit = {}
 
     val calls: MutableList<String> = mutableListOf()
     var releaseCount: Int = 0
@@ -109,6 +119,7 @@ internal class FakeRecorderEngine : RecorderEngine {
         // Deliberately not in `calls`, like peakDbfs: the existing tests assert the exact sequence
         // of lifecycle calls, and wiring a listener is not one of them.
         this.listener = listener
+        listenerCalls += listener != null
         if (listener != null) {
             registeredListeners += listener
             listenerRegistrations++
@@ -146,5 +157,6 @@ internal class FakeRecorderEngine : RecorderEngine {
     override fun release() {
         calls += "release"
         releaseCount++
+        onRelease()
     }
 }

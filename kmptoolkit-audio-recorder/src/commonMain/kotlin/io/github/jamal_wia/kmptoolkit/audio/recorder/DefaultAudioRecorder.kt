@@ -101,6 +101,12 @@ internal class DefaultAudioRecorder(
 
     private val gate: StateMachineLock = StateMachineLock()
 
+    /**
+     * Whether an operation or event is still finishing a session off the lock. Visible to the
+     * module's own tests, which need a point after which the engine is certain to be settled.
+     */
+    internal val isFinalizing: Boolean get() = gate.exclusive { finalizing != null }
+
     private val _state: MutableStateFlow<RecorderState> = MutableStateFlow(RecorderState.Idle)
     override val state: StateFlow<RecorderState> = _state.asStateFlow()
 
@@ -380,13 +386,10 @@ internal class DefaultAudioRecorder(
         }
     }
 
-    private suspend fun finishStop(finalization: Finalization): RecorderResult<RecordedFile> {
+    private suspend fun finishStop(finalization: Finalization): RecorderResult<RecordedFile> =
         // Finalizing the container is the one genuinely slow call in the whole module.
-        val stopFailure: Throwable? = runOnWorker { engine.stop() }
-        return gate.exclusive {
-            // The finalizer owns the engine until it publishes, even if release() landed first.
-            engine.release()
-            val result: RecorderResult<RecordedFile> = if (stopFailure != null) {
+        runFinalization(finalization, releasesEngine = true, slow = { engine.stop() }) { stopFailure: Throwable? ->
+            if (stopFailure != null) {
                 // Whatever was captured up to this point stays on disk: it may be salvageable, and
                 // deleting a user's audio because the encoder complained on close is not a call a
                 // library gets to make. `release()` documents the same rule.
@@ -401,10 +404,7 @@ internal class DefaultAudioRecorder(
                 if (!released) _state.value = RecorderState.Completed(recording)
                 RecorderResult.Success(recording)
             }
-            endFinalize(finalization)
-            result
         }
-    }
 
     // --- cancel ---
 
@@ -425,18 +425,14 @@ internal class DefaultAudioRecorder(
         // reason: with the ticker gone, a half-finished cancel would leave a live recorder behind a
         // state that still says it is recording.
         withContext(NonCancellable) {
-            try {
-                withContext(workerContext) {
-                    if (plan.engineActive) stopEngineQuietly()
-                    if (plan.holdsEngine) engine.release()
-                    fileSystem.delete(plan.path)
-                }
-            } finally {
-                gate.exclusive {
-                    resetTiming()
-                    if (!released) _state.value = RecorderState.Idle
-                    endFinalize(plan.finalization)
-                }
+            runFinalization(
+                plan.finalization,
+                releasesEngine = plan.holdsEngine,
+                slow = { if (plan.engineActive) stopEngineQuietly() },
+                afterRelease = { fileSystem.delete(plan.path) },
+            ) { _: Throwable? ->
+                resetTiming()
+                if (!released) _state.value = RecorderState.Idle
             }
         }
         return SUCCESS
@@ -483,7 +479,6 @@ internal class DefaultAudioRecorder(
             stopTicker()
             stopMeter()
             stopSilence()
-            engine.setEventListener(null)
             // Inline on the calling thread, not on workerContext: release() is not suspending (see
             // its KDoc — a teardown path has no coroutine left to launch in), so there is nowhere
             // to hand this off to that would still have finished by the time the caller's object is
@@ -491,6 +486,9 @@ internal class DefaultAudioRecorder(
             // that finalizer owns the engine and frees it when it is done, so the engine is never
             // driven from two threads at once.
             if (finalizing == null) {
+                // Only here: a finalizer owns the engine and beginFinalize already detached the
+                // listener, so touching it now would be a second thread driving the engine.
+                engine.setEventListener(null)
                 if (current.isActive) stopEngineQuietly()
                 engine.release()
                 // A Recording/Paused file holds audio the user produced and is kept. A Ready file
@@ -515,19 +513,9 @@ internal class DefaultAudioRecorder(
     private fun handleEvent(token: Long, event: EngineEvent) {
         if (released || token != session) return
         // Already being finished by an operation or by an earlier event: only the first thing that
-        // ends a session counts. The one exception is a reason that is more specific than the
-        // generic "the media service failed" the first event carried, arriving before the outcome
-        // is published — platforms often report the cause right after the symptom.
-        finalizing?.let { active ->
-            if (event is EngineEvent.Interrupted &&
-                active.reason is InterruptionReason.EngineDied &&
-                event.reason !is InterruptionReason.EngineDied &&
-                event.reason != InterruptionReason.MicrophoneSilenced
-            ) {
-                active.reason = event.reason
-            }
-            return
-        }
+        // ends a session counts. The engine's listener was detached when that finalization began,
+        // so what can still arrive here is a callback that was already queued behind it.
+        if (finalizing != null) return
         val current: RecorderState = _state.value
         when (event) {
             is EngineEvent.Interrupted -> {
@@ -587,24 +575,18 @@ internal class DefaultAudioRecorder(
             is RecorderState.Paused -> finishBySystem(current.outputPath, reason, frozenAt)
             is RecorderState.Ready -> {
                 val finalization: Finalization = beginFinalize(current.outputPath)
-                finalization.reason = reason
                 scope.launch(NonCancellable) {
-                    try {
-                        // Nothing was captured, so there is nothing to finalize or to keep: the
-                        // empty file is this module's litter.
-                        withContext(workerContext) {
-                            engine.release()
-                            fileSystem.delete(finalization.path)
-                        }
-                    } finally {
-                        gate.exclusive {
-                            resetTiming()
-                            if (!released) {
-                                _state.value = RecorderState.Failed(
-                                    RecorderError.RecordingLost(finalization.reason ?: reason)
-                                )
-                            }
-                            endFinalize(finalization)
+                    // Nothing was captured, so there is nothing to finalize or to keep: the empty
+                    // file is this module's litter.
+                    runFinalization(
+                        finalization,
+                        releasesEngine = true,
+                        slow = {},
+                        afterRelease = { fileSystem.delete(finalization.path) },
+                    ) { _: Throwable? ->
+                        resetTiming()
+                        if (!released) {
+                            _state.value = RecorderState.Failed(RecorderError.RecordingLost(reason))
                         }
                     }
                 }
@@ -617,24 +599,15 @@ internal class DefaultAudioRecorder(
     /** Lock held. */
     private fun finishBySystem(path: String, reason: InterruptionReason, frozenAt: Duration?) {
         val finalization: Finalization = beginFinalize(path, frozenAt)
-        finalization.reason = reason
         scope.launch(NonCancellable) {
-            val failure: Throwable? = runOnWorker { engine.stop() }
-            gate.exclusive {
-                engine.release()
-                // Read here, under the lock: a more specific reason may have arrived meanwhile.
-                val finalReason: InterruptionReason = finalization.reason ?: reason
+            runFinalization(finalization, releasesEngine = true, slow = { engine.stop() }) { failure: Throwable? ->
                 if (!released) {
                     _state.value = if (failure == null) {
-                        RecorderState.Interrupted(
-                            RecordedFile(finalization.path, finalization.duration),
-                            finalReason,
-                        )
+                        RecorderState.Interrupted(RecordedFile(finalization.path, finalization.duration), reason)
                     } else {
-                        RecorderState.Failed(RecorderError.RecordingLost(finalReason, failure), path)
+                        RecorderState.Failed(RecorderError.RecordingLost(reason, failure), path)
                     }
                 }
-                endFinalize(finalization)
             }
         }
     }
@@ -676,9 +649,6 @@ internal class DefaultAudioRecorder(
         val duration: Duration,
     ) {
         val done: CompletableDeferred<Unit> = CompletableDeferred()
-
-        /** Why the system ended the session; `null` when an operation of the caller is finishing it. */
-        var reason: InterruptionReason? = null
     }
 
     private class CancelPlan(
@@ -704,6 +674,57 @@ internal class DefaultAudioRecorder(
     }
 
     // --- Helpers ---
+
+    /**
+     * The one place a session is finished off the lock — a `stop()`, a `cancel()`, a system event —
+     * so that none of them can forget a step.
+     *
+     * One hop to [workerContext] does everything slow, in this order: [slow] (the encoder's
+     * `stop()`), `engine.release()` when [releasesEngine] (the finalizer owns the engine, so it is
+     * freed here and never from the caller's thread — on iOS releasing deactivates the audio
+     * session, which is blocking IPC), then [afterRelease] (deleting a file). Whatever [slow] throws
+     * is handed to [publish] as a value, after the engine was released. Then the lock is taken once,
+     * only to [publish] the outcome; [endFinalize] runs in a `finally` there, so nothing that goes
+     * wrong on the way can leave [finalizing] set and every later `prepare`/`stop`/`cancel` waiting
+     * for it forever.
+     *
+     * Callers run non-cancellable. The only thing that can still escape the hop is a cancellation
+     * of the hop itself — a dispatcher that was shut down; it is treated as a failure of [slow],
+     * and the engine is released on the spot, because the hop may never have got to it.
+     */
+    private suspend fun <R> runFinalization(
+        finalization: Finalization,
+        releasesEngine: Boolean,
+        slow: () -> Unit,
+        afterRelease: () -> Unit = {},
+        publish: (Throwable?) -> R,
+    ): R {
+        val failure: Throwable? = try {
+            runOnWorker {
+                var slowFailure: Throwable? = null
+                try {
+                    slow()
+                } catch (@Suppress("TooGenericExceptionCaught") thrown: Throwable) {
+                    slowFailure = thrown
+                }
+                if (releasesEngine) engine.release()
+                afterRelease()
+                slowFailure?.let { thrown: Throwable -> throw thrown }
+            }
+        } catch (cancellation: CancellationException) {
+            cancellation
+        }
+        // A cancellation can only be the hop itself having been refused or cut short.
+        val hopLost: Boolean = failure is CancellationException
+        return gate.exclusive {
+            try {
+                if (hopLost && releasesEngine) engine.release()
+                publish(failure)
+            } finally {
+                endFinalize(finalization)
+            }
+        }
+    }
 
     /**
      * Runs [block] on [workerContext] and returns whatever it threw, rather than letting the

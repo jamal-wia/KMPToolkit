@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.runTest
  * job would tear down their whole scope, and a finalization running under it would be cancelled
  * with it and skip `engine.release()`.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class RecorderConsumerJobTest {
 
     private fun TestScope.fixtureWith(consumerJob: Job): RecorderFixture =

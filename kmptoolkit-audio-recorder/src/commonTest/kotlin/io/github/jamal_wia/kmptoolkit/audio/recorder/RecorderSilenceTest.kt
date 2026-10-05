@@ -122,6 +122,37 @@ class RecorderSilenceTest {
     }
 
     @Test
+    fun `a silence reported while paused does not outlive the pause`() = runRecorderTest { fixture ->
+        val path: String = fixture.recording()
+        passTime(fixture, 1.seconds)
+        fixture.recorder.pause()
+
+        // Nothing is captured while paused, so there is nothing to debounce — and a debounce
+        // started here would expire into the recording that resume() brings back.
+        fixture.engine.emit(EngineEvent.InputSilenced(true))
+        fixture.recorder.resume()
+        passTime(fixture, DEFAULT_SILENCE_DEBOUNCE + 100.milliseconds)
+
+        assertEquals(RecorderState.Recording(path), fixture.recorder.state.value)
+        assertEquals(0, fixture.engine.calls.count { it == "stop" })
+    }
+
+    @Test
+    fun `a silence being debounced when the recording is paused does not end it after resume`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.recording()
+            passTime(fixture, 1.seconds)
+            fixture.engine.emit(EngineEvent.InputSilenced(true))
+
+            fixture.recorder.pause()
+            fixture.recorder.resume()
+            passTime(fixture, DEFAULT_SILENCE_DEBOUNCE + 100.milliseconds)
+
+            assertEquals(RecorderState.Recording(path), fixture.recorder.state.value)
+            assertEquals(0, fixture.engine.calls.count { it == "stop" })
+        }
+
+    @Test
     fun `resuming into a silenced input ends the recording with elapsed frozen at the resume`() =
         runRecorderTest { fixture ->
             val path: String = fixture.recording()

@@ -14,10 +14,12 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /**
  * The promise that a system event, arriving on a platform thread of its own, never corrupts the
@@ -63,7 +65,9 @@ class RecorderThreadingTest {
             maxFileSizeBytes: Long?,
         ): Unit = driven { }
 
-        override fun setEventListener(listener: ((EngineEvent) -> Unit)?) {
+        // Driven like every other call: a recorder that detaches the listener while a finalizer is
+        // inside stop()/release() is a second thread driving the engine.
+        override fun setEventListener(listener: ((EngineEvent) -> Unit)?): Unit = driven {
             this.listener = listener
         }
 
@@ -118,7 +122,7 @@ class RecorderThreadingTest {
 
     private suspend fun runOne(race: Race, reason: InterruptionReason, round: Int) {
         val engine = ThreadSafeEngine()
-        val recorder: AudioRecorder = DefaultAudioRecorder(
+        val recorder = DefaultAudioRecorder(
             engine = engine,
             fileSystem = ThreadSafeFileSystem(),
             config = AudioRecorderConfig(minimumFreeSpaceBytes = 0L),
@@ -128,14 +132,18 @@ class RecorderThreadingTest {
         try {
             assertTrue(recorder.prepare("/data/a.m4a").isSuccess)
             assertTrue(recorder.start().isSuccess)
+            // prepare() releases whatever the engine held before it, so count from here.
+            val releasesBefore: Int = engine.releases.load()
 
+            var stopResult: RecorderResult<RecordedFile>? = null
+            var cancelResult: RecorderResult<Unit>? = null
             val racers: MutableList<kotlinx.coroutines.Job> = mutableListOf()
             val scope = CoroutineScope(Dispatchers.Default)
             racers += scope.launch { engine.emit(EngineEvent.Interrupted(reason)) }
             racers += scope.launch {
                 when (race) {
-                    Race.STOP -> recorder.stop()
-                    Race.CANCEL -> recorder.cancel()
+                    Race.STOP -> stopResult = recorder.stop()
+                    Race.CANCEL -> cancelResult = recorder.cancel()
                     Race.RELEASE -> recorder.release()
                     Race.PAUSE_RESUME -> {
                         recorder.pause()
@@ -143,7 +151,7 @@ class RecorderThreadingTest {
                     }
                     Race.PAUSE_STOP -> {
                         recorder.pause()
-                        recorder.stop()
+                        stopResult = recorder.stop()
                     }
                     Race.NOTHING -> Unit
                 }
@@ -153,22 +161,65 @@ class RecorderThreadingTest {
             racers.joinAll()
 
             val settled: RecorderState = awaitSettled(recorder, race)
+            // Everything the session owned is gone: the ticker, the meter and the silence debounce
+            // are children of the recorder's scope, and the finalizer has published and let go.
+            withTimeout(10.seconds) { recorder.scope.coroutineContext[Job]!!.children.toList().joinAll() }
+            awaitUntil("$race: the finalization to end") { !recorder.isFinalizing }
 
+            val released: Int = engine.releases.load() - releasesBefore
+            if (race == Race.RELEASE) {
+                // release() on a session an event had already finalized is an idempotent second
+                // release of the engine, which the engine contract allows; what must never happen
+                // is none at all.
+                assertTrue(released in 1..2, "$race: the engine was released $released times")
+            } else {
+                assertEquals(1, released, "$race: the engine must be released exactly once")
+            }
             assertTrue(engine.stops.load() <= 1, "$race: the engine was finalized ${engine.stops.load()} times")
             assertEquals(0, engine.overlaps.load(), "$race: the engine was driven from two threads at once")
+            // This engine never throws, so Failed would be a recorder bug, not a platform failure.
             assertTrue(
                 settled is RecorderState.Interrupted ||
                     settled is RecorderState.Completed ||
-                    settled is RecorderState.Failed ||
                     settled is RecorderState.Idle ||
                     settled is RecorderState.Released,
                 "$race: ended in $settled",
             )
-            // Whatever ended it, the platform recorder was freed — by the finalizer, never twice
-            // concurrently, and not left holding the microphone.
-            awaitUntil("$race: the engine to be released") { engine.releases.load() >= 1 }
+            assertConsistent(race, settled, stopResult, cancelResult)
         } finally {
             recorder.release()
+        }
+    }
+
+    /** What the caller was told must agree with the state the session settled in. */
+    private fun assertConsistent(
+        race: Race,
+        settled: RecorderState,
+        stopResult: RecorderResult<RecordedFile>?,
+        cancelResult: RecorderResult<Unit>?,
+    ) {
+        when (race) {
+            Race.STOP, Race.PAUSE_STOP -> {
+                val file: RecordedFile = stopResult?.getOrNull()
+                    ?: fail("$race: stop() did not succeed: ${stopResult?.errorOrNull()}")
+                val settledFile: RecordedFile? = when (settled) {
+                    is RecorderState.Completed -> settled.recording
+                    is RecorderState.Interrupted -> settled.recording
+                    else -> null
+                }
+                assertEquals(file, settledFile, "$race: stop() returned a file the state does not carry: $settled")
+            }
+
+            Race.CANCEL -> {
+                assertEquals(RecorderResult.Success(Unit), cancelResult, "$race: cancel() failed")
+                assertEquals(RecorderState.Idle, settled, "$race: a cancelled session must end idle")
+            }
+
+            Race.RELEASE -> assertEquals(RecorderState.Released, settled)
+
+            // Nobody stopped or cancelled, so the event is what ended it.
+            Race.PAUSE_RESUME, Race.NOTHING ->
+                assertTrue(settled is RecorderState.Interrupted, "$race: ended in $settled")
         }
     }
 

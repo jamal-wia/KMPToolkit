@@ -232,39 +232,34 @@ class RecorderSystemEndTest {
     }
 
     @Test
-    fun `a more specific reason that arrives before the outcome is published replaces a generic one`() =
-        runRecorderTest { fixture ->
-            val path: String = fixture.recording()
-            passTime(fixture, 1.seconds)
-
-            fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.EngineDied()))
-            // The finalize has not run yet: the cause arrives right behind the symptom.
-            fixture.engine.emitToStaleListener(
-                EngineEvent.Interrupted(InterruptionReason.AudioSessionInterrupted),
-            )
-            runCurrent()
-
-            assertEquals(
-                RecorderState.Interrupted(
-                    RecordedFile(path, 1.seconds),
-                    InterruptionReason.AudioSessionInterrupted,
-                ),
-                fixture.recorder.state.value,
-            )
-        }
-
-    @Test
-    fun `a generic reason never replaces a specific one`() = runRecorderTest { fixture ->
-        fixture.recording()
-
-        fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.StorageLow))
-        fixture.engine.emitToStaleListener(EngineEvent.Interrupted(InterruptionReason.EngineDied()))
-        runCurrent()
-
-        assertEquals(
-            InterruptionReason.StorageLow,
-            (fixture.recorder.state.value as RecorderState.Interrupted).reason,
+    fun `an event queued behind the first one never changes the published reason`() {
+        // A submit already queued when the engine's listener was detached still reaches the
+        // recorder; whichever way round the two reasons are, the first one stands.
+        val pairs: List<Pair<InterruptionReason, InterruptionReason>> = listOf(
+            InterruptionReason.EngineDied() to InterruptionReason.AudioSessionInterrupted,
+            InterruptionReason.StorageLow to InterruptionReason.EngineDied(),
+            InterruptionReason.AudioSessionInterrupted to InterruptionReason.EngineDied(7),
         )
+        pairs.forEach { (first: InterruptionReason, queued: InterruptionReason) ->
+            runRecorderTest { fixture ->
+                val path: String = fixture.recording()
+                passTime(fixture, 1.seconds)
+                // Lands while the finalization is running, the way a callback already in flight would.
+                fixture.engine.onStop = {
+                    fixture.engine.emitToStaleListener(EngineEvent.Interrupted(queued))
+                }
+
+                fixture.engine.emit(EngineEvent.Interrupted(first))
+                runCurrent()
+
+                assertEquals(
+                    RecorderState.Interrupted(RecordedFile(path, 1.seconds), first),
+                    fixture.recorder.state.value,
+                    "first $first, queued $queued",
+                )
+                assertEquals(1, fixture.engine.calls.count { it == "stop" })
+            }
+        }
     }
 
     @Test
@@ -303,6 +298,29 @@ class RecorderSystemEndTest {
         }
 
     @Test
+    fun `the listener is registered once per session and never again after release or a refused call`() =
+        runRecorderTest { fixture ->
+            fixture.recording()
+            assertEquals(listOf(true), fixture.engine.listenerCalls)
+
+            // Refused calls never touch the engine's listener.
+            fixture.recorder.start()
+            fixture.recorder.resume()
+            assertEquals(listOf(true), fixture.engine.listenerCalls)
+
+            fixture.recorder.release()
+            fixture.recorder.start()
+            fixture.recorder.pause()
+            fixture.recorder.resume()
+            fixture.recorder.prepare()
+            fixture.recorder.stop()
+            fixture.recorder.cancel()
+            runCurrent()
+
+            assertEquals(listOf(true, false), fixture.engine.listenerCalls, "removed on release, never set again")
+        }
+
+    @Test
     fun `listeners are only registered after a successful prepare`() = runRecorderTest { fixture ->
         fixture.engine.failures[RecorderOperation.PREPARE] = IllegalStateException("no codec")
 
@@ -335,10 +353,13 @@ class RecorderSystemEndTest {
     @Test
     fun `an event during a failing stop does not replace the stop failure`() = runRecorderTest { fixture ->
         val path: String = fixture.recording()
+        val releasesBefore: Int = fixture.engine.releaseCount
         val cause = IllegalStateException("encoder died")
         fixture.engine.failures[RecorderOperation.STOP] = cause
         fixture.engine.onStop = {
-            fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.StorageLow))
+            // Queued behind the stop: the listener is already detached, so this is the only way an
+            // event can still reach the recorder now.
+            fixture.engine.emitToStaleListener(EngineEvent.Interrupted(InterruptionReason.StorageLow))
         }
 
         val result: RecorderResult<RecordedFile> = fixture.recorder.stop()
@@ -348,14 +369,19 @@ class RecorderSystemEndTest {
         assertIs<RecorderError.EngineFailure>(error)
         assertSame(cause, error.cause)
         assertEquals(RecorderState.Failed(error, path), fixture.recorder.state.value)
+        assertEquals(1, fixture.engine.calls.count { it == "stop" }, "the engine is finalized once")
+        assertEquals(releasesBefore + 1, fixture.engine.releaseCount, "and released once")
     }
 
     @Test
     fun `an event during a cancel is dropped and the file is deleted`() = runRecorderTest { fixture ->
         val path: String = fixture.recording()
+        val releasesBefore: Int = fixture.engine.releaseCount
         val states: List<RecorderState> = collectStates(fixture)
         fixture.engine.onStop = {
-            fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.AudioSessionInterrupted))
+            fixture.engine.emitToStaleListener(
+                EngineEvent.Interrupted(InterruptionReason.AudioSessionInterrupted),
+            )
         }
 
         assertEquals(RecorderResult.Success(Unit), fixture.recorder.cancel())
@@ -364,6 +390,8 @@ class RecorderSystemEndTest {
         assertEquals(RecorderState.Idle, fixture.recorder.state.value)
         assertContentEquals(listOf(path), fixture.fileSystem.deletedPaths)
         assertTrue(states.none { it is RecorderState.Interrupted || it is RecorderState.Failed })
+        assertEquals(1, fixture.engine.calls.count { it == "stop" }, "the engine is stopped once")
+        assertEquals(releasesBefore + 1, fixture.engine.releaseCount, "and released once")
     }
 
     @Test
@@ -620,18 +648,84 @@ class RecorderSystemEndTest {
         }
 
     @Test
-    fun `a pause or resume while an event is being finalized is refused`() = runRecorderTest { fixture ->
-        val path: String = fixture.recording()
-        var pauseResult: RecorderResult<Unit>? = null
-        fixture.engine.onStop = { pauseResult = fixture.recorder.pause() }
+    fun `a pause while an event is being finalized is refused with the published state`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.recording()
+            var pauseResult: RecorderResult<Unit>? = null
+            fixture.engine.onStop = { pauseResult = fixture.recorder.pause() }
 
-        fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.StorageLow))
-        runCurrent()
+            fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.StorageLow))
+            runCurrent()
 
-        assertEquals(
-            RecorderError.IllegalState(RecorderState.Recording(path), RecorderOperation.PAUSE),
-            pauseResult?.errorOrNull(),
-        )
-        assertIs<RecorderState.Interrupted>(fixture.recorder.state.value)
-    }
+            assertEquals(
+                RecorderError.IllegalState(RecorderState.Recording(path), RecorderOperation.PAUSE),
+                pauseResult?.errorOrNull(),
+            )
+            assertIs<RecorderState.Interrupted>(fixture.recorder.state.value)
+        }
+
+    @Test
+    fun `a start while an event is being finalized is refused with the published state`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.prepared()
+            var startResult: RecorderResult<Unit>? = null
+            // A prepared recorder has nothing to stop; the finalization that is in flight here is
+            // the Ready tail, which releases the engine.
+            fixture.engine.onRelease = { startResult = fixture.recorder.start() }
+            fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.StorageLow))
+            runCurrent()
+
+            assertEquals(
+                RecorderError.IllegalState(RecorderState.Ready(path), RecorderOperation.START),
+                startResult?.errorOrNull(),
+            )
+            assertIs<RecorderState.Failed>(fixture.recorder.state.value)
+            assertEquals(0, fixture.engine.calls.count { it == "start" }, "the engine is never started")
+        }
+
+    @Test
+    fun `a resume while an event is being finalized is refused with the published state`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.recording()
+            passTime(fixture, 2.seconds)
+            fixture.recorder.pause()
+            var resumeResult: RecorderResult<Unit>? = null
+            fixture.engine.onStop = { resumeResult = fixture.recorder.resume() }
+
+            fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.StorageLow))
+            runCurrent()
+
+            assertEquals(
+                RecorderError.IllegalState(
+                    RecorderState.Paused(path, 2.seconds),
+                    RecorderOperation.RESUME,
+                ),
+                resumeResult?.errorOrNull(),
+            )
+            assertIs<RecorderState.Interrupted>(fixture.recorder.state.value)
+            assertEquals(0, fixture.engine.calls.count { it == "resume" })
+        }
+
+    // --- release while a Ready-state event is being finalized ---
+
+    @Test
+    fun `release during the finalization of a prepared recorder stays released`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.prepared()
+            val releasesBefore: Int = fixture.engine.releaseCount
+            var released = false
+            fixture.engine.onRelease = {
+                if (!released) {
+                    released = true
+                    fixture.recorder.release()
+                }
+            }
+
+            fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.StorageLow))
+            runCurrent()
+
+            assertEquals(RecorderState.Released, fixture.recorder.state.value)
+            assertEquals(releasesBefore + 1, fixture.engine.releaseCount, "released once, by the finalizer")
+            assertContentEquals(listOf(path), fixture.fileSystem.deletedPaths, "the empty file is deleted")
+        }
 }
