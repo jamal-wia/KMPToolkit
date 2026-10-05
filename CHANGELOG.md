@@ -14,7 +14,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 ### Breaking
 
 - `kmptoolkit-audio-recorder`: a recording the system ends is no longer silent, which changes
-  three promises of the API.
+  four promises of the API.
   - **`RecorderState` has a new case, `Interrupted`, and `RecorderError` a new case,
     `RecordingLost`.** The ABI dump only gains symbols, but an exhaustive `when` over either sealed
     type without an `else` stops compiling: add a branch (for `Interrupted`, usually the same
@@ -28,6 +28,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
     recording) and deletes that file; it was illegal there. From a `Failed` without a path it is
     still illegal. `stop()` from `Interrupted` returns the interrupted file and leaves the state
     unchanged; `cancel()` from `Interrupted` deletes it.
+  - **`IllegalState` can now come from a race with a system event, not only from a wiring bug.**
+    While the system's event is being finalized, `state` still shows the old value and `start()`,
+    `pause()` and `resume()` return `IllegalState` with it; `prepare()`, `stop()` and `cancel()`
+    suspend (never blocking a thread) until the finalization lands and then decide again — so a
+    `stop()` that waited for a finalization that *failed* returns `IllegalState` against
+    `Failed(RecordingLost)`. Do not `error(...)` on `IllegalState` from a user's tap; read `state`.
 
 - **`ToolkitInternalApi` moved to `kmptoolkit-core`.** The marker is now
   `io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi`; it is no longer declared in
@@ -71,13 +77,6 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-audio-recorder`: every state transition now runs under that same lock and the slow
   finalize of a long file no longer holds it, so a system event, a tick and your own call cannot
   interleave. The public contract is unchanged: call the operations from one thread.
-- `kmptoolkit-audio-recorder` (**behaviour change**): `IllegalState` can now come from a race with a
-  system event, not only from a wiring bug. While the system's event is being finalized, `state`
-  still shows the old value and `start()`, `pause()` and `resume()` return `IllegalState` with it;
-  `prepare()`, `stop()` and `cancel()` suspend (never blocking a thread) until the finalization
-  lands and then decide again — so a `stop()` that waited for a finalization that *failed* returns
-  `IllegalState` against `Failed(RecordingLost)`. Do not `error(...)` on `IllegalState` from a
-  user's tap; read `state`.
 - `kmptoolkit-audio-recorder`: a `Job` in the `coroutineContext` given to `createAudioRecorder` is
   now ignored (see Fixed).
 
