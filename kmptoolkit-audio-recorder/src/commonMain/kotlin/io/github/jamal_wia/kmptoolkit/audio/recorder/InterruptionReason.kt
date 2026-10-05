@@ -38,9 +38,14 @@ public sealed interface InterruptionReason {
 
     /**
      * The volume holding the file ran below the free-space reserve the library keeps so it can
-     * still finalize the file — on Android also when `MediaRecorder` reported that the file size
-     * limit the library set at prepare was reached. Enabled by
-     * [AudioRecorderConfig.minimumFreeSpaceBytes]; `0` turns the check off.
+     * still finalize the file — on Android also when `MediaRecorder` reported
+     * `MAX_FILESIZE_REACHED`. That is usually the size limit the library set at prepare, but the
+     * platform has one of its own too: MPEG-4 recording stops at the largest file the volume can
+     * hold (about 4 GiB on a FAT32 volume, which [RecordingStorage.directoryPath] can point at),
+     * and that is reported the same way. Enabled by [AudioRecorderConfig.minimumFreeSpaceBytes];
+     * `0` turns the check and the limit off.
+     *
+     * @since 2.2.0
      */
     public data object StorageLow : InterruptionReason
 
