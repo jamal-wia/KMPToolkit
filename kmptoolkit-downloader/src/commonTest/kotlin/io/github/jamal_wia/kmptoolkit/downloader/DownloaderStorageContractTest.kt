@@ -128,7 +128,7 @@ abstract class DownloaderStorageContractTest {
 
     @Test
     fun `beginning without a hash still enforces the unit's own hash`() = runTest {
-        val unit = ContractUnit("model", sha256 = ABC)
+        val unit = ContractUnit("model", declaredSha256 = ABC)
         storage.beginTempFile(unit, null)
         writeTemp(storage, unit, "abd")
 
@@ -139,13 +139,36 @@ abstract class DownloaderStorageContractTest {
 
     @Test
     fun `bytes must match both the unit's hash and the recorded one`() = runTest {
-        // Both state ABC: one comparison satisfies both. A different byte string fails against
-        // each of them, whichever was stated where.
-        val unit = ContractUnit("model", sha256 = ABC)
+        // Both state ABC: one comparison satisfies both.
+        val unit = ContractUnit("model", declaredSha256 = ABC)
         storage.beginTempFile(unit, ABC)
         writeTemp(storage, unit, "abc")
         finish(storage, unit)
         assertTrue(storage.isResourceAvailable(unit))
+    }
+
+    @Test
+    fun `bytes matching the recorded hash but not the unit's are rejected`() = runTest {
+        storage.beginTempFile(ContractUnit("model"), ABC)
+        val committing = ContractUnit("model", declaredSha256 = OTHER)
+        writeTemp(storage, committing, "abc")
+
+        assertFailsWith<ResourceIntegrityException> { finish(storage, committing) }
+
+        assertFalse(storage.isResourceAvailable(committing))
+        assertEquals(TempFileState.None, storage.tempFileState(committing))
+    }
+
+    @Test
+    fun `bytes matching the unit's hash but not the recorded one are rejected`() = runTest {
+        storage.beginTempFile(ContractUnit("model"), OTHER)
+        val committing = ContractUnit("model", declaredSha256 = ABC)
+        writeTemp(storage, committing, "abc")
+
+        assertFailsWith<ResourceIntegrityException> { finish(storage, committing) }
+
+        assertFalse(storage.isResourceAvailable(committing))
+        assertEquals(TempFileState.None, storage.tempFileState(committing))
     }
 
     // 5
@@ -259,14 +282,14 @@ abstract class DownloaderStorageContractTest {
     // 8
     @Test
     fun `a partial without a record resumes and only the unit's hash is checked`() = runTest {
-        val matching = ContractUnit("legacy-a", sha256 = ABC)
+        val matching = ContractUnit("legacy-a", declaredSha256 = ABC)
         writeTemp(storage, matching, "abc")
         assertEquals(TempFileState.Partial, storage.tempFileState(matching))
         assertEquals(3L, storage.getTempFileSize(matching))
         finish(storage, matching)
         assertTrue(storage.isResourceAvailable(matching))
 
-        val mismatching = ContractUnit("legacy-b", sha256 = ABC)
+        val mismatching = ContractUnit("legacy-b", declaredSha256 = ABC)
         writeTemp(storage, mismatching, "abd")
         assertFailsWith<ResourceIntegrityException> { finish(storage, mismatching) }
         assertFalse(storage.isResourceAvailable(mismatching))
@@ -329,17 +352,18 @@ abstract class DownloaderStorageContractTest {
         writeTemp(storage, original, "partial")
         val recordBefore: ByteArray? = readFile(recordPath(storage, original))
 
-        val contradictory = ContractUnit("model", sha256 = ABC)
+        val contradictory = ContractUnit("model", declaredSha256 = ABC)
         assertFailsWith<IllegalArgumentException> { storage.beginTempFile(contradictory, OTHER) }
 
         assertEquals(TempFileState.Partial, storage.tempFileState(original))
         assertEquals(7L, storage.getTempFileSize(original))
         assertContentEquals(recordBefore, readFile(recordPath(storage, original)))
+        assertFalse(pathExists(stagedRecordPath(storage, original)), "no staged record may be left behind")
     }
 
     @Test
     fun `the same hash stated twice is not a contradiction`() {
-        val unit = ContractUnit("model", sha256 = ABC)
+        val unit = ContractUnit("model", declaredSha256 = ABC)
 
         storage.beginTempFile(unit, ABC)
 
@@ -350,7 +374,7 @@ abstract class DownloaderStorageContractTest {
     @Test
     fun `uppercase hex is accepted and equals its lowercase form`() = runTest {
         val upper: Sha256 = Sha256.parse(ABC.hex.uppercase())
-        val unit = ContractUnit("model", sha256 = upper)
+        val unit = ContractUnit("model", declaredSha256 = upper)
         storage.beginTempFile(unit, upper)
         writeTemp(storage, unit, "abc")
 
@@ -374,11 +398,32 @@ abstract class DownloaderStorageContractTest {
     }
 
     @Test
-    fun `the record location does not depend on the temp extension`() {
-        val tmp = ContractUnit("model", tempExtension = "tmp")
+    fun `the record is found whatever the temp extension of the committing unit`() = runTest {
+        storage.beginTempFile(ContractUnit("model", tempExtension = "tmp"), OTHER)
+        // Same id, another extension: its temp file is a different file, but the record is keyed by
+        // id alone, so it must still be found and enforced.
         val part = ContractUnit("model", tempExtension = "part")
+        writeTemp(storage, part, "abc")
 
-        assertEquals(recordPath(storage, tmp), recordPath(storage, part))
+        assertFailsWith<ResourceIntegrityException> { finish(storage, part) }
+
+        assertFalse(storage.isResourceAvailable(part))
+    }
+
+    @Test
+    fun `units whose ids differ only by a path separator keep separate records`() = runTest {
+        val flat = ContractUnit("x")
+        val nested = ContractUnit("x/y")
+        storage.beginTempFile(flat, OTHER)
+        storage.beginTempFile(nested, ABC)
+        writeTemp(storage, flat, "abc")
+        writeTemp(storage, nested, "abc")
+
+        assertFailsWith<ResourceIntegrityException> { finish(storage, flat) }
+        finish(storage, nested)
+
+        assertFalse(storage.isResourceAvailable(flat))
+        assertTrue(storage.isResourceAvailable(nested))
     }
 
     @Test
@@ -407,9 +452,53 @@ abstract class DownloaderStorageContractTest {
 
         assertFailsWith<IllegalStateException> { storage.beginTempFile(unit, null) }
 
-        assertFalse(pathExists("$tmpDirectory/expect/${unit.id}"), "the new record must not be paired with the surviving old file")
-        assertFalse(pathExists("$tmpDirectory/expect-staged/${unit.id}"), "the staged record must be dropped")
+        assertFalse(pathExists("$tmpDirectory/expect/${unit.id}.sha256"), "the new record must not be paired with the surviving old file")
+        assertFalse(pathExists("$tmpDirectory/expect-staged/${unit.id}.sha256"), "the staged record must be dropped")
         assertTrue(pathExists("$partial/child"), "the obstacle must still be there: nothing may remove it another way")
+    }
+
+    @Test
+    fun `deleting a temp file that cannot be deleted keeps its record`() {
+        val unit = ContractUnit("stuck-delete")
+        storage.beginTempFile(unit, OTHER)
+        // A non-empty directory at the partial path cannot be deleted by either platform.
+        writeFile("${storage.getTempFilePath(unit)}/child", "x".encodeToByteArray())
+
+        storage.deleteTempFile(unit)
+
+        assertTrue(pathExists("${storage.getTempFilePath(unit)}/child"), "the data file must have survived")
+        assertTrue(pathExists(recordPath(storage, unit)), "the record of a surviving file must be kept")
+    }
+
+    @Test
+    fun `a record that cannot be read fails the commit and drops the file`() = runTest {
+        val unit = ContractUnit("model")
+        writeTemp(storage, unit, "abc")
+        storage.markTempFileComplete(unit)
+        // A directory where the record belongs: reading it fails on both platforms.
+        writeFile("${recordPath(storage, unit)}/child", "x".encodeToByteArray())
+
+        assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
+
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertFalse(storage.isResourceAvailable(unit))
+    }
+
+    @Test
+    fun `a commit that fails for another reason than integrity keeps the file and its record`() = runTest {
+        val unit = ContractUnit("model")
+        storage.beginTempFile(unit, ABC)
+        writeTemp(storage, unit, "abc")
+        storage.markTempFileComplete(unit)
+
+        val brokenGetter = ContractUnit("model", hashGetterThrows = true)
+        assertFailsWith<IllegalArgumentException> { storage.commitResource(brokenGetter) }
+
+        assertEquals(TempFileState.Complete, storage.tempFileState(unit))
+        assertTrue(pathExists(recordPath(storage, unit)), "the retry must still be checked against the record")
+        // The retry through a healthy unit is checked and succeeds.
+        storage.commitResource(unit)
+        assertTrue(storage.isResourceAvailable(unit))
     }
 
     // -- helpers -----------------------------------------------------------------------------
@@ -426,17 +515,34 @@ abstract class DownloaderStorageContractTest {
         on.commitResource(unit)
     }
 
-    /** Where the contract says the record lives: `tmp/expect/<id>`, next to the temp files. */
+    /** Where the contract says the record lives: `tmp/expect/<id>.sha256`, next to the temp files. */
     private fun recordPath(on: DownloaderStorage, unit: DownloadUnit): String =
-        on.getTempFilePath(unit).substringBeforeLast('/') + "/expect/" + unit.id
+        tmpDirectory(on, unit) + "/expect/" + unit.id + ".sha256"
+
+    /** Where the record is staged before it is renamed into place. */
+    private fun stagedRecordPath(on: DownloaderStorage, unit: DownloadUnit): String =
+        tmpDirectory(on, unit) + "/expect-staged/" + unit.id + ".sha256"
+
+    /** The `tmp` directory; ids may contain a separator, so it is not simply the temp file's parent. */
+    private fun tmpDirectory(on: DownloaderStorage, unit: DownloadUnit): String {
+        val tempPath: String = on.getTempFilePath(unit)
+        val idDepth: Int = unit.id.count { it == '/' }
+        var directory: String = tempPath
+        repeat(idDepth + 1) { directory = directory.substringBeforeLast('/') }
+        return directory
+    }
 
     private class ContractUnit(
         override val id: String,
-        override val sha256: Sha256? = null,
+        private val declaredSha256: Sha256? = null,
         override val format: ResourceFormat = ResourceFormat.Opaque,
         override val relativePath: String = "resources/$id.bin",
         override val tempExtension: String = "tmp",
+        private val hashGetterThrows: Boolean = false,
     ) : DownloadUnit {
+        override val sha256: Sha256?
+            get() = if (hashGetterThrows) throw IllegalArgumentException("malformed hash") else declaredSha256
+
         override val apiPath: String = "/resources/$id"
         override val group: ResourceGroup = object : ResourceGroup {
             override val key: String = id

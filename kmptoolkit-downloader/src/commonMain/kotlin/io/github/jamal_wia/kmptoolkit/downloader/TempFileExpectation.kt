@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.downloader
 
+import io.github.jamal_wia.kmptoolkit.logging.Logger
+import io.github.jamal_wia.kmptoolkit.logging.w
+
 /**
  * What a storage found when it looked for the expectation record of a unit's temp file — the
  * record [DownloaderStorage.beginTempFile] writes. Shared by both platform storages so the record
@@ -65,3 +68,41 @@ internal fun integrityFailure(actualHex: String, required: List<Sha256>): Resour
 
 internal const val UNREADABLE_RECORD_MESSAGE: String =
     "Downloaded resource failed integrity check: the recorded expectation of its hash is unreadable"
+
+/**
+ * The decision half of a commit's hash check, shared by both platform storages; only reading the
+ * record and hashing the file stay per platform.
+ *
+ * Checks the complete temp file against every hash expected of it — [unitSha256] and the one in
+ * [recorded] — hashing it once through [computeHex], and only when there is something to compare.
+ * On a mismatch, or on a record that cannot be read (never "no check"), it calls [deleteTempFile]
+ * and throws [ResourceIntegrityException]. A missing record only logs a warning: a partial from
+ * before records existed, or a downloader that never called [DownloaderStorage.beginTempFile].
+ */
+internal fun checkExpectations(
+    unit: DownloadUnit,
+    unitSha256: Sha256?,
+    recorded: RecordedExpectation,
+    logger: Logger,
+    computeHex: () -> String,
+    deleteTempFile: () -> Unit,
+) {
+    if (recorded == RecordedExpectation.Unreadable) {
+        deleteTempFile()
+        throw ResourceIntegrityException(UNREADABLE_RECORD_MESSAGE)
+    }
+    if (recorded == RecordedExpectation.Missing) {
+        logger.w {
+            "No expected-hash record for $unit: a partial from before records existed, or a " +
+                "downloader that never called beginTempFile. Only DownloadUnit.sha256 is checked."
+        }
+    }
+    val required: List<Sha256> = requiredHashes(unitSha256, recorded)
+    if (required.isEmpty()) return
+    val failure: ResourceIntegrityException? =
+        integrityFailure(actualHex = computeHex(), required = required)
+    if (failure != null) {
+        deleteTempFile()
+        throw failure
+    }
+}

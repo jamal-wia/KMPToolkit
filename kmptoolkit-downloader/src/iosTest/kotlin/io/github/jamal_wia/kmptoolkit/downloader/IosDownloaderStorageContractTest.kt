@@ -4,6 +4,7 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.usePinned
+import kotlin.test.BeforeTest
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
@@ -20,6 +21,12 @@ import platform.posix.memcpy
 class IosDownloaderStorageContractTest : DownloaderStorageContractTest() {
 
     private val config = DownloaderStorageConfig(baseDirectoryName = "contract_test")
+
+    // A run that was killed leaves its files behind; none of them may leak into this one.
+    @BeforeTest
+    fun deleteDirectoryBeforeTest() {
+        deleteTestDirectory()
+    }
 
     override fun newStorage(): DownloaderStorage = createDownloaderStorage(config)
 

@@ -30,6 +30,8 @@ import kotlinx.coroutines.withContext
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSDirectoryEnumerator
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSFileProtectionKey
+import platform.Foundation.NSFileProtectionNone
 import platform.Foundation.NSFileSize
 import platform.Foundation.NSFileType
 import platform.Foundation.NSFileTypeDirectory
@@ -44,6 +46,7 @@ import platform.Foundation.NSUserDomainMask
 import platform.posix.FILE
 import platform.posix.SEEK_CUR
 import platform.posix.fclose
+import platform.posix.ferror
 import platform.posix.fflush
 import platform.posix.fileno
 import platform.posix.fopen
@@ -75,7 +78,7 @@ import platform.zlib.inflate as zlibInflate
  * can leave a partial file that reads as complete. A `tmp/<id>.<ext>` left by an earlier version of
  * this library is therefore partial, and is resumed rather than committed.
  *
- * The hash a transfer must have ([beginTempFile]) is a one-line record at `tmp/expect/<id>`, keyed
+ * The hash a transfer must have ([beginTempFile]) is a one-line record at `tmp/expect/<id>.sha256`, keyed
  * by id alone so a free-form temp extension can never make two units share or miss a record. It is
  * written before the old temp files are deleted and moved into place by a rename, so a crash leaves
  * either the old state or the new one, never a partial file paired with the wrong record.
@@ -173,6 +176,14 @@ internal class IosDownloaderStorage(
         }
         val record: String = expectationPath(unit)
         createParentDirectory(record)
+        // The record holds only a public hash, and a background commit can run while the device is
+        // locked: under the app's default protection class it would read as Unreadable, and the
+        // complete download would be deleted as Corrupted. The rename keeps the attribute.
+        NSFileManager.defaultManager.setAttributes(
+            attributes = mapOf(NSFileProtectionKey to NSFileProtectionNone),
+            ofItemAtPath = staged,
+            error = null,
+        )
         // POSIX rename replaces an existing record atomically; moveItemAtPath would refuse.
         check(rename(staged, record) == 0) { "Could not record the expected hash of $unit" }
         logger.i { "Began the temp file of $unit (expected hash: ${expectedSha256?.hex ?: "none"})" }
@@ -182,6 +193,13 @@ internal class IosDownloaderStorage(
         // Data first, record last: a crash in between leaves an orphan record, which reads as no
         // temp file at all and is overwritten by the next beginTempFile.
         deleteTempData(unit)
+        // Safe to call from cleanup paths, so it never throws. But a data file that survived must
+        // keep its record: with the record gone, the next attempt would commit that complete file
+        // unchecked.
+        if (fileExists(getTempFilePath(unit)) || fileExists(completeTempFilePath(unit))) {
+            logger.w { "Could not delete the temp file of $unit; keeping its expected-hash record" }
+            return
+        }
         remove(expectationPath(unit))
         remove(stagedExpectationPath(unit))
     }
@@ -191,10 +209,10 @@ internal class IosDownloaderStorage(
         remove(completeTempFilePath(unit))
     }
 
-    private fun expectationPath(unit: DownloadUnit): String = "$baseDir/tmp/expect/${unit.id}"
+    private fun expectationPath(unit: DownloadUnit): String = "$baseDir/tmp/expect/${unit.id}.sha256"
 
     private fun stagedExpectationPath(unit: DownloadUnit): String =
-        "$baseDir/tmp/expect-staged/${unit.id}"
+        "$baseDir/tmp/expect-staged/${unit.id}.sha256"
 
     private fun readExpectation(unit: DownloadUnit): RecordedExpectation {
         val record: String = expectationPath(unit)
@@ -344,8 +362,14 @@ internal class IosDownloaderStorage(
                     error = null,
                 )
                 if (!moved) {
-                    // Fallback: copy + delete
-                    NSFileManager.defaultManager.copyItemAtPath(stagingDir, targetDir, null)
+                    // Fallback: copy + delete. A failed copy must not be followed by the deletes: the
+                    // staging directory and the temp file are all that is left of the download.
+                    val copied: Boolean = NSFileManager.defaultManager
+                        .copyItemAtPath(stagingDir, targetDir, null)
+                    if (!copied) {
+                        NSFileManager.defaultManager.removeItemAtPath(targetDir, error = null)
+                        throw IllegalStateException("Could not move the extracted $unit into place")
+                    }
                     NSFileManager.defaultManager.removeItemAtPath(stagingDir, error = null)
                 }
             } catch (e: Exception) {
@@ -370,26 +394,14 @@ internal class IosDownloaderStorage(
      * as that exception instead so it is not answered with a pointless re-download.
      */
     private fun verifySha256(tempFilePath: String, unit: DownloadUnit) {
-        val unitSha256: Sha256? = unit.sha256
-        val recorded: RecordedExpectation = readExpectation(unit)
-        if (recorded == RecordedExpectation.Unreadable) {
-            remove(tempFilePath)
-            throw ResourceIntegrityException(UNREADABLE_RECORD_MESSAGE)
-        }
-        if (recorded == RecordedExpectation.Missing) {
-            logger.w {
-                "No expected-hash record for $unit: a partial from before records existed, or a " +
-                    "downloader that never called beginTempFile. Only DownloadUnit.sha256 is checked."
-            }
-        }
-        val required: List<Sha256> = requiredHashes(unitSha256, recorded)
-        if (required.isEmpty()) return
-        val failure: ResourceIntegrityException? =
-            integrityFailure(actualHex = sha256Hex(tempFilePath), required = required)
-        if (failure != null) {
-            NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
-            throw failure
-        }
+        checkExpectations(
+            unit = unit,
+            unitSha256 = unit.sha256,
+            recorded = readExpectation(unit),
+            logger = logger,
+            computeHex = { sha256Hex(tempFilePath) },
+            deleteTempFile = { remove(tempFilePath) },
+        )
     }
 
     /** Streams the file at [path] through CommonCrypto's SHA-256, never holding it in memory. */
@@ -412,6 +424,9 @@ internal class IosDownloaderStorage(
                     CC_SHA256_Update(context.ptr, pinned.addressOf(0), read.convert())
                 }
             }
+            // fread answers 0 for end of file and for an I/O error alike; an error mid-file must not
+            // be reported as a hash mismatch.
+            check(ferror(file) == 0) { "I/O error while hashing $path" }
         } finally {
             fclose(file)
         }
@@ -504,8 +519,13 @@ internal class IosDownloaderStorage(
             error = null,
         )
         if (!moved) {
-            // Fallback: copy + delete
-            NSFileManager.defaultManager.copyItemAtPath(tempFilePath, destinationPath, null)
+            // Fallback: copy + delete. A failed copy must not delete the only copy of the download.
+            val copied: Boolean = NSFileManager.defaultManager
+                .copyItemAtPath(tempFilePath, destinationPath, null)
+            if (!copied) {
+                NSFileManager.defaultManager.removeItemAtPath(destinationPath, error = null)
+                throw IllegalStateException("Could not move the downloaded file to $destinationPath")
+            }
             NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
         }
         logger.i { "Saved resource to $destinationPath" }

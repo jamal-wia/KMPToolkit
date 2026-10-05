@@ -34,7 +34,7 @@ import java.util.zip.ZipInputStream
  * can leave a partial file that reads as complete. A `tmp/<id>.<ext>` left by an earlier version of
  * this library is therefore partial, and is resumed rather than committed.
  *
- * The hash a transfer must have ([beginTempFile]) is a one-line record at `tmp/expect/<id>`, keyed
+ * The hash a transfer must have ([beginTempFile]) is a one-line record at `tmp/expect/<id>.sha256`, keyed
  * by id alone so a free-form temp extension can never make two units share or miss a record. It is
  * written before the old temp files are deleted and moved into place by a rename, so a crash leaves
  * either the old state or the new one, never a partial file paired with the wrong record.
@@ -118,6 +118,13 @@ internal class AndroidDownloaderStorage(
         // Data first, record last: a crash in between leaves an orphan record, which reads as no
         // temp file at all and is overwritten by the next beginTempFile.
         deleteTempData(unit)
+        // Safe to call from cleanup paths, so it never throws. But a data file that survived must
+        // keep its record: with the record gone, the next attempt would commit that complete file
+        // unchecked.
+        if (File(getTempFilePath(unit)).exists() || completeTempFile(unit).exists()) {
+            logger.w { "Could not delete the temp file of $unit; keeping its expected-hash record" }
+            return
+        }
         expectationFile(unit).delete()
         stagedExpectationFile(unit).delete()
     }
@@ -127,10 +134,10 @@ internal class AndroidDownloaderStorage(
         completeTempFile(unit).delete()
     }
 
-    private fun expectationFile(unit: DownloadUnit): File = File(baseDir, "tmp/expect/${unit.id}")
+    private fun expectationFile(unit: DownloadUnit): File = File(baseDir, "tmp/expect/${unit.id}.sha256")
 
     private fun stagedExpectationFile(unit: DownloadUnit): File =
-        File(baseDir, "tmp/expect-staged/${unit.id}")
+        File(baseDir, "tmp/expect-staged/${unit.id}.sha256")
 
     private fun readExpectation(unit: DownloadUnit): RecordedExpectation {
         val record: File = expectationFile(unit)
@@ -244,34 +251,26 @@ internal class AndroidDownloaderStorage(
      * it is not answered with a pointless re-download.
      */
     private fun verifySha256(tempFile: File, unit: DownloadUnit) {
-        val unitSha256: Sha256? = unit.sha256
-        val recorded: RecordedExpectation = readExpectation(unit)
-        if (recorded == RecordedExpectation.Unreadable) {
-            tempFile.delete()
-            throw ResourceIntegrityException(UNREADABLE_RECORD_MESSAGE)
-        }
-        if (recorded == RecordedExpectation.Missing) {
-            logger.w {
-                "No expected-hash record for $unit: a partial from before records existed, or a " +
-                    "downloader that never called beginTempFile. Only DownloadUnit.sha256 is checked."
-            }
-        }
-        val required: List<Sha256> = requiredHashes(unitSha256, recorded)
-        if (required.isEmpty()) return
+        checkExpectations(
+            unit = unit,
+            unitSha256 = unit.sha256,
+            recorded = readExpectation(unit),
+            logger = logger,
+            computeHex = { sha256Hex(tempFile) },
+            deleteTempFile = { tempFile.delete() },
+        )
+    }
+
+    private fun sha256Hex(file: File): String {
         val digest: MessageDigest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(WRITE_BUFFER_SIZE)
-        FileInputStream(tempFile).use { input: FileInputStream ->
+        FileInputStream(file).use { input: FileInputStream ->
             var read: Int
             while (input.read(buffer).also { read = it } != -1) {
                 digest.update(buffer, 0, read)
             }
         }
-        val failure: ResourceIntegrityException? =
-            integrityFailure(actualHex = digest.digest().toLowerHex(), required = required)
-        if (failure != null) {
-            tempFile.delete()
-            throw failure
-        }
+        return digest.digest().toLowerHex()
     }
 
     /**
