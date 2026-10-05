@@ -40,7 +40,8 @@ import kotlinx.coroutines.withContext
  * @param coroutineContext context for the position-polling coroutine. The default is
  *   [Dispatchers.Default] — polling only reads two numbers and writes two `StateFlow`s, so it has no
  *   reason to occupy the main thread. Pass a `TestDispatcher` to make polling deterministic in
- *   tests.
+ *   tests. A [Job] in it is ignored: the player runs under a job of its own, so that releasing it
+ *   never cancels a job that belongs to the caller.
  * @return a player in [PlayerState.Idle], ready for [AudioPlayer.prepare].
  */
 public fun createAudioPlayer(
@@ -87,7 +88,10 @@ private class EngineAudioPlayer(
 ) : AudioPlayer, PlaybackEngineListener {
 
     private val gate: StateMachineLock = StateMachineLock()
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + coroutineContext)
+
+    // A Job in the consumer's context would replace the SupervisorJob and make release() cancel the
+    // consumer's own Job (a viewModelScope's, say), so it is stripped; everything else is kept.
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + coroutineContext.minusKey(Job))
 
     /** The polling coroutine while playing. Guarded. */
     private var positionJob: Job? = null

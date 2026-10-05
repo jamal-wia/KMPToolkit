@@ -54,7 +54,10 @@ internal class EngineVideoPlayer(
 ) : VideoPlayer, VideoPlaybackEngineListener {
 
     private val gate: StateMachineLock = StateMachineLock()
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + coroutineContext)
+
+    // A Job in the consumer's context would replace the SupervisorJob and make release() cancel the
+    // consumer's own Job (a viewModelScope's, say), so it is stripped; everything else is kept.
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + coroutineContext.minusKey(Job))
 
     /** The polling coroutine while playing. Guarded. */
     private var positionJob: Job? = null

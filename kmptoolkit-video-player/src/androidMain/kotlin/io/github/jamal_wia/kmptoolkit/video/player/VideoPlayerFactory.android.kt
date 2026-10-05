@@ -22,7 +22,9 @@ import kotlinx.coroutines.Dispatchers
  *
  * @param context any context; its application context is what gets stored.
  * @param config tunables; see [VideoPlayerConfig].
- * @param coroutineContext hosts the position-polling coroutine.
+ * @param coroutineContext hosts the position-polling coroutine. A [kotlinx.coroutines.Job] in it is
+ *   ignored: the player runs under a job of its own, so releasing it never cancels a job that belongs
+ *   to the caller.
  * @return a player in [VideoPlayerState.Idle].
  */
 public fun createVideoPlayer(

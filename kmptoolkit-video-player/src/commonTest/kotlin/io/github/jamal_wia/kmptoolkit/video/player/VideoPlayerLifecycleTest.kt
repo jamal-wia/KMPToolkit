@@ -287,4 +287,29 @@ class VideoPlayerLifecycleTest {
         assertEquals(listOf("load", "release", "dispose"), engine.calls)
         assertEquals(VideoPlayerState.Idle, player.stateFlow.value)
     }
+
+    @Test
+    fun `a job in the coroutine context is ignored and release does not cancel it`() = runTest {
+        // A consumer passing viewModelScope.coroutineContext hands over a Job. It must not become
+        // the player's own, or release() would cancel the consumer's scope.
+        val consumerJob: Job = Job()
+        val engine = RecordingVideoPlaybackEngine()
+        val player: VideoPlayer = createVideoPlayer(
+            engine = engine,
+            config = VideoPlayerConfig(positionUpdateIntervalMs = 100L),
+            coroutineContext = StandardTestDispatcher(testScheduler) + consumerJob,
+        )
+        try {
+            player.prepare(source)
+            player.play()
+            advanceTimeBy(500L)
+
+            player.release()
+
+            assertTrue(consumerJob.isActive, "release() cancelled a job that belongs to the caller")
+            assertEquals(1, engine.releaseCount)
+        } finally {
+            consumerJob.cancel()
+        }
+    }
 }
