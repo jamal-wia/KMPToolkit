@@ -14,8 +14,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 ### Breaking
 
 - `kmptoolkit-downloader`: the hash a download must have can now come from the backend, per
-  download, instead of only from a constant on the unit. Three public signatures change; the
-  owner chose 2.1.0 for this knowingly.
+  download, instead of only from a constant on the unit. Three public signatures change.
   - **`DownloadUnit.sha256` is `Sha256?`**, not `String?`. Build the value with
     `Sha256.parse("...")` (throws for anything that is not 64 hex digits, either case) or
     `Sha256.parseOrNull(...)`.
