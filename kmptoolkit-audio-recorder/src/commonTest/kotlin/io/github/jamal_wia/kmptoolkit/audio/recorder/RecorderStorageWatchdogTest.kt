@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
@@ -136,6 +137,73 @@ class RecorderStorageWatchdogTest {
 
             assertEquals(listOf<Long?>(96 * MIB), fixture.engine.preparedMaxFileSizes)
         }
+
+    @Test
+    fun `prepare refuses a volume whose room beyond the reserve is below what a platform accepts as a limit`() =
+        runRecorderTest(AudioRecorderConfig(minimumFreeSpaceBytes = 1 * MIB)) { fixture ->
+            // Meets the minimum, but the reserve is the whole minimum here: 1000 bytes would be left
+            // for a size limit, and Android's setMaxFileSize throws for anything up to 1 KiB.
+            fixture.fileSystem.freeSpace = 1 * MIB + 1_000L
+
+            val result: RecorderResult<String> = fixture.recorder.prepare()
+
+            assertEquals(
+                RecorderResult.Failure(
+                    RecorderError.InsufficientStorage(
+                        path = DEFAULT_DIRECTORY,
+                        requiredBytes = 1 * MIB + MIN_MAX_FILE_SIZE_BYTES,
+                        availableBytes = 1 * MIB + 1_000L,
+                    )
+                ),
+                result,
+            )
+            assertEquals(emptyList(), fixture.engine.preparedMaxFileSizes, "the engine is never reached")
+        }
+
+    @Test
+    fun `prepare accepts a volume that leaves exactly the smallest size limit`() =
+        runRecorderTest(AudioRecorderConfig(minimumFreeSpaceBytes = 1 * MIB)) { fixture ->
+            fixture.fileSystem.freeSpace = 1 * MIB + MIN_MAX_FILE_SIZE_BYTES
+
+            fixture.prepared()
+
+            assertEquals(listOf<Long?>(MIN_MAX_FILE_SIZE_BYTES), fixture.engine.preparedMaxFileSizes)
+        }
+
+    @Test
+    fun `short pause and resume cycles still poll once per interval of the recording`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.recording()
+            fixture.fileSystem.freeSpace = 1 * MIB
+
+            // Each stretch is far shorter than the poll interval, so a mark restarted by every
+            // resume would never come due.
+            repeat(4) {
+                passTime(fixture, 600.milliseconds)
+                fixture.recorder.pause()
+                fixture.recorder.resume()
+            }
+            passTime(fixture, 600.milliseconds)
+
+            val state: RecorderState = fixture.recorder.state.value
+            assertIs<RecorderState.Interrupted>(state)
+            assertEquals(path, state.recording.path)
+            assertEquals(InterruptionReason.StorageLow, state.reason)
+        }
+
+    @Test
+    fun `a new recording starts its own poll interval`() = runRecorderTest { fixture ->
+        fixture.recording()
+        passTime(fixture, 1.seconds)
+        fixture.recorder.stop()
+        fixture.recorder.prepare()
+        fixture.recorder.start()
+        val queries: Int = fixture.fileSystem.freeSpaceQueries.size
+
+        passTime(fixture, 1.seconds)
+
+        assertEquals(queries, fixture.fileSystem.freeSpaceQueries.size, "one second in, nothing is due")
+    }
 
     @Test
     fun `prepare gives the engine no size limit when the volume cannot say or the check is off`() {

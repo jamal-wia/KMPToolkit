@@ -2,6 +2,8 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import io.github.jamal_wia.kmptoolkit.core.StateMachineLock
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import kotlin.concurrent.atomics.AtomicReference
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -70,7 +72,7 @@ import kotlinx.coroutines.withContext
  *   brief handover (an assistant taking the microphone for a moment) must not.
  * @param freeSpacePollInterval how often the free-space watchdog looks, at most, while recording.
  */
-@OptIn(ToolkitInternalApi::class)
+@OptIn(ToolkitInternalApi::class, ExperimentalAtomicApi::class)
 internal class DefaultAudioRecorder(
     private val engine: RecorderEngine,
     private val fileSystem: RecordingFileSystem,
@@ -154,6 +156,17 @@ internal class DefaultAudioRecorder(
 
     /** Where [elapsed] stood when the input went silent; only while a silence is being debounced. */
     private var silencedAt: Duration? = null
+
+    /**
+     * When the free-space watchdog last looked, for the session: set by `start()`, cleared by
+     * `prepare()`, and deliberately *not* reset by `resume()` — a ticker only lives from one
+     * start/resume to the next pause, so a mark kept by the ticker itself would restart on every
+     * resume and a user who pauses more often than the poll interval would never be checked. An
+     * atomic rather than a plain guarded field because the ticker claims a poll with a
+     * compare-and-set, off the lock, so two tickers (one just cancelled, one just started) can
+     * never both poll for the same interval.
+     */
+    private val lastSpaceCheck: AtomicReference<TimeMark?> = AtomicReference(null)
 
     // --- prepare ---
 
@@ -261,6 +274,7 @@ internal class DefaultAudioRecorder(
         discardPreparedButUnusedFile(current)
         engine.release()
         resetTiming()
+        lastSpaceCheck.store(null)
         session++
         _state.value = RecorderState.Preparing
         return Begin.Go(session)
@@ -291,6 +305,8 @@ internal class DefaultAudioRecorder(
         val mark: TimeMark = timeSource.markNow()
         segmentStart = mark
         _elapsed.value = Duration.ZERO
+        // The poll interval counts from the moment capture began, once per recording.
+        lastSpaceCheck.store(timeSource.markNow())
         startTicker(base = Duration.ZERO, mark = mark, outputPath = current.outputPath)
         startMeter()
         _state.value = RecorderState.Recording(current.outputPath)
@@ -785,7 +801,22 @@ internal class DefaultAudioRecorder(
         // The platform's own size limit, as a backstop for a disk that fills faster than the
         // watchdog polls: what is free now, less the reserve finalizing needs.
         val reserve: Long = freeSpaceReserve ?: 0L
-        return StorageCheck(null, (available - reserve).coerceAtLeast(1L))
+        val limit: Long = available - reserve
+        // A limit the platform would refuse is not handed over: Android's setMaxFileSize rejects
+        // anything up to 1 KiB, and the RuntimeException it throws would surface as a misleading
+        // EngineFailure(PREPARE). A volume with that little room beyond the reserve cannot hold a
+        // recording that ends cleanly anyway.
+        if (limit < MIN_MAX_FILE_SIZE_BYTES) {
+            return StorageCheck(
+                RecorderError.InsufficientStorage(
+                    path = directory,
+                    requiredBytes = maxOf(config.minimumFreeSpaceBytes, reserve + MIN_MAX_FILE_SIZE_BYTES),
+                    availableBytes = available,
+                ),
+                null,
+            )
+        }
+        return StorageCheck(null, limit)
     }
 
     private class StorageCheck(val error: RecorderError?, val maxFileSizeBytes: Long?)
@@ -826,11 +857,7 @@ internal class DefaultAudioRecorder(
         val token: Long = session
         val reserve: Long? = freeSpaceReserve
         val directory: String? = if (reserve == null) null else fileSystem.parentOf(outputPath)
-        // Taken here, with the lock, not when the coroutine first gets to run: the poll interval
-        // counts from the moment capture began.
-        val startedAt: TimeMark = timeSource.markNow()
         tickerJob = scope.launch {
-            var lastSpaceCheck: TimeMark = startedAt
             while (true) {
                 delay(config.durationUpdateInterval)
                 val tick: Duration = base + mark.elapsedNow()
@@ -838,10 +865,7 @@ internal class DefaultAudioRecorder(
                 // the transition that cancelled us has the authoritative value.
                 ensureActive()
                 gate.submit { if (epoch == tickerEpoch) _elapsed.value = tick }
-                if (reserve != null && directory != null &&
-                    lastSpaceCheck.elapsedNow() >= freeSpacePollInterval
-                ) {
-                    lastSpaceCheck = timeSource.markNow()
+                if (reserve != null && directory != null && claimSpaceCheck()) {
                     val free: Long = fileSystem.freeSpaceBytes(directory)
                     // -1 is "the platform could not tell", which is not "low".
                     if (free in 0 until reserve) {
@@ -852,6 +876,13 @@ internal class DefaultAudioRecorder(
                 }
             }
         }
+    }
+
+    /** Whether a free-space poll is due; if so, this caller owns it and the interval restarts. */
+    private fun claimSpaceCheck(): Boolean {
+        val last: TimeMark = lastSpaceCheck.load() ?: return false
+        if (last.elapsedNow() < freeSpacePollInterval) return false
+        return lastSpaceCheck.compareAndSet(last, timeSource.markNow())
     }
 
     /** Lock held. */
@@ -985,6 +1016,13 @@ internal val DEFAULT_FREE_SPACE_POLL_INTERVAL: Duration = 2.seconds
 
 /** The smallest reserve the watchdog keeps free for finalizing the file. */
 internal const val MIN_FREE_SPACE_RESERVE_BYTES: Long = 2L * 1024 * 1024
+
+/**
+ * The smallest size limit worth handing to a platform recorder. Android's `setMaxFileSize` throws
+ * for a limit between 1 byte and 1 KiB, so a limit below this is refused by `prepare()` as
+ * `InsufficientStorage` instead of being passed on.
+ */
+internal const val MIN_MAX_FILE_SIZE_BYTES: Long = 64L * 1024
 
 /**
  * What the free-space watchdog keeps free while recording, derived from
