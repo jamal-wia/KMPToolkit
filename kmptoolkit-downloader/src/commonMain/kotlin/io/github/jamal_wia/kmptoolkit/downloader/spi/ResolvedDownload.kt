@@ -49,8 +49,11 @@ public class ResolvedDownload(
     }
 
     private fun redactUserInfo(withoutQuery: String): String {
-        val authorityStart: Int = withoutQuery.indexOf("://").let { if (it < 0) return withoutQuery else it + 3 }
-        val authorityEnd: Int = withoutQuery.indexOf('/', authorityStart).let { if (it < 0) withoutQuery.length else it }
+        val schemeEnd: Int = withoutQuery.indexOf("://")
+        if (schemeEnd < 0) return withoutQuery
+        val authorityStart: Int = schemeEnd + 3
+        val slash: Int = withoutQuery.indexOf('/', authorityStart)
+        val authorityEnd: Int = if (slash < 0) withoutQuery.length else slash
         val at: Int = withoutQuery.lastIndexOf('@', authorityEnd - 1)
         if (at < authorityStart) return withoutQuery
         return withoutQuery.substring(0, authorityStart) + "***" + withoutQuery.substring(at)
