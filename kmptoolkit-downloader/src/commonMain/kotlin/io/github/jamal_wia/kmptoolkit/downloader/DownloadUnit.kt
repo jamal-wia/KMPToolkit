@@ -39,7 +39,7 @@ public interface DownloadUnit {
     public val format: ResourceFormat get() = ResourceFormat.Opaque
 
     /**
-     * The SHA-256 of the downloaded bytes as 64 hex digits (either case), or null for no check.
+     * The SHA-256 every download of this unit must have, or null for no constant expectation.
      * When set, [DownloaderStorage.commitResource] hashes the complete temp file before anything
      * reaches the final path, and a mismatch is downloaded again rather than committed.
      *
@@ -47,8 +47,18 @@ public interface DownloadUnit {
      * and a file stitched from two versions when the remote resource changed between an interrupted
      * transfer and its `Range` resume. Hashing reads the whole file once, about a second for a few
      * hundred megabytes on a current phone, and only at commit.
+     *
+     * Do NOT set this for an object the backend replaces in place: its hash changes with every
+     * replacement, so a constant is wrong as soon as the object changes. Take the hash from the
+     * backend's response instead and hand it to [DownloaderStorage.beginTempFile] — see
+     * [io.github.jamal_wia.kmptoolkit.downloader.spi.ResolvedDownload.expectedSha256]. Both may
+     * apply to one transfer; the bytes must then match each of them.
+     *
+     * Read by the engine once before it starts a transfer: a getter that throws (a host that built
+     * the value with [Sha256.parse] from a malformed constant) fails the unit with
+     * [DownloadError.Unknown] before any byte is fetched, instead of after the whole download.
      */
-    public val sha256: String? get() = null
+    public val sha256: Sha256? get() = null
 
     /**
      * True when committing means "extract an archive into a directory" rather than "move one file

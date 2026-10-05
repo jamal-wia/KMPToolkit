@@ -40,7 +40,7 @@ class Sha256Test {
     }
 
     @Test
-    fun `parseOrNull answers null for null, blank, garbled and wrong length`() {
+    fun `parseOrNull answers null for null and blank and garbled and wrong length`() {
         assertNull(Sha256.parseOrNull(null))
         assertNull(Sha256.parseOrNull(""))
         assertNull(Sha256.parseOrNull("   "))
@@ -56,7 +56,7 @@ class Sha256Test {
     }
 
     @Test
-    fun `equality and hashCode follow the digest, not the instance or the input case`() {
+    fun `equality and hashCode follow the digest and not the instance or the input case`() {
         val a: Sha256 = Sha256.parse(lower)
         val b: Sha256 = Sha256.parse(lower.uppercase())
         val other: Sha256 = Sha256.parse("0".repeat(64))

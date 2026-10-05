@@ -4,9 +4,11 @@ package io.github.jamal_wia.kmptoolkit.downloader
  * Where downloaded bytes live on the device. Implemented per platform inside this library
  * (`AndroidDownloaderStorage`, `IosDownloaderStorage`, both behind a `createDownloaderStorage(...)`
  * factory — see `docs/01-architecture.md`'s "platform factories, not `expect fun`" convention); a
- * contract rather than an internal class so a host can bind and fake it. A host never calls the
- * temp-file half, but consumers do read [getResourcePath] to open what was fetched, and a
- * cache-management screen uses [getResourceSize] / [deleteResource].
+ * contract rather than an internal class so a host can bind and fake it. The engine drives most of
+ * the temp-file half, but the [BackgroundResourceDownloader] a host implements is the party that
+ * owns the writer, so it calls [beginTempFile] and [markTempFileComplete] itself. Consumers read
+ * [getResourcePath] to open what was fetched, and a cache-management screen uses [getResourceSize]
+ * / [deleteResource].
  *
  * Every method dispatches on the unit's own [DownloadUnit.relativePath], [DownloadUnit.id] and
  * [DownloadUnit.format] — never on which unit it is — so a host adding a resource never touches
@@ -49,6 +51,44 @@ public interface DownloaderStorage {
     public fun getTempFileSize(unit: DownloadUnit): Long
 
     /**
+     * Declares that [unit]'s temp file is about to be written from byte zero, and what the finished
+     * bytes must hash to. Replaces whatever transfer was there: afterwards [tempFileState] is
+     * [TempFileState.None] and [getTempFileSize] is 0, so the expectation recorded here always
+     * belongs to the bytes that follow it.
+     *
+     * [expectedSha256] is the hash of exactly the object about to be fetched — typically
+     * [io.github.jamal_wia.kmptoolkit.downloader.spi.ResolvedDownload.expectedSha256] from the
+     * response that produced the URL — or null when the backend stated none. It is persisted next
+     * to the temp file, so a commit in a later process (a recovered [TempFileState.Complete] file,
+     * an iOS background session that finished while the app was dead) still enforces it. It is
+     * checked at [commitResource] in addition to [DownloadUnit.sha256], and dropped together with
+     * the temp file.
+     *
+     * Called by the party that owns the writer, exactly when it is about to write from byte 0:
+     * - a fresh start (no temp file);
+     * - a `200` in reply to a `Range` request (the server ignored the range);
+     * - a `416` whose reported total does not match the partial file.
+     *
+     * Never on a `206` resume (the bytes continue an object whose hash was recorded when it began),
+     * never when joining a transfer that is already running, never when an iOS transfer reconnects
+     * or resumes from `resumeData`, and never on completion. A hash first seen on a resume is not
+     * filled in.
+     *
+     * Throws [IllegalArgumentException] before touching anything when [DownloadUnit.sha256] and
+     * [expectedSha256] are both non-null and differ — a contradictory catalogue fails before it
+     * spends the user's data, and an existing partial file and its record stay as they were.
+     *
+     * Crash-safe order for an implementation: write the new record under a temporary name and flush
+     * it to disk, delete the complete and partial files, then move the record into place. The
+     * record is always written, with an explicit "no hash" marker when [expectedSha256] is null, so
+     * "began without a hash" is distinguishable from "never began" (a partial left by an older
+     * version of this library, or a downloader that forgot to call this). A recordless partial still
+     * resumes and commits, checked against [DownloadUnit.sha256] only. Keyed by [DownloadUnit.id]
+     * alone: two unit instances with the same id share one record.
+     */
+    public fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?)
+
+    /**
      * Declares [unit]'s transfer finished: the file at [getTempFilePath] holds every byte, and
      * [tempFileState] reports [TempFileState.Complete] from now on, across process death. Atomic,
      * so a crash leaves either a partial file or a complete one, never a complete-looking partial
@@ -61,7 +101,11 @@ public interface DownloaderStorage {
      */
     public fun markTempFileComplete(unit: DownloadUnit)
 
-    /** Deletes [unit]'s temp file, partial or complete. For error and cancel; safe when absent. */
+    /**
+     * Deletes [unit]'s temp file, partial or complete, and then the hash expectation recorded by
+     * [beginTempFile] — the record belongs to the temp file and never outlives it by design. For
+     * error and cancel; safe when absent.
+     */
     public fun deleteTempFile(unit: DownloadUnit)
 
     /**
@@ -70,12 +114,19 @@ public interface DownloaderStorage {
      * archive. Throws when there is no complete temp file, and when the resource cannot be
      * finalized.
      *
-     * Before anything reaches the final path the bytes are checked against [DownloadUnit.sha256]
-     * when the unit states one, and against [ResourceFormat.SqliteDatabase]'s checks for a
-     * database. A failed check deletes the temp file and throws [ResourceIntegrityException],
-     * which the engine answers with a fresh download rather than a failure. A custom
-     * implementation must keep the same rule: nothing that fails a check may reach the final path,
-     * not even momentarily.
+     * Before anything reaches the final path — before an archive is extracted, a database opened or
+     * a file moved — the bytes are hashed once and checked against every expectation there is:
+     * [DownloadUnit.sha256] when the unit states one, and the hash recorded by [beginTempFile].
+     * A [ResourceFormat.SqliteDatabase] is then checked as well. A failed check deletes the temp
+     * file and throws [ResourceIntegrityException], which the engine answers with a fresh download
+     * rather than a failure; so does a recorded expectation that exists but cannot be read, which is
+     * never treated as "no check". With no record at all (a partial from before the record existed,
+     * or a downloader that never called [beginTempFile]) only [DownloadUnit.sha256] applies, and a
+     * warning is logged. A custom implementation must keep the same rule: nothing that fails a
+     * check may reach the final path, not even momentarily.
+     *
+     * The recorded expectation is deleted whenever the temp file is gone after this call, whether it
+     * succeeded or failed, data first and record last.
      */
     public suspend fun commitResource(unit: DownloadUnit)
 
@@ -107,7 +158,7 @@ public sealed interface TempFileState {
 
 /**
  * Thrown by [DownloaderStorage.commitResource] when the downloaded bytes fail a check: a
- * [DownloadUnit.sha256] mismatch, or a [ResourceFormat.SqliteDatabase] that does not open or does
+ * [DownloadUnit.sha256] or recorded hash mismatch, or a [ResourceFormat.SqliteDatabase] that does not open or does
  * not hold the rows it declares. The temp file is already gone when this is thrown.
  *
  * Its own type because the right answer differs from every other commit failure: downloading again

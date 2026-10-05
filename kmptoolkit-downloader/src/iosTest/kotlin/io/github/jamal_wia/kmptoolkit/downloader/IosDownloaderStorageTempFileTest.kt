@@ -104,7 +104,7 @@ class IosDownloaderStorageTempFileTest {
 
     @Test
     fun aCompleteFileWhoseSha256MatchesIsCommitted() = runTest {
-        val unit = TestUnit(id = "model", sha256 = ABC_SHA256.uppercase())
+        val unit = TestUnit(id = "model", sha256Text = ABC_SHA256.uppercase())
         writePartial(unit, "abc")
         storage.markTempFileComplete(unit)
 
@@ -117,7 +117,7 @@ class IosDownloaderStorageTempFileTest {
 
     @Test
     fun aCompleteFileWhoseSha256DiffersIsDeletedAndNothingIsCommitted() = runTest {
-        val unit = TestUnit(id = "model", sha256 = ABC_SHA256)
+        val unit = TestUnit(id = "model", sha256Text = ABC_SHA256)
         writePartial(unit, "abd")
         storage.markTempFileComplete(unit)
 
@@ -128,8 +128,8 @@ class IosDownloaderStorageTempFileTest {
     }
 
     @Test
-    fun aStatedHashThatIsNotHexIsAHostErrorNotAnIntegrityFailure() = runTest {
-        val unit = TestUnit(id = "model", sha256 = "not-a-hash")
+    fun aUnitWhoseHashGetterThrowsIsAHostErrorNotAnIntegrityFailure() = runTest {
+        val unit = TestUnit(id = "model", sha256Text = "not-a-hash")
         writePartial(unit, "abc")
         storage.markTempFileComplete(unit)
 
@@ -165,9 +165,11 @@ class IosDownloaderStorageTempFileTest {
 
     private class TestUnit(
         override val id: String,
-        override val sha256: String? = null,
+        /** The hash as text; parsed lazily so a malformed one throws from the getter, as a host's would. */
+        private val sha256Text: String? = null,
         override val format: ResourceFormat = ResourceFormat.Opaque,
     ) : DownloadUnit {
+        override val sha256: Sha256? get() = sha256Text?.let { Sha256.parse(it) }
         override val apiPath: String = "/resources/$id"
         override val relativePath: String = "resources/$id.bin"
         override val group: ResourceGroup = object : ResourceGroup {

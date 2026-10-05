@@ -15,6 +15,8 @@ import io.github.jamal_wia.kmptoolkit.downloader.Sha256
  * Take [expectedSha256] from `Sha256.parseOrNull(response.sha256)`: a hash the backend omitted or
  * garbled then means "no check" instead of a failed download.
  *
+ * [toString] omits the URL's query and fragment, which usually carry the signature of a signed link.
+ *
  * @param url the URL to fetch. Must not be blank.
  * @param expectedSha256 the hash of the object behind [url], or null when the backend stated none.
  */
@@ -31,5 +33,11 @@ public class ResolvedDownload(
 
     override fun hashCode(): Int = 31 * url.hashCode() + (expectedSha256?.hashCode() ?: 0)
 
-    override fun toString(): String = "ResolvedDownload(url=$url, expectedSha256=$expectedSha256)"
+    // A resolved URL is typically a short-lived signed link whose query carries the credential, and
+    // toString ends up in logs: keep scheme, host and path, drop the query and fragment.
+    override fun toString(): String {
+        val cut: Int = url.indexOfFirst { it == '?' || it == '#' }
+        val safeUrl: String = if (cut < 0) url else url.substring(0, cut) + "?…"
+        return "ResolvedDownload(url=$safeUrl, expectedSha256=$expectedSha256)"
+    }
 }

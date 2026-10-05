@@ -4,6 +4,7 @@ import io.github.jamal_wia.kmptoolkit.downloader.spi.ResolvedDownload
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 
@@ -38,5 +39,17 @@ class ResolvedDownloadTest {
             "ResolvedDownload(url=https://cdn.example/a, expectedSha256=Sha256(${hash.hex}))",
             ResolvedDownload("https://cdn.example/a", hash).toString(),
         )
+    }
+
+    @Test
+    fun `toString never shows the query or fragment of a signed link`() {
+        val text: String = ResolvedDownload("https://cdn.example/a/b.bin?X-Sig=secret123&exp=9#frag", hash).toString()
+
+        assertEquals(
+            "ResolvedDownload(url=https://cdn.example/a/b.bin?…, expectedSha256=Sha256(${hash.hex}))",
+            text,
+        )
+        assertFalse("secret123" in text)
+        assertFalse("frag" in text)
     }
 }

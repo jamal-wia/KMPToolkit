@@ -7,6 +7,7 @@ import io.github.jamal_wia.kmptoolkit.downloader.DownloaderStorage.Companion.WRI
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.i
+import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
@@ -14,6 +15,7 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -31,6 +33,11 @@ import java.util.zip.ZipInputStream
  * `tmp/<id>.<ext>` to `tmp/<id>.<ext>.complete`, an atomic rename within one directory, so no crash
  * can leave a partial file that reads as complete. A `tmp/<id>.<ext>` left by an earlier version of
  * this library is therefore partial, and is resumed rather than committed.
+ *
+ * The hash a transfer must have ([beginTempFile]) is a one-line record at `tmp/expect/<id>`, keyed
+ * by id alone so a free-form temp extension can never make two units share or miss a record. It is
+ * written before the old temp files are deleted and moved into place by a rename, so a crash leaves
+ * either the old state or the new one, never a partial file paired with the wrong record.
  */
 internal class AndroidDownloaderStorage(
     private val context: Context,
@@ -84,9 +91,56 @@ internal class AndroidDownloaderStorage(
         logger.i { "Marked the temp file of $unit complete (${complete.length()} bytes)" }
     }
 
+    override fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?) {
+        // Before any side effect: a contradictory catalogue must leave the existing partial file and
+        // its record exactly as they were.
+        requireConsistentExpectations(unit, expectedSha256)
+        val staged: File = stagedExpectationFile(unit)
+        staged.parentFile?.mkdirs()
+        FileOutputStream(staged).use { output: FileOutputStream ->
+            output.write(encodeExpectation(expectedSha256).encodeToByteArray())
+            output.fd.sync()
+        }
+        deleteTempData(unit)
+        // A delete that failed must not be followed by the rename: the surviving old bytes would
+        // be paired with the new record.
+        if (File(getTempFilePath(unit)).exists() || completeTempFile(unit).exists()) {
+            staged.delete()
+            throw IllegalStateException("Could not discard the previous temp file of $unit")
+        }
+        val record: File = expectationFile(unit)
+        record.parentFile?.mkdirs()
+        check(staged.renameTo(record)) { "Could not record the expected hash of $unit" }
+        logger.i { "Began the temp file of $unit (expected hash: ${expectedSha256?.hex ?: "none"})" }
+    }
+
     override fun deleteTempFile(unit: DownloadUnit) {
+        // Data first, record last: a crash in between leaves an orphan record, which reads as no
+        // temp file at all and is overwritten by the next beginTempFile.
+        deleteTempData(unit)
+        expectationFile(unit).delete()
+        stagedExpectationFile(unit).delete()
+    }
+
+    private fun deleteTempData(unit: DownloadUnit) {
         File(getTempFilePath(unit)).delete()
         completeTempFile(unit).delete()
+    }
+
+    private fun expectationFile(unit: DownloadUnit): File = File(baseDir, "tmp/expect/${unit.id}")
+
+    private fun stagedExpectationFile(unit: DownloadUnit): File =
+        File(baseDir, "tmp/expect-staged/${unit.id}")
+
+    private fun readExpectation(unit: DownloadUnit): RecordedExpectation {
+        val record: File = expectationFile(unit)
+        if (!record.exists()) return RecordedExpectation.Missing
+        return try {
+            decodeExpectation(record.readText())
+        } catch (e: IOException) {
+            logger.w { "Cannot read the expected-hash record of $unit: ${e.message}" }
+            RecordedExpectation.Unreadable
+        }
     }
 
     override fun getResourceSize(unit: DownloadUnit): Long {
@@ -119,6 +173,17 @@ internal class AndroidDownloaderStorage(
         check(tempFile.exists()) {
             "No complete temp file for $unit — a partial transfer is resumed, never committed"
         }
+        try {
+            commitCompleteTempFile(unit, tempFile)
+        } finally {
+            // The record belongs to the temp file. Once the file is gone — committed, or deleted by
+            // a failed check — the record goes with it, last. A failure that left the file in place
+            // keeps its record, so the retry is still checked against it.
+            if (!tempFile.exists()) expectationFile(unit).delete()
+        }
+    }
+
+    private fun commitCompleteTempFile(unit: DownloadUnit, tempFile: File) {
         verifySha256(tempFile, unit)
         if (unit.isDirectoryResource) {
             val targetDir = File(getResourcePath(unit))
@@ -171,16 +236,28 @@ internal class AndroidDownloaderStorage(
     }
 
     /**
-     * Checks [tempFile] against [DownloadUnit.sha256] when the unit states one. Deletes the file
-     * and throws [ResourceIntegrityException] on a mismatch; a hash that is not 64 hex digits is
-     * the host's mistake, not the download's, and throws [IllegalArgumentException] instead so it
-     * is not answered with a pointless re-download.
+     * Checks [tempFile] against every hash expected of it — [DownloadUnit.sha256] and the one
+     * recorded by [beginTempFile] — hashing the file once, and only when there is something to
+     * compare. Deletes the file and throws [ResourceIntegrityException] on a mismatch or on a
+     * record that cannot be read (never "no check"). A unit whose own [DownloadUnit.sha256] getter
+     * throws is the host's mistake, not the download's, and surfaces as that exception instead so
+     * it is not answered with a pointless re-download.
      */
     private fun verifySha256(tempFile: File, unit: DownloadUnit) {
-        val expected: String = unit.sha256 ?: return
-        require(expected.isSha256Hex()) {
-            "DownloadUnit.sha256 of $unit is not 64 hex digits: '$expected'"
+        val unitSha256: Sha256? = unit.sha256
+        val recorded: RecordedExpectation = readExpectation(unit)
+        if (recorded == RecordedExpectation.Unreadable) {
+            tempFile.delete()
+            throw ResourceIntegrityException(UNREADABLE_RECORD_MESSAGE)
         }
+        if (recorded == RecordedExpectation.Missing) {
+            logger.w {
+                "No expected-hash record for $unit: a partial from before records existed, or a " +
+                    "downloader that never called beginTempFile. Only DownloadUnit.sha256 is checked."
+            }
+        }
+        val required: List<Sha256> = requiredHashes(unitSha256, recorded)
+        if (required.isEmpty()) return
         val digest: MessageDigest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(WRITE_BUFFER_SIZE)
         FileInputStream(tempFile).use { input: FileInputStream ->
@@ -189,13 +266,11 @@ internal class AndroidDownloaderStorage(
                 digest.update(buffer, 0, read)
             }
         }
-        val actual: String = digest.digest().toLowerHex()
-        if (!actual.equals(expected, ignoreCase = true)) {
+        val failure: ResourceIntegrityException? =
+            integrityFailure(actualHex = digest.digest().toLowerHex(), required = required)
+        if (failure != null) {
             tempFile.delete()
-            throw ResourceIntegrityException(
-                "Downloaded resource failed integrity check: " +
-                    "SHA-256 is $actual, expected $expected",
-            )
+            throw failure
         }
     }
 
