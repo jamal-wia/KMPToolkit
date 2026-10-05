@@ -38,7 +38,15 @@ and the same file renamed to `<unit.id>.<unit.tempExtension>.complete` once
 `markTempFileComplete` declares it finished. The rename is atomic within one directory on both
 platforms, so a crash leaves either a partial file or a complete one. A `ZipArchive` unit stages
 its extraction under `<base>/tmp/staging-<unit.id>/` — per unit, so two archives extracting at the
-same time never collide.
+same time never collide. The hash a transfer must have (`beginTempFile`) is a one-line file at
+`<base>/tmp/expect/<unit.id>`, keyed by id alone so a free-form `tempExtension` cannot make two
+units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>` and flushed to
+disk first, then moved into place by an atomic rename once the old temp files are gone.
+
+On iOS the OS may restart a background download from zero while claiming to resume it from
+`resumeData`. The bytes of the new file then do not match the hash recorded for the first one, which
+shows up as one `DownloadError.Corrupted` after the engine's single integrity retry; the next
+`ensureAvailable` resolves afresh and begins a new record, so it heals itself.
 
 ### Adopting a directory your app already populated
 

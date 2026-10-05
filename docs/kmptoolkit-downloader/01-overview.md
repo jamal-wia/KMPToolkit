@@ -34,8 +34,9 @@ their count persisted so a crash loop doesn't retry forever, and — before anyt
 - **Verification before counted present.** A `ResourceFormat.SqliteDatabase` unit is opened and,
   optionally, its own declared row count is checked against the database file's real one; a
   `ResourceFormat.ZipArchive` unit is proven complete by the presence of a marker file the
-  extraction is known to produce; any unit can state a `sha256` that its bytes must match. A
-  corrupt download fails at commit, is downloaded once more, and only then reported — never
+  extraction is known to produce; any unit can state a `sha256` that its bytes must match, and the hash a backend returns
+  per download is recorded when the transfer begins and enforced at commit, even in a later
+  process. A corrupt download fails at commit, is downloaded once more, and only then reported — never
   three layers away inside whatever opens the file next.
 - **Survives process death.** Nothing about an in-flight download is persisted by the engine except
   a stall counter — "is a transfer running" is answered by your `BackgroundResourceDownloader`,
@@ -92,7 +93,7 @@ which depends entirely on your backend.
 | `DownloadError` | The library's own small failure taxonomy |
 | `BackgroundResourceDownloader` | **The SPI you implement** — the platform transfer itself |
 | `DownloaderStorage` | Shipped for you (Android and iOS) — where bytes live on disk |
-| `DownloadUrlResolver` | Turns a unit's opaque path into a fetchable URL |
+| `DownloadUrlResolver` | Turns a unit's opaque path into a fetchable URL, plus the hash of the object behind it when the backend states one (`ResolvedDownload`) |
 | `DownloadNotifier` | How a download tells the user it is happening — typed, no strings |
 | `DownloadStateStore` | The one bit of engine state that must survive process death — the stall counter |
 | `DownloadDispatchers` | The dispatchers the engine's own coroutines run on |

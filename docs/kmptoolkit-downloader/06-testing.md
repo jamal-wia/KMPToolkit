@@ -11,7 +11,7 @@ commonTest.dependencies {
 | Fixture | Use it when |
 |---|---|
 | `FakeDownloader` | You are testing code that only *asks* for a resource or observes its state |
-| `FakeDownloaderStorage` | You are testing storage-facing code without real files; `tempFileStates` sets what a transfer left behind |
+| `FakeDownloaderStorage` | You are testing storage-facing code without real files; `tempFileStates` sets what a transfer left behind; strict about `beginTempFile`, records `beganWith`, and has a `failIntegrityFor` knob |
 | `TestUnit` / `TestGroup` | You need a catalogue that exists only for the test |
 | `RecordingNotifier` | You want to assert what would have been shown, and in what order |
 | `InMemoryStateStore` | You need a `DownloadStateStore` that does not touch real storage |
@@ -24,7 +24,31 @@ this port. If you write a custom `DownloaderStorage`, two invariants are worth a
 your own: `03-guide.md`'s identity rule (key everything by `unit.id` / `unit.relativePath`, never by
 object identity), and the temp-file rule — a `Partial` file is never committed, only
 `markTempFileComplete` makes one `Complete`, and a check that fails at commit deletes the file and
-throws `ResourceIntegrityException`.
+throws `ResourceIntegrityException`. The hash-expectation rules (`beginTempFile` replaces the
+transfer, the record survives a new instance over the same directory, an unreadable record is an
+integrity failure, the record never outlives the temp file) are written down in
+`DownloaderStorage`'s KDoc and exercised by this module's own `DownloaderStorageContractTest`,
+which is a good template.
+
+## `FakeDownloaderStorage` and the hash protocol
+
+The fake mirrors the real contract so a downloader test cannot pass while forgetting the hash step:
+
+- **Strict.** `markTempFileComplete(unit)` throws `IllegalStateException` — its message names the
+  forgotten `beginTempFile` — unless `beginTempFile` was called for that unit since its last
+  `deleteTempFile` or `commitResource`.
+- **`beganWith: List<Pair<String, Sha256?>>`** records every `beginTempFile` as (unit id, expected
+  hash), in order. Assert on it to check that your downloader passes the hash of the response that
+  began the transfer, passes `null` when the backend stated none, and does not call it on a `206`
+  resume.
+- **Contradiction rule.** `beginTempFile` throws `IllegalArgumentException` when `unit.sha256` and
+  the expected hash are both set and differ, recording nothing.
+- **`failIntegrityFor: MutableSet<String>`.** Add a unit id and `commitResource` throws
+  `ResourceIntegrityException` for it, which drives the engine's retry and `Corrupted` paths without
+  hashing real bytes.
+
+The fake does not hash anything: whether bytes match a hash is the real storages' job, covered by
+the contract test they share (`DownloaderStorageContractTest`, run on both platforms).
 
 ## Testing code that only asks
 

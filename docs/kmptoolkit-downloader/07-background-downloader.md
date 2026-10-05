@@ -45,6 +45,9 @@ interface BackgroundResourceDownloader {
   the file itself when it observes `FileReady`, so a downloader that forgets still works while the
   app is watching; what it loses is recovery after process death, where nobody observed the event
   and the file is resumed instead of committed.
+- **You begin a transfer's hash record: `storage.beginTempFile(unit, expectedSha256)`.** Call it
+  when you are about to write from byte 0 — see the decision table below. Without it a partial still
+  resumes and commits, but only `DownloadUnit.sha256` is checked.
 - **`Error.message` is raw text, not a classified error.** The engine's own keyword-matching
   classifier turns it into a `DownloadError` in one place; do not pre-classify on your side.
 
@@ -78,10 +81,36 @@ on a resume need care:
   truncate the temp file and write from zero, or the result is two files glued together.
 
 If the remote file can change between an interrupted transfer and its resume, send `If-Range` with
-the first response's `ETag`, or state `DownloadUnit.sha256` so a stitched file fails at commit.
+the first response's `ETag`. The hash is the backstop: it is recorded when the transfer began, so a
+file stitched from two versions fails at commit against the hash of the first one. A constant
+`DownloadUnit.sha256` would be wrong for an object replaced in place — its hash changes with every
+replacement — so take the hash from the resolve response instead (below). Check that your origin
+honours `If-Range`; one that does not may still honour `If-Match` on a `Range` request, answering
+`412` — treat that as a restart with a fresh resolve.
 
 Resolve the URL to fetch through `DownloadUrlResolver.resolve(unit)` on every attempt — never
-cache the result, since a signed URL is typically short-lived.
+cache the result, since a signed URL is typically short-lived. It returns a `ResolvedDownload`
+whose `expectedSha256` describes exactly the object behind that URL.
+
+### When to call `beginTempFile`
+
+Call `storage.beginTempFile(unit, resolved.expectedSha256)` exactly when you are about to write the
+temp file from byte zero, by the party that owns the writer:
+
+| Situation | Call `beginTempFile`? |
+|---|---|
+| Fresh start: no temp file | Yes, with the hash of this resolve |
+| `200` in reply to a `Range` request (range ignored, whole body follows) | Yes — you are restarting from zero; use the hash of the response you are now reading |
+| `416` whose total does not match the partial file | Yes, before restarting from zero |
+| `206` resume | No — the bytes continue an object whose hash was recorded when it began; a hash first seen on a resume is not filled in |
+| Joining a transfer that is already running | No |
+| iOS: reconnecting to a session on relaunch, or resuming from `resumeData` | No |
+| iOS: `didFinishDownloadingTo` | No — the record was written when the task was created |
+
+It replaces any partial or complete file, leaving the unit in `TempFileState.None`, and it throws
+`IllegalArgumentException` before touching anything if `DownloadUnit.sha256` and the expected hash
+are both set and differ. On iOS, call it right after the resolve that produces the URL of a fresh
+`NSURLSessionDownloadTask`, before the task is resumed.
 
 ## A worked skeleton (Android)
 
@@ -102,9 +131,12 @@ class MyBackgroundResourceDownloader(
     override fun enqueueDownload(unit: DownloadUnit) {
         if (!inProgress.add(unit.id)) return // already running — join it
         // Start your foreground service / worker here, passing unit.id. Inside it:
-        //   val url = urlResolver.resolve(unit)
+        //   val resolved = urlResolver.resolve(unit)          // ResolvedDownload(url, expectedSha256)
         //   val resumeFrom = storage.getTempFileSize(unit)
-        //   stream `url` (Range: bytes=$resumeFrom-) into storage.getTempFilePath(unit), append mode
+        //   if (resumeFrom == 0L) storage.beginTempFile(unit, resolved.expectedSha256)
+        //   stream resolved.url (Range: bytes=$resumeFrom-) into storage.getTempFilePath(unit),
+        //     append mode; on a 200 reply to a Range, or a 416 with a different total, call
+        //     storage.beginTempFile(unit, resolved.expectedSha256) again and write from zero
         //   emit Progress(unit, fraction) as bytes arrive, throttled
         //   on success: check the size against Content-Length / Content-Range, then
         //     storage.markTempFileComplete(unit)
@@ -142,7 +174,9 @@ draws from:
 The shape most iOS implementations converge on: one background `NSURLSession` per unit, whose
 session identifier carries the unit's `id` so a relaunch can reconnect to it, and a delegate that
 copies the OS's own completed-download temp file to the path `DownloaderStorage.getTempFilePath`
-names and then marks it complete.
+names and then marks it complete. The task is created from a `ResolvedDownload`, and
+`storage.beginTempFile(unit, resolved.expectedSha256)` is called once, when a fresh task is created
+— not on reconnect, not for `resumeData`, not in the delegate.
 
 ```swift
 final class MyBackgroundResourceDownloader {

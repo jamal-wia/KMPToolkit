@@ -56,7 +56,7 @@ a `Downloader` ready to use immediately — there is no separate `start()`.
 | `relativePath` | `String` | Relative to the storage's own base directory. |
 | `tempExtension` | `String` | Default `"tmp"`. Cosmetic — the temp name is derived from `id`. |
 | `format` | `ResourceFormat` | Default `Opaque`. |
-| `sha256` | `String?` | Default `null`. 64 hex digits, either case; checked at commit, and a mismatch downloads again. |
+| `sha256` | `Sha256?` | Default `null`. A constant expectation; checked at commit, and a mismatch downloads again. Do not set it for an object replaced in place — use `beginTempFile`. The engine reads it once before a transfer and fails the unit with `DownloadError.Unknown` if the getter throws. |
 | `isDirectoryResource` | `Boolean` | Derived: `true` iff `format is ZipArchive`. |
 | `group` | `ResourceGroup` | Which group's notification and progress this unit is filed under. |
 
@@ -77,7 +77,7 @@ a `Downloader` ready to use immediately — there is no separate `start()`.
 
 `sealed class`: `NoConnection`, `Timeout`, `NotFound`, `Unauthorized`, `Server(statusCode: Int?)`,
 `Storage(message: String? = null)`, `Corrupted(message: String? = null)`,
-`Unknown(message: String? = null)`. `Corrupted` is bytes that failed a check (`sha256`, a
+`Unknown(message: String? = null)`. `Corrupted` is bytes that failed a check (`sha256`, the recorded hash, a
 `SqliteDatabase`'s) again after one fresh download; nothing was committed.
 
 ## `GroupDownloadState` / `UnitDownloadState`
@@ -112,6 +112,21 @@ Neither carries a `group` / `unit` field — the flow you collected is the ident
 `FileReady(unit)`, `Error(unit, message: String)`, `Cancelled(unit)`. See
 [`07-background-downloader.md`](07-background-downloader.md).
 
+## `Sha256`
+
+`class Sha256` (final, private constructor): `val hex: String` — 64 lowercase hex digits.
+`Sha256.parse(hex: String): Sha256` accepts either case and throws `IllegalArgumentException` for
+anything that is not 64 hex digits — for constants you write yourself.
+`Sha256.parseOrNull(hex: String?): Sha256?` answers `null` for `null`, blank and malformed input —
+for a value from a backend, where an absent or garbled hash must never fail a download. Equality
+follows the digest, whichever case it was parsed from.
+
+## `ResolvedDownload`
+
+`class ResolvedDownload(url: String, expectedSha256: Sha256? = null)` in the `spi` package. Final
+class with `equals`/`hashCode`; `url` must not be blank. `expectedSha256` is the hash of exactly the
+object behind `url` at resolve time. `toString` omits the URL's query and fragment.
+
 ## `DownloaderStorage` — shipped for you
 
 | Member | Signature |
@@ -121,6 +136,7 @@ Neither carries a `group` / `unit` field — the flow you collected is the ident
 | `getTempFilePath` | `fun getTempFilePath(unit: DownloadUnit): String` |
 | `tempFileState` | `fun tempFileState(unit: DownloadUnit): TempFileState` |
 | `getTempFileSize` | `fun getTempFileSize(unit: DownloadUnit): Long` |
+| `beginTempFile` | `fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?)` |
 | `markTempFileComplete` | `fun markTempFileComplete(unit: DownloadUnit)` |
 | `deleteTempFile` | `fun deleteTempFile(unit: DownloadUnit)` |
 | `commitResource` | `suspend fun commitResource(unit: DownloadUnit)` |
@@ -134,6 +150,16 @@ and throws when there is no file. `commitResource` throws when there is no compl
 throws `ResourceIntegrityException(message, cause)` — after deleting the temp file — when the bytes
 fail a check; the engine answers that with one fresh download.
 
+`beginTempFile(unit, expectedSha256)` is called by the party that owns the writer, exactly when it
+is about to write from byte 0, and replaces whatever transfer was there: afterwards `tempFileState`
+is `None` and `getTempFileSize` is 0. It persists the expected hash (an explicit "none" marker when
+`null`) at `tmp/expect/<id>`, written crash-safely before the old files are deleted. It throws
+`IllegalArgumentException` before any side effect when `unit.sha256` and `expectedSha256` are both
+set and differ. `commitResource` hashes the complete file once and checks every stated expectation;
+`deleteTempFile` removes the data first and the record last. It is not enforced that a downloader
+calls `beginTempFile` (a recordless partial still resumes); see
+[`07-background-downloader.md`](07-background-downloader.md) for when to call it.
+
 `createDownloaderStorage(context, config = DownloaderStorageConfig(), logger = NoopLogger)` on
 Android; `createDownloaderStorage(config = DownloaderStorageConfig(), logger = NoopLogger)` on iOS.
 
@@ -145,7 +171,7 @@ collide.
 
 | Port | Shape | Default |
 |---|---|---|
-| `DownloadUrlResolver` | `fun interface { suspend fun resolve(unit: DownloadUnit): String }` | none |
+| `DownloadUrlResolver` | `fun interface { suspend fun resolve(unit: DownloadUnit): ResolvedDownload }` | none |
 | `DownloadNotifier` | `showProgress` / `showCompleted` / `showError` (suspend), `remove` (not) | `DownloadNotifier.NoOp` |
 | `DownloadStateStore` | `readInt` / `writeInt` / `remove` | none — see [`03-guide.md`](03-guide.md) |
 | `DownloadDispatchers` | `val io`, `val default: CoroutineDispatcher` | `DownloadDispatchers.Default` |
