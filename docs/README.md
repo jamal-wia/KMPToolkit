@@ -81,5 +81,9 @@ whose fixtures are storage-agnostic and already live in `kmptoolkit-uploader-tes
 test and assert the date. `kmptoolkit-systembars` publishes doubles for both of its controllers —
 see its `06-testing.md`.
 
+`kmptoolkit-core` is not in the table above on purpose: it is an internal support artifact that other
+modules pull in, not something you add to a build. Its [`docs/kmptoolkit-core/`](kmptoolkit-core/01-overview.md)
+folder exists so the marker and the shared lock are documented somewhere, not as a module to learn.
+
 The rest of the suite is on the roadmap — see the root [`README.md`](../README.md) module table and
 [`CHANGELOG.md`](../CHANGELOG.md).

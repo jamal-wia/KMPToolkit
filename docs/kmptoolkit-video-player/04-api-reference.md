@@ -334,7 +334,9 @@ release may break it.
 
 ## `@ToolkitInternalApi`
 
-Opt-in (`RequiresOptIn.Level.ERROR`) marker for what `kmptoolkit-video-player-compose` needs to
+Opt-in (`RequiresOptIn.Level.ERROR`) marker, declared in `kmptoolkit-core` (package
+`io.github.jamal_wia.kmptoolkit.core`; this module exposes that artifact as an `api` dependency, so
+the marker is on your classpath without declaring it) for what `kmptoolkit-video-player-compose` needs to
 render a player — not part of the public contract, may change in any release:
 
 | Symbol | Platform | What it is |

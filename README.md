@@ -71,6 +71,14 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-language-compose` | Compose wiring (`AppLocale`, `mirrorOnRtl`/`mirrorOnLtr`) for `kmptoolkit-language`. Also publishes `jvm` | `language` | Available | [docs](docs/kmptoolkit-language-compose/01-overview.md) |
 | `kmptoolkit-hijri` | Umm al-Qura date conversion: `LocalDate.toHijriDate()`. Also publishes `jvm` | — | Available | [docs](docs/kmptoolkit-hijri/01-overview.md) |
 
+### Internal support artifacts
+
+`kmptoolkit-core` (Android, iOS, `jvm`) is published and on the BOM but is not in the table above:
+it is an internal support artifact holding what several modules share (`@ToolkitInternalApi` and the
+`StateMachineLock` the players and the recorder use). Modules pull it in transitively — do not
+depend on it directly, and expect no compatibility promise from it. See
+[`docs/kmptoolkit-core/`](docs/kmptoolkit-core/01-overview.md).
+
 See [`docs/README.md`](docs/README.md) for the full documentation index and the recommended reading
 order.
 

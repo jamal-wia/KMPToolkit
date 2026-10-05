@@ -84,13 +84,20 @@ Every module builds with `explicitApi()` in strict mode: a symbol's visibility m
 inferred, and anything not meant for consumers is `internal`.
 
 Some code needs to be visible **across** kmptoolkit modules without being part of the public
-contract. That code is marked with an opt-in annotation:
+contract. That code is `public` — Kotlin has no visibility between "same module" and "everyone" —
+and marked with an opt-in annotation that lives in the internal support artifact `kmptoolkit-core`
+(package `io.github.jamal_wia.kmptoolkit.core`):
 
 ```kotlin
 @RequiresOptIn(level = RequiresOptIn.Level.ERROR, message = "Cross-module internal API — not part of the public contract.")
 @Retention(AnnotationRetention.BINARY)
-annotation class ToolkitInternalApi
+public annotation class ToolkitInternalApi
 ```
+
+`kmptoolkit-core` is not a module you depend on: it is pulled in transitively by the modules that
+share something through it (today: the `StateMachineLock` the audio player, the video player and
+the audio recorder serialize their state machines with, and the marker itself). Everything in it
+is `@ToolkitInternalApi`; see [`kmptoolkit-core/`](kmptoolkit-core/01-overview.md).
 
 If your code needs `@OptIn(ToolkitInternalApi::class)` to compile against a KMPToolkit module,
 you're depending on an implementation detail that can change in any release without a major-version
@@ -230,10 +237,10 @@ The rules for a module that does this:
 
 ## Desktop targets
 
-Eleven artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-storage`, each with its
+Twelve artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-storage`, each with its
 `-testing` fixtures, `kmptoolkit-language` with `kmptoolkit-language-compose`,
-`kmptoolkit-hardware-keys`, `kmptoolkit-hijri`, and `kmptoolkit-video-player` with its `-testing` and
-`-compose` companions. Two more are **JVM-only** — the desktop video engines
+`kmptoolkit-hardware-keys`, `kmptoolkit-hijri`, `kmptoolkit-video-player` with its `-testing` and
+`-compose` companions, and the internal support artifact `kmptoolkit-core`. Two more are **JVM-only** — the desktop video engines
 `kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`, built with the
 `kmptoolkit.library.jvm` convention. Every other module stays Android + iOS, and the exception is
 narrow and deliberate.
@@ -269,6 +276,11 @@ in **shared** code:
   publish `jvm` with no engine at all, each engine is a separate JVM-only artifact the app opts into,
   and the app picks one once at its root (`LocalVideoPlayerFactory`). The MIT core never makes a
   consumer inherit a GPL dependency it did not ask for.
+- **Core.** `kmptoolkit-core` is not a capability at all: it holds the cross-module internal API
+  (`@ToolkitInternalApi`, `StateMachineLock`). It publishes `jvm` only because
+  `kmptoolkit-video-player` does and depends on it — a Gradle module cannot depend on a module that
+  lacks one of its own targets. Nothing in it is meant for a consumer to use on desktop or anywhere
+  else.
 - **Hijri.** `toHijriDate` is a pure date conversion a consumer calls from shared code; the JDK's
   `HijrahDate` is Umm al-Qura, so the JVM half is real.
 

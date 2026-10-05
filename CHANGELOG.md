@@ -9,6 +9,29 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [2.2.0]
+
+### Breaking
+
+- **`ToolkitInternalApi` moved to `kmptoolkit-core`.** The marker is now
+  `io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi`; it is no longer declared in
+  `kmptoolkit-video-player` (the old import stops compiling). Only code that opted in to the
+  suite's internal API is affected — change the import. `kmptoolkit-video-player` exposes the new
+  artifact as an `api` dependency, so no build file change is needed.
+
+### Added
+
+- `kmptoolkit-core`, a new **internal support artifact** (`io.github.jamal-wia:kmptoolkit-core`,
+  Android, iOS and `jvm`, on the BOM). It holds `@ToolkitInternalApi` and the `StateMachineLock`
+  that the players and the recorder serialize their state machines with, previously copied into
+  `kmptoolkit-video-player` and `kmptoolkit-audio-player`. It is not meant to be depended on
+  directly and carries no compatibility promise. Docs: `docs/kmptoolkit-core/`.
+
+### Changed
+
+- `kmptoolkit-audio-player` and `kmptoolkit-video-player` use the shared `StateMachineLock`
+  instead of a private copy each. No behaviour change.
+
 ## [2.1.0]
 
 ### Breaking
