@@ -1,42 +1,51 @@
-package io.github.jamal_wia.kmptoolkit.audio.player
+package io.github.jamal_wia.kmptoolkit.core
 
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
 /** A plain reentrant mutual-exclusion lock — the JVM's `ReentrantLock`, Foundation's `NSRecursiveLock`. */
-internal interface ReentrantLockHandle {
-    fun lock()
-    fun unlock()
-    fun tryLock(): Boolean
+@ToolkitInternalApi
+public interface ReentrantLockHandle {
+    public fun lock()
+    public fun unlock()
+    public fun tryLock(): Boolean
 }
 
-internal expect fun newReentrantLock(): ReentrantLockHandle
+/** A new, unlocked [ReentrantLockHandle] backed by the platform's own reentrant lock. */
+@ToolkitInternalApi
+public expect fun newReentrantLock(): ReentrantLockHandle
 
 /**
- * Serializes every transition of `EngineAudioPlayer`'s state machine, whichever thread it arrives on.
+ * Serializes every transition of a state machine, whichever thread it arrives on.
  *
- * Transitions come from three kinds of threads at once: the caller's (transport, normally the main
- * thread), the polling coroutine's (a background dispatcher by default), and whatever thread the
- * engine reports events on (the main thread for both built-in engines). Each transition reads the state, calls the engine and writes the state; two of them
- * interleaving is how a poll could overwrite `Completed` or `Paused` with a stale `Playing`.
+ * A state machine that talks to a platform engine is entered from several kinds of threads at once:
+ * the caller's (normally the main thread), a polling or ticking coroutine (a background dispatcher
+ * by default), and whatever thread the engine reports events on (the main looper, a native event
+ * thread). Each transition reads the state, calls the engine and writes the state; two of them
+ * interleaving is how a stale tick could overwrite a terminal state.
  *
  * Two entry points, because the two kinds of caller need different things:
  *
- * - [exclusive] is for the player's own API. It **blocks** until the lock is free, so when a call
- *   returns its transition has happened — `pause()` returns with the state already `Paused`.
- * - [submit] is for engine callbacks and poll ticks. It **never blocks**: it runs the action at once
+ * - [exclusive] is for the owner's own API. It **blocks** until the lock is free, so when a call
+ *   returns its transition has happened — a `pause()` returns with the state already paused.
+ * - [submit] is for engine callbacks and ticks. It **never blocks**: it runs the action at once
  *   when the lock is free, and otherwise queues it for whichever thread holds the lock, which runs it
  *   before letting go. An engine usually reports events while holding a lock of its own, and a
  *   transition holds this lock while calling into the engine; if a callback could wait here, those
- *   two locks taken in opposite orders would deadlock. Queueing instead cannot.
+ *   two platform locks taken in opposite orders would deadlock. Queueing instead cannot.
  *
  * An action submitted from *inside* a transition on the same thread — an engine that reports an event
  * synchronously from the very call the transition is making — is queued too, and runs right after
  * that transition finishes, before the outermost call returns. The event therefore lands on the state
  * the transition wrote, rather than being overwritten by the rest of it.
+ *
+ * Queued actions run in the order they were queued. When one throws, the ones behind it still run;
+ * the first failure is then rethrown by whichever call drained the queue, with later failures
+ * attached as suppressed exceptions.
  */
+@ToolkitInternalApi
 @OptIn(ExperimentalAtomicApi::class)
-internal class StateMachineLock {
+public class StateMachineLock {
 
     private val lock: ReentrantLockHandle = newReentrantLock()
 
@@ -47,7 +56,7 @@ internal class StateMachineLock {
     private val queued: AtomicReference<List<() -> Unit>> = AtomicReference(emptyList())
 
     /** Runs [block] holding the lock, waiting for it if necessary, then runs whatever was queued meanwhile. */
-    fun <T> exclusive(block: () -> T): T {
+    public fun <T> exclusive(block: () -> T): T {
         lock.lock()
         try {
             depth++
@@ -64,7 +73,7 @@ internal class StateMachineLock {
     }
 
     /** Runs [action] now if the lock is free, else hands it to the holder. Never blocks. */
-    fun submit(action: () -> Unit) {
+    public fun submit(action: () -> Unit) {
         while (true) {
             val current: List<() -> Unit> = queued.load()
             if (queued.compareAndSet(current, current + action)) break

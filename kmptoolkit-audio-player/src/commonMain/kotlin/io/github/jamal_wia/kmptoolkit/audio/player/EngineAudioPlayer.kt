@@ -1,5 +1,11 @@
 package io.github.jamal_wia.kmptoolkit.audio.player
 
+import io.github.jamal_wia.kmptoolkit.core.StateMachineLock
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import kotlin.concurrent.Volatile
+import kotlin.concurrent.atomics.AtomicReference
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
@@ -16,10 +22,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.concurrent.Volatile
-import kotlin.concurrent.atomics.AtomicReference
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
-import kotlin.coroutines.CoroutineContext
 
 /**
  * Builds an [AudioPlayer] on top of an arbitrary [PlaybackEngine].
@@ -77,7 +79,7 @@ public fun createAudioPlayer(
  * be playing forever. Transport calls wait for the lock; engine callbacks and poll ticks never wait —
  * they are handed to the thread holding it. Everything marked "guarded" is touched only under it.
  */
-@OptIn(ExperimentalAtomicApi::class)
+@OptIn(ExperimentalAtomicApi::class, ToolkitInternalApi::class)
 private class EngineAudioPlayer(
     private val engine: PlaybackEngine,
     private val config: AudioPlayerConfig,

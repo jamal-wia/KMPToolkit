@@ -8,7 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
-import io.github.jamal_wia.kmptoolkit.video.player.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
 import io.github.jamal_wia.kmptoolkit.video.player.createVideoPlayer
 import io.github.jamal_wia.kmptoolkit.video.player.media3PlayerOrNull

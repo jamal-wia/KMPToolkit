@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.video.player
 
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
 import platform.AVFoundation.AVPlayer

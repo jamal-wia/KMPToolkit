@@ -1,6 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.video.player.vlcj
 
-import io.github.jamal_wia.kmptoolkit.video.player.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import java.io.FileNotFoundException
 import kotlin.test.Test

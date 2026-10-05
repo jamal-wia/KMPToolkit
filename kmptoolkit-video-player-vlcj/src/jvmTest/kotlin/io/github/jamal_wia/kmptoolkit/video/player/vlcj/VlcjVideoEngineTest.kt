@@ -2,7 +2,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.vlcj
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
-import io.github.jamal_wia.kmptoolkit.video.player.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoFrame
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource

@@ -1,5 +1,11 @@
 package io.github.jamal_wia.kmptoolkit.video.player
 
+import io.github.jamal_wia.kmptoolkit.core.StateMachineLock
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import kotlin.concurrent.Volatile
+import kotlin.concurrent.atomics.AtomicReference
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
@@ -15,10 +21,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.concurrent.Volatile
-import kotlin.concurrent.atomics.AtomicReference
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
-import kotlin.coroutines.CoroutineContext
 
 /**
  * The whole [VideoPlayer] state machine, once, in common code — every platform engine only
@@ -44,7 +46,7 @@ import kotlin.coroutines.CoroutineContext
  * Internal rather than private so the platform accessors (`media3PlayerOrNull`,
  * `avPlayerOrNull`, `frameSourceOrNull`) can reach [engine].
  */
-@OptIn(ExperimentalAtomicApi::class, ToolkitInheritanceApi::class)
+@OptIn(ExperimentalAtomicApi::class, ToolkitInheritanceApi::class, ToolkitInternalApi::class)
 internal class EngineVideoPlayer(
     internal val engine: VideoPlaybackEngine,
     private val config: VideoPlayerConfig,

@@ -6,7 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
-import io.github.jamal_wia.kmptoolkit.video.player.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
 import io.github.jamal_wia.kmptoolkit.video.player.avPlayerOrNull
 import io.github.jamal_wia.kmptoolkit.video.player.createVideoPlayer

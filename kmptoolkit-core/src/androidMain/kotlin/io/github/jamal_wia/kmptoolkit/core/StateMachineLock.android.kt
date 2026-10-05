@@ -1,8 +1,9 @@
-package io.github.jamal_wia.kmptoolkit.video.player
+package io.github.jamal_wia.kmptoolkit.core
 
 import java.util.concurrent.locks.ReentrantLock
 
-internal actual fun newReentrantLock(): ReentrantLockHandle = object : ReentrantLockHandle {
+@ToolkitInternalApi
+public actual fun newReentrantLock(): ReentrantLockHandle = object : ReentrantLockHandle {
     private val delegate: ReentrantLock = ReentrantLock()
 
     override fun lock() = delegate.lock()
