@@ -64,7 +64,16 @@ import platform.darwin.NSObjectProtocol
  * system ended.
  */
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
-internal class AvAudioRecorderEngine : RecorderEngine {
+internal class AvAudioRecorderEngine(
+    /**
+     * Whether a delegate callback about `candidate` is about the recorder the engine currently
+     * holds (`current`, `null` before a successful `prepare`). Injectable only so the module's own
+     * tests, which cannot prepare a real `AVAudioRecorder` in the simulator host, can drive the
+     * delegate with a recorder of their own; the default is the identity check that matters.
+     */
+    private val delegateAccepts: (candidate: AVAudioRecorder, current: AVAudioRecorder?) -> Boolean =
+        { candidate: AVAudioRecorder, current: AVAudioRecorder? -> candidate === current },
+) : RecorderEngine {
 
     // Volatile because peakDbfs() reads it from the metering coroutine while release() nulls it on
     // the caller's thread — the one cross-thread read in this class.
@@ -79,10 +88,10 @@ internal class AvAudioRecorderEngine : RecorderEngine {
     private var listener: ((EngineEvent) -> Unit)? = null
 
     // A strong reference: AVAudioRecorder.delegate is a weak property, so a delegate held only by
-    // the recorder would be deallocated and the callbacks would silently never arrive.
-    private val delegate: RecorderDelegate = RecorderDelegate { event: EngineEvent ->
-        listener?.invoke(event)
-    }
+    // the recorder would be deallocated and the callbacks would silently never arrive. Replaced by
+    // every setEventListener(non-null), so each one is bound to the listener it was made for; until
+    // the first one the delegate is inert.
+    private var delegate: RecorderDelegate = RecorderDelegate(accepts = { false }, report = {})
 
     // Tokens of the NSNotificationCenter observers, kept so they can be removed.
     private var observers: List<NSObjectProtocol> = emptyList()
@@ -139,19 +148,41 @@ internal class AvAudioRecorderEngine : RecorderEngine {
     }
 
     override fun setEventListener(listener: ((EngineEvent) -> Unit)?) {
+        // What an earlier listener installed goes first, so a replacement starts clean and each
+        // observer exists once.
+        removeObservers()
         this.listener = listener
-        if (listener == null) removeObservers() else addObservers()
-        recorder?.delegate = if (listener == null) null else delegate
+        if (listener == null) {
+            recorder?.delegate = null
+            return
+        }
+        addObservers(listener)
+        // Bound to this listener: a callback that outlives it — or that is about a recorder an
+        // earlier prepare() replaced — is dropped instead of reaching whatever listener is set by
+        // then, carrying a token it was never meant for.
+        val bound = RecorderDelegate(
+            accepts = { candidate: AVAudioRecorder -> delegateAccepts(candidate, recorder) },
+            report = { event: EngineEvent -> deliver(listener, event) },
+        )
+        delegate = bound
+        recorder?.delegate = bound
     }
 
-    /** The recorder's delegate, for the module's own tests to drive its callbacks directly. */
+    /** Delivers [event] only while [attached] is still the engine's listener. */
+    private fun deliver(attached: (EngineEvent) -> Unit, event: EngineEvent) {
+        if (listener === attached) attached(event)
+    }
+
+    /** The recorder's current delegate, for the module's own tests to drive its callbacks directly. */
     internal val recorderDelegate: RecorderDelegate get() = delegate
+
+    /** How many notification observers are registered, for the module's own tests. */
+    internal val observerCount: Int get() = observers.size
 
     /** The platform recorder, for the module's own tests. */
     internal val activeRecorder: AVAudioRecorder? get() = recorder
 
-    private fun addObservers() {
-        if (observers.isNotEmpty()) return
+    private fun addObservers(attached: (EngineEvent) -> Unit) {
         val center: NSNotificationCenter = NSNotificationCenter.defaultCenter
         val session: AVAudioSession = AVAudioSession.sharedInstance()
         // queue = null: the block runs on the posting thread, and the listener never blocks.
@@ -163,7 +194,7 @@ internal class AvAudioRecorderEngine : RecorderEngine {
             ) { notification: NSNotification? ->
                 val type: NSNumber? = notification?.userInfo?.get(AVAudioSessionInterruptionTypeKey) as? NSNumber
                 mapAudioSessionInterruption(type?.unsignedLongValue)?.let { reason: InterruptionReason ->
-                    listener?.invoke(EngineEvent.Interrupted(reason))
+                    deliver(attached, EngineEvent.Interrupted(reason))
                 }
             },
             center.addObserverForName(
@@ -171,7 +202,7 @@ internal class AvAudioRecorderEngine : RecorderEngine {
                 `object` = session,
                 queue = null,
             ) { _: NSNotification? ->
-                listener?.invoke(EngineEvent.Interrupted(InterruptionReason.EngineDied()))
+                deliver(attached, EngineEvent.Interrupted(InterruptionReason.EngineDied()))
             },
         )
     }
@@ -316,17 +347,23 @@ internal fun mapAudioSessionInterruption(type: ULong?): InterruptionReason? =
  * unsuccessfully is the same without a code; one that finished successfully ends nothing — the
  * engine stops listening before it calls `stop()`, so a delegate callback can only be one the
  * platform started.
+ *
+ * A callback about a recorder [accepts] refuses is ignored: it is a late callback of a recorder the
+ * engine has already replaced, and must not end the recording that replaced it.
  */
 @OptIn(BetaInteropApi::class)
 internal class RecorderDelegate(
+    private val accepts: (AVAudioRecorder) -> Boolean,
     private val report: (EngineEvent) -> Unit,
 ) : NSObject(), AVAudioRecorderDelegateProtocol {
 
     override fun audioRecorderEncodeErrorDidOccur(recorder: AVAudioRecorder, error: NSError?) {
+        if (!accepts(recorder)) return
         report(EngineEvent.Interrupted(InterruptionReason.EngineDied(error?.code?.toInt())))
     }
 
     override fun audioRecorderDidFinishRecording(recorder: AVAudioRecorder, successfully: Boolean) {
+        if (!accepts(recorder)) return
         if (!successfully) report(EngineEvent.Interrupted(InterruptionReason.EngineDied()))
     }
 }

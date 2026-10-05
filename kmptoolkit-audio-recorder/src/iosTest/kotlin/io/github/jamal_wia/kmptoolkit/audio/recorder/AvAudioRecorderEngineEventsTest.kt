@@ -41,7 +41,11 @@ import platform.Foundation.numberWithUnsignedInteger
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 class AvAudioRecorderEngineEventsTest {
 
-    private val engine = AvAudioRecorderEngine()
+    // The simulator host cannot prepare an AVAudioRecorder (prepareToRecord fails without a
+    // microphone), so the engine never holds one and its own identity check would refuse every
+    // callback. These tests drive the delegate with recorders of their own and accept them all;
+    // what the default check refuses is tested separately below.
+    private val engine = AvAudioRecorderEngine(delegateAccepts = { _, _ -> true })
     private val events: MutableList<EngineEvent> = mutableListOf()
 
     @AfterTest
@@ -161,6 +165,76 @@ class AvAudioRecorderEngineEventsTest {
         postInterruption(AVAudioSessionInterruptionTypeBegan)
 
         assertEquals(1, events.size, "a duplicate observer would report the same event twice")
+    }
+
+    @Test
+    fun `observers are registered when a listener is set and gone after it is removed`() {
+        assertEquals(0, engine.observerCount)
+
+        engine.setEventListener { event: EngineEvent -> events += event }
+        assertEquals(2, engine.observerCount, "one for interruptions, one for a media services reset")
+
+        engine.setEventListener(null)
+        assertEquals(0, engine.observerCount, "every observer is removed, not merely muted")
+    }
+
+    @Test
+    fun `release removes every observer`() {
+        engine.setEventListener { event: EngineEvent -> events += event }
+        assertEquals(2, engine.observerCount)
+
+        engine.release()
+
+        assertEquals(0, engine.observerCount)
+    }
+
+    @Test
+    fun `replacing the listener leaves exactly one set of observers`() {
+        engine.setEventListener { event: EngineEvent -> events += event }
+        engine.setEventListener { event: EngineEvent -> events += event }
+
+        assertEquals(2, engine.observerCount)
+    }
+
+    @Test
+    fun `a notification observed for a replaced listener never reaches the new one`() {
+        val first: MutableList<EngineEvent> = mutableListOf()
+        engine.setEventListener { event: EngineEvent -> first += event }
+        engine.setEventListener { event: EngineEvent -> events += event }
+
+        postInterruption(AVAudioSessionInterruptionTypeBegan)
+
+        assertTrue(first.isEmpty(), "the replaced listener hears nothing more")
+        assertEquals(1, events.size)
+    }
+
+    @Test
+    fun `a delegate bound to a replaced listener reaches nobody`() {
+        val first: MutableList<EngineEvent> = mutableListOf()
+        engine.setEventListener { event: EngineEvent -> first += event }
+        val stale: RecorderDelegate = engine.recorderDelegate
+        engine.setEventListener { event: EngineEvent -> events += event }
+
+        stale.audioRecorderDidFinishRecording(newRecorder(), successfully = false)
+
+        assertTrue(first.isEmpty())
+        assertTrue(events.isEmpty(), "a callback queued for the old listener must not reach the new one")
+    }
+
+    @Test
+    fun `a callback about a recorder the engine does not hold is ignored`() {
+        // The default identity check: this engine never prepared, so it holds no recorder and any
+        // recorder's late callback is one of an earlier, replaced session.
+        val strict = AvAudioRecorderEngine()
+        strict.setEventListener { event: EngineEvent -> events += event }
+        try {
+            strict.recorderDelegate.audioRecorderDidFinishRecording(newRecorder(), successfully = false)
+            strict.recorderDelegate.audioRecorderEncodeErrorDidOccur(newRecorder(), null)
+
+            assertTrue(events.isEmpty())
+        } finally {
+            strict.release()
+        }
     }
 
     @Test
