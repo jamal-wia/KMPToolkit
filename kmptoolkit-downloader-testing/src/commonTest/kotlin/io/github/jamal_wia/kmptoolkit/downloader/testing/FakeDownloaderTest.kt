@@ -4,10 +4,13 @@ import io.github.jamal_wia.kmptoolkit.downloader.DownloadError
 import io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit
 import io.github.jamal_wia.kmptoolkit.downloader.GroupDownloadState
 import io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup
+import io.github.jamal_wia.kmptoolkit.downloader.ResourceIntegrityException
+import io.github.jamal_wia.kmptoolkit.downloader.Sha256
 import io.github.jamal_wia.kmptoolkit.downloader.TempFileState
 import io.github.jamal_wia.kmptoolkit.downloader.UnitDownloadState
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.first
@@ -98,6 +101,7 @@ class FakeDownloaderTest {
         val storage = FakeDownloaderStorage()
         assertEquals(TempFileState.None, storage.tempFileState(unit))
 
+        storage.beginTempFile(unit, null)
         storage.tempFileStates[unit.id] = TempFileState.Partial
         storage.markTempFileComplete(unit)
         assertEquals(TempFileState.Complete, storage.tempFileState(unit))
@@ -109,10 +113,81 @@ class FakeDownloaderTest {
     @Test
     fun `fake storage does not invent a complete temp file where there was none`() {
         val storage = FakeDownloaderStorage()
+        storage.beginTempFile(unit, null)
 
         storage.markTempFileComplete(unit)
 
         assertEquals(TempFileState.None, storage.tempFileState(unit))
+    }
+
+    @Test
+    fun `fake storage records every begin with its hash`() {
+        val storage = FakeDownloaderStorage()
+        val hash: Sha256 = Sha256.parse("a".repeat(64))
+
+        storage.beginTempFile(unit, hash)
+        storage.beginTempFile(unit, null)
+
+        assertEquals(listOf<Pair<String, Sha256?>>(unit.id to hash, unit.id to null), storage.beganWith)
+    }
+
+    @Test
+    fun `fake storage begin discards whatever transfer was there`() {
+        val storage = FakeDownloaderStorage()
+        storage.tempFileStates[unit.id] = TempFileState.Complete
+
+        storage.beginTempFile(unit, null)
+
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+    }
+
+    @Test
+    fun `fake storage rejects a mark without a begin and says what was forgotten`() {
+        val storage = FakeDownloaderStorage()
+        storage.tempFileStates[unit.id] = TempFileState.Partial
+
+        val thrown: IllegalStateException = assertFailsWith<IllegalStateException> {
+            storage.markTempFileComplete(unit)
+        }
+
+        assertTrue("beginTempFile" in thrown.message.orEmpty(), thrown.message)
+        assertEquals(TempFileState.Partial, storage.tempFileState(unit))
+    }
+
+    @Test
+    fun `fake storage requires a new begin after a delete and after a commit`() = runTest {
+        val storage = FakeDownloaderStorage()
+
+        storage.beginTempFile(unit, null)
+        storage.deleteTempFile(unit)
+        assertFailsWith<IllegalStateException> { storage.markTempFileComplete(unit) }
+
+        storage.beginTempFile(unit, null)
+        storage.commitResource(unit)
+        assertFailsWith<IllegalStateException> { storage.markTempFileComplete(unit) }
+    }
+
+    @Test
+    fun `fake storage rejects contradictory hashes and records nothing`() {
+        val storage = FakeDownloaderStorage()
+        val fixed = HashedUnit(Sha256.parse("a".repeat(64)))
+
+        assertFailsWith<IllegalArgumentException> {
+            storage.beginTempFile(fixed, Sha256.parse("b".repeat(64)))
+        }
+        storage.beginTempFile(fixed, Sha256.parse("A".repeat(64)))
+
+        assertEquals(1, storage.beganWith.size)
+    }
+
+    @Test
+    fun `fake storage commit throws an integrity failure only for the chosen ids`() = runTest {
+        val storage = FakeDownloaderStorage()
+        storage.failIntegrityFor += unit.id
+        val other = TestUnit(id = "other", group = group)
+
+        assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
+        storage.commitResource(other)
     }
 
     @Test
@@ -165,4 +240,11 @@ class FakeDownloaderTest {
 
         assertEquals(listOf(a, unit), group.units)
     }
+}
+
+private class HashedUnit(override val sha256: Sha256?) : DownloadUnit {
+    override val id: String = "hashed"
+    override val apiPath: String = "test/hashed"
+    override val relativePath: String = "test/hashed.bin"
+    override val group: ResourceGroup = TestGroup("hashed-group")
 }
