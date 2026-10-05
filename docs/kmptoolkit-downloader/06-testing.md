@@ -11,7 +11,7 @@ commonTest.dependencies {
 | Fixture | Use it when |
 |---|---|
 | `FakeDownloader` | You are testing code that only *asks* for a resource or observes its state |
-| `FakeDownloaderStorage` | You are testing storage-facing code without real files; `tempFileStates` sets what a transfer left behind; strict about `beginTempFile`, records `beganWith`, and has a `failIntegrityFor` knob |
+| `FakeDownloaderStorage` | You are testing storage-facing code without real files; `tempFileStates` sets what a transfer left behind; deliberately stricter than the real storages about `beginTempFile`, requires a `Complete` file to commit, records `beganWith`, and has a `failIntegrityFor` knob |
 | `TestUnit` / `TestGroup` | You need a catalogue that exists only for the test |
 | `RecordingNotifier` | You want to assert what would have been shown, and in what order |
 | `InMemoryStateStore` | You need a `DownloadStateStore` that does not touch real storage |
@@ -32,23 +32,34 @@ which is a good template.
 
 ## `FakeDownloaderStorage` and the hash protocol
 
-The fake mirrors the real contract so a downloader test cannot pass while forgetting the hash step:
+The fake is deliberately **stricter** than the real storages, so a downloader test that forgets the
+hash step fails instead of passing. The real storages accept a `markTempFileComplete` with no
+`beginTempFile` (a partial from before records existed, or a resume of a transfer begun earlier)
+and then check only `DownloadUnit.sha256`; the fake does not.
 
 - **Strict.** `markTempFileComplete(unit)` throws `IllegalStateException` — its message names the
-  forgotten `beginTempFile` — unless `beginTempFile` was called for that unit since its last
-  `deleteTempFile` or `commitResource`.
-- **`beganWith: List<Pair<String, Sha256?>>`** records every `beginTempFile` as (unit id, expected
-  hash), in order. Assert on it to check that your downloader passes the hash of the response that
-  began the transfer, passes `null` when the backend stated none, and does not call it on a `206`
-  resume.
+  forgotten `beginTempFile` — unless the unit's id is in `begunIds`. `beginTempFile` adds it;
+  `deleteTempFile` and `commitResource` remove it. To model a transfer begun earlier, such as a
+  correct `206` resume of a partial from before the fake existed, seed `begunIds` together with
+  `tempFileStates` instead of calling `beginTempFile`; `beganWith` then stays empty.
+- **`commitResource` mirrors the real contract.** It throws `IllegalStateException` unless the
+  unit's state is `Complete`, and on success the temp file is consumed: the state goes back to
+  `None`. Seed `tempFileStates[unit.id] = TempFileState.Complete` before committing.
+- **`beganWith: MutableList<Pair<String, Sha256?>>`** records every `beginTempFile` as (unit id,
+  expected hash), in order. Assert on it to check that your downloader passes the hash of the
+  response that began the transfer, passes `null` when the backend stated none, and does not call it
+  on a `206` resume.
 - **Contradiction rule.** `beginTempFile` throws `IllegalArgumentException` when `unit.sha256` and
   the expected hash are both set and differ, recording nothing.
 - **`failIntegrityFor: MutableSet<String>`.** Add a unit id and `commitResource` throws
   `ResourceIntegrityException` for it, which drives the engine's retry and `Corrupted` paths without
-  hashing real bytes.
+  hashing real bytes. The failed check consumes the temp file, so a new `beginTempFile` is needed
+  before the next mark. The knob fails every commit of that id until the id is removed from the set.
 
-The fake does not hash anything: whether bytes match a hash is the real storages' job, covered by
-the contract test they share (`DownloaderStorageContractTest`, run on both platforms).
+The fake does not hash anything, so it cannot tell whether a downloader passed the right hash —
+only that it began the transfer before marking it complete, which `beganWith` lets you assert on.
+Whether bytes match a hash is the real storages' job, covered by the contract test they share
+(`DownloaderStorageContractTest`, run on both platforms).
 
 ## Testing code that only asks
 

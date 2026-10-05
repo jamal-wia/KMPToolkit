@@ -100,17 +100,33 @@ temp file from byte zero, by the party that owns the writer:
 | Situation | Call `beginTempFile`? |
 |---|---|
 | Fresh start: no temp file | Yes, with the hash of this resolve |
-| `200` in reply to a `Range` request (range ignored, whole body follows) | Yes — you are restarting from zero; use the hash of the response you are now reading |
+| `200` in reply to a `Range` request (range ignored, whole body follows) | Yes — you are restarting from zero; use the hash of this attempt's resolve |
+| `412` in reply to `If-Match` on a `Range` request (the object changed) | Yes, after a fresh resolve, with that resolve's hash |
 | `416` whose total does not match the partial file | Yes, before restarting from zero |
 | `206` resume | No — the bytes continue an object whose hash was recorded when it began; a hash first seen on a resume is not filled in |
 | Joining a transfer that is already running | No |
-| iOS: reconnecting to a session on relaunch, or resuming from `resumeData` | No |
-| iOS: `didFinishDownloadingTo` | No — the record was written when the task was created |
+| iOS: starting a new task | Yes, with the fresh resolve's hash, before calling `resume()` to start it |
+| iOS: starting a task from `resumeData` | Yes, with the hash saved alongside the `resumeData` (the hash of the response that began it) |
+| iOS: reconnecting to a task that is still running after a relaunch | No |
+| iOS: `didFinishDownloadingTo` | No — the record was written before the task was started |
 
 It replaces any partial or complete file, leaving the unit in `TempFileState.None`, and it throws
 `IllegalArgumentException` before touching anything if `DownloadUnit.sha256` and the expected hash
-are both set and differ. On iOS, call it right after the resolve that produces the URL of a fresh
-`NSURLSessionDownloadTask`, before the task is resumed.
+are both set and differ (or its getter throws), and `IllegalStateException` when the old temp file
+or the record cannot be replaced. Treat both as a failed attempt: emit `Error` and do not write a
+byte — the engine retries with a re-resolve, and a persistent catalogue error ends as an `Unknown`
+failure. It does blocking file I/O including a flush to disk, so call it off the main thread.
+
+The temp path holds no bytes while an iOS task runs, so beginning before every task is harmless.
+It is also required, because when the engine gives up or cancels it calls `deleteTempFile`, which
+drops the record: a task resumed afterwards from saved `resumeData` without a `beginTempFile` would
+commit with the record missing and its backend hash skipped. A downloader that does not keep the
+hash next to the `resumeData` must discard that `resumeData` when the engine cancels or the
+transfer fails terminally.
+
+Stop writing as soon as `cancelDownload` is called. The engine may delete the temp file and its
+record right after; a write that lands after that leaves bytes with no record, which would later
+resume or commit with only `DownloadUnit.sha256` checked.
 
 ## A worked skeleton (Android)
 
@@ -175,8 +191,10 @@ The shape most iOS implementations converge on: one background `NSURLSession` pe
 session identifier carries the unit's `id` so a relaunch can reconnect to it, and a delegate that
 copies the OS's own completed-download temp file to the path `DownloaderStorage.getTempFilePath`
 names and then marks it complete. The task is created from a `ResolvedDownload`, and
-`storage.beginTempFile(unit, resolved.expectedSha256)` is called once, when a fresh task is created
-— not on reconnect, not for `resumeData`, not in the delegate.
+`storage.beginTempFile(unit, expectedSha256)` is called before every task is started: with the
+fresh resolve's hash for a new task, and with the hash saved alongside the `resumeData` when
+resuming from it. Never in the delegate's `didFinishDownloadingTo`, and never when merely
+reconnecting to a task that is still running.
 
 ```swift
 final class MyBackgroundResourceDownloader {

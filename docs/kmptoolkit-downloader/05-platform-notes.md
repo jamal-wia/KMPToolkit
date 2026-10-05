@@ -39,14 +39,20 @@ and the same file renamed to `<unit.id>.<unit.tempExtension>.complete` once
 platforms, so a crash leaves either a partial file or a complete one. A `ZipArchive` unit stages
 its extraction under `<base>/tmp/staging-<unit.id>/` — per unit, so two archives extracting at the
 same time never collide. The hash a transfer must have (`beginTempFile`) is a one-line file at
-`<base>/tmp/expect/<unit.id>`, keyed by id alone so a free-form `tempExtension` cannot make two
-units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>` and flushed to
+`<base>/tmp/expect/<unit.id>.sha256`, keyed by id alone so a free-form `tempExtension` cannot make two
+units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>.sha256` and flushed to
 disk first, then moved into place by an atomic rename once the old temp files are gone.
 
 On iOS the OS may restart a background download from zero while claiming to resume it from
-`resumeData`. The bytes of the new file then do not match the hash recorded for the first one, which
-shows up as one `DownloadError.Corrupted` after the engine's single integrity retry; the next
-`ensureAvailable` resolves afresh and begins a new record, so it heals itself.
+`resumeData`. The bytes of the new file then do not match the hash recorded for the first one, so
+the first commit fails as an integrity failure. The engine's integrity retry downloads afresh with a
+new resolve and a new record, which is usually just one extra download, not an error;
+`DownloadError.Corrupted` is reported only if the retry mismatches too.
+
+On iOS the expected-hash record is created with `NSFileProtectionNone`. It holds only a public hash,
+and a background commit can run while the device is locked: under the app's default protection
+class (Complete, or until first unlock) the record would be unreadable, and a finished download
+would be deleted as corrupted. The rename into place keeps the attribute.
 
 ### Adopting a directory your app already populated
 

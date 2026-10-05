@@ -27,23 +27,29 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   - **`FakeDownloaderStorage` (`kmptoolkit-downloader-testing`) is strict:**
     `markTempFileComplete` throws `IllegalStateException` for a unit that has had no
     `beginTempFile` since its last delete or commit, so a test of a downloader that forgot the
-    call fails.
+    call fails. It is deliberately stricter than the real storages. `commitResource` now also
+    throws unless the unit's state is `Complete`, and consumes the temp file on success.
   - A `BackgroundResourceDownloader` should call `storage.beginTempFile(unit,
-    resolved.expectedSha256)` whenever it starts writing from byte zero. It need not for a
-    `206` resume, and without the call only `DownloadUnit.sha256` is checked. The decision table
-    is in `docs/kmptoolkit-downloader/07-background-downloader.md`.
+    resolved.expectedSha256)` whenever it starts writing from byte zero. It must not call it on a
+    `206` resume — it deletes the partial file — and without the call only `DownloadUnit.sha256` is
+    checked. On iOS it calls it before every task, including one resumed from `resumeData` (with
+    the hash saved beside it). The decision table is in
+    `docs/kmptoolkit-downloader/07-background-downloader.md`.
+  - Imports: `Sha256` is in `io.github.jamal_wia.kmptoolkit.downloader`, `ResolvedDownload` in
+    `io.github.jamal_wia.kmptoolkit.downloader.spi`.
 
 ### Added
 
 - `kmptoolkit-downloader`: `Sha256`, a validated digest type with `parse` and `parseOrNull`.
 - `kmptoolkit-downloader`: `ResolvedDownload`, whose `toString` leaves out the URL's query and
-  fragment because those usually carry a signature.
+  fragment because those usually carry a signature, and masks any `user:password@` part.
 - `kmptoolkit-downloader`: `DownloaderStorage.beginTempFile`. The expected hash is persisted next
-  to the temp file (`tmp/expect/<id>`), survives process death, is checked at commit together with
+  to the temp file (`tmp/expect/<id>.sha256`), survives process death, is checked at commit together with
   `DownloadUnit.sha256` before extraction, a database check or the move, and is dropped with the
   temp file. A record that exists but cannot be read fails as an integrity failure, never as "no
   check". A partial with no record resumes and is checked against `unit.sha256` only.
-- `kmptoolkit-downloader-testing`: `FakeDownloaderStorage.beganWith` and `failIntegrityFor`.
+- `kmptoolkit-downloader-testing`: `FakeDownloaderStorage.beganWith`, `begunIds` and
+  `failIntegrityFor`.
 
 ### Fixed
 
@@ -52,7 +58,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   the copy fallback creates it. The parent is now created first, as Android already did.
 - `kmptoolkit-downloader`: a malformed constant hash (a `DownloadUnit.sha256` getter that throws)
   is detected before the transfer, as `DownloadError.Unknown`, instead of after the whole download
-  on every attempt.
+  on every attempt. A transfer already running for that unit is cancelled; its temp file is kept.
+- `kmptoolkit-downloader` (iOS): when moving a finished download into place failed and the copy
+  fallback failed too, the temp file was deleted anyway, silently destroying the download. The
+  copy's result is now checked: the temp file and its hash record stay and the commit throws.
+- `kmptoolkit-downloader` (iOS): an I/O error while hashing a file is now reported as such instead
+  of as a hash mismatch.
 
 ## [2.0.0]
 

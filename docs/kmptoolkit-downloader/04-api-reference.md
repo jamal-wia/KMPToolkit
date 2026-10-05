@@ -56,7 +56,7 @@ a `Downloader` ready to use immediately — there is no separate `start()`.
 | `relativePath` | `String` | Relative to the storage's own base directory. |
 | `tempExtension` | `String` | Default `"tmp"`. Cosmetic — the temp name is derived from `id`. |
 | `format` | `ResourceFormat` | Default `Opaque`. |
-| `sha256` | `Sha256?` | Default `null`. A constant expectation; checked at commit, and a mismatch downloads again. Do not set it for an object replaced in place — use `beginTempFile`. The engine reads it once before a transfer and fails the unit with `DownloadError.Unknown` if the getter throws. |
+| `sha256` | `Sha256?` | Default `null`. A constant expectation; checked at commit, and a mismatch downloads again. Do not set it for an object replaced in place — use `beginTempFile`. The engine reads it before a transfer and fails the unit with `DownloadError.Unknown` if the getter throws; storage reads it again at begin and commit. |
 | `isDirectoryResource` | `Boolean` | Derived: `true` iff `format is ZipArchive`. |
 | `group` | `ResourceGroup` | Which group's notification and progress this unit is filed under. |
 
@@ -77,8 +77,9 @@ a `Downloader` ready to use immediately — there is no separate `start()`.
 
 `sealed class`: `NoConnection`, `Timeout`, `NotFound`, `Unauthorized`, `Server(statusCode: Int?)`,
 `Storage(message: String? = null)`, `Corrupted(message: String? = null)`,
-`Unknown(message: String? = null)`. `Corrupted` is bytes that failed a check (`sha256`, the recorded hash, a
-`SqliteDatabase`'s) again after one fresh download; nothing was committed.
+`Unknown(message: String? = null)`. `Corrupted` is bytes that failed a check (`sha256`, the recorded
+hash, a `SqliteDatabase`'s) again after one fresh download; nothing was committed. `Unknown` is also
+the error for a unit whose `sha256` getter throws, reported before any transfer starts.
 
 ## `GroupDownloadState` / `UnitDownloadState`
 
@@ -153,10 +154,13 @@ fail a check; the engine answers that with one fresh download.
 `beginTempFile(unit, expectedSha256)` is called by the party that owns the writer, exactly when it
 is about to write from byte 0, and replaces whatever transfer was there: afterwards `tempFileState`
 is `None` and `getTempFileSize` is 0. It persists the expected hash (an explicit "none" marker when
-`null`) at `tmp/expect/<id>`, written crash-safely before the old files are deleted. It throws
+`null`) at `tmp/expect/<id>.sha256`, written crash-safely before the old files are deleted. It throws
 `IllegalArgumentException` before any side effect when `unit.sha256` and `expectedSha256` are both
-set and differ. `commitResource` hashes the complete file once and checks every stated expectation;
-`deleteTempFile` removes the data first and the record last. It is not enforced that a downloader
+set and differ, or when reading `unit.sha256` throws, and with `IllegalStateException` when the old
+temp file or the record cannot be replaced. On iOS call it before every task, including one resumed
+from `resumeData` (with the hash saved beside it). `commitResource` hashes the complete file once and checks every stated expectation;
+`deleteTempFile` removes the data first and the record last, and keeps the record (logging a
+warning, never throwing) when a data file could not be deleted. It is not enforced that a downloader
 calls `beginTempFile` (a recordless partial still resumes); see
 [`07-background-downloader.md`](07-background-downloader.md) for when to call it.
 

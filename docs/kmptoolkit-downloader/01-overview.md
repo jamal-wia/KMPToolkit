@@ -34,10 +34,10 @@ their count persisted so a crash loop doesn't retry forever, and — before anyt
 - **Verification before counted present.** A `ResourceFormat.SqliteDatabase` unit is opened and,
   optionally, its own declared row count is checked against the database file's real one; a
   `ResourceFormat.ZipArchive` unit is proven complete by the presence of a marker file the
-  extraction is known to produce; any unit can state a `sha256` that its bytes must match, and the hash a backend returns
-  per download is recorded when the transfer begins and enforced at commit, even in a later
-  process. A corrupt download fails at commit, is downloaded once more, and only then reported — never
-  three layers away inside whatever opens the file next.
+  extraction is known to produce; any unit can state a `sha256` that its bytes must match, and the
+  hash a backend returns per download is recorded when the transfer begins and enforced at commit,
+  even in a later process. A corrupt download fails at commit, is downloaded once more, and only
+  then reported — never three layers away inside whatever opens the file next.
 - **Survives process death.** Nothing about an in-flight download is persisted by the engine except
   a stall counter — "is a transfer running" is answered by your `BackgroundResourceDownloader`,
   "is it done" by the files on disk. A crash needs no recovery pass; the next `ensureAvailable`
