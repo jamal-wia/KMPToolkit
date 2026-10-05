@@ -108,8 +108,9 @@ public class FakeAudioRecorder(
 
     /**
      * Every path thrown away, in order: by [cancel], by re-preparing over a file that was never
-     * recorded into, and by a scripted failure of [prepare] or [start] — all the cases in which the
-     * real recorder deletes the file it had opened.
+     * recorded into, by a scripted failure of [prepare] or [start], and by [simulateInterruption] or
+     * [simulateRecordingLost] from [RecorderState.Ready] — all the cases in which the real recorder
+     * deletes the file it had opened. A failed [stop] keeps its file (carried on the failed state).
      */
     public val deletedPaths: List<String> get() = _deletedPaths.toList()
 
@@ -204,7 +205,8 @@ public class FakeAudioRecorder(
         // Zeroed before the scripted failure is consulted: a failed stop leaves Failed, and the
         // real recorder reports no level from there either.
         _level.value = 0f
-        consumeScriptedFailure()?.let { error -> return fail(error) }
+        // The partial file is kept and carried on the state, like the real recorder: cancel() deletes it.
+        consumeScriptedFailure()?.let { error -> return fail(error, path) }
 
         val recording = RecordedFile(path = path, duration = _elapsed.value)
         _completedRecordings += recording
@@ -273,7 +275,7 @@ public class FakeAudioRecorder(
         when (current) {
             is RecorderState.Recording -> interrupt(current.outputPath, reason)
             is RecorderState.Paused -> interrupt(current.outputPath, reason)
-            is RecorderState.Ready -> loseEmptyFile(current.outputPath, reason, cause = null)
+            is RecorderState.Ready -> loseEmptyFile(current.outputPath, reason)
             else -> return false
         }
         return true
@@ -283,8 +285,9 @@ public class FakeAudioRecorder(
      * Ends the recording the way the system would when the file could **not** be finalized: the
      * state becomes [RecorderState.Failed] carrying [RecorderError.RecordingLost] ([reason], [cause])
      * and the output path, which is kept — [cancel] deletes it. [elapsed] stays frozen where it
-     * stands and [level] returns to `0f`. From [RecorderState.Ready] there is no audio to keep: the
-     * empty file is deleted and the path is `null`, as in [simulateInterruption].
+     * stands and [level] returns to `0f`. From [RecorderState.Ready] there is no audio to keep and
+     * nothing to finalize: the empty file is deleted, the path is `null` and [cause] is dropped —
+     * the real recorder has none to report there — as in [simulateInterruption].
      *
      * [InterruptionReason.MicrophoneSilenced] is subject to the same rule as in
      * [simulateInterruption].
@@ -301,7 +304,9 @@ public class FakeAudioRecorder(
         when (current) {
             is RecorderState.Recording -> lose(current.outputPath, reason, cause)
             is RecorderState.Paused -> lose(current.outputPath, reason, cause)
-            is RecorderState.Ready -> loseEmptyFile(current.outputPath, reason, cause)
+            // No cause: a recorder that was only prepared has nothing to finalize, so the real one has
+            // none to report either.
+            is RecorderState.Ready -> loseEmptyFile(current.outputPath, reason)
             else -> return false
         }
         return true
@@ -317,10 +322,10 @@ public class FakeAudioRecorder(
         _state.value = RecorderState.Failed(RecorderError.RecordingLost(reason, cause), path)
     }
 
-    private fun loseEmptyFile(path: String, reason: InterruptionReason, cause: Throwable?) {
+    private fun loseEmptyFile(path: String, reason: InterruptionReason) {
         _deletedPaths += path
         _level.value = 0f
-        _state.value = RecorderState.Failed(RecorderError.RecordingLost(reason, cause), outputPath = null)
+        _state.value = RecorderState.Failed(RecorderError.RecordingLost(reason), outputPath = null)
     }
 
     /**
@@ -378,8 +383,8 @@ public class FakeAudioRecorder(
         operation: RecorderOperation,
     ): RecorderResult.Failure = RecorderResult.Failure(RecorderError.IllegalState(state, operation))
 
-    private fun fail(error: RecorderError): RecorderResult.Failure {
-        _state.value = RecorderState.Failed(error)
+    private fun fail(error: RecorderError, outputPath: String? = null): RecorderResult.Failure {
+        _state.value = RecorderState.Failed(error, outputPath)
         return RecorderResult.Failure(error)
     }
 

@@ -400,6 +400,40 @@ class FakeAudioRecorderTest {
     }
 
     @Test
+    fun `a scripted stop failure carries the path so cancel can delete the file`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.start()
+        val error = RecorderError.EngineFailure(RecorderOperation.STOP)
+        recorder.failNextOperationWith = error
+
+        recorder.stop()
+
+        assertEquals(RecorderState.Failed(error, outputPath = path), recorder.state.value)
+        assertContentEquals(emptyList(), recorder.deletedPaths, "the file is kept until the caller decides")
+
+        assertEquals(RecorderResult.Success(Unit), recorder.cancel())
+
+        assertContentEquals(listOf(path), recorder.deletedPaths)
+        assertEquals(RecorderState.Idle, recorder.state.value)
+    }
+
+    @Test
+    fun `a lost recording of a prepared recorder drops the cause like the real recorder`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+
+        assertTrue(
+            recorder.simulateRecordingLost(InterruptionReason.StorageLow, IllegalStateException("none here")),
+        )
+
+        assertEquals(
+            RecorderState.Failed(RecorderError.RecordingLost(InterruptionReason.StorageLow), outputPath = null),
+            recorder.state.value,
+        )
+    }
+
+    @Test
     fun `cancel cannot be made to fail because the real cancel never does`() = runTest {
         val recorder = FakeAudioRecorder()
         val path: String = requireNotNull(recorder.prepare().getOrNull())
