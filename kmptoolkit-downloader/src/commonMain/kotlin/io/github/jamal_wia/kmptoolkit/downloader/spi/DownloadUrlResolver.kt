@@ -25,8 +25,13 @@ import io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit
 public fun interface DownloadUrlResolver {
 
     /**
-     * Resolves the URL to fetch [unit] from. Throwing means this attempt failed and the engine's
-     * usual retry policy applies — the same as any transport failure.
+     * Resolves where to fetch [unit] from, and the hash of the object there when the backend says
+     * so. Throwing means this attempt failed and the engine's usual retry policy applies — the same
+     * as any transport failure.
+     *
+     * The returned [ResolvedDownload.expectedSha256] belongs to exactly this response: pass it to
+     * [io.github.jamal_wia.kmptoolkit.downloader.DownloaderStorage.beginTempFile] when the transfer
+     * starts from byte zero, and never when it resumes a partial file.
      */
-    public suspend fun resolve(unit: DownloadUnit): String
+    public suspend fun resolve(unit: DownloadUnit): ResolvedDownload
 }
