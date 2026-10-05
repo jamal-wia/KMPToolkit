@@ -395,6 +395,23 @@ abstract class DownloaderStorageContractTest {
         assertTrue(pathExists(recordPath(storage, a)), "committing b must not touch a's record")
     }
 
+    @Test
+    fun `begin fails without renaming a record when the old temp file cannot be deleted`() {
+        val unit = ContractUnit("stuck")
+        // A non-empty directory at the partial path cannot be deleted on either platform:
+        // java.io.File.delete() and POSIX remove(3) (which is rmdir(2) for a directory) both
+        // refuse it, remove(3) with ENOTEMPTY, and neither deletes recursively.
+        val partial: String = storage.getTempFilePath(unit)
+        writeFile("$partial/child", "x".encodeToByteArray())
+        val tmpDirectory: String = partial.substringBeforeLast('/')
+
+        assertFailsWith<IllegalStateException> { storage.beginTempFile(unit, null) }
+
+        assertFalse(pathExists("$tmpDirectory/expect/${unit.id}"), "the new record must not be paired with the surviving old file")
+        assertFalse(pathExists("$tmpDirectory/expect-staged/${unit.id}"), "the staged record must be dropped")
+        assertTrue(pathExists("$partial/child"), "the obstacle must still be there: nothing may remove it another way")
+    }
+
     // -- helpers -----------------------------------------------------------------------------
 
     private fun writeTemp(on: DownloaderStorage, unit: DownloadUnit, text: String) =
