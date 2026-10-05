@@ -48,6 +48,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-downloader` (iOS): committing a ZIP archive whose `relativePath` is nested (for example
+  `archives/pages`) failed when the parent directory did not exist yet, because neither the move nor
+  the copy fallback creates it. The parent is now created first, as Android already did.
 - `kmptoolkit-downloader`: a malformed constant hash (a `DownloadUnit.sha256` getter that throws)
   is detected before the transfer, as `DownloadError.Unknown`, instead of after the whole download
   on every attempt.

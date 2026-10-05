@@ -76,7 +76,7 @@ abstract class DownloaderStorageContractTest {
     // 3
     @Test
     fun `a mismatching archive is rejected before anything is extracted`() = runTest {
-        val unit = ContractUnit("pages", format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "pages")
+        val unit = ContractUnit("pages", format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "archives/pages")
         storage.beginTempFile(unit, OTHER)
         writeTempBytes(storage, unit, zipOf("marker.txt", "hello".encodeToByteArray()))
 
@@ -89,7 +89,7 @@ abstract class DownloaderStorageContractTest {
 
     @Test
     fun `an archive that passes its check is extracted and its record is dropped`() = runTest {
-        val unit = ContractUnit("pages", format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "pages")
+        val unit = ContractUnit("pages", format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "archives/pages")
         storage.beginTempFile(unit, null)
         writeTempBytes(storage, unit, zipOf("marker.txt", "hello".encodeToByteArray()))
 

@@ -335,6 +335,9 @@ internal class IosDownloaderStorage(
                 }
                 // Atomic swap: remove old target, rename staging to target
                 NSFileManager.defaultManager.removeItemAtPath(targetDir, error = null)
+                // moveItemAtPath and copyItemAtPath both fail when the parent is missing, which a
+                // nested relativePath (e.g. "archives/pages") leaves it on first use.
+                createParentDirectory(targetDir)
                 val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
                     srcPath = stagingDir,
                     toPath = targetDir,
