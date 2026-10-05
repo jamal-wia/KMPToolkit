@@ -39,6 +39,33 @@ internal class FakeRecorderEngine : RecorderEngine {
     var peakCalls: Int = 0
         private set
 
+    /** The `maxFileSizeBytes` each `prepare` was given, in order. */
+    val preparedMaxFileSizes: MutableList<Long?> = mutableListOf()
+
+    /** The listener the recorder registered, or `null` once it removed it. */
+    var listener: ((EngineEvent) -> Unit)? = null
+        private set
+
+    /** Every listener ever registered, oldest first — so a test can fire one a later session replaced. */
+    val registeredListeners: MutableList<(EngineEvent) -> Unit> = mutableListOf()
+
+    /** How many times a non-null listener was registered. */
+    var listenerRegistrations: Int = 0
+        private set
+
+    /**
+     * Runs inside `stop()`, before it answers and with no recorder lock held, so a test can land an
+     * event, a `release()` or a `cancel()` exactly while the container is being finalized — the
+     * window in which the real engine is busy on a worker thread.
+     */
+    var onStop: () -> Unit = {}
+
+    /** Runs inside `start()`, after it succeeded — an engine that reports its first event from there. */
+    var onStart: () -> Unit = {}
+
+    /** Runs inside `resume()`, after it succeeded. */
+    var onResume: () -> Unit = {}
+
     val calls: MutableList<String> = mutableListOf()
     var releaseCount: Int = 0
         private set
@@ -50,8 +77,13 @@ internal class FakeRecorderEngine : RecorderEngine {
 
     override fun supportsFormat(format: AudioFormat): Boolean = format !in unsupportedFormats
 
-    override suspend fun prepare(outputPath: String, config: AudioRecorderConfig) {
+    override suspend fun prepare(
+        outputPath: String,
+        config: AudioRecorderConfig,
+        maxFileSizeBytes: Long?,
+    ) {
         calls += "prepare($outputPath)"
+        preparedMaxFileSizes += maxFileSizeBytes
         prepareGate?.await()
         failures[RecorderOperation.PREPARE]?.let { throw it }
     }
@@ -59,6 +91,7 @@ internal class FakeRecorderEngine : RecorderEngine {
     override fun start() {
         calls += "start"
         failures[RecorderOperation.START]?.let { throw it }
+        onStart()
     }
 
     override fun pause() {
@@ -69,6 +102,31 @@ internal class FakeRecorderEngine : RecorderEngine {
     override fun resume() {
         calls += "resume"
         failures[RecorderOperation.RESUME]?.let { throw it }
+        onResume()
+    }
+
+    override fun setEventListener(listener: ((EngineEvent) -> Unit)?) {
+        // Deliberately not in `calls`, like peakDbfs: the existing tests assert the exact sequence
+        // of lifecycle calls, and wiring a listener is not one of them.
+        this.listener = listener
+        if (listener != null) {
+            registeredListeners += listener
+            listenerRegistrations++
+        }
+    }
+
+    /** Delivers [event] to the current listener, synchronously, as a platform callback would. */
+    fun emit(event: EngineEvent) {
+        listener?.invoke(event)
+    }
+
+    /**
+     * Delivers [event] to the listener registered at [index] (the latest by default) even if it has
+     * been removed or replaced since — a platform callback already in flight when the recorder let
+     * go of it.
+     */
+    fun emitToStaleListener(event: EngineEvent, index: Int = registeredListeners.lastIndex) {
+        registeredListeners.getOrNull(index)?.invoke(event)
     }
 
     override fun peakDbfs(): Float? {
@@ -81,6 +139,7 @@ internal class FakeRecorderEngine : RecorderEngine {
 
     override fun stop() {
         calls += "stop"
+        onStop()
         failures[RecorderOperation.STOP]?.let { throw it }
     }
 

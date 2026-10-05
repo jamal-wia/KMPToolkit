@@ -58,7 +58,11 @@ internal class AvAudioRecorderEngine : RecorderEngine {
 
     override fun supportsFormat(format: AudioFormat): Boolean = true
 
-    override suspend fun prepare(outputPath: String, config: AudioRecorderConfig) {
+    override suspend fun prepare(
+        outputPath: String,
+        config: AudioRecorderConfig,
+        maxFileSizeBytes: Long?,
+    ) {
         release()
         activateAudioSession()
 
@@ -95,6 +99,10 @@ internal class AvAudioRecorderEngine : RecorderEngine {
             error("AVAudioRecorder.prepareToRecord() failed")
         }
         recorder = created
+    }
+
+    override fun setEventListener(listener: ((EngineEvent) -> Unit)?) {
+        // wired in the iOS engine step
     }
 
     override fun start() {

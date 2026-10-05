@@ -35,7 +35,11 @@ internal class MediaRecorderEngine(
         AudioFormat.WAV -> false
     }
 
-    override suspend fun prepare(outputPath: String, config: AudioRecorderConfig) {
+    override suspend fun prepare(
+        outputPath: String,
+        config: AudioRecorderConfig,
+        maxFileSizeBytes: Long?,
+    ) {
         release()
         // No withContext here: DefaultAudioRecorder already calls this on the worker context the
         // consumer chose, and an engine that picked its own dispatcher would quietly override it.
@@ -48,6 +52,10 @@ internal class MediaRecorderEngine(
             throw failure
         }
         recorder = created
+    }
+
+    override fun setEventListener(listener: ((EngineEvent) -> Unit)?) {
+        // wired in the Android engine step
     }
 
     override fun start() {

@@ -1,7 +1,30 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 /**
- * The platform recorder, reduced to the seven calls the state machine needs.
+ * What an engine reports on its own, while nobody is calling it. Raw: an engine says what the
+ * platform told it and decides nothing — whether it ends the recording, after which debounce,
+ * with what outcome, is [DefaultAudioRecorder]'s business, so those decisions are common code
+ * tested once.
+ */
+internal sealed interface EngineEvent {
+
+    /**
+     * The platform ended the recording, or broke it beyond use, for [reason]. The first one of a
+     * session counts; the engine need not filter duplicates.
+     */
+    data class Interrupted(val reason: InterruptionReason) : EngineEvent
+
+    /**
+     * The platform started ([silenced] `true`) or stopped ([silenced] `false`) silencing the
+     * input while the recorder keeps running. Debounced by [DefaultAudioRecorder]; an engine
+     * reports every change, and also the state right after [RecorderEngine.start] and
+     * [RecorderEngine.resume] — a recording that begins silenced is reported as `true`.
+     */
+    data class InputSilenced(val silenced: Boolean) : EngineEvent
+}
+
+/**
+ * The platform recorder, reduced to the calls the state machine needs.
  *
  * Everything the toolkit contributes — legality of transitions, permission and storage
  * pre-checks, elapsed-time bookkeeping, typed errors — lives in [DefaultAudioRecorder] and is
@@ -13,6 +36,13 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
  * comes out and turns it into [RecorderError.EngineFailure]; an engine must not try to recover on
  * its own, must not report failure by silently doing nothing, and must never surface a
  * user-facing message.
+ *
+ * **Events.** An engine reports what the platform does on its own through the listener given to
+ * [setEventListener], as [EngineEvent]s. It may call the listener from any thread, including
+ * synchronously from inside one of its own methods, and while holding locks of its own — the
+ * listener never blocks and never calls back into the engine on the same stack. An engine must
+ * remove every listener and observer it registered in [release] and before a normal [stop], so a
+ * recording the app ended is never reported as one the system ended.
  *
  * An engine also must not choose a dispatcher. [DefaultAudioRecorder] already invokes the blocking
  * calls below on the context its factory was given, so a `withContext` in here would override a
@@ -30,16 +60,34 @@ internal interface RecorderEngine {
      * Opens the microphone and [outputPath] with [config]'s encoder settings, leaving the native
      * recorder ready to capture. Blocking, and already called on the worker context; suspending
      * only so a test double can hold the call open.
+     *
+     * @param maxFileSizeBytes an upper bound on the output file size the platform should enforce
+     *   as a backstop against a full disk, or `null` for none. Honoured where the platform has
+     *   such a limit (Android's `setMaxFileSize`), ignored where it has not.
      */
-    suspend fun prepare(outputPath: String, config: AudioRecorderConfig)
+    suspend fun prepare(
+        outputPath: String,
+        config: AudioRecorderConfig,
+        maxFileSizeBytes: Long? = null,
+    )
 
-    /** Begins capture. Only called after a successful [prepare]. */
+    /**
+     * Registers (or, with `null`, removes) the listener platform events are reported to. Called
+     * after a successful [prepare] and with `null` when a recording ends, quickly and without
+     * I/O. A listener replaced by another or by `null` must receive nothing more.
+     */
+    fun setEventListener(listener: ((EngineEvent) -> Unit)?)
+
+    /**
+     * Begins capture. Only called after a successful [prepare]. An engine that can tell reports
+     * [EngineEvent.InputSilenced] when the input is already silenced once capture has begun.
+     */
     fun start()
 
     /** Suspends capture, keeping the file open. */
     fun pause()
 
-    /** Continues capture after [pause]. */
+    /** Continues capture after [pause]; see [start] for the silenced-input report. */
     fun resume()
 
     /**
