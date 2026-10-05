@@ -35,7 +35,7 @@ public class Sha256 private constructor(
          */
         public fun parse(hex: String): Sha256 {
             require(hex.isSha256Hex()) {
-                "A SHA-256 is exactly 64 hex digits, was ${hex.length} characters: '$hex'"
+                "A SHA-256 is exactly 64 hex digits, but '$hex' was ${hex.length} characters, or not all hex digits"
             }
             return Sha256(hex.lowercase())
         }

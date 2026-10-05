@@ -52,4 +52,54 @@ class ResolvedDownloadTest {
         assertFalse("secret123" in text)
         assertFalse("frag" in text)
     }
+
+    @Test
+    fun `toString masks the userinfo of the url`() {
+        val text: String = ResolvedDownload("https://user:pass@cdn.example/a/b.bin", hash).toString()
+
+        assertEquals(
+            "ResolvedDownload(url=https://***@cdn.example/a/b.bin, expectedSha256=Sha256(${hash.hex}))",
+            text,
+        )
+        assertFalse("pass" in text)
+    }
+
+    @Test
+    fun `toString masks the userinfo and drops the query together`() {
+        val text: String = ResolvedDownload("https://user:pass@cdn.example/a?sig=secret", hash).toString()
+
+        assertEquals(
+            "ResolvedDownload(url=https://***@cdn.example/a?…, expectedSha256=Sha256(${hash.hex}))",
+            text,
+        )
+    }
+
+    @Test
+    fun `toString marks a cut at a fragment with a hash sign`() {
+        val text: String = ResolvedDownload("https://cdn.example/a#frag", hash).toString()
+
+        assertEquals(
+            "ResolvedDownload(url=https://cdn.example/a#…, expectedSha256=Sha256(${hash.hex}))",
+            text,
+        )
+        assertFalse("frag" in text)
+    }
+
+    @Test
+    fun `toString cuts at the query when both a query and a fragment follow`() {
+        val text: String = ResolvedDownload("https://cdn.example/a?x=1#frag", hash).toString()
+
+        assertEquals(
+            "ResolvedDownload(url=https://cdn.example/a?…, expectedSha256=Sha256(${hash.hex}))",
+            text,
+        )
+    }
+
+    @Test
+    fun `an at sign outside the authority is not mistaken for userinfo`() {
+        assertEquals(
+            "ResolvedDownload(url=https://cdn.example/users/@me, expectedSha256=null)",
+            ResolvedDownload("https://cdn.example/users/@me").toString(),
+        )
+    }
 }

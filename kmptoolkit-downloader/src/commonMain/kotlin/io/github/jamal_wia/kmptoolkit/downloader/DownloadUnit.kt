@@ -54,9 +54,11 @@ public interface DownloadUnit {
      * [io.github.jamal_wia.kmptoolkit.downloader.spi.ResolvedDownload.expectedSha256]. Both may
      * apply to one transfer; the bytes must then match each of them.
      *
-     * Read by the engine once before it starts a transfer: a getter that throws (a host that built
-     * the value with [Sha256.parse] from a malformed constant) fails the unit with
-     * [DownloadError.Unknown] before any byte is fetched, instead of after the whole download.
+     * Read by the engine before it starts a transfer, and again by the storage at
+     * [DownloaderStorage.beginTempFile] and at commit. A getter that throws (`get() =
+     * Sha256.parse("…")` with a malformed constant) fails the unit with [DownloadError.Unknown]
+     * before any byte is fetched, instead of after the whole download. A stored property
+     * (`val sha256 = Sha256.parse("…")`) throws earlier still, when the unit is constructed.
      */
     public val sha256: Sha256? get() = null
 

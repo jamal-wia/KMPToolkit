@@ -69,14 +69,28 @@ public interface DownloaderStorage {
      * - a `200` in reply to a `Range` request (the server ignored the range);
      * - a `416` whose reported total does not match the partial file.
      *
-     * Never on a `206` resume (the bytes continue an object whose hash was recorded when it began),
-     * never when joining a transfer that is already running, never when an iOS transfer reconnects
-     * or resumes from `resumeData`, and never on completion. A hash first seen on a resume is not
-     * filled in.
+     * Never on a `206` resume (the bytes continue an object whose hash was recorded when it began;
+     * calling it there would delete the partial file), never when joining a transfer that is
+     * already running, never when an iOS transfer merely reconnects to a task that is still running,
+     * and never on completion (`didFinishDownloadingTo` included). A hash first seen on a resume is
+     * not filled in.
+     *
+     * On iOS the temp path holds no bytes while a task runs, so beginning before ANY task starts is
+     * harmless — and required: call it with the fresh resolve's hash for a new task, and, when
+     * resuming from `resumeData`, with the hash saved alongside that `resumeData` (the hash of the
+     * response that began it). A downloader that does not keep that hash must discard its
+     * `resumeData` when the engine cancels or the transfer fails terminally, because the engine
+     * then calls [deleteTempFile], which drops the record, and a task resumed from the old
+     * `resumeData` without a begin would commit with its hash check silently skipped.
      *
      * Throws [IllegalArgumentException] before touching anything when [DownloadUnit.sha256] and
      * [expectedSha256] are both non-null and differ — a contradictory catalogue fails before it
-     * spends the user's data, and an existing partial file and its record stay as they were.
+     * spends the user's data, and an existing partial file and its record stay as they were — and
+     * also when reading [DownloadUnit.sha256] itself throws. Throws [IllegalStateException] when the
+     * old temp file or the record cannot be replaced; the old record then still describes whatever
+     * old bytes remain.
+     *
+     * Blocking file I/O, including a flush to disk: call it off the main thread.
      *
      * Crash-safe order for an implementation: write the new record under a temporary name and flush
      * it to disk, delete the complete and partial files, then move the record into place. The
@@ -103,8 +117,11 @@ public interface DownloaderStorage {
 
     /**
      * Deletes [unit]'s temp file, partial or complete, and then the hash expectation recorded by
-     * [beginTempFile] — the record belongs to the temp file and never outlives it by design. For
-     * error and cancel; safe when absent.
+     * [beginTempFile] — the record belongs to the temp file and never outlives it by design, except
+     * as an orphan after a crash between the two deletes (it reads as [TempFileState.None] and the
+     * next [beginTempFile] overwrites it), and when a data file could not be deleted: the record is
+     * then kept, so the surviving file is still checked, and a warning is logged. For error and
+     * cancel; safe when absent, and never throws for a file it could not delete.
      */
     public fun deleteTempFile(unit: DownloadUnit)
 

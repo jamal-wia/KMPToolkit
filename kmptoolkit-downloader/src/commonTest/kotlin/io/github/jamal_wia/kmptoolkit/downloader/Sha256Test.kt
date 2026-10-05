@@ -35,7 +35,10 @@ class Sha256Test {
 
     @Test
     fun `parse rejects a non-hex character`() {
-        assertFailsWith<IllegalArgumentException> { Sha256.parse("g" + lower.drop(1)) }
+        val message: String? = assertFailsWith<IllegalArgumentException> {
+            Sha256.parse("g" + lower.drop(1))
+        }.message
+        assertTrue("not all hex digits" in message.orEmpty(), message)
         assertFailsWith<IllegalArgumentException> { Sha256.parse(" " + lower.drop(1)) }
     }
 

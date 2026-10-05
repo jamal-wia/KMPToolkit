@@ -15,7 +15,8 @@ import io.github.jamal_wia.kmptoolkit.downloader.Sha256
  * Take [expectedSha256] from `Sha256.parseOrNull(response.sha256)`: a hash the backend omitted or
  * garbled then means "no check" instead of a failed download.
  *
- * [toString] omits the URL's query and fragment, which usually carry the signature of a signed link.
+ * [toString] omits the URL's query and fragment, which usually carry the signature of a signed link,
+ * and masks any `user:password@` part.
  *
  * @param url the URL to fetch. Must not be blank.
  * @param expectedSha256 the hash of the object behind [url], or null when the backend stated none.
@@ -33,11 +34,25 @@ public class ResolvedDownload(
 
     override fun hashCode(): Int = 31 * url.hashCode() + (expectedSha256?.hashCode() ?: 0)
 
-    // A resolved URL is typically a short-lived signed link whose query carries the credential, and
-    // toString ends up in logs: keep scheme, host and path, drop the query and fragment.
+    // A resolved URL is typically a short-lived signed link: its query carries the credential, and
+    // so may its userinfo (https://user:pass@host/). toString ends up in logs, so keep scheme, host
+    // and path, mask the userinfo, and drop the query and fragment.
     override fun toString(): String {
         val cut: Int = url.indexOfFirst { it == '?' || it == '#' }
-        val safeUrl: String = if (cut < 0) url else url.substring(0, cut) + "?…"
-        return "ResolvedDownload(url=$safeUrl, expectedSha256=$expectedSha256)"
+        val kept: String = if (cut < 0) url else url.substring(0, cut)
+        val marker: String = when {
+            cut < 0 -> ""
+            url[cut] == '?' -> "?…"
+            else -> "#…"
+        }
+        return "ResolvedDownload(url=${redactUserInfo(kept)}$marker, expectedSha256=$expectedSha256)"
+    }
+
+    private fun redactUserInfo(withoutQuery: String): String {
+        val authorityStart: Int = withoutQuery.indexOf("://").let { if (it < 0) return withoutQuery else it + 3 }
+        val authorityEnd: Int = withoutQuery.indexOf('/', authorityStart).let { if (it < 0) withoutQuery.length else it }
+        val at: Int = withoutQuery.lastIndexOf('@', authorityEnd - 1)
+        if (at < authorityStart) return withoutQuery
+        return withoutQuery.substring(0, authorityStart) + "***" + withoutQuery.substring(at)
     }
 }
