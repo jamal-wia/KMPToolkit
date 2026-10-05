@@ -277,10 +277,13 @@ internal class DefaultDownloaderEngine(
     }
 
     /**
-     * Reads [DownloadUnit.sha256] once before anything is transferred. A getter that throws — a
-     * host that built the value with [Sha256.parse] from a malformed constant — fails the unit here,
-     * as [DownloadError.Unknown] and without enqueueing a transfer, instead of after the whole
-     * download on every attempt. Not an integrity failure: downloading again cannot fix a catalogue.
+     * Reads [DownloadUnit.sha256] before anything is transferred. A getter that throws — a
+     * host that built the value with [Sha256.parse] in a `get() =` from a malformed constant —
+     * fails the unit here, as [DownloadError.Unknown] and without enqueueing a transfer, instead of
+     * after the whole download on every attempt. Not an integrity failure: downloading again cannot
+     * fix a catalogue. A transfer that is already running is cancelled, since its bytes could not be
+     * committed; the temp file is deliberately kept, because the bytes are not at fault and a
+     * corrected catalogue resumes from them.
      */
     private suspend fun failOnUnreadableUnitHash(
         group: ResourceGroup,
@@ -289,6 +292,7 @@ internal class DefaultDownloaderEngine(
     ) {
         val failure: DownloadFailedException = unreadableUnitHash(unit) ?: return
         logger.e(failure) { "DownloadUnit.sha256 of $unit cannot be read: ${failure.cause?.message}" }
+        cancelRunningTransfer(unit)
         groupState.value = GroupDownloadState.Error(error = failure.error)
         notifier.showError(group = group, error = failure.error)
         throw failure
@@ -298,8 +302,14 @@ internal class DefaultDownloaderEngine(
     private suspend fun failOnUnreadableUnitHash(unit: DownloadUnit) {
         val failure: DownloadFailedException = unreadableUnitHash(unit) ?: return
         logger.e(failure) { "DownloadUnit.sha256 of $unit cannot be read: ${failure.cause?.message}" }
+        cancelRunningTransfer(unit)
         unitStateFlow(unit).value = UnitDownloadState.Error(failure.error)
         throw failure
+    }
+
+    /** Stops a transfer of [unit] still running; never touches its temp file. */
+    private fun cancelRunningTransfer(unit: DownloadUnit) {
+        if (backgroundDownloader.isDownloadInProgress(unit)) backgroundDownloader.cancelDownload(unit)
     }
 
     private fun unreadableUnitHash(unit: DownloadUnit): DownloadFailedException? {

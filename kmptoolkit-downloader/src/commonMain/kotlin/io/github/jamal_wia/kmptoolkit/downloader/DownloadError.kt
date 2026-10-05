@@ -42,6 +42,10 @@ public sealed class DownloadError {
      */
     public data class Corrupted(public val message: String? = null) : DownloadError()
 
-    /** Anything the host's platform layer could not classify. [message] is for logs, not for users. */
+    /**
+     * Anything the host's platform layer could not classify, and a unit whose [DownloadUnit.sha256]
+     * getter throws (a catalogue error, reported before any transfer starts). [message] is for logs,
+     * not for users.
+     */
     public data class Unknown(public val message: String? = null) : DownloadError()
 }

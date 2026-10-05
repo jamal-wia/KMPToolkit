@@ -111,10 +111,11 @@ class DownloaderEngineUnitDownloadTest {
     }
 
     @Test
-    fun `a unit whose hash getter throws is not retried as an integrity failure`() = runTest {
+    fun `a unit whose hash getter throws over a complete temp file is neither committed nor downloaded again`() = runTest {
         val badUnit = UnreadableHashUnit(id = "bad_v1", group = group)
         val storage = FakeStorage(tempComplete = mutableSetOf(badUnit))
-        val engine = engine(storage, NeverAskedDownloader(), this)
+        val downloader = NeverAskedDownloader()
+        val engine = engine(storage, downloader, this)
 
         val thrown: DownloadFailedException = assertFailsWith<DownloadFailedException> {
             engine.ensureAvailable(badUnit)
@@ -122,6 +123,22 @@ class DownloaderEngineUnitDownloadTest {
 
         assertTrue(thrown.error is DownloadError.Unknown)
         assertFalse(thrown.error is DownloadError.Corrupted)
+        assertFalse(storage.isResourceAvailable(badUnit), "the unit must not have been committed")
+        assertFalse(downloader.enqueueCalled, "an integrity-style retry would start a new transfer")
+    }
+
+    @Test
+    fun `a unit whose hash getter throws while its transfer runs cancels it and keeps the temp file`() = runTest {
+        val badUnit = UnreadableHashUnit(id = "bad_v1", group = group)
+        val storage = FakeStorage(tempComplete = mutableSetOf(badUnit))
+        val downloader = NeverAskedDownloader(inProgress = true)
+        val engine = engine(storage, downloader, this)
+
+        assertFailsWith<DownloadFailedException> { engine.ensureAvailable(badUnit) }
+
+        assertTrue(downloader.cancelCalled, "the running transfer must be stopped")
+        assertEquals(TempFileState.Complete, storage.tempFileState(badUnit))
+        assertTrue(storage.tempFileDeletedFor.isEmpty(), "the bytes are not at fault, so the temp file stays")
     }
 
     @Test
@@ -409,7 +426,9 @@ class DownloaderEngineUnitDownloadTest {
     }
 
     /** Fails the test (via [enqueueCalled]/[cancelCalled] assertions) if a download is ever started. */
-    private class NeverAskedDownloader : BackgroundResourceDownloader {
+    private class NeverAskedDownloader(
+        private val inProgress: Boolean = false,
+    ) : BackgroundResourceDownloader {
         var enqueueCalled: Boolean = false
             private set
         var cancelCalled: Boolean = false
@@ -419,7 +438,7 @@ class DownloaderEngineUnitDownloadTest {
             enqueueCalled = true
         }
 
-        override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
+        override fun isDownloadInProgress(unit: DownloadUnit): Boolean = inProgress
         override fun cancelDownload(unit: DownloadUnit) {
             cancelCalled = true
         }
