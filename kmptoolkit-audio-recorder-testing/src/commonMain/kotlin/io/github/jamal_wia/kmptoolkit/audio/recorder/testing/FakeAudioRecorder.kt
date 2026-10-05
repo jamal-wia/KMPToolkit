@@ -265,6 +265,8 @@ public class FakeAudioRecorder(
      *
      * @return whether it applied: `false` when the fake is in any other state, has been released,
      *   or [reason] is not raised from the state it is in.
+     *
+     * @since 2.2.0
      */
     public fun simulateInterruption(reason: InterruptionReason): Boolean {
         if (released) return false
@@ -294,6 +296,8 @@ public class FakeAudioRecorder(
      *
      * @return whether it applied: `false` when the fake is not recording, paused or ready, or has
      *   been released.
+     *
+     * @since 2.2.0
      */
     public fun simulateRecordingLost(reason: InterruptionReason, cause: Throwable? = null): Boolean {
         if (released) return false

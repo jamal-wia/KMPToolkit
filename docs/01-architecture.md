@@ -270,11 +270,11 @@ in **shared** code:
 
 - **Video player.** A video screen is shared UI: `VideoPlayer(...)` and `rememberVideoPlayer(...)`
   sit in the same tree on every target. Unlike the modules above, the desktop half is a real
-  capability — but its engine is the one thing the core must not choose for the app: both desktop
+  capability — but its engine is the one thing the video-player core must not choose for the app: both desktop
   engines carry their own licence (VLCJ is GPL-3, OpenJFX GPL-2 + Classpath Exception) and their own
-  runtime requirement (an installed VLC, or the OpenJFX jars per OS). So the core and Compose modules
+  runtime requirement (an installed VLC, or the OpenJFX jars per OS). So the video-player core and Compose modules
   publish `jvm` with no engine at all, each engine is a separate JVM-only artifact the app opts into,
-  and the app picks one once at its root (`LocalVideoPlayerFactory`). The MIT core never makes a
+  and the app picks one once at its root (`LocalVideoPlayerFactory`). The MIT video-player core never makes a
   consumer inherit a GPL dependency it did not ask for.
 - **Core.** `kmptoolkit-core` is not a capability at all: it holds the cross-module internal API
   (`@ToolkitInternalApi`, `StateMachineLock`). It publishes `jvm` only because

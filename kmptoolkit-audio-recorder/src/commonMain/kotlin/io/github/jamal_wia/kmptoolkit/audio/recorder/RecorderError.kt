@@ -18,6 +18,10 @@ public sealed interface RecorderError {
     /**
      * [operation] is not legal in [state]. See the transition table on [AudioRecorder]. The
      * recorder's state is unchanged — this failure is inert.
+     *
+     * Usually a wiring bug, but not always: while the system's event is being finalized, `start`,
+     * `pause` and `resume` are refused with the state that is still published, and a moment later
+     * [state] moves to [RecorderState.Interrupted] or [RecorderState.Failed].
      */
     public data class IllegalState(
         public val state: RecorderState,
@@ -85,6 +89,8 @@ public sealed interface RecorderError {
      * deleting it, or throw it away with [AudioRecorder.cancel]. For a recording that was only
      * prepared and never started there is no audio to keep: the empty file is deleted and the path
      * is `null`.
+     *
+     * @since 2.2.0
      */
     public data class RecordingLost(
         public val reason: InterruptionReason,

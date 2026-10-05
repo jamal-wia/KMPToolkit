@@ -6,6 +6,8 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
  *
  * Typed causes, not messages — mapping one onto copy in the right language is the consuming app's
  * job. The set is closed: a `when` over it is exhaustive.
+ *
+ * @since 2.2.0
  */
 public sealed interface InterruptionReason {
 
@@ -19,7 +21,10 @@ public sealed interface InterruptionReason {
      * that matters.
      *
      * The recorder never resumes by itself when the interruption ends: the recording is over, and
-     * the file holds what was captured up to the moment it began.
+     * the file holds the audio up to when the library observed the interruption — for a call or
+     * Siri that is when it began, for a suspension it is when the app returned.
+     *
+     * @since 2.2.0
      */
     public data object AudioSessionInterrupted : InterruptionReason
 
@@ -32,7 +37,10 @@ public sealed interface InterruptionReason {
      * records silence.
      *
      * [RecorderState.Interrupted.recording]'s duration stops at the moment the silencing began,
-     * not when it was reported.
+     * not when it was reported, so [AudioRecorder.elapsed] steps back by up to the debounce
+     * (about 400 ms) when this is reported.
+     *
+     * @since 2.2.0
      */
     public data object MicrophoneSilenced : InterruptionReason
 
@@ -55,8 +63,12 @@ public sealed interface InterruptionReason {
      * finished unsuccessfully without being asked to stop, or an `AVAudioSession` media-services
      * reset.
      *
-     * @param platformCode the platform's own code (Android `what`, or `extra` when `what` carries
-     *   none) where it gave one, `null` otherwise. Diagnostic, not a stable contract.
+     * @param platformCode the platform's own code where it gave one, `null` otherwise. Android: the
+     *   error's `what`, except `MEDIA_RECORDER_ERROR_UNKNOWN` with a non-zero `extra`, where it is
+     *   `extra`. iOS: the `NSError` code of an encode error; `null` for a recording that finished
+     *   unsuccessfully and for a media-services reset. Diagnostic, not a stable contract.
+     *
+     * @since 2.2.0
      */
     public data class EngineDied(public val platformCode: Int? = null) : InterruptionReason
 }

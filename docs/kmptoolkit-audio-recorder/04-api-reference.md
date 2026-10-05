@@ -31,7 +31,9 @@ changing them means a new recorder.
 `coroutineContext` is the single place the module decides what runs where: the `elapsed` ticker's
 and `level` meter's scope, and the `withContext` behind `prepare`/`stop`/`cancel` that keeps their
 filesystem and encoder work off the caller's thread. The platform engines deliberately choose no
-dispatcher of their own, so this parameter really does control all of it. It mirrors
+dispatcher of their own, so this parameter really does control all of it. A `Job` in it is ignored:
+the recorder runs under a job of its own, so `release()` never cancels a job that belongs to you
+(`viewModelScope.coroutineContext` is safe to pass). It mirrors
 `kmptoolkit-audio-player`'s factories, so a consumer that pins one module's background work pins the
 other identically.
 
@@ -67,7 +69,12 @@ recorder's own state and do not. `release` is the documented exception; see belo
 at once and must be called from one thread. `state`, `elapsed`, and `level` are `StateFlow`s and
 `levelSamples` is a `Flow`; all of them are safe to collect from any thread. System events arrive on
 platform threads and are serialized with your calls internally: every transition runs under one
-lock, and slow work — finalizing a long file — runs off it, so a call of yours never waits for it.
+lock, and slow work — finalizing a long file — runs off it. A call of yours that arrives while such a
+finalization is in flight does not block a thread and does not touch the engine, but it is not
+instant either: `prepare`, `stop` and `cancel` **suspend** until the finalization lands and then
+decide again against the state it published; `start`, `pause` and `resume` do not wait and return
+`IllegalState` carrying the state that is still published (`Ready`, `Recording` or `Paused`). So
+`IllegalState` can come from a race with a system event, not only from a bug in your wiring.
 
 ### Transition table
 
@@ -88,6 +95,13 @@ a `Failed` without a path `cancel` is illegal, as before.
 ² Returns the interrupted recording again as a success and leaves `state` unchanged — no emission,
 not `Completed`.
 
+While the system's event is being finalized `state` still shows the old value (`Ready`, `Recording`
+or `Paused`): `start`, `pause` and `resume` then return `IllegalState` with that state, and
+`prepare`, `stop` and `cancel` wait for the outcome and then use the row of the state it
+published. A `stop` that waited for a finalization that **failed** finds `Failed(RecordingLost)` and
+returns `IllegalState` — the file it would have returned does not exist in a usable form; read the
+state.
+
 A "no" returns `RecorderResult.Failure(RecorderError.IllegalState(state, operation))` — or
 `AlreadyReleased` from `Released` — and changes nothing. `release()` is legal everywhere and never
 fails.
@@ -98,8 +112,9 @@ is discarded.
 
 **System events.** From `Recording` or `Paused`, an event from the platform moves `state` to
 `Interrupted` (the file was finalized) or to `Failed(RecordingLost)` (it was not); from `Ready` to
-`Failed(RecordingLost)` with no path. Only the first event of a recording counts. A `stop()` or
-`cancel()` that has already started wins: the event is ignored. See
+`Failed(RecordingLost)` with no path. Only the first event of a recording counts: the engine's listener is
+detached when its finalization starts, and anything still queued behind it changes nothing, whatever
+its reason. A `stop()` or `cancel()` that has already started wins: the event is ignored. See
 [`03-guide.md`](03-guide.md#when-the-system-ends-a-recording) and
 [`05-platform-notes.md`](05-platform-notes.md#when-the-system-ends-a-recording).
 
@@ -114,8 +129,12 @@ Changes as a result of an operation, or when the system ends a recording (to `In
 Time recorded into the current file, for a timer. Advances only in `Recording`, republished every
 `config.durationUpdateInterval`. Freezes on `pause`, continues on `resume`, holds the final duration
 after `stop`, resets to `ZERO` on `prepare`, `cancel`, and `release`. When the system ends the
-recording it freezes at the moment the event was observed — for `MicrophoneSilenced`, at the moment
-the silencing began — and stays there while `state` is `Interrupted`.
+recording it freezes at the moment the event was observed and stays there while `state` is
+`Interrupted`. For `MicrophoneSilenced` that moment is when the silencing began, which is up to the
+debounce (about 400 ms) *earlier* than when it was reported: the ticker keeps publishing while the
+silence is debounced, so `elapsed` steps **back** by up to the debounce when `Interrupted`
+arrives. A timer that must never go backwards should clamp, or show `recording.duration` once the
+state is `Interrupted`.
 
 Wall-clock time between `start` and `stop`, not a measurement of the encoded file.
 
@@ -255,6 +274,11 @@ recorded into and nothing could ever clean it up afterwards, so it is deleted.
 Safe to call while a `prepare()` is still in flight — the preparation undoes itself when it
 finishes, rather than resurrecting a released recorder.
 
+When a finalization is in flight (a `stop()`, a `cancel()` or a system event is closing the file off
+the lock), `release()` returns at once and does not touch the native recorder: the finalization owns
+it, frees it when it completes, and its outcome is not published over `Released`. The microphone is
+therefore free a moment after `release()` returns, not necessarily before.
+
 **Not suspending, unlike `stop` and `cancel`, and deliberately so.** Release belongs on a teardown
 path — `onCleared`, `doOnDestroy`, `deinit` — and those are exactly the places where the matching
 coroutine scope has already been cancelled, so a suspending `release` would be uncallable where it
@@ -384,11 +408,17 @@ public sealed interface InterruptionReason {
 |---|---|---|
 | `AudioSessionInterrupted` | the audio session was taken by the system: a call, Siri, an alarm, another app; also the app having been suspended without the `audio` background mode | iOS |
 | `MicrophoneSilenced` | the OS kept the recorder running but silenced its input — a call, another app with priority, or capture from the background without a microphone foreground service — and it stayed silenced for about 400 ms. `elapsed` is frozen at the moment the silencing began. Not raised from `Paused`; not detectable on API 24–28 | Android 10+ |
-| `StorageLow` | free space fell below the reserve the library keeps for finalizing (polled at most every two seconds while recording), or `MediaRecorder` reported that the size limit set at prepare was reached. Switched off by `minimumFreeSpaceBytes = 0` | both |
-| `EngineDied(platformCode)` | the media service died or reported an error: Android `MEDIA_ERROR_SERVER_DIED` / `MEDIA_RECORDER_ERROR_UNKNOWN` (`platformCode` is `what`, or `extra` for an unknown error that has one), iOS encode error or a recorder that finished unsuccessfully (`NSError` code), an `AVAudioSession` media-services reset (no code) | both |
+| `StorageLow` | free space fell below the reserve the library keeps for finalizing (polled at most every two seconds while recording, counted from the start of the recording, not from each resume), or `MediaRecorder` reported `MAX_FILESIZE_REACHED`. That is usually the size limit set at prepare, but the platform has a limit of its own too: MPEG-4 recording stops at the largest file the volume can hold (about 4 GiB on FAT32, reached through `directoryPath` on removable storage), which is reported the same way. Switched off by `minimumFreeSpaceBytes = 0` | both |
+| `EngineDied(platformCode)` | the media service died or reported an error: Android `MEDIA_ERROR_SERVER_DIED` / `MEDIA_RECORDER_ERROR_UNKNOWN`, iOS encode error or a recorder that finished unsuccessfully, an `AVAudioSession` media-services reset | both |
 
-When two events arrive close together the first one counts; the one exception is a specific reason
-arriving before the outcome is published, which replaces a generic `EngineDied`.
+`EngineDied.platformCode` is the platform's own number, and `null` where it has none. Android: the
+error's `what`, except `MEDIA_RECORDER_ERROR_UNKNOWN` with a non-zero `extra`, where it is `extra`.
+iOS: the `NSError` code for an encode error; `null` for a recording that finished unsuccessfully
+and for a media-services reset.
+
+Only the first event of a recording counts. The engine's listener is detached when a finalization
+begins, so a second event cannot arrive afterwards; one that was already queued when it was detached
+is dropped, and never replaces or refines the reason the first one carried.
 
 ## `AudioRecorderConfig`
 

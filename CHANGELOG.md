@@ -47,7 +47,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
     is finalized and playable, with `elapsed` frozen at the moment it ended. `RecorderError.
     RecordingLost(reason, cause)`, carried by `Failed` with the file kept: it could not be
     finalized (an unfinalized M4A usually does not play, an AAC file usually does).
-    `InterruptionReason`: `AudioSessionInterrupted` (iOS interruption, or suspension), 
+    `InterruptionReason`: `AudioSessionInterrupted` (iOS interruption, or suspension),
     `MicrophoneSilenced` (Android 10+, debounced about 400 ms, `elapsed` frozen where the
     silencing began; not detectable on API 24-28), `StorageLow`, `EngineDied(platformCode)`.
     Only the first event of a recording counts, and a `stop()` or `cancel()` that is already
@@ -56,7 +56,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
     a volume below the reserve (half of `minimumFreeSpaceBytes`, between 2 MiB and the minimum
     itself) ends the recording as `Interrupted(StorageLow)` while the file can still be closed;
     on Android `setMaxFileSize` is set from the free space at prepare as a backstop.
-    `minimumFreeSpaceBytes = 0` switches both off.
+    `minimumFreeSpaceBytes = 0` switches both off. The poll interval counts per recording, not per
+    resume. A size limit below 64 KiB is not passed to `MediaRecorder` (it rejects anything up to
+    1 KiB); the limit is omitted and `prepare()` still fails only below the minimum.
   - `FakeAudioRecorder.simulateInterruption(reason)` and `simulateRecordingLost(reason, cause)`
     (`kmptoolkit-audio-recorder-testing`), and the fake follows the new transition rows.
   - Docs: the new section "When the system ends a recording" in
@@ -69,6 +71,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-audio-recorder`: every state transition now runs under that same lock and the slow
   finalize of a long file no longer holds it, so a system event, a tick and your own call cannot
   interleave. The public contract is unchanged: call the operations from one thread.
+- `kmptoolkit-audio-recorder` (**behaviour change**): `IllegalState` can now come from a race with a
+  system event, not only from a wiring bug. While the system's event is being finalized, `state`
+  still shows the old value and `start()`, `pause()` and `resume()` return `IllegalState` with it;
+  `prepare()`, `stop()` and `cancel()` suspend (never blocking a thread) until the finalization
+  lands and then decide again — so a `stop()` that waited for a finalization that *failed* returns
+  `IllegalState` against `Failed(RecordingLost)`. Do not `error(...)` on `IllegalState` from a
+  user's tap; read `state`.
+- `kmptoolkit-audio-recorder`: a `Job` in the `coroutineContext` given to `createAudioRecorder` is
+  now ignored (see Fixed).
 
 ### Fixed
 
@@ -84,7 +95,29 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-audio-recorder` (iOS): `release()` only stopped the recorder when it reported
   `recording == true`, which an interrupted recorder does not; it now always stops it.
 - `kmptoolkit-audio-recorder`: a late tick or level sample computed before a pause, stop or release
-  could no longer overwrite what that transition published; they are now published under the lock.
+  could overwrite what that transition published; they are now published under the lock.
+
+- A `Job` in the `coroutineContext` given to `createAudioPlayer`, `createVideoPlayer` or
+  `createAudioRecorder` replaced the instance's own job: `release()` then cancelled the caller's job
+  (a `viewModelScope`'s, say), and in the recorder a finalization racing `release()` was cancelled
+  with it, skipping `engine.release()` — the microphone stayed held and every later call waited
+  forever. The context's `Job` is now ignored; the rest of the context is used as before.
+- `kmptoolkit-audio-recorder`: a `stop()` or system finalization could leave the recorder waiting
+  forever if anything unexpected escaped it; all finalizations now go through one path that always
+  ends. `release()` no longer touches the platform recorder while a finalization owns it, and the
+  platform recorder is released on the worker, not under the lock.
+- `kmptoolkit-audio-recorder`: the free-space poll restarted on every resume, so a user pausing and
+  resuming more often than the poll interval was never checked; it now counts per recording.
+- `kmptoolkit-audio-recorder`: a free-space size limit of up to 1 KiB made `setMaxFileSize` throw
+  and surfaced as a misleading `EngineFailure(PREPARE)`; such a limit is no longer set.
+- `kmptoolkit-audio-recorder` (Android, iOS): platform callbacks are delivered only to the listener
+  they were installed for; replacing a listener no longer registers a second silence monitor or
+  leaves a late callback reaching the new listener, and an old iOS recorder's late callback cannot
+  end a newer recording.
+- `kmptoolkit-audio-recorder-testing`: a scripted `stop()` failure now keeps the path on `Failed`,
+  so `cancel()` deletes the file as with the real recorder.
+- `kmptoolkit-core`: when the block of `StateMachineLock.exclusive` throws, a failure of a queued
+  action no longer replaces it; it is attached as a suppressed exception.
 
 ## [2.1.0]
 

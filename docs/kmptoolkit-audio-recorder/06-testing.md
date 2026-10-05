@@ -60,14 +60,14 @@ testing behavior the real recorder also has. What it adds is control:
 | `permissionGranted = false` | `prepare()` fails with `PermissionDenied` |
 | `failNextOperationWith = error` | the next otherwise-legal operation fails with that `RecorderError`, then the knob clears |
 | `simulateInterruption(reason)` | ends the recording the way the system would, with the file intact — `Recording`/`Paused` → `Interrupted(RecordedFile(path, elapsed), reason)`, `Ready` → `Failed(RecordingLost(reason), null)` with the empty file deleted. Returns whether it applied |
-| `simulateRecordingLost(reason, cause)` | the same, when the file could **not** be finalized: `Failed(RecordingLost(reason, cause), path)` with the file kept (`Ready` → no path, file deleted) |
+| `simulateRecordingLost(reason, cause)` | the same, when the file could **not** be finalized: `Failed(RecordingLost(reason, cause), path)` with the file kept (`Ready` → no path, file deleted, and the cause dropped, as the real recorder has none to report there) |
 
 and observation:
 
 | Property | Records |
 |---|---|
 | `preparedPaths` | every path `prepare` opened, in order |
-| `deletedPaths` | every path thrown away by `cancel` or by re-preparing over an unused file |
+| `deletedPaths` | every path thrown away: by `cancel`, by re-preparing over an unused file, by a scripted `prepare`/`start` failure, and by `simulateInterruption`/`simulateRecordingLost` from `Ready`. A failed `stop` keeps its file: it is carried on the `Failed` state, and `cancel()` then deletes it |
 | `completedRecordings` | every `RecordedFile` produced by `stop` |
 | `releaseCount` | whether the code under test released the recorder — at most `1`, since `release` is idempotent |
 

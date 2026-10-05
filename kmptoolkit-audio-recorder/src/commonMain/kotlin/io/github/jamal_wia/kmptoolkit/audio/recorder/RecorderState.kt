@@ -64,6 +64,8 @@ public sealed interface RecorderState {
      *
      * If the file could **not** be finalized the state is [Failed] carrying
      * [RecorderError.RecordingLost] instead.
+     *
+     * @since 2.2.0
      */
     public data class Interrupted(
         public val recording: RecordedFile,

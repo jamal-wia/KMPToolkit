@@ -33,6 +33,14 @@ import kotlinx.coroutines.flow.StateFlow
  * ² `stop` from [RecorderState.Interrupted] returns the interrupted recording again as a success
  * and leaves the state unchanged — nothing is emitted, and it is not [RecorderState.Completed].
  *
+ * While the system's event is being finalized, [state] still shows the old value, and a call of
+ * yours races with it: `start`, `pause` and `resume` return [RecorderError.IllegalState] carrying
+ * that still-published state (`Ready`, `Recording` or `Paused`); `prepare`, `stop` and `cancel`
+ * suspend — never blocking a thread — until the finalization lands, then decide again against the
+ * state it published. So `IllegalState` can come from a race with a system event, not only from a
+ * wiring bug; a `stop` that waited for a finalization that failed finds `Failed` and returns
+ * `IllegalState` too.
+ *
  * `prepare` from [RecorderState.Ready], [RecorderState.Completed], [RecorderState.Interrupted], or
  * [RecorderState.Failed] starts a fresh recording: the previous native recorder is torn down first,
  * and a `Ready` file that was never recorded into is deleted. A `Completed` or `Interrupted` file
@@ -86,7 +94,9 @@ import kotlinx.coroutines.flow.StateFlow
  * [state], [elapsed] and [level] are `StateFlow`s, and [levelSamples] is a `Flow`; all of them can
  * be collected from anywhere. Events the system raises arrive on platform threads of its choosing;
  * the recorder serializes them with your calls internally, so you do not synchronize anything for
- * them — and a call of yours never waits for the slow work (finalizing a long file) of an event.
+ * them. The slow work of an event (finalizing a long file) runs off the lock and a call of yours
+ * does not block a thread on it: [prepare], [stop] and [cancel] suspend until it lands, and
+ * [start], [pause] and [resume] are refused with [RecorderError.IllegalState] meanwhile.
  *
  * ## Permission
  *
@@ -113,9 +123,11 @@ public interface AudioRecorder {
      * [AudioRecorderConfig.durationUpdateInterval]. It freezes at its current value on [pause] and
      * continues from there on [resume], holds the final duration after [stop], and resets to
      * [Duration.ZERO] on [prepare], [cancel], and [release]. When the system ends the recording it
-     * freezes at the moment the event was observed — for [InterruptionReason.MicrophoneSilenced], at
-     * the moment the silencing began — and stays there while the state is
-     * [RecorderState.Interrupted].
+     * freezes at the moment the event was observed and stays there while the state is
+     * [RecorderState.Interrupted]. For [InterruptionReason.MicrophoneSilenced] that moment is when
+     * the silencing began, up to the debounce (about 400 ms) *before* it was reported: the ticker
+     * keeps publishing while the silence is debounced, so [elapsed] steps back by up to that much
+     * when the state becomes `Interrupted`. A timer that must never run backwards should clamp.
      *
      * This is wall-clock time between `start` and `stop`, not a measurement of the encoded file. It
      * is accurate enough for a recording timer and is not a substitute for reading the finished
@@ -280,6 +292,11 @@ public interface AudioRecorder {
      * be uncallable precisely where it is needed, so it does its work inline on the calling thread
      * instead. Keep that in mind if you release on the main thread while a long recording is open:
      * finalizing it is the one place this library can block you.
+     *
+     * When a finalization is in flight (a [stop], a [cancel] or a system event closing the file off
+     * the lock), `release` returns at once and leaves the native recorder to that finalization,
+     * which frees it when it completes; its outcome is not published over
+     * [RecorderState.Released]. The microphone is then free a moment after `release` returns.
      *
      * Idempotent, never fails, and never throws. See the class-level "Ownership and release" note
      * for who is expected to call it.
