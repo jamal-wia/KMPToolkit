@@ -23,6 +23,9 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/testing/FakeAud
 	public fun resume ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
 	public final fun setFailNextOperationWith (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError;)V
 	public final fun setPermissionGranted (Z)V
+	public final fun simulateInterruption (Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;)Z
+	public final fun simulateRecordingLost (Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;Ljava/lang/Throwable;)Z
+	public static synthetic fun simulateRecordingLost$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/testing/FakeAudioRecorder;Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;Ljava/lang/Throwable;ILjava/lang/Object;)Z
 	public fun start ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderResult;
 	public fun stop (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }

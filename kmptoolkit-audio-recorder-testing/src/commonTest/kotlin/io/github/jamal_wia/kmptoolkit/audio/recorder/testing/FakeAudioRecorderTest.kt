@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder.testing
 
+import io.github.jamal_wia.kmptoolkit.audio.recorder.InterruptionReason
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecordedFile
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderError
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation
@@ -269,7 +270,13 @@ class FakeAudioRecorderTest {
                 RecorderOperation.CANCEL,
             ),
             "Completed" to setOf(RecorderOperation.PREPARE),
+            "Interrupted" to setOf(
+                RecorderOperation.PREPARE,
+                RecorderOperation.STOP,
+                RecorderOperation.CANCEL,
+            ),
             "Failed" to setOf(RecorderOperation.PREPARE),
+            "FailedWithFile" to setOf(RecorderOperation.PREPARE, RecorderOperation.CANCEL),
         )
         val arrange: Map<String, suspend (FakeAudioRecorder) -> Unit> = mapOf(
             "Idle" to { },
@@ -277,10 +284,20 @@ class FakeAudioRecorderTest {
             "Recording" to { recorder -> recorder.prepare(); recorder.start() },
             "Paused" to { recorder -> recorder.prepare(); recorder.start(); recorder.pause() },
             "Completed" to { recorder -> recorder.prepare(); recorder.start(); recorder.stop() },
+            "Interrupted" to { recorder ->
+                recorder.prepare()
+                recorder.start()
+                recorder.simulateInterruption(InterruptionReason.AudioSessionInterrupted)
+            },
             "Failed" to { recorder ->
                 recorder.permissionGranted = false
                 recorder.prepare()
                 recorder.permissionGranted = true
+            },
+            "FailedWithFile" to { recorder ->
+                recorder.prepare()
+                recorder.start()
+                recorder.simulateRecordingLost(InterruptionReason.StorageLow)
             },
         )
 
@@ -726,5 +743,249 @@ class FakeAudioRecorderTest {
         recorder.emitLevel(0.2f)
 
         assertEquals(listOf(0.1f, 0.2f), samples)
+    }
+
+    // --- the system ends a recording ---
+
+    @Test
+    fun `an interruption while recording keeps the file and freezes the elapsed time`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.start()
+        recorder.advanceElapsed(3.seconds)
+        recorder.emitLevel(0.5f)
+
+        val applied: Boolean = recorder.simulateInterruption(InterruptionReason.AudioSessionInterrupted)
+
+        assertTrue(applied)
+        assertEquals(
+            RecorderState.Interrupted(RecordedFile(path, 3.seconds), InterruptionReason.AudioSessionInterrupted),
+            recorder.state.value,
+        )
+        assertEquals(0f, recorder.level.value)
+        recorder.advanceElapsed(5.seconds)
+        assertEquals(3.seconds, recorder.elapsed.value, "elapsed stays frozen")
+        assertContentEquals(emptyList(), recorder.deletedPaths)
+        assertContentEquals(emptyList(), recorder.completedRecordings, "an interruption is not a stop")
+    }
+
+    @Test
+    fun `an interruption while paused keeps the paused duration`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.start()
+        recorder.advanceElapsed(2.seconds)
+        recorder.pause()
+
+        assertTrue(recorder.simulateInterruption(InterruptionReason.EngineDied(7)))
+
+        assertEquals(
+            RecorderState.Interrupted(RecordedFile(path, 2.seconds), InterruptionReason.EngineDied(7)),
+            recorder.state.value,
+        )
+    }
+
+    @Test
+    fun `an interruption of a prepared recorder loses the empty file`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+
+        assertTrue(recorder.simulateInterruption(InterruptionReason.StorageLow))
+
+        assertEquals(
+            RecorderState.Failed(RecorderError.RecordingLost(InterruptionReason.StorageLow), outputPath = null),
+            recorder.state.value,
+        )
+        assertContentEquals(listOf(path), recorder.deletedPaths)
+    }
+
+    @Test
+    fun `a silenced microphone is only raised while recording`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        assertEquals(false, recorder.simulateInterruption(InterruptionReason.MicrophoneSilenced))
+        assertEquals(false, recorder.simulateRecordingLost(InterruptionReason.MicrophoneSilenced))
+        recorder.start()
+        recorder.pause()
+        assertEquals(false, recorder.simulateInterruption(InterruptionReason.MicrophoneSilenced))
+        assertEquals(false, recorder.simulateRecordingLost(InterruptionReason.MicrophoneSilenced))
+        assertTrue(recorder.state.value is RecorderState.Paused)
+        recorder.resume()
+
+        assertTrue(recorder.simulateInterruption(InterruptionReason.MicrophoneSilenced))
+        assertTrue(recorder.state.value is RecorderState.Interrupted)
+    }
+
+    @Test
+    fun `a lost recording is a failed state that keeps the path`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.start()
+        recorder.advanceElapsed(4.seconds)
+        val cause = IllegalStateException("moov")
+
+        assertTrue(recorder.simulateRecordingLost(InterruptionReason.EngineDied(), cause))
+
+        assertEquals(
+            RecorderState.Failed(
+                RecorderError.RecordingLost(InterruptionReason.EngineDied(), cause),
+                outputPath = path,
+            ),
+            recorder.state.value,
+        )
+        assertEquals(4.seconds, recorder.elapsed.value)
+        assertContentEquals(emptyList(), recorder.deletedPaths)
+    }
+
+    @Test
+    fun `a lost recording of a prepared recorder has no path`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+
+        assertTrue(recorder.simulateRecordingLost(InterruptionReason.AudioSessionInterrupted))
+
+        assertEquals(
+            RecorderState.Failed(
+                RecorderError.RecordingLost(InterruptionReason.AudioSessionInterrupted),
+                outputPath = null,
+            ),
+            recorder.state.value,
+        )
+        assertContentEquals(listOf(path), recorder.deletedPaths)
+    }
+
+    @Test
+    fun `simulating a system end in any other state does nothing and says so`() = runTest {
+        val recorder = FakeAudioRecorder()
+        assertEquals(false, recorder.simulateInterruption(InterruptionReason.StorageLow), "idle")
+        assertEquals(false, recorder.simulateRecordingLost(InterruptionReason.StorageLow), "idle")
+        recorder.prepare()
+        recorder.start()
+        recorder.stop()
+        val completed: RecorderState = recorder.state.value
+        assertEquals(false, recorder.simulateInterruption(InterruptionReason.StorageLow), "completed")
+        assertEquals(false, recorder.simulateRecordingLost(InterruptionReason.StorageLow), "completed")
+        assertEquals(completed, recorder.state.value)
+        recorder.release()
+        assertEquals(false, recorder.simulateInterruption(InterruptionReason.StorageLow), "released")
+        assertEquals(false, recorder.simulateRecordingLost(InterruptionReason.StorageLow), "released")
+        assertEquals(RecorderState.Released, recorder.state.value)
+    }
+
+    @Test
+    fun `a second system end is refused because the recording is already over`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        assertTrue(recorder.simulateInterruption(InterruptionReason.StorageLow))
+        val interrupted: RecorderState = recorder.state.value
+
+        assertEquals(false, recorder.simulateInterruption(InterruptionReason.EngineDied()))
+        assertEquals(false, recorder.simulateRecordingLost(InterruptionReason.EngineDied()))
+
+        assertEquals(interrupted, recorder.state.value)
+    }
+
+    @Test
+    fun `stop from interrupted returns the recording and leaves the state alone`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.start()
+        recorder.advanceElapsed(6.seconds)
+        recorder.simulateInterruption(InterruptionReason.AudioSessionInterrupted)
+        val interrupted: RecorderState = recorder.state.value
+        val emissions: MutableList<RecorderState> = mutableListOf()
+        val collector = launch(UnconfinedTestDispatcher(testScheduler)) {
+            recorder.state.collect { emissions += it }
+        }
+
+        val result: RecorderResult<RecordedFile> = recorder.stop()
+
+        assertEquals(RecorderResult.Success(RecordedFile(path, 6.seconds)), result)
+        assertEquals(interrupted, recorder.state.value)
+        assertEquals(listOf(interrupted), emissions, "nothing is emitted")
+        assertContentEquals(emptyList(), recorder.completedRecordings)
+        collector.cancel()
+    }
+
+    @Test
+    fun `cancel from interrupted deletes the file and returns to idle`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.start()
+        recorder.advanceElapsed(6.seconds)
+        recorder.simulateInterruption(InterruptionReason.AudioSessionInterrupted)
+
+        assertEquals(RecorderResult.Success(Unit), recorder.cancel())
+
+        assertEquals(RecorderState.Idle, recorder.state.value)
+        assertContentEquals(listOf(path), recorder.deletedPaths)
+        assertEquals(Duration.ZERO, recorder.elapsed.value)
+    }
+
+    @Test
+    fun `cancel from a lost recording deletes the kept file`() = runTest {
+        val recorder = FakeAudioRecorder()
+        val path: String = requireNotNull(recorder.prepare().getOrNull())
+        recorder.start()
+        recorder.simulateRecordingLost(InterruptionReason.StorageLow)
+
+        assertEquals(RecorderResult.Success(Unit), recorder.cancel())
+
+        assertEquals(RecorderState.Idle, recorder.state.value)
+        assertContentEquals(listOf(path), recorder.deletedPaths)
+    }
+
+    @Test
+    fun `cancel from a failure that left no file is still refused`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.permissionGranted = false
+        recorder.prepare()
+        val failed: RecorderState = recorder.state.value
+
+        assertEquals(
+            RecorderError.IllegalState(failed, RecorderOperation.CANCEL),
+            recorder.cancel().errorOrNull(),
+        )
+    }
+
+    @Test
+    fun `prepare from interrupted starts a fresh recording and keeps the interrupted file`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.advanceElapsed(2.seconds)
+        recorder.simulateInterruption(InterruptionReason.AudioSessionInterrupted)
+
+        val next: String = requireNotNull(recorder.prepare().getOrNull())
+
+        assertEquals(RecorderState.Ready(next), recorder.state.value)
+        assertContentEquals(emptyList(), recorder.deletedPaths)
+        assertEquals(Duration.ZERO, recorder.elapsed.value)
+    }
+
+    @Test
+    fun `release from interrupted keeps the file`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.simulateInterruption(InterruptionReason.AudioSessionInterrupted)
+
+        recorder.release()
+
+        assertEquals(RecorderState.Released, recorder.state.value)
+        assertContentEquals(emptyList(), recorder.deletedPaths)
+    }
+
+    @Test
+    fun `a system end does not consume a scripted failure`() = runTest {
+        val recorder = FakeAudioRecorder()
+        recorder.prepare()
+        recorder.start()
+        recorder.failNextOperationWith = RecorderError.PermissionDenied
+
+        assertTrue(recorder.simulateInterruption(InterruptionReason.StorageLow))
+
+        assertEquals(RecorderError.PermissionDenied, recorder.failNextOperationWith)
     }
 }

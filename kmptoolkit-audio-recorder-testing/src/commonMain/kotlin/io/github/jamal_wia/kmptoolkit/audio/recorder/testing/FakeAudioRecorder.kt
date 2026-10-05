@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder.testing
 
 import io.github.jamal_wia.kmptoolkit.audio.recorder.AudioRecorder
 import io.github.jamal_wia.kmptoolkit.audio.recorder.AudioRecorderConfig
+import io.github.jamal_wia.kmptoolkit.audio.recorder.InterruptionReason
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecordedFile
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderError
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation
@@ -33,6 +34,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * - **Failures are scripted.** Set [permissionGranted] to `false`, or [failNextOperationWith] to
  *   any [RecorderError], and the next operation fails with it — including error cases (a full disk,
  *   a dead encoder) that are impossible to provoke on a real device.
+ * - **The system's interventions are scripted.** [simulateInterruption] ends a recording the way a
+ *   phone call, a full disk or a dying media service does on a device — [RecorderState.Interrupted]
+ *   when the file survives, [simulateRecordingLost] when it does not — so the code that reacts to
+ *   them can be tested without one.
  * - **Effects are observable.** [preparedPaths], [deletedPaths], [completedRecordings], and
  *   [releaseCount] record what the code under test made the recorder do.
  *
@@ -127,11 +132,13 @@ public class FakeAudioRecorder(
             RecorderState.Idle,
             is RecorderState.Ready,
             is RecorderState.Completed,
+            is RecorderState.Interrupted,
             is RecorderState.Failed,
             -> Unit
 
             else -> return illegal(current, RecorderOperation.PREPARE)
         }
+        // A Completed or Interrupted file is the caller's, as is the one a failure left behind.
         if (current is RecorderState.Ready) _deletedPaths += current.outputPath
         _elapsed.value = Duration.ZERO
 
@@ -190,6 +197,8 @@ public class FakeAudioRecorder(
         val path: String = when (current) {
             is RecorderState.Recording -> current.outputPath
             is RecorderState.Paused -> current.outputPath
+            // Already finalized by the system: the file is the answer and the state stays as it is.
+            is RecorderState.Interrupted -> return RecorderResult.Success(current.recording)
             else -> return illegal(current, RecorderOperation.STOP)
         }
         // Zeroed before the scripted failure is consulted: a failed stop leaves Failed, and the
@@ -210,6 +219,11 @@ public class FakeAudioRecorder(
             is RecorderState.Ready -> current.outputPath
             is RecorderState.Recording -> current.outputPath
             is RecorderState.Paused -> current.outputPath
+            is RecorderState.Interrupted -> current.recording.path
+            // Legal only when the failure left a file to delete.
+            is RecorderState.Failed ->
+                current.outputPath ?: return illegal(current, RecorderOperation.CANCEL)
+
             else -> return illegal(current, RecorderOperation.CANCEL)
         }
         // No scripted-failure hook: the real cancel() is best effort and always succeeds once it
@@ -230,6 +244,83 @@ public class FakeAudioRecorder(
         _elapsed.value = Duration.ZERO
         _level.value = 0f
         _state.value = RecorderState.Released
+    }
+
+    /**
+     * Ends the recording the way the system would, with the file intact: from
+     * [RecorderState.Recording] or [RecorderState.Paused] the state becomes
+     * [RecorderState.Interrupted] carrying the file and [reason], with [elapsed] frozen where it
+     * stands and [level] back at `0f`. From [RecorderState.Ready] nothing was captured, so the empty
+     * file is deleted (recorded in [deletedPaths]) and the state becomes [RecorderState.Failed]
+     * carrying [RecorderError.RecordingLost] with no path.
+     *
+     * Like the real recorder, [InterruptionReason.MicrophoneSilenced] is not raised unless the
+     * fake is [RecorderState.Recording] — nothing is captured while paused or merely prepared.
+     * Every other reason applies from all three states.
+     *
+     * Not a call of the code under test: it does not consume [failNextOperationWith], and no
+     * operation of the fake ever returns a failure for it.
+     *
+     * @return whether it applied: `false` when the fake is in any other state, has been released,
+     *   or [reason] is not raised from the state it is in.
+     */
+    public fun simulateInterruption(reason: InterruptionReason): Boolean {
+        if (released) return false
+        val current: RecorderState = _state.value
+        if (reason == InterruptionReason.MicrophoneSilenced && current !is RecorderState.Recording) {
+            return false
+        }
+        when (current) {
+            is RecorderState.Recording -> interrupt(current.outputPath, reason)
+            is RecorderState.Paused -> interrupt(current.outputPath, reason)
+            is RecorderState.Ready -> loseEmptyFile(current.outputPath, reason, cause = null)
+            else -> return false
+        }
+        return true
+    }
+
+    /**
+     * Ends the recording the way the system would when the file could **not** be finalized: the
+     * state becomes [RecorderState.Failed] carrying [RecorderError.RecordingLost] ([reason], [cause])
+     * and the output path, which is kept — [cancel] deletes it. [elapsed] stays frozen where it
+     * stands and [level] returns to `0f`. From [RecorderState.Ready] there is no audio to keep: the
+     * empty file is deleted and the path is `null`, as in [simulateInterruption].
+     *
+     * [InterruptionReason.MicrophoneSilenced] is subject to the same rule as in
+     * [simulateInterruption].
+     *
+     * @return whether it applied: `false` when the fake is not recording, paused or ready, or has
+     *   been released.
+     */
+    public fun simulateRecordingLost(reason: InterruptionReason, cause: Throwable? = null): Boolean {
+        if (released) return false
+        val current: RecorderState = _state.value
+        if (reason == InterruptionReason.MicrophoneSilenced && current !is RecorderState.Recording) {
+            return false
+        }
+        when (current) {
+            is RecorderState.Recording -> lose(current.outputPath, reason, cause)
+            is RecorderState.Paused -> lose(current.outputPath, reason, cause)
+            is RecorderState.Ready -> loseEmptyFile(current.outputPath, reason, cause)
+            else -> return false
+        }
+        return true
+    }
+
+    private fun interrupt(path: String, reason: InterruptionReason) {
+        _level.value = 0f
+        _state.value = RecorderState.Interrupted(RecordedFile(path, _elapsed.value), reason)
+    }
+
+    private fun lose(path: String, reason: InterruptionReason, cause: Throwable?) {
+        _level.value = 0f
+        _state.value = RecorderState.Failed(RecorderError.RecordingLost(reason, cause), path)
+    }
+
+    private fun loseEmptyFile(path: String, reason: InterruptionReason, cause: Throwable?) {
+        _deletedPaths += path
+        _level.value = 0f
+        _state.value = RecorderState.Failed(RecorderError.RecordingLost(reason, cause), outputPath = null)
     }
 
     /**
