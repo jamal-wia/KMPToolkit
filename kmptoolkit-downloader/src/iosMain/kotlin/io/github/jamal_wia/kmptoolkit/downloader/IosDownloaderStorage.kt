@@ -9,6 +9,7 @@ import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
+import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
@@ -29,22 +30,32 @@ import kotlinx.coroutines.withContext
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSDirectoryEnumerator
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSFileProtectionKey
+import platform.Foundation.NSFileProtectionNone
 import platform.Foundation.NSFileSize
 import platform.Foundation.NSFileType
 import platform.Foundation.NSFileTypeDirectory
 import platform.Foundation.NSFileTypeRegular
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
+import platform.Foundation.NSString
+import platform.Foundation.NSUTF8StringEncoding
+import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.Foundation.NSUserDomainMask
 import platform.posix.FILE
 import platform.posix.SEEK_CUR
 import platform.posix.fclose
+import platform.posix.ferror
+import platform.posix.fflush
+import platform.posix.fileno
 import platform.posix.fopen
 import platform.posix.fread
 import platform.posix.fseek
+import platform.posix.fsync
 import platform.posix.fwrite
 import platform.posix.remove
+import platform.posix.rename
 import platform.zlib.Z_NO_FLUSH
 import platform.zlib.Z_OK
 import platform.zlib.Z_STREAM_END
@@ -66,6 +77,11 @@ import platform.zlib.inflate as zlibInflate
  * `tmp/<id>.<ext>` to `tmp/<id>.<ext>.complete`, an atomic rename within one directory, so no crash
  * can leave a partial file that reads as complete. A `tmp/<id>.<ext>` left by an earlier version of
  * this library is therefore partial, and is resumed rather than committed.
+ *
+ * The hash a transfer must have ([beginTempFile]) is a one-line record at `tmp/expect/<id>.sha256`, keyed
+ * by id alone so a free-form temp extension can never make two units share or miss a record. It is
+ * written before the old temp files are deleted and moved into place by a rename, so a crash leaves
+ * either the old state or the new one, never a partial file paired with the wrong record.
  */
 @OptIn(ExperimentalForeignApi::class)
 internal class IosDownloaderStorage(
@@ -144,9 +160,100 @@ internal class IosDownloaderStorage(
         return size ?: 0L
     }
 
+    override fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?) {
+        // Before any side effect: a contradictory catalogue must leave the existing partial file and
+        // its record exactly as they were.
+        requireConsistentExpectations(unit, expectedSha256)
+        val staged: String = stagedExpectationPath(unit)
+        createParentDirectory(staged)
+        writeAndSync(staged, encodeExpectation(expectedSha256).encodeToByteArray())
+        deleteTempData(unit)
+        // A delete that failed must not be followed by the rename: the surviving old bytes would
+        // be paired with the new record.
+        if (fileExists(getTempFilePath(unit)) || fileExists(completeTempFilePath(unit))) {
+            remove(staged)
+            throw IllegalStateException("Could not discard the previous temp file of $unit")
+        }
+        val record: String = expectationPath(unit)
+        createParentDirectory(record)
+        // The record holds only a public hash, and a background commit can run while the device is
+        // locked: under the app's default protection class it would read as Unreadable, and the
+        // complete download would be deleted as Corrupted. The rename keeps the attribute.
+        NSFileManager.defaultManager.setAttributes(
+            attributes = mapOf(NSFileProtectionKey to NSFileProtectionNone),
+            ofItemAtPath = staged,
+            error = null,
+        )
+        // POSIX rename replaces an existing record atomically; moveItemAtPath would refuse.
+        check(rename(staged, record) == 0) { "Could not record the expected hash of $unit" }
+        logger.i { "Began the temp file of $unit (expected hash: ${expectedSha256?.hex ?: "none"})" }
+    }
+
     override fun deleteTempFile(unit: DownloadUnit) {
+        // Data first, record last: a crash in between leaves an orphan record, which reads as no
+        // temp file at all and is overwritten by the next beginTempFile.
+        deleteTempData(unit)
+        // Safe to call from cleanup paths, so it never throws. But a data file that survived must
+        // keep its record: with the record gone, the next attempt would commit that complete file
+        // unchecked.
+        if (fileExists(getTempFilePath(unit)) || fileExists(completeTempFilePath(unit))) {
+            logger.w { "Could not delete the temp file of $unit; keeping its expected-hash record" }
+            return
+        }
+        remove(expectationPath(unit))
+        remove(stagedExpectationPath(unit))
+    }
+
+    private fun deleteTempData(unit: DownloadUnit) {
         remove(getTempFilePath(unit))
         remove(completeTempFilePath(unit))
+    }
+
+    private fun expectationPath(unit: DownloadUnit): String = "$baseDir/tmp/expect/${unit.id}.sha256"
+
+    private fun stagedExpectationPath(unit: DownloadUnit): String =
+        "$baseDir/tmp/expect-staged/${unit.id}.sha256"
+
+    private fun readExpectation(unit: DownloadUnit): RecordedExpectation {
+        val record: String = expectationPath(unit)
+        if (!fileExists(record)) return RecordedExpectation.Missing
+        val text: String? = NSString.stringWithContentsOfFile(
+            path = record,
+            encoding = NSUTF8StringEncoding,
+            error = null,
+        )
+        if (text == null) {
+            logger.w { "Cannot read the expected-hash record of $unit" }
+            return RecordedExpectation.Unreadable
+        }
+        return decodeExpectation(text)
+    }
+
+    private fun createParentDirectory(path: String) {
+        NSFileManager.defaultManager.createDirectoryAtPath(
+            path = path.substringBeforeLast('/'),
+            withIntermediateDirectories = true,
+            attributes = null,
+            error = null,
+        )
+    }
+
+    /** Writes [bytes] to [path] and flushes them to disk before returning, so a rename can trust them. */
+    private fun writeAndSync(path: String, bytes: ByteArray) {
+        val file: CPointer<FILE> = fopen(path, "wb")
+            ?: throw IllegalStateException("Cannot open $path for writing")
+        try {
+            if (bytes.isNotEmpty()) {
+                val written: Long = bytes.usePinned { pinned ->
+                    fwrite(pinned.addressOf(0), 1u.convert(), bytes.size.convert(), file).toLong()
+                }
+                check(written == bytes.size.toLong()) { "Short write to $path" }
+            }
+            check(fflush(file) == 0) { "Could not flush $path" }
+            check(fsync(fileno(file)) == 0) { "Could not sync $path to disk" }
+        } finally {
+            fclose(file)
+        }
     }
 
     override fun getResourceSize(unit: DownloadUnit): Long {
@@ -193,6 +300,17 @@ internal class IosDownloaderStorage(
         check(fileExists(tempFilePath)) {
             "No complete temp file for $unit — a partial transfer is resumed, never committed"
         }
+        try {
+            commitCompleteTempFile(unit, tempFilePath)
+        } finally {
+            // The record belongs to the temp file. Once the file is gone — committed, or deleted by
+            // a failed check — the record goes with it, last. A failure that left the file in place
+            // keeps its record, so the retry is still checked against it.
+            if (!fileExists(tempFilePath)) remove(expectationPath(unit))
+        }
+    }
+
+    private fun commitCompleteTempFile(unit: DownloadUnit, tempFilePath: String) {
         verifySha256(tempFilePath, unit)
         if (unit.isDirectoryResource) {
             val targetDir: String = getResourcePath(unit)
@@ -235,14 +353,23 @@ internal class IosDownloaderStorage(
                 }
                 // Atomic swap: remove old target, rename staging to target
                 NSFileManager.defaultManager.removeItemAtPath(targetDir, error = null)
+                // moveItemAtPath and copyItemAtPath both fail when the parent is missing, which a
+                // nested relativePath (e.g. "archives/pages") leaves it on first use.
+                createParentDirectory(targetDir)
                 val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
                     srcPath = stagingDir,
                     toPath = targetDir,
                     error = null,
                 )
                 if (!moved) {
-                    // Fallback: copy + delete
-                    NSFileManager.defaultManager.copyItemAtPath(stagingDir, targetDir, null)
+                    // Fallback: copy + delete. A failed copy must not be followed by the deletes: the
+                    // staging directory and the temp file are all that is left of the download.
+                    val copied: Boolean = NSFileManager.defaultManager
+                        .copyItemAtPath(stagingDir, targetDir, null)
+                    if (!copied) {
+                        NSFileManager.defaultManager.removeItemAtPath(targetDir, error = null)
+                        throw IllegalStateException("Could not move the extracted $unit into place")
+                    }
                     NSFileManager.defaultManager.removeItemAtPath(stagingDir, error = null)
                 }
             } catch (e: Exception) {
@@ -259,24 +386,22 @@ internal class IosDownloaderStorage(
     }
 
     /**
-     * Checks the file at [tempFilePath] against [DownloadUnit.sha256] when the unit states one.
-     * Deletes the file and throws [ResourceIntegrityException] on a mismatch; a hash that is not 64
-     * hex digits is the host's mistake, not the download's, and throws [IllegalArgumentException]
-     * instead so it is not answered with a pointless re-download.
+     * Checks the file at [tempFilePath] against every hash expected of it — [DownloadUnit.sha256]
+     * and the one recorded by [beginTempFile] — hashing the file once, and only when there is
+     * something to compare. Deletes the file and throws [ResourceIntegrityException] on a mismatch
+     * or on a record that cannot be read (never "no check"). A unit whose own
+     * [DownloadUnit.sha256] getter throws is the host's mistake, not the download's, and surfaces
+     * as that exception instead so it is not answered with a pointless re-download.
      */
     private fun verifySha256(tempFilePath: String, unit: DownloadUnit) {
-        val expected: String = unit.sha256 ?: return
-        require(expected.isSha256Hex()) {
-            "DownloadUnit.sha256 of $unit is not 64 hex digits: '$expected'"
-        }
-        val actual: String = sha256Hex(tempFilePath)
-        if (!actual.equals(expected, ignoreCase = true)) {
-            NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
-            throw ResourceIntegrityException(
-                "Downloaded resource failed integrity check: " +
-                    "SHA-256 is $actual, expected $expected",
-            )
-        }
+        checkExpectations(
+            unit = unit,
+            unitSha256 = unit.sha256,
+            recorded = readExpectation(unit),
+            logger = logger,
+            computeHex = { sha256Hex(tempFilePath) },
+            deleteTempFile = { remove(tempFilePath) },
+        )
     }
 
     /** Streams the file at [path] through CommonCrypto's SHA-256, never holding it in memory. */
@@ -299,6 +424,9 @@ internal class IosDownloaderStorage(
                     CC_SHA256_Update(context.ptr, pinned.addressOf(0), read.convert())
                 }
             }
+            // fread answers 0 for end of file and for an I/O error alike; an error mid-file must not
+            // be reported as a hash mismatch.
+            check(ferror(file) == 0) { "I/O error while hashing $path" }
         } finally {
             fclose(file)
         }
@@ -391,8 +519,13 @@ internal class IosDownloaderStorage(
             error = null,
         )
         if (!moved) {
-            // Fallback: copy + delete
-            NSFileManager.defaultManager.copyItemAtPath(tempFilePath, destinationPath, null)
+            // Fallback: copy + delete. A failed copy must not delete the only copy of the download.
+            val copied: Boolean = NSFileManager.defaultManager
+                .copyItemAtPath(tempFilePath, destinationPath, null)
+            if (!copied) {
+                NSFileManager.defaultManager.removeItemAtPath(destinationPath, error = null)
+                throw IllegalStateException("Could not move the downloaded file to $destinationPath")
+            }
             NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
         }
         logger.i { "Saved resource to $destinationPath" }

@@ -7,7 +7,7 @@
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-downloader>
 abstract fun interface io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadUrlResolver { // io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadUrlResolver|null[0]
-    abstract suspend fun resolve(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadUrlResolver.resolve|resolve(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
+    abstract suspend fun resolve(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload // io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadUrlResolver.resolve|resolve(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadDispatchers { // io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadDispatchers|null[0]
@@ -61,7 +61,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit { // i
     open val isDirectoryResource // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.isDirectoryResource|{}isDirectoryResource[0]
         open fun <get-isDirectoryResource>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.isDirectoryResource.<get-isDirectoryResource>|<get-isDirectoryResource>(){}[0]
     open val sha256 // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.sha256|{}sha256[0]
-        open fun <get-sha256>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.sha256.<get-sha256>|<get-sha256>(){}[0]
+        open fun <get-sha256>(): io.github.jamal_wia.kmptoolkit.downloader/Sha256? // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.sha256.<get-sha256>|<get-sha256>(){}[0]
     open val tempExtension // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.tempExtension|{}tempExtension[0]
         open fun <get-tempExtension>(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit.tempExtension.<get-tempExtension>|<get-tempExtension>(){}[0]
 }
@@ -82,6 +82,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.downloader/Downloader { // io.
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage { // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage|null[0]
+    abstract fun beginTempFile(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit, io.github.jamal_wia.kmptoolkit.downloader/Sha256?) // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.beginTempFile|beginTempFile(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit;io.github.jamal_wia.kmptoolkit.downloader.Sha256?){}[0]
     abstract fun deleteResource(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.deleteResource|deleteResource(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     abstract fun deleteTempFile(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.deleteTempFile|deleteTempFile(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     abstract fun getResourcePath(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage.getResourcePath|getResourcePath(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
@@ -163,6 +164,19 @@ sealed interface io.github.jamal_wia.kmptoolkit.downloader/TempFileState { // io
     }
 }
 
+final class io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload { // io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload|null[0]
+    constructor <init>(kotlin/String, io.github.jamal_wia.kmptoolkit.downloader/Sha256? = ...) // io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload.<init>|<init>(kotlin.String;io.github.jamal_wia.kmptoolkit.downloader.Sha256?){}[0]
+
+    final val expectedSha256 // io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload.expectedSha256|{}expectedSha256[0]
+        final fun <get-expectedSha256>(): io.github.jamal_wia.kmptoolkit.downloader/Sha256? // io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload.expectedSha256.<get-expectedSha256>|<get-expectedSha256>(){}[0]
+    final val url // io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload.url|{}url[0]
+        final fun <get-url>(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload.url.<get-url>|<get-url>(){}[0]
+
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.spi/ResolvedDownload.toString|toString(){}[0]
+}
+
 final class io.github.jamal_wia.kmptoolkit.downloader/DownloadCancelledException : kotlin/RuntimeException { // io.github.jamal_wia.kmptoolkit.downloader/DownloadCancelledException|null[0]
     constructor <init>(io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup, io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit? = ...) // io.github.jamal_wia.kmptoolkit.downloader/DownloadCancelledException.<init>|<init>(io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup;io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit?){}[0]
 
@@ -196,6 +210,20 @@ final class io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig { 
 
 final class io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException : kotlin/RuntimeException { // io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException|null[0]
     constructor <init>(kotlin/String, kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException.<init>|<init>(kotlin.String;kotlin.Throwable?){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.downloader/Sha256 { // io.github.jamal_wia.kmptoolkit.downloader/Sha256|null[0]
+    final val hex // io.github.jamal_wia.kmptoolkit.downloader/Sha256.hex|{}hex[0]
+        final fun <get-hex>(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/Sha256.hex.<get-hex>|<get-hex>(){}[0]
+
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/Sha256.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader/Sha256.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/Sha256.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.downloader/Sha256.Companion|null[0]
+        final fun parse(kotlin/String): io.github.jamal_wia.kmptoolkit.downloader/Sha256 // io.github.jamal_wia.kmptoolkit.downloader/Sha256.Companion.parse|parse(kotlin.String){}[0]
+        final fun parseOrNull(kotlin/String?): io.github.jamal_wia.kmptoolkit.downloader/Sha256? // io.github.jamal_wia.kmptoolkit.downloader/Sha256.Companion.parseOrNull|parseOrNull(kotlin.String?){}[0]
+    }
 }
 
 sealed class io.github.jamal_wia.kmptoolkit.downloader/BackgroundDownloadEvent { // io.github.jamal_wia.kmptoolkit.downloader/BackgroundDownloadEvent|null[0]

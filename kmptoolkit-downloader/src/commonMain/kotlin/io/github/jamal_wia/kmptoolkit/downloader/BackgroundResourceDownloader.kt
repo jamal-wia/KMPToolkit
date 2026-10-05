@@ -16,6 +16,11 @@ import kotlinx.coroutines.flow.Flow
  * file, so those start fresh.
  *
  * The engine owns every retry decision; an implementation reports what happened and stops there.
+ *
+ * An implementation also owns the temp-file writer, so it calls
+ * [DownloaderStorage.beginTempFile] with the hash of the response it is about to write (a
+ * [io.github.jamal_wia.kmptoolkit.downloader.spi.ResolvedDownload.expectedSha256]) whenever it
+ * starts from byte zero, and never on a `206` resume — see the decision table in the docs.
  */
 public interface BackgroundResourceDownloader {
 

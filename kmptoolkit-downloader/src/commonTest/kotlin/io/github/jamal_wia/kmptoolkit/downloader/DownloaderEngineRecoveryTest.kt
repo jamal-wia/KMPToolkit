@@ -249,6 +249,7 @@ class DownloaderEngineRecoveryTest {
         override fun getTempFileSize(unit: DownloadUnit): Long =
             if (tempStates[unit.id] == TempFileState.Partial) 512L else 0L
 
+        override fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?) = Unit
         override fun markTempFileComplete(unit: DownloadUnit) {
             events += "mark"
             check(tempStates[unit.id] != null) { "no temp file to mark for $unit" }

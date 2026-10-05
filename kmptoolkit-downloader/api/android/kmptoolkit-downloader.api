@@ -161,14 +161,14 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/Downlo
 	public abstract fun getGroup ()Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;
 	public abstract fun getId ()Ljava/lang/String;
 	public abstract fun getRelativePath ()Ljava/lang/String;
-	public fun getSha256 ()Ljava/lang/String;
+	public fun getSha256 ()Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;
 	public fun getTempExtension ()Ljava/lang/String;
 	public fun isDirectoryResource ()Z
 }
 
 public final class io/github/jamal_wia/kmptoolkit/downloader/DownloadUnit$DefaultImpls {
 	public static fun getFormat (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lio/github/jamal_wia/kmptoolkit/downloader/ResourceFormat;
-	public static fun getSha256 (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
+	public static fun getSha256 (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;
 	public static fun getTempExtension (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
 	public static fun isDirectoryResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Z
 }
@@ -209,6 +209,7 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderRegistry 
 public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage {
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage$Companion;
 	public static final field WRITE_BUFFER_SIZE I
+	public abstract fun beginTempFile (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;)V
 	public abstract fun commitResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun deleteResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
 	public abstract fun deleteTempFile (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
@@ -328,6 +329,19 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/ResourceIntegrityEx
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 }
 
+public final class io/github/jamal_wia/kmptoolkit/downloader/Sha256 {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/downloader/Sha256$Companion;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHex ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/Sha256$Companion {
+	public final fun parse (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;
+	public final fun parseOrNull (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;
+}
+
 public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/TempFileState {
 }
 
@@ -428,5 +442,15 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/spi/Do
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/spi/DownloadUrlResolver {
 	public abstract fun resolve (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/spi/ResolvedDownload {
+	public fun <init> (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;)V
+	public synthetic fun <init> (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getExpectedSha256 ()Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;
+	public final fun getUrl ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 

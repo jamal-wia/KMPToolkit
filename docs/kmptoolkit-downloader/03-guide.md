@@ -79,25 +79,73 @@ zip-slip protection during extraction.
 
 ### A stated hash — `DownloadUnit.sha256`
 
-Any unit, whatever its format, can state the SHA-256 of its bytes:
+Any unit, whatever its format, can state the SHA-256 of its bytes. A value from a manifest the
+backend served is parsed with `parseOrNull`, so a missing or garbled entry means "no check" rather
+than a crash:
 
 ```kotlin
 data class ModelUnit(val manifestEntry: ModelManifestEntry) : DownloadUnit {
     override val id: String = "model-${manifestEntry.version}"
     override val apiPath: String = manifestEntry.path
     override val relativePath: String = "models/${manifestEntry.version}.bin"
-    override val sha256: String = manifestEntry.sha256   // 64 hex digits, either case
+    override val sha256: Sha256? = Sha256.parseOrNull(manifestEntry.sha256)   // null = no check
     override val group: ResourceGroup = Models
 }
 ```
+
+A constant the host wrote itself is parsed with `parse`, which throws for anything that is not 64
+hex digits (either case). Written as `get() = Sha256.parse("...")`, a malformed constant fails the
+unit before the transfer; written as a stored `val sha256 = Sha256.parse("...")`, it throws when the
+unit is constructed.
 
 Commit then hashes the complete temp file before anything else — before the move, before an
 archive is extracted, before a database is opened — and a mismatch deletes it. Completeness
 already rules out a truncated transfer; the hash is what catches bytes damaged in transit or on a
 CDN, and a file stitched from two versions when the remote resource changed between an interrupted
 transfer and its ranged resume. It costs one read of the file at commit, about a second for a few
-hundred megabytes on a current phone. A value that is not 64 hex digits is the host's mistake and
-fails as `DownloadError.Storage` straight away, without a download.
+hundred megabytes on a current phone. `Sha256` cannot hold a malformed value. The early engine check
+covers only a getter that throws: the engine reads `sha256` before it starts a transfer, so such a
+unit fails as `DownloadError.Unknown` straight away — before any byte is fetched, instead of after
+the whole download on every tap.
+
+A constant `sha256` is right for an object that never changes under its name. For one the backend
+replaces in place, leave it `null` and use the hash the backend returns, as described next.
+
+### Verifying a hash the backend returns
+
+A backend that answers each resolve with `{url, sha256?, size_bytes}` and replaces objects in place
+cannot be described by a constant: the hash belongs to the response that began the transfer. Return
+it from your resolver:
+
+```kotlin
+override suspend fun resolve(unit: DownloadUnit): ResolvedDownload {
+    val response: ResolveResponse = api.resolve(unit.apiPath)
+    return ResolvedDownload(
+        url = response.url,
+        // parseOrNull, not parse: a hash the backend omitted or garbled means "no check",
+        // and must never fail the download.
+        expectedSha256 = Sha256.parseOrNull(response.sha256),
+    )
+}
+```
+
+and hand it to storage when — and only when — the transfer starts writing from byte zero:
+`storage.beginTempFile(unit, resolved.expectedSha256)`. Storage persists it next to the temp file,
+so a commit in a later process (a recovered `Complete` file, an iOS session that finished while the
+app was dead) still enforces it. Commit hashes the file once and compares against every stated
+expectation, `unit.sha256` and the recorded one, before extraction, a database check or the move.
+
+- A mismatch is a `ResourceIntegrityException`: the file is deleted, one fresh download follows
+  (with a fresh resolve), and a second mismatch is `DownloadError.Corrupted`.
+- A record that exists but cannot be read is also an integrity failure, never "no check".
+- No record at all (a partial from before 2.1.0, or a downloader that never called
+  `beginTempFile`) means only `unit.sha256` applies; a warning is logged.
+- The record is dropped with the temp file, on success and on every failure that deletes it.
+- If `unit.sha256` and the expected hash are both set and differ, `beginTempFile` throws
+  `IllegalArgumentException` before touching anything.
+
+When exactly to call `beginTempFile` is a decision table in
+[`07-background-downloader.md`](07-background-downloader.md).
 
 ## Failure, retry, and giving up
 
@@ -111,8 +159,8 @@ The group path's policy, as a table because it is not obvious:
 | `Error` | no, count ≤ 2 | increment, re-enqueue |
 | `Error` | no, count > 2 | clear stall count (the next `ensureAvailable` gets a fresh budget), delete temp file, `Error` state + notification, throw `DownloadFailedException` |
 
-A commit whose bytes fail a check — a `sha256` mismatch, a database that does not open or does not
-hold the rows it declares — deletes the temp file and downloads **once more**. A second failure is
+A commit whose bytes fail a check — a `sha256` or recorded-hash mismatch, a database that does not
+open or does not hold the rows it declares — deletes the temp file and downloads **once more**. A second failure is
 `DownloadError.Corrupted`: persisting across two fresh downloads, it is the server's bytes or the
 host's stated hash that is wrong, and no number of retries fixes either. Any other commit failure
 (a full disk, an unwritable path) is `DownloadError.Storage` at once — downloading again is not the
@@ -154,6 +202,10 @@ rather than an update layered on a stuck bar.
 your authentication — which is exactly why it is a port. The URL it returns should be treated as
 short-lived: **re-resolve on every attempt, never cache it** in your
 `BackgroundResourceDownloader` — a signed URL expires, and a retry hours later needs a fresh one.
+It returns a `ResolvedDownload(url, expectedSha256 = null)`; the hash, when the backend states one,
+describes exactly the object behind that URL (see "Verifying a hash the backend returns" above).
+`ResolvedDownload.toString` leaves out the URL's query and fragment, since those usually carry a
+signature.
 
 The engine itself never calls this port; it exists so a `BackgroundResourceDownloader`
 implementation has somewhere standard to turn a unit's `apiPath` into something fetchable. See

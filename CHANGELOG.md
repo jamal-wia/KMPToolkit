@@ -9,6 +9,62 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [2.1.0]
+
+### Breaking
+
+- `kmptoolkit-downloader`: the hash a download must have can now come from the backend, per
+  download, instead of only from a constant on the unit. Three public signatures change.
+  - **`DownloadUnit.sha256` is `Sha256?`**, not `String?`. Build the value with
+    `Sha256.parse("...")` (throws for anything that is not 64 hex digits, either case) or
+    `Sha256.parseOrNull(...)`.
+  - **`DownloadUrlResolver.resolve(unit)` returns `ResolvedDownload`**, not `String`:
+    `ResolvedDownload(url, expectedSha256 = null)`. Wrap the URL you returned before.
+  - **`DownloaderStorage.beginTempFile(unit, expectedSha256)` is a new abstract member** with no
+    default. A custom `DownloaderStorage` must implement it: record the hash, replace the temp
+    file, throw `IllegalArgumentException` before any side effect when it contradicts
+    `unit.sha256`, and check the recorded hash at `commitResource`.
+  - **`FakeDownloaderStorage` (`kmptoolkit-downloader-testing`) is strict:**
+    `markTempFileComplete` throws `IllegalStateException` for a unit that has had no
+    `beginTempFile` since its last delete or commit, so a test of a downloader that forgot the
+    call fails. It is deliberately stricter than the real storages. `commitResource` now also
+    throws unless the unit's state is `Complete`, and consumes the temp file on success.
+  - A `BackgroundResourceDownloader` should call `storage.beginTempFile(unit,
+    resolved.expectedSha256)` whenever it starts writing from byte zero. It must not call it on a
+    `206` resume — it deletes the partial file — and without the call only `DownloadUnit.sha256` is
+    checked. On iOS it calls it before every task, including one resumed from `resumeData` (with
+    the hash saved beside it). The decision table is in
+    `docs/kmptoolkit-downloader/07-background-downloader.md`.
+  - Imports: `Sha256` is in `io.github.jamal_wia.kmptoolkit.downloader`, `ResolvedDownload` in
+    `io.github.jamal_wia.kmptoolkit.downloader.spi`.
+
+### Added
+
+- `kmptoolkit-downloader`: `Sha256`, a validated digest type with `parse` and `parseOrNull`.
+- `kmptoolkit-downloader`: `ResolvedDownload`, whose `toString` leaves out the URL's query and
+  fragment because those usually carry a signature, and masks any `user:password@` part.
+- `kmptoolkit-downloader`: `DownloaderStorage.beginTempFile`. The expected hash is persisted next
+  to the temp file (`tmp/expect/<id>.sha256`), survives process death, is checked at commit together with
+  `DownloadUnit.sha256` before extraction, a database check or the move, and is dropped with the
+  temp file. A record that exists but cannot be read fails as an integrity failure, never as "no
+  check". A partial with no record resumes and is checked against `unit.sha256` only.
+- `kmptoolkit-downloader-testing`: `FakeDownloaderStorage.beganWith`, `begunIds` and
+  `failIntegrityFor`.
+
+### Fixed
+
+- `kmptoolkit-downloader` (iOS): committing a ZIP archive whose `relativePath` is nested (for example
+  `archives/pages`) failed when the parent directory did not exist yet, because neither the move nor
+  the copy fallback creates it. The parent is now created first, as Android already did.
+- `kmptoolkit-downloader`: a malformed constant hash (a `DownloadUnit.sha256` getter that throws)
+  is detected before the transfer, as `DownloadError.Unknown`, instead of after the whole download
+  on every attempt. A transfer already running for that unit is cancelled; its temp file is kept.
+- `kmptoolkit-downloader` (iOS): when moving a finished download into place failed and the copy
+  fallback failed too, the temp file was deleted anyway, silently destroying the download. The
+  copy's result is now checked: the temp file and its hash record stay and the commit throws.
+- `kmptoolkit-downloader` (iOS): an I/O error while hashing a file is now reported as such instead
+  of as a hash mismatch.
+
 ## [2.0.0]
 
 ### Breaking

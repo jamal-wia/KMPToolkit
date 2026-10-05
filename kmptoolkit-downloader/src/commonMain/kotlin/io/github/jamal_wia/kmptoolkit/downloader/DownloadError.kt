@@ -35,13 +35,17 @@ public sealed class DownloadError {
 
     /**
      * The bytes arrived and failed a check, again after a fresh download: a [DownloadUnit.sha256]
-     * mismatch, or a [ResourceFormat.SqliteDatabase] that does not open or does not hold the rows
-     * it declares. Nothing was committed. Persisting across two downloads usually means the server
-     * is serving different bytes than the host expects — a stale hash in the catalogue, or a
-     * broken upload — rather than anything on the device.
+     * or recorded-hash mismatch, or a [ResourceFormat.SqliteDatabase] that does not open or does not
+     * hold the rows it declares. Nothing was committed. Persisting across two downloads usually
+     * means the server is serving different bytes than the host expects — a stale hash in the
+     * catalogue, or a broken upload — rather than anything on the device.
      */
     public data class Corrupted(public val message: String? = null) : DownloadError()
 
-    /** Anything the host's platform layer could not classify. [message] is for logs, not for users. */
+    /**
+     * Anything the host's platform layer could not classify, and a unit whose [DownloadUnit.sha256]
+     * getter throws (a catalogue error, reported before any transfer starts). [message] is for logs,
+     * not for users.
+     */
     public data class Unknown(public val message: String? = null) : DownloadError()
 }

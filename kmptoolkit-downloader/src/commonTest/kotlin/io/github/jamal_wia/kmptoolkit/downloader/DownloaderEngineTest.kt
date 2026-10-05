@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -107,7 +108,137 @@ class DownloaderEngineTest {
         }
     }
 
+    @Test
+    fun `a unit whose hash getter throws fails the group before any transfer is enqueued`() = runTest {
+        val badGroup = TestGroup("bad_bundle")
+        val badUnit = UnreadableHashUnit(id = "bad", group = badGroup)
+        badGroup.units = listOf(badUnit)
+        val downloader = EnqueueCountingDownloader()
+        val notifier = RecordingNotifier()
+        val engine = DefaultDownloaderEngine(
+            storage = FakeStorage(available = mutableSetOf()),
+            notifier = notifier,
+            backgroundDownloader = downloader,
+            stateStore = InMemoryStateStore(),
+            bundledResourcesPresent = false,
+            groups = listOf(badGroup),
+            dispatchers = TestDownloadDispatchers(this),
+            logger = NoopLogger,
+        )
+
+        val thrown: DownloadFailedException = assertFailsWith<DownloadFailedException> {
+            engine.ensureAvailable(badGroup)
+        }
+
+        assertTrue(thrown.error is DownloadError.Unknown, "expected Unknown but was ${thrown.error}")
+        assertEquals(badUnit, thrown.unit)
+        assertEquals(0, downloader.enqueued, "no transfer may be started for a catalogue error")
+        assertEquals(
+            GroupDownloadState.Error(error = thrown.error),
+            engine.downloadState(badGroup).value,
+        )
+        assertTrue(
+            notifier.calls.any { it.kind == RecordingNotifier.Kind.ERROR },
+            "the failure must reach the notifier like any other",
+        )
+    }
+
+    @Test
+    fun `a malformed hash on the second unit fails the group before that unit is enqueued`() = runTest {
+        val mixedGroup = TestGroup("mixed_bundle")
+        val goodUnit = TestUnit(id = "good", group = mixedGroup)
+        val badUnit = UnreadableHashUnit(id = "bad", group = mixedGroup)
+        mixedGroup.units = listOf(goodUnit, badUnit)
+        val storage = FakeStorage(available = mutableSetOf())
+        val downloader = SelfCommittingRecordingDownloader(storage)
+        val engine = DefaultDownloaderEngine(
+            storage = storage,
+            notifier = RecordingNotifier(),
+            backgroundDownloader = downloader,
+            stateStore = InMemoryStateStore(),
+            bundledResourcesPresent = false,
+            groups = listOf(mixedGroup),
+            dispatchers = TestDownloadDispatchers(this),
+            logger = NoopLogger,
+        )
+
+        val thrown: DownloadFailedException = assertFailsWith<DownloadFailedException> {
+            engine.ensureAvailable(mixedGroup)
+        }
+
+        assertEquals(badUnit, thrown.unit)
+        assertTrue(thrown.error is DownloadError.Unknown)
+        assertEquals(listOf("good"), downloader.enqueuedIds, "the bad unit must never be enqueued")
+        assertTrue(storage.isResourceAvailable(goodUnit), "the unit before it was downloaded normally")
+        assertFalse(storage.isResourceAvailable(badUnit))
+    }
+
+    @Test
+    fun `a malformed hash while the unit's transfer runs cancels it and keeps the temp file`() = runTest {
+        val badGroup = TestGroup("running_bundle")
+        val badUnit = UnreadableHashUnit(id = "bad", group = badGroup)
+        badGroup.units = listOf(badUnit)
+        val storage = FakeStorage(available = mutableSetOf())
+        val downloader = SelfCommittingRecordingDownloader(storage, inProgress = true)
+        val engine = DefaultDownloaderEngine(
+            storage = storage,
+            notifier = RecordingNotifier(),
+            backgroundDownloader = downloader,
+            stateStore = InMemoryStateStore(),
+            bundledResourcesPresent = false,
+            groups = listOf(badGroup),
+            dispatchers = TestDownloadDispatchers(this),
+            logger = NoopLogger,
+        )
+
+        assertFailsWith<DownloadFailedException> { engine.ensureAvailable(badGroup) }
+
+        assertEquals(listOf("bad"), downloader.cancelledIds)
+        assertTrue(downloader.enqueuedIds.isEmpty())
+        assertTrue(storage.deletedTempFiles.isEmpty(), "the bytes are not at fault, so the temp file stays")
+    }
+
     // -- Test wiring -----------------------------------------------------------------------
+
+    /** Counts enqueues and otherwise does nothing — a transfer that would hang if it were started. */
+    private class EnqueueCountingDownloader : BackgroundResourceDownloader {
+        var enqueued: Int = 0
+            private set
+
+        override fun enqueueDownload(unit: DownloadUnit) {
+            enqueued++
+        }
+
+        override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
+        override fun cancelDownload(unit: DownloadUnit) = Unit
+        override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow { awaitCancellation() }
+    }
+
+    /**
+     * Records which units were enqueued and cancelled, and behaves like a downloader that commits
+     * on its own: every unit it is asked to observe becomes available in [storage].
+     */
+    private class SelfCommittingRecordingDownloader(
+        private val storage: FakeStorage,
+        private val inProgress: Boolean = false,
+    ) : BackgroundResourceDownloader {
+        val enqueuedIds: MutableList<String> = mutableListOf()
+        val cancelledIds: MutableList<String> = mutableListOf()
+
+        override fun enqueueDownload(unit: DownloadUnit) {
+            enqueuedIds += unit.id
+        }
+
+        override fun isDownloadInProgress(unit: DownloadUnit): Boolean = inProgress
+        override fun cancelDownload(unit: DownloadUnit) {
+            cancelledIds += unit.id
+        }
+
+        override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            storage.markAvailable(unit)
+            emit(BackgroundDownloadEvent.FileReady(unit = unit))
+        }
+    }
 
     /** Emits one Progress per unit at its own fraction, then stalls — for observing two in flight. */
     private class StallingAtDownloader(
@@ -177,9 +308,13 @@ class DownloaderEngineTest {
         override fun isResourceAvailable(unit: DownloadUnit): Boolean = unit in available
         override fun tempFileState(unit: DownloadUnit): TempFileState = TempFileState.None
         override fun getTempFileSize(unit: DownloadUnit): Long = 0L
+        override fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?) = Unit
         override fun markTempFileComplete(unit: DownloadUnit) = Unit
         override suspend fun commitResource(unit: DownloadUnit) = Unit
-        override fun deleteTempFile(unit: DownloadUnit) = Unit
+        val deletedTempFiles: MutableList<DownloadUnit> = mutableListOf()
+        override fun deleteTempFile(unit: DownloadUnit) {
+            deletedTempFiles += unit
+        }
         override fun getResourcePath(unit: DownloadUnit): String = ""
         override fun getTempFilePath(unit: DownloadUnit): String = ""
         override fun getResourceSize(unit: DownloadUnit): Long = 0L

@@ -26,6 +26,20 @@ internal class TestUnit(
     override fun toString(): String = "TestUnit($id)"
 }
 
+/**
+ * A unit whose [sha256] getter throws, as a host's does when it builds the value with
+ * [Sha256.parse] from a malformed constant.
+ */
+internal class UnreadableHashUnit(
+    override val id: String,
+    override val group: ResourceGroup,
+) : DownloadUnit {
+    override val apiPath: String = "test/$id"
+    override val relativePath: String = "test/$id.bin"
+    override val sha256: Sha256? get() = Sha256.parse("not-a-hash")
+    override fun toString(): String = "UnreadableHashUnit($id)"
+}
+
 /** A group whose members are assigned after construction, so a unit can name its group up front. */
 internal class TestGroup(override val key: String) : ResourceGroup {
     override var units: List<DownloadUnit> = emptyList()
