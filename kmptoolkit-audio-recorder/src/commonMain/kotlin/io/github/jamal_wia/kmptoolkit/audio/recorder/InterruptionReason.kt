@@ -13,7 +13,10 @@ public sealed interface InterruptionReason {
      * The audio session was taken away by the system: a phone call, Siri, an alarm, another app
      * that was given priority. iOS only — `AVAudioSession` interruption began. It is also the
      * reason when the app was suspended while recording without the `audio` background mode
-     * (`appWasSuspended`), which iOS reports only once the app returns.
+     * (`appWasSuspended`), which iOS reports only once the app returns. In that case the duration
+     * is measured up to the moment the interruption was observed, on return, so it can include
+     * the time the app was suspended; stop the recording when the app goes to the background if
+     * that matters.
      *
      * The recorder never resumes by itself when the interruption ends: the recording is over, and
      * the file holds what was captured up to the moment it began.

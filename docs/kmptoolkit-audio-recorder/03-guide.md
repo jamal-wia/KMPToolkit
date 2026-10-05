@@ -94,7 +94,8 @@ service dies. The recorder notices, tries to finalize the file, and moves `state
 | `Failed(RecordingLost(reason), outputPath = null)` | deleted — it was empty | the recorder was prepared but never started |
 
 `reason` is an `InterruptionReason`: `AudioSessionInterrupted` (iOS: a call, Siri, an alarm,
-another app, or the app having been suspended), `MicrophoneSilenced` (Android 10+: the OS silenced
+another app, or the app having been suspended — reported only on return, with a duration that can
+include the suspended time), `MicrophoneSilenced` (Android 10+: the OS silenced
 the input and it stayed silenced for a moment), `StorageLow` (free space fell below the reserve the
 library keeps for finalizing), and `EngineDied(platformCode)` (the media service died or reported
 an error).

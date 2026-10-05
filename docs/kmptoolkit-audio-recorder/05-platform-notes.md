@@ -200,8 +200,12 @@ wins, a running `stop()`/`cancel()` wins over an event, `elapsed` frozen, `level
   interrupted with reason *appWasSuspended*, but iOS delivers that notification **only when the
   app returns** to the foreground. A long recording in the background therefore needs the `audio`
   background mode, or must be stopped when the app goes to the background; otherwise the first the
-  library hears of it is on return, as `Interrupted(AudioSessionInterrupted)` with the duration it
-  had when it was suspended.
+  library hears of it is on return, as `Interrupted(AudioSessionInterrupted)`. The duration is
+  measured up to the moment the library *observed* the interruption, on return — nothing in the
+  module knows when the suspension began — so it can include the time the app was suspended (a
+  stretch with no audio in the file), and whether the monotonic clock advances during suspension is
+  unverified. A consumer that needs it exact should stop the recording when the app goes to the
+  background.
 - **UNVERIFIED — finalizing after an interruption.** `AVAudioRecorder.stop()` never throws, and
   whether it produces a valid, playable file after the system deactivated the session is **to be
   confirmed on a device**. The library calls it and reports `Interrupted` if it returns; if the
