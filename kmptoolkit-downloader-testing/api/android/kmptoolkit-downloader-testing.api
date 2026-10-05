@@ -37,6 +37,7 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/testing/FakeDownloa
 	public fun deleteTempFile (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
 	public final fun getAvailableIds ()Ljava/util/Set;
 	public final fun getBeganWith ()Ljava/util/List;
+	public final fun getBegunIds ()Ljava/util/Set;
 	public final fun getDeletedResources ()Ljava/util/List;
 	public final fun getDeletedTempFiles ()Ljava/util/List;
 	public final fun getFailIntegrityFor ()Ljava/util/Set;

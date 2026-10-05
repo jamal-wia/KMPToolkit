@@ -163,6 +163,7 @@ class FakeDownloaderTest {
         assertFailsWith<IllegalStateException> { storage.markTempFileComplete(unit) }
 
         storage.beginTempFile(unit, null)
+        storage.tempFileStates[unit.id] = TempFileState.Complete
         storage.commitResource(unit)
         assertFailsWith<IllegalStateException> { storage.markTempFileComplete(unit) }
     }
@@ -185,9 +186,52 @@ class FakeDownloaderTest {
         val storage = FakeDownloaderStorage()
         storage.failIntegrityFor += unit.id
         val other = TestUnit(id = "other", group = group)
+        storage.tempFileStates[unit.id] = TempFileState.Complete
+        storage.tempFileStates[other.id] = TempFileState.Complete
 
         assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
         storage.commitResource(other)
+    }
+
+    @Test
+    fun `fake storage integrity failure consumes the temp file and a new begin is required`() = runTest {
+        val storage = FakeDownloaderStorage()
+        storage.failIntegrityFor += unit.id
+        storage.beginTempFile(unit, null)
+        storage.tempFileStates[unit.id] = TempFileState.Complete
+
+        assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
+
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertFailsWith<IllegalStateException> { storage.markTempFileComplete(unit) }
+        // The knob fails every commit of the id until it is removed, whatever the begin.
+        storage.beginTempFile(unit, null)
+        storage.tempFileStates[unit.id] = TempFileState.Complete
+        assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
+    }
+
+    @Test
+    fun `fake storage commit requires a complete temp file and consumes it`() = runTest {
+        val storage = FakeDownloaderStorage()
+
+        assertFailsWith<IllegalStateException> { storage.commitResource(unit) }
+        storage.tempFileStates[unit.id] = TempFileState.Complete
+
+        storage.commitResource(unit)
+
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+    }
+
+    @Test
+    fun `fake storage accepts a mark for a partial seeded as begun earlier without a begin call`() {
+        val storage = FakeDownloaderStorage()
+        storage.tempFileStates[unit.id] = TempFileState.Partial
+        storage.begunIds += unit.id
+
+        storage.markTempFileComplete(unit)
+
+        assertEquals(TempFileState.Complete, storage.tempFileState(unit))
+        assertTrue(storage.beganWith.isEmpty())
     }
 
     @Test
