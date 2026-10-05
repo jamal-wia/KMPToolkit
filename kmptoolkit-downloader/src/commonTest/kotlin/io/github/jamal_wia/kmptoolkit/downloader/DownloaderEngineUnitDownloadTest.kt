@@ -92,6 +92,39 @@ class DownloaderEngineUnitDownloadTest {
     }
 
     @Test
+    fun `a unit whose hash getter throws fails before any transfer is enqueued`() = runTest {
+        val badUnit = UnreadableHashUnit(id = "bad_v1", group = group)
+        val downloader = NeverAskedDownloader()
+        val engine = engine(FakeStorage(), downloader, this)
+
+        val thrown: DownloadFailedException = assertFailsWith<DownloadFailedException> {
+            engine.ensureAvailable(badUnit)
+        }
+
+        assertTrue(thrown.error is DownloadError.Unknown, "expected Unknown but was ${thrown.error}")
+        assertEquals(badUnit, thrown.unit)
+        assertFalse(downloader.enqueueCalled, "no transfer may be started for a catalogue error")
+        assertEquals(
+            UnitDownloadState.Error(thrown.error),
+            engine.unitDownloadStateFlow(badUnit).first(),
+        )
+    }
+
+    @Test
+    fun `a unit whose hash getter throws is not retried as an integrity failure`() = runTest {
+        val badUnit = UnreadableHashUnit(id = "bad_v1", group = group)
+        val storage = FakeStorage(tempComplete = mutableSetOf(badUnit))
+        val engine = engine(storage, NeverAskedDownloader(), this)
+
+        val thrown: DownloadFailedException = assertFailsWith<DownloadFailedException> {
+            engine.ensureAvailable(badUnit)
+        }
+
+        assertTrue(thrown.error is DownloadError.Unknown)
+        assertFalse(thrown.error is DownloadError.Corrupted)
+    }
+
+    @Test
     fun `a failed download throws DownloadFailedException and reports Error and deletes the temp file`() = runTest {
         val storage = FakeStorage()
         val downloader = FailingDownloader(asset, "boom")
@@ -354,6 +387,7 @@ class DownloaderEngineUnitDownloadTest {
         override fun tempFileState(unit: DownloadUnit): TempFileState =
             if (unit.id in tempCompleteIds) TempFileState.Complete else TempFileState.None
         override fun getTempFileSize(unit: DownloadUnit): Long = 0L
+        override fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?) = Unit
         override fun markTempFileComplete(unit: DownloadUnit) = Unit
         override suspend fun commitResource(unit: DownloadUnit) {
             if (commitIsANoOp) return
