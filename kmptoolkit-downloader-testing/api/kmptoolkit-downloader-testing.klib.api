@@ -49,13 +49,18 @@ final class io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStor
 
     final val availableIds // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.availableIds|{}availableIds[0]
         final fun <get-availableIds>(): kotlin.collections/MutableSet<kotlin/String> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.availableIds.<get-availableIds>|<get-availableIds>(){}[0]
+    final val beganWith // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.beganWith|{}beganWith[0]
+        final fun <get-beganWith>(): kotlin.collections/MutableList<kotlin/Pair<kotlin/String, io.github.jamal_wia.kmptoolkit.downloader/Sha256?>> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.beganWith.<get-beganWith>|<get-beganWith>(){}[0]
     final val deletedResources // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedResources|{}deletedResources[0]
         final fun <get-deletedResources>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedResources.<get-deletedResources>|<get-deletedResources>(){}[0]
     final val deletedTempFiles // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedTempFiles|{}deletedTempFiles[0]
         final fun <get-deletedTempFiles>(): kotlin.collections/MutableList<io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deletedTempFiles.<get-deletedTempFiles>|<get-deletedTempFiles>(){}[0]
+    final val failIntegrityFor // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.failIntegrityFor|{}failIntegrityFor[0]
+        final fun <get-failIntegrityFor>(): kotlin.collections/MutableSet<kotlin/String> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.failIntegrityFor.<get-failIntegrityFor>|<get-failIntegrityFor>(){}[0]
     final val tempFileStates // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.tempFileStates|{}tempFileStates[0]
         final fun <get-tempFileStates>(): kotlin.collections/MutableMap<kotlin/String, io.github.jamal_wia.kmptoolkit.downloader/TempFileState> // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.tempFileStates.<get-tempFileStates>|<get-tempFileStates>(){}[0]
 
+    final fun beginTempFile(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit, io.github.jamal_wia.kmptoolkit.downloader/Sha256?) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.beginTempFile|beginTempFile(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit;io.github.jamal_wia.kmptoolkit.downloader.Sha256?){}[0]
     final fun deleteResource(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deleteResource|deleteResource(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     final fun deleteTempFile(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit) // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.deleteTempFile|deleteTempFile(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]
     final fun getResourcePath(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader.testing/FakeDownloaderStorage.getResourcePath|getResourcePath(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit){}[0]

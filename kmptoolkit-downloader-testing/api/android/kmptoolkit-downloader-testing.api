@@ -31,12 +31,15 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/testing/FakeDownloa
 	public fun <init> ()V
 	public fun <init> (Ljava/util/Set;JLkotlin/jvm/functions/Function1;)V
 	public synthetic fun <init> (Ljava/util/Set;JLkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun beginTempFile (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;)V
 	public fun commitResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun deleteResource (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
 	public fun deleteTempFile (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)V
 	public final fun getAvailableIds ()Ljava/util/Set;
+	public final fun getBeganWith ()Ljava/util/List;
 	public final fun getDeletedResources ()Ljava/util/List;
 	public final fun getDeletedTempFiles ()Ljava/util/List;
+	public final fun getFailIntegrityFor ()Ljava/util/Set;
 	public fun getResourcePath (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
 	public fun getResourceSize (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)J
 	public fun getTempFilePath (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Ljava/lang/String;
@@ -108,7 +111,7 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/testing/TestUnit : 
 	public fun getGroup ()Lio/github/jamal_wia/kmptoolkit/downloader/ResourceGroup;
 	public fun getId ()Ljava/lang/String;
 	public fun getRelativePath ()Ljava/lang/String;
-	public fun getSha256 ()Ljava/lang/String;
+	public fun getSha256 ()Lio/github/jamal_wia/kmptoolkit/downloader/Sha256;
 	public fun getTempExtension ()Ljava/lang/String;
 	public fun isDirectoryResource ()Z
 	public fun toString ()Ljava/lang/String;
