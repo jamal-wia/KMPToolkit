@@ -27,7 +27,11 @@ import kotlin.time.Duration.Companion.milliseconds
  * @param minimumFreeSpaceBytes free space [AudioRecorder.prepare] insists on before it touches the
  *   microphone, so a doomed recording fails immediately instead of producing a truncated file.
  *   Must not be negative; `0` disables the check. The 8 MiB default is roughly eight minutes at the
- *   default bit rate.
+ *   default bit rate. The same number drives the free-space watchdog while recording: half of it
+ *   (at least 2 MiB, never more than the number itself) is the reserve the library keeps for
+ *   finalizing the file, and a volume that falls below the reserve ends the recording as
+ *   [RecorderState.Interrupted] with [InterruptionReason.StorageLow]. `0` switches the watchdog off
+ *   as well.
  * @param levelUpdateInterval how often [AudioRecorder.level] publishes a new value while it is being
  *   measured. Must be positive. Each value is the loudest input since the previous one, so a longer
  *   interval does not lose a peak — it only draws a coarser meter. The 50 ms default is 20 bars a

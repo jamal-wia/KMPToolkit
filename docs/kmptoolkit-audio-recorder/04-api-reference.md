@@ -63,9 +63,11 @@ finalizes the container, `cancel` deletes the partial file — those three suspe
 on the factory's `coroutineContext`. `start`, `pause`, and `resume` are flips of the native
 recorder's own state and do not. `release` is the documented exception; see below.
 
-**Thread-safety:** the six operations plus `release` are **not** thread-safe and must be called from
-one thread. `state`, `elapsed`, and `level` are `StateFlow`s and `levelSamples` is a `Flow`; all of
-them are safe to collect from any thread.
+**Thread-safety:** the six operations plus `release` are **not** safe to call from several threads
+at once and must be called from one thread. `state`, `elapsed`, and `level` are `StateFlow`s and
+`levelSamples` is a `Flow`; all of them are safe to collect from any thread. System events arrive on
+platform threads and are serialized with your calls internally: every transition runs under one
+lock, and slow work — finalizing a long file — runs off it, so a call of yours never waits for it.
 
 ### Transition table
 
@@ -77,22 +79,43 @@ them are safe to collect from any thread.
 | `Recording` | no | no | yes | no | yes | yes |
 | `Paused` | no | no | no | yes | yes | yes |
 | `Completed` | yes | no | no | no | no | no |
-| `Failed` | yes | no | no | no | no | no |
+| `Interrupted` | yes | no | no | no | yes² | yes |
+| `Failed` | yes | no | no | no | no | yes¹ |
 | `Released` | no | no | no | no | no | no |
+
+¹ Only when `Failed.outputPath` is non-null; the file is deleted and the state becomes `Idle`. From
+a `Failed` without a path `cancel` is illegal, as before.
+² Returns the interrupted recording again as a success and leaves `state` unchanged — no emission,
+not `Completed`.
 
 A "no" returns `RecorderResult.Failure(RecorderError.IllegalState(state, operation))` — or
 `AlreadyReleased` from `Released` — and changes nothing. `release()` is legal everywhere and never
 fails.
 
+`prepare` from `Completed`, `Interrupted` or `Failed` starts a fresh recording; the previous file —
+the caller's, in all three — is never deleted. Only a `Ready` file, which was never recorded into,
+is discarded.
+
+**System events.** From `Recording` or `Paused`, an event from the platform moves `state` to
+`Interrupted` (the file was finalized) or to `Failed(RecordingLost)` (it was not); from `Ready` to
+`Failed(RecordingLost)` with no path. Only the first event of a recording counts. A `stop()` or
+`cancel()` that has already started wins: the event is ignored. See
+[`03-guide.md`](03-guide.md#when-the-system-ends-a-recording) and
+[`05-platform-notes.md`](05-platform-notes.md#when-the-system-ends-a-recording).
+
 ### `state: StateFlow<RecorderState>`
 
 The lifecycle position. Starts at `Idle`. Emits only on transitions — never on a duration tick.
+Changes as a result of an operation, or when the system ends a recording (to `Interrupted`, or to a
+`Failed` carrying `RecordingLost`).
 
 ### `elapsed: StateFlow<Duration>`
 
 Time recorded into the current file, for a timer. Advances only in `Recording`, republished every
 `config.durationUpdateInterval`. Freezes on `pause`, continues on `resume`, holds the final duration
-after `stop`, resets to `ZERO` on `prepare`, `cancel`, and `release`.
+after `stop`, resets to `ZERO` on `prepare`, `cancel`, and `release`. When the system ends the
+recording it freezes at the moment the event was observed — for `MicrophoneSilenced`, at the moment
+the silencing began — and stays there while `state` is `Interrupted`.
 
 Wall-clock time between `start` and `stop`, not a measurement of the encoded file.
 
@@ -198,16 +221,22 @@ and `state` becomes `Completed` (or `Failed`); the caller observes its cancellat
 next suspension point. A
 half-finished stop would leave `state` saying `Recording` over an engine that had already stopped.
 
+From `Interrupted` the file is already finalized: `stop` returns it as a success and leaves `state`
+unchanged. A `stop` that loses the race against a system event whose finalize already ran returns
+the same way.
+
 On engine failure `state` becomes `Failed(error, outputPath)` and **the partial file is kept** — a
 library does not delete a user's audio because the encoder complained on close. The path is carried
-on the state so you can still find the file; `cancel()` is illegal from `Failed`, so deleting it is
-your call to make with your own filesystem API.
+on the state so you can find the file; `cancel()` deletes it.
 
 ### `suspend fun cancel(): RecorderResult<Unit>`
 
 `Ready` / `Recording` / `Paused` → `Idle`. Releases the native handle, deletes the partial file,
-resets `elapsed`. Illegal from `Completed` on purpose: a finished recording is yours to keep or
-delete.
+resets `elapsed`. Also legal from `Interrupted` (deletes the interrupted file) and from a `Failed`
+that carries an `outputPath` (deletes the file it left behind). Illegal from `Completed` on
+purpose — a finished recording is yours to keep or delete — and from a `Failed` with no path. A
+system event that ended the recording before `cancel` started is not undone: the file it left is
+deleted, which is what a discard means; one that arrives while `cancel` runs is ignored.
 
 Suspending: it deletes a file, and the deletion runs on the factory's `coroutineContext`. Like
 `stop`, it is not abandoned by cancellation — it finishes and reaches `Idle`; the caller observes its
@@ -244,6 +273,10 @@ public sealed interface RecorderState {
     public data class Recording(public val outputPath: String) : RecorderState
     public data class Paused(public val outputPath: String, public val elapsed: Duration) : RecorderState
     public data class Completed(public val recording: RecordedFile) : RecorderState
+    public data class Interrupted(
+        public val recording: RecordedFile,
+        public val reason: InterruptionReason,
+    ) : RecorderState
     public data class Failed(
         public val error: RecorderError,
         public val outputPath: String? = null,
@@ -254,15 +287,21 @@ public sealed interface RecorderState {
 
 `Failed` is kept rather than reset to `Idle` so a screen rendering from `state` can show the failure
 without also inspecting return values. Preparing again clears it. `Failed.outputPath` is the file the
-failure left behind — currently only a failed `stop()`; `null` when the failure cleaned up after
-itself.
+failure left behind — a failed `stop()`, or a `RecordingLost` whose file was kept; `null` when the
+failure cleaned up after itself. `cancel()` is legal exactly when it is non-null.
+
+`Interrupted` — *since 2.2.0* — means the system, not the app, ended the recording and
+`recording` is a finalized, playable file holding everything captured until then; `recording.duration`
+is `elapsed` as it was frozen. The recorder holds no native resource in this state, and the file is
+yours as after `Completed`: `stop()` returns it again, `cancel()` deletes it, `prepare()` and
+`release()` leave it alone. Never emitted for a `stop()` or `cancel()` of yours.
 
 ### Extensions
 
 ```kotlin
 public val RecorderState.isRecording: Boolean   // true only in Recording
 public val RecorderState.isActive: Boolean      // Recording or Paused — an output file is open
-public val RecorderState.outputPath: String?    // Ready/Recording/Paused/Completed/Failed, else null
+public val RecorderState.outputPath: String?    // Ready/Recording/Paused/Completed/Interrupted/Failed, else null
 ```
 
 ## `RecordedFile`
@@ -306,6 +345,7 @@ public sealed interface RecorderError {
     public data class InsufficientStorage(val path: String, val requiredBytes: Long, val availableBytes: Long) : RecorderError
     public data class UnsupportedFormat(val format: AudioFormat) : RecorderError
     public data class EngineFailure(val operation: RecorderOperation, val cause: Throwable? = null) : RecorderError
+    public data class RecordingLost(val reason: InterruptionReason, val cause: Throwable? = null) : RecorderError
 }
 
 public enum class RecorderOperation { PREPARE, START, PAUSE, RESUME, STOP, CANCEL }
@@ -313,11 +353,42 @@ public enum class RecorderOperation { PREPARE, START, PAUSE, RESUME, STOP, CANCE
 
 Typed causes, never display strings — mapping one onto copy in the right language is the app's job.
 
-`EngineFailure` is always the result of a call you made — a failure that happens on its own
-mid-recording is not pushed here, see [`05-platform-notes.md`](05-platform-notes.md). Its `cause` is
-`null` when the platform reported failure by returning `false` rather than throwing, which
-`AVAudioRecorder` mostly does; `availableBytes` is `-1` when the platform could not report
-free space (in which case the check passes rather than refusing on an unknown).
+`EngineFailure` is always the result of a call you made. A recording the system ends on its own is
+reported through `RecorderState.Interrupted` (file finalized) or `RecordingLost` (not), never
+through `EngineFailure`. Its `cause` is `null` when the platform reported failure by returning
+`false` rather than throwing, which `AVAudioRecorder` mostly does; `availableBytes` is `-1` when the
+platform could not report free space (in which case the check passes rather than refusing on an
+unknown).
+
+`RecordingLost` — *since 2.2.0* — means the system ended the recording for `reason` and the file
+could **not** be finalized; `cause` is the finalize failure where there was one. It is carried by
+`RecorderState.Failed` only, never returned from a call. The file is kept
+(`Failed.outputPath`) and may be unplayable: an unfinalized MPEG-4 (M4A) file usually is, an AAC
+(ADTS) file usually plays. For a recorder that was only prepared there is no audio, the empty file
+is deleted and the path is `null`.
+
+## `InterruptionReason`
+
+*Since 2.2.0.*
+
+```kotlin
+public sealed interface InterruptionReason {
+    public data object AudioSessionInterrupted : InterruptionReason
+    public data object MicrophoneSilenced : InterruptionReason
+    public data object StorageLow : InterruptionReason
+    public data class EngineDied(public val platformCode: Int? = null) : InterruptionReason
+}
+```
+
+| Reason | Raised when | Platform |
+|---|---|---|
+| `AudioSessionInterrupted` | the audio session was taken by the system: a call, Siri, an alarm, another app; also the app having been suspended without the `audio` background mode | iOS |
+| `MicrophoneSilenced` | the OS kept the recorder running but silenced its input — a call, another app with priority, or capture from the background without a microphone foreground service — and it stayed silenced for about 400 ms. `elapsed` is frozen at the moment the silencing began. Not raised from `Paused`; not detectable on API 24–28 | Android 10+ |
+| `StorageLow` | free space fell below the reserve the library keeps for finalizing (polled at most every two seconds while recording), or `MediaRecorder` reported that the size limit set at prepare was reached. Switched off by `minimumFreeSpaceBytes = 0` | both |
+| `EngineDied(platformCode)` | the media service died or reported an error: Android `MEDIA_ERROR_SERVER_DIED` / `MEDIA_RECORDER_ERROR_UNKNOWN` (`platformCode` is `what`, or `extra` for an unknown error that has one), iOS encode error or a recorder that finished unsuccessfully (`NSError` code), an `AVAudioSession` media-services reset (no code) | both |
+
+When two events arrive close together the first one counts; the one exception is a specific reason
+arriving before the outcome is published, which replaces a generic `EngineDied`.
 
 ## `AudioRecorderConfig`
 
@@ -347,7 +418,10 @@ flag for metering: its cost is controlled by whether `level` is collected.
 
 `sampleRate`, `channelCount`, `bitRate`, `durationUpdateInterval`, and `levelUpdateInterval` must be
 positive; `levelFloorDbfs` must be finite and negative (so `NaN` and the infinities are rejected);
-`minimumFreeSpaceBytes` must not be negative, and `0` disables the free-space check. Violations
+`minimumFreeSpaceBytes` must not be negative, and `0` disables the free-space check and, with it,
+the free-space watchdog that runs while recording (half of it, at least 2 MiB and never more than
+the value itself, is the reserve whose crossing ends a recording as `Interrupted(StorageLow)`;
+see [`05-platform-notes.md`](05-platform-notes.md#when-the-system-ends-a-recording)). Violations
 throw `IllegalArgumentException` at construction — these are literals a developer writes, so a wrong
 one is a bug to fix at the call site, not a runtime condition an app recovers from.
 

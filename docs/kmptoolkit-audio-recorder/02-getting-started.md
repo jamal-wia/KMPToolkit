@@ -107,6 +107,8 @@ val elapsed: Duration by recorder.elapsed.collectAsState()
 when (state) {
     is RecorderState.Recording -> RecordingUi(elapsed, onStop = { scope.launch { recorder.stop() } })
     is RecorderState.Completed -> PlaybackUi((state as RecorderState.Completed).recording)
+    // The system ended the recording but the file is finalized and playable.
+    is RecorderState.Interrupted -> PlaybackUi((state as RecorderState.Interrupted).recording)
     is RecorderState.Failed -> ErrorUi((state as RecorderState.Failed).error)
     else -> IdleUi(onRecord = { scope.launch { record(recorder) } })
 }

@@ -14,6 +14,11 @@ Common scenarios, from a first recording to the edges that bite.
      │                             │                          Completed
      └──────── cancel ─────────────┴──────── prepare ─────────────┘
 
+   the system ends a recording (Recording / Paused) ──► Interrupted   [file finalized]
+                                                   └──► Failed(RecordingLost)  [file not finalized]
+   Interrupted ── prepare ──► Ready      Interrupted ── stop ──► (same file, no change)
+   Interrupted ── cancel ──► Idle        Failed with a file ── cancel ──► Idle
+
    release (from anywhere) ──► Released   [terminal]
 ```
 
@@ -67,8 +72,83 @@ device being unhelpful. Treat them like a failed assertion, not like a condition
 
 Failures also land in `state` as `RecorderState.Failed(error)`, so a screen that renders from the
 flow does not have to capture return values as well. Both paths report the same error object. When a
-failure leaves a file behind — today only a failed `stop()` — `Failed.outputPath` carries it, since
-`cancel()` is illegal from `Failed` and you would otherwise have no way to find it.
+failure leaves a file behind — a failed `stop()`, or a recording the system ended and the recorder
+could not finalize — `Failed.outputPath` carries it. `cancel()` is legal from exactly those
+`Failed` states and deletes the file; from a `Failed` with no path there is nothing to delete and it
+stays illegal.
+
+`RecorderError.EngineFailure` is always the answer to a call you made. A failure that happens on
+its own is not reported through it: see the next section.
+
+## When the system ends a recording
+
+A long recording can be ended by the system while your app is not calling anything: an incoming
+call or Siri takes the audio session (iOS), the OS silences the microphone for a call or because
+the app captures from the background (Android 10+), the volume runs out of room, or the media
+service dies. The recorder notices, tries to finalize the file, and moves `state` on its own:
+
+| `state` | The file | Meaning |
+|---|---|---|
+| `Interrupted(recording, reason)` | finalized and playable, holds everything up to the moment it ended | `recording.duration` is `elapsed` as it was frozen |
+| `Failed(RecordingLost(reason, cause), outputPath)` | kept, may be unplayable | the file could not be finalized — an unfinalized M4A usually does not play, an AAC (ADTS) file usually does |
+| `Failed(RecordingLost(reason), outputPath = null)` | deleted — it was empty | the recorder was prepared but never started |
+
+`reason` is an `InterruptionReason`: `AudioSessionInterrupted` (iOS: a call, Siri, an alarm,
+another app, or the app having been suspended), `MicrophoneSilenced` (Android 10+: the OS silenced
+the input and it stayed silenced for a moment), `StorageLow` (free space fell below the reserve the
+library keeps for finalizing), and `EngineDied(platformCode)` (the media service died or reported
+an error).
+
+```kotlin
+recorder.state.collect { state ->
+    when (state) {
+        is RecorderState.Interrupted -> {
+            segments += state.recording                 // already finalized: keep it, play it, upload it
+            when (state.reason) {
+                InterruptionReason.AudioSessionInterrupted -> showBanner(RecordingStopped.Call)
+                InterruptionReason.MicrophoneSilenced -> showBanner(RecordingStopped.MicrophoneBusy)
+                InterruptionReason.StorageLow -> showBanner(RecordingStopped.StorageLow)
+                is InterruptionReason.EngineDied -> showBanner(RecordingStopped.Failure)
+            }
+        }
+        is RecorderState.Failed -> when (val error = state.error) {
+            is RecorderError.RecordingLost -> {
+                // The system ended it and the file could not be closed properly.
+                state.outputPath?.let { path -> offerSalvage(path) }   // may not play
+                showBanner(RecordingStopped.Failure)
+            }
+            else -> showError(error)
+        }
+        else -> Unit
+    }
+}
+```
+
+What to do with it:
+
+- **Treat it as a finished segment.** A long recording is a series of segments: keep the file in
+  `Interrupted.recording`, and call `prepare()` again for the next one when the user is ready. The
+  recorder never resumes by itself when the call ends, and `resume()` is refused from
+  `Interrupted`.
+- **`stop()` is still safe to call.** From `Interrupted` it returns the same file as a success and
+  changes nothing, so a stop button that was tapped a moment after the system ended the recording
+  gets the file rather than an error.
+- **To discard, call `cancel()`.** From `Interrupted` and from a `Failed` that carries a path it
+  deletes the file and returns to `Idle`. `prepare()` never deletes an interrupted or lost file —
+  it is yours.
+- **A stop or cancel that is already running wins.** If your `stop()` or `cancel()` started before
+  the system's event was handled, the event is ignored: a discard is never reported as a saved
+  recording, and a normal stop is never reported as a failure. Only the first event of a recording
+  counts.
+- **Nothing is reported while it is not your recording.** `elapsed` freezes the moment the event
+  was observed (for `MicrophoneSilenced`, the moment the silencing began, not when it was reported),
+  `level` drops to `0f` and `levelSamples` stops.
+
+`Interrupted` and `RecordingLost` are new cases of two sealed types, so a `when` over `RecorderState`
+or `RecorderError` without an `else` needs a branch for each. Platform requirements that keep a
+recording alive (a microphone foreground service on Android, the `audio` background mode on iOS)
+are still yours; this is how you learn when the platform ended one anyway — see
+[`05-platform-notes.md`](05-platform-notes.md#when-the-system-ends-a-recording).
 
 ## Recording with pause
 
@@ -237,7 +317,11 @@ completes rather than moving a released recorder to `Ready`.
 
 ## Threading
 
-Drive one recorder from one thread — the main thread is the usual choice. Note that `start()` and
+Drive one recorder from one thread — the main thread is the usual choice. Your calls are not
+synchronized against each other, so two threads calling the operations at once is a bug. What the
+system raises on its own — an interruption, a dying media service — arrives on platform threads;
+the recorder serializes those with your calls internally, and a call of yours never waits for the
+slow part of one (finalizing a long file runs off the lock). Note that `start()` and
 `stop()` are not suspending but are not instant either: `stop()` in particular finalizes the
 container (on Android, writing the MPEG-4 `moov` atom) and can block for a noticeable fraction of a
 second on a long recording. If that matters for your frame budget, call them from your own
@@ -260,5 +344,9 @@ dispatcher, so it works in a plain JVM unit test without a main-dispatcher rule.
   next `prepare`. That is deliberate — it is what the "recorded 0:12" label reads.
 - **Assuming `duration` is exact.** It is wall-clock time between `start` and `stop`, accurate to
   about one tick. If you need the encoded file's exact duration, read it from the file.
+- **Treating `Interrupted` as a pause.** It is over: the file is closed. `resume()` is refused, and
+  the next recording needs `prepare()`.
+- **Deleting an interrupted file you were handed.** `Interrupted.recording` is a finished, playable
+  file and it is yours; the recorder does not delete it, so keep it or call `cancel()`.
 - **Treating `RecorderError.EngineFailure` as fatal.** A microphone busied by a phone call recovers;
   `prepare` again once it is free.
