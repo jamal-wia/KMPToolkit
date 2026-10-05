@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.video.player
 
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
 import platform.AVFoundation.AVPlayer
@@ -11,6 +12,9 @@ import platform.Foundation.NSBundle
  * @param assetBundle / [assetSubdirectories] where [VideoSource.Asset] is looked up: the bundle root
  *   first, then each subdirectory in order (Compose Multiplatform apps pass `listOf("compose-resources")`).
  * @param managesAudioSession whether to switch the shared `AVAudioSession` to the playback category.
+ * @param coroutineContext hosts the position-polling coroutine. A [kotlinx.coroutines.Job] in it is
+ *   ignored: the player runs under a job of its own, so releasing it never cancels a job that belongs
+ *   to the caller.
  */
 public fun createVideoPlayer(
     config: VideoPlayerConfig = VideoPlayerConfig(),

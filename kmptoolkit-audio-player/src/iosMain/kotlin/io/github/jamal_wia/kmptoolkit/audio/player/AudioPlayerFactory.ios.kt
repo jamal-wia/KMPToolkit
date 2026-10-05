@@ -26,7 +26,9 @@ import kotlin.coroutines.CoroutineContext
  *   wants. Set it to `false` when the app configures the session itself — that setting is
  *   process-wide, and an app mixing recording with playback must own it. See
  *   `docs/kmptoolkit-audio-player/05-platform-notes.md`.
- * @param coroutineContext context for the position-polling coroutine.
+ * @param coroutineContext context for the position-polling coroutine. A [kotlinx.coroutines.Job] in it
+ *   is ignored: the player runs under a job of its own, so releasing it never cancels a job that
+ *   belongs to the caller.
  * @return a player in [PlayerState.Idle].
  */
 public fun createAudioPlayer(

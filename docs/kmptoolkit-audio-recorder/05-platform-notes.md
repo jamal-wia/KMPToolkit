@@ -26,9 +26,15 @@ enough; you must request it and the user must grant it.
 **This module never requests it either.** It only reports:
 
 ```kotlin
-when (recorder.prepare()) {
-    is RecorderResult.Failure -> // RecorderError.PermissionDenied → run your own permission flow
-    is RecorderResult.Success -> // granted
+when (val result = recorder.prepare()) {
+    is RecorderResult.Failure -> {
+        if (result.error == RecorderError.PermissionDenied) {
+            // run your own permission flow, then prepare again
+        }
+    }
+    is RecorderResult.Success -> {
+        // granted: the recorder is Ready
+    }
 }
 ```
 
@@ -59,8 +65,8 @@ decision.
 
 Neither platform records in the background without extra setup that this library does not do: a
 foreground service with `foregroundServiceType="microphone"` on Android, the `audio` background mode
-on iOS. Recording stops or is interrupted when the app is backgrounded. Add that infrastructure in
-your app if you need it.
+on iOS. Add that infrastructure in your app if you need it. What happens without it differs, and
+the library reports it: see "When the system ends a recording" below.
 
 ## Format support
 
@@ -86,12 +92,10 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
 - **`pause()`/`resume()` exist unconditionally.** They landed in API 24, which is this library's
   `minSdk`. They still throw for output formats that do not support them, which surfaces as
   `EngineFailure(PAUSE, cause)` with the recording still running.
-- **Asynchronous errors are not surfaced live.** `MediaRecorder` reports mid-recording problems (the
-  microphone taken by a phone call, the encoder dying) through `setOnErrorListener`, on a platform
-  thread. This module does not install one, because delivering it would mean mutating recorder state
-  from a thread the single-threaded contract forbids. Such a failure surfaces at the next operation
-  — usually `stop()` returning `EngineFailure(STOP, cause)`. If your app needs live notification of
-  a lost microphone, watch `AudioManager`'s focus callbacks yourself.
+- **System events are reported.** `setOnErrorListener` and `setOnInfoListener` are installed once
+  `prepare()` succeeds and removed before `stop()` and in `release()`; on Android 10+ an
+  `AudioRecordingMonitor` callback reports a silenced input too. See "When the system ends a
+  recording" below.
 - **Free space** comes from `File.usableSpace` on the output directory, which respects per-user
   quotas. A directory that does not exist, or a path that throws, is reported as unknown, and an
   unknown skips the check rather than failing the recording — `usableSpace` answers `0` for a
@@ -115,12 +119,19 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
   session centrally, be aware that this module touches it. The category is not configurable;
   `PlayAndRecord` rather than `Record` so an app that plays the recording back does not have to
   fight the module over the session.
-- **Interruptions are not observed.** The module installs no `AVAudioRecorderDelegate` and no
-  `AVAudioSession` interruption observer, for the same reason as the Android note above: delivering
-  one would mean mutating recorder state from a thread the single-threaded contract forbids. A
-  recording interrupted by a phone call surfaces at the next operation. Observe
-  `AVAudioSessionInterruptionNotification` in your iOS layer if you need to react while it
-  happens.
+- **Interruptions are observed.** An `AVAudioRecorderDelegate` (held by a strong field — the
+  recorder's own `delegate` property is weak) and observers for
+  `AVAudioSessionInterruptionNotification` and `AVAudioSessionMediaServicesWereResetNotification`
+  report what the platform does on its own. They are removed in `release()` and before `stop()`,
+  so a recording you ended is never reported as one the system ended. See "When the system ends a
+  recording" below.
+- **Session activation errors are not swallowed.** The `NSError` of `setCategory` and `setActive` is
+  captured; a session the system refuses to configure fails `prepare()` as
+  `EngineFailure(PREPARE, cause)` with the platform's description, instead of failing later as a
+  misleading `START` failure.
+- **`release()` always stops the recorder.** An interrupted `AVAudioRecorder` reports
+  `recording == false` while still holding its file open, so the recorder is stopped
+  unconditionally rather than only when it claims to be recording.
 - **`AVAudioRecorder` reports failure by returning `false`**, and Kotlin/Native cannot catch an
   Objective-C exception at all. Every `false` is converted into a Kotlin exception internally, which
   is why `EngineFailure.cause` is often a plain `IllegalStateException` with no platform detail: that
@@ -141,6 +152,116 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
   `EngineFailure(PREPARE, cause)` rather than being left to crash on first use.
 - **The bundle identifier** is the default subdirectory name. In a unit-test host or a command-line
   binary, where `CFBundleIdentifier` is absent, it falls back to `recordings`.
+
+## When the system ends a recording
+
+*Since 2.2.0.* The recorder moves `state` on its own when the platform ends a recording, to
+`Interrupted` (file finalized) or `Failed(RecordingLost)` (not). Before 2.2.0 such a failure was
+deliberately not surfaced and appeared only when `stop()` failed, with the state stuck on
+`Recording` and `elapsed` still counting; that is no longer so. The common behaviour — first event
+wins, a running `stop()`/`cancel()` wins over an event, `elapsed` frozen, `level` zero — is in
+[`03-guide.md`](03-guide.md#when-the-system-ends-a-recording). What differs per platform:
+
+### Android
+
+- **Sources.** `MediaRecorder.OnErrorListener` (`MEDIA_ERROR_SERVER_DIED`,
+  `MEDIA_RECORDER_ERROR_UNKNOWN` → `EngineDied`), `OnInfoListener` (`MAX_FILESIZE_REACHED` →
+  `StorageLow`; `MAX_DURATION_REACHED` cannot fire, no duration limit is ever set), and — API 29+ —
+  `AudioRecordingMonitor`. The error and info callbacks arrive on the Looper of the thread that
+  created the recorder or the main Looper; the library never depends on which. The silencing
+  callback is registered with a direct executor, so it runs on `AudioRecordingMonitorImpl`'s own
+  `HandlerThread` — not on a binder thread and not on an application Looper. Every callback only
+  forwards, and the recorder's listener never blocks, so none of this matters to you; it matters
+  only if you read a stack trace. A callback is delivered only to the listener that was registered
+  when it was installed, and only while its recorder is the engine's current one.
+- **Backgrounding records silence; it does not stop the recording.** Since Android 10 an app that
+  captures from the background without a microphone foreground service keeps its `MediaRecorder`
+  running and gets silence. The library reports this as `Interrupted(MicrophoneSilenced)` once the
+  input has stayed silenced for about 400 ms, with `elapsed` frozen where the silencing began. A
+  call or another app with capture priority does the same.
+- **API 24–28 cannot detect it.** There is no silencing callback below API 29. A recording
+  silenced there simply records silence; nothing is reported. On those versions keep the app in the
+  foreground or run the microphone foreground service the platform asks for.
+- **Focus callbacks are not the answer.** `AudioManager` audio focus is about playback; it does not
+  tell a recorder that its input was taken. Earlier versions of these notes suggested watching it —
+  do not.
+- **Free space.** `setMaxFileSize(usable − reserve)` is set at prepare as a backstop, and free space
+  is also polled at most every two seconds while recording. Below the reserve the recording is
+  finalized as `Interrupted(StorageLow)` while there is still room to close the file. The reserve is
+  half of `minimumFreeSpaceBytes`, but at least 2 MiB (an MPEG-4 file's index grows with the
+  recording and a very long one needs a few hundred kilobytes, so 2 MiB is a margin) and never more
+  than `minimumFreeSpaceBytes` itself. The poll interval is counted per recording, from `start()`,
+  not per resume, so a user who pauses and resumes more often than every two seconds is still
+  checked. `minimumFreeSpaceBytes = 0` switches the poll and the size limit off. A size limit
+  below 64 KiB is never handed to `MediaRecorder` (it rejects anything up to 1 KiB): when the
+  volume has less than that left beyond the reserve, the limit is simply omitted and the poll
+  remains the protection. `prepare()` still fails only when free space is below the minimum.
+  `MAX_FILESIZE_REACHED` can also fire when the library set no limit that was reached: MPEG-4
+  recording has an implicit one, the largest file the volume holds (about 4 GiB on FAT32, which a
+  `directoryPath` on removable storage can be). It is reported as `StorageLow` all the same — the
+  recording did end because of the size of the file. **UNVERIFIED:** whether `MediaRecorder` leaves a finalized file after
+  `MAX_FILESIZE_REACHED` and whether `stop()` throws afterwards is to be confirmed on devices. If
+  `stop()` fails, the outcome is `Failed(RecordingLost(StorageLow, cause))`.
+- **M4A vs AAC durability.** An MPEG-4 (M4A) file keeps its index at the end and is usually
+  unplayable if it could not be finalized; an AAC (ADTS) file is a sequence of independent frames
+  and usually plays up to the point it was cut. If crash-safety of long recordings matters more
+  than the container, record `AudioFormat.AAC`.
+
+### iOS
+
+- **Sources.** The recorder's delegate (`audioRecorderEncodeErrorDidOccur`, and
+  `audioRecorderDidFinishRecording(successfully: false)` that our own `stop()` did not cause →
+  `EngineDied`); `AVAudioSessionInterruptionNotification` with type *began* →
+  `AudioSessionInterrupted` (a call, Siri, an alarm, another app); an interruption that *ended* is
+  ignored — nothing resumes by itself, so a consumer that wants to record again retries when the
+  user acts, or observes `AVAudioSessionInterruptionNotification` itself; `AVAudioSessionMediaServicesWereResetNotification` →
+  `EngineDied`.
+- **Suspension.** An app suspended while recording without the `audio` background mode is
+  interrupted with reason *appWasSuspended*, but iOS delivers that notification **only when the
+  app returns** to the foreground. A long recording in the background therefore needs the `audio`
+  background mode, or must be stopped when the app goes to the background; otherwise the first the
+  library hears of it is on return, as `Interrupted(AudioSessionInterrupted)`. The duration is
+  measured up to the moment the library *observed* the interruption, on return — nothing in the
+  module knows when the suspension began — so the file holds audio up to when the interruption was
+  observed, **not** up to the moment it began: the duration can include the time the app was
+  suspended (a stretch with no audio in the file), and whether the monotonic clock advances during
+  suspension is unverified. A consumer that needs it exact should stop the recording when the app
+  goes to the background. (For a call, Siri or an alarm the notification arrives when the
+  interruption begins, and the difference is negligible.)
+- **UNVERIFIED — finalizing after an interruption.** `AVAudioRecorder.stop()` never throws, and
+  whether it produces a valid, playable file after the system deactivated the session is **to be
+  confirmed on a device**. The library calls it and reports `Interrupted` if it returns; if the
+  file turns out to be unplayable the honest outcome is `RecordingLost`, and no API change is
+  needed — only this note.
+- **Free space** is polled from `NSFileSystemFreeSize` at most every two seconds, counted per
+  recording rather than per resume, and ends the recording as `Interrupted(StorageLow)` below the
+  reserve, exactly as on Android; there is no platform size limit to set, so the poll is the only
+  protection.
+- **Audio session while interrupted.** `stop()`, `cancel()` and `release()` deactivate the shared
+  session with `NotifyOthersOnDeactivation`, so other apps' audio resumes between your segments.
+  `release()` that lands while a `stop()` or an event is still being finalized hands the native
+  recorder to that finalization, which deactivates the process-wide session when it completes —
+  possibly after a new recorder in the same process has already activated it. Known limitation,
+  pre-existing on the `stop()` path: the session is not reference counted, so do not release one
+  recorder while another is starting.
+- **M4A vs AAC durability** is the same as on Android: prefer `AudioFormat.AAC` for long recordings
+  when a file that survives being cut matters more than the container.
+
+### Questions that come up
+
+- **iOS: can I `prepare()` during a call?** No: while another app holds the audio session (a phone
+  call, FaceTime), `prepare()` fails with `EngineFailure(PREPARE)` and the platform's reason as the
+  cause. The library ignores the "interruption ended" notification and never retries, so try again
+  when the user acts, or observe `AVAudioSessionInterruptionNotification` in your app and prepare
+  when it says the interruption ended.
+- **Android: can I restart a recording in the background?** Preparing again while the app is in the
+  background without a microphone foreground service gives you a recording that is silenced from the
+  first frame; each one ends as `Interrupted(MicrophoneSilenced)` after the debounce, producing a
+  file of silence. Do not restart automatically in the background: start the foreground service
+  first, or wait for the user to come back.
+- **Do other apps get their audio back between segments?** On iOS yes: `stop()` and `release()`
+  deactivate the session with `NotifyOthersOnDeactivation`, which is what lets a paused music app
+  resume. On Android `MediaRecorder` does not touch audio focus either way.
 
 ## Input level
 
@@ -178,4 +299,11 @@ Everything else, because it lives in common code and is covered by one shared su
 both targets: the transition table, permission and storage pre-checks, path generation, elapsed-time
 accounting across pause and resume, the dBFS-to-`0f..1f` mapping and subscription-driven metering of
 `level` and `levelSamples`, deletion of abandoned files, retention of completed ones, cancellation
-of an in-flight `prepare`, release idempotency, and the fact that no public method throws.
+of an in-flight `prepare`, release idempotency, the fact that no public method throws, and
+everything that follows an event once the engine has reported it: the debounce of a silenced input,
+the free-space watchdog, which state each event produces, that a running `stop()`/`cancel()` wins,
+and that a `release()` during a finalization leaves the platform recorder to it. Only the mapping of
+platform codes and the registration of the callbacks are platform code, with their own tests; the
+platform recorders themselves (`MediaRecorder`, `AVAudioRecorder`) are not driven by the shared
+suite, which uses a scripted engine, so the finalize-after-interruption behaviour above remains
+unverified.

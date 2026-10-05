@@ -1,0 +1,26 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-core>
+open annotation class io.github.jamal_wia.kmptoolkit.core/ToolkitInternalApi : kotlin/Annotation { // io.github.jamal_wia.kmptoolkit.core/ToolkitInternalApi|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.core/ToolkitInternalApi.<init>|<init>(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle { // io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle|null[0]
+    abstract fun lock() // io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle.lock|lock(){}[0]
+    abstract fun tryLock(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle.tryLock|tryLock(){}[0]
+    abstract fun unlock() // io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle.unlock|unlock(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.core/StateMachineLock { // io.github.jamal_wia.kmptoolkit.core/StateMachineLock|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.core/StateMachineLock.<init>|<init>(){}[0]
+
+    final fun <#A1: kotlin/Any?> exclusive(kotlin/Function0<#A1>): #A1 // io.github.jamal_wia.kmptoolkit.core/StateMachineLock.exclusive|exclusive(kotlin.Function0<0:0>){0§<kotlin.Any?>}[0]
+    final fun submit(kotlin/Function0<kotlin/Unit>) // io.github.jamal_wia.kmptoolkit.core/StateMachineLock.submit|submit(kotlin.Function0<kotlin.Unit>){}[0]
+}
+
+final fun io.github.jamal_wia.kmptoolkit.core/newReentrantLock(): io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle // io.github.jamal_wia.kmptoolkit.core/newReentrantLock|newReentrantLock(){}[0]

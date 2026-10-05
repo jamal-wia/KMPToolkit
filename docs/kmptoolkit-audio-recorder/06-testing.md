@@ -59,15 +59,39 @@ testing behavior the real recorder also has. What it adds is control:
 | `emitLevel(value)` | sets `level` **and** emits `value` on `levelSamples`, repeats included, as if the microphone had just peaked there. `value` must be within `0f..1f`; ignored unless the fake is `Recording` |
 | `permissionGranted = false` | `prepare()` fails with `PermissionDenied` |
 | `failNextOperationWith = error` | the next otherwise-legal operation fails with that `RecorderError`, then the knob clears |
+| `simulateInterruption(reason)` | ends the recording the way the system would, with the file intact — `Recording`/`Paused` → `Interrupted(RecordedFile(path, elapsed), reason)`, `Ready` → `Failed(RecordingLost(reason), null)` with the empty file deleted. Returns whether it applied |
+| `simulateRecordingLost(reason, cause)` | the same, when the file could **not** be finalized: `Failed(RecordingLost(reason, cause), path)` with the file kept (`Ready` → no path, file deleted, and the cause dropped, as the real recorder has none to report there) |
 
 and observation:
 
 | Property | Records |
 |---|---|
 | `preparedPaths` | every path `prepare` opened, in order |
-| `deletedPaths` | every path thrown away by `cancel` or by re-preparing over an unused file |
+| `deletedPaths` | every path thrown away: by `cancel`, by re-preparing over an unused file, by a scripted `prepare`/`start` failure, and by `simulateInterruption`/`simulateRecordingLost` from `Ready`. A failed `stop` keeps its file: it is carried on the `Failed` state, and `cancel()` then deletes it |
 | `completedRecordings` | every `RecordedFile` produced by `stop` |
 | `releaseCount` | whether the code under test released the recorder — at most `1`, since `release` is idempotent |
+
+Both `simulate…` calls return `false` and do nothing in any other state, after `release()`, or for
+`InterruptionReason.MicrophoneSilenced` unless the fake is `Recording` — nothing is captured while
+paused or merely prepared, so the real recorder does not raise it there either. They freeze
+`elapsed`, return `level` to `0f` and do not consume `failNextOperationWith`. The fake follows the
+same table afterwards: `stop()` from `Interrupted` returns `Success(recording)` and keeps the state,
+`cancel()` from `Interrupted` or from a `Failed` with a path deletes the file (recorded in
+`deletedPaths`) and returns to `Idle`, `prepare()` leaves the interrupted file alone.
+
+```kotlin
+@Test
+fun `a call during a recording keeps what was said`() = runTest {
+    val recorder = FakeAudioRecorder()
+    val viewModel = VoiceNoteViewModel(recorder)
+    viewModel.onRecordClicked()
+    recorder.advanceElapsed(8.seconds)
+
+    recorder.simulateInterruption(InterruptionReason.AudioSessionInterrupted)
+
+    assertEquals(8.seconds, viewModel.savedSegments.single().duration)
+}
+```
 
 `advanceElapsed` only moves time while the fake is `Recording`, matching the real recorder, and is
 ignored elsewhere so a test can advance unconditionally between steps. `emitLevel` follows the same
@@ -145,7 +169,7 @@ recorder.
 - **No filesystem checks.** `DirectoryNotWritable` and `InsufficientStorage` never occur on their
   own; script them with `failNextOperationWith`.
 - **No format validation.** `UnsupportedFormat` likewise.
-- **Not thread-safe**, exactly like the recorder it replaces.
+- **Not safe to call from several threads**, exactly like the recorder it replaces.
 - **No subscription-driven metering.** The real recorder samples the microphone only while `level`
   or `levelSamples` has a collector. The fake has no engine whose work could be spared, so
   `emitLevel` takes effect whether or not anyone is collecting. Test the idle-when-unobserved
@@ -162,10 +186,18 @@ filesystem), which is what makes the whole contract — illegal transitions, per
 unwritable directory, a full disk, cancellation mid-preparation, double release, use after release —
 assertable without a device.
 
-`androidUnitTest` adds Robolectric coverage for the one Android-specific piece that is not a
-pass-through call: the real `Context`-backed filesystem, plus an assertion that `RECORD_AUDIO` is
-absent from the merged manifest and that a missing grant produces `PermissionDenied` rather than a
-crash.
+`androidUnitTest` adds Robolectric coverage for the Android-specific pieces that are not a
+pass-through call: the real `Context`-backed filesystem, an assertion that `RECORD_AUDIO` is absent
+from the merged manifest and that a missing grant produces `PermissionDenied` rather than a crash,
+and the engine's event wiring — `ShadowMediaRecorder` exposes the error and info listeners the
+engine registered, so the tests invoke them directly, check the code mapping, and check that the
+listeners are removed before `stop()` and on `release()`. `AudioRecordingMonitor` has no shadow and
+its glue is deliberately thin; the debounce behind it is tested in common code. `iosTest` posts
+`AVAudioSessionInterruptionNotification` and the media-services reset through `NSNotificationCenter`
+with the real `userInfo` shape, calls the recorder delegate directly, and asserts that observers are
+removed afterwards. A real `AVAudioRecorder` cannot prepare in the simulator test host, so the
+strong-delegate wiring and the finalize-after-interruption behaviour are confirmed on a device, not
+here.
 
 ```bash
 ./gradlew :kmptoolkit-audio-recorder:build checkKotlinAbi

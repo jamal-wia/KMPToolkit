@@ -1,0 +1,19 @@
+public abstract interface class io/github/jamal_wia/kmptoolkit/core/ReentrantLockHandle {
+	public abstract fun lock ()V
+	public abstract fun tryLock ()Z
+	public abstract fun unlock ()V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/core/StateMachineLock {
+	public fun <init> ()V
+	public final fun exclusive (Lkotlin/jvm/functions/Function0;)Ljava/lang/Object;
+	public final fun submit (Lkotlin/jvm/functions/Function0;)V
+}
+
+public final class io/github/jamal_wia/kmptoolkit/core/StateMachineLock_androidKt {
+	public static final fun newReentrantLock ()Lio/github/jamal_wia/kmptoolkit/core/ReentrantLockHandle;
+}
+
+public abstract interface annotation class io/github/jamal_wia/kmptoolkit/core/ToolkitInternalApi : java/lang/annotation/Annotation {
+}
+

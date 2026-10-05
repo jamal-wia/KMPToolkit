@@ -33,6 +33,8 @@ import kotlinx.coroutines.Dispatchers
  *   [Dispatchers.Default] rather than [Dispatchers.Main] by default: none of that work touches UI,
  *   so the module needs no `kotlinx-coroutines-android` and runs in a plain unit test without a
  *   main-dispatcher rule.
+ *   A [kotlinx.coroutines.Job] in it is ignored: the recorder runs under a job of its own, so releasing
+ *   it never cancels a job that belongs to the caller.
  */
 public fun createAudioRecorder(
     context: Context,

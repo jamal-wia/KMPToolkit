@@ -39,9 +39,11 @@ artifacts by coordinate.
   `kmptoolkit-storage` (+ `-testing`), `kmptoolkit-hardware-keys`, `kmptoolkit-hijri` and
   `kmptoolkit-video-player` (+ `-testing`, `-compose`) also publish `jvm`, because their types belong
   in code a consumer shares with desktop and omitting the target would stop that shared code
-  compiling at all. The desktop video engines `kmptoolkit-video-player-vlcj` and
-  `kmptoolkit-video-player-javafx` are JVM-only artifacts, kept out of the core so their licences
-  (GPL-3 / GPL-2 + Classpath Exception) reach only an app that opts in. The reasoning, and the bar any further exception has to
+  compiling at all. So does the internal support artifact `kmptoolkit-core`, for a plainer reason:
+  `kmptoolkit-video-player` depends on it and a module cannot depend on one missing its target.
+  The desktop video engines `kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx` are
+  JVM-only artifacts, kept out of the video-player core so their licences (GPL-3 / GPL-2 + Classpath
+  Exception) reach only an app that opts in. The reasoning, and the bar any further exception has to
   clear, are in `docs/01-architecture.md` § "Desktop targets". Do not add a desktop target to another
   module without meeting that bar and discussing it first. `kmptoolkit-activity` is the opposite
   case: Android only, see § "One module is Android-only".
@@ -85,8 +87,8 @@ library:
 
 - `explicitApi()` is strict on every module — a symbol's visibility must be stated, not inferred.
   Anything not meant for consumers is `internal`; anything that must cross a module boundary
-  without being public API is `internal` plus the `@ToolkitInternalApi` opt-in marker (see
-  `docs/01-architecture.md`).
+  without being public API is `public` plus the `@ToolkitInternalApi` opt-in marker, which lives in
+  `kmptoolkit-core` (see `docs/01-architecture.md`).
 - ABI validation (`checkKotlinAbi` / `updateKotlinAbi`) runs on every build via `kmptoolkit.library`.
   A green `api/` dump diff is a **record of what changed**, not permission to change it however
   you like — treat an ABI diff the same way you'd treat a diff to a public interface: read it,

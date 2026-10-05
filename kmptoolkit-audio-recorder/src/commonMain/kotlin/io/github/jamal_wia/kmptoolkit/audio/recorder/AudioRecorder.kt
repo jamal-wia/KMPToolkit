@@ -23,12 +23,41 @@ import kotlinx.coroutines.flow.StateFlow
  * | [RecorderState.Recording] | no | no | yes | no | yes | yes |
  * | [RecorderState.Paused] | no | no | no | yes | yes | yes |
  * | [RecorderState.Completed] | yes | no | no | no | no | no |
- * | [RecorderState.Failed] | yes | no | no | no | no | no |
+ * | [RecorderState.Interrupted] | yes | no | no | no | yes² | yes |
+ * | [RecorderState.Failed] | yes | no | no | no | no | yes¹ |
  * | [RecorderState.Released] | no | no | no | no | no | no |
  *
- * `prepare` from [RecorderState.Ready], [RecorderState.Completed], or [RecorderState.Failed] starts
- * a fresh recording: the previous native recorder is torn down first, and a `Ready` file that was
- * never recorded into is deleted. `prepare` never resumes or appends to an earlier recording.
+ * ¹ Only when [RecorderState.Failed.outputPath] is non-null: `cancel` deletes that file and returns
+ * to [RecorderState.Idle]. From a `Failed` without a path it is illegal, as before.
+ *
+ * ² `stop` from [RecorderState.Interrupted] returns the interrupted recording again as a success
+ * and leaves the state unchanged — nothing is emitted, and it is not [RecorderState.Completed].
+ *
+ * While the system's event is being finalized, [state] still shows the old value, and a call of
+ * yours races with it: `start`, `pause` and `resume` return [RecorderError.IllegalState] carrying
+ * that still-published state (`Ready`, `Recording` or `Paused`); `prepare`, `stop` and `cancel`
+ * suspend — never blocking a thread — until the finalization lands, then decide again against the
+ * state it published. So `IllegalState` can come from a race with a system event, not only from a
+ * wiring bug; a `stop` that waited for a finalization that failed finds `Failed` and returns
+ * `IllegalState` too.
+ *
+ * `prepare` from [RecorderState.Ready], [RecorderState.Completed], [RecorderState.Interrupted], or
+ * [RecorderState.Failed] starts a fresh recording: the previous native recorder is torn down first,
+ * and a `Ready` file that was never recorded into is deleted. A `Completed` or `Interrupted` file
+ * is the caller's and is never deleted by `prepare`. `prepare` never resumes or appends to an
+ * earlier recording.
+ *
+ * ## When the system ends a recording
+ *
+ * A recording can be ended by the system while the app is not calling anything: a call, Siri or
+ * another app takes the audio session (iOS), the OS silences the input (Android 10+), free space
+ * runs below the reserve the library keeps for finalizing, or the media service dies. The recorder
+ * notices, tries to finalize the file, and moves [state] on its own — from [RecorderState.Recording]
+ * or [RecorderState.Paused] to [RecorderState.Interrupted] when the file was finalized, or to
+ * [RecorderState.Failed] with [RecorderError.RecordingLost] when it was not — and from
+ * [RecorderState.Ready] to a `Failed` with no file. [InterruptionReason] says why. Only the first
+ * such event of a recording counts. A [stop] or [cancel] that is already running always wins: a
+ * discard is never reported as a saved recording and a normal stop never as a failure.
  *
  * ## Ownership and release
  *
@@ -59,10 +88,15 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * ## Threading
  *
- * The recorder is **not** thread-safe. Call [prepare], [start], [pause], [resume], [stop],
- * [cancel], and [release] from one thread (or one single-threaded dispatcher) — the same one every
- * time. [state], [elapsed] and [level] are `StateFlow`s, and [levelSamples] is a `Flow`; all of them
- * can be collected from anywhere.
+ * The public contract is unchanged: the recorder is **not** thread-safe against concurrent calls
+ * of yours. Call [prepare], [start], [pause], [resume], [stop], [cancel],
+ * and [release] from one thread (or one single-threaded dispatcher) — the same one every time.
+ * [state], [elapsed] and [level] are `StateFlow`s, and [levelSamples] is a `Flow`; all of them can
+ * be collected from anywhere. Events the system raises arrive on platform threads of its choosing;
+ * the recorder serializes them with your calls internally, so you do not synchronize anything for
+ * them. The slow work of an event (finalizing a long file) runs off the lock and a call of yours
+ * does not block a thread on it: [prepare], [stop] and [cancel] suspend until it lands, and
+ * [start], [pause] and [resume] are refused with [RecorderError.IllegalState] meanwhile.
  *
  * ## Permission
  *
@@ -75,8 +109,10 @@ public interface AudioRecorder {
 
     /**
      * The recorder's current position in the lifecycle above. Starts at [RecorderState.Idle] and
-     * only ever changes as a result of an operation on this recorder — it never emits a
-     * duration tick, so a collector is only woken by a real transition.
+     * changes as a result of an operation on this recorder, or when the system ends a recording
+     * (see "When the system ends a recording"): to [RecorderState.Interrupted] or to a
+     * [RecorderState.Failed] carrying [RecorderError.RecordingLost]. It never emits a duration
+     * tick, so a collector is only woken by a real transition.
      */
     public val state: StateFlow<RecorderState>
 
@@ -86,7 +122,12 @@ public interface AudioRecorder {
      * Advances only while [state] is [RecorderState.Recording], polled at
      * [AudioRecorderConfig.durationUpdateInterval]. It freezes at its current value on [pause] and
      * continues from there on [resume], holds the final duration after [stop], and resets to
-     * [Duration.ZERO] on [prepare], [cancel], and [release].
+     * [Duration.ZERO] on [prepare], [cancel], and [release]. When the system ends the recording it
+     * freezes at the moment the event was observed and stays there while the state is
+     * [RecorderState.Interrupted]. For [InterruptionReason.MicrophoneSilenced] that moment is when
+     * the silencing began, up to the debounce (about 400 ms) *before* it was reported: the ticker
+     * keeps publishing while the silence is debounced, so [elapsed] steps back by up to that much
+     * when the state becomes `Interrupted`. A timer that must never run backwards should clamp.
      *
      * This is wall-clock time between `start` and `stop`, not a measurement of the encoded file. It
      * is accurate enough for a recording timer and is not a substitute for reading the finished
@@ -194,10 +235,13 @@ public interface AudioRecorder {
      * Legal from [RecorderState.Recording] and [RecorderState.Paused]. The recorder can be reused
      * for another recording by calling [prepare] again; it does not need to be released first.
      *
+     * Also legal from [RecorderState.Interrupted], where the file is already finalized: it returns
+     * that recording as a success and leaves [state] unchanged. A stop that loses the race against
+     * a system event which already finalized the file returns the same way.
+     *
      * On engine failure the state becomes [RecorderState.Failed] carrying the output path, and the
      * partial file is **kept**: a library does not delete a user's audio because the encoder
-     * complained on close. Since [cancel] is illegal from that state, the path on the state is how
-     * you find the file if you want to remove it yourself.
+     * complained on close. The path on the state is how you find the file; [cancel] deletes it.
      *
      * Suspending because the platform finalizes the container here — on Android, writing the
      * MPEG-4 `moov` atom — which takes a noticeable fraction of a second on a long recording. That
@@ -214,9 +258,14 @@ public interface AudioRecorder {
      * Abandons the current recording: the microphone is released, the partial file is deleted, and
      * [state] returns to [RecorderState.Idle] with [elapsed] reset.
      *
-     * Legal from [RecorderState.Ready], [RecorderState.Recording], and [RecorderState.Paused].
+     * Legal from [RecorderState.Ready], [RecorderState.Recording], and [RecorderState.Paused], from
+     * [RecorderState.Interrupted] (deletes the interrupted file), and from a
+     * [RecorderState.Failed] that carries an output path (deletes the file it left behind).
      * Deliberately illegal from [RecorderState.Completed] — a finished recording is the caller's
-     * file to keep or delete, and silently deleting it here would be a trap.
+     * file to keep or delete, and silently deleting it here would be a trap — and from a `Failed`
+     * without a path, where there is nothing to delete. A system event that already ended the
+     * recording before this call started is not undone: the file it left is deleted, which is what
+     * a discard means.
      *
      * Suspending because it deletes a file; the deletion runs on the factory's `coroutineContext`.
      * Like [stop], it is not abandoned half-way by cancelling the calling coroutine.
@@ -243,6 +292,11 @@ public interface AudioRecorder {
      * be uncallable precisely where it is needed, so it does its work inline on the calling thread
      * instead. Keep that in mind if you release on the main thread while a long recording is open:
      * finalizing it is the one place this library can block you.
+     *
+     * When a finalization is in flight (a [stop], a [cancel] or a system event closing the file off
+     * the lock), `release` returns at once and leaves the native recorder to that finalization,
+     * which frees it when it completes; its outcome is not published over
+     * [RecorderState.Released]. The microphone is then free a moment after `release` returns.
      *
      * Idempotent, never fails, and never throws. See the class-level "Ownership and release" note
      * for who is expected to call it.

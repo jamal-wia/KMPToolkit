@@ -36,7 +36,7 @@ Creates a `VideoPlayer` backed by VLC, in `VideoPlayerState.Idle`.
   libvlc instance, after the media player (see [`03-guide.md`](03-guide.md) § "Lifecycle and
   threading").
 - **Rendering.** Frames are decoded to memory as 32-bit ARGB and exposed to
-  `kmptoolkit-video-player-compose` through the core module's `@ToolkitInternalApi`
+  `kmptoolkit-video-player-compose` through `kmptoolkit-video-player`'s `@ToolkitInternalApi`
   `frameSourceOrNull()`, which returns non-null for players created here.
 - **Threading.** As for every `VideoPlayer`: drive it from one thread, collect its flows anywhere.
   VLC's own threads never call into your code except through those flows. Nothing slow runs on the

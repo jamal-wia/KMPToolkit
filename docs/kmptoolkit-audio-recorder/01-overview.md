@@ -26,7 +26,7 @@ when (val prepared = recorder.prepare()) {
 }
 ```
 
-Four things follow from that shape, and they are the reason the module exists:
+Five things follow from that shape, and they are the reason the module exists:
 
 - **Every failure is a value.** An illegal transition, a missing permission, an unwritable
   directory, a volume with no room, a codec the platform does not have — each is a `RecorderError`
@@ -38,6 +38,12 @@ Four things follow from that shape, and they are the reason the module exists:
 - **Doomed recordings fail before the microphone opens.** Permission, format support, directory
   writability, and free space are all checked in `prepare`, so you learn about the problem before
   the user has spoken into a file that will be thrown away.
+- **A recording the system ends is a value too.** A phone call, Siri, an alarm, a full disk or a
+  dying media service can end a recording while your app is not calling anything. The recorder
+  notices, finalizes what it captured, and moves `state` to `RecorderState.Interrupted` (a playable
+  file, and why it ended) — or to `Failed(RecorderError.RecordingLost)` when the file could not be
+  finalized. A long recording stops being a silent loss: see "When the system ends a recording" in
+  [`03-guide.md`](03-guide.md#when-the-system-ends-a-recording).
 - **The signature tells you what can block.** *An operation that can touch the filesystem suspends;
   an operation that only moves recorder state does not.* So `prepare()`, `stop()`, and `cancel()`
   are `suspend`, and `start()`, `pause()`, and `resume()` are not — you never have to check the
@@ -69,14 +75,20 @@ to produce, so it is measured only while something collects `level` or `levelSam
 - **Not a background-recording service.** It does not hold a wake lock, post a foreground-service
   notification, or survive the process. Recording while the app is backgrounded is a platform
   problem with platform requirements (a foreground service on Android, an audio background mode on
-  iOS) that belong to the app, not to a library.
+  iOS) that belong to the app, not to a library. What it does is tell you when the system ended a
+  recording because of that — `Interrupted(MicrophoneSilenced)` on Android 10+,
+  `Interrupted(AudioSessionInterrupted)` on iOS.
+- **Not a resumer.** An interrupted recording is over. It is a finished segment, not a pause: the
+  recorder never resumes by itself when the call ends, and `resume()` is refused from
+  `Interrupted`. Prepare the next segment when the user is ready.
 - **Not multi-track or concurrent.** One recorder records one file at a time. Two simultaneous
   recordings mean two recorders, and the microphone will usually refuse the second.
 - **Not a transcoder.** `AudioFormat` picks what the platform encoder can produce. It does not
   convert an existing file, and it does not fake a format the platform lacks: asking for WAV on
   Android returns `RecorderError.UnsupportedFormat` rather than writing AAC into a `.wav`.
-- **Not thread-safe.** Drive one recorder from one thread. It is a wrapper around native objects
-  that are not thread-safe either.
+- **Not safe to call from several threads.** Drive one recorder from one thread — your calls are not
+  synchronized against each other. Events the system raises arrive on platform threads and are
+  serialized with your calls internally, so you do not synchronize anything for them.
 - **Not self-releasing.** Native handles are freed when you call `release()`, and at no other time.
   Nothing here is garbage-collected for you. `release()` is also the one operation that breaks the
   suspend rule above: it has to be callable from `onCleared`, `doOnDestroy`, or `deinit`, which are

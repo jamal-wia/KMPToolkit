@@ -2,10 +2,13 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 
 /**
@@ -41,7 +44,14 @@ class RecorderTransitionTableTest {
             RecorderOperation.CANCEL,
         ),
         "Completed" to setOf(RecorderOperation.PREPARE),
+        "Interrupted" to setOf(
+            RecorderOperation.PREPARE,
+            RecorderOperation.STOP,
+            RecorderOperation.CANCEL,
+        ),
         "Failed" to setOf(RecorderOperation.PREPARE),
+        // A Failed that left a file behind: cancel deletes it.
+        "FailedWithFile" to setOf(RecorderOperation.PREPARE, RecorderOperation.CANCEL),
         "Released" to emptySet(),
     )
 
@@ -78,6 +88,39 @@ class RecorderTransitionTableTest {
     }
 
     @Test
+    fun `illegal operations from interrupted are refused`() =
+        assertRefusalsFrom("Interrupted") { fixture ->
+            fixture.recording()
+            fixture.engine.emit(EngineEvent.Interrupted(InterruptionReason.EngineDied()))
+            runCurrent()
+            assertTrue(fixture.recorder.state.value is RecorderState.Interrupted)
+        }
+
+    @Test
+    fun `illegal operations from a failed state that left a file are refused`() =
+        assertRefusalsFrom("FailedWithFile") { fixture ->
+            fixture.recording()
+            fixture.engine.failures[RecorderOperation.STOP] = IllegalStateException("encoder died")
+            fixture.recorder.stop()
+            fixture.engine.failures.clear()
+            assertNotNull(fixture.recorder.state.value.outputPath)
+        }
+
+    @Test
+    fun `cancel from a failed state without a file is still illegal`() = runRecorderTest { fixture ->
+        fixture.engine.permissionGranted = false
+        fixture.recorder.prepare()
+        val failed: RecorderState = fixture.recorder.state.value
+        assertTrue(failed is RecorderState.Failed && failed.outputPath == null)
+
+        assertEquals(
+            RecorderError.IllegalState(failed, RecorderOperation.CANCEL),
+            fixture.recorder.cancel().errorOrNull(),
+        )
+        assertEquals(failed, fixture.recorder.state.value)
+    }
+
+    @Test
     fun `illegal operations while preparing are refused`() = runRecorderTest { fixture ->
         val gate = CompletableDeferred<Unit>()
         fixture.engine.prepareGate = gate
@@ -108,7 +151,7 @@ class RecorderTransitionTableTest {
 
     private fun assertRefusalsFrom(
         stateName: String,
-        arrange: suspend (RecorderFixture) -> Unit,
+        arrange: suspend TestScope.(RecorderFixture) -> Unit,
     ) = runRecorderTest { fixture ->
         arrange(fixture)
 

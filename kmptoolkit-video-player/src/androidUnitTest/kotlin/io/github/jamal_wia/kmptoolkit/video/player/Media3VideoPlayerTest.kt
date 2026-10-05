@@ -5,14 +5,11 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.Media3TestSupport.SOURCE_DURATION_MS
 import io.github.jamal_wia.kmptoolkit.video.player.Media3TestSupport.newEngine
 import io.github.jamal_wia.kmptoolkit.video.player.Media3TestSupport.runMainLooperUntil
 import io.github.jamal_wia.kmptoolkit.video.player.Media3TestSupport.runSuspending
-import kotlinx.coroutines.Dispatchers
-import org.junit.After
-import org.junit.runner.RunWith
-import org.robolectric.shadows.ShadowLooper
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -20,6 +17,10 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlinx.coroutines.Dispatchers
+import org.junit.After
+import org.junit.runner.RunWith
+import org.robolectric.shadows.ShadowLooper
 
 /**
  * The shared state machine over the real Media3 engine: the path an Android app takes, end to end,

@@ -25,6 +25,9 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            // implementation: the state-machine lock is an internal detail; nothing in the public
+            // API mentions kmptoolkit-core.
+            implementation(project(":kmptoolkit-core"))
             // api, not implementation: AudioPlayer exposes StateFlow in its own signatures, and
             // createAudioPlayer takes a CoroutineContext, so consumers need coroutines-core on
             // their compile classpath.

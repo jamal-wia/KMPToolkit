@@ -18,9 +18,6 @@ public final class io/github/jamal_wia/kmptoolkit/video/player/RepeatMode : java
 public abstract interface annotation class io/github/jamal_wia/kmptoolkit/video/player/ToolkitInheritanceApi : java/lang/annotation/Annotation {
 }
 
-public abstract interface annotation class io/github/jamal_wia/kmptoolkit/video/player/ToolkitInternalApi : java/lang/annotation/Annotation {
-}
-
 public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/VideoPlaybackEngine {
 	public abstract fun bufferedPositionMs ()J
 	public fun dispose ()V

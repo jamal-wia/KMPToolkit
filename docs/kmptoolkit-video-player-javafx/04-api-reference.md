@@ -96,6 +96,6 @@ may be credentials).
 
 ## Cross-module internals
 
-The engine implements the core module's `@ToolkitInternalApi` `VideoFrameSource`, which is how
+The engine implements `kmptoolkit-video-player`'s `@ToolkitInternalApi` `VideoFrameSource`, which is how
 `kmptoolkit-video-player-compose` finds its frames through `VideoPlayer.frameSourceOrNull()`. That is
 not public API of either module; do not rely on it from app code.

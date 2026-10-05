@@ -39,7 +39,7 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-video-player-compose` | Compose surface (`VideoPlayerSurface`) and a `VideoPlayer` with ready-made controls whose every part can be replaced or restyled. Also publishes `jvm` | `video-player` | Available | [docs](docs/kmptoolkit-video-player-compose/01-overview.md) |
 | `kmptoolkit-video-player-vlcj` | Desktop (JVM-only) video engine on VLCJ — any format VLC plays. VLCJ is **GPL-3**; VLC must be installed | `video-player` | Available | [docs](docs/kmptoolkit-video-player-vlcj/01-overview.md) |
 | `kmptoolkit-video-player-javafx` | Desktop (JVM-only) video engine on JavaFX Media — nothing to install, fewer formats. OpenJFX is GPL-2 + Classpath Exception | `video-player` | Available | [docs](docs/kmptoolkit-video-player-javafx/01-overview.md) |
-| `kmptoolkit-audio-recorder` | Audio recording (`MediaRecorder` / `AVAudioRecorder`), live input level for a waveform, typed errors instead of throws | — | Available | [docs](docs/kmptoolkit-audio-recorder/01-overview.md) |
+| `kmptoolkit-audio-recorder` | Audio recording (`MediaRecorder` / `AVAudioRecorder`), live input level for a waveform, typed errors instead of throws, and an `Interrupted` state when the system ends a recording (call, silenced microphone, full disk, dead media service) | — | Available | [docs](docs/kmptoolkit-audio-recorder/01-overview.md) |
 | `kmptoolkit-audio-recorder-testing` | `FakeAudioRecorder`, for `testImplementation` | `audio-recorder` | Available | [docs](docs/kmptoolkit-audio-recorder/06-testing.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Available | [docs](docs/kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
@@ -70,6 +70,14 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-language` | App language selection (`AppLanguageHolder`), a supported-language catalog you populate, and the platform-locale side effect — including the Android `Application` wiring that keeps a chosen language from reverting. Also publishes `jvm`, for code shared with desktop | — | Available | [docs](docs/kmptoolkit-language/01-overview.md) |
 | `kmptoolkit-language-compose` | Compose wiring (`AppLocale`, `mirrorOnRtl`/`mirrorOnLtr`) for `kmptoolkit-language`. Also publishes `jvm` | `language` | Available | [docs](docs/kmptoolkit-language-compose/01-overview.md) |
 | `kmptoolkit-hijri` | Umm al-Qura date conversion: `LocalDate.toHijriDate()`. Also publishes `jvm` | — | Available | [docs](docs/kmptoolkit-hijri/01-overview.md) |
+
+### Internal support artifacts
+
+`kmptoolkit-core` (Android, iOS, `jvm`) is published and on the BOM but is not in the table above:
+it is an internal support artifact holding what several modules share (`@ToolkitInternalApi` and the
+`StateMachineLock` the players and the recorder use). Modules pull it in transitively — do not
+depend on it directly, and expect no compatibility promise from it. See
+[`docs/kmptoolkit-core/`](docs/kmptoolkit-core/01-overview.md).
 
 See [`docs/README.md`](docs/README.md) for the full documentation index and the recommended reading
 order.

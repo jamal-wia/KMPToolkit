@@ -19,6 +19,7 @@ class RecorderStateExtensionsTest {
         RecorderState.Recording("/tmp/a.m4a"),
         RecorderState.Paused("/tmp/a.m4a", 1.seconds),
         RecorderState.Completed(recorded),
+        RecorderState.Interrupted(recorded, InterruptionReason.StorageLow),
         RecorderState.Failed(RecorderError.PermissionDenied),
         RecorderState.Released,
     )
@@ -49,6 +50,25 @@ class RecorderStateExtensionsTest {
         assertEquals("/tmp/a.m4a", RecorderState.Recording("/tmp/a.m4a").outputPath)
         assertEquals("/tmp/a.m4a", RecorderState.Paused("/tmp/a.m4a", 1.seconds).outputPath)
         assertEquals("/tmp/a.m4a", RecorderState.Completed(recorded).outputPath)
+        assertEquals(
+            "/tmp/a.m4a",
+            RecorderState.Interrupted(recorded, InterruptionReason.AudioSessionInterrupted).outputPath,
+        )
+        assertEquals(
+            "/tmp/a.m4a",
+            RecorderState.Failed(
+                RecorderError.RecordingLost(InterruptionReason.EngineDied(3)),
+                outputPath = "/tmp/a.m4a",
+            ).outputPath,
+        )
+    }
+
+    @Test
+    fun `an interrupted recording holds a closed file so it is not active`() {
+        val interrupted = RecorderState.Interrupted(recorded, InterruptionReason.MicrophoneSilenced)
+
+        assertFalse(interrupted.isActive)
+        assertFalse(interrupted.isRecording)
     }
 
     @Test

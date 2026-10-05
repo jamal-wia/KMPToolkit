@@ -32,6 +32,10 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            // api: ToolkitInternalApi marks public declarations of this module (the factories, the
+            // frame source) that kmptoolkit-video-player-compose and the desktop engines opt in to,
+            // so their compile classpath needs the marker without declaring this module again.
+            api(project(":kmptoolkit-core"))
             // api: VideoPlayer exposes StateFlow in its own signatures.
             api(libs.kotlinx.coroutines.core)
         }

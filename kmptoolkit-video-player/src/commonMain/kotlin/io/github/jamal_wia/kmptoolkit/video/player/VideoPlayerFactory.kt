@@ -9,7 +9,8 @@ import kotlinx.coroutines.Dispatchers
  * from its own [VideoPlayer.release]. One engine per player.
  *
  * @param coroutineContext hosts the position-polling coroutine only; pass a `TestDispatcher` to make
- *   polling deterministic in tests.
+ *   polling deterministic in tests. A [kotlinx.coroutines.Job] in it is ignored: the player runs under
+ *   a job of its own, so releasing it never cancels a job that belongs to the caller.
  */
 public fun createVideoPlayer(
     engine: VideoPlaybackEngine,

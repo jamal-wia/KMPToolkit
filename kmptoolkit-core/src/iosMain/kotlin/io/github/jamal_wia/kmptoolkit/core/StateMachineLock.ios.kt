@@ -1,8 +1,9 @@
-package io.github.jamal_wia.kmptoolkit.audio.player
+package io.github.jamal_wia.kmptoolkit.core
 
 import platform.Foundation.NSRecursiveLock
 
-internal actual fun newReentrantLock(): ReentrantLockHandle = object : ReentrantLockHandle {
+@ToolkitInternalApi
+public actual fun newReentrantLock(): ReentrantLockHandle = object : ReentrantLockHandle {
     private val delegate: NSRecursiveLock = NSRecursiveLock()
 
     override fun lock() = delegate.lock()

@@ -1,6 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
-import io.github.jamal_wia.kmptoolkit.video.player.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoFrame
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import javafx.animation.AnimationTimer
