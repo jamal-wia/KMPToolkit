@@ -39,15 +39,24 @@ public expect fun newReentrantLock(): ReentrantLockHandle
  * that transition finishes, before the outermost call returns. The event therefore lands on the state
  * the transition wrote, rather than being overwritten by the rest of it.
  *
+ * ### Exceptions
+ *
  * Queued actions run in the order they were queued. When one throws, the ones behind it still run;
  * the first failure is then rethrown by whichever call drained the queue, with later failures
- * attached as suppressed exceptions.
+ * attached as suppressed exceptions. That call is whichever thread happens to hold the lock last —
+ * not the one that submitted the action — so a failing action surfaces on an unrelated thread:
+ * an action handed to [submit] must not throw.
+ *
+ * When the block of [exclusive] itself throws, that exception is the one the caller gets, even if
+ * draining the queue on the way out throws too: the queue's failure is attached to it as a
+ * suppressed exception instead of replacing it.
  */
 @ToolkitInternalApi
 @OptIn(ExperimentalAtomicApi::class)
-public class StateMachineLock {
+public class StateMachineLock internal constructor(private val lock: ReentrantLockHandle) {
 
-    private val lock: ReentrantLockHandle = newReentrantLock()
+    /** A lock backed by the platform's own reentrant lock. */
+    public constructor() : this(newReentrantLock())
 
     /** How deep the holding thread is in [exclusive] sections or queued actions. Guarded by [lock]. */
     private var depth: Int = 0
@@ -57,18 +66,41 @@ public class StateMachineLock {
 
     /** Runs [block] holding the lock, waiting for it if necessary, then runs whatever was queued meanwhile. */
     public fun <T> exclusive(block: () -> T): T {
+        var failure: Throwable? = null
         lock.lock()
         try {
             depth++
-            try {
-                return block()
-            } finally {
+            val result: T = try {
+                block()
+            } catch (@Suppress("TooGenericExceptionCaught") thrown: Throwable) {
+                failure = thrown
                 depth--
-                if (depth == 0) runQueued()
+                if (depth == 0) drainKeeping(thrown)
+                throw thrown
             }
+            depth--
+            if (depth == 0) runQueued()
+            return result
         } finally {
             lock.unlock()
-            drainIfFree()
+            try {
+                drainIfFree()
+            } catch (@Suppress("TooGenericExceptionCaught") drained: Throwable) {
+                // The block's own exception wins; only when there is none does a queue failure
+                // become the call's.
+                val original: Throwable? = failure
+                if (original == null) throw drained
+                if (original !== drained) original.addSuppressed(drained)
+            }
+        }
+    }
+
+    /** Lock held, depth 0. Drains the queue on behalf of a block that already threw [primary]. */
+    private fun drainKeeping(primary: Throwable) {
+        try {
+            runQueued()
+        } catch (@Suppress("TooGenericExceptionCaught") queued: Throwable) {
+            if (queued !== primary) primary.addSuppressed(queued)
         }
     }
 

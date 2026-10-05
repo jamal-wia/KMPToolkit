@@ -15,10 +15,12 @@ import kotlin.test.fail
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 
@@ -202,7 +204,83 @@ class StateMachineLockTest {
         assertTrue(ran, "an action queued before the block failed must not be stranded")
     }
 
+    @Test
+    fun `a failing queued action does not replace the exception of the block`() {
+        val lock = StateMachineLock()
+        val fromBlock = IllegalStateException("block")
+        val fromQueue = IllegalArgumentException("queued")
+
+        val thrown: IllegalStateException = assertFailsWith<IllegalStateException> {
+            lock.exclusive {
+                lock.submit { throw fromQueue }
+                throw fromBlock
+            }
+        }
+
+        assertSame(fromBlock, thrown, "the caller must see what its own block threw")
+        assertEquals(listOf<Throwable>(fromQueue), thrown.suppressedExceptions)
+        assertEquals(1, lock.exclusive { 1 }, "the lock must be released and usable afterwards")
+    }
+
+    @Test
+    fun `a block that throws the very exception a queued action throws is not suppressed into itself`() {
+        val lock = StateMachineLock()
+        val shared = IllegalStateException("same instance")
+
+        val thrown: IllegalStateException = assertFailsWith<IllegalStateException> {
+            lock.exclusive {
+                lock.submit { throw shared }
+                throw shared
+            }
+        }
+
+        assertSame(shared, thrown)
+        assertTrue(thrown.suppressedExceptions.isEmpty())
+    }
+
     // --- Several threads ---
+
+    /** A lock handle that runs [beforeUnlock] once, right before the real unlock, still holding the lock. */
+    private class HookedLock(private val delegate: ReentrantLockHandle = newReentrantLock()) : ReentrantLockHandle {
+        var beforeUnlock: (() -> Unit)? = null
+
+        override fun lock() = delegate.lock()
+
+        override fun tryLock(): Boolean = delegate.tryLock()
+
+        override fun unlock() {
+            val hook: (() -> Unit)? = beforeUnlock
+            beforeUnlock = null
+            hook?.invoke()
+            delegate.unlock()
+        }
+    }
+
+    @Test
+    fun `an action submitted from another thread while the holder is letting go still runs`() = runTest {
+        val hooked = HookedLock()
+        val lock = StateMachineLock(hooked)
+        val ran = AtomicBoolean(false)
+        val submitted = AtomicBoolean(false)
+
+        withContext(Dispatchers.Default) {
+            val scope: CoroutineScope = this
+            hooked.beforeUnlock = {
+                // The holder has emptied the queue and is about to unlock. Another thread submits
+                // now: it cannot take the lock, so it can only queue — and nobody is left to run it
+                // unless the holder looks again after unlocking.
+                scope.launch { lock.submit { ran.store(true) }; submitted.store(true) }
+                val deadline: TimeSource.Monotonic.ValueTimeMark = TimeSource.Monotonic.markNow() + 10.seconds
+                while (!submitted.load()) {
+                    if (deadline.hasPassedNow()) fail("the other thread never finished submitting")
+                }
+            }
+
+            lock.exclusive { }
+        }
+
+        assertTrue(ran.load(), "an action queued while the holder was unlocking was stranded")
+    }
 
     @Test
     fun `submit from another thread while the lock is held is queued and runs before exclusive returns`() = runTest {
@@ -306,6 +384,7 @@ class StateMachineLockTest {
         assertEquals(workers * rounds, exclusiveRuns + submitRuns, "an action was lost or run twice")
         assertEquals(workers * rounds / 2, exclusiveRuns)
         assertEquals(workers * rounds / 2, submitRuns)
+        assertEquals(1, maxInside.load(), "at most one action may ever be inside, and one must have been")
     }
 
     private inline fun spinUntil(what: String, condition: () -> Boolean) {
