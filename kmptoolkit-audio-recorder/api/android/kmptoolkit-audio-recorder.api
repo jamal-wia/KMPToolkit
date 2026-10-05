@@ -73,6 +73,43 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderFa
 	public static synthetic fun createAudioRecorder$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorderConfig;Lkotlin/coroutines/CoroutineContext;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioRecorder;
 }
 
+public abstract interface class io/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$AudioSessionInterrupted : io/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$AudioSessionInterrupted;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$EngineDied : io/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/Integer;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$EngineDied;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$EngineDied;Ljava/lang/Integer;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$EngineDied;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPlatformCode ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$MicrophoneSilenced : io/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$MicrophoneSilenced;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$StorageLow : io/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason$StorageLow;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile {
 	public synthetic fun <init> (Ljava/lang/String;JLkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
@@ -163,6 +200,20 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$P
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$RecordingLost : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;Ljava/lang/Throwable;)V
+	public synthetic fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;Ljava/lang/Throwable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;
+	public final fun component2 ()Ljava/lang/Throwable;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;Ljava/lang/Throwable;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$RecordingLost;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$RecordingLost;Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;Ljava/lang/Throwable;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$RecordingLost;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCause ()Ljava/lang/Throwable;
+	public final fun getReason ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError$UnsupportedFormat : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderError {
 	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;)V
 	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/AudioFormat;
@@ -248,6 +299,19 @@ public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$F
 public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Idle : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Idle;
 	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Interrupted : io/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;
+	public final fun component2 ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Interrupted;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Interrupted;Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecorderState$Interrupted;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getReason ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/InterruptionReason;
+	public final fun getRecording ()Lio/github/jamal_wia/kmptoolkit/audio/recorder/RecordedFile;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

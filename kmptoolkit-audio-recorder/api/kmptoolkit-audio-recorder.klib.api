@@ -82,6 +82,39 @@ sealed interface <#A: out kotlin/Any?> io.github.jamal_wia.kmptoolkit.audio.reco
     }
 }
 
+sealed interface io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason { // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason|null[0]
+    final class EngineDied : io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason { // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied|null[0]
+        constructor <init>(kotlin/Int? = ...) // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied.<init>|<init>(kotlin.Int?){}[0]
+
+        final val platformCode // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied.platformCode|{}platformCode[0]
+            final fun <get-platformCode>(): kotlin/Int? // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied.platformCode.<get-platformCode>|<get-platformCode>(){}[0]
+
+        final fun component1(): kotlin/Int? // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied.component1|component1(){}[0]
+        final fun copy(kotlin/Int? = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied.copy|copy(kotlin.Int?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.EngineDied.toString|toString(){}[0]
+    }
+
+    final object AudioSessionInterrupted : io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason { // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.AudioSessionInterrupted|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.AudioSessionInterrupted.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.AudioSessionInterrupted.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.AudioSessionInterrupted.toString|toString(){}[0]
+    }
+
+    final object MicrophoneSilenced : io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason { // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.MicrophoneSilenced|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.MicrophoneSilenced.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.MicrophoneSilenced.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.MicrophoneSilenced.toString|toString(){}[0]
+    }
+
+    final object StorageLow : io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason { // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.StorageLow|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.StorageLow.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.StorageLow.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason.StorageLow.toString|toString(){}[0]
+    }
+}
+
 sealed interface io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError|null[0]
     final class AlreadyReleased : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased|null[0]
         constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderOperation) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.AlreadyReleased.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation){}[0]
@@ -163,6 +196,22 @@ sealed interface io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { /
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.InsufficientStorage.toString|toString(){}[0]
     }
 
+    final class RecordingLost : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason, kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.InterruptionReason;kotlin.Throwable?){}[0]
+
+        final val cause // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.cause.<get-cause>|<get-cause>(){}[0]
+        final val reason // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.reason|{}reason[0]
+            final fun <get-reason>(): io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.reason.<get-reason>|<get-reason>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.component1|component1(){}[0]
+        final fun component2(): kotlin/Throwable? // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.component2|component2(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason = ..., kotlin/Throwable? = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.InterruptionReason;kotlin.Throwable?){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.RecordingLost.toString|toString(){}[0]
+    }
+
     final class UnsupportedFormat : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat|null[0]
         constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/AudioFormat) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderError.UnsupportedFormat.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.AudioFormat){}[0]
 
@@ -211,6 +260,22 @@ sealed interface io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { /
         final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.equals|equals(kotlin.Any?){}[0]
         final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.hashCode|hashCode(){}[0]
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Failed.toString|toString(){}[0]
+    }
+
+    final class Interrupted : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted|null[0]
+        constructor <init>(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile, io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason) // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.<init>|<init>(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordedFile;io.github.jamal_wia.kmptoolkit.audio.recorder.InterruptionReason){}[0]
+
+        final val reason // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.reason|{}reason[0]
+            final fun <get-reason>(): io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.reason.<get-reason>|<get-reason>(){}[0]
+        final val recording // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.recording|{}recording[0]
+            final fun <get-recording>(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.recording.<get-recording>|<get-recording>(){}[0]
+
+        final fun component1(): io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.component1|component1(){}[0]
+        final fun component2(): io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.component2|component2(){}[0]
+        final fun copy(io.github.jamal_wia.kmptoolkit.audio.recorder/RecordedFile = ..., io.github.jamal_wia.kmptoolkit.audio.recorder/InterruptionReason = ...): io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.copy|copy(io.github.jamal_wia.kmptoolkit.audio.recorder.RecordedFile;io.github.jamal_wia.kmptoolkit.audio.recorder.InterruptionReason){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Interrupted.toString|toString(){}[0]
     }
 
     final class Paused : io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState { // io.github.jamal_wia.kmptoolkit.audio.recorder/RecorderState.Paused|null[0]

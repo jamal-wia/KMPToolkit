@@ -64,14 +64,30 @@ public sealed interface RecorderError {
      * platform gave one — `null` when the platform API reports failure by returning `false` rather
      * than throwing, which `AVAudioRecorder` does.
      *
-     * This is always the result of a call *you* made. A failure that happens on its own
-     * mid-recording — the microphone taken by a phone call, the media server dying — is **not**
-     * pushed here; it surfaces at the next operation, usually [RecorderOperation.STOP]. See
-     * `docs/kmptoolkit-audio-recorder/05-platform-notes.md` for why, and for what to observe
-     * yourself if you need to react while it happens.
+     * This is always the result of a call *you* made. A recording the system ends on its own — the
+     * microphone taken by a phone call, the media server dying — is reported through
+     * [RecorderState.Interrupted] (the file was finalized) or [RecordingLost] (it was not), never
+     * through this case. See `docs/kmptoolkit-audio-recorder/05-platform-notes.md`.
      */
     public data class EngineFailure(
         public val operation: RecorderOperation,
+        public val cause: Throwable? = null,
+    ) : RecorderError
+
+    /**
+     * The recording was ended by the system for [reason] and the file could **not** be finalized.
+     * [cause] is the finalize failure where there was one. Never the answer to one of your own
+     * calls — see [EngineFailure] for those.
+     *
+     * The file is kept: [RecorderState.Failed.outputPath] names it. It may be unplayable — an
+     * unfinalized MPEG-4 (M4A) file usually is, because its index is written at the end; an AAC
+     * (ADTS) file usually plays, because every frame stands alone. Offer it to the user rather than
+     * deleting it, or throw it away with [AudioRecorder.cancel]. For a recording that was only
+     * prepared and never started there is no audio to keep: the empty file is deleted and the path
+     * is `null`.
+     */
+    public data class RecordingLost(
+        public val reason: InterruptionReason,
         public val cause: Throwable? = null,
     ) : RecorderError
 }
