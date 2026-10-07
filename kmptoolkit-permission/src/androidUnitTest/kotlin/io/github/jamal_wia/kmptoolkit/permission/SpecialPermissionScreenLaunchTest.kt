@@ -102,6 +102,7 @@ class SpecialPermissionScreenLaunchTest {
             SpecialPermission.WRITE_SETTINGS to Settings.ACTION_MANAGE_WRITE_SETTINGS,
             SpecialPermission.ALL_FILES_ACCESS to Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION,
             SpecialPermission.IGNORE_BATTERY_OPTIMIZATIONS to Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+            SpecialPermission.INSTALL_UNKNOWN_APPS to Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
         )
         // Only the generic lists exist on this "device": a filter without a data scheme does not
         // match an intent that carries a package: URI.
@@ -308,6 +309,73 @@ class SpecialPermissionScreenLaunchTest {
         )
     }
 
+    @Test
+    @Config(sdk = [25])
+    fun `on API 25 installing unknown apps opens the device-wide switch on the security screen`() {
+        assertEquals(listOf(Screen(Settings.ACTION_SECURITY_SETTINGS)), candidatesFor(SpecialPermission.INSTALL_UNKNOWN_APPS))
+    }
+
+    @Test
+    @Config(sdk = [26])
+    fun `on API 26 installing unknown apps has this app's page then the generic one`() {
+        assertEquals(
+            listOf(
+                Screen(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, thisPackage()),
+                Screen(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES),
+            ),
+            candidatesFor(SpecialPermission.INSTALL_UNKNOWN_APPS),
+        )
+    }
+
+    @Test
+    @Config(sdk = [29])
+    fun `on API 29 media management full-screen intents and unused-app exemption never reach the launcher`() {
+        val requests: MutableList<SystemScreenRequest> = mutableListOf()
+        val handler: SpecialPermissionHandler =
+            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { requests += it; true })
+
+        assertFalse(handler.requestViaSettings(SpecialPermission.MEDIA_MANAGEMENT))
+        assertFalse(handler.requestViaSettings(SpecialPermission.FULL_SCREEN_INTENT))
+        assertFalse(handler.requestViaSettings(SpecialPermission.KEEP_PERMISSIONS_WHEN_UNUSED))
+
+        assertEquals(emptyList(), requests)
+    }
+
+    @Test
+    @Config(sdk = [30])
+    fun `on API 30 the unused-app exemption has this app's page and media management still has nothing`() {
+        assertEquals(
+            listOf(Screen(Intent.ACTION_AUTO_REVOKE_PERMISSIONS, thisPackage())),
+            candidatesFor(SpecialPermission.KEEP_PERMISSIONS_WHEN_UNUSED),
+        )
+        assertFalse(
+            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { true })
+                .requestViaSettings(SpecialPermission.MEDIA_MANAGEMENT),
+        )
+    }
+
+    @Test
+    @Config(sdk = [31])
+    fun `on API 31 media management has this app's page and full-screen intents still have nothing`() {
+        assertEquals(
+            listOf(Screen(Settings.ACTION_REQUEST_MANAGE_MEDIA, thisPackage())),
+            candidatesFor(SpecialPermission.MEDIA_MANAGEMENT),
+        )
+        assertFalse(
+            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { true })
+                .requestViaSettings(SpecialPermission.FULL_SCREEN_INTENT),
+        )
+    }
+
+    @Test
+    @Config(sdk = [34])
+    fun `on API 34 full-screen intents have this app's page`() {
+        assertEquals(
+            listOf(Screen(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, thisPackage())),
+            candidatesFor(SpecialPermission.FULL_SCREEN_INTENT),
+        )
+    }
+
     // --- the factories as values ---
 
     @Test
@@ -397,6 +465,17 @@ class SpecialPermissionScreenLaunchTest {
 
         SpecialPermission.NOTIFICATION_LISTENER_ACCESS -> listOf(Screen(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         SpecialPermission.DO_NOT_DISTURB_ACCESS -> listOf(Screen(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+        SpecialPermission.MEDIA_MANAGEMENT -> listOf(Screen(Settings.ACTION_REQUEST_MANAGE_MEDIA, thisPackage()))
+        SpecialPermission.INSTALL_UNKNOWN_APPS -> listOf(
+            Screen(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, thisPackage()),
+            Screen(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES),
+        )
+
+        SpecialPermission.FULL_SCREEN_INTENT ->
+            listOf(Screen(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, thisPackage()))
+
+        SpecialPermission.KEEP_PERMISSIONS_WHEN_UNUSED ->
+            listOf(Screen(Intent.ACTION_AUTO_REVOKE_PERMISSIONS, thisPackage()))
     }
 
     /** Makes [action] resolvable, with or without a `package:` URI, for `checkActivities(true)`. */

@@ -163,7 +163,11 @@ public final class io/github/jamal_wia/kmptoolkit/permission/SpecialPermission :
 	public static final field ALL_FILES_ACCESS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
 	public static final field DO_NOT_DISTURB_ACCESS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
 	public static final field EXACT_ALARM Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field FULL_SCREEN_INTENT Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
 	public static final field IGNORE_BATTERY_OPTIMIZATIONS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field INSTALL_UNKNOWN_APPS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field KEEP_PERMISSIONS_WHEN_UNUSED Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
+	public static final field MEDIA_MANAGEMENT Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
 	public static final field NOTIFICATION_LISTENER_ACCESS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
 	public static final field OVERLAY Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;
 	public static final field USAGE_STATS_ACCESS Lio/github/jamal_wia/kmptoolkit/permission/SpecialPermission;

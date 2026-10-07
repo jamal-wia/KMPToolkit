@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
 import android.os.Process
+import android.provider.MediaStore
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenKind
@@ -53,7 +54,9 @@ public fun createSpecialPermissionHandler(
  * most specific first, without launch flags — currently the screen for this app, then the generic
  * list of the same permission where the platform has one. A launcher that returns `false` or throws
  * makes `requestViaSettings` return `false`, and is logged. An entry that has nothing to open on this
- * API level (`EXACT_ALARM` below API 31, `ALL_FILES_ACCESS` below API 30) never reaches the launcher.
+ * API level (`EXACT_ALARM` and `MEDIA_MANAGEMENT` below API 31, `ALL_FILES_ACCESS` and
+ * `KEEP_PERMISSIONS_WHEN_UNUSED` below API 30, `FULL_SCREEN_INTENT` below API 34) never reaches the
+ * launcher.
  *
  * @param context any `Context`; its application context is what gets retained.
  * @param systemScreenLauncher decides how, and in which task, each Settings screen opens.
@@ -102,7 +105,7 @@ public class SpecialPermissionScreen(
  *
  * [SpecialPermission.EXACT_ALARM] maps to `SCHEDULE_EXACT_ALARM`: granted-check via
  * [AlarmManager.canScheduleExactAlarms] (API 31+, always granted below); "request" opens the system
- * exact-alarm screen ([Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM]). The other seven entries follow
+ * exact-alarm screen ([Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM]). The other entries follow
  * the same granted-check-plus-Settings-screen shape, one platform API each.
  *
  * Every screen is opened through [launcher], once per request, with intents that carry no launch
@@ -123,6 +126,10 @@ internal class AndroidSpecialPermissionHandler(
         SpecialPermission.IGNORE_BATTERY_OPTIMIZATIONS -> isIgnoringBatteryOptimizations()
         SpecialPermission.NOTIFICATION_LISTENER_ACCESS -> isNotificationListenerEnabled()
         SpecialPermission.DO_NOT_DISTURB_ACCESS -> isNotificationPolicyAccessGranted()
+        SpecialPermission.MEDIA_MANAGEMENT -> canManageMedia()
+        SpecialPermission.INSTALL_UNKNOWN_APPS -> canInstallUnknownApps()
+        SpecialPermission.FULL_SCREEN_INTENT -> canUseFullScreenIntent()
+        SpecialPermission.KEEP_PERMISSIONS_WHEN_UNUSED -> isExemptFromUnusedAppRestrictions()
     }
 
     override fun requestViaSettings(permission: SpecialPermission): Boolean {
@@ -186,6 +193,34 @@ internal class AndroidSpecialPermissionHandler(
         // or are system-only (Do Not Disturb).
         SpecialPermission.NOTIFICATION_LISTENER_ACCESS -> listOf(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         SpecialPermission.DO_NOT_DISTURB_ACCESS -> listOf(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+
+        // The next three have only this app's own page: each action requires the package: URI, and the
+        // platform has no public list action for them. Below the API level that adds the access there
+        // is nothing to grant and nothing to open.
+        SpecialPermission.MEDIA_MANAGEMENT -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            emptyList()
+        } else {
+            listOf(forThisPackage(Settings.ACTION_REQUEST_MANAGE_MEDIA))
+        }
+
+        SpecialPermission.FULL_SCREEN_INTENT -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            emptyList()
+        } else {
+            listOf(forThisPackage(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT))
+        }
+
+        SpecialPermission.KEEP_PERMISSIONS_WHEN_UNUSED -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            emptyList()
+        } else {
+            listOf(forThisPackage(Intent.ACTION_AUTO_REVOKE_PERMISSIONS))
+        }
+
+        // Below API 26 the switch is device-wide and lives on the security screen.
+        SpecialPermission.INSTALL_UNKNOWN_APPS -> if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            listOf(Intent(Settings.ACTION_SECURITY_SETTINGS))
+        } else {
+            listOf(forThisPackage(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES), Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES))
+        }
     }
 
     /** [action] for this app, then [action] alone — for the screens whose package URI is optional. */
@@ -237,4 +272,24 @@ internal class AndroidSpecialPermissionHandler(
             context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         return notificationManager?.isNotificationPolicyAccessGranted ?: false
     }
+
+    private fun canManageMedia(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S || MediaStore.canManageMedia(context)
+
+    private fun canInstallUnknownApps(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) return context.packageManager.canRequestPackageInstalls()
+        // The device-wide switch, the only one there is below API 26.
+        @Suppress("DEPRECATION")
+        return Settings.Secure.getInt(context.contentResolver, Settings.Secure.INSTALL_NON_MARKET_APPS, 0) == 1
+    }
+
+    private fun canUseFullScreenIntent(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true
+        val notificationManager: NotificationManager? =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        return notificationManager?.canUseFullScreenIntent() ?: false
+    }
+
+    private fun isExemptFromUnusedAppRestrictions(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.R || context.packageManager.isAutoRevokeWhitelisted
 }
