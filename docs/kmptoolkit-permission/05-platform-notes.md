@@ -300,12 +300,23 @@ you, the same rule as every runtime `Permission`.
 | `IGNORE_BATTERY_OPTIMIZATIONS` | `PowerManager.isIgnoringBatteryOptimizations()` | `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with `package:` (a dialog), then `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` |
 | `NOTIFICATION_LISTENER_ACCESS` | `NotificationManagerCompat.getEnabledListenerPackages()` | `ACTION_NOTIFICATION_LISTENER_SETTINGS` |
 | `DO_NOT_DISTURB_ACCESS` | `NotificationManager.isNotificationPolicyAccessGranted` | `ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS` |
+| `MEDIA_MANAGEMENT` (2.2.1) | `MediaStore.canManageMedia()` (API 31+; always granted below) | `ACTION_REQUEST_MANAGE_MEDIA` with `package:` |
+| `INSTALL_UNKNOWN_APPS` (2.2.1) | `PackageManager.canRequestPackageInstalls()` (API 26+); below it the device-wide `Settings.Secure.INSTALL_NON_MARKET_APPS` | `ACTION_MANAGE_UNKNOWN_APP_SOURCES` with `package:`, then without; below API 26 `ACTION_SECURITY_SETTINGS` |
+| `FULL_SCREEN_INTENT` (2.2.1) | `NotificationManager.canUseFullScreenIntent()` (API 34+; always granted below) | `ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` with `package:` |
+| `KEEP_PERMISSIONS_WHEN_UNUSED` (2.2.1) | `PackageManager.isAutoRevokeWhitelisted` (API 30+; always granted below) | `Intent.ACTION_AUTO_REVOKE_PERMISSIONS` with `package:` |
 
 `NOTIFICATION_LISTENER_ACCESS` additionally needs a manifest-declared listener `<service>` of your
 own, bound with `BIND_NOTIFICATION_LISTENER_SERVICE` — this module only reports and redirects to the
 toggle, it does not declare or implement the listener service itself.
 
-All eight are always granted, with nothing to open, on iOS — none of them name a concept that exists
+`MEDIA_MANAGEMENT`, `INSTALL_UNKNOWN_APPS` and `FULL_SCREEN_INTENT` can only be granted to an app
+whose manifest declares `MANAGE_MEDIA`, `REQUEST_INSTALL_PACKAGES` and `USE_FULL_SCREEN_INTENT`
+respectively; without the declaration they report not granted (and `FULL_SCREEN_INTENT` below API 34
+grants nothing either). `KEEP_PERMISSIONS_WHEN_UNUSED` needs no declaration. Its switch is the one
+labelled "Pause app activity if unused" or "Remove permissions if app is unused", depending on the
+Android version; the access is granted while that switch is off.
+
+All twelve are always granted, with nothing to open, on iOS — none of them name a concept that exists
 there.
 
 ### How the screens open
@@ -333,7 +344,13 @@ away from the toggle. Only public platform actions are used, at the API levels t
   (`ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS`) or are system-only
   (`ACTION_NOTIFICATION_POLICY_ACCESS_DETAIL_SETTINGS`).
 
-`EXACT_ALARM` below API 31 and `ALL_FILES_ACCESS` below API 30 have nothing to open:
+- Media management, full-screen intents and the unused-app exemption have one candidate, this app's
+  own page: each of those actions requires the `package:` URI, and the platform has no public list
+  action for them. Installing unknown apps has a list (`ACTION_MANAGE_UNKNOWN_APP_SOURCES` without the
+  URI); below API 26 the switch is device-wide and sits on the security screen.
+
+`EXACT_ALARM` and `MEDIA_MANAGEMENT` below API 31, `ALL_FILES_ACCESS` and
+`KEEP_PERMISSIONS_WHEN_UNUSED` below API 30, and `FULL_SCREEN_INTENT` below API 34 have nothing to open:
 `requestViaSettings` answers `false` without calling the launcher.
 
 | Factory | Launcher |
