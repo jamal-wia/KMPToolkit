@@ -57,4 +57,47 @@ public enum class SpecialPermission {
      * Android: `ACCESS_NOTIFICATION_POLICY`. iOS: not applicable, always granted.
      */
     DO_NOT_DISTURB_ACCESS,
+
+    /**
+     * Edit, trash and delete media files without a confirmation dialog for each one.
+     * - Android 12+ (API 31+): `MANAGE_MEDIA`, checked with `MediaStore.canManageMedia()`. Below API 31
+     *   the access does not exist and this reports granted.
+     * - iOS: not applicable — always granted.
+     *
+     * @since 2.3.0
+     */
+    MEDIA_MANAGEMENT,
+
+    /**
+     * Install other apps — "Install unknown apps".
+     * - Android 8+ (API 26+): `REQUEST_INSTALL_PACKAGES`, a per-app grant checked with
+     *   `PackageManager.canRequestPackageInstalls()`. Below API 26 there is no per-app grant: this
+     *   reports the device-wide "Unknown sources" switch.
+     * - iOS: not applicable — always granted.
+     *
+     * @since 2.3.0
+     */
+    INSTALL_UNKNOWN_APPS,
+
+    /**
+     * Show a full-screen notification over the lock screen, as an alarm or an incoming call does.
+     * - Android 14+ (API 34+): `USE_FULL_SCREEN_INTENT`, checked with
+     *   `NotificationManager.canUseFullScreenIntent()`. Below API 34 it is granted at install to every
+     *   app that declares it, and this reports granted.
+     * - iOS: not applicable — always granted.
+     *
+     * @since 2.3.0
+     */
+    FULL_SCREEN_INTENT,
+
+    /**
+     * Keep this app's permissions when it is not used for months. Android otherwise takes them back
+     * (and, from API 31, also pauses the app) — the "Pause app activity if unused" switch.
+     * - Android 11+ (API 30+): granted when the app is exempt, `PackageManager.isAutoRevokeWhitelisted`.
+     *   Below API 30 nothing is taken back and this reports granted.
+     * - iOS: not applicable — always granted.
+     *
+     * @since 2.3.0
+     */
+    KEEP_PERMISSIONS_WHEN_UNUSED,
 }

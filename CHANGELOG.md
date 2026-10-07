@@ -9,6 +9,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Added
+
+- `kmptoolkit-permission`: four `SpecialPermission` entries — `MEDIA_MANAGEMENT` (`MANAGE_MEDIA`,
+  API 31+), `INSTALL_UNKNOWN_APPS` (`REQUEST_INSTALL_PACKAGES`; the device-wide "Unknown sources"
+  switch below API 26), `FULL_SCREEN_INTENT` (`USE_FULL_SCREEN_INTENT`, API 34+) and
+  `KEEP_PERMISSIONS_WHEN_UNUSED` (the exemption from removing an unused app's permissions, API 30+).
+  Each is reported granted below the API level that introduces it, and is a no-op on iOS. An
+  exhaustive `when` over `SpecialPermission` without an `else` needs the four new branches.
+
 ## [2.2.0]
 
 ### Breaking
