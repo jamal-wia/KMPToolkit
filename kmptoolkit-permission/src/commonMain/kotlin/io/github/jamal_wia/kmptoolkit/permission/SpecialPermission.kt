@@ -64,7 +64,7 @@ public enum class SpecialPermission {
      *   the access does not exist and this reports granted.
      * - iOS: not applicable — always granted.
      *
-     * @since 2.3.0
+     * @since 2.2.1
      */
     MEDIA_MANAGEMENT,
 
@@ -75,7 +75,7 @@ public enum class SpecialPermission {
      *   reports the device-wide "Unknown sources" switch.
      * - iOS: not applicable — always granted.
      *
-     * @since 2.3.0
+     * @since 2.2.1
      */
     INSTALL_UNKNOWN_APPS,
 
@@ -86,7 +86,7 @@ public enum class SpecialPermission {
      *   app that declares it, and this reports granted.
      * - iOS: not applicable — always granted.
      *
-     * @since 2.3.0
+     * @since 2.2.1
      */
     FULL_SCREEN_INTENT,
 
@@ -97,7 +97,7 @@ public enum class SpecialPermission {
      *   Below API 30 nothing is taken back and this reports granted.
      * - iOS: not applicable — always granted.
      *
-     * @since 2.3.0
+     * @since 2.2.1
      */
     KEEP_PERMISSIONS_WHEN_UNUSED,
 }

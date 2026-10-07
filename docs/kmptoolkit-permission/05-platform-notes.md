@@ -300,10 +300,10 @@ you, the same rule as every runtime `Permission`.
 | `IGNORE_BATTERY_OPTIMIZATIONS` | `PowerManager.isIgnoringBatteryOptimizations()` | `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` with `package:` (a dialog), then `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS` |
 | `NOTIFICATION_LISTENER_ACCESS` | `NotificationManagerCompat.getEnabledListenerPackages()` | `ACTION_NOTIFICATION_LISTENER_SETTINGS` |
 | `DO_NOT_DISTURB_ACCESS` | `NotificationManager.isNotificationPolicyAccessGranted` | `ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS` |
-| `MEDIA_MANAGEMENT` (2.3.0) | `MediaStore.canManageMedia()` (API 31+; always granted below) | `ACTION_REQUEST_MANAGE_MEDIA` with `package:` |
-| `INSTALL_UNKNOWN_APPS` (2.3.0) | `PackageManager.canRequestPackageInstalls()` (API 26+); below it the device-wide `Settings.Secure.INSTALL_NON_MARKET_APPS` | `ACTION_MANAGE_UNKNOWN_APP_SOURCES` with `package:`, then without; below API 26 `ACTION_SECURITY_SETTINGS` |
-| `FULL_SCREEN_INTENT` (2.3.0) | `NotificationManager.canUseFullScreenIntent()` (API 34+; always granted below) | `ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` with `package:` |
-| `KEEP_PERMISSIONS_WHEN_UNUSED` (2.3.0) | `PackageManager.isAutoRevokeWhitelisted` (API 30+; always granted below) | `Intent.ACTION_AUTO_REVOKE_PERMISSIONS` with `package:` |
+| `MEDIA_MANAGEMENT` (2.2.1) | `MediaStore.canManageMedia()` (API 31+; always granted below) | `ACTION_REQUEST_MANAGE_MEDIA` with `package:` |
+| `INSTALL_UNKNOWN_APPS` (2.2.1) | `PackageManager.canRequestPackageInstalls()` (API 26+); below it the device-wide `Settings.Secure.INSTALL_NON_MARKET_APPS` | `ACTION_MANAGE_UNKNOWN_APP_SOURCES` with `package:`, then without; below API 26 `ACTION_SECURITY_SETTINGS` |
+| `FULL_SCREEN_INTENT` (2.2.1) | `NotificationManager.canUseFullScreenIntent()` (API 34+; always granted below) | `ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` with `package:` |
+| `KEEP_PERMISSIONS_WHEN_UNUSED` (2.2.1) | `PackageManager.isAutoRevokeWhitelisted` (API 30+; always granted below) | `Intent.ACTION_AUTO_REVOKE_PERMISSIONS` with `package:` |
 
 `NOTIFICATION_LISTENER_ACCESS` additionally needs a manifest-declared listener `<service>` of your
 own, bound with `BIND_NOTIFICATION_LISTENER_SERVICE` — this module only reports and redirects to the

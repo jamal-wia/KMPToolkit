@@ -9,6 +9,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [2.2.1]
+
 ### Added
 
 - `kmptoolkit-permission`: four `SpecialPermission` entries — `MEDIA_MANAGEMENT` (`MANAGE_MEDIA`,
