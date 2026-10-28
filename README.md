@@ -74,8 +74,9 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 ### Internal support artifacts
 
 `kmptoolkit-core` (Android, iOS, `jvm`) is published and on the BOM but is not in the table above:
-it is an internal support artifact holding what several modules share (`@ToolkitInternalApi` and the
-`StateMachineLock` the players and the recorder use). Modules pull it in transitively — do not
+it is an internal support artifact holding what several modules share (`@ToolkitInternalApi`, the
+`StateMachineLock` the players and the recorder use, and the iOS `SharedIdleTimer` that the wake lock
+and the video surfaces share). Modules pull it in transitively — do not
 depend on it directly, and expect no compatibility promise from it. See
 [`docs/kmptoolkit-core/`](docs/kmptoolkit-core/01-overview.md).
 
