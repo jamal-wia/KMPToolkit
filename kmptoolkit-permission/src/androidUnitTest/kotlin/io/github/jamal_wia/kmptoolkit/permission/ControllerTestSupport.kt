@@ -119,6 +119,7 @@ internal fun testController(
     isRevokedByPolicy = isRevokedByPolicy,
     notificationsEnabled = notificationsEnabled,
     specialAccesses = SpecialAccesses(context, logger, declaredPermissions),
+    resultGrants = ResultGrants(context, logger),
 )
 
 /** A permission type no controller knows: what a consumer-defined subtype would be. */

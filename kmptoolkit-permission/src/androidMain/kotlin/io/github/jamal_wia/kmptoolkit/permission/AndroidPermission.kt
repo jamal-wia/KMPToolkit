@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.permission
 
+import android.content.ComponentName
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 
 /**
@@ -121,6 +122,71 @@ public sealed interface AndroidPermission : Permission {
      */
     public data object KeepPermissionsWhenUnused : SpecialAccess {
         override val id: String = "KEEP_PERMISSIONS_WHEN_UNUSED"
+    }
+
+    /**
+     * One of this app's accessibility services, enabled by the user under Settings > Accessibility —
+     * read from `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`.
+     *
+     * A [component] the package manager does not know as a service is [PermissionStatus.Unavailable].
+     * The request opens the accessibility settings list: Android has no public screen for one service.
+     *
+     * @property component the `AccessibilityService` subclass, as declared in the manifest.
+     */
+    public data class AccessibilityService(public val component: ComponentName) : SpecialAccess {
+        /** `ACCESSIBILITY_SERVICE:` and the flattened [component]. */
+        override val id: String get() = "ACCESSIBILITY_SERVICE:${component.flattenToString()}"
+    }
+
+    /**
+     * This app's device admin receiver, active — `DevicePolicyManager.isAdminActive`.
+     *
+     * A request shows the system's "Activate device admin app" screen (`ACTION_ADD_DEVICE_ADMIN`) and
+     * waits for its result. Android shows that screen every time it is asked, so a refusal is
+     * [PermissionStatus.Denied] with `explainFirst`, never permanent. A [component] the package manager
+     * does not know as a receiver is [PermissionStatus.Unavailable]. A device owner or profile owner set
+     * up over ADB is an active admin too, and reads [PermissionStatus.Granted].
+     *
+     * @property component the `DeviceAdminReceiver` subclass, as declared in the manifest.
+     */
+    public data class DeviceAdmin(public val component: ComponentName) : AndroidPermission {
+        /** `DEVICE_ADMIN:` and the flattened [component]. */
+        override val id: String get() = "DEVICE_ADMIN:${component.flattenToString()}"
+    }
+
+    /**
+     * A `RoleManager` role — being the default home app, SMS app, dialer, and so on — from API 29.
+     *
+     * - **Unavailable** below API 29, or when the device does not offer the role
+     *   (`RoleManager.isRoleAvailable`).
+     * - **Granted** while this app holds it.
+     * - A request shows the system's role dialog (`createRequestRoleIntent`) through the host's
+     *   [PermissionRequestHost.launchForResult] and waits for its result. A first refusal reads
+     *   [PermissionStatus.Denied] with `explainFirst`; after a second one Android stops showing the
+     *   dialog, and the role reads [PermissionStatus.PermanentlyDenied] — the default-apps screen
+     *   ([PermissionController.openSettings]) is then the only way.
+     *
+     * Android grants a role only to an app that qualifies for it — a home app declares a `HOME`
+     * activity, an SMS app the SMS components — and refuses without a dialog otherwise.
+     *
+     * [Home] is the one role this library names; any other is `Role("android.app.role.…")` with a
+     * `RoleManager.ROLE_*` constant.
+     *
+     * @property name the role's name, such as `RoleManager.ROLE_HOME`.
+     */
+    public data class Role(public val name: String) : AndroidPermission {
+        init {
+            require(name.isNotBlank()) { "A role name must not be blank" }
+        }
+
+        /** [name] itself. */
+        override val id: String get() = name
+
+        public companion object {
+
+            /** The default home app (launcher) — `RoleManager.ROLE_HOME`. */
+            public val Home: Role = Role("android.app.role.HOME")
+        }
     }
 
     // --- Android-only runtime permissions -------------------------------------------------------

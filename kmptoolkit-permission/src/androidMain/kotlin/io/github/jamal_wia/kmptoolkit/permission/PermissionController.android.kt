@@ -131,6 +131,7 @@ public fun createPermissionController(
         },
         notificationsEnabled = { NotificationManagerCompat.from(applicationContext).areNotificationsEnabled() },
         specialAccesses = SpecialAccesses(applicationContext, logger) { declared },
+        resultGrants = ResultGrants(applicationContext, logger),
     )
 }
 
@@ -294,6 +295,7 @@ internal class AndroidPermissionController(
     /** Whether the app's notifications are switched on — the pre-API-33 notification status. */
     private val notificationsEnabled: () -> Boolean,
     private val specialAccesses: SpecialAccesses,
+    private val resultGrants: ResultGrants,
 ) : PermissionController {
 
     /** A permission whose request just resolved, so every [observe] of it re-reads at once. */
@@ -322,6 +324,8 @@ internal class AndroidPermissionController(
         val source: Permission = permission.statusSource()
         return when {
             source is AndroidPermission.SpecialAccess -> specialAccesses.status(source)
+            source is AndroidPermission.Role -> roleStatus(source)
+            source is AndroidPermission.DeviceAdmin -> deviceAdminStatus(source)
             ruleOf(source) != null -> runtimeStatus(source)
             else -> PermissionStatus.Unavailable
         }
@@ -373,6 +377,8 @@ internal class AndroidPermissionController(
             }
 
             source is AndroidPermission.SpecialAccess -> specialAccesses.candidates(source)
+            source is AndroidPermission.Role -> listOf(resultGrants.defaultAppsSettings(), appDetails())
+            source is AndroidPermission.DeviceAdmin -> listOf(resultGrants.securitySettings())
             ruleOf(source) != null -> listOf(appDetails())
             else -> emptyList()
         }
@@ -390,6 +396,8 @@ internal class AndroidPermissionController(
         val source: Permission = permission.statusSource()
         val status: PermissionStatus = when {
             source is AndroidPermission.SpecialAccess -> requestSpecialAccess(source)
+            source is AndroidPermission.Role -> requestRole(source)
+            source is AndroidPermission.DeviceAdmin -> requestDeviceAdmin(source)
             ruleOf(source) != null -> requestRuntime(source, requested = permission)
             else -> PermissionStatus.Unavailable
         }
@@ -492,6 +500,69 @@ internal class AndroidPermissionController(
         val returned: Boolean = openAndAwaitReturn(SystemScreenRequest(candidates, context, PermissionScreen(access)), access)
         return if (returned) specialAccesses.status(access) else current
     }
+
+    /**
+     * Shows the role dialog and waits for its result, then re-reads the role.
+     *
+     * A result that leaves the role not held is a refusal — the user declined, or backed out — and is
+     * remembered: Android itself stops showing the dialog after the second. Nothing is recorded when the
+     * dialog could not be shown.
+     */
+    private suspend fun requestRole(role: AndroidPermission.Role): PermissionStatus {
+        val current: PermissionStatus = roleStatus(role)
+        if (!current.mayShowDialog()) return current
+        val intent: Intent = resultGrants.requestIntent(role) ?: return current
+        val resultCode: Int = launchForResult(intent, role) ?: return current
+        if (resultGrants.isHeld(role) != true) {
+            logger.d { "$role was not granted (result $resultCode)" }
+            if (storage.getStringOrNull(askedKey(keyPrefix, role)) == null) {
+                markAsked(role)
+            } else {
+                markFlag(rationaleSeenKey(keyPrefix, role))
+            }
+        }
+        return roleStatus(role)
+    }
+
+    /**
+     * A role is held, or refused once (the asked flag), or refused twice (the rationale flag, reused:
+     * for a role it means "Android will not show the dialog again").
+     */
+    private suspend fun roleStatus(role: AndroidPermission.Role): PermissionStatus = when (resultGrants.isHeld(role)) {
+        null -> PermissionStatus.Unavailable
+        true -> {
+            clearFlags(role)
+            PermissionStatus.Granted
+        }
+
+        false -> when {
+            isSet(rationaleSeenKey(keyPrefix, role)) -> PermissionStatus.PermanentlyDenied
+            storage.getStringOrNull(askedKey(keyPrefix, role)) != null -> PermissionStatus.Denied(explainFirst = true)
+            else -> PermissionStatus.NotDetermined
+        }
+    }
+
+    /** Shows the activation screen and waits for its result, then re-reads the admin. */
+    private suspend fun requestDeviceAdmin(admin: AndroidPermission.DeviceAdmin): PermissionStatus {
+        val current: PermissionStatus = deviceAdminStatus(admin)
+        if (current !is PermissionStatus.Denied) return current
+        launchForResult(resultGrants.requestIntent(admin), admin) ?: return current
+        return deviceAdminStatus(admin)
+    }
+
+    /** Android shows the activation screen every time, so a refusal is never permanent. */
+    private fun deviceAdminStatus(admin: AndroidPermission.DeviceAdmin): PermissionStatus =
+        when (resultGrants.isActive(admin)) {
+            null -> PermissionStatus.Unavailable
+            true -> PermissionStatus.Granted
+            false -> PermissionStatus.Denied(explainFirst = true)
+        }
+
+    /** Starts [intent] through the host for a result; the result code, or `null` when nothing was shown. */
+    private suspend fun launchForResult(intent: Intent, permission: Permission): Int? =
+        launchOnHost("The system screen for $permission") { deliver ->
+            host.launchForResult(intent) { resultCode -> deliver(resultCode) }
+        }
 
     /**
      * Opens [request] and suspends until an activity of the app is resumed *after* it opened — the user

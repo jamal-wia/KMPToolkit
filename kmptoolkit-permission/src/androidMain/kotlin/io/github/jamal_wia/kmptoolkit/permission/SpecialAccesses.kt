@@ -4,8 +4,10 @@ import android.Manifest
 import android.app.AlarmManager
 import android.app.AppOpsManager
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -72,6 +74,7 @@ internal class SpecialAccesses(
         AndroidPermission.FullScreenNotifications -> canUseFullScreenIntent()
         AndroidPermission.KeepPermissionsWhenUnused ->
             Build.VERSION.SDK_INT < Build.VERSION_CODES.R || context.packageManager.isAutoRevokeWhitelisted
+        is AndroidPermission.AccessibilityService -> isAccessibilityServiceEnabled(access.component)
     }
 
     /**
@@ -148,6 +151,9 @@ internal class SpecialAccesses(
         } else {
             thisPackageThenList(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
         }
+
+        // Only the list: the per-service page is not a public action.
+        is AndroidPermission.AccessibilityService -> listOf(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
     /** [action] for this app, then [action] alone — for the screens whose package URI is optional. */
@@ -156,6 +162,22 @@ internal class SpecialAccesses(
     /** [action] deep-linked to this app's own entry via a `package:` URI. */
     private fun forThisPackage(action: String): Intent =
         Intent(action, Uri.fromParts("package", context.packageName, null))
+
+    /**
+     * Whether [component] is among the enabled accessibility services; `null` when the package manager
+     * does not know it as a service.
+     */
+    private fun isAccessibilityServiceEnabled(component: ComponentName): Boolean? {
+        try {
+            context.packageManager.getServiceInfo(component, 0)
+        } catch (_: PackageManager.NameNotFoundException) {
+            return null
+        }
+        val enabled: String = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            ?: return false
+        // A colon-separated list of flattened component names, short or long form.
+        return enabled.split(':').any { entry -> ComponentName.unflattenFromString(entry) == component }
+    }
 
     private fun canScheduleExactAlarms(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true

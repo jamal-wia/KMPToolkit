@@ -9,6 +9,18 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/permission/Androi
 	public static final field Companion Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Companion;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$AccessibilityService : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$SpecialAccess {
+	public fun <init> (Landroid/content/ComponentName;)V
+	public final fun component1 ()Landroid/content/ComponentName;
+	public final fun copy (Landroid/content/ComponentName;)Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$AccessibilityService;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$AccessibilityService;Landroid/content/ComponentName;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$AccessibilityService;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getComponent ()Landroid/content/ComponentName;
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$AllFilesAccess : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$SpecialAccess {
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$AllFilesAccess;
 	public fun equals (Ljava/lang/Object;)Z
@@ -35,6 +47,18 @@ public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$B
 
 public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Companion {
 	public final fun getSpecialAccesses ()Ljava/util/List;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$DeviceAdmin : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission {
+	public fun <init> (Landroid/content/ComponentName;)V
+	public final fun component1 ()Landroid/content/ComponentName;
+	public final fun copy (Landroid/content/ComponentName;)Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$DeviceAdmin;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$DeviceAdmin;Landroid/content/ComponentName;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$DeviceAdmin;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getComponent ()Landroid/content/ComponentName;
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$DoNotDisturbAccess : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$SpecialAccess {
@@ -123,6 +147,23 @@ public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$O
 	public fun getId ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Role : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Role$Companion;
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Role;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Role;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Role;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Role$Companion {
+	public final fun getHome ()Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Role;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Runtime : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission {

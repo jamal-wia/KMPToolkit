@@ -469,6 +469,9 @@ class SpecialAccessScreenLaunchTest {
 
         AndroidPermission.KeepPermissionsWhenUnused ->
             listOf(Screen(Intent.ACTION_AUTO_REVOKE_PERMISSIONS, thisPackage()))
+
+        // Covered by AndroidRolesAndAdminsTest, which declares the service it needs.
+        is AndroidPermission.AccessibilityService -> listOf(Screen(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
     /** Makes [action] resolvable, with or without a `package:` URI, for `checkActivities(true)`. */
