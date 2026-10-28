@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -32,6 +33,15 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+}
+
+// Kotlin must target the same bytecode level as the Java options above, or compileDebugKotlin
+// refuses to run — and with `android.builtInKotlin=false` nothing else applies the Kotlin plugin
+// to this app, so without it the sample's own sources were silently never compiled.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
     }
 }
 
