@@ -85,6 +85,51 @@ class BackgroundUploadTransportTest {
     }
 
     @Test
+    fun `a hand-off after a relaunch opened the item's session still starts the upload`() = runTest {
+        val logger = RecordingLogger()
+        val prefix = "kmptoolkit.test.rehand."
+        val transport = BackgroundSessionUploadTransport(prefix, BackgroundUploadConfig(sessionIdentifierPrefix = prefix), logger)
+        // A relaunch delivery opens the item's session first, to drain events — here there are none.
+        transport.handleRelaunchEvents("item-1") {}
+
+        // Then the engine hands the item off. The request has no URL, so whatever this hand-off starts
+        // can reach no server; whether the platform refuses it before creating a task or creates one that
+        // fails, the transport logs that it tried — which joining the idle session never does.
+        transport.launch("item-1", isRehandOff = false, request = UploadRequest(url = "", fields = emptyList()))
+        val attempts: List<String> = listOf("Starting upload — item=item-1", "Upload cannot start — item=item-1")
+        // Real time, not runTest's virtual clock: the session reports its tasks on its own queue.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            repeat(500) { if (attempts.none(logger::contains)) kotlinx.coroutines.delay(10) }
+        }
+
+        assertTrue(
+            attempts.any(logger::contains),
+            "the hand-off must start its upload, not join the relaunch's idle session: ${logger.messages()}",
+        )
+    }
+
+    /** Collects every message, from whichever queue the session calls back on. */
+    private class RecordingLogger : io.github.jamal_wia.kmptoolkit.logging.Logger {
+        private val recorded = kotlin.concurrent.AtomicReference<List<String>>(emptyList())
+
+        override val tag: String = "test"
+
+        override fun isLoggable(level: io.github.jamal_wia.kmptoolkit.logging.LogLevel): Boolean = true
+
+        override fun log(level: io.github.jamal_wia.kmptoolkit.logging.LogLevel, throwable: Throwable?, message: () -> String) {
+            val line: String = message()
+            while (true) {
+                val current: List<String> = recorded.value
+                if (recorded.compareAndSet(current, current + line)) return
+            }
+        }
+
+        fun messages(): List<String> = recorded.value
+
+        fun contains(prefix: String): Boolean = recorded.value.any { it.startsWith(prefix) }
+    }
+
+    @Test
     fun `the multipart body streams text and file parts into the temporary file`() {
         val source: String = platform.Foundation.NSTemporaryDirectory() + "/kmptoolkit_upload_test_source.bin"
         val content: String = "x".repeat(200_000) // larger than one copy chunk

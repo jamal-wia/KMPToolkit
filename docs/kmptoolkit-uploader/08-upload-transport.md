@@ -136,7 +136,10 @@ one `prepareUpload` returned at hand-off, not one prepared when the transfer sta
 `nsurlsessiond` keeps its headers until the transfer ends. Size an `Authorization` token's lifetime —
 or the lease — for that.
 
-- **Idempotent launch.** A session live in this process is joined. In a new process, a re-hand
+- **Idempotent launch.** An upload an earlier hand-off in this process started is joined. A session
+  whose upload already completed is replaced rather than joined, and one that only a relaunch opened
+  is taken over and checked for a running task — so a hand-off never joins a session that has nothing
+  to upload and leaves the item in flight until its lease expires. In a new process, a re-hand
   rejoins a task the daemon is still running. A re-hand that finds nothing running waits
   `rehandFlushWindow` (3 s) for buffered completion events before starting afresh: the previous
   process may have finished without settling, and uploading again would deliver twice.
