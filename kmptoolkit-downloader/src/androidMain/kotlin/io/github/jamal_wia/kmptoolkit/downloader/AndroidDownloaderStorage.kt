@@ -176,17 +176,27 @@ internal class AndroidDownloaderStorage(
     override suspend fun commitResource(
         unit: DownloadUnit,
     ): Unit = withContext(Dispatchers.IO) {
-        val tempFile: File = completeTempFile(unit)
-        check(tempFile.exists()) {
-            "No complete temp file for $unit — a partial transfer is resumed, never committed"
-        }
-        try {
-            commitCompleteTempFile(unit, tempFile)
-        } finally {
-            // The record belongs to the temp file. Once the file is gone — committed, or deleted by
-            // a failed check — the record goes with it, last. A failure that left the file in place
-            // keeps its record, so the retry is still checked against it.
-            if (!tempFile.exists()) expectationFile(unit).delete()
+        // Serialized per unit across every instance over this directory — see UnitCommitLocks for
+        // who races here. Everything below is decided only once the lock is held.
+        UnitCommitLocks.withUnitLock(baseDir.absolutePath, unit.id) {
+            val tempFile: File = completeTempFile(unit)
+            if (!tempFile.exists() && isResourceAvailable(unit)) {
+                // A concurrent commit finalized the unit while this one waited. Its record is
+                // already gone, and one present now belongs to a newer transfer: touch nothing.
+                logger.i { "$unit was already committed by a concurrent commit" }
+                return@withUnitLock
+            }
+            check(tempFile.exists()) {
+                "No complete temp file for $unit — a partial transfer is resumed, never committed"
+            }
+            try {
+                commitCompleteTempFile(unit, tempFile)
+            } finally {
+                // The record belongs to the temp file. Once the file is gone — committed, or deleted
+                // by a failed check — the record goes with it, last. A failure that left the file in
+                // place keeps its record, so the retry is still checked against it.
+                if (!tempFile.exists()) expectationFile(unit).delete()
+            }
         }
     }
 

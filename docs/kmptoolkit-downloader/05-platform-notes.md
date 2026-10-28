@@ -38,7 +38,11 @@ and the same file renamed to `<unit.id>.<unit.tempExtension>.complete` once
 `markTempFileComplete` declares it finished. The rename is atomic within one directory on both
 platforms, so a crash leaves either a partial file or a complete one. A `ZipArchive` unit stages
 its extraction under `<base>/tmp/staging-<unit.id>/` — per unit, so two archives extracting at the
-same time never collide. The hash a transfer must have (`beginTempFile`) is a one-line file at
+same time never collide, and two commits of the same unit never share it, since commits of one unit
+are serialized across every storage instance over the base directory in the process. A plain file
+is moved into place by an atomic rename that replaces the old file, on both platforms, so a
+committed resource never goes missing while it is replaced. The lock is per process: a
+`BackgroundResourceDownloader` that commits from a separate Android process is not covered by it. The hash a transfer must have (`beginTempFile`) is a one-line file at
 `<base>/tmp/expect/<unit.id>.sha256`, keyed by id alone so a free-form `tempExtension` cannot make two
 units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>.sha256` and flushed to
 disk first, then moved into place by an atomic rename once the old temp files are gone.

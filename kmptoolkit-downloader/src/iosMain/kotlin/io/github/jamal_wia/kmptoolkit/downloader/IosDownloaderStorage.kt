@@ -296,17 +296,27 @@ internal class IosDownloaderStorage(
     override suspend fun commitResource(
         unit: DownloadUnit,
     ): Unit = withContext(Dispatchers.IO) {
-        val tempFilePath: String = completeTempFilePath(unit)
-        check(fileExists(tempFilePath)) {
-            "No complete temp file for $unit — a partial transfer is resumed, never committed"
-        }
-        try {
-            commitCompleteTempFile(unit, tempFilePath)
-        } finally {
-            // The record belongs to the temp file. Once the file is gone — committed, or deleted by
-            // a failed check — the record goes with it, last. A failure that left the file in place
-            // keeps its record, so the retry is still checked against it.
-            if (!fileExists(tempFilePath)) remove(expectationPath(unit))
+        // Serialized per unit across every instance over this directory — see UnitCommitLocks for
+        // who races here. Everything below is decided only once the lock is held.
+        UnitCommitLocks.withUnitLock(baseDir, unit.id) {
+            val tempFilePath: String = completeTempFilePath(unit)
+            if (!fileExists(tempFilePath) && isResourceAvailable(unit)) {
+                // A concurrent commit finalized the unit while this one waited. Its record is
+                // already gone, and one present now belongs to a newer transfer: touch nothing.
+                logger.i { "$unit was already committed by a concurrent commit" }
+                return@withUnitLock
+            }
+            check(fileExists(tempFilePath)) {
+                "No complete temp file for $unit — a partial transfer is resumed, never committed"
+            }
+            try {
+                commitCompleteTempFile(unit, tempFilePath)
+            } finally {
+                // The record belongs to the temp file. Once the file is gone — committed, or deleted
+                // by a failed check — the record goes with it, last. A failure that left the file in
+                // place keeps its record, so the retry is still checked against it.
+                if (!fileExists(tempFilePath)) remove(expectationPath(unit))
+            }
         }
     }
 
@@ -511,14 +521,16 @@ internal class IosDownloaderStorage(
             attributes = null,
             error = null,
         )
-        // Remove destination if exists (moveItemAtPath fails otherwise)
-        NSFileManager.defaultManager.removeItemAtPath(destinationPath, error = null)
-        val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
-            srcPath = tempFilePath,
-            toPath = destinationPath,
-            error = null,
-        )
-        if (!moved) {
+        // POSIX rename replaces an existing destination atomically, so a resource already in place
+        // is never missing, not even for a moment. The old remove-then-move removed it first, and a
+        // commit whose source was already gone then deleted a committed resource and failed.
+        if (rename(tempFilePath, destinationPath) != 0) {
+            // Only the fallback below removes the destination, so it must first be sure the source
+            // is still there to replace it with.
+            check(fileExists(tempFilePath)) {
+                "The downloaded file at $tempFilePath vanished before it could be moved into place"
+            }
+            NSFileManager.defaultManager.removeItemAtPath(destinationPath, error = null)
             // Fallback: copy + delete. A failed copy must not delete the only copy of the download.
             val copied: Boolean = NSFileManager.defaultManager
                 .copyItemAtPath(tempFilePath, destinationPath, null)

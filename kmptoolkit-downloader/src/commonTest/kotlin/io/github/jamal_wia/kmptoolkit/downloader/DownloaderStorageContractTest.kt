@@ -7,7 +7,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The hash-expectation half of the [DownloaderStorage] contract, written once and run against both
@@ -501,6 +510,88 @@ abstract class DownloaderStorageContractTest {
         assertTrue(storage.isResourceAvailable(unit))
     }
 
+    // -- concurrent commits of one unit --------------------------------------------------------
+    //
+    // The contract says a commit is at-least-once (the group surface, the per-unit surface, a
+    // second engine over the same directory and a self-committing downloader may all commit the
+    // same unit), so one that arrives after another already finalized the unit must succeed and
+    // must not touch what was committed.
+
+    @Test
+    fun `a commit that finds the unit already committed by another instance returns normally`() = runTest {
+        val unit = ContractUnit("model")
+        val first: DownloaderStorage = newStorage()
+        first.beginTempFile(unit, ABC)
+        writeTemp(first, unit, "abc")
+        finish(first, unit)
+
+        newStorage().commitResource(unit)
+
+        assertEquals("abc", readFile(storage.getResourcePath(unit))?.decodeToString())
+    }
+
+    @Test
+    fun `two instances committing one file at the same time both succeed and keep the file`() = runTest {
+        commitTwiceConcurrently(ContractUnit("model"), "abc".encodeToByteArray())
+    }
+
+    @Test
+    fun `two instances committing one archive at the same time both succeed and keep the extraction`() = runTest {
+        val unit = ContractUnit("pages", format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "archives/pages")
+        commitTwiceConcurrently(unit, zipOf("marker.txt", "hello".encodeToByteArray()))
+
+        assertEquals("hello", readFile(storage.getResourcePath(unit) + "/marker.txt")?.decodeToString())
+    }
+
+    /**
+     * Two storage instances over one directory commit [unit] at once. The first is parked inside its
+     * commit, past every precondition, by a hash getter that blocks; the second starts only then.
+     * Without mutual exclusion the second commits the whole unit while the first is parked, and the
+     * first then resumes against a source that is gone (on iOS removing the committed destination
+     * first). With it, the second waits, finds the unit committed and returns.
+     */
+    private suspend fun commitTwiceConcurrently(unit: ContractUnit, bytes: ByteArray) {
+        val first: DownloaderStorage = newStorage()
+        val second: DownloaderStorage = newStorage()
+        first.beginTempFile(unit, null)
+        writeTempBytes(first, unit, bytes)
+        first.markTempFileComplete(unit)
+
+        val parkedInside = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val parkingUnit = ContractUnit(
+            id = unit.id,
+            format = unit.format,
+            relativePath = unit.relativePath,
+            onHashRead = {
+                parkedInside.complete(Unit)
+                runBlocking { release.await() }
+            },
+        )
+        // Real threads: commitResource does blocking file I/O on Dispatchers.IO, so virtual time
+        // has nothing to schedule here.
+        withContext(Dispatchers.Default) {
+            val firstCommit: Deferred<Result<Unit>> = async { runCatching { first.commitResource(parkingUnit) } }
+            parkedInside.await()
+            val secondCommit: Deferred<Result<Unit>> = async { runCatching { second.commitResource(unit) } }
+            // Give the second commit every chance to run to the end while the first is parked; with
+            // the commit serialized it cannot, and this simply times out.
+            withTimeoutOrNull(RACE_WINDOW) { secondCommit.join() }
+            release.complete(Unit)
+
+            val firstResult: Result<Unit> = firstCommit.await()
+            val secondResult: Result<Unit> = secondCommit.await()
+            assertTrue(firstResult.isSuccess, "first commit failed: ${firstResult.exceptionOrNull()}")
+            assertTrue(secondResult.isSuccess, "second commit failed: ${secondResult.exceptionOrNull()}")
+        }
+        assertTrue(storage.isResourceAvailable(unit), "the committed resource must still be there")
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertFalse(pathExists(recordPath(storage, unit)))
+        if (!unit.isDirectoryResource) {
+            assertContentEquals(bytes, readFile(storage.getResourcePath(unit)))
+        }
+    }
+
     // -- helpers -----------------------------------------------------------------------------
 
     private fun writeTemp(on: DownloaderStorage, unit: DownloadUnit, text: String) =
@@ -539,9 +630,14 @@ abstract class DownloaderStorageContractTest {
         override val relativePath: String = "resources/$id.bin",
         override val tempExtension: String = "tmp",
         private val hashGetterThrows: Boolean = false,
+        /** Runs on every read of [sha256] — the one call a commit makes between its checks and its move. */
+        private val onHashRead: () -> Unit = {},
     ) : DownloadUnit {
         override val sha256: Sha256?
-            get() = if (hashGetterThrows) throw IllegalArgumentException("malformed hash") else declaredSha256
+            get() {
+                onHashRead()
+                return if (hashGetterThrows) throw IllegalArgumentException("malformed hash") else declaredSha256
+            }
 
         override val apiPath: String = "/resources/$id"
         override val group: ResourceGroup = object : ResourceGroup {
@@ -553,6 +649,9 @@ abstract class DownloaderStorageContractTest {
     }
 
     private companion object {
+        /** How long a racing commit is given to finish while the other one is parked inside its own. */
+        val RACE_WINDOW: Duration = 1.seconds
+
         /** SHA-256 of the three ASCII bytes "abc", the FIPS 180-2 test vector. */
         val ABC: Sha256 = Sha256.parse("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 
