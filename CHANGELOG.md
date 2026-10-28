@@ -92,6 +92,26 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-core`: `SharedIdleTimer` (iOS, `@ToolkitInternalApi`), a reference-counted holder of
   `UIApplication.idleTimerDisabled` shared by the suite's modules.
 
+### Changed
+
+- The Android target of every module is built with the Android Gradle Plugin's Kotlin
+  Multiplatform library plugin (`com.android.kotlin.multiplatform.library`) instead of
+  `com.android.library`. Coordinates (`kmptoolkit-<module>-android`), dependencies and scopes are
+  unchanged; the Android publication now has a single variant (Gradle module metadata names it
+  `android*` instead of `release*` and adds `org.gradle.libraryelements=aar`).
+- Dependency updates that reach a consumer's graph: Kotlin 2.4.20 → 2.4.21, Compose Multiplatform
+  1.12.1 → 1.12.2 (Compose modules), SQLDelight 2.4.0 → 2.4.1 (`kmptoolkit-uploader-sqldelight`).
+  OpenJFX 27 → 27.0.1 is `compileOnly` in `kmptoolkit-video-player-javafx`; apps using that engine
+  should supply 27.0.1. `kmptoolkit-logging-overlay` pins Compose Multiplatform material3 to 1.9.0,
+  the latest stable.
+- Consumer minimums, now stated explicitly: Kotlin 2.4.21 for iOS consumers (Kotlin/Native
+  libraries are not forward compatible) and Kotlin 2.4 for Android/JVM; iOS deployment target
+  15.0; Android compileSdk 37 and Android Gradle Plugin 9.1.0 (required by androidx.core 1.19.1),
+  minSdk 24; desktop JDK 21 — the `jvm` bytecode level is now pinned to 21 rather than inherited
+  from the build JDK — and JDK 25 for `kmptoolkit-video-player-javafx`.
+- Build: Gradle 9.8.2; Android host tests run with `testAndroidHostTest` (was
+  `testDebugUnitTest`); the unused kotlinx-serialization and atomicfu catalog entries are removed.
+
 ### Fixed
 
 - `kmptoolkit-storage`: concurrent first use of a `SecureKeyValueStorage` on Android could make
