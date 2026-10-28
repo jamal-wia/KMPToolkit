@@ -39,7 +39,7 @@ class InMemoryUploaderStoreTest {
     fun `the items flow exposes every state for assertions`() = runTest {
         val store = InMemoryUploaderStore()
         store.insertKeep(item("a"))
-        store.park("a", "parked")
+        store.park("a", "parked", UploaderItemState.PENDING, expectedClaim = 0L)
 
         assertEquals(listOf(UploaderItemState.PARKED), store.items.value.map { it.state })
         assertEquals(emptyList(), store.getAllActive())
@@ -58,21 +58,21 @@ class InMemoryUploaderStoreTest {
     }
 
     @Test
-    fun `concurrent recordFailure calls under one lease let exactly one through`() = runTest {
+    fun `concurrent recordFailure calls under one claim let exactly one through`() = runTest {
         val store = InMemoryUploaderStore()
         store.insertKeep(item("a"))
-        store.markInFlight("a", 900L, UploaderItemState.PENDING, expectedLeaseUntilEpochMillis = 0L)
+        store.markInFlight("a", 900L, UploaderItemState.PENDING, expectedClaim = 0L)
 
         val applied: List<Boolean> = List(CONCURRENT_WRITERS) {
             async {
-                store.recordFailure("a", 1, 10L, null, UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 900L)
+                store.recordFailure("a", 1, 10L, null, UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
             }
         }.awaitAll()
 
         assertEquals(
             1,
             applied.count { it },
-            "the guard must serialize: the first write clears the lease the rest expect",
+            "the guard must serialize: the first write advances the claim the rest expect",
         )
     }
 
@@ -83,7 +83,7 @@ class InMemoryUploaderStoreTest {
 
         val claimed: List<Boolean> = List(CONCURRENT_WRITERS) { index ->
             async {
-                store.markInFlight("a", 1_000L + index, UploaderItemState.PENDING, expectedLeaseUntilEpochMillis = 0L)
+                store.markInFlight("a", 1_000L + index, UploaderItemState.PENDING, expectedClaim = 0L)
             }
         }.awaitAll()
 
@@ -198,7 +198,7 @@ class InMemoryUploaderStoreTest {
 
     private companion object {
         /** Guards against a silently shrinking contract: verifyAll must keep running them all. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 42
+        const val EXPECTED_CONTRACT_CHECKS: Int = 46
         const val CONCURRENT_WRITERS: Int = 8
     }
 }

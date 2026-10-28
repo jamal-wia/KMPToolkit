@@ -76,6 +76,13 @@ What the engine does with it:
    `classify` settles as `Failed`; a thrown hook is logged and changes nothing — the upload already
    happened.
 
+   The gateway carries no claim, and needs none: it settles under the item's **current** claim.
+   `launch` is idempotent per item id — one unique WorkManager job, one background `NSURLSession` task
+   — so a re-hand-off rejoins the same job rather than starting another, and every claim of the item is
+   served by it. The rule `UploaderEngine.settle` applies to a superseded claim's report is for
+   executors that are not unique per item; a transport you write must keep `launch`'s contract, or the
+   gateway would take one executor's report for another's.
+
 `UploadGateway` reaches the engine through `UploaderEngineRegistry`, so **register the engine** after
 creating it. An engine that is not `createUploaderEngine`'s reads as unavailable.
 
@@ -194,6 +201,10 @@ override suspend fun execute(context: AttemptContext, payload: AvatarUpload): At
     return AttemptResult.Detached(transport.leaseMillis)
 }
 ```
+
+Its worker settles under the item's current claim, as the gateway does and for the same reason: the
+job is unique per item id, so it serves every claim of the item. Like the gateway, it reaches only an
+engine made by `createUploaderEngine`, and retries the job otherwise.
 
 Its limits are the reason `UploadHandler` exists:
 

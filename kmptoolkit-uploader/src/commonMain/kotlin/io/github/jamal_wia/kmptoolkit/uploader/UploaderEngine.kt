@@ -70,39 +70,38 @@ public interface UploaderEngine : Uploader {
      * Reports the final outcome of a detached delivery — the counterpart of
      * [AttemptResult.Detached], called by the external executor that took the hand-off.
      *
-     * Addressed by item [id], which is what makes every race degrade to a harmless no-op rather
-     * than to a corrupted queue: a superseded item was re-inserted under a new id, a wiped item is
-     * gone, and a duplicate settle finds the row already deleted. In all three cases this call does
-     * nothing but log.
+     * Addressed by item [id] and by the [claim] the executor was handed. The id makes a report on a
+     * superseded, wiped or already-settled item land on nothing; the claim tells this executor's
+     * report from one by an earlier executor of the same item whose lease expired and which was
+     * replaced by a re-hand-off. Each degrades to a logged no-op rather than to a corrupted queue.
      *
-     * The guards, precisely:
-     * - **Unknown id** — no-op. The debt is no longer this executor's.
-     * - **[SettleResult.Failed] on an item that is not [UploaderItemState.IN_FLIGHT]** — no-op. A
-     *   parked item must stay parked (reviving it would retry a known-permanent failure) and a
-     *   pending item is already back in the drain's hands.
-     * - **[SettleResult.Failed] whose lease no longer matches** the one the item carried when this
-     *   call read it — no-op. The drain re-handed the item in between, and a stale report must not
-     *   clobber the fresh claim.
-     * - [SettleResult.Delivered], [SettleResult.Drop] and [SettleResult.Park] are unconditional:
-     *   they are terminal facts about the effect, not opinions about its retry state. That holds
-     *   even when one lands while the drain is running the item again after its lease expired: the
-     *   drain's own failure for that attempt is written only if the item is still in the state and
-     *   lease the drain read, so it cannot overwrite a park back to pending, and a drop or delivery
-     *   has removed the row it would write to.
+     * A report is **current** when [claim] is the claim the item is held under, or the claim the
+     * drain is about to write for it — a fast executor can report before `execute` has returned and
+     * the hand-off has been recorded. Any later claim supersedes it. Whether a report must be current
+     * depends on what it says:
+     * - **[SettleResult.Delivered] and [SettleResult.Drop] stand from any claim.** They are facts
+     *   about the effect: it landed, or it is no longer owed. A superseded executor that delivered
+     *   has still delivered, and re-handing the item would send it twice. The row is deleted.
+     * - **[SettleResult.Failed] and [SettleResult.Park] stand only from the current claim.** They are
+     *   verdicts on one attempt, and they steer the next one — spend the retry budget and back off,
+     *   or stop trying. A superseded executor's verdict is about an attempt the engine has already
+     *   given up on; the current executor reaches its own. A stale failure would otherwise return to
+     *   pending an item a live executor is uploading, and a stale park would take it out of rotation
+     *   under that executor — a failure the current attempt never had. Ignoring one costs nothing
+     *   the current executor's own report does not settle.
+     * - A [SettleResult.Failed] or [SettleResult.Park] on a **parked** item is a no-op, as is any
+     *   report on an **unknown id**.
      *
-     * One window this does **not** close: an executor whose lease expired long ago, whose item was
-     * re-handed to a second executor, and which only then reports [SettleResult.Failed]. That report
-     * reads the second executor's claim as current, and the item returns to pending having spent an
-     * attempt. The consequence is a possible redundant hand-off, not a lost effect — which is why
-     * [AttemptResult.Detached] requires the hand-off to be idempotent. Sizing the lease to the
-     * executor's real worst case is what keeps this rare.
+     * The check and the write are one compare-and-set in the store, so a re-hand-off landing between
+     * this call's read and its write supersedes the report instead of being overwritten by it.
      *
      * Suspends because it reads and writes the store.
      *
      * @param id the item id the executor received in [AttemptContext.id].
+     * @param claim the claim the executor received in [AttemptContext.claim].
      * @param result what happened.
      */
-    public suspend fun settle(id: String, result: SettleResult)
+    public suspend fun settle(id: String, claim: Long, result: SettleResult)
 
     /**
      * Triggers a drain and suspends until the queue is empty or [timeout] elapses.

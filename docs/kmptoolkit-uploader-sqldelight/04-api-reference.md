@@ -113,9 +113,9 @@ The queue table's schema — `create` and `migrate` — for the shared-driver ro
 factories use it for you.
 
 Creates `kmptoolkit_uploader_item` and four indices, all carrying that prefix, so nothing it creates
-can collide with a table of yours. Its `version` is this module's own and moves with this module's
-releases; it is not your database's version, and [`03-guide.md`](03-guide.md) explains how the two
-are reconciled.
+can collide with a table of yours. Its `version` — currently `2` — is this module's own and moves
+with this module's releases; it is not your database's version, and [`03-guide.md`](03-guide.md)
+explains how the two are reconciled, and what each version changed.
 
 ## `UploaderStorageException`
 

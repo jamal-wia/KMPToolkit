@@ -84,7 +84,7 @@ class UploaderDetachedDeliveryTest {
         engine.enqueue(handler, "p")
         engine.drain()
 
-        engine.settle("item-1", SettleResult.Delivered)
+        engine.settle("item-1", handler.attempts.single().claim, SettleResult.Delivered)
 
         assertNull(store.find("item-1"))
     }
@@ -97,7 +97,7 @@ class UploaderDetachedDeliveryTest {
         engine.enqueue(handler, "p")
         engine.drain()
 
-        engine.settle("item-1", SettleResult.Drop("the message was deleted"))
+        engine.settle("item-1", handler.attempts.single().claim, SettleResult.Drop("the message was deleted"))
 
         assertNull(store.find("item-1"))
     }
@@ -110,7 +110,7 @@ class UploaderDetachedDeliveryTest {
         engine.enqueue(handler, "p")
         engine.drain()
 
-        engine.settle("item-1", SettleResult.Park("rejected by the server"))
+        engine.settle("item-1", handler.attempts.single().claim, SettleResult.Park("rejected by the server"))
 
         val parked: UploaderItem = assertNotNull(store.find("item-1"))
         assertEquals(UploaderItemState.PARKED, parked.state)
@@ -130,7 +130,7 @@ class UploaderDetachedDeliveryTest {
         engine.enqueue(handler, "p")
         engine.drain()
 
-        engine.settle("item-1", SettleResult.Failed(IllegalStateException("upload broke")))
+        engine.settle("item-1", handler.attempts.single().claim, SettleResult.Failed(IllegalStateException("upload broke")))
 
         val item: UploaderItem = assertNotNull(store.find("item-1"))
         assertEquals(UploaderItemState.PENDING, item.state)
@@ -154,7 +154,7 @@ class UploaderDetachedDeliveryTest {
         engine.enqueue(handler, "p")
         engine.drain()
 
-        engine.settle("item-1", SettleResult.Failed())
+        engine.settle("item-1", handler.attempts.single().claim, SettleResult.Failed())
 
         assertEquals(UploaderItemState.PARKED, store.find("item-1")?.state)
     }
@@ -164,7 +164,7 @@ class UploaderDetachedDeliveryTest {
         val store = TestUploaderStore()
         val engine: UploaderEngine = testEngine(store, listOf(TestHandler()), backgroundScope)
 
-        engine.settle("never-existed", SettleResult.Delivered)
+        engine.settle("never-existed", claim = 1L, SettleResult.Delivered)
 
         assertEquals(emptyList(), store.deletedIds, "a settle for a missing row must touch nothing")
     }
@@ -177,8 +177,9 @@ class UploaderDetachedDeliveryTest {
         engine.enqueue(handler, "p")
         engine.drain()
 
-        engine.settle("item-1", SettleResult.Delivered)
-        engine.settle("item-1", SettleResult.Delivered)
+        val claim: Long = handler.attempts.single().claim
+        engine.settle("item-1", claim, SettleResult.Delivered)
+        engine.settle("item-1", claim, SettleResult.Delivered)
 
         assertEquals(listOf("item-1"), store.deletedIds, "the second settle must find nothing")
     }
@@ -193,7 +194,7 @@ class UploaderDetachedDeliveryTest {
         engine.enqueue(handler, "new", uniqueKey = "u", conflictPolicy = ConflictPolicy.REPLACE)
 
         // The zombie executor reports on the id it was handed, which no longer exists.
-        engine.settle("item-1", SettleResult.Delivered)
+        engine.settle("item-1", handler.attempts.single().claim, SettleResult.Delivered)
 
         assertEquals(UploaderItemState.PENDING, store.find("item-2")?.state)
         assertEquals("new", store.find("item-2")?.payload)
@@ -214,10 +215,10 @@ class UploaderDetachedDeliveryTest {
             nextRunAtEpochMillis = 99L,
             lastError = "earlier",
             expectedState = UploaderItemState.IN_FLIGHT,
-            expectedLeaseUntilEpochMillis = 10_000L,
+            expectedClaim = handler.attempts.single().claim,
         )
 
-        engine.settle("item-1", SettleResult.Failed())
+        engine.settle("item-1", handler.attempts.single().claim, SettleResult.Failed())
 
         val item: UploaderItem = assertNotNull(store.find("item-1"))
         assertEquals(1, item.attempts, "a stale report must not spend another attempt")
@@ -233,7 +234,7 @@ class UploaderDetachedDeliveryTest {
         engine.drain()
         store.park("item-1", "permanent")
 
-        engine.settle("item-1", SettleResult.Failed())
+        engine.settle("item-1", handler.attempts.single().claim, SettleResult.Failed())
 
         val item: UploaderItem = assertNotNull(store.find("item-1"))
         assertEquals(UploaderItemState.PARKED, item.state, "parked is a deliberate decision")
@@ -254,10 +255,10 @@ class UploaderDetachedDeliveryTest {
         // the item — leaving the report in flight about a claim that no longer exists.
         store.afterNextGetById = {
             clock.millis = 10_001L
-            store.markInFlight("item-1", 25_000L, UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 10_000L)
+            store.markInFlight("item-1", 25_000L, UploaderItemState.IN_FLIGHT, expectedClaim = handler.attempts.single().claim)
         }
 
-        engine.settle("item-1", SettleResult.Failed())
+        engine.settle("item-1", handler.attempts.single().claim, SettleResult.Failed())
 
         val item: UploaderItem = assertNotNull(store.find("item-1"))
         assertEquals(UploaderItemState.IN_FLIGHT, item.state, "the fresh claim must survive")
@@ -274,9 +275,10 @@ class UploaderDetachedDeliveryTest {
         val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = clock)
         engine.enqueue(handler, "p")
         engine.drain()
-        store.afterNextGetById = { store.markInFlight("item-1", 25_000L, UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 10_000L) }
+        val claim: Long = handler.attempts.single().claim
+        store.afterNextGetById = { store.markInFlight("item-1", 25_000L, UploaderItemState.IN_FLIGHT, expectedClaim = claim) }
 
-        engine.settle("item-1", SettleResult.Delivered)
+        engine.settle("item-1", claim, SettleResult.Delivered)
 
         assertNull(
             store.find("item-1"),
@@ -320,8 +322,173 @@ class UploaderDetachedDeliveryTest {
         }
         val orphaned: UploaderEngine = testEngine(store, emptyList(), backgroundScope)
 
-        orphaned.settle("item-1", SettleResult.Failed())
+        orphaned.settle("item-1", handler.attempts.single().claim, SettleResult.Failed())
 
         assertEquals(UploaderItemState.PARKED, store.find("item-1")?.state)
+    }
+
+    // --- Which claim a report comes from ------------------------------------------------------------
+
+    @Test
+    fun `every hand-off of an item is made under a claim of its own`() = runTest {
+        val store = TestUploaderStore()
+        val clock = TestClock(millis = 0L)
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Detached(leaseMillis = 10_000) })
+        val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = clock)
+        engine.enqueue(handler, "p")
+        engine.drain()
+        clock.millis = 10_001L
+        engine.drain()
+
+        val claims: List<Long> = handler.attempts.map { it.claim }
+        assertEquals(2, claims.toSet().size, "a re-hand-off must hold a claim the first executor does not: $claims")
+        assertEquals(claims.last(), store.find("item-1")?.claim, "the item is held under the latest claim")
+    }
+
+    @Test
+    fun `an expired executor's failure after a re-hand neither returns the item to pending nor spends an attempt`() =
+        runTest {
+            val store = TestUploaderStore()
+            val clock = TestClock(millis = 0L)
+            val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Detached(leaseMillis = 10_000) })
+            val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = clock)
+            engine.enqueue(handler, "p")
+            engine.drain()
+            val first: AttemptContext = handler.attempts.single()
+            // The first executor goes silent past its lease, and the drain re-hands the item.
+            clock.millis = 10_001L
+            engine.drain()
+            assertTrue(handler.attempts[1].wasDetached, "precondition: the item was re-handed")
+
+            // Only now does the first executor report.
+            engine.settle("item-1", first.claim, SettleResult.Failed(IllegalStateException("first executor broke")))
+
+            val item: UploaderItem = assertNotNull(store.find("item-1"))
+            assertEquals(UploaderItemState.IN_FLIGHT, item.state, "the second executor's claim must survive")
+            assertEquals(20_001L, item.leaseUntilEpochMillis)
+            assertEquals(0, item.attempts, "a superseded executor's failure must not spend the retry budget")
+            assertNull(item.lastError)
+        }
+
+    @Test
+    fun `an expired executor's park after a re-hand does not take the item from its new executor`() = runTest {
+        val store = TestUploaderStore()
+        val clock = TestClock(millis = 0L)
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Detached(leaseMillis = 10_000) })
+        val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = clock)
+        engine.enqueue(handler, "p")
+        engine.drain()
+        val first: AttemptContext = handler.attempts.single()
+        clock.millis = 10_001L
+        engine.drain()
+
+        engine.settle("item-1", first.claim, SettleResult.Park("first executor gave up"))
+
+        val item: UploaderItem = assertNotNull(store.find("item-1"))
+        assertEquals(UploaderItemState.IN_FLIGHT, item.state, "the second executor's claim must survive")
+        assertEquals(20_001L, item.leaseUntilEpochMillis)
+        assertNull(item.lastError)
+    }
+
+    @Test
+    fun `the re-handed executor's own failure still spends an attempt`() = runTest {
+        val store = TestUploaderStore()
+        val clock = TestClock(millis = 0L)
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Detached(leaseMillis = 10_000) })
+        val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = clock)
+        engine.enqueue(handler, "p")
+        engine.drain()
+        clock.millis = 10_001L
+        engine.drain()
+        val second: AttemptContext = handler.attempts[1]
+
+        engine.settle("item-1", second.claim, SettleResult.Failed(IllegalStateException("second executor broke")))
+
+        val item: UploaderItem = assertNotNull(store.find("item-1"))
+        assertEquals(UploaderItemState.PENDING, item.state, "the current claim's failure returns it to rotation")
+        assertEquals(1, item.attempts)
+        assertTrue(item.lastError.orEmpty().contains("second executor broke"))
+    }
+
+    @Test
+    fun `an expired executor's delivery after a re-hand still settles the item`() = runTest {
+        val store = TestUploaderStore()
+        val clock = TestClock(millis = 0L)
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Detached(leaseMillis = 10_000) })
+        val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = clock)
+        engine.enqueue(handler, "p")
+        engine.drain()
+        val first: AttemptContext = handler.attempts.single()
+        clock.millis = 10_001L
+        engine.drain()
+
+        engine.settle("item-1", first.claim, SettleResult.Delivered)
+
+        assertNull(store.find("item-1"), "the effect landed, whichever executor landed it")
+    }
+
+    @Test
+    fun `an expired executor's drop after a re-hand still removes the item`() = runTest {
+        val store = TestUploaderStore()
+        val clock = TestClock(millis = 0L)
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Detached(leaseMillis = 10_000) })
+        val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = clock)
+        engine.enqueue(handler, "p")
+        engine.drain()
+        val first: AttemptContext = handler.attempts.single()
+        clock.millis = 10_001L
+        engine.drain()
+
+        engine.settle("item-1", first.claim, SettleResult.Drop("the message was deleted"))
+
+        assertNull(store.find("item-1"), "an effect no longer owed is owed by no executor")
+    }
+
+    @Test
+    fun `a duplicate failure from an executor whose item was re-claimed under the same lease spends nothing`() =
+        runTest {
+            val store = TestUploaderStore()
+            val clock = TestClock(millis = 0L)
+            val handler = TestHandler(
+                retryPolicy = FixedRetryPolicy(delayMillis = 0L),
+                onExecute = { _, _ -> AttemptResult.Detached(leaseMillis = 10_000) },
+            )
+            val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = clock)
+            engine.enqueue(handler, "p")
+            engine.drain()
+            val first: AttemptContext = handler.attempts.single()
+            engine.settle("item-1", first.claim, SettleResult.Failed(IllegalStateException("503")))
+            // Re-claimed in the same millisecond: the new claim carries the very lease the first did.
+            engine.drain()
+            assertEquals(10_000L, store.find("item-1")?.leaseUntilEpochMillis, "precondition: the same lease")
+
+            // The first executor's report arrives a second time.
+            engine.settle("item-1", first.claim, SettleResult.Failed(IllegalStateException("503")))
+
+            val item: UploaderItem = assertNotNull(store.find("item-1"))
+            assertEquals(UploaderItemState.IN_FLIGHT, item.state, "the second claim must survive")
+            assertEquals(1, item.attempts, "one failure, reported twice, spends one attempt")
+        }
+
+    @Test
+    fun `a failure reported before the hand-off is recorded counts against the attempt that made it`() = runTest {
+        val store = TestUploaderStore()
+        lateinit var engine: UploaderEngine
+        val handler = TestHandler(
+            onExecute = { context, _ ->
+                // A fast executor reports before execute() has even returned its Detached.
+                engine.settle(context.id, context.claim, SettleResult.Failed(IllegalStateException("503")))
+                AttemptResult.Detached(leaseMillis = 10_000)
+            },
+        )
+        engine = testEngine(store, listOf(handler), backgroundScope)
+        engine.enqueue(handler, "p")
+
+        engine.drain()
+
+        val item: UploaderItem = assertNotNull(store.find("item-1"))
+        assertEquals(1, item.attempts, "the attempt's own failure must count")
+        assertEquals(UploaderItemState.PENDING, item.state, "and the hand-off that followed it must not claim the item")
+        assertEquals(0L, item.leaseUntilEpochMillis)
     }
 }

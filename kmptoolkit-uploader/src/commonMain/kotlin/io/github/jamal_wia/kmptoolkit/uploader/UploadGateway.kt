@@ -53,6 +53,10 @@ public object UploadGateway {
      * Settles [itemId] with the raw [result]: the handler classifies it, [UploadHandler.onDelivered]
      * runs for a delivery, the item settles, then [UploadHandler.onSettled] runs.
      *
+     * It settles under the item's current claim, which is why it takes none: [UploadTransport.launch] is
+     * idempotent per item id, so every claim of the item — the first hand-off and each re-hand-off — is
+     * served by one platform job, and its report is about the attempt the item is held under.
+     *
      * @return `false` when no engine registered within [engineWait], or its store failed while settling —
      *   the outcome did not land, and the executor should keep it and retry. A later retry of an item that
      *   settled meanwhile is harmless; one that did not settle uploads again, so [UploadHandler.onDelivered]

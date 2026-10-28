@@ -34,7 +34,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * ```kotlin
  * val engine: UploaderEngine? = UploaderEngineRegistry.await(5.seconds)
  *     ?: return Result.retry() // startup has not produced one; ask the platform to try again
- * engine.settle(itemId, SettleResult.Delivered)
+ * engine.settle(itemId, claim, SettleResult.Delivered) // both from the AttemptContext it was handed
  * ```
  *
  * ## Contract

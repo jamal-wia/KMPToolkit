@@ -251,7 +251,7 @@ internal class DefaultUploaderEngine(
         return drained == true
     }
 
-    override suspend fun settle(id: String, result: SettleResult) {
+    override suspend fun settle(id: String, claim: Long, result: SettleResult) {
         val record: UploaderItem? = store.getById(id)
         if (record == null) {
             // Late, duplicate, or superseded settle — the debt is no longer this executor's.
@@ -259,6 +259,8 @@ internal class DefaultUploaderEngine(
             return
         }
         when (result) {
+            // Facts about the effect, so they stand from any claim: a superseded executor that delivered
+            // has still delivered, and re-handing the item would send it twice.
             is SettleResult.Delivered -> {
                 store.deleteById(id)
                 logger.i { "Settled ${record.logName} as delivered." }
@@ -269,37 +271,60 @@ internal class DefaultUploaderEngine(
                 logger.i { "Settled ${record.logName} as dropped — ${result.reason}." }
             }
 
-            is SettleResult.Park -> {
-                store.park(id, result.reason)
-                logger.w { "Settled ${record.logName} as parked — ${result.reason}." }
+            // Verdicts on one attempt, so they stand only from the attempt the engine still runs.
+            is SettleResult.Park -> if (record.isCurrentFor(claim, result)) {
+                val parked: Boolean = store.park(id, result.reason, record.state, record.claim)
+                if (parked) {
+                    logger.w { "Settled ${record.logName} as parked — ${result.reason}." }
+                } else {
+                    logger.i { "Park settle for ${record.logName} superseded mid-settle — no-op." }
+                }
             }
 
-            is SettleResult.Failed -> settleFailed(record, result)
+            is SettleResult.Failed -> if (record.isCurrentFor(claim, result)) settleFailed(record, result)
         }
         // Delivered may have emptied the queue (let the drain disarm the wake); Failed armed a
         // backoff gate (let the drain schedule an alarm for it).
         trigger()
     }
 
-    private suspend fun settleFailed(record: UploaderItem, result: SettleResult.Failed) {
-        if (record.state != UploaderItemState.IN_FLIGHT) {
-            // A parked item must stay parked — reviving it would retry a known-permanent failure —
-            // and a pending one is already back in the drain's hands. Only a live claim may spend
-            // the retry budget.
-            logger.i { "Stale Failed settle for ${record.logName} (state=${record.state}) — no-op." }
-            return
+    /**
+     * Whether a report from [claim] is about the attempt the engine still runs for this item: the claim
+     * it is held under, or — for a fast executor reporting before `execute` returned and the hand-off
+     * was recorded — the claim the drain is about to write, one past the row's. Any claim written since
+     * supersedes it, and a parked item is held by no claim at all. Logs the stale report it rejects.
+     */
+    private fun UploaderItem.isCurrentFor(claim: Long, result: SettleResult): Boolean {
+        val current: Boolean = when (state) {
+            UploaderItemState.IN_FLIGHT -> claim == this.claim || claim == this.claim + 1
+            UploaderItemState.PENDING -> claim == this.claim + 1
+            UploaderItemState.PARKED -> false
         }
+        if (!current) {
+            logger.i { "Stale $result settle for $logName (claim $claim; item $state under ${this.claim}) — no-op." }
+        }
+        return current
+    }
+
+    private suspend fun settleFailed(record: UploaderItem, result: SettleResult.Failed) {
         val handler: UploaderHandler<*>? = handlersByType[record.type]
         if (handler == null) {
             // The same treatment the drain gives an orphaned type: keep it, keep it visible.
-            store.park(record.id, "no handler registered for type '${record.type}'")
+            parkAsRead(record, "no handler registered for type '${record.type}'")
             logger.e { "Parked ${record.logName} on settle — no handler for its type." }
             return
         }
-        // Guarded by the state and lease the record carried when we read it: if the drain re-handed the
-        // item in between, the lease changed and this write no-ops instead of clobbering a fresh claim.
+        // Guarded by the state and claim the record carried when we read it: if the drain re-handed the
+        // item in between, the claim moved and this write no-ops instead of clobbering the fresh one.
         recordRetry(record = record, handler = handler, cause = result.cause)
     }
+
+    /**
+     * Parks [record] if it is still in the state and claim it was read in. Every park the engine makes
+     * follows a read, and a settle can land between the two on an executor's own coroutine.
+     */
+    private suspend fun parkAsRead(record: UploaderItem, reason: String?): Boolean =
+        store.park(record.id, reason, record.state, record.claim)
 
     override suspend fun drain() {
         while (true) {
@@ -327,7 +352,7 @@ internal class DefaultUploaderEngine(
                 if (handler == null) {
                     // Either a wiring bug or a payload from a build that had the type. Parking
                     // keeps the item visible instead of failing forever or deleting a user's data.
-                    store.park(item.id, "no handler registered for type '${item.type}'")
+                    parkAsRead(item, "no handler registered for type '${item.type}'")
                     logger.e { "Parked ${item.logName} — no handler for its type." }
                     executedAny = true
                     continue
@@ -420,10 +445,7 @@ internal class DefaultUploaderEngine(
         if (item.schemaVersion > handler.schemaVersion) {
             // Written by a future app version and then downgraded from; mis-decoding it could send
             // something wrong.
-            store.park(
-                item.id,
-                "payload schema v${item.schemaVersion} > handler v${handler.schemaVersion}",
-            )
+            parkAsRead(item, "payload schema v${item.schemaVersion} > handler v${handler.schemaVersion}")
             logger.w { "Parked ${item.logName} — its payload comes from a newer schema." }
             return
         }
@@ -434,7 +456,7 @@ internal class DefaultUploaderEngine(
             throw e
         } catch (e: Throwable) {
             // Retrying cannot fix a broken payload, and deleting it would lose the user's data.
-            store.park(item.id, "undecodable payload: ${e.message}")
+            parkAsRead(item, "undecodable payload: ${e.message}")
             logger.e(e) { "Parked ${item.logName} — undecodable payload." }
             return
         }
@@ -443,6 +465,8 @@ internal class DefaultUploaderEngine(
             attempts = item.attempts,
             uniqueKey = item.uniqueKey,
             orderingKey = item.orderingKey,
+            // The claim a hand-off from this attempt writes: markInFlight advances the row's by one.
+            claim = item.claim + 1,
             // Reaching execute() while in flight means the lease expired un-settled. Telling the
             // handler makes a careful re-hand-off possible: the previous executor may have finished
             // without managing to report it.
@@ -488,7 +512,7 @@ internal class DefaultUploaderEngine(
                     id = item.id,
                     leaseUntilEpochMillis = clock.nowEpochMillis() + outcome.leaseMillis,
                     expectedState = item.state,
-                    expectedLeaseUntilEpochMillis = item.leaseUntilEpochMillis,
+                    expectedClaim = item.claim,
                 )
                 if (claimed) {
                     logger.i { "Detached ${item.logName} under a ${outcome.leaseMillis}ms lease." }
@@ -503,8 +527,11 @@ internal class DefaultUploaderEngine(
             }
 
             is AttemptResult.Park -> {
-                store.park(item.id, outcome.reason)
-                logger.w { "Parked ${item.logName} — ${outcome.reason}." }
+                if (parkAsRead(item, outcome.reason)) {
+                    logger.w { "Parked ${item.logName} — ${outcome.reason}." }
+                } else {
+                    logger.i { "Park of ${item.logName} skipped — the item moved while it ran." }
+                }
             }
 
             is AttemptResult.Retry -> recordRetry(item, handler, outcome.cause)
@@ -542,12 +569,12 @@ internal class DefaultUploaderEngine(
         val lease: Long = transport.leaseMillis
         if (lease <= 0) {
             // A non-positive lease would never read as in flight and re-hand on every pass.
-            store.park(item.id, "UploadTransport.leaseMillis must be > 0, was $lease")
+            parkAsRead(item, "UploadTransport.leaseMillis must be > 0, was $lease")
             logger.e { "Parked ${item.logName} — non-positive transport lease." }
             return
         }
         val leaseUntil: Long = clock.nowEpochMillis() + lease
-        // Claimed only in the state and lease this pass read the item in. Between that read and here a
+        // Claimed only in the state and claim this pass read the item in. Between that read and here a
         // detached executor of an earlier attempt may have settled it — parked on a permanent failure,
         // or back to pending under a backoff gate — and an unguarded claim would revive it and upload it
         // again. A claim that misses launches nothing; the next pass sees the row as it now is.
@@ -555,7 +582,7 @@ internal class DefaultUploaderEngine(
             id = item.id,
             leaseUntilEpochMillis = leaseUntil,
             expectedState = item.state,
-            expectedLeaseUntilEpochMillis = item.leaseUntilEpochMillis,
+            expectedClaim = item.claim,
         )
         if (!claimed) {
             logger.i { "Hand-off of ${item.logName} skipped — the item moved since this pass read it." }
@@ -566,13 +593,13 @@ internal class DefaultUploaderEngine(
             logger.i { "Detached ${item.logName} under a ${lease}ms lease." }
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
-            recordRetry(item, handler, e, expectedState = UploaderItemState.IN_FLIGHT, expectedLeaseUntil = leaseUntil)
+            recordRetry(item, handler, e, expectedState = UploaderItemState.IN_FLIGHT, expectedClaim = context.claim)
             return
         } catch (e: Throwable) {
             // The platform scheduler unavailable, say: this item's attempt fails, guarded by the claim just
             // made so a settle that already landed is not overwritten.
             logger.e(e) { "Upload hand-off failed for ${item.logName}." }
-            recordRetry(item, handler, e, expectedState = UploaderItemState.IN_FLIGHT, expectedLeaseUntil = leaseUntil)
+            recordRetry(item, handler, e, expectedState = UploaderItemState.IN_FLIGHT, expectedClaim = context.claim)
             return
         }
         // A withdrawal, or a REPLACE, that removed the row while this attempt was being prepared found no
@@ -584,7 +611,7 @@ internal class DefaultUploaderEngine(
     }
 
     /**
-     * Records a failed attempt of [record], guarded by the state and lease it was read in — by default
+     * Records a failed attempt of [record], guarded by the state and claim it was read in — by default
      * [record]'s own; a hand-off whose launch failed passes the claim it has just written instead.
      *
      * Guarded on every path, the drain's own included. While a handler runs — `execute`, or
@@ -597,7 +624,7 @@ internal class DefaultUploaderEngine(
         handler: UploaderHandler<*>,
         cause: Throwable?,
         expectedState: UploaderItemState = record.state,
-        expectedLeaseUntil: Long = record.leaseUntilEpochMillis,
+        expectedClaim: Long = record.claim,
     ) {
         val attempts: Int = record.attempts + 1
         val error: String? = cause?.let { "${it::class.simpleName}: ${it.message}" }
@@ -624,7 +651,7 @@ internal class DefaultUploaderEngine(
             nextRunAtEpochMillis = nextRunAt,
             lastError = lastError,
             expectedState = expectedState,
-            expectedLeaseUntilEpochMillis = expectedLeaseUntil,
+            expectedClaim = expectedClaim,
             disposition = disposition,
         )
         if (!applied) {
@@ -690,6 +717,7 @@ internal class DefaultUploaderEngine(
             attempts = record.attempts,
             uniqueKey = record.uniqueKey,
             orderingKey = record.orderingKey,
+            claim = record.claim,
             wasDetached = true,
         )
         val preparation: UploadPreparation = try {
@@ -712,7 +740,7 @@ internal class DefaultUploaderEngine(
             }
 
             is UploadPreparation.Park -> {
-                store.park(id, preparation.reason)
+                parkAsRead(record, preparation.reason)
                 logger.w { "Parked ${record.logName} at upload attempt — ${preparation.reason}." }
                 trigger()
                 null
@@ -759,6 +787,18 @@ internal class DefaultUploaderEngine(
         false
     }
 
+    /**
+     * Settles [result] under the item's current claim — for an upload transport's job, which is keyed by
+     * item id and therefore serves every claim of the item. See [settleUploadOutcome].
+     */
+    suspend fun settleUnderCurrentClaim(id: String, result: SettleResult) {
+        val record: UploaderItem = store.getById(id) ?: run {
+            logger.i { "settle($result) for unknown id=$id — no-op." }
+            return
+        }
+        settle(id, record.claim, result)
+    }
+
     private suspend fun settleUploadOutcome(id: String, result: UploadResult) {
         val record: UploaderItem? = store.getById(id)
         if (record == null) {
@@ -782,7 +822,9 @@ internal class DefaultUploaderEngine(
             // not make it upload again.
             runIsolated(record, "onDelivered") { handler.onDelivered(payload) }
         }
-        settle(id, settleResult)
+        // Under the item's current claim: an upload transport keys its platform job by item id, so every
+        // claim of the item is served by this same job, and its report is about the attempt now held.
+        settle(id, record.claim, settleResult)
         runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
     }
 
@@ -793,7 +835,7 @@ internal class DefaultUploaderEngine(
     @Suppress("UNCHECKED_CAST")
     private suspend fun uploadHandlerAndPayload(record: UploaderItem, phase: String): Pair<UploadHandler<Any>, Any>? {
         val handler: UploadHandler<Any> = handlersByType[record.type] as? UploadHandler<Any> ?: run {
-            store.park(record.id, "$phase for non-upload type '${record.type}'")
+            parkAsRead(record, "$phase for non-upload type '${record.type}'")
             logger.e { "Parked ${record.logName} — $phase for a type with no UploadHandler." }
             return null
         }
@@ -802,7 +844,7 @@ internal class DefaultUploaderEngine(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            store.park(record.id, "undecodable payload on $phase: ${e.message}")
+            parkAsRead(record, "undecodable payload on $phase: ${e.message}")
             logger.e(e) { "Parked ${record.logName} — undecodable payload on $phase." }
             return null
         }

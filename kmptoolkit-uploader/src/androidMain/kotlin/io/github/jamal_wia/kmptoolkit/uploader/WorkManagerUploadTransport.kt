@@ -126,7 +126,10 @@ public class UploaderUploadWorker(
         val request: UploadRequest = inputData.toUploadRequestOrNull() ?: return Result.failure()
         val engineWaitMillis: Long = inputData.readEngineWaitMillis(UploadTransportConfig.DEFAULT_ENGINE_WAIT.inWholeMilliseconds)
 
-        val engine: UploaderEngine = UploaderEngineRegistry.await(engineWaitMillis.asEngineWaitDuration())
+        // The engine's own implementation, for its current-claim settle route: this job is unique per item
+        // id, so it serves every claim of the item and has no claim of its own to report under.
+        val engine: DefaultUploaderEngine = UploaderEngineRegistry.await(engineWaitMillis.asEngineWaitDuration())
+            as? DefaultUploaderEngine
             ?: return Result.retry()
         val classify: (UploadResult) -> SettleResult = UploadClassifierRegistry.await(engineWaitMillis)
             ?: return Result.retry()
@@ -146,7 +149,7 @@ public class UploaderUploadWorker(
                 isCancelled = { !transfer.isActive },
             )
         }
-        engine.settle(itemId, classify(outcome))
+        engine.settleUnderCurrentClaim(itemId, classify(outcome))
         return Result.success()
     }
 }

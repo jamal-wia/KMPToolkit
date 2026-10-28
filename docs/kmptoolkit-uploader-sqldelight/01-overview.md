@@ -28,8 +28,9 @@ proved right by `UploaderStoreContract` running against a real database on both 
   sequence, not `created_at`. Two enqueues in the same millisecond keep their order, and a deleted
   row's position is never handed to a later one, because the column is
   `INTEGER PRIMARY KEY AUTOINCREMENT` rather than a bare rowid.
-- **The compare-and-sets.** `recordFailure` and `markInFlight` each guard on the state and lease
-  the caller read, and each is one statement with the guard in its `WHERE` clause,
+- **The compare-and-sets.** `recordFailure`, `markInFlight` and `park` each guard on the state and
+  claim the caller read and advance the claim when they apply, and each is one statement with the
+  guard in its `WHERE` clause,
   not a read followed by a write — a read-then-write loses exactly the race the guard exists to win.
   A give-up is that same one statement too: an `UPDATE` to `PARKED`, or a `DELETE`.
 - **The reentrant transaction.** A nested `inTransaction` joins the outer one rather than opening a

@@ -25,8 +25,8 @@ import kotlinx.coroutines.sync.withLock
  *   [AbstractUploaderStoreContractTest] unmodified.
  *
  * It is *not* a fake in the loose sense: it implements the SPI contract exactly, including
- * insertion ordering, the parked-conflict rule, the compare-and-sets in [recordFailure] and
- * [markInFlight], and no-op-on-absent-row everywhere. A test that passes against this store and
+ * insertion ordering, the parked-conflict rule, the compare-and-sets in [recordFailure],
+ * [markInFlight] and [park] with the claim counter they advance, and no-op-on-absent-row everywhere. A test that passes against this store and
  * fails against your database has found a bug in your store, which is the point.
  *
  * Thread-safe: every mutation runs under a [Mutex], so concurrent enqueues and settles behave the
@@ -94,16 +94,13 @@ public class InMemoryUploaderStore(
         nextRunAtEpochMillis: Long,
         lastError: String?,
         expectedState: UploaderItemState,
-        expectedLeaseUntilEpochMillis: Long,
+        expectedClaim: Long,
         disposition: FailureDisposition,
     ): Boolean = mutex.withLock {
-        val current: UploaderItem = state.value.firstOrNull { it.id == id } ?: return@withLock false
-        // The optimistic guard: a lease that moved since the caller read it means the drain re-handed
-        // this item, a state that moved means a settle parked it — either way the stale report must not
-        // clobber what is there now.
-        if (current.state != expectedState || current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis) {
-            return@withLock false
-        }
+        // The optimistic guard: a claim that moved since the caller read it means the drain re-handed
+        // this item or a settle got there first — either way the stale report must not clobber what is
+        // there now.
+        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return@withLock false
         // A give-up lands in this same write, so the row is never observable as PENDING once its
         // retry budget is spent.
         when (disposition) {
@@ -119,6 +116,7 @@ public class InMemoryUploaderStore(
                     nextRunAtEpochMillis = nextRunAtEpochMillis,
                     lastError = lastError,
                     leaseUntilEpochMillis = 0L,
+                    claim = expectedClaim + 1,
                 ),
             )
         }
@@ -129,32 +127,43 @@ public class InMemoryUploaderStore(
         id: String,
         leaseUntilEpochMillis: Long,
         expectedState: UploaderItemState,
-        expectedLeaseUntilEpochMillis: Long,
+        expectedClaim: Long,
     ): Boolean = mutex.withLock {
-        val current: UploaderItem = state.value.firstOrNull { it.id == id } ?: return@withLock false
         // Claimed only as the caller read it: a row parked or re-gated since then must stay that way.
-        if (current.state != expectedState || current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis) {
-            return@withLock false
-        }
+        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return@withLock false
         replace(
             current.copy(
                 state = UploaderItemState.IN_FLIGHT,
                 leaseUntilEpochMillis = leaseUntilEpochMillis,
+                claim = expectedClaim + 1,
             ),
         )
         true
     }
 
-    override suspend fun park(id: String, lastError: String?): Unit = mutex.withLock {
-        val current: UploaderItem = state.value.firstOrNull { it.id == id } ?: return@withLock
+    override suspend fun park(
+        id: String,
+        lastError: String?,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
+    ): Boolean = mutex.withLock {
+        // Parked only as the caller read it: a re-hand since then has made this a verdict on an attempt
+        // the engine no longer runs.
+        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return@withLock false
         replace(
             current.copy(
                 state = UploaderItemState.PARKED,
                 lastError = lastError,
                 leaseUntilEpochMillis = 0L,
+                claim = expectedClaim + 1,
             ),
         )
+        true
     }
+
+    /** The row [id] if it is still in [expectedState] under [expectedClaim]; call under [mutex]. */
+    private fun guarded(id: String, expectedState: UploaderItemState, expectedClaim: Long): UploaderItem? =
+        state.value.firstOrNull { it.id == id }?.takeIf { it.state == expectedState && it.claim == expectedClaim }
 
     override suspend fun deleteById(id: String): Unit = mutex.withLock {
         state.value = state.value.filterNot { it.id == id }
