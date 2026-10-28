@@ -115,7 +115,12 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
   `AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation`, so a backgrounded music app resumes
   promptly rather than whenever it notices. Deactivation happens on every failure path too,
   including one where the recorder was never constructed — an active `PlayAndRecord` session left
-  behind would duck every other app's audio for the rest of the process. If your app manages the
+  behind would duck every other app's audio for the rest of the process. Because the session is one
+  per process, the recorders in it share it: each prepared recorder holds it, and it is deactivated
+  only when the last holder lets go, so releasing one recorder — or a second recorder failing to
+  prepare — never deactivates it under another that is still recording (iOS stops every running
+  audio object of a session it deactivates). Every `prepare()` still activates it, so a session the
+  system deactivated meanwhile is active again for the new recording. If your app manages the
   session centrally, be aware that this module touches it. The category is not configurable;
   `PlayAndRecord` rather than `Record` so an app that plays the recording back does not have to
   fight the module over the session.
@@ -238,12 +243,11 @@ wins, a running `stop()`/`cancel()` wins over an event, `elapsed` frozen, `level
   reserve, exactly as on Android; there is no platform size limit to set, so the poll is the only
   protection.
 - **Audio session while interrupted.** `stop()`, `cancel()` and `release()` deactivate the shared
-  session with `NotifyOthersOnDeactivation`, so other apps' audio resumes between your segments.
-  `release()` that lands while a `stop()` or an event is still being finalized hands the native
-  recorder to that finalization, which deactivates the process-wide session when it completes —
-  possibly after a new recorder in the same process has already activated it. Known limitation,
-  pre-existing on the `stop()` path: the session is not reference counted, so do not release one
-  recorder while another is starting.
+  session with `NotifyOthersOnDeactivation` (once no other recorder in the process holds it), so
+  other apps' audio resumes between your segments. `release()` that lands while a `stop()` or an event is still being finalized hands the native
+  recorder to that finalization, which gives back the recorder's hold on the process-wide session
+  when it completes. A recorder in the same process that has prepared meanwhile holds the session
+  too, so it stays active for that recorder.
 - **M4A vs AAC durability** is the same as on Android: prefer `AudioFormat.AAC` for long recordings
   when a file that survives being cut matters more than the container.
 
@@ -261,7 +265,8 @@ wins, a running `stop()`/`cancel()` wins over an event, `elapsed` frozen, `level
   first, or wait for the user to come back.
 - **Do other apps get their audio back between segments?** On iOS yes: `stop()` and `release()`
   deactivate the session with `NotifyOthersOnDeactivation`, which is what lets a paused music app
-  resume. On Android `MediaRecorder` does not touch audio focus either way.
+  resume — unless another recorder in your process still holds the session. On Android
+  `MediaRecorder` does not touch audio focus either way.
 
 ## Input level
 

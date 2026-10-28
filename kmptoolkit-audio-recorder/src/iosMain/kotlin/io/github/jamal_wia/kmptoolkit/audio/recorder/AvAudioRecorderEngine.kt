@@ -12,14 +12,11 @@ import platform.AVFAudio.AVAudioQualityHigh
 import platform.AVFAudio.AVAudioRecorder
 import platform.AVFAudio.AVAudioRecorderDelegateProtocol
 import platform.AVFAudio.AVAudioSession
-import platform.AVFAudio.AVAudioSessionCategoryPlayAndRecord
-import platform.AVFAudio.AVAudioSessionModeDefault
 import platform.AVFAudio.AVAudioSessionRecordPermissionGranted
 import platform.AVFAudio.AVAudioSessionInterruptionNotification
 import platform.AVFAudio.AVAudioSessionInterruptionTypeBegan
 import platform.AVFAudio.AVAudioSessionInterruptionTypeKey
 import platform.AVFAudio.AVAudioSessionMediaServicesWereResetNotification
-import platform.AVFAudio.AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
 import platform.AVFAudio.AVEncoderAudioQualityKey
 import platform.AVFAudio.AVEncoderBitRateKey
 import platform.AVFAudio.AVFormatIDKey
@@ -28,7 +25,6 @@ import platform.AVFAudio.AVLinearPCMIsBigEndianKey
 import platform.AVFAudio.AVLinearPCMIsFloatKey
 import platform.AVFAudio.AVNumberOfChannelsKey
 import platform.AVFAudio.AVSampleRateKey
-import platform.AVFAudio.setActive
 import platform.CoreAudioTypes.kAudioFormatLinearPCM
 import platform.CoreAudioTypes.kAudioFormatMPEG4AAC
 import platform.Foundation.NSError
@@ -49,10 +45,13 @@ import platform.darwin.NSObjectProtocol
  * the platform actually told us. The one call that does hand back an `NSError` — the initializer —
  * has it captured and folded into the exception's message.
  *
- * This engine also owns the process-wide `AVAudioSession`: it activates it in [prepare] and
- * deactivates it in [release], including on every failure path in between. Activation errors are
- * captured and thrown, so a session that cannot be configured fails `prepare` with its own cause
- * instead of failing later as a misleading `start` failure.
+ * This engine also holds the process-wide `AVAudioSession`: it takes a hold in [prepare] and gives
+ * it back in [release], including on every failure path in between. The holds of every engine in
+ * the process are counted by [AudioSessionHolders], and the session is deactivated only when the
+ * last one is given back — so one recorder's release never deactivates the session under another
+ * that is still recording. Activation errors are captured and thrown, so a session that cannot be
+ * configured fails `prepare` with its own cause instead of failing later as a misleading `start`
+ * failure.
  *
  * It also reports what the platform does on its own, as raw [EngineEvent]s, from three sources: the
  * recorder's delegate (an encode error, or a recording that finished unsuccessfully without being
@@ -73,6 +72,11 @@ internal class AvAudioRecorderEngine(
      */
     private val delegateAccepts: (candidate: AVAudioRecorder, current: AVAudioRecorder?) -> Boolean =
         { candidate: AVAudioRecorder, current: AVAudioRecorder? -> candidate === current },
+    /**
+     * The process-wide count of audio-session holds. Injectable only so the module's own tests can
+     * count against a fake session; every engine the factory creates shares [AudioSessionHolders.Shared].
+     */
+    private val audioSession: AudioSessionHolders = AudioSessionHolders.Shared,
 ) : RecorderEngine {
 
     // Volatile because peakDbfs() reads it from the metering coroutine while release() nulls it on
@@ -80,7 +84,10 @@ internal class AvAudioRecorderEngine(
     @Volatile
     private var recorder: AVAudioRecorder? = null
     private var channelCount: Int = 1
-    private var sessionActive: Boolean = false
+
+    // Whether this engine holds one of the counted audio-session holds, so it gives back exactly
+    // the one it took, however many failure paths call deactivateAudioSession().
+    private var holdsSession: Boolean = false
 
     // Read by delegate and notification callbacks on whichever thread they arrive on, written by
     // setEventListener, stop and release.
@@ -259,10 +266,10 @@ internal class AvAudioRecorderEngine(
             // holding its file open, and skipping stop() would leave that file unfinalized.
             current.stop()
         }
-        // Deactivated independently of the recorder: prepare() activates the session before it
-        // constructs the recorder, so a construction failure leaves an active session with no
-        // recorder to hang it off. Gating this on a non-null recorder would strand the whole
-        // process with PlayAndRecord active — every other app's audio ducked, indefinitely.
+        // Given back independently of the recorder: prepare() takes the hold before it constructs
+        // the recorder, so a construction failure leaves a hold with no recorder to hang it off.
+        // Gating this on a non-null recorder would strand the whole process with PlayAndRecord
+        // active — every other app's audio ducked, indefinitely.
         deactivateAudioSession()
     }
 
@@ -270,39 +277,14 @@ internal class AvAudioRecorderEngine(
         recorder ?: error("AVAudioRecorder is not prepared")
 
     private fun activateAudioSession() {
-        val session: AVAudioSession = AVAudioSession.sharedInstance()
-        // The NSError of both calls is captured and thrown: a category or activation the system
-        // refuses (another app holding the session, a restricted device) is a PREPARE failure with
-        // its own cause, not a mystery `record()` failure later on.
-        memScoped {
-            val errorRef = alloc<ObjCObjectVar<NSError?>>()
-            val categorySet: Boolean = session.setCategory(
-                category = AVAudioSessionCategoryPlayAndRecord,
-                mode = AVAudioSessionModeDefault,
-                options = 0u,
-                error = errorRef.ptr,
-            )
-            if (!categorySet || errorRef.value != null) {
-                error("AVAudioSession could not be configured: ${errorRef.value?.localizedDescription}")
-            }
-            val activated: Boolean = session.setActive(true, error = errorRef.ptr)
-            if (!activated || errorRef.value != null) {
-                error("AVAudioSession could not be activated: ${errorRef.value?.localizedDescription}")
-            }
-        }
-        sessionActive = true
+        audioSession.acquire()
+        holdsSession = true
     }
 
     private fun deactivateAudioSession() {
-        if (!sessionActive) return
-        sessionActive = false
-        // NotifyOthersOnDeactivation: without it a backgrounded music app stays paused until it
-        // notices on its own, instead of resuming as soon as the microphone is free.
-        AVAudioSession.sharedInstance().setActive(
-            active = false,
-            withOptions = AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation,
-            error = null,
-        )
+        if (!holdsSession) return
+        holdsSession = false
+        audioSession.release()
     }
 
     private fun recordingSettings(config: AudioRecorderConfig): Map<Any?, Any> =
