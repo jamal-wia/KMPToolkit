@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
 import io.github.jamal_wia.kmptoolkit.uploader.spi.ConstraintProvider
+import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.uploader.spi.WakeScheduler
@@ -49,18 +50,42 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
     }
 
     override suspend fun insertReplace(record: UploaderItem) {
+        runOnce(beforeNextInsertReplace) { beforeNextInsertReplace = null }
         val existing: UploaderItem? = conflict(record)
         state.value = state.value.filterNot { it.id == existing?.id } + record
     }
+
+    /**
+     * Runs once after the next [getAllActive] has taken its snapshot, before the caller sees it — for
+     * a write that lands between a read of the queue and whatever the caller does with that read.
+     */
+    var afterNextGetAllActive: (suspend () -> Unit)? = null
+
+    /** Runs once right before the next [markInFlight] writes — a settle landing ahead of a claim. */
+    var beforeNextMarkInFlight: (suspend () -> Unit)? = null
+
+    /** Runs once right after the next [markInFlight] has claimed its row — a withdrawal ahead of a launch. */
+    var afterNextMarkInFlight: (suspend () -> Unit)? = null
+
+    /** Runs once right after the next [recordFailure] has written — a drain pass landing behind it. */
+    var afterNextRecordFailure: (suspend () -> Unit)? = null
+
+    /** Runs once right before the next [deleteByTag] deletes — an enqueue racing a tag wipe. */
+    var beforeNextDeleteByTag: (suspend () -> Unit)? = null
+
+    /** Runs once right before the next [insertReplace] writes — an enqueue racing a replacement. */
+    var beforeNextInsertReplace: (suspend () -> Unit)? = null
 
     override suspend fun getAllActive(): List<UploaderItem> {
         failNextGetAllActive?.let { failure ->
             failNextGetAllActive = null
             throw failure
         }
-        return state.value.filter {
+        val active: List<UploaderItem> = state.value.filter {
             it.state == UploaderItemState.PENDING || it.state == UploaderItemState.IN_FLIGHT
         }
+        runOnce(afterNextGetAllActive) { afterNextGetAllActive = null }
+        return active
     }
 
     /**
@@ -97,6 +122,7 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
         nextRunAtEpochMillis: Long,
         lastError: String?,
         expectedLeaseUntilEpochMillis: Long?,
+        disposition: FailureDisposition,
     ): Boolean {
         val current: UploaderItem = find(id) ?: return false
         if (expectedLeaseUntilEpochMillis != null &&
@@ -104,26 +130,45 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
         ) {
             return false
         }
-        put(
-            current.copy(
-                state = UploaderItemState.PENDING,
-                attempts = attempts,
-                nextRunAtEpochMillis = nextRunAtEpochMillis,
-                lastError = lastError,
-                leaseUntilEpochMillis = 0L,
-            ),
-        )
+        when (disposition) {
+            FailureDisposition.DROP -> deleteById(id)
+            FailureDisposition.RETRY, FailureDisposition.PARK -> put(
+                current.copy(
+                    state = if (disposition == FailureDisposition.PARK) {
+                        UploaderItemState.PARKED
+                    } else {
+                        UploaderItemState.PENDING
+                    },
+                    attempts = attempts,
+                    nextRunAtEpochMillis = nextRunAtEpochMillis,
+                    lastError = lastError,
+                    leaseUntilEpochMillis = 0L,
+                ),
+            )
+        }
+        runOnce(afterNextRecordFailure) { afterNextRecordFailure = null }
         return true
     }
 
-    override suspend fun markInFlight(id: String, leaseUntilEpochMillis: Long) {
-        val current: UploaderItem = find(id) ?: return
+    override suspend fun markInFlight(
+        id: String,
+        leaseUntilEpochMillis: Long,
+        expectedState: UploaderItemState,
+        expectedLeaseUntilEpochMillis: Long,
+    ): Boolean {
+        runOnce(beforeNextMarkInFlight) { beforeNextMarkInFlight = null }
+        val current: UploaderItem = find(id) ?: return false
+        if (current.state != expectedState || current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis) {
+            return false
+        }
         put(
             current.copy(
                 state = UploaderItemState.IN_FLIGHT,
                 leaseUntilEpochMillis = leaseUntilEpochMillis,
             ),
         )
+        runOnce(afterNextMarkInFlight) { afterNextMarkInFlight = null }
+        return true
     }
 
     override suspend fun park(id: String, lastError: String?) {
@@ -143,6 +188,7 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
     }
 
     override suspend fun deleteByTag(tag: String) {
+        runOnce(beforeNextDeleteByTag) { beforeNextDeleteByTag = null }
         state.value = state.value.filterNot { it.tag == tag }
     }
 
@@ -151,6 +197,13 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
 
     override suspend fun clearAll() {
         state.value = emptyList()
+    }
+
+    /** Clears a one-shot hook before running it, so a hook that re-enters the store cannot recurse. */
+    private suspend fun runOnce(hook: (suspend () -> Unit)?, clear: () -> Unit) {
+        if (hook == null) return
+        clear()
+        hook()
     }
 
     private fun conflict(record: UploaderItem): UploaderItem? {

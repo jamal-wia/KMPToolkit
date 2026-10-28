@@ -6,6 +6,7 @@ import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import io.github.jamal_wia.kmptoolkit.uploader.spi.ConstraintProvider
+import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.uploader.spi.WakeScheduler
@@ -478,8 +479,20 @@ internal class DefaultUploaderEngine(
                 // Delivery now belongs to an external executor; the row waits under a lease. The
                 // attempt counter deliberately does not move — a hand-off is not a failure, and
                 // only a Failed settle spends retry budget.
-                store.markInFlight(item.id, clock.nowEpochMillis() + outcome.leaseMillis)
-                logger.i { "Detached ${item.logName} under a ${outcome.leaseMillis}ms lease." }
+                //
+                // Claimed only as read: a fast executor may already have settled the item while
+                // execute() was still returning, and its Park or Drop must stand.
+                val claimed: Boolean = store.markInFlight(
+                    id = item.id,
+                    leaseUntilEpochMillis = clock.nowEpochMillis() + outcome.leaseMillis,
+                    expectedState = item.state,
+                    expectedLeaseUntilEpochMillis = item.leaseUntilEpochMillis,
+                )
+                if (claimed) {
+                    logger.i { "Detached ${item.logName} under a ${outcome.leaseMillis}ms lease." }
+                } else {
+                    logger.i { "Detached ${item.logName}, but it was settled during the hand-off — no claim." }
+                }
             }
 
             is AttemptResult.Drop -> {
@@ -532,7 +545,20 @@ internal class DefaultUploaderEngine(
             return
         }
         val leaseUntil: Long = clock.nowEpochMillis() + lease
-        store.markInFlight(item.id, leaseUntil)
+        // Claimed only in the state and lease this pass read the item in. Between that read and here a
+        // detached executor of an earlier attempt may have settled it — parked on a permanent failure,
+        // or back to pending under a backoff gate — and an unguarded claim would revive it and upload it
+        // again. A claim that misses launches nothing; the next pass sees the row as it now is.
+        val claimed: Boolean = store.markInFlight(
+            id = item.id,
+            leaseUntilEpochMillis = leaseUntil,
+            expectedState = item.state,
+            expectedLeaseUntilEpochMillis = item.leaseUntilEpochMillis,
+        )
+        if (!claimed) {
+            logger.i { "Hand-off of ${item.logName} skipped — the item moved since this pass read it." }
+            return
+        }
         try {
             transport.launch(item.id, context.wasDetached, request)
             logger.i { "Detached ${item.logName} under a ${lease}ms lease." }
@@ -564,28 +590,39 @@ internal class DefaultUploaderEngine(
         val attempts: Int = record.attempts + 1
         val error: String? = cause?.let { "${it::class.simpleName}: ${it.message}" }
         val nextRunAt: Long = clock.nowEpochMillis() + handler.retryPolicy.backoffMillis(attempts)
-        val applied: Boolean =
-            store.recordFailure(record.id, attempts, nextRunAt, error, expectedLeaseUntil)
+        // The give-up is decided before the write and made by it, not by a second write after it: a row
+        // that passed through PENDING on its way to parked or dropped could be handed off once more by
+        // a drain pass landing in between — an attempt past maxAttempts, on an item already given up.
+        val disposition: FailureDisposition = when (val giveUp: GiveUpPolicy = handler.retryPolicy.giveUp) {
+            is GiveUpPolicy.ParkAfterAttempts ->
+                if (attempts >= giveUp.maxAttempts) FailureDisposition.PARK else FailureDisposition.RETRY
+
+            is GiveUpPolicy.DropAfterAttempts ->
+                if (attempts >= giveUp.maxAttempts) FailureDisposition.DROP else FailureDisposition.RETRY
+
+            is GiveUpPolicy.Never -> FailureDisposition.RETRY
+        }
+        val lastError: String? = when (disposition) {
+            FailureDisposition.PARK -> "gave up after $attempts attempts; last error: $error"
+            FailureDisposition.RETRY, FailureDisposition.DROP -> error
+        }
+        val applied: Boolean = store.recordFailure(
+            id = record.id,
+            attempts = attempts,
+            nextRunAtEpochMillis = nextRunAt,
+            lastError = lastError,
+            expectedLeaseUntilEpochMillis = expectedLeaseUntil,
+            disposition = disposition,
+        )
         if (!applied) {
             logger.i { "Stale failure report for ${record.logName} — superseded, no-op." }
             return
         }
-        when (val giveUp: GiveUpPolicy = handler.retryPolicy.giveUp) {
-            is GiveUpPolicy.ParkAfterAttempts -> if (attempts >= giveUp.maxAttempts) {
-                store.park(record.id, "gave up after $attempts attempts; last error: $error")
-                logger.e { "Parked ${record.logName} after $attempts attempts ($error)." }
-                return
-            }
-
-            is GiveUpPolicy.DropAfterAttempts -> if (attempts >= giveUp.maxAttempts) {
-                store.deleteById(record.id)
-                logger.e { "Dropped ${record.logName} after $attempts attempts ($error)." }
-                return
-            }
-
-            is GiveUpPolicy.Never -> Unit
+        when (disposition) {
+            FailureDisposition.PARK -> logger.e { "Parked ${record.logName} after $attempts attempts ($error)." }
+            FailureDisposition.DROP -> logger.e { "Dropped ${record.logName} after $attempts attempts ($error)." }
+            FailureDisposition.RETRY -> logger.w { "Retry scheduled for ${record.logName} (attempt $attempts, $error)." }
         }
-        logger.w { "Retry scheduled for ${record.logName} (attempt $attempts, $error)." }
     }
 
     /** Arms — or re-arms — the one-shot alarm that re-triggers the drain at the soonest gate. */

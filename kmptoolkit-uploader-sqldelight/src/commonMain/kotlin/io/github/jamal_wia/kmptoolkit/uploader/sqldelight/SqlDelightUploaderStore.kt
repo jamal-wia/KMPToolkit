@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
 
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
+import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.KmpToolkitUploaderDatabase
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.Kmptoolkit_uploader_item
@@ -25,7 +26,7 @@ import kotlinx.coroutines.flow.map
  * stated plainly in `docs/kmptoolkit-uploader-sqldelight/04-api-reference.md` rather than papered over.
  *
  * Three parts of this are load-bearing and are documented where they happen: the insertion sequence
- * (`UploaderItem.sq`), the compare-and-set in [recordFailure], and the thread confinement that lets a
+ * (`UploaderItem.sq`), the compare-and-sets in [recordFailure] and [markInFlight], and the thread confinement that lets a
  * nested call join an open transaction ([onDatabaseThread]).
  */
 internal class SqlDelightUploaderStore(
@@ -110,32 +111,56 @@ internal class SqlDelightUploaderStore(
         nextRunAtEpochMillis: Long,
         lastError: String?,
         expectedLeaseUntilEpochMillis: Long?,
+        disposition: FailureDisposition,
     ): Boolean = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.RECORD_FAILURE) {
-            // One UPDATE carrying the guard in its WHERE clause, not a read followed by a write:
+            // One statement carrying the guard in its WHERE clause, not a read followed by a write:
             // a read-then-write loses exactly the race the guard exists to win, because the lease
-            // can move between the two.
+            // can move between the two. A give-up is that same one statement — an UPDATE to PARKED,
+            // or a DELETE — so the row is never observable as PENDING once its budget is spent.
             //
             // The statement's own affected-row count answers "did a row change?", so there is no
             // second query and no transaction to keep two statements on one connection. That
             // matters beyond tidiness: `SELECT changes()` outside a transaction can be served by a
             // reader connection — where it is always 0 — on both of this module's drivers.
-            queries.recordFailure(
-                attempts = attempts.toLong(),
-                nextRunAt = nextRunAtEpochMillis,
-                lastError = lastError,
+            val changed: Long = when (disposition) {
+                FailureDisposition.DROP ->
+                    queries.dropOnFailure(id = id, expectedLease = expectedLeaseUntilEpochMillis).value
+
+                FailureDisposition.RETRY, FailureDisposition.PARK -> queries.recordFailure(
+                    state = if (disposition == FailureDisposition.PARK) {
+                        UploaderItemState.PARKED.name
+                    } else {
+                        UploaderItemState.PENDING.name
+                    },
+                    attempts = attempts.toLong(),
+                    nextRunAt = nextRunAtEpochMillis,
+                    lastError = lastError,
+                    id = id,
+                    expectedLease = expectedLeaseUntilEpochMillis,
+                ).value
+            }
+            changed > 0L
+        }
+    }
+
+    override suspend fun markInFlight(
+        id: String,
+        leaseUntilEpochMillis: Long,
+        expectedState: UploaderItemState,
+        expectedLeaseUntilEpochMillis: Long,
+    ): Boolean = onDatabaseThread(confinement) {
+        mapFailures(UploaderStorageOperation.MARK_IN_FLIGHT) {
+            // The same shape as recordFailure: the guard lives in the WHERE clause and the
+            // affected-row count is the answer, so the claim is one atomic step.
+            queries.markInFlight(
+                leaseUntil = leaseUntilEpochMillis,
                 id = id,
+                expectedState = expectedState.name,
                 expectedLease = expectedLeaseUntilEpochMillis,
             ).value > 0L
         }
     }
-
-    override suspend fun markInFlight(id: String, leaseUntilEpochMillis: Long): Unit =
-        onDatabaseThread(confinement) {
-            mapFailures(UploaderStorageOperation.MARK_IN_FLIGHT) {
-                queries.markInFlight(leaseUntil = leaseUntilEpochMillis, id = id)
-            }
-        }
 
     override suspend fun park(id: String, lastError: String?): Unit = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.PARK) {

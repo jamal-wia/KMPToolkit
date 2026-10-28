@@ -55,9 +55,9 @@ restore. This module cannot decide that for you.
 | In-memory mode | `name = null` | `inMemoryDriver(schema)` |
 | Journal mode | WAL, the platform default | WAL, SQLiter's default |
 
-The version spread on Android is why this module's SQL stays conservative. `recordFailure`'s
-compare-and-set, for instance, does not use an `UPDATE … RETURNING` clause to learn whether it wrote
-a row: `RETURNING` needs SQLite 3.35 and `minSdk` 24 ships 3.9. It uses the statement's own
+The version spread on Android is why this module's SQL stays conservative. The compare-and-sets in
+`recordFailure` and `markInFlight`, for instance, do not use an `UPDATE … RETURNING` clause to learn whether they wrote
+a row: `RETURNING` needs SQLite 3.35 and `minSdk` 24 ships 3.9. They use the statement's own
 affected-row count instead — which also avoids `SELECT changes()`, a second statement that both
 pools can serve from a *reader* connection, where it is always 0.
 

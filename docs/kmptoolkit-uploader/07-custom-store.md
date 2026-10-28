@@ -66,8 +66,10 @@ crash into silent data loss. This is the one invariant `UploaderStoreContract` c
 Each function is atomic on its own — a concurrent reader sees before or after, never halfway. Two
 functions are **not** atomic together, and the engine never assumes they are.
 
-The one place the engine does depend on more is the compare-and-set inside `recordFailure`. See
-below.
+The places the engine does depend on more are the two compare-and-sets — inside `recordFailure` and
+inside `markInFlight`. Each is a decision the engine made from an earlier read, and each must be one
+atomic read-modify-write so a concurrent writer that changed the row in between is detected rather
+than overwritten. See below.
 
 ### 3. Insertion order from `getAllActive`
 
@@ -82,7 +84,8 @@ SELECT * FROM uploader_item WHERE state IN ('PENDING', 'IN_FLIGHT') ORDER BY seq
 ### 4. Absent rows are no-ops, everywhere
 
 `recordFailure`, `markInFlight`, `park`, `deleteById` and `deleteByTag` are addressed by id or tag
-and must treat "no such row" as success-with-nothing-done, never as an error. Calling any of them
+and must treat "no such row" as success-with-nothing-done (`false` where the function returns one),
+never as an error. Calling any of them
 twice with the same arguments must be indistinguishable from calling it once.
 
 This is not defensive politeness; the settle and lease races are *designed* around it. A late settle
@@ -95,7 +98,7 @@ At least three callers can overlap: the drain coroutine, a feature calling `enqu
 executor calling `settle`. Guard your state — a `Mutex`, a serialized database writer, a
 transaction, whatever your engine offers.
 
-## The two functions worth care
+## The three functions worth care
 
 ### `insertKeep` — the conflict rules
 
@@ -120,17 +123,24 @@ gate and lease.
 
 ### `recordFailure` — the optimistic guard
 
-Five fields in one atomic write: `attempts`, `next_run_at`, `last_error`, `state = PENDING`, and
+Five fields in one atomic write: `attempts`, `next_run_at`, `last_error`, `state`, and
 `lease_until = 0`. Clearing the lease is what returns a detached item to rotation.
+
+`state` comes from the `disposition` argument: `RETRY` writes `PENDING`, and a failure that spent the
+retry budget arrives as `PARK` (write `PARKED`, keeping the final attempt count and error) or `DROP`
+(delete the row instead, under the same guard). The give-up must be this same write: a row that
+passed through `PENDING` on its way out could be handed off once more by a drain reading it in
+between — an attempt past `maxAttempts`, on an item already given up.
 
 When `expectedLeaseUntilEpochMillis` is non-null, the write must apply **only if** the row's current
 `lease_until` still equals it:
 
 ```sql
 UPDATE uploader_item
-   SET attempts = ?, next_run_at = ?, last_error = ?, state = 'PENDING', lease_until = 0
+   SET attempts = ?, next_run_at = ?, last_error = ?, state = :state, lease_until = 0
  WHERE id = ?
    AND (:expected_lease IS NULL OR lease_until = :expected_lease);
+-- DROP: DELETE FROM uploader_item WHERE id = ? AND (<the same guard>)
 -- return whether a row was affected
 ```
 
@@ -142,12 +152,31 @@ you would have two live deliveries for one effect.
 A `null` expected lease skips the guard entirely — that is the drain's own path, where it already
 holds single-flight ownership.
 
+### `markInFlight` — the claim
+
+The drain reads the queue, then claims an item for an executor. Between the two, a detached executor
+of an earlier attempt may report its outcome: parking the item on a permanent failure, or returning it
+to `PENDING` under a backoff gate. So the claim carries the state and lease the drain read, and must be
+written **only if** the row still holds both:
+
+```sql
+UPDATE uploader_item
+   SET state = 'IN_FLIGHT', lease_until = :lease_until
+ WHERE id = ? AND state = :expected_state AND lease_until = :expected_lease;
+-- return whether a row was affected
+```
+
+A first hand-off expects `PENDING` with lease `0`; a re-hand after an expired lease expects
+`IN_FLIGHT` with that expired lease. Without the guard, the claim would revive a parked item — the
+transport uploads a known-permanent failure again — or retry one ahead of its gate. A claim that
+misses returns `false`, and the engine launches nothing. It **must not touch `attempts`** — a hand-off
+is not a failure.
+
 ## Everything else, briefly
 
 | Function | Notes |
 |---|---|
 | `getById` | Tolerant lookup; `null` is a normal answer, not an error |
-| `markInFlight` | Sets state and lease. **Must not touch `attempts`** — a hand-off is not a failure |
 | `park` | Sets state and `last_error`, clears the lease, leaves `attempts` alone. Deletes nothing |
 | `deleteById` | Removes one row |
 | `deleteByTag` | Removes every row with that exact tag, in **every** state — this is a logout wipe |
@@ -169,9 +198,9 @@ class MyUploaderStoreTest {
 }
 ```
 
-Thirty checks covering insertion ordering under a same-millisecond burst, both conflict policies
-against all three states, the compare-and-set, no-op-on-absent-row, tag deletion across states, and
-the observation flow. The lambda must return a fresh, empty store each call.
+Thirty-seven checks covering insertion ordering under a same-millisecond burst, both conflict policies
+against all three states, both compare-and-sets and the give-up dispositions, no-op-on-absent-row, tag
+deletion across states, and the observation flow. The lambda must return a fresh, empty store each call.
 
 Do not skip this on the grounds that the implementation is obviously correct. Every invariant on
 this page exists because breaking it produces a bug that looks like something else: a message
@@ -207,6 +236,7 @@ class MyUploaderStore(private val db: MyDatabase) : UploaderStore {
         nextRunAtEpochMillis: Long,
         lastError: String?,
         expectedLeaseUntilEpochMillis: Long?,
+        disposition: FailureDisposition,
     ): Boolean = db.transaction {
         val current: Row = db.findById(id) ?: return@transaction false
         if (expectedLeaseUntilEpochMillis != null &&
@@ -214,7 +244,25 @@ class MyUploaderStore(private val db: MyDatabase) : UploaderStore {
         ) {
             return@transaction false
         }
-        db.updateFailure(id, attempts, nextRunAtEpochMillis, lastError)
+        when (disposition) {
+            FailureDisposition.DROP -> db.deleteById(id)
+            FailureDisposition.PARK -> db.updateFailure(id, "PARKED", attempts, nextRunAtEpochMillis, lastError)
+            FailureDisposition.RETRY -> db.updateFailure(id, "PENDING", attempts, nextRunAtEpochMillis, lastError)
+        }
+        true
+    }
+
+    override suspend fun markInFlight(
+        id: String,
+        leaseUntilEpochMillis: Long,
+        expectedState: UploaderItemState,
+        expectedLeaseUntilEpochMillis: Long,
+    ): Boolean = db.transaction {
+        val current: Row = db.findById(id) ?: return@transaction false
+        if (current.state != expectedState.name || current.leaseUntil != expectedLeaseUntilEpochMillis) {
+            return@transaction false
+        }
+        db.updateClaim(id, leaseUntilEpochMillis)
         true
     }
 

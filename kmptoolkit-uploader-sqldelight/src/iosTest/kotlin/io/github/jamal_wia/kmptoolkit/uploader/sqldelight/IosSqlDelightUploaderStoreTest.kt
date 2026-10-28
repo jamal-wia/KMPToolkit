@@ -31,6 +31,11 @@ class IosSqlDelightUploaderStoreTest {
     }
 
     @Test
+    fun `concurrent claims from one read let exactly one through`() = runTest {
+        checks.concurrentClaimsLetExactlyOneThrough()
+    }
+
+    @Test
     fun `insertion order survives deletion of the newest row`() = runTest {
         checks.insertionOrderSurvivesDeletionOfTheNewestRow()
     }

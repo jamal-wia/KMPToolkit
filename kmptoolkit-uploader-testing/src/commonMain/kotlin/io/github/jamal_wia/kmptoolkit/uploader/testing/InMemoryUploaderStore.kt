@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.testing
 
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
+import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,8 +25,8 @@ import kotlinx.coroutines.sync.withLock
  *   [AbstractUploaderStoreContractTest] unmodified.
  *
  * It is *not* a fake in the loose sense: it implements the SPI contract exactly, including
- * insertion ordering, the parked-conflict rule, the compare-and-set in
- * [recordFailure], and no-op-on-absent-row everywhere. A test that passes against this store and
+ * insertion ordering, the parked-conflict rule, the compare-and-sets in [recordFailure] and
+ * [markInFlight], and no-op-on-absent-row everywhere. A test that passes against this store and
  * fails against your database has found a bug in your store, which is the point.
  *
  * Thread-safe: every mutation runs under a [Mutex], so concurrent enqueues and settles behave the
@@ -91,6 +92,7 @@ public class InMemoryUploaderStore(
         nextRunAtEpochMillis: Long,
         lastError: String?,
         expectedLeaseUntilEpochMillis: Long?,
+        disposition: FailureDisposition,
     ): Boolean = mutex.withLock {
         val current: UploaderItem = state.value.firstOrNull { it.id == id } ?: return@withLock false
         // The optimistic guard: a lease that moved since the caller read it means the drain
@@ -100,26 +102,45 @@ public class InMemoryUploaderStore(
         ) {
             return@withLock false
         }
-        replace(
-            current.copy(
-                state = UploaderItemState.PENDING,
-                attempts = attempts,
-                nextRunAtEpochMillis = nextRunAtEpochMillis,
-                lastError = lastError,
-                leaseUntilEpochMillis = 0L,
-            ),
-        )
+        // A give-up lands in this same write, so the row is never observable as PENDING once its
+        // retry budget is spent.
+        when (disposition) {
+            FailureDisposition.DROP -> state.value = state.value.filterNot { it.id == id }
+            FailureDisposition.RETRY, FailureDisposition.PARK -> replace(
+                current.copy(
+                    state = if (disposition == FailureDisposition.PARK) {
+                        UploaderItemState.PARKED
+                    } else {
+                        UploaderItemState.PENDING
+                    },
+                    attempts = attempts,
+                    nextRunAtEpochMillis = nextRunAtEpochMillis,
+                    lastError = lastError,
+                    leaseUntilEpochMillis = 0L,
+                ),
+            )
+        }
         true
     }
 
-    override suspend fun markInFlight(id: String, leaseUntilEpochMillis: Long): Unit = mutex.withLock {
-        val current: UploaderItem = state.value.firstOrNull { it.id == id } ?: return@withLock
+    override suspend fun markInFlight(
+        id: String,
+        leaseUntilEpochMillis: Long,
+        expectedState: UploaderItemState,
+        expectedLeaseUntilEpochMillis: Long,
+    ): Boolean = mutex.withLock {
+        val current: UploaderItem = state.value.firstOrNull { it.id == id } ?: return@withLock false
+        // Claimed only as the caller read it: a row parked or re-gated since then must stay that way.
+        if (current.state != expectedState || current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis) {
+            return@withLock false
+        }
         replace(
             current.copy(
                 state = UploaderItemState.IN_FLIGHT,
                 leaseUntilEpochMillis = leaseUntilEpochMillis,
             ),
         )
+        true
     }
 
     override suspend fun park(id: String, lastError: String?): Unit = mutex.withLock {

@@ -84,27 +84,37 @@ selectById:
 SELECT * FROM kmptoolkit_uploader_item WHERE id = :id;
 
 -- The compare-and-set. One statement, five fields: the attempt count, the backoff gate, the error,
--- the return to PENDING, and the cleared lease. A non-null :expectedLease makes the whole write
--- conditional on the lease not having moved since the caller read it — that is what stops a stale
--- failure report from a detached executor clearing a claim a second executor is working under.
+-- the state — PENDING to retry, or PARKED when the failure spent the retry budget, so a give-up is
+-- this same write and the row never passes through PENDING on its way out — and the cleared lease. A
+-- non-null :expectedLease makes the whole write conditional on the lease not having moved since the
+-- caller read it — that is what stops a stale failure report from a detached executor clearing a
+-- claim a second executor is working under.
 --
 -- Whether a row was actually written comes from the statement's own affected-row count, which
 -- SQLDelight returns. No RETURNING clause: it needs SQLite 3.35 and minSdk 24 ships 3.9.
 recordFailure:
 UPDATE kmptoolkit_uploader_item
-SET state = 'PENDING',
+SET state = :state,
     attempts = :attempts,
     next_run_at = :nextRunAt,
     last_error = :lastError,
     lease_until = 0
 WHERE id = :id AND (:expectedLease IS NULL OR lease_until = :expectedLease);
 
--- Hand the row to a detached executor. `attempts` is deliberately untouched: a hand-off is not a
--- failure.
+-- recordFailure's give-up for a handler that drops what it cannot deliver: the same guard, a delete
+-- instead of an update.
+dropOnFailure:
+DELETE FROM kmptoolkit_uploader_item
+WHERE id = :id AND (:expectedLease IS NULL OR lease_until = :expectedLease);
+
+-- Hand the row to a detached executor — only if it is still in the state and lease the caller read
+-- it in. Between the drain's read and this write a detached executor of an earlier attempt may have
+-- parked the row, or returned it to PENDING under a backoff gate; an unguarded claim would revive
+-- the one and skip the other. `attempts` is deliberately untouched: a hand-off is not a failure.
 markInFlight:
 UPDATE kmptoolkit_uploader_item
 SET state = 'IN_FLIGHT', lease_until = :leaseUntil
-WHERE id = :id;
+WHERE id = :id AND state = :expectedState AND lease_until = :expectedLease;
 
 -- Out of rotation without being deleted. Clears the lease, leaves `attempts` alone.
 park:
