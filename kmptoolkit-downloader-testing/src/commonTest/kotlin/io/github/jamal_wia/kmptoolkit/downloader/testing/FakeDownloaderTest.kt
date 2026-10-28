@@ -223,6 +223,19 @@ class FakeDownloaderTest {
     }
 
     @Test
+    fun `fake storage commit of a unit a concurrent commit already finalized returns normally`() = runTest {
+        val storage = FakeDownloaderStorage(availableIds = setOf(unit.id))
+        storage.begunIds += unit.id
+        storage.tempFileStates[unit.id] = TempFileState.Partial
+
+        storage.commitResource(unit)
+
+        assertTrue(storage.isResourceAvailable(unit))
+        assertEquals(TempFileState.Partial, storage.tempFileState(unit), "a newer transfer is left alone")
+        assertTrue(unit.id in storage.begunIds)
+    }
+
+    @Test
     fun `fake storage accepts a mark for a partial seeded as begun earlier without a begin call`() {
         val storage = FakeDownloaderStorage()
         storage.tempFileStates[unit.id] = TempFileState.Partial
