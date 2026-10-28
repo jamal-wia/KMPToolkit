@@ -426,6 +426,91 @@ class VlcjVideoEngineSessionTest {
         assertEquals(FakeVlcRuntime.TASK_THREAD, player.threadOf("pause"))
     }
 
+    // --- call order across threads ----------------------------------------------------------
+
+    /**
+     * Holds VLC's task thread until the returned latch is opened, so whatever is submitted meanwhile
+     * is still queued while the test makes its next call.
+     */
+    private fun holdTaskThread(): CountDownLatch {
+        val release = CountDownLatch(1)
+        runtime.taskThread.execute { release.await(FakeVlcRuntime.WAIT_SECONDS, TimeUnit.SECONDS) }
+        return release
+    }
+
+    private fun FakeVlcPlayer.transportCalls(): List<String> =
+        calls.filter { it == "play" || it == "pause" || it.startsWith("setTime") }
+
+    @Test
+    fun `a pause made after a restart queued from onCompleted wins over it`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        // What the player above does for RepeatMode.One when the end is reported: rewind and start,
+        // here on VLC's event thread, so the start is submitted to the task thread.
+        listener.reaction = { event ->
+            if (event == "completed") {
+                engine.seekTo(0L)
+                engine.start()
+            }
+        }
+        player.calls.clear()
+        val held: CountDownLatch = holdTaskThread()
+
+        player.fire { finished() }
+        engine.pause() // the app's pause, made after the restart was asked for
+        held.countDown()
+        runtime.drainTasks()
+
+        assertEquals(listOf("play", "pause"), player.transportCalls(), "the later pause() must land last")
+    }
+
+    @Test
+    fun `a call from the app does not overtake one submitted from a VLC callback before it`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        listener.reaction = { event -> if (event == "buffering=true") engine.pause() }
+        player.calls.clear()
+        val held: CountDownLatch = holdTaskThread()
+
+        player.fire { buffering(20f) } // the pause is submitted from the event thread
+        engine.start() // the app resumes after it
+        held.countDown()
+        runtime.drainTasks()
+
+        assertEquals(listOf("pause", "play"), player.transportCalls(), "the later start() must land last")
+    }
+
+    @Test
+    fun `a seek from the app lands after one submitted from a VLC callback before it`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        listener.reaction = { event -> if (event == "buffering=true") engine.seekTo(100L) }
+        player.calls.clear()
+        val held: CountDownLatch = holdTaskThread()
+
+        player.fire { buffering(20f) }
+        engine.seekTo(1_500L)
+        held.countDown()
+        runtime.drainTasks()
+
+        assertEquals(listOf("setTime(100)", "setTime(1500)"), player.transportCalls())
+        assertEquals(1_500L, engine.positionMs())
+    }
+
+    @Test
+    fun `a seek made once output began is not undone by the pending seek applied then`() = runBlocking<Unit> {
+        loadClip()
+        engine.seekTo(800L)
+        engine.start()
+        val player: FakeVlcPlayer = runtime.player
+        val held: CountDownLatch = holdTaskThread()
+
+        player.fire { playing() } // queues applying the pending seek to 800
+        engine.seekTo(1_500L)
+        held.countDown()
+        runtime.drainTasks()
+
+        assertEquals(listOf("play", "setTime(800)", "setTime(1500)"), player.transportCalls())
+        assertEquals(1_500L, engine.positionMs())
+    }
+
     // --- video size and frames ---------------------------------------------------------------
 
     @Test

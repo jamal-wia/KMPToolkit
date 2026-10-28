@@ -23,8 +23,8 @@ The one type shared code depends on.
 - **`post`** — posts `notification` under `id`, replacing whatever is showing under that id. Every
   *runtime* failure is a `NotificationResult`, never an exception. The single exception is a **blank
   `id`**, which throws `IllegalArgumentException`: it is a bug in the calling code, and left
-  unchecked the platforms disagree destructively about it — Android folds it onto a shared integer
-  id, `UNNotificationRequest` raises an Objective-C exception that Kotlin/Native cannot catch and
+  unchecked the platforms disagree destructively about it — Android quietly accepts it as one more
+  tag, `UNNotificationRequest` raises an Objective-C exception that Kotlin/Native cannot catch and
   the process dies. Suspending because checking authorization is asynchronous on iOS; on Android it
   does not suspend in practice.
 - **`post(id, notification, options)`** — the same post, presented according to
@@ -56,6 +56,7 @@ public fun createNotifier(
     context: Context,
     permissionHandler: PermissionHandler,
     config: NotificationConfig = NotificationConfig(),
+    foregroundIds: Set<ForegroundNotificationId> = emptySet(),
 ): Notifier
 
 // iosMain
@@ -69,6 +70,11 @@ Two signatures rather than one `expect fun`, because Android genuinely needs a `
 does not — see [`docs/01-architecture.md`](../01-architecture.md). Only the application context is
 retained on Android, so passing an `Activity` leaks nothing.
 
+`foregroundIds` (Android, *since 3.0.0*) lists the ids a foreground service shows its notification
+under: `post` and `cancel` of such an id address its untagged `platformId` instead of the tag, so they
+update or remove the service's own notification. Throws `IllegalArgumentException` when two entries
+share an id or a `platformId`.
+
 ```kotlin
 public fun noOpNotifier(): Notifier
 ```
@@ -78,14 +84,17 @@ when the user has notifications off in your own settings.
 
 ## Android helpers
 
-*Since 1.5.0.* Plain functions, usable without a `Notifier`.
+Plain functions and types, usable without a `Notifier`.
 
 ```kotlin
-public fun notificationIdOf(id: String): Int
+public data class ForegroundNotificationId(            // since 3.0.0
+    public val id: String,
+    public val platformId: Int,
+)
 
-public fun buildForegroundNotification(
+public fun buildForegroundNotification(                // since 3.0.0 in this form
     context: Context,
-    id: String,
+    foreground: ForegroundNotificationId,
     notification: LocalNotification,
     config: NotificationConfig = NotificationConfig(),
     options: NotificationOptions = NotificationOptions.DEFAULT,
@@ -97,14 +106,15 @@ public object NotificationChannels {
 }
 ```
 
-- **`notificationIdOf`** — the platform `Int` id a post under `id` is shown with: non-negative,
-  never 0, stable across processes and library versions. For `startForeground`. Throws
-  `IllegalArgumentException` on a blank `id`.
-- **`buildForegroundNotification`** — renders `notification` exactly as `post` would (channel
-  mapping, buttons, dismissal, tap target, options) without posting it, forcing `ongoing`, after
-  creating its channel. Runs no permission, toggle or channel-block gate. Pass the `config` your
-  notifier uses so the button broadcasts match. Throws `IllegalArgumentException` on a blank `id` or
-  a small icon that does not resolve.
+- **`ForegroundNotificationId`** — binds a `Notifier` id to the untagged `Int` a foreground service
+  passes to `startForeground`. Throws `IllegalArgumentException` on a blank `id` or a `platformId` of
+  0. Replaces 2.x's `notificationIdOf`, which derived the `Int` from the id's hash and let two ids
+  share it.
+- **`buildForegroundNotification`** — renders `notification` exactly as `post` would under
+  `foreground.id` (channel mapping, buttons, dismissal, tap target, options) without posting it,
+  forcing `ongoing`, after creating its channel. Runs no permission, toggle or channel-block gate.
+  Pass the `config` your notifier uses so the button broadcasts match. Throws
+  `IllegalArgumentException` on a small icon that does not resolve. Until 2.x it took a `String` id.
 - **`NotificationChannels.ensure`** — creates the channel, or updates an existing one's name and
   description; importance and sound of an existing channel stay the user's. No-op below API 26.
 - **`NotificationChannels.delete`** — deletes the channel and its notifications. No-op below API 26

@@ -61,7 +61,7 @@ class InMemoryUploaderStoreTest {
     fun `concurrent recordFailure calls under one lease let exactly one through`() = runTest {
         val store = InMemoryUploaderStore()
         store.insertKeep(item("a"))
-        store.markInFlight("a", leaseUntilEpochMillis = 900L)
+        store.markInFlight("a", 900L, UploaderItemState.PENDING, expectedLeaseUntilEpochMillis = 0L)
 
         val applied: List<Boolean> = List(CONCURRENT_WRITERS) {
             async {
@@ -74,6 +74,20 @@ class InMemoryUploaderStoreTest {
             applied.count { it },
             "the guard must serialize: the first write clears the lease the rest expect",
         )
+    }
+
+    @Test
+    fun `concurrent claims from one read let exactly one through`() = runTest {
+        val store = InMemoryUploaderStore()
+        store.insertKeep(item("a"))
+
+        val claimed: List<Boolean> = List(CONCURRENT_WRITERS) { index ->
+            async {
+                store.markInFlight("a", 1_000L + index, UploaderItemState.PENDING, expectedLeaseUntilEpochMillis = 0L)
+            }
+        }.awaitAll()
+
+        assertEquals(1, claimed.count { it }, "the first claim moves the row the rest expect to find pending")
     }
 
     @Test
@@ -184,7 +198,7 @@ class InMemoryUploaderStoreTest {
 
     private companion object {
         /** Guards against a silently shrinking contract: verifyAll must keep running them all. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 30
+        const val EXPECTED_CONTRACT_CHECKS: Int = 40
         const val CONCURRENT_WRITERS: Int = 8
     }
 }

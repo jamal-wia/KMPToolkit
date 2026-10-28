@@ -1,9 +1,12 @@
 package io.github.jamal_wia.kmptoolkit.video.player
 
 import kotlin.concurrent.Volatile
+import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.AtomicLong
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlin.concurrent.atomics.decrementAndFetch
+import kotlin.concurrent.atomics.incrementAndFetch
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.readValue
@@ -72,9 +75,13 @@ import platform.darwin.dispatch_get_main_queue
  * player's release too, and an `AVPlayer` without an item holds nothing worth freeing early.
  *
  * **Threading.** Every AVFoundation call happens on the main thread: [load] hops there, and the
- * transport calls run inline when already on it (the normal case — a screen drives its player) and
- * are dispatched to it otherwise. The polled getters are answered from atomics a main-thread monitor
- * refreshes every [MONITOR_INTERVAL_MS], so the player's polling coroutine may run on any thread.
+ * transport calls are dispatched to it from any other thread and run inline when already on it (the
+ * normal case — a screen drives its player), in the order they were made either way: a call on the
+ * main thread is dispatched too while calls dispatched before it are still queued, because running it
+ * inline would let it overtake them — a main-thread `pause()` would land before a `start()` a
+ * background thread dispatched a moment earlier, and the movie would play on while the player above
+ * reports Paused. The polled getters are answered from atomics a main-thread monitor refreshes every
+ * [MONITOR_INTERVAL_MS], so the player's polling coroutine may run on any thread.
  *
  * **Observation by polling, not KVO** — for the reason `kmptoolkit-audio-player` gives: key-value
  * observing has no Kotlin/Native binding that is safe against observing a deallocated object. The
@@ -127,6 +134,14 @@ internal class AvPlayerVideoEngine(
 
     @Volatile
     private var listener: VideoPlaybackEngineListener? = null
+
+    /**
+     * How many [onMain] blocks are dispatched to the main queue and not yet started, so a call on the main
+     * thread knows whether running inline would overtake an earlier one. An atomic rather than a
+     * coroutine tool: the SPI's transport calls are plain synchronous functions, and the count must
+     * be right on whichever thread makes one.
+     */
+    private val queued: AtomicInt = AtomicInt(0)
 
     /** The rate [start] plays at. Remembered because a paused AVPlayer cannot be told it yet. */
     @Volatile
@@ -434,8 +449,19 @@ internal class AvPlayerVideoEngine(
 
     private fun CValue<CMTime>.toMillis(): Long = secondsToMillis(CMTimeGetSeconds(this))
 
+    /** Runs [block] on the main thread after every block dispatched before it — see the class KDoc. */
     private inline fun onMain(crossinline block: () -> Unit) {
-        if (NSThread.isMainThread) block() else dispatch_async(dispatch_get_main_queue()) { block() }
+        if (NSThread.isMainThread && queued.load() == 0) {
+            block()
+            return
+        }
+        queued.incrementAndFetch()
+        dispatch_async(dispatch_get_main_queue()) {
+            // Uncounted before it runs: a call made from inside it comes after it anyway, and only
+            // what is still queued may hold that call back.
+            queued.decrementAndFetch()
+            block()
+        }
     }
 
     private companion object {

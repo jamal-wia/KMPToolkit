@@ -115,8 +115,10 @@ public class BackgroundUploadConfig(
  * Settlement goes through [UploadGateway], so the handler's `classify` and hooks run in the engine, and
  * whole-percent progress reaches [UploadHandler.onUploadProgress].
  *
- * **Idempotent launch.** An item whose session is live in this process is joined. A re-hand in a new
- * process rejoins a task the daemon is still running. A re-hand that finds nothing running waits
+ * **Idempotent launch.** An item whose upload an earlier hand-off in this process started is joined. A
+ * session whose upload already completed is replaced by a fresh one rather than joined, and one that only
+ * a relaunch opened is taken over and checked for a running task like a session of the hand-off's own. A
+ * re-hand in a new process rejoins a task the daemon is still running. A re-hand that finds nothing running waits
  * [BackgroundUploadConfig.rehandFlushWindow] for buffered completion events before starting afresh.
  *
  * **Cancellation by item.** [UploadTransport.cancel] stops that one item's session and nothing else.
@@ -248,8 +250,7 @@ internal class BackgroundSessionUploadTransport(
     }
 
     override fun launch(itemId: String, isRehandOff: Boolean, request: UploadRequest) {
-        val (live: LiveUpload, created: Boolean) = obtainLive(itemId)
-        if (!created) {
+        val live: LiveUpload = claimForHandOff(itemId) ?: run {
             logger.i { "Upload hand-off joins the live session — item=$itemId" }
             return
         }
@@ -328,6 +329,37 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
+    /**
+     * The session a hand-off of [itemId] runs on, decided under the lock; `null` when the hand-off joins
+     * one an earlier hand-off in this process already owns, whose task or start is already under way.
+     *
+     * Only such a session may be joined. Two others can sit in the slot, and joining either would start
+     * nothing while the engine counts the item as handed off — in flight, uploading nothing, until its
+     * lease expires:
+     * - one whose terminal event was delivered: that upload is over and its session invalidated, so it
+     *   is replaced by a fresh one;
+     * - one a relaunch opened only to drain buffered events: this hand-off takes it over, marked so that
+     *   [releaseIfIdle] no longer invalidates it from under the hand-off, and checks its tasks exactly as
+     *   it would a session of its own — rejoining one still running, or starting afresh.
+     */
+    private fun claimForHandOff(itemId: String): LiveUpload? {
+        liveLock.lock()
+        try {
+            val existing: LiveUpload? = liveUploads[itemId]
+            if (existing != null && !existing.delegate.terminalDelivered) {
+                if (existing.handedOff) return null
+                existing.handedOff = true
+                return existing
+            }
+            val live: LiveUpload = createLive(itemId)
+            live.handedOff = true
+            liveUploads[itemId] = live
+            return live
+        } finally {
+            liveLock.unlock()
+        }
+    }
+
     /** The live session for [itemId], created under the lock if absent; and whether this call created it. */
     private fun obtainLive(itemId: String): Pair<LiveUpload, Boolean> {
         liveLock.lock()
@@ -378,7 +410,10 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
-    /** Invalidates and forgets [live] when it has no task and never saw a completion. */
+    /**
+     * Invalidates and forgets [live] when it has no task, never saw a completion, and no hand-off has
+     * taken it over.
+     */
     private fun releaseIfIdle(itemId: String, live: LiveUpload) {
         if (live.delegate.terminalDelivered) return
         live.session.getTasksWithCompletionHandler { dataTasks, uploadTasks, downloadTasks ->
@@ -386,12 +421,18 @@ internal class BackgroundSessionUploadTransport(
             if (running > 0 || live.delegate.terminalDelivered || live.delegate.receivedAnyEvent) return@getTasksWithCompletionHandler
             liveLock.lock()
             try {
-                if (liveUploads[itemId] === live) liveUploads.remove(itemId)
+                // A hand-off that claimed the session after the task check above is about to start its
+                // upload on it; invalidating now would strand that hand-off. Decided under the lock the
+                // claim takes, so exactly one of the two wins.
+                if (live.handedOff || liveUploads[itemId] !== live) return@getTasksWithCompletionHandler
+                liveUploads.remove(itemId)
+                // Inside the lock, so a hand-off that finds the slot empty creates its session — with the
+                // same identifier — only after this one is invalidated.
+                live.session.finishTasksAndInvalidate()
             } finally {
                 liveLock.unlock()
             }
             logger.i { "Released an idle relaunch session — item=$itemId" }
-            live.session.finishTasksAndInvalidate()
         }
     }
 
@@ -430,8 +471,11 @@ internal class BackgroundSessionUploadTransport(
     private fun failBeforeStart(live: LiveUpload, itemId: String, message: String) {
         logger.e { "Upload cannot start — item=$itemId: $message" }
         // No task was created, so no completion will come to settle and release it; do both here. Marked
-        // cancelled first, the invalidation below reports nothing of its own.
+        // cancelled first, the invalidation below reports nothing of its own. Marked terminal too: the
+        // failure reported below is this session's outcome, so a re-hand it triggers must start on a
+        // fresh session rather than join this dead one.
         live.delegate.cancelled = true
+        live.delegate.terminalDelivered = true
         live.session.invalidateAndCancel()
         scope.launch {
             if (!UploadGateway.complete(itemId, UploadResult.TransportFailure(message))) {
@@ -441,7 +485,14 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
-    private class LiveUpload(val session: NSURLSession, val delegate: UploadSessionDelegate)
+    private class LiveUpload(val session: NSURLSession, val delegate: UploadSessionDelegate) {
+
+        /**
+         * Whether a hand-off in this process owns this session — created it, or took over the one a
+         * relaunch opened. Read and written under [liveLock] only.
+         */
+        var handedOff: Boolean = false
+    }
 
     private companion object {
         val RELAUNCH_IDLE_CHECK: Duration = 30.seconds
@@ -635,6 +686,10 @@ private class UploadSessionDelegate(
         }
         val wasCancelled: Boolean = cancelled
         logger.i { "Upload completed — item=$itemId, outcome=$outcome, cancelled=$wasCancelled" }
+        // Before the settlement is launched, not after: the settlement can return the item to the queue,
+        // and a re-hand landing at once replaces this session — terminal now — with a new one under the
+        // same identifier, which must not overlap a session that is not yet invalidated.
+        session.invalidateAndCancel()
         scope.launch {
             fractions.close()
             forwarder.join()
@@ -648,7 +703,6 @@ private class UploadSessionDelegate(
             terminalHandled = true
             fireDrained()
         }
-        session.invalidateAndCancel()
     }
 }
 

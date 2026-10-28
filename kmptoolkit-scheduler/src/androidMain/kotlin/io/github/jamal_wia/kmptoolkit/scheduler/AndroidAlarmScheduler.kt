@@ -4,6 +4,8 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.os.Build
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Creates the Android [AlarmScheduler], backed by `AlarmManager`, and registers [handlers] for the
@@ -110,7 +112,7 @@ internal class AndroidAlarmScheduler(
         val manager: AlarmManager = alarmManager
             ?: return AlarmScheduleResult.Failed(AlarmFailure.SchedulerUnavailable)
         return try {
-            arm(manager, alarm)
+            platformCalls.withLock { arm(manager, alarm) }
         } catch (refusal: IllegalStateException) {
             // AlarmManager refuses in ways a caller cannot prevent: since Android 12 an app holding
             // too many alarms at once (the limit is 500) gets an IllegalStateException from every
@@ -150,17 +152,19 @@ internal class AndroidAlarmScheduler(
 
     override suspend fun cancel(id: String) {
         val manager: AlarmManager = alarmManager ?: return
-        // FLAG_NO_CREATE resolves the PendingIntent armed earlier — matched on component and data
-        // URI, extras ignored — without creating one if there is none.
-        val existing: PendingIntent? = PendingIntent.getBroadcast(
-            context,
-            AlarmIntents.requestCode(id),
-            AlarmIntents.cancelIntent(context, id, keys),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
-        )
-        if (existing != null) {
-            manager.cancel(existing)
-            existing.cancel()
+        platformCalls.withLock {
+            // FLAG_NO_CREATE resolves the PendingIntent armed earlier — matched on component and data
+            // URI, extras ignored — without creating one if there is none.
+            val existing: PendingIntent? = PendingIntent.getBroadcast(
+                context,
+                AlarmIntents.requestCode(id),
+                AlarmIntents.cancelIntent(context, id, keys),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
+            )
+            if (existing != null) {
+                manager.cancel(existing)
+                existing.cancel()
+            }
         }
     }
 
@@ -179,4 +183,25 @@ internal class AndroidAlarmScheduler(
 
     private fun canScheduleExact(manager: AlarmManager): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
+
+    private companion object {
+
+        /**
+         * Serializes every arm and cancel in the process, across every scheduler instance.
+         *
+         * Arming is two platform calls — resolving the id's `PendingIntent`, which with
+         * `FLAG_UPDATE_CURRENT` rewrites the extras it carries, then handing it to `AlarmManager` with a
+         * time — and cancelling is two more. Two schedules of one id interleaving those steps arm one
+         * call's time carrying the other call's content, which is neither alarm the callers asked for.
+         * Cancelling takes the same lock, so a cancel and a schedule of one id also apply whole, one
+         * after the other, instead of interleaving. Each `createAlarmScheduler` call makes a new instance and
+         * all of them share the one `AlarmManager` and the one `PendingIntent` per id, so the lock is
+         * process-wide rather than per instance. One lock rather than one per id: every critical section
+         * is a few quick binder calls, so contention costs nothing worth the bookkeeping of a lock table.
+         *
+         * A coroutine [Mutex], because the API is suspend: a waiting caller suspends instead of blocking
+         * its thread, which may be the main one.
+         */
+        val platformCalls: Mutex = Mutex()
+    }
 }

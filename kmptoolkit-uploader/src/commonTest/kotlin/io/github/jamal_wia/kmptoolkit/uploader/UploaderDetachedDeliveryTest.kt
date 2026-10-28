@@ -247,7 +247,7 @@ class UploaderDetachedDeliveryTest {
         // the item — leaving the report in flight about a claim that no longer exists.
         store.afterNextGetById = {
             clock.millis = 10_001L
-            store.markInFlight("item-1", leaseUntilEpochMillis = 25_000L)
+            store.markInFlight("item-1", 25_000L, UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 10_000L)
         }
 
         engine.settle("item-1", SettleResult.Failed())
@@ -267,7 +267,7 @@ class UploaderDetachedDeliveryTest {
         val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = clock)
         engine.enqueue(handler, "p")
         engine.drain()
-        store.afterNextGetById = { store.markInFlight("item-1", leaseUntilEpochMillis = 25_000L) }
+        store.afterNextGetById = { store.markInFlight("item-1", 25_000L, UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 10_000L) }
 
         engine.settle("item-1", SettleResult.Delivered)
 

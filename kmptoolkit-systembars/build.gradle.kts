@@ -78,6 +78,15 @@ kotlin {
             api(project(":kmptoolkit-activity"))
         }
 
+        iosMain.dependencies {
+            // The process-wide idle-timer holder, shared with kmptoolkit-video-player-compose so
+            // that the wake lock and a playing video surface take turns on the one
+            // `UIApplication.idleTimerDisabled` instead of undoing each other. iOS only: that is
+            // the only platform where the two write the same switch. `implementation`, because no
+            // core type appears in this module's API.
+            implementation(project(":kmptoolkit-core"))
+        }
+
         commonTest.dependencies {
             // Only for the concurrency tests, which need real parallelism from Dispatchers.Default
             // on both the JVM and Kotlin/Native.

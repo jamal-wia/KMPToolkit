@@ -88,8 +88,8 @@ Android. No DI framework, no Compose, no push SDK.
 - **Not a foreground-service helper.** It posts notifications; it does not start, stop or keep alive
   a service, and it has no view of a service's lifecycle. What it does offer, on Android, is the
   notification such a service must show: `buildForegroundNotification` renders one exactly as `post`
-  would, and `notificationIdOf` gives the id to start the service with, so the service's notification
-  and later updates posted through `Notifier` stay one notification.
+  would, and a `ForegroundNotificationId` binds your string id to the `Int` the service starts with,
+  so the service's notification and later updates posted through `Notifier` stay one notification.
 - **Not a source of user-facing text.** No default channel name, no default title, no English
   string of any kind. Everything visible is a required parameter you supply, already localized.
 - **Not a record of what is showing.** The module keeps no list of posted notifications beyond the

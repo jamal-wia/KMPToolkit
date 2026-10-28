@@ -84,7 +84,7 @@ internal class SqlDelightUploaderStoreChecks {
             repeat(CONTENTION_ROUNDS) { round ->
                 val id = "id-$round"
                 store.insertKeep(item(id = id))
-                store.markInFlight(id, leaseUntilEpochMillis = 900L)
+                store.markInFlight(id, 900L, UploaderItemState.PENDING, expectedLeaseUntilEpochMillis = 0L)
 
                 val outcomes: List<Boolean> = withContext(Dispatchers.Default) {
                     coroutineScope {
@@ -116,11 +116,13 @@ internal class SqlDelightUploaderStoreChecks {
     }
 
     /**
-     * A stale settle racing the drain's re-hand: whoever runs second sees a coherent row.
+     * A failure report racing the drain's re-hand, both made from the same read of an expired claim:
+     * exactly one wins, and the row is wholly the winner's.
      *
-     * The two orderings give different answers, and both are correct — what must never happen is
-     * the failure report clearing a lease the drain has just replaced, which would leave two
-     * executors believing they own the delivery.
+     * The two orderings give different answers, and both are correct. What must never happen is
+     * either write landing over the other: the failure report clearing a lease the drain has just
+     * replaced would leave two executors believing they own the delivery, and the re-hand claiming a
+     * row the failure has just returned to PENDING would skip the backoff gate it set.
      */
     suspend fun aStaleSettleNeverClobbersAFreshClaim() {
         withStorage { storage ->
@@ -128,27 +130,60 @@ internal class SqlDelightUploaderStoreChecks {
             repeat(CONTENTION_ROUNDS) { round ->
                 val id = "id-$round"
                 store.insertKeep(item(id = id))
-                store.markInFlight(id, leaseUntilEpochMillis = 900L)
+                store.markInFlight(id, 900L, UploaderItemState.PENDING, expectedLeaseUntilEpochMillis = 0L)
 
-                val applied: Boolean = withContext(Dispatchers.Default) {
+                val (applied: Boolean, rehanded: Boolean) = withContext(Dispatchers.Default) {
                     coroutineScope {
                         val settle = async {
                             store.recordFailure(id, 7, 70L, "stale", expectedLeaseUntilEpochMillis = 900L)
                         }
-                        launch { store.markInFlight(id, leaseUntilEpochMillis = 1_800L) }
-                        settle.await()
+                        val rehand = async {
+                            store.markInFlight(id, 1_800L, UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 900L)
+                        }
+                        settle.await() to rehand.await()
                     }
                 }
 
+                assertTrue(applied != rehanded, "exactly one of the two writes may win, round $round")
                 val row: UploaderItem? = store.getById(id)
-                assertEquals(UploaderItemState.IN_FLIGHT, row?.state, "round $round")
-                assertEquals(1_800L, row?.leaseUntilEpochMillis, "round $round")
-                if (applied) {
-                    assertEquals(7, row?.attempts, "an applied write must be visible, round $round")
-                } else {
+                if (rehanded) {
+                    assertEquals(UploaderItemState.IN_FLIGHT, row?.state, "round $round")
+                    assertEquals(1_800L, row?.leaseUntilEpochMillis, "round $round")
                     assertEquals(0, row?.attempts, "a rejected write must change nothing, round $round")
                     assertNull(row?.lastError, "a rejected write must store no error, round $round")
+                } else {
+                    assertEquals(UploaderItemState.PENDING, row?.state, "round $round")
+                    assertEquals(0L, row?.leaseUntilEpochMillis, "round $round")
+                    assertEquals(7, row?.attempts, "an applied write must be visible, round $round")
+                    assertEquals(70L, row?.nextRunAtEpochMillis, "its backoff gate must survive, round $round")
                 }
+            }
+        }
+    }
+
+    /**
+     * Two claims made from one read of a pending row — one drain pass's and a stale one's — on two
+     * threads: exactly one is written. The guard in `markInFlight`'s `WHERE` clause is what decides it;
+     * a claim that read-then-wrote would let both through.
+     */
+    suspend fun concurrentClaimsLetExactlyOneThrough() {
+        withStorage { storage ->
+            val store: UploaderStore = storage.store
+            repeat(CONTENTION_ROUNDS) { round ->
+                val id = "id-$round"
+                store.insertKeep(item(id = id))
+
+                val claims: List<Boolean> = withContext(Dispatchers.Default) {
+                    coroutineScope {
+                        val first = async { store.markInFlight(id, 1_000L, UploaderItemState.PENDING, 0L) }
+                        val second = async { store.markInFlight(id, 2_000L, UploaderItemState.PENDING, 0L) }
+                        listOf(first.await(), second.await())
+                    }
+                }
+
+                assertEquals(1, claims.count { it }, "exactly one concurrent claim must apply, round $round")
+                val expectedLease: Long = if (claims[0]) 1_000L else 2_000L
+                assertEquals(expectedLease, store.getById(id)?.leaseUntilEpochMillis, "round $round")
             }
         }
     }
@@ -688,7 +723,7 @@ internal class SqlDelightUploaderStoreChecks {
                 UploaderStorageOperation.GET_ALL_ACTIVE to { store.getAllActive() },
                 UploaderStorageOperation.GET_BY_ID to { store.getById("a") },
                 UploaderStorageOperation.RECORD_FAILURE to { store.recordFailure("a", 1, 0L, null) },
-                UploaderStorageOperation.MARK_IN_FLIGHT to { store.markInFlight("a", 1L) },
+                UploaderStorageOperation.MARK_IN_FLIGHT to { store.markInFlight("a", 1L, UploaderItemState.PENDING, 0L) },
                 UploaderStorageOperation.PARK to { store.park("a", null) },
                 UploaderStorageOperation.DELETE_BY_ID to { store.deleteById("a") },
                 UploaderStorageOperation.DELETE_BY_TAG to { store.deleteByTag("t") },
@@ -809,7 +844,7 @@ internal class SqlDelightUploaderStoreChecks {
     private companion object {
 
         /** What [UploaderStoreContract.verifyAll] returns today. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 30
+        const val EXPECTED_CONTRACT_CHECKS: Int = 40
 
         /** Enough repetitions that a lost race would have to be lucky thirty times running. */
         const val CONTENTION_ROUNDS: Int = 30

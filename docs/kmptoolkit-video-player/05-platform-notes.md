@@ -78,8 +78,11 @@ with a `PlaybackException`. Declare the host in a network-security config if you
 ### Threading
 
 ExoPlayer is confined to one *application looper*. This engine uses the **main looper**: it creates
-the ExoPlayer there and marshals every call onto it — a call made on the main thread runs at once, a
-call from another thread is posted, in order. Nothing blocks waiting for the main thread, so
+the ExoPlayer there and marshals every call onto it, in the order the calls were made — a call from
+another thread is posted, and a call made on the main thread runs at once unless calls posted earlier
+are still queued, in which case it is posted behind them (so a main-thread `pause()` can never
+overtake a `play()` made from a background thread a moment before). Nothing blocks waiting for the
+main thread, so
 `createVideoPlayer(context)` and every transport call are safe from any thread. The player above the
 engine serializes its own transitions, so ExoPlayer's end-of-media event (on the main thread) and a
 poll tick (on `Dispatchers.Default`) can no longer overwrite each other's state.
@@ -173,8 +176,10 @@ promise. AVPlayer keeps the display awake while a video plays by default
 (`preventsDisplaySleepDuringVideoPlayback`).
 
 **Main thread.** Every AVFoundation call the engine makes happens on the main thread: `prepare` hops
-there, and transport calls run inline when made on the main thread (the normal case) and are
-dispatched to it otherwise. `avPlayerOrNull()` must be called on the main thread. The polled values
+there, and transport calls are dispatched to it from other threads and run inline when made on the
+main thread (the normal case) — unless calls dispatched earlier are still queued, in which case they
+are dispatched behind them, so calls always reach AVPlayer in the order they were made.
+`avPlayerOrNull()` must be called on the main thread. The polled values
 (position, duration, buffered position) are read from values refreshed on the main thread, so the
 position-polling coroutine may run anywhere.
 

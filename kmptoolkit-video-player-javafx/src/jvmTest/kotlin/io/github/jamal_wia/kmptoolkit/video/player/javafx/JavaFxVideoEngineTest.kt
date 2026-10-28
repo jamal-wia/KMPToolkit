@@ -6,7 +6,11 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerReleasedException
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import javafx.application.Platform
 import javafx.scene.media.MediaException
+import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -278,6 +282,45 @@ class JavaFxVideoEngineTest {
     }
 
     @Test
+    fun aCallOnTheFxThreadDoesNotOvertakeOneQueuedFromAnotherThreadBeforeIt() {
+        load()
+        // start() from another thread is queued on the FX thread; pause() right after it, made on
+        // the FX thread itself (where engine callbacks arrive), must still land after it — or the
+        // source plays on while the player above says Paused.
+        onFxThread {
+            thread { engine.start() }.join()
+            engine.pause()
+        }
+        Thread.sleep(500L) // let JavaFX settle on whichever status the calls left it in
+        val held: Long = engine.positionMs()
+        Thread.sleep(300L)
+
+        assertTrue(inspect().status != "PLAYING", "the later pause() must win: ${inspect().describe()}")
+        assertTrue(abs(engine.positionMs() - held) <= 50L, "moved from $held to ${engine.positionMs()}")
+    }
+
+    @Test
+    fun settingsMadeOnTheFxThreadAfterOnesQueuedFromAnotherThreadWin() {
+        load()
+        onFxThread {
+            thread {
+                engine.setVolume(0.1f)
+                engine.setSpeed(2f)
+                engine.setLooping(true)
+            }.join()
+            engine.setVolume(0.7f)
+            engine.setSpeed(0.5f)
+            engine.setLooping(false)
+        }
+        // Read on the FX thread, so behind everything queued above.
+        val settled: FxPlayback.Inspection = inspect()
+
+        assertEquals(0.7f.toDouble(), settled.volume, settled.describe())
+        assertEquals(0.5, settled.rate, settled.describe())
+        assertEquals(1, settled.cycleCount, settled.describe())
+    }
+
+    @Test
     fun releaseIsIdempotentAndClearsEverything() {
         load()
         engine.start()
@@ -386,6 +429,23 @@ class JavaFxVideoEngineTest {
         val centre: Int = frames.first().pixels[(TestClip.HEIGHT / 2) * TestClip.WIDTH + TestClip.WIDTH / 2]
         assertTrue((centre shr 16) and 0xFF > 180, "centre pixel #${Integer.toHexString(centre)}")
         assertNotNull(engine.frames.value)
+    }
+
+    /** Runs [block] on the FX thread and waits for it, rethrowing what it threw. */
+    private fun onFxThread(block: () -> Unit) {
+        val done = CountDownLatch(1)
+        var failure: Throwable? = null
+        Platform.runLater {
+            try {
+                block()
+            } catch (e: Throwable) {
+                failure = e
+            } finally {
+                done.countDown()
+            }
+        }
+        assertTrue(done.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS), "the FX thread did not run the block")
+        failure?.let { throw it }
     }
 
     private fun inspect(): FxPlayback.Inspection =

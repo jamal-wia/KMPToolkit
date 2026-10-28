@@ -104,16 +104,28 @@ usage-description string.
 - **`setOnlyAlertOnce(true)` is applied by default**, so re-posting an id to update it does not buzz
   again. That is what makes a progress notification bearable. `NotificationOptions(alertOnce = false)`
   turns it off for one post.
-- **Ids are hashed** from your string to a non-negative, non-zero `Int` — non-zero because
-  `startForeground` rejects 0, and stable across processes because `String.hashCode` is specified.
-  `notificationIdOf` returns it. Two different strings can collide — `"Aa"` and `"BB"` hash alike,
-  and so do two strings whose hashes differ only in the sign bit the mapping clears. Colliding ids are one
-  notification to Android: a post under one replaces the other, a `cancel` of one removes the
-  other, and the tap target's `PendingIntent` (keyed by the same number) is shared, so a tap can
-  deliver the other post's `extras`. Use readable, distinct ids, and don't derive them from
-  arbitrary user input. The mapping is deliberately not a `(tag, id)` pair: `startForeground` takes
-  no tag, and a `Notifier.post` must be able to update a foreground service's notification in place
-  under the id `notificationIdOf` returns.
+- **Your id is the notification's tag.** Every post is `notify(tag = id, 1)` and every cancel
+  `cancel(tag = id, 1)`: Android keys a notification by its `(tag, id)` pair, so the string itself
+  tells notifications apart and no two ids can meet. The exception is an id listed in
+  `createNotifier`'s `foregroundIds`, posted and cancelled untagged under its `platformId`, because
+  `startForeground` takes no tag. Up to 2.x every id was posted untagged under its masked
+  `String.hashCode()`, so `"Aa"` and `"BB"` — equal hashes — were one notification; see
+  [`03-guide.md`](03-guide.md#updating-from-2x) for what the 3.x notifier does about what 2.x left in
+  the tray.
+- **Every `PendingIntent` carries its own key.** A `PendingIntent` is identified by request code plus
+  the intent as `Intent.filterEquals` sees it — extras do not count — so two notifications whose
+  intents differed only in extras would share one, and `FLAG_UPDATE_CURRENT` would rewrite the
+  first's extras to the second's. The tap target, each button and the dismissal therefore carry an
+  unambiguous key built from kind, id and action id: from API 29 as `Intent.setIdentifier` (part of
+  `filterEquals`, invisible to delivery and to your code), below 29 as an extra category on an
+  explicit intent (an explicit intent is delivered without consulting filters, so the category
+  changes nothing about who receives it). The tap target always names your launcher activity; a
+  button's broadcast is addressed to your receiver below API 29 when exactly one receiver in the app
+  declares the action. Not a data `Uri`: your launcher activity would see it as `intent.data`, and the
+  action-only receiver filter above would stop matching. **One residual case:** below API 29, with no
+  receiver declared in the manifest (one registered at runtime instead) or several, the broadcast
+  stays implicit and untouched, and its request code falls back to the key's hash — two buttons can
+  then still share a `PendingIntent` if their keys collide.
 - **`NotificationOptions.mediaStyle`** uses `androidx.media`'s `NotificationCompat.MediaStyle`, which
   this module depends on (implementation scope) for exactly that.
 - **A channel is "blocked" two ways**: muted directly (`IMPORTANCE_NONE`), or — from API 28 — sitting

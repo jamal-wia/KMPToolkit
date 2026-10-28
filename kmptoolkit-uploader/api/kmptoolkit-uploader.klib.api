@@ -6,6 +6,18 @@
 // - Show declarations: true
 
 // Library unique name: <io.github.jamal-wia:kmptoolkit-uploader>
+final enum class io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition : kotlin/Enum<io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition> { // io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition|null[0]
+    enum entry DROP // io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition.DROP|null[0]
+    enum entry PARK // io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition.PARK|null[0]
+    enum entry RETRY // io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition.RETRY|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition> // io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition // io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition> // io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition.values|values#static(){}[0]
+}
+
 final enum class io.github.jamal_wia.kmptoolkit.uploader/ConflictPolicy : kotlin/Enum<io.github.jamal_wia.kmptoolkit.uploader/ConflictPolicy> { // io.github.jamal_wia.kmptoolkit.uploader/ConflictPolicy|null[0]
     enum entry KEEP // io.github.jamal_wia.kmptoolkit.uploader/ConflictPolicy.KEEP|null[0]
     enum entry REPLACE // io.github.jamal_wia.kmptoolkit.uploader/ConflictPolicy.REPLACE|null[0]
@@ -73,14 +85,14 @@ abstract interface io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore { /
     abstract fun observeByType(kotlin/String): kotlinx.coroutines.flow/Flow<kotlin.collections/List<io.github.jamal_wia.kmptoolkit.uploader/UploaderItem>> // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.observeByType|observeByType(kotlin.String){}[0]
     abstract suspend fun clearAll() // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.clearAll|clearAll(){}[0]
     abstract suspend fun deleteById(kotlin/String) // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.deleteById|deleteById(kotlin.String){}[0]
-    abstract suspend fun deleteByTag(kotlin/String) // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.deleteByTag|deleteByTag(kotlin.String){}[0]
+    abstract suspend fun deleteByTag(kotlin/String): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.uploader/UploaderItem> // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.deleteByTag|deleteByTag(kotlin.String){}[0]
     abstract suspend fun getAllActive(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.uploader/UploaderItem> // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.getAllActive|getAllActive(){}[0]
     abstract suspend fun getById(kotlin/String): io.github.jamal_wia.kmptoolkit.uploader/UploaderItem? // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.getById|getById(kotlin.String){}[0]
     abstract suspend fun insertKeep(io.github.jamal_wia.kmptoolkit.uploader/UploaderItem): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.insertKeep|insertKeep(io.github.jamal_wia.kmptoolkit.uploader.UploaderItem){}[0]
-    abstract suspend fun insertReplace(io.github.jamal_wia.kmptoolkit.uploader/UploaderItem) // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.insertReplace|insertReplace(io.github.jamal_wia.kmptoolkit.uploader.UploaderItem){}[0]
-    abstract suspend fun markInFlight(kotlin/String, kotlin/Long) // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.markInFlight|markInFlight(kotlin.String;kotlin.Long){}[0]
+    abstract suspend fun insertReplace(io.github.jamal_wia.kmptoolkit.uploader/UploaderItem): io.github.jamal_wia.kmptoolkit.uploader/UploaderItem? // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.insertReplace|insertReplace(io.github.jamal_wia.kmptoolkit.uploader.UploaderItem){}[0]
+    abstract suspend fun markInFlight(kotlin/String, kotlin/Long, io.github.jamal_wia.kmptoolkit.uploader/UploaderItemState, kotlin/Long): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.markInFlight|markInFlight(kotlin.String;kotlin.Long;io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState;kotlin.Long){}[0]
     abstract suspend fun park(kotlin/String, kotlin/String?) // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.park|park(kotlin.String;kotlin.String?){}[0]
-    abstract suspend fun recordFailure(kotlin/String, kotlin/Int, kotlin/Long, kotlin/String?, kotlin/Long? = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.recordFailure|recordFailure(kotlin.String;kotlin.Int;kotlin.Long;kotlin.String?;kotlin.Long?){}[0]
+    abstract suspend fun recordFailure(kotlin/String, kotlin/Int, kotlin/Long, kotlin/String?, kotlin/Long? = ..., io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.recordFailure|recordFailure(kotlin.String;kotlin.Int;kotlin.Long;kotlin.String?;kotlin.Long?;io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.uploader.spi/WakeScheduler { // io.github.jamal_wia.kmptoolkit.uploader.spi/WakeScheduler|null[0]

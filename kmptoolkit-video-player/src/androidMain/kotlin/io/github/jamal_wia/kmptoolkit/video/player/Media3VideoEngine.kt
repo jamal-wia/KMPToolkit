@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -36,8 +37,12 @@ import androidx.media3.common.VideoSize as Media3VideoSize
  *
  * ExoPlayer is confined to its *application looper*: it must be created and called on one thread.
  * This engine uses [looper] (the main looper in production — where a `PlayerView` or surface lives)
- * and marshals every call onto it: a call made on that thread runs at once, a call from anywhere else
- * is posted, in order. Nothing blocks waiting for the main thread.
+ * and marshals every call onto it, in the order the calls were made: a call from anywhere else is
+ * posted, and a call made on that thread runs at once — unless calls posted earlier are still
+ * queued, in which case it is posted behind them. Running it at once then would let it overtake
+ * them: a `pause()` on the main thread would land before a `start()` posted from a background
+ * thread a moment earlier, and the source would play on while the player above reports Paused.
+ * Nothing blocks waiting for the main thread.
  *
  * The SPI polls [durationMs], [positionMs] and [bufferedPositionMs] from the player's coroutine
  * context, which is not the main thread, so they are answered from a [Snapshot] this engine
@@ -71,7 +76,15 @@ internal class Media3VideoEngine(
 ) : VideoPlaybackEngine {
 
     private val handler: Handler = Handler(looper)
-    private val playerDispatcher: CoroutineDispatcher = HandlerDispatcher(handler)
+
+    /**
+     * How many of this engine's tasks are posted to [looper] and not yet started — transport calls and
+     * [load]'s steps alike, so a call on the looper thread knows whether running it at once would
+     * overtake an earlier one. An atomic rather than a coroutine tool: the SPI's transport calls are
+     * plain synchronous functions, and the count must be right on whichever thread makes one.
+     */
+    private val queued: AtomicInteger = AtomicInteger(0)
+    private val playerDispatcher: CoroutineDispatcher = HandlerDispatcher(::post)
 
     @Volatile
     private var listener: VideoPlaybackEngineListener? = null
@@ -285,9 +298,14 @@ internal class Media3VideoEngine(
         }
     }
 
-    /** The freshest snapshot this thread can get: exact on the looper thread, else cached plus a refresh. */
+    /**
+     * The freshest snapshot this thread can get: exact on the looper thread, else cached plus a
+     * refresh. Exact means nothing is still queued: until queued calls have run, the player describes
+     * the moment before them, and the snapshot — which [pause] and [seekTo] update as they are called
+     * — is the truer answer.
+     */
     private fun currentSnapshot(): Snapshot {
-        if (Looper.myLooper() === looper) {
+        if (Looper.myLooper() === looper && queued.get() == 0) {
             refreshSnapshot()
         } else if (refreshPosted.compareAndSet(false, true)) {
             handler.post {
@@ -298,11 +316,25 @@ internal class Media3VideoEngine(
         return snapshot
     }
 
+    /** Runs [block] on the looper thread after every call made before it — see the class KDoc. */
     private inline fun onPlayerThread(crossinline block: () -> Unit) {
-        if (Looper.myLooper() === looper) {
+        if (Looper.myLooper() === looper && queued.get() == 0) {
             guarded(block)
         } else {
-            handler.post { guarded(block) }
+            post { guarded(block) }
+        }
+    }
+
+    /**
+     * Queues [task] on the looper, counted in [queued] until it is taken off the queue. Uncounted
+     * before it runs rather than after: a call made from inside it — a resumed [load] running the
+     * rest of the caller's `prepare` — comes after it, and only what is still queued may hold it back.
+     */
+    private fun post(task: Runnable) {
+        queued.incrementAndGet()
+        handler.post {
+            queued.decrementAndGet()
+            task.run()
         }
     }
 
@@ -341,10 +373,14 @@ internal class Media3VideoEngine(
         }
     }
 
-    /** Resumes coroutines on the looper — a two-line stand-in for kotlinx-coroutines-android's `Handler.asCoroutineDispatcher()`. */
-    private class HandlerDispatcher(private val handler: Handler) : CoroutineDispatcher() {
+    /**
+     * Resumes coroutines on the looper — a two-line stand-in for kotlinx-coroutines-android's
+     * `Handler.asCoroutineDispatcher()`, posting through [post] so [load]'s steps are counted with
+     * the transport calls and keep their place in the same order.
+     */
+    private class HandlerDispatcher(private val post: (Runnable) -> Unit) : CoroutineDispatcher() {
         override fun dispatch(context: CoroutineContext, block: Runnable) {
-            handler.post(block)
+            post(block)
         }
     }
 }

@@ -38,14 +38,15 @@ public interface Notifier {
     /**
      * Posts [notification] under [id], replacing whatever is currently showing under that id.
      *
-     * @param id your own stable identifier. It is the replace key, the cancel key, and the seed for
-     *   the platform's own integer id on Android; it is never shown to the user. Must not be blank.
+     * @param id your own stable identifier. It is the replace key and the cancel key — the platform's
+     *   own key for the notification, Android's tag and iOS's request identifier, so two different
+     *   ids are always two notifications. It is never shown to the user. Must not be blank.
      * @return what the platform made of the request; see [NotificationResult]. Safe to ignore, and
      *   worth logging.
      * @throws IllegalArgumentException if [id] is blank. This is the one thing [post] throws for,
      *   and it is deliberate: a blank id is a bug in the calling code, not a state of the device.
      *   Left unchecked the two platforms disagree about it in the worst possible way — Android
-     *   quietly folds it onto a shared integer id, while `UNNotificationRequest` rejects it with an
+     *   quietly accepts it as one more tag, while `UNNotificationRequest` rejects it with an
      *   Objective-C exception that Kotlin/Native cannot catch, killing the process. Every other
      *   identifier in this module ([NotificationChannelSpec.id], [NotificationAction.id]) is
      *   validated at construction; this one has no constructor to validate it in.
@@ -106,7 +107,7 @@ public fun noOpNotifier(): Notifier = NoOpNotifier
  * way everywhere instead of only on the platform that happens to notice.
  *
  * It lives here rather than in each implementation because the failure it prevents is
- * platform-dependent and asymmetric: silently sharing an integer id on Android, an uncatchable
+ * platform-dependent and asymmetric: silently accepted as a tag on Android, an uncatchable
  * Objective-C exception on iOS.
  */
 internal fun requireValidNotificationId(id: String) {

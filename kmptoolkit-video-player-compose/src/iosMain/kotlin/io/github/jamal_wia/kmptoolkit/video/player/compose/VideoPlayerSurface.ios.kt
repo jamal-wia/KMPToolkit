@@ -6,6 +6,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.UIKitInteropProperties
 import androidx.compose.ui.viewinterop.UIKitView
+import io.github.jamal_wia.kmptoolkit.core.IdleTimerHold
+import io.github.jamal_wia.kmptoolkit.core.SharedIdleTimer
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
 import io.github.jamal_wia.kmptoolkit.video.player.avPlayerOrNull
@@ -20,7 +22,6 @@ import platform.AVFoundation.AVPlayer
 import platform.AVFoundation.AVPlayerLayer
 import platform.CoreGraphics.CGRectZero
 import platform.QuartzCore.CATransaction
-import platform.UIKit.UIApplication
 import platform.UIKit.UIView
 
 /**
@@ -54,9 +55,12 @@ internal actual fun PlatformVideoSurface(
         properties = UIKitInteropProperties(isInteractive = false, isNativeAccessibilityEnabled = false),
     )
     if (keepScreenOn) {
+        // The suite's one holder of `UIApplication.idleTimerDisabled`, shared with the system-bars
+        // wake lock. Each surface owns one hold, so a surface leaving never lets the screen sleep
+        // while another surface or the wake lock still wants it on.
         DisposableEffect(Unit) {
-            IdleTimer.acquire()
-            onDispose { IdleTimer.release() }
+            val hold: IdleTimerHold = SharedIdleTimer.acquire()
+            onDispose { hold.release() }
         }
     }
 }
@@ -77,41 +81,6 @@ private class PlayerLayerView : UIView(frame = CGRectZero.readValue()) {
         CATransaction.setDisableActions(true)
         playerLayer.frame = bounds
         CATransaction.commit()
-    }
-}
-
-/** The app's `UIApplication.idleTimerDisabled`, shared by every surface that wants the screen on. */
-internal val IdleTimer: IdleTimerHolds = IdleTimerHolds(
-    read = { UIApplication.sharedApplication.idleTimerDisabled },
-    write = { disabled -> UIApplication.sharedApplication.idleTimerDisabled = disabled },
-)
-
-/**
- * Reference-counted holds on an "idle timer disabled" flag read by [read] and written by [write]:
- * the first holder saves the current value and disables the timer, the last one restores the saved
- * value — so an app that disabled the timer itself keeps it disabled. A [release] without a matching
- * [acquire] does nothing. Main thread only, like composition.
- */
-internal class IdleTimerHolds(
-    private val read: () -> Boolean,
-    private val write: (Boolean) -> Unit,
-) {
-
-    private var holders: Int = 0
-    private var savedValue: Boolean = false
-
-    fun acquire() {
-        if (holders == 0) {
-            savedValue = read()
-            write(true)
-        }
-        holders++
-    }
-
-    fun release() {
-        if (holders == 0) return
-        holders--
-        if (holders == 0) write(savedValue)
     }
 }
 

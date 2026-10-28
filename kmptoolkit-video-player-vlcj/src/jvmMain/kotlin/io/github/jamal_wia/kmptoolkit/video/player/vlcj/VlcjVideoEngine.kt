@@ -62,8 +62,15 @@ import kotlinx.coroutines.withContext
  * - VLCJ delivers events on its own event thread and pictures on libvlc's video-output thread;
  *   neither may call back into libvlc (VLCJ's documented rule). Events therefore only update cached
  *   values and notify the listener; a transport call that arrives on one of those threads (a
- *   listener reacting synchronously) is re-submitted to VLCJ's task thread with
+ *   listener reacting synchronously) is submitted to VLCJ's task thread with
  *   [VlcNativePlayer.submit], and a getter answers from the cache.
+ * - Transport calls reach libvlc in the order they were made, whichever threads made them. A call
+ *   runs at once only when nothing of its session is still waiting on the task thread; otherwise it
+ *   is submitted behind what is (see [inOrder]). Each call's guards — not started yet, already at
+ *   the end — are decided when it runs, against the state the calls before it left, never when it
+ *   was made. Running a later call at once instead would let it overtake: a restart submitted from
+ *   `onCompleted` on the event thread, then a `pause()` from the UI that found the source still
+ *   ended and was dropped, then the restart playing on while the player above reported Paused.
  * - The listener is only invoked under [listenerLock] for the current, open session; closing a
  *   session takes that lock first, so no callback — queued or in flight — reaches the listener
  *   after [release] returns.
@@ -151,55 +158,55 @@ internal class VlcjVideoEngine(
 
     override fun start() {
         withOpenSession { s ->
-            if (!s.loaded) return
-            if (onVlcThread.get()) {
-                s.player?.submit { start() }
-                return
+            inOrder(s) {
+                if (!s.loaded) return@inOrder
+                s.player?.play()
+                s.started = true
+                // From the end, play() replays the source: it is not at the end any more from here
+                // on, so a pause() made after this start is applied rather than dropped as "ended".
+                s.ended = false
             }
-            s.player?.play()
-            s.started = true
         }
     }
 
     override fun pause() {
         withOpenSession { s ->
-            if (!s.loaded || !s.started || s.ended) return
-            if (onVlcThread.get()) {
-                s.player?.submit { pause() }
-                return
+            inOrder(s) {
+                if (!s.loaded || !s.started || s.ended) return@inOrder
+                s.player?.pause()
             }
-            s.player?.pause()
         }
     }
 
     override fun seekTo(positionMs: Long) {
+        val target: Long = positionMs.coerceAtLeast(0L)
         withOpenSession { s ->
-            if (!s.loaded) return
-            val target: Long = positionMs.coerceAtLeast(0L)
-            // Before the first start, and after the end, libvlc has no running input to seek in:
-            // remember the target and apply it when playback begins. Nothing starts playing here.
-            if (!s.started || s.ended) {
-                s.pendingSeekMs = target
+            inOrder(s) {
+                if (!s.loaded) return@inOrder
+                // Before the first start, and after the end, libvlc has no running input to seek in:
+                // remember the target and apply it when playback begins. Nothing starts playing here.
+                if (!s.started || s.ended) {
+                    s.pendingSeekMs = target
+                    s.timeMs = target
+                    return@inOrder
+                }
+                s.player?.setTime(target)
                 s.timeMs = target
-                return
             }
-            if (onVlcThread.get()) {
-                s.player?.submit { seekTo(target) }
-                return
-            }
-            s.player?.setTime(target)
-            s.timeMs = target
         }
     }
 
+    // The value is stored first and applySettings() reads the latest one when it runs, so whichever
+    // call runs last applies the last value set.
+
     override fun setSpeed(speed: Float) {
         this.speed = speed
-        withOpenSession { s -> if (s.started) s.applySettings() }
+        withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
     }
 
     override fun setVolume(volume: Float) {
         this.volume = volume
-        withOpenSession { s -> if (s.started) s.applySettings() }
+        withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
     }
 
     override fun setLooping(looping: Boolean) {
@@ -281,6 +288,29 @@ internal class VlcjVideoEngine(
         }
     }
 
+    /**
+     * [lock] held, [s] open. Runs [action] for [s] after every call of [s] made before it: at once
+     * when nothing of [s] is waiting on VLCJ's task thread (and this is not a VLC thread, which must
+     * not call into libvlc), otherwise submitted to that thread — one thread, first in first out —
+     * behind what is. The count is changed only under [lock], so a call checking it and a submitted
+     * action starting cannot interleave; a submitted action runs under [lock] too, and only while
+     * [s] is still the open session.
+     */
+    private inline fun inOrder(s: Session, crossinline action: () -> Unit) {
+        if (!onVlcThread.get() && s.queued == 0) {
+            action()
+            return
+        }
+        val player: VlcNativePlayer = s.player ?: return
+        s.queued++
+        player.submit {
+            synchronized(lock) {
+                s.queued--
+                if (session === s && !s.closed) action()
+            }
+        }
+    }
+
     private fun closeSession(s: Session?) {
         if (s == null || !s.closing.compareAndSet(false, true)) return
         // 1. No listener call can start after this, and none is in flight once the lock is ours.
@@ -338,6 +368,9 @@ internal class VlcjVideoEngine(
         @Volatile var bufferingReported: Boolean = false
         @Volatile var reportedSize: VideoSize? = null
 
+        /** This session's calls submitted by [inOrder] that have not started yet. Guarded by [lock]. */
+        var queued: Int = 0
+
         /** The displayed size parsing found; when known, the decoder's buffer size never replaces it. */
         @Volatile var parsedSize: VideoSize? = null
 
@@ -379,13 +412,12 @@ internal class VlcjVideoEngine(
             return size
         }
 
-        /** Re-applies volume and rate, which libvlc only accepts once an output exists. */
+        /**
+         * Re-applies the latest volume and rate, which libvlc only accepts once an output exists.
+         * Never on a VLC thread: callers go through [inOrder].
+         */
         fun applySettings() {
             val current: VlcNativePlayer = player ?: return
-            if (onVlcThread.get()) {
-                current.submit { withOpenSession { s -> if (s === this) applySettings() } }
-                return
-            }
             current.setVolume(volumePercent(volume))
             current.setRate(speed)
         }
@@ -419,9 +451,11 @@ internal class VlcjVideoEngine(
             s.ended = false
             // libvlc accepts a volume and a seek only once the output exists — i.e. now. Not from
             // this thread, though: VLCJ's task thread may call into libvlc.
-            s.player?.submit {
-                withOpenSession { open ->
-                    if (open !== s) return@withOpenSession
+            // Through the same ordered queue as the transport calls, so a seek the app makes once
+            // output began cannot be overtaken, and then undone, by the pending one applied here.
+            withOpenSession { open ->
+                if (open !== s) return@withOpenSession
+                inOrder(s) {
                     s.applySettings()
                     val seek: Long = s.pendingSeekMs
                     if (seek >= 0L) {

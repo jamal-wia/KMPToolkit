@@ -5,39 +5,22 @@ import android.content.Context
 import android.os.Build
 
 /**
- * The `Int` id Android shows the notification posted under [id] with.
- *
- * You need it exactly when something outside [Notifier] addresses that notification by its platform
- * id — above all `Service.startForeground(id, notification)`. A foreground service that starts with
- * this id and then updates its notification through [Notifier.post] under [id] updates the one the
- * service owns instead of posting a second one next to it.
- *
- * Stable across processes and versions of this library, never negative, never `0` (which
- * `startForeground` rejects).
- *
- * @param id the id you pass, or will pass, to [Notifier.post]. Must not be blank.
- * @throws IllegalArgumentException if [id] is blank, as [Notifier.post] does.
- * @since 1.5.0
- */
-public fun notificationIdOf(id: String): Int {
-    requireValidNotificationId(id)
-    return platformNotificationId(id)
-}
-
-/**
  * Builds — without posting — the notification a foreground service passes to `startForeground`.
  *
  * Starting a foreground service is not this module's job, but the notification it must show from
  * the first moment is: built here, it has the same channel mapping, the same button and dismissal
  * broadcasts and the same tap target as everything [Notifier] posts, so a later [Notifier.post] under
- * the same [id] updates it in place without changing what its buttons do. Use it with
- * [notificationIdOf]:
+ * [foreground]'s id updates it in place without changing what its buttons do — provided the notifier
+ * was created with [foreground] among its `foregroundIds`:
  *
  * ```kotlin
+ * val PLAYBACK = ForegroundNotificationId(id = "playback", platformId = 1001)
+ *
  * startForeground(
- *     notificationIdOf("playback"),
- *     buildForegroundNotification(this, "playback", notification, config, options),
+ *     PLAYBACK.platformId,
+ *     buildForegroundNotification(this, PLAYBACK, notification, config, options),
  * )
+ * // elsewhere: createNotifier(context, permissionHandler, config, foregroundIds = setOf(PLAYBACK))
  * ```
  *
  * The result is always `ongoing`, whatever [notification] says: the platform's own requirement for a
@@ -48,24 +31,24 @@ public fun notificationIdOf(id: String): Int {
  * the app was set up.
  *
  * @param context any context; its application context is used.
- * @param id the id this notification is, and will be updated, under. Must not be blank.
+ * @param foreground the id this notification is, and will be updated, under, with the `Int` to pass
+ *   to `startForeground`.
  * @param notification what to show.
  * @param config the same [NotificationConfig] your [Notifier] was created with, so the button
  *   broadcasts match.
  * @param options presentation; see [NotificationOptions].
- * @throws IllegalArgumentException if [id] is blank, or if [notification]'s small icon does not
- *   resolve to a resource — `startForeground` would otherwise crash the service with a far less
- *   telling error.
- * @since 1.5.0
+ * @throws IllegalArgumentException if [notification]'s small icon does not resolve to a resource —
+ *   `startForeground` would otherwise crash the service with a far less telling error.
+ * @since 3.0.0 — replaces the 1.5.0 overload that took a `String` id and paired with the removed
+ *   `notificationIdOf`.
  */
 public fun buildForegroundNotification(
     context: Context,
-    id: String,
+    foreground: ForegroundNotificationId,
     notification: LocalNotification,
     config: NotificationConfig = NotificationConfig(),
     options: NotificationOptions = NotificationOptions.DEFAULT,
 ): Notification {
-    requireValidNotificationId(id)
     val appContext: Context = context.applicationContext
     val renderer = NotificationRenderer(appContext, config.resolveBroadcastAction(appContext.packageName))
     val iconResId: Int = renderer.smallIconRes(notification.icon)
@@ -74,7 +57,7 @@ public fun buildForegroundNotification(
     }
     NotificationChannels.ensure(appContext, notification.channel)
     return renderer.build(
-        id = id,
+        id = foreground.id,
         notification = notification.copy(ongoing = true),
         options = options,
         iconResId = iconResId,

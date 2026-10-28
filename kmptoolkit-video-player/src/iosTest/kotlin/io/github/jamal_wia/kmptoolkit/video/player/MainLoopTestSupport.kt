@@ -40,6 +40,10 @@ import platform.Foundation.NSUUID
 import platform.Foundation.dateWithTimeIntervalSinceNow
 import platform.Foundation.runUntilDate
 import platform.Foundation.timeIntervalSinceNow
+import platform.darwin.DISPATCH_QUEUE_PRIORITY_DEFAULT
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_global_queue
+import platform.posix.usleep
 
 /**
  * Runs [block] as a coroutine on `Dispatchers.Main` and pumps the main run loop until it finishes.
@@ -76,6 +80,27 @@ internal fun pumpMainLoopUntil(timeoutSeconds: Double, condition: () -> Boolean)
         NSRunLoop.mainRunLoop.runUntilDate(NSDate.dateWithTimeIntervalSinceNow(0.01))
     }
     return true
+}
+
+/**
+ * Runs [block] on a background queue and blocks the calling (main) thread until it returns, without
+ * pumping the main run loop — so whatever [block] dispatched to the main queue is still queued when
+ * this returns, which is exactly the window a test of call ordering needs.
+ */
+internal fun onBackgroundThread(block: () -> Unit) {
+    val done = AtomicInt(0)
+    val failure = AtomicReference<Throwable?>(null)
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT.toLong(), 0uL)) {
+        try {
+            block()
+        } catch (thrown: Throwable) {
+            failure.value = thrown
+        } finally {
+            done.value = 1
+        }
+    }
+    while (done.value == 0) usleep(1_000u)
+    failure.value?.let { thrown: Throwable -> throw thrown }
 }
 
 /** Suspends (inside [runOnMainLoop]) until [condition] holds; `false` on timeout. */
