@@ -96,7 +96,8 @@ public annotation class ToolkitInternalApi
 
 `kmptoolkit-core` is not a module you depend on: it is pulled in transitively by the modules that
 share something through it (today: the `StateMachineLock` the audio player, the video player and
-the audio recorder serialize their state machines with, and the marker itself). Everything in it
+the audio recorder serialize their state machines with; the iOS idle-timer holder the system-bars
+wake lock and the video surface share; and the marker itself). Everything in it
 is `@ToolkitInternalApi`; see [`kmptoolkit-core/`](kmptoolkit-core/01-overview.md).
 
 If your code needs `@OptIn(ToolkitInternalApi::class)` to compile against a KMPToolkit module,

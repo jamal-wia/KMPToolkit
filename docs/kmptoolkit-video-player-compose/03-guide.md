@@ -224,7 +224,8 @@ one by one.
 
 - **Keep screen on.** While the player is `Playing`, the surface keeps the display awake
   (`keepScreenOn = false` to opt out). On iOS the app's own `idleTimerDisabled` value is saved and
-  restored when the last playing surface stops or leaves.
+  restored when the last holder lets go. Holders are the playing surfaces and the
+  `kmptoolkit-systembars` wake lock, which share one holder and do not undo each other.
 - **Pause in background.** At `ON_STOP` of `LocalLifecycleOwner`, a playing player is paused
   (`pauseOnBackground = false` to opt out). It does **not** resume on return — resuming on its own
   is rarely wanted, and the paused state already shows the play button. To resume, observe the
