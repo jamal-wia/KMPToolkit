@@ -105,11 +105,11 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Uploade
 	public final fun deleteById (Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun deleteByIdentity (Ljava/lang/String;Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun deleteByTag (Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;
-	public final fun dropOnFailure (Ljava/lang/String;Ljava/lang/Long;)Lapp/cash/sqldelight/db/QueryResult;
+	public final fun dropOnFailure (Ljava/lang/String;Ljava/lang/String;J)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun insert (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJJLjava/lang/String;J)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun markInFlight (JLjava/lang/String;Ljava/lang/String;J)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun park (Ljava/lang/String;Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;
-	public final fun recordFailure (Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Lapp/cash/sqldelight/db/QueryResult;
+	public final fun recordFailure (Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun selectAllActive ()Lapp/cash/sqldelight/Query;
 	public final fun selectAllActive (Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
 	public final fun selectById (Ljava/lang/String;)Lapp/cash/sqldelight/Query;

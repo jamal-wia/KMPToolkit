@@ -137,25 +137,29 @@ retry budget arrives as `PARK` (write `PARKED`, keeping the final attempt count 
 passed through `PENDING` on its way out could be handed off once more by a drain reading it in
 between — an attempt past `maxAttempts`, on an item already given up.
 
-When `expectedLeaseUntilEpochMillis` is non-null, the write must apply **only if** the row's current
-`lease_until` still equals it:
+The write must apply **only if** the row is still in `expectedState` under
+`expectedLeaseUntilEpochMillis` — the state and lease the caller read it in:
 
 ```sql
 UPDATE uploader_item
    SET attempts = ?, next_run_at = ?, last_error = ?, state = :state, lease_until = 0
- WHERE id = ?
-   AND (:expected_lease IS NULL OR lease_until = :expected_lease);
+ WHERE id = ? AND state = :expected_state AND lease_until = :expected_lease;
 -- DROP: DELETE FROM uploader_item WHERE id = ? AND (<the same guard>)
 -- return whether a row was affected
 ```
 
-Return whether a row was actually updated. This closes the window where a detached executor reports
-a failure while the drain, concurrently, notices the lease expired and re-hands the item: without
-the guard, the stale report would clear a claim a second executor is currently working under, and
-you would have two live deliveries for one effect.
+Return whether a row was actually updated. The guard closes two windows:
 
-A `null` expected lease skips the guard entirely — that is the drain's own path, where it already
-holds single-flight ownership.
+- A detached executor reports a failure while the drain, concurrently, notices the lease expired and
+  re-hands the item. Without the lease half, the stale report would clear a claim a second executor
+  is working under, and you would have two live deliveries for one effect.
+- The drain runs a handler — `execute`, or `prepareUpload` before a hand-off — and while it runs, a
+  late settle from a detached executor of an earlier attempt parks the item. Without the state half,
+  the drain's failure would return a known-permanent failure to rotation. The lease cannot see this
+  one: a park clears it to `0`, the same lease a pending item carries.
+
+There is no unguarded form: the drain's single-flight ownership keeps other drain passes off the row,
+but a settle arrives on an executor's own coroutine.
 
 ### `markInFlight` — the claim
 
@@ -203,7 +207,7 @@ class MyUploaderStoreTest {
 }
 ```
 
-Forty checks covering insertion ordering under a same-millisecond burst, both conflict policies
+Forty-two checks covering insertion ordering under a same-millisecond burst, both conflict policies
 against all three states, both compare-and-sets and the give-up dispositions, what the removals hand
 back, no-op-on-absent-row, tag deletion across states, and the observation flow. The lambda must return a fresh, empty store each call.
 
@@ -240,13 +244,12 @@ class MyUploaderStore(private val db: MyDatabase) : UploaderStore {
         attempts: Int,
         nextRunAtEpochMillis: Long,
         lastError: String?,
-        expectedLeaseUntilEpochMillis: Long?,
+        expectedState: UploaderItemState,
+        expectedLeaseUntilEpochMillis: Long,
         disposition: FailureDisposition,
     ): Boolean = db.transaction {
         val current: Row = db.findById(id) ?: return@transaction false
-        if (expectedLeaseUntilEpochMillis != null &&
-            current.leaseUntil != expectedLeaseUntilEpochMillis
-        ) {
+        if (current.state != expectedState.name || current.leaseUntil != expectedLeaseUntilEpochMillis) {
             return@transaction false
         }
         when (disposition) {

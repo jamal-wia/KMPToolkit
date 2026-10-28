@@ -89,10 +89,10 @@ internal class SqlDelightUploaderStoreChecks {
                 val outcomes: List<Boolean> = withContext(Dispatchers.Default) {
                     coroutineScope {
                         val first = async {
-                            store.recordFailure(id, 1, 10L, "first", expectedLeaseUntilEpochMillis = 900L)
+                            store.recordFailure(id, 1, 10L, "first", UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 900L)
                         }
                         val second = async {
-                            store.recordFailure(id, 2, 20L, "second", expectedLeaseUntilEpochMillis = 900L)
+                            store.recordFailure(id, 2, 20L, "second", UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 900L)
                         }
                         listOf(first.await(), second.await())
                     }
@@ -135,7 +135,7 @@ internal class SqlDelightUploaderStoreChecks {
                 val (applied: Boolean, rehanded: Boolean) = withContext(Dispatchers.Default) {
                     coroutineScope {
                         val settle = async {
-                            store.recordFailure(id, 7, 70L, "stale", expectedLeaseUntilEpochMillis = 900L)
+                            store.recordFailure(id, 7, 70L, "stale", UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 900L)
                         }
                         val rehand = async {
                             store.markInFlight(id, 1_800L, UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 900L)
@@ -722,7 +722,7 @@ internal class SqlDelightUploaderStoreChecks {
                 UploaderStorageOperation.INSERT_REPLACE to { store.insertReplace(item(id = "a")) },
                 UploaderStorageOperation.GET_ALL_ACTIVE to { store.getAllActive() },
                 UploaderStorageOperation.GET_BY_ID to { store.getById("a") },
-                UploaderStorageOperation.RECORD_FAILURE to { store.recordFailure("a", 1, 0L, null) },
+                UploaderStorageOperation.RECORD_FAILURE to { store.recordFailure("a", 1, 0L, null, UploaderItemState.PENDING, 0L) },
                 UploaderStorageOperation.MARK_IN_FLIGHT to { store.markInFlight("a", 1L, UploaderItemState.PENDING, 0L) },
                 UploaderStorageOperation.PARK to { store.park("a", null) },
                 UploaderStorageOperation.DELETE_BY_ID to { store.deleteById("a") },
@@ -844,7 +844,7 @@ internal class SqlDelightUploaderStoreChecks {
     private companion object {
 
         /** What [UploaderStoreContract.verifyAll] returns today. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 40
+        const val EXPECTED_CONTRACT_CHECKS: Int = 42
 
         /** Enough repetitions that a lost race would have to be lucky thirty times running. */
         const val CONTENTION_ROUNDS: Int = 30

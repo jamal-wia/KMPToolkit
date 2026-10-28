@@ -65,7 +65,7 @@ class InMemoryUploaderStoreTest {
 
         val applied: List<Boolean> = List(CONCURRENT_WRITERS) {
             async {
-                store.recordFailure("a", 1, 10L, null, expectedLeaseUntilEpochMillis = 900L)
+                store.recordFailure("a", 1, 10L, null, UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 900L)
             }
         }.awaitAll()
 
@@ -198,7 +198,7 @@ class InMemoryUploaderStoreTest {
 
     private companion object {
         /** Guards against a silently shrinking contract: verifyAll must keep running them all. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 40
+        const val EXPECTED_CONTRACT_CHECKS: Int = 42
         const val CONCURRENT_WRITERS: Int = 8
     }
 }

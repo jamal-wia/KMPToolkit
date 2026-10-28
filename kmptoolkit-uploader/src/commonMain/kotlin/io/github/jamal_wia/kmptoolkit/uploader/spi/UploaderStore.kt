@@ -32,8 +32,8 @@ import kotlinx.coroutines.flow.Flow
  * after, never halfway. Two calls are **not** atomic together — the engine never assumes they are.
  * That is why every decision the engine makes from a read and then acts on is a single
  * compare-and-set here rather than a read followed by a write: [markInFlight] claims a row only in
- * the state and lease the caller read, [recordFailure] writes only under the lease the caller read
- * (and gives up in that same write), and [insertReplace] and [deleteByTag] hand back exactly the rows
+ * the state and lease the caller read, [recordFailure] writes only in the state and under the lease
+ * the caller read (and gives up in that same write), and [insertReplace] and [deleteByTag] hand back exactly the rows
  * they removed. Each must be one atomic read-modify-write.
  *
  * ### Ordering
@@ -158,22 +158,29 @@ public interface UploaderStore {
      * it off once more — an attempt past `maxAttempts`, on an item already given up.
      *
      * ### The optimistic guard
-     * [expectedLeaseUntilEpochMillis] makes this a compare-and-set. When non-`null`, the write
-     * must apply **only if** the row's current [UploaderItem.leaseUntilEpochMillis] still equals it;
-     * otherwise nothing is written and the function returns `false`. This closes the
-     * lease-expiry-races-a-settle window: if the drain re-handed the item between the settle path's
-     * read and this write, the lease changed, and the stale failure report must not clobber the
-     * fresh claim (which would let two executors both believe they own the delivery).
+     * [expectedState] and [expectedLeaseUntilEpochMillis] make this a compare-and-set, exactly like
+     * [markInFlight]'s: the write must apply **only if** the row is still in [expectedState] under
+     * [expectedLeaseUntilEpochMillis], the state and lease the caller read it in; otherwise nothing is
+     * written and the function returns `false`. Every caller has such a read, and every one can be
+     * overtaken between that read and this write:
+     * - a settle reporting a failure, by the drain re-handing the item after its lease expired — the
+     *   lease moved, and the stale report must not clobber the fresh claim (which would let two
+     *   executors both believe they own the delivery);
+     * - the drain's own attempt, while the handler runs, by a late settle from a detached executor of an
+     *   earlier attempt — a park moves the state, and the failure must not return a known-permanent
+     *   failure to rotation. The lease alone cannot see this: a park clears the lease to `0`, which is
+     *   also the lease a pending item carries.
      *
-     * `null` skips the guard entirely — that is the drain's own path, where it already holds
-     * single-flight ownership of the item.
+     * There is no unguarded form. The drain's single-flight ownership covers other drain passes, not a
+     * settle arriving on an executor's own coroutine.
      *
      * @param id the item's [UploaderItem.id]; an absent row is a no-op returning `false`.
      * @param attempts the new absolute attempt count (not a delta).
      * @param nextRunAtEpochMillis epoch millis before which the item must not be attempted again.
      * @param lastError a short diagnostic string, or `null`.
-     * @param expectedLeaseUntilEpochMillis the lease value the caller observed, or `null` for no
-     *   guard.
+     * @param expectedState the state the caller read the item in — [UploaderItemState.IN_FLIGHT] for a
+     *   settle or a failed hand-off, the drain's read for an attempt it ran itself.
+     * @param expectedLeaseUntilEpochMillis the lease the caller read alongside [expectedState].
      * @param disposition where the failure leaves the row: back in rotation ([FailureDisposition.RETRY],
      *   the default), out of it ([FailureDisposition.PARK]), or gone ([FailureDisposition.DROP]). The
      *   guard applies to all three alike.
@@ -185,7 +192,8 @@ public interface UploaderStore {
         attempts: Int,
         nextRunAtEpochMillis: Long,
         lastError: String?,
-        expectedLeaseUntilEpochMillis: Long? = null,
+        expectedState: UploaderItemState,
+        expectedLeaseUntilEpochMillis: Long,
         disposition: FailureDisposition = FailureDisposition.RETRY,
     ): Boolean
 

@@ -208,7 +208,14 @@ class UploaderDetachedDeliveryTest {
         engine.enqueue(handler, "p")
         engine.drain()
         // The lease expired and a fresh attempt already returned the item to the drain's hands.
-        store.recordFailure("item-1", attempts = 1, nextRunAtEpochMillis = 99L, lastError = "earlier")
+        store.recordFailure(
+            "item-1",
+            attempts = 1,
+            nextRunAtEpochMillis = 99L,
+            lastError = "earlier",
+            expectedState = UploaderItemState.IN_FLIGHT,
+            expectedLeaseUntilEpochMillis = 10_000L,
+        )
 
         engine.settle("item-1", SettleResult.Failed())
 

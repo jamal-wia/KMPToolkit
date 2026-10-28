@@ -118,13 +118,14 @@ internal class SqlDelightUploaderStore(
         attempts: Int,
         nextRunAtEpochMillis: Long,
         lastError: String?,
-        expectedLeaseUntilEpochMillis: Long?,
+        expectedState: UploaderItemState,
+        expectedLeaseUntilEpochMillis: Long,
         disposition: FailureDisposition,
     ): Boolean = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.RECORD_FAILURE) {
             // One statement carrying the guard in its WHERE clause, not a read followed by a write:
-            // a read-then-write loses exactly the race the guard exists to win, because the lease
-            // can move between the two. A give-up is that same one statement — an UPDATE to PARKED,
+            // a read-then-write loses exactly the race the guard exists to win, because the state
+            // or the lease can move between the two. A give-up is that same one statement — an UPDATE to PARKED,
             // or a DELETE — so the row is never observable as PENDING once its budget is spent.
             //
             // The statement's own affected-row count answers "did a row change?", so there is no
@@ -132,8 +133,11 @@ internal class SqlDelightUploaderStore(
             // matters beyond tidiness: `SELECT changes()` outside a transaction can be served by a
             // reader connection — where it is always 0 — on both of this module's drivers.
             val changed: Long = when (disposition) {
-                FailureDisposition.DROP ->
-                    queries.dropOnFailure(id = id, expectedLease = expectedLeaseUntilEpochMillis).value
+                FailureDisposition.DROP -> queries.dropOnFailure(
+                    id = id,
+                    expectedState = expectedState.name,
+                    expectedLease = expectedLeaseUntilEpochMillis,
+                ).value
 
                 FailureDisposition.RETRY, FailureDisposition.PARK -> queries.recordFailure(
                     state = if (disposition == FailureDisposition.PARK) {
@@ -145,6 +149,7 @@ internal class SqlDelightUploaderStore(
                     nextRunAt = nextRunAtEpochMillis,
                     lastError = lastError,
                     id = id,
+                    expectedState = expectedState.name,
                     expectedLease = expectedLeaseUntilEpochMillis,
                 ).value
             }

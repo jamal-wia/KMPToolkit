@@ -641,12 +641,12 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/spi/Uplo
 	public abstract fun markInFlight (Ljava/lang/String;JLio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun observeByType (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
 	public abstract fun park (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun recordFailure (Ljava/lang/String;IJLjava/lang/String;Ljava/lang/Long;Lio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun recordFailure$default (Lio/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore;Ljava/lang/String;IJLjava/lang/String;Ljava/lang/Long;Lio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun recordFailure (Ljava/lang/String;IJLjava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;JLio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun recordFailure$default (Lio/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore;Ljava/lang/String;IJLjava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;JLio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore$DefaultImpls {
-	public static synthetic fun recordFailure$default (Lio/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore;Ljava/lang/String;IJLjava/lang/String;Ljava/lang/Long;Lio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun recordFailure$default (Lio/github/jamal_wia/kmptoolkit/uploader/spi/UploaderStore;Ljava/lang/String;IJLjava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;JLio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/spi/WakeScheduler {

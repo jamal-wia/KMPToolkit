@@ -84,7 +84,11 @@ public interface UploaderEngine : Uploader {
      *   call read it — no-op. The drain re-handed the item in between, and a stale report must not
      *   clobber the fresh claim.
      * - [SettleResult.Delivered], [SettleResult.Drop] and [SettleResult.Park] are unconditional:
-     *   they are terminal facts about the effect, not opinions about its retry state.
+     *   they are terminal facts about the effect, not opinions about its retry state. That holds
+     *   even when one lands while the drain is running the item again after its lease expired: the
+     *   drain's own failure for that attempt is written only if the item is still in the state and
+     *   lease the drain read, so it cannot overwrite a park back to pending, and a drop or delivery
+     *   has removed the row it would write to.
      *
      * One window this does **not** close: an executor whose lease expired long ago, whose item was
      * re-handed to a second executor, and which only then reports [SettleResult.Failed]. That report

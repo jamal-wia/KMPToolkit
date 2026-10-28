@@ -122,13 +122,12 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
         attempts: Int,
         nextRunAtEpochMillis: Long,
         lastError: String?,
-        expectedLeaseUntilEpochMillis: Long?,
+        expectedState: UploaderItemState,
+        expectedLeaseUntilEpochMillis: Long,
         disposition: FailureDisposition,
     ): Boolean {
         val current: UploaderItem = find(id) ?: return false
-        if (expectedLeaseUntilEpochMillis != null &&
-            current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis
-        ) {
+        if (current.state != expectedState || current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis) {
             return false
         }
         when (disposition) {

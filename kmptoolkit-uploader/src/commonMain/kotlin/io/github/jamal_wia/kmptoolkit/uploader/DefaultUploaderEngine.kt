@@ -296,14 +296,9 @@ internal class DefaultUploaderEngine(
             logger.e { "Parked ${record.logName} on settle — no handler for its type." }
             return
         }
-        // Guarded by the lease the record carried when we read it: if the drain re-handed the item
-        // in between, the lease changed and this write no-ops instead of clobbering a fresh claim.
-        recordRetry(
-            record = record,
-            handler = handler,
-            cause = result.cause,
-            expectedLeaseUntil = record.leaseUntilEpochMillis,
-        )
+        // Guarded by the state and lease the record carried when we read it: if the drain re-handed the
+        // item in between, the lease changed and this write no-ops instead of clobbering a fresh claim.
+        recordRetry(record = record, handler = handler, cause = result.cause)
     }
 
     override suspend fun drain() {
@@ -571,13 +566,13 @@ internal class DefaultUploaderEngine(
             logger.i { "Detached ${item.logName} under a ${lease}ms lease." }
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
-            recordRetry(item, handler, e, expectedLeaseUntil = leaseUntil)
+            recordRetry(item, handler, e, expectedState = UploaderItemState.IN_FLIGHT, expectedLeaseUntil = leaseUntil)
             return
         } catch (e: Throwable) {
             // The platform scheduler unavailable, say: this item's attempt fails, guarded by the claim just
             // made so a settle that already landed is not overwritten.
             logger.e(e) { "Upload hand-off failed for ${item.logName}." }
-            recordRetry(item, handler, e, expectedLeaseUntil = leaseUntil)
+            recordRetry(item, handler, e, expectedState = UploaderItemState.IN_FLIGHT, expectedLeaseUntil = leaseUntil)
             return
         }
         // A withdrawal, or a REPLACE, that removed the row while this attempt was being prepared found no
@@ -588,11 +583,21 @@ internal class DefaultUploaderEngine(
         }
     }
 
+    /**
+     * Records a failed attempt of [record], guarded by the state and lease it was read in — by default
+     * [record]'s own; a hand-off whose launch failed passes the claim it has just written instead.
+     *
+     * Guarded on every path, the drain's own included. While a handler runs — `execute`, or
+     * `prepareUpload` before a hand-off — a detached executor of an earlier attempt can settle the item
+     * on its own coroutine, and its park must not be overwritten back to PENDING. Single-flight keeps
+     * other drain passes away from the row; it does nothing about a settle.
+     */
     private suspend fun recordRetry(
         record: UploaderItem,
         handler: UploaderHandler<*>,
         cause: Throwable?,
-        expectedLeaseUntil: Long? = null,
+        expectedState: UploaderItemState = record.state,
+        expectedLeaseUntil: Long = record.leaseUntilEpochMillis,
     ) {
         val attempts: Int = record.attempts + 1
         val error: String? = cause?.let { "${it::class.simpleName}: ${it.message}" }
@@ -618,6 +623,7 @@ internal class DefaultUploaderEngine(
             attempts = attempts,
             nextRunAtEpochMillis = nextRunAt,
             lastError = lastError,
+            expectedState = expectedState,
             expectedLeaseUntilEpochMillis = expectedLeaseUntil,
             disposition = disposition,
         )

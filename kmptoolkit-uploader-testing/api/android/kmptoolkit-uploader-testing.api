@@ -52,7 +52,7 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/InMemoryUploa
 	public fun markInFlight (Ljava/lang/String;JLio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun observeByType (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
 	public fun park (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun recordFailure (Ljava/lang/String;IJLjava/lang/String;Ljava/lang/Long;Lio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordFailure (Ljava/lang/String;IJLjava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;JLio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun snapshot ()Ljava/util/List;
 }
 
@@ -156,11 +156,13 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStore
 	public final fun observeByTypeIncludesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun parkKeepsTheItemAndClearsTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun parkOnAnAbsentRowIsANoOp (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureAppliesToAPendingItemReadAsPending (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureAppliesWhenTheLeaseMatches (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureCanDropInTheSameWrite (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureCanParkInTheSameWrite (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureGivingUpIsRejectedWhenTheLeaseMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureIsRejectedWhenTheLeaseMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureIsRejectedWhenTheStateMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureOnAnAbsentRowReturnsFalse (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureWritesEveryFieldAndClearsTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun uniqueKeysAreScopedPerType (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

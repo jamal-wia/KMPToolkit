@@ -93,15 +93,15 @@ public class InMemoryUploaderStore(
         attempts: Int,
         nextRunAtEpochMillis: Long,
         lastError: String?,
-        expectedLeaseUntilEpochMillis: Long?,
+        expectedState: UploaderItemState,
+        expectedLeaseUntilEpochMillis: Long,
         disposition: FailureDisposition,
     ): Boolean = mutex.withLock {
         val current: UploaderItem = state.value.firstOrNull { it.id == id } ?: return@withLock false
-        // The optimistic guard: a lease that moved since the caller read it means the drain
-        // re-handed this item, and the stale report must not clobber the fresh claim.
-        if (expectedLeaseUntilEpochMillis != null &&
-            current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis
-        ) {
+        // The optimistic guard: a lease that moved since the caller read it means the drain re-handed
+        // this item, a state that moved means a settle parked it — either way the stale report must not
+        // clobber what is there now.
+        if (current.state != expectedState || current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis) {
             return@withLock false
         }
         // A give-up lands in this same write, so the row is never observable as PENDING once its

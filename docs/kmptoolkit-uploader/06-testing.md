@@ -108,7 +108,7 @@ engine.drain()                    // the item is attemptable again, wasDetached 
 
 ## Testing your own store
 
-If you implemented `UploaderStore`, run the contract against it. One test gets you forty invariants:
+If you implemented `UploaderStore`, run the contract against it. One test gets you forty-two invariants:
 
 ```kotlin
 class MyUploaderStoreTest {
