@@ -10,7 +10,6 @@ dependencies {
     // put two copies of AGP/KGP on the same classpath and fail with a duplicate-class error.
     compileOnly(libs.android.gradlePlugin)
     compileOnly(libs.kotlin.gradlePlugin)
-    compileOnly(libs.kotlin.serialization.gradlePlugin)
     compileOnly(libs.compose.gradlePlugin)
     compileOnly(libs.composeCompiler.gradlePlugin)
     compileOnly(libs.mavenPublish.gradlePlugin)

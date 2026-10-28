@@ -49,7 +49,7 @@ targets anyway, so the build host's classifier is the right one:
 
 ```kotlin
 // desktopApp/build.gradle.kts
-val javafxVersion = "27"
+val javafxVersion = "27.0.1"
 val javafxClassifier: String = run {
     val os = System.getProperty("os.name").lowercase()
     val arm = System.getProperty("os.arch") in setOf("aarch64", "arm64")
