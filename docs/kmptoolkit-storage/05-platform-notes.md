@@ -100,6 +100,25 @@ recovers as far as it can — an alias whose key has become unrecoverable is dro
 generated, so *new* writes work again instead of the store being bricked for the life of the install
 — but the old values are not recoverable by anyone.
 
+### The key is created once per process, never once per caller
+
+The key is generated on first use, and "look the alias up, generate if it is missing" is two
+Keystore calls. Generating under an alias that already exists does not fail — it replaces the entry.
+Before 3.0.0 nothing ordered those two calls, so two first uses that overlapped — two coroutines on
+a fresh install, or two stores over the same configuration — could each generate a key; the later
+one won the alias, and every value encrypted under the earlier one became `Undecryptable`. The same
+gap existed in the recovery from a changed device lock, where a late caller could delete the
+replacement key another caller had just made.
+
+The lookup now runs under one lock for the whole process, shared by every store instance, and asks
+the Keystore again once it holds the lock — so the second caller finds the first caller's key. The
+lock is held only while a key is resolved, once per store instance.
+
+**One process per store.** An in-process lock cannot order two *processes*, and the AndroidKeyStore
+has no atomic create-if-absent. If your app runs components in a second process
+(`android:process`), do not give that process the same secure store, or make sure the main process
+has written to it at least once before the other one can start.
+
 ### Writes use `commit()`, not `apply()`
 
 `apply()` returns before the write reaches disk, which would quietly break the durability half of
@@ -183,7 +202,7 @@ app sharing that code with desktop could not compile it for desktop without the 
 - **Failures.** A corrupted or hand-edited file (a malformed `\uXXXX` escape), a name the file system
   rejects (`:` or `*` on Windows) and a denied security check arrive as `OperationFailed`, never as an
   exception. The store is meant for a handful of small values; it is not a database.
-- **Concurrency.** Instances over the same file in one process share a lock. Two *processes* writing
+- **Concurrency.** Instances over the same file in one process share a `Mutex`. Two *processes* writing
   the same file are not coordinated — keep one writer per file.
 - **No secure store.** The JVM has no platform key store this module could keep a key in without
   inventing its own — and a key kept next to the data it encrypts protects nothing. Desktop apps that
@@ -191,6 +210,18 @@ app sharing that code with desktop could not compile it for desktop without the 
 
 ## Threading
 
-Every call is synchronous. The plain stores are fast enough to call from anywhere. A secure-store
-call is a cipher round trip on Android and an IPC hop to `securityd` on iOS — fine on the main
-thread once at startup, wrong in a loop or per list item.
+Every call is a `suspend` function that runs its platform work on `Dispatchers.IO`, so it is safe to
+call from the main thread and from any number of coroutines at once:
+
+- **Android.** `SharedPreferences` reads block on a file's first load, and `commit()` writes to disk;
+  both run on the I/O dispatcher. Key resolution for the secure store runs under the process-wide
+  lock described above.
+- **iOS.** `NSUserDefaults` and Keychain calls go through `cfprefsd` and `securityd`, both IPC. Two
+  writers adding the same Keychain item at once — two coroutines, or an app extension sharing the
+  access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then
+  updates the item instead, so neither write reports a failure.
+- **Desktop.** Instances over the same file share a coroutine `Mutex`, so their read-modify-write
+  cycles over the file never interleave.
+
+A secure-store call is still a cipher round trip on Android and an IPC hop to `securityd` on iOS:
+fine at startup, wrong in a loop or per list item.

@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import kotlinx.coroutines.test.runTest
 import platform.Foundation.NSUserDefaults
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -12,7 +13,7 @@ class IosKeyValueStorageTest : KeyValueStorageContractTest() {
     override fun create(config: StorageConfig): KeyValueStorage = createKeyValueStorage(config)
 
     @Test
-    fun `the store is a suite of its own and not the standard defaults`() {
+    fun `the store is a suite of its own and not the standard defaults`() = runTest {
         // The reason this matters is clear(): it is removePersistentDomainForName, which on the
         // standard domain would wipe everything the app and every embedded SDK ever wrote.
         val storage: KeyValueStorage = create()
@@ -31,7 +32,7 @@ class IosKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `clearing the store does not touch a value written to the standard defaults`() {
+    fun `clearing the store does not touch a value written to the standard defaults`() = runTest {
         NSUserDefaults.standardUserDefaults.setObject("standard", forKey = "kmptoolkit.standard.probe")
         val storage: KeyValueStorage = create()
         storage.put("k", "v")
@@ -46,7 +47,7 @@ class IosKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `the default config opens a store without any name being supplied`() {
+    fun `the default config opens a store without any name being supplied`() = runTest {
         val storage: KeyValueStorage = createKeyValueStorage()
 
         assertEquals(StorageResult.Success(Unit), storage.put("k", "v"))
@@ -56,14 +57,14 @@ class IosKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `the store passed to a DeviceIdProvider yields a stable id across instances`() {
+    fun `the store passed to a DeviceIdProvider yields a stable id across instances`() = runTest {
         val first: String = DeviceIdProvider(create()).current()
 
         assertEquals(first, DeviceIdProvider(create()).current())
     }
 
     @Test
-    fun `a device id is regenerated after the store is cleared`() {
+    fun `a device id is regenerated after the store is cleared`() = runTest {
         val storage: KeyValueStorage = create()
         val first: String = DeviceIdProvider(storage).current()
 

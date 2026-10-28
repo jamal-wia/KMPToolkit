@@ -13,11 +13,31 @@ Everything both stores promise, on both platforms:
 | `clear` | only this store's entries; another store's are untouched |
 | `put` then read from a second instance | the value, including after a process restart |
 | anything, ever | a `StorageResult` — never an exception |
+| call from the main thread | fine — every call is a main-safe `suspend` function |
+| call from many coroutines at once | no corruption, no entry made unreadable by the overlap |
 
-The one thing not promised is ordering under concurrency. The backends are internally synchronized,
-so nothing corrupts, but two threads writing the same key race and the winner is undefined. If you
-need read-modify-write atomicity, put a lock around your own logic — this module cannot give you
-one that spans two calls.
+The one thing not promised is ordering under concurrency: two coroutines writing the same key race
+and the winner is undefined. A read-modify-write — a counter, a list kept as one value — spans two
+calls, and this module cannot make two of your calls atomic. Put a `Mutex` around your own logic:
+
+```kotlin
+class LaunchCounter(private val storage: KeyValueStorage) {
+    private val mutex = Mutex()
+
+    suspend fun increment(): Int = mutex.withLock {
+        val next: Int = storage.getIntOr("launch_count", 0) + 1
+        storage.putInt("launch_count", next)
+        next
+    }
+}
+```
+
+What the module does make atomic is its own read-then-create: the Android encryption key behind
+`SecureKeyValueStorage`, and the id behind `DeviceIdProvider`. Concurrent first uses of either — from
+one instance or several over the same configuration — agree on a single key, a single id.
+
+A call whose coroutine is cancelled while it runs throws `CancellationException`, and may or may not
+have taken effect: the platform call underneath is not interruptible.
 
 ## Choosing between the two stores
 
@@ -102,7 +122,8 @@ Two habits are worth forming:
 
 There is nothing to release. A store holds a `SharedPreferences` handle or an `NSUserDefaults` suite
 — both process-wide and both owned by the platform — plus, on Android, a lazily resolved key-store
-handle. No native buffers, no listeners, no threads. Creating a second store over the same config is
+handle. No native buffers, no listeners, no threads of its own — calls run on the shared
+`Dispatchers.IO` pool. Creating a second store over the same config is
 free and gives you a view of the same data, so passing the interface around beats caching it in a
 singleton.
 
@@ -125,7 +146,7 @@ Writes are `putInt`, `putLong` and `putBoolean`, returning `StorageResult<Unit>`
 
 ```kotlin
 val launches: Int = storage.getIntOr("launch_count", 0)
-storage.putInt("launch_count", launches + 1)
+storage.putInt("launch_count", launches + 1)   // a read-modify-write: see "The contract" for the lock
 ```
 
 The two read styles differ in what they do with a value that is there but is not the requested type

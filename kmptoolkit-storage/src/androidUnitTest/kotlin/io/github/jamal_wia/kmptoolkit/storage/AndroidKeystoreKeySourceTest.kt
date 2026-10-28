@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.storage
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -24,7 +25,7 @@ class AndroidKeystoreKeySourceTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun `a key store that cannot be opened is reported as unavailable rather than leaking its exception`() {
+    fun `a key store that cannot be opened is reported as unavailable rather than leaking its exception`() = runTest {
         assertFailsWith<StorageKeyUnavailableException> {
             AndroidKeystoreKeySource("any.alias").key()
         }
@@ -38,7 +39,7 @@ class AndroidKeystoreKeySourceTest {
     }
 
     @Test
-    fun `a read without a key store is an unavailable failure`() {
+    fun `a read without a key store is an unavailable failure`() = runTest {
         val storage: SecureKeyValueStorage =
             createSecureKeyValueStorage(context, StorageConfig("no.keystore.here"))
         context.getSharedPreferences(secureStoreId("no.keystore.here"), Context.MODE_PRIVATE)
@@ -52,7 +53,7 @@ class AndroidKeystoreKeySourceTest {
     }
 
     @Test
-    fun `a read of an absent key without a key store is still simply absent`() {
+    fun `a read of an absent key without a key store is still simply absent`() = runTest {
         // Nothing has to be decrypted, so there is no reason to surface a key-store problem here.
         val storage: SecureKeyValueStorage =
             createSecureKeyValueStorage(context, StorageConfig("no.keystore.here"))
@@ -61,7 +62,7 @@ class AndroidKeystoreKeySourceTest {
     }
 
     @Test
-    fun `a write without a key store fails and stores nothing`() {
+    fun `a write without a key store fails and stores nothing`() = runTest {
         val storage: SecureKeyValueStorage =
             createSecureKeyValueStorage(context, StorageConfig("no.keystore.here"))
 

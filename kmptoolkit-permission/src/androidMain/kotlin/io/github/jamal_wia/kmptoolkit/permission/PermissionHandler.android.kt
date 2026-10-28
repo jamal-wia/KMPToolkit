@@ -431,7 +431,7 @@ internal class AndroidPermissionHandler(
         return opened
     }
 
-    private fun currentStatus(permission: Permission): PermissionStatus {
+    private suspend fun currentStatus(permission: Permission): PermissionStatus {
         if (permission == Permission.NOTIFICATIONS && sdkInt < Build.VERSION_CODES.TIRAMISU) {
             // There is no runtime grant to obtain before API 33 — POST_NOTIFICATIONS did not exist
             // and notifications were allowed by default. Whether the user has since switched the
@@ -583,10 +583,10 @@ internal class AndroidPermissionHandler(
         return answer
     }
 
-    private fun isSet(key: String): Boolean = storage.getStringOrNull(key) == FLAG_SET
+    private suspend fun isSet(key: String): Boolean = storage.getStringOrNull(key) == FLAG_SET
 
     /** Records that the dialog was shown, leaving a flag an earlier version wrote as it is. */
-    private fun markAsked(permission: Permission) {
+    private suspend fun markAsked(permission: Permission) {
         val key: String = askedKey(keyPrefix, permission)
         if (storage.getStringOrNull(key) == null) storage.put(key, ASKED)
     }
@@ -595,7 +595,7 @@ internal class AndroidPermissionHandler(
      * Sets a flag, but only when it is not set already — which keeps a repeated [check] of a
      * permission that keeps asking for a rationale from writing on every call.
      */
-    private fun markFlag(key: String) {
+    private suspend fun markFlag(key: String) {
         if (!isSet(key)) storage.put(key, FLAG_SET)
     }
 
@@ -611,7 +611,7 @@ internal class AndroidPermissionHandler(
      * The reads that replace them are `SharedPreferences` lookups, served from the in-memory map that
      * backs it, with no disk access and no commit.
      */
-    private fun clearFlags(permission: Permission) {
+    private suspend fun clearFlags(permission: Permission) {
         listOf(askedKey(keyPrefix, permission), rationaleSeenKey(keyPrefix, permission)).forEach { key: String ->
             if (storage.getStringOrNull(key) != null) storage.remove(key)
         }

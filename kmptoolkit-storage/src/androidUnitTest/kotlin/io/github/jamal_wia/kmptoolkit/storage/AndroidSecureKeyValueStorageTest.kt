@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import android.content.SharedPreferences
 import android.util.Base64
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,6 +27,9 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
+    // Runs each store call inline, so the blocking SharedPreferences work stays on the test thread.
+    private val dispatcher: CoroutineDispatcher = UnconfinedTestDispatcher()
+
     @Before
     fun resetKeys() {
         TestKeys.reset()
@@ -36,18 +42,19 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
         return AndroidSecureKeyValueStorage(
             preferences = preferences(name),
             cipher = KeystoreValueCipher(TestKeys.source(name)),
+            dispatcher = dispatcher,
         )
     }
 
     @Test
-    fun `the stored bytes are not the plaintext`() {
+    fun `the stored bytes are not the plaintext`() = runTest {
         secure().put("refresh_token", "super-secret-refresh")
 
         assertNotEquals("super-secret-refresh", rawValue("refresh_token"))
     }
 
     @Test
-    fun `no stored value contains the plaintext as a substring`() {
+    fun `no stored value contains the plaintext as a substring`() = runTest {
         secure().put("k", "super-secret-refresh")
 
         val stored: String = requireNotNull(rawValue("k"))
@@ -55,7 +62,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `the key name is stored in the clear`() {
+    fun `the key name is stored in the clear`() = runTest {
         // Stated in the module's own documentation, so it is asserted rather than left implicit: a
         // consumer must not put a secret in a key name.
         secure().put("access_token", "value")
@@ -64,7 +71,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `writing the same value twice produces different ciphertext`() {
+    fun `writing the same value twice produces different ciphertext`() = runTest {
         // Every encryption uses a fresh IV. Identical ciphertext would leak that a value did not
         // change between two writes.
         val storage: SecureKeyValueStorage = secure()
@@ -78,7 +85,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `two secure stores with different names cannot read each other's values`() {
+    fun `two secure stores with different names cannot read each other's values`() = runTest {
         // Different names mean a different preferences file *and* a different key, so neither the
         // ciphertext nor the ability to decrypt it crosses over.
         val first: SecureKeyValueStorage = secure(StorageConfig("$NAME.one"))
@@ -89,7 +96,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `a corrupted entry is reported as undecryptable rather than absent`() {
+    fun `a corrupted entry is reported as undecryptable rather than absent`() = runTest {
         // The distinction that matters: "never written" means sign in; "cannot be decrypted" means
         // the stored session is gone and has to be discarded deliberately.
         preferences(NAME).edit().putString("corrupt", "not-valid-ciphertext!!").commit()
@@ -100,7 +107,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `an entry truncated below the IV length is reported as undecryptable`() {
+    fun `an entry truncated below the IV length is reported as undecryptable`() = runTest {
         preferences(NAME).edit().putString("short", "AAAA").commit()
 
         val result: StorageResult<String?> = secure().get("short")
@@ -109,7 +116,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `a tampered ciphertext fails authentication instead of returning altered plaintext`() {
+    fun `a tampered ciphertext fails authentication instead of returning altered plaintext`() = runTest {
         val storage: SecureKeyValueStorage = secure()
         storage.put("k", "authentic")
         preferences(NAME).edit().putString("k", tampered(requireNotNull(rawValue("k")))).commit()
@@ -120,7 +127,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `a value written under a key that no longer exists is undecryptable not absent`() {
+    fun `a value written under a key that no longer exists is undecryptable not absent`() = runTest {
         // What a device-lock change does on a real device: the ciphertext survives, the key does
         // not. Reproduced by dropping the cached key and letting a new one be generated.
         secure().put("k", "value")
@@ -132,7 +139,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `an unreadable entry can be overwritten with a working one`() {
+    fun `an unreadable entry can be overwritten with a working one`() = runTest {
         // The recovery path a caller has after Undecryptable: put over it and carry on.
         secure().put("k", "old")
         TestKeys.reset()
@@ -144,10 +151,11 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `a key store that will not open reports the read as unavailable`() {
+    fun `a key store that will not open reports the read as unavailable`() = runTest {
         val storage = AndroidSecureKeyValueStorage(
             preferences = preferences(NAME).apply { edit().putString("k", "ciphertext").commit() },
             cipher = KeystoreValueCipher(TestKeys.unavailableSource()),
+            dispatcher = dispatcher,
         )
 
         val error: StorageError? = storage.get("k").errorOrNull()
@@ -156,10 +164,11 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `a key store that will not open reports the write as unavailable and stores nothing`() {
+    fun `a key store that will not open reports the write as unavailable and stores nothing`() = runTest {
         val storage = AndroidSecureKeyValueStorage(
             preferences = preferences(NAME),
             cipher = KeystoreValueCipher(TestKeys.unavailableSource()),
+            dispatcher = dispatcher,
         )
 
         val error: StorageError? = storage.put("k", "v").errorOrNull()
@@ -169,13 +178,14 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `remove and clear work without the key store`() {
+    fun `remove and clear work without the key store`() = runTest {
         // Deleting a secret must not depend on being able to read it — otherwise a broken key store
         // would leave a user unable to sign out.
         preferences(NAME).edit().putString("k", "ciphertext").commit()
         val storage = AndroidSecureKeyValueStorage(
             preferences = preferences(NAME),
             cipher = KeystoreValueCipher(TestKeys.unavailableSource()),
+            dispatcher = dispatcher,
         )
 
         assertEquals(true, storage.remove("k").isSuccess)
@@ -184,7 +194,7 @@ class AndroidSecureKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `the plain and the secure store of one name are separate files`() {
+    fun `the plain and the secure store of one name are separate files`() = runTest {
         val plain: KeyValueStorage = createKeyValueStorage(context, StorageConfig(NAME))
         plain.put("k", "plain")
 

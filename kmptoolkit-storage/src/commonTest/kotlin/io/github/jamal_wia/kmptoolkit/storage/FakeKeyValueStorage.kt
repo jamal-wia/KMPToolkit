@@ -18,21 +18,21 @@ internal class FakeKeyValueStorage : KeyValueStorage {
     /** Makes every [put] fail, standing in for a store that cannot be written to. */
     var failWritesWith: StorageError? = null
 
-    override fun get(key: String): StorageResult<String?> =
+    override suspend fun get(key: String): StorageResult<String?> =
         failReadsWith?.let { StorageResult.Failure(it) } ?: StorageResult.Success(entries[key])
 
-    override fun put(key: String, value: String): StorageResult<Unit> {
+    override suspend fun put(key: String, value: String): StorageResult<Unit> {
         failWritesWith?.let { return StorageResult.Failure(it) }
         entries[key] = value
         return StorageResult.Success(Unit)
     }
 
-    override fun remove(key: String): StorageResult<Unit> {
+    override suspend fun remove(key: String): StorageResult<Unit> {
         entries.remove(key)
         return StorageResult.Success(Unit)
     }
 
-    override fun clear(): StorageResult<Unit> {
+    override suspend fun clear(): StorageResult<Unit> {
         entries.clear()
         return StorageResult.Success(Unit)
     }

@@ -6,6 +6,8 @@ import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.value
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import platform.CoreFoundation.CFTypeRefVar
 import platform.CoreFoundation.kCFBooleanTrue
 import platform.Foundation.CFBridgingRelease
@@ -18,6 +20,7 @@ import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
 import platform.Security.SecItemDelete
 import platform.Security.SecItemUpdate
+import platform.Security.errSecDuplicateItem
 import platform.Security.errSecItemNotFound
 import platform.Security.errSecSuccess
 import platform.Security.kSecAttrAccessGroup
@@ -51,55 +54,54 @@ internal class IosSecureKeyValueStorage(
     private val service: String,
     private val accessibility: KeychainAccessibility,
     private val accessGroup: String?,
+    private val dispatcher: CoroutineDispatcher,
 ) : SecureKeyValueStorage {
 
-    override fun get(key: String): StorageResult<String?> = memScoped {
-        val result = alloc<CFTypeRefVar>()
-        val status: Int = query(key)
-            .apply {
-                putConstant(kSecReturnData, kCFBooleanTrue)
-                putConstant(kSecMatchLimit, kSecMatchLimitOne)
-            }
-            .use { SecItemCopyMatching(it, result.ptr) }
-
-        when (status) {
-            errSecSuccess -> {
-                // The item exists and was returned; if its bytes are missing or are not UTF-8,
-                // something other than this store wrote under the same service, or the item was
-                // corrupted. That is exactly "present but not readable as a value".
-                val data: NSData? = result.value?.let { CFBridgingRelease(it) } as? NSData
-                val decoded: String? = data?.let {
-                    NSString.create(it, NSUTF8StringEncoding)?.toString()
+    override suspend fun get(key: String): StorageResult<String?> = withContext(dispatcher) {
+        memScoped {
+            val result = alloc<CFTypeRefVar>()
+            val status: Int = query(key)
+                .apply {
+                    putConstant(kSecReturnData, kCFBooleanTrue)
+                    putConstant(kSecMatchLimit, kSecMatchLimitOne)
                 }
-                if (decoded == null) {
-                    StorageResult.Failure(StorageError.Undecryptable(key))
-                } else {
-                    StorageResult.Success(decoded)
-                }
-            }
+                .use { SecItemCopyMatching(it, result.ptr) }
 
-            errSecItemNotFound -> StorageResult.Success(null)
-            else -> StorageResult.Failure(status.toStorageError(StorageOperation.GET, key))
+            when (status) {
+                errSecSuccess -> {
+                    // The item exists and was returned; if its bytes are missing or are not UTF-8,
+                    // something other than this store wrote under the same service, or the item was
+                    // corrupted. That is exactly "present but not readable as a value".
+                    val data: NSData? = result.value?.let { CFBridgingRelease(it) } as? NSData
+                    val decoded: String? = data?.let {
+                        NSString.create(it, NSUTF8StringEncoding)?.toString()
+                    }
+                    if (decoded == null) {
+                        StorageResult.Failure(StorageError.Undecryptable(key))
+                    } else {
+                        StorageResult.Success(decoded)
+                    }
+                }
+
+                errSecItemNotFound -> StorageResult.Success(null)
+                else -> StorageResult.Failure(status.toStorageError(StorageOperation.GET, key))
+            }
         }
     }
 
-    override fun put(key: String, value: String): StorageResult<Unit> {
+    override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {
         val data: NSData = NSString.create(string = value)
             .dataUsingEncoding(NSUTF8StringEncoding)
-            ?: return StorageResult.Failure(
+            ?: return@withContext StorageResult.Failure(
                 StorageError.OperationFailed(StorageOperation.PUT, key = key),
             )
 
         // Update first, add on miss: SecItemAdd on an existing item fails with errSecDuplicateItem
         // rather than replacing it, so an unconditional add would make put() non-overwriting.
-        val updateStatus: Int = query(key).use { query ->
-            KeychainQuery()
-                .apply { putData(kSecValueData, data) }
-                .use { attributes -> SecItemUpdate(query, attributes) }
-        }
-        if (updateStatus == errSecSuccess) return StorageResult.Success(Unit)
+        val updateStatus: Int = update(key, data)
+        if (updateStatus == errSecSuccess) return@withContext StorageResult.Success(Unit)
         if (updateStatus != errSecItemNotFound) {
-            return StorageResult.Failure(updateStatus.toStorageError(StorageOperation.PUT, key))
+            return@withContext StorageResult.Failure(updateStatus.toStorageError(StorageOperation.PUT, key))
         }
 
         val addStatus: Int = query(key)
@@ -108,28 +110,30 @@ internal class IosSecureKeyValueStorage(
                 putConstant(kSecAttrAccessible, accessibility.constant)
             }
             .use { SecItemAdd(it, null) }
-        return if (addStatus == errSecSuccess) {
+        // errSecDuplicateItem here means another writer — a second coroutine, a second store over
+        // the same service, an app extension sharing the access group — added the item between
+        // the miss and the add. The item now exists, so the update that missed would succeed: run
+        // it again rather than report a failure for a write that merely raced another one — the
+        // contract leaves the winner undefined, not one of the writers failing. No lock could do
+        // this job, since the other writer may not be in this process at all.
+        val finalStatus: Int = if (addStatus == errSecDuplicateItem) update(key, data) else addStatus
+        if (finalStatus == errSecSuccess) {
             StorageResult.Success(Unit)
         } else {
-            StorageResult.Failure(addStatus.toStorageError(StorageOperation.PUT, key))
+            StorageResult.Failure(finalStatus.toStorageError(StorageOperation.PUT, key))
         }
     }
 
-    override fun remove(key: String): StorageResult<Unit> {
+    override suspend fun remove(key: String): StorageResult<Unit> = withContext(dispatcher) {
         val status: Int = query(key).use { SecItemDelete(it) }
-        return if (status == errSecSuccess || status == errSecItemNotFound) {
+        if (status == errSecSuccess || status == errSecItemNotFound) {
             StorageResult.Success(Unit)
         } else {
             StorageResult.Failure(status.toStorageError(StorageOperation.REMOVE, key))
         }
     }
 
-    /**
-     * Deletes every item under this store's [service] in one call — and nothing else. Items written
-     * by another store, by another framework, or by the same app under a different service are not
-     * matched, because the query names the service and no key.
-     */
-    override fun clear(): StorageResult<Unit> {
+    override suspend fun clear(): StorageResult<Unit> = withContext(dispatcher) {
         val status: Int = KeychainQuery()
             .apply {
                 putConstant(kSecClass, kSecClassGenericPassword)
@@ -137,11 +141,17 @@ internal class IosSecureKeyValueStorage(
                 accessGroup?.let { putString(kSecAttrAccessGroup, it) }
             }
             .use { SecItemDelete(it) }
-        return if (status == errSecSuccess || status == errSecItemNotFound) {
+        if (status == errSecSuccess || status == errSecItemNotFound) {
             StorageResult.Success(Unit)
         } else {
             StorageResult.Failure(status.toStorageError(StorageOperation.CLEAR, key = null))
         }
+    }
+
+    private fun update(key: String, data: NSData): Int = query(key).use { query ->
+        KeychainQuery()
+            .apply { putData(kSecValueData, data) }
+            .use { attributes -> SecItemUpdate(query, attributes) }
     }
 
     private fun query(key: String): KeychainQuery = KeychainQuery().apply {

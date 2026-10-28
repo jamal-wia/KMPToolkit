@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.storage
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -19,7 +20,7 @@ class AndroidKeyValueStorageTest : KeyValueStorageContractTest() {
         createKeyValueStorage(context, config)
 
     @Test
-    fun `values are stored in the clear because this store promises no encryption`() {
+    fun `values are stored in the clear because this store promises no encryption`() = runTest {
         // Asserted rather than assumed: a consumer choosing between the two stores is choosing on
         // exactly this, and a plain store that happened to encrypt would make the secure one look
         // pointless while giving none of its guarantees.
@@ -31,7 +32,7 @@ class AndroidKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `the default config derives the store name from the application package`() {
+    fun `the default config derives the store name from the application package`() = runTest {
         val storage: KeyValueStorage = createKeyValueStorage(context)
 
         storage.put("k", "v")
@@ -43,7 +44,7 @@ class AndroidKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `the default store is not the same file as an explicitly named one`() {
+    fun `the default store is not the same file as an explicitly named one`() = runTest {
         createKeyValueStorage(context).put("k", "default")
         createKeyValueStorage(context, StorageConfig("other.name")).put("k", "explicit")
 
@@ -51,7 +52,7 @@ class AndroidKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `a value of a non-String type left in the file by other code is reported not returned`() {
+    fun `a value of a non-String type left in the file by other code is reported not returned`() = runTest {
         // SharedPreferences is shared with anything else the app points at the same file. A
         // ClassCastException from getString must not escape into a caller.
         context.getSharedPreferences(plainStoreId(NAME), Context.MODE_PRIVATE)
@@ -68,14 +69,14 @@ class AndroidKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `the store passed to a DeviceIdProvider yields a stable id across instances`() {
+    fun `the store passed to a DeviceIdProvider yields a stable id across instances`() = runTest {
         val first: String = DeviceIdProvider(create()).current()
 
         assertEquals(first, DeviceIdProvider(create()).current())
     }
 
     @Test
-    fun `a device id is regenerated after the store is cleared`() {
+    fun `a device id is regenerated after the store is cleared`() = runTest {
         val storage: KeyValueStorage = create()
         val first: String = DeviceIdProvider(storage).current()
 

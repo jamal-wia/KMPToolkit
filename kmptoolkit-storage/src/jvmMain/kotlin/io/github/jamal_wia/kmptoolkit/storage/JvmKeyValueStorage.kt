@@ -10,6 +10,10 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * [KeyValueStorage] over a single properties file.
@@ -21,29 +25,34 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Nothing throws: an unreadable or corrupted file, a path the file system rejects, and a denied
  * security check all arrive as [StorageError.OperationFailed].
+ *
+ * The file I/O runs on [dispatcher], never on the caller's thread.
  */
-internal class JvmKeyValueStorage(private val file: File) : KeyValueStorage {
+internal class JvmKeyValueStorage(
+    private val file: File,
+    private val dispatcher: CoroutineDispatcher,
+) : KeyValueStorage {
 
     /** Shared by every instance over the same canonical path, so their read-modify-write cycles never interleave. */
-    private val lock: Any = LOCKS.computeIfAbsent(lockKey(file)) { Any() }
+    private val lock: Mutex = LOCKS.computeIfAbsent(lockKey(file)) { Mutex() }
 
-    override fun get(key: String): StorageResult<String?> = guarded(StorageOperation.GET, key) {
+    override suspend fun get(key: String): StorageResult<String?> = guarded(StorageOperation.GET, key) {
         load().getProperty(key)
     }
 
-    override fun put(key: String, value: String): StorageResult<Unit> = guarded(StorageOperation.PUT, key) {
+    override suspend fun put(key: String, value: String): StorageResult<Unit> = guarded(StorageOperation.PUT, key) {
         val properties: Properties = load()
         properties.setProperty(key, value)
         write(properties)
     }
 
-    override fun remove(key: String): StorageResult<Unit> = guarded(StorageOperation.REMOVE, key) {
+    override suspend fun remove(key: String): StorageResult<Unit> = guarded(StorageOperation.REMOVE, key) {
         val properties: Properties = load()
         properties.remove(key)
         write(properties)
     }
 
-    override fun clear(): StorageResult<Unit> = guarded(StorageOperation.CLEAR, key = null) {
+    override suspend fun clear(): StorageResult<Unit> = guarded(StorageOperation.CLEAR, key = null) {
         Files.deleteIfExists(file.toPath())
         // A process killed between creating a temporary file and renaming it leaves that file behind.
         file.absoluteFile.parentFile
@@ -51,8 +60,12 @@ internal class JvmKeyValueStorage(private val file: File) : KeyValueStorage {
             ?.forEach { leftover -> Files.deleteIfExists(leftover.toPath()) }
     }
 
-    private inline fun <T> guarded(operation: StorageOperation, key: String?, block: () -> T): StorageResult<T> =
-        synchronized(lock) {
+    private suspend inline fun <T> guarded(
+        operation: StorageOperation,
+        key: String?,
+        crossinline block: () -> T,
+    ): StorageResult<T> = withContext(dispatcher) {
+        lock.withLock {
             try {
                 StorageResult.Success(block())
             } catch (error: IOException) {
@@ -64,6 +77,7 @@ internal class JvmKeyValueStorage(private val file: File) : KeyValueStorage {
                 StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = error))
             }
         }
+    }
 
     private fun load(): Properties {
         val properties = Properties()
@@ -106,7 +120,7 @@ internal class JvmKeyValueStorage(private val file: File) : KeyValueStorage {
     private companion object {
         const val TEMPORARY_SUFFIX: String = ".tmp"
 
-        val LOCKS: ConcurrentHashMap<String, Any> = ConcurrentHashMap()
+        val LOCKS: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap()
 
         /** The canonical path — symlinks and case-insensitive spellings resolved — or the absolute one. */
         fun lockKey(file: File): String = try {

@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.Dispatchers
 
 /**
  * Creates a plain [KeyValueStorage] backed by a private `SharedPreferences` file.
@@ -29,7 +30,7 @@ public fun createKeyValueStorage(
 ): KeyValueStorage {
     val applicationContext: Context = context.applicationContext
     val name: String = config.name ?: applicationContext.packageName
-    return AndroidKeyValueStorage(applicationContext.preferences(plainStoreId(name)))
+    return AndroidKeyValueStorage(applicationContext.preferences(plainStoreId(name)), Dispatchers.IO)
 }
 
 /**
@@ -65,6 +66,7 @@ public fun createSecureKeyValueStorage(
     return AndroidSecureKeyValueStorage(
         preferences = applicationContext.preferences(secureStoreId(name)),
         cipher = KeystoreValueCipher(AndroidKeystoreKeySource(secureKeyAlias(name))),
+        dispatcher = Dispatchers.IO,
     )
 }
 

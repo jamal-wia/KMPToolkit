@@ -13,6 +13,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 /**
  * The fake is held to the same contract as the real stores.
@@ -27,26 +28,26 @@ class InMemoryKeyValueStorageTest {
     private val storage = InMemoryKeyValueStorage()
 
     @Test
-    fun `a key that was never written reads back as absent`() {
+    fun `a key that was never written reads back as absent`() = runTest {
         assertEquals(StorageResult.Success(null), storage.get("missing"))
     }
 
     @Test
-    fun `a written value reads back`() {
+    fun `a written value reads back`() = runTest {
         storage.put("k", "v")
 
         assertEquals(StorageResult.Success("v"), storage.get("k"))
     }
 
     @Test
-    fun `an empty value is stored rather than treated as absent`() {
+    fun `an empty value is stored rather than treated as absent`() = runTest {
         storage.put("k", "")
 
         assertEquals(StorageResult.Success(""), storage.get("k"))
     }
 
     @Test
-    fun `writing a key twice keeps the second value`() {
+    fun `writing a key twice keeps the second value`() = runTest {
         storage.put("k", "first")
 
         storage.put("k", "second")
@@ -55,7 +56,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `remove deletes the value`() {
+    fun `remove deletes the value`() = runTest {
         storage.put("k", "v")
 
         assertTrue(storage.remove("k").isSuccess)
@@ -64,7 +65,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `removing a key that was never written succeeds and changes nothing`() {
+    fun `removing a key that was never written succeeds and changes nothing`() = runTest {
         storage.put("kept", "v")
 
         assertTrue(storage.remove("never-written").isSuccess)
@@ -73,7 +74,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `clear empties the store`() {
+    fun `clear empties the store`() = runTest {
         storage.put("a", "1")
         storage.put("b", "2")
 
@@ -83,12 +84,12 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `clear on an already empty store succeeds`() {
+    fun `clear on an already empty store succeeds`() = runTest {
         assertTrue(storage.clear().isSuccess)
     }
 
     @Test
-    fun `two instances are independent stores`() {
+    fun `two instances are independent stores`() = runTest {
         val other = InMemoryKeyValueStorage()
 
         storage.put("k", "mine")
@@ -97,7 +98,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `contents reflects every stored entry`() {
+    fun `contents reflects every stored entry`() = runTest {
         storage.put("a", "1")
         storage.put("b", "2")
 
@@ -105,7 +106,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `contents is a snapshot rather than a live view`() {
+    fun `contents is a snapshot rather than a live view`() = runTest {
         storage.put("a", "1")
         val snapshot: Map<String, String> = storage.contents
 
@@ -115,7 +116,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `writes records every write in order including overwrites`() {
+    fun `writes records every write in order including overwrites`() = runTest {
         storage.put("a", "1")
         storage.put("a", "2")
         storage.put("b", "3")
@@ -124,7 +125,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `writes keeps a key that was later removed`() {
+    fun `writes keeps a key that was later removed`() = runTest {
         storage.put("a", "1")
         storage.remove("a")
 
@@ -132,7 +133,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `writes is a snapshot rather than a live view`() {
+    fun `writes is a snapshot rather than a live view`() = runTest {
         storage.put("a", "1")
         val snapshot: List<String> = storage.writes
 
@@ -142,7 +143,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `a failed write is not recorded`() {
+    fun `a failed write is not recorded`() = runTest {
         storage.failNextOperationWith = StorageError.Unavailable()
 
         storage.put("a", "1")
@@ -151,7 +152,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `a scripted error fails the next read`() {
+    fun `a scripted error fails the next read`() = runTest {
         val error = StorageError.Undecryptable("k")
         storage.put("k", "v")
         storage.failNextOperationWith = error
@@ -160,7 +161,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `a scripted error clears itself after one operation`() {
+    fun `a scripted error clears itself after one operation`() = runTest {
         storage.put("k", "v")
         storage.failNextOperationWith = StorageError.Undecryptable("k")
 
@@ -170,7 +171,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `a scripted error applies to whichever operation comes next`() {
+    fun `a scripted error applies to whichever operation comes next`() = runTest {
         // Not "the operation the error names": the knob is armed against the next call of any kind,
         // so a test that scripts a REMOVE failure and then writes gets the failure on the write.
         storage.failNextOperationWith = StorageError.OperationFailed(StorageOperation.REMOVE)
@@ -182,7 +183,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `a failed write leaves the previous value in place`() {
+    fun `a failed write leaves the previous value in place`() = runTest {
         storage.put("k", "original")
         storage.failNextOperationWith = StorageError.Unavailable()
 
@@ -192,7 +193,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `a failed remove leaves the value in place`() {
+    fun `a failed remove leaves the value in place`() = runTest {
         storage.put("k", "v")
         storage.failNextOperationWith = StorageError.Unavailable()
 
@@ -202,7 +203,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `a failed clear leaves the store intact`() {
+    fun `a failed clear leaves the store intact`() = runTest {
         storage.put("k", "v")
         storage.failNextOperationWith = StorageError.Unavailable()
 
@@ -212,7 +213,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `clearing the scripted error before it is consumed restores normal behavior`() {
+    fun `clearing the scripted error before it is consumed restores normal behavior`() = runTest {
         storage.failNextOperationWith = StorageError.Unavailable()
         storage.failNextOperationWith = null
 
@@ -220,7 +221,7 @@ class InMemoryKeyValueStorageTest {
     }
 
     @Test
-    fun `it stands in for a DeviceIdProvider's storage`() {
+    fun `it stands in for a DeviceIdProvider's storage`() = runTest {
         val first: String = DeviceIdProvider(storage).current()
 
         assertEquals(first, DeviceIdProvider(storage).current())

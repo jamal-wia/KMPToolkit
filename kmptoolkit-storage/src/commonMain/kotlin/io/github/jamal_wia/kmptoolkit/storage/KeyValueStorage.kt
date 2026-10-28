@@ -22,9 +22,16 @@ package io.github.jamal_wia.kmptoolkit.storage
  * - **Writes are durable when the call returns.** A value written by [put] is readable by a second
  *   instance over the same configuration, including after the process is restarted.
  *
- * Not thread-safe in the sense of ordering: two threads writing the same key race, and which one
- * wins is undefined. Concurrent calls will not corrupt the store — the platform backends are
- * internally synchronized — but a caller that needs read-modify-write atomicity has to provide it.
+ * Every operation is a `suspend` function and is main-safe: the implementation moves its own
+ * blocking work — a disk write, a Keystore cipher round trip, an IPC hop to `securityd` — off the
+ * calling thread, so a caller never wraps a call in `withContext` itself. The platform calls
+ * underneath are not interruptible: a call whose coroutine is cancelled while it runs throws
+ * `CancellationException` and may or may not have taken effect.
+ *
+ * Concurrent calls, from any number of coroutines and threads, never corrupt the store and never
+ * make an entry unreadable. What is not promised is ordering: two callers writing the same key race,
+ * and which one wins is undefined. A caller that needs read-modify-write atomicity across two calls
+ * has to provide it — a `Mutex` around its own logic.
  *
  * Nothing here is encrypted. For values that must not be readable from a device backup or a rooted
  * phone, use [SecureKeyValueStorage].
@@ -38,17 +45,17 @@ public interface KeyValueStorage {
      *   [StorageError]. Use [getStringOrNull] when an unreadable value and an absent one should be
      *   handled the same way.
      */
-    public fun get(key: String): StorageResult<String?>
+    public suspend fun get(key: String): StorageResult<String?>
 
     /**
      * Stores [value] under [key], replacing any previous value.
      *
      * The value is readable by any other instance over the same [StorageConfig] once this returns.
      */
-    public fun put(key: String, value: String): StorageResult<Unit>
+    public suspend fun put(key: String, value: String): StorageResult<Unit>
 
     /** Removes [key]. Succeeds, and changes nothing, when the key was never written. */
-    public fun remove(key: String): StorageResult<Unit>
+    public suspend fun remove(key: String): StorageResult<Unit>
 
     /**
      * Removes every entry this store owns.
@@ -56,7 +63,7 @@ public interface KeyValueStorage {
      * Scoped to this store's own [StorageConfig] — a second store configured with a different
      * `name` is unaffected, as is anything the app or another SDK wrote elsewhere.
      */
-    public fun clear(): StorageResult<Unit>
+    public suspend fun clear(): StorageResult<Unit>
 }
 
 /**

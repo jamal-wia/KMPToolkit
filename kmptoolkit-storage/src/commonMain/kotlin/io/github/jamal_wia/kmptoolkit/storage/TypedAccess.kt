@@ -20,41 +20,41 @@ package io.github.jamal_wia.kmptoolkit.storage
  */
 
 /** The `Int` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
-public fun KeyValueStorage.getInt(key: String): StorageResult<Int?> = getParsed(key) { requireDecimal(it).toInt() }
+public suspend fun KeyValueStorage.getInt(key: String): StorageResult<Int?> = getParsed(key) { requireDecimal(it).toInt() }
 
 /** The `Long` stored under [key], `Success(null)` when absent. A non-integer value is a failure. */
-public fun KeyValueStorage.getLong(key: String): StorageResult<Long?> = getParsed(key) { requireDecimal(it).toLong() }
+public suspend fun KeyValueStorage.getLong(key: String): StorageResult<Long?> = getParsed(key) { requireDecimal(it).toLong() }
 
 /**
  * The `Boolean` stored under [key], `Success(null)` when absent. Anything other than exactly `"true"`
  * or `"false"` is a failure.
  */
-public fun KeyValueStorage.getBoolean(key: String): StorageResult<Boolean?> =
+public suspend fun KeyValueStorage.getBoolean(key: String): StorageResult<Boolean?> =
     getParsed(key) { value ->
         value.toBooleanStrictOrNull() ?: throw IllegalArgumentException("Not a boolean: '$value'")
     }
 
 /** Stores [value] under [key] as its decimal string. */
-public fun KeyValueStorage.putInt(key: String, value: Int): StorageResult<Unit> = put(key, value.toString())
+public suspend fun KeyValueStorage.putInt(key: String, value: Int): StorageResult<Unit> = put(key, value.toString())
 
 /** Stores [value] under [key] as its decimal string. */
-public fun KeyValueStorage.putLong(key: String, value: Long): StorageResult<Unit> = put(key, value.toString())
+public suspend fun KeyValueStorage.putLong(key: String, value: Long): StorageResult<Unit> = put(key, value.toString())
 
 /** Stores [value] under [key] as `"true"` or `"false"`. */
-public fun KeyValueStorage.putBoolean(key: String, value: Boolean): StorageResult<Unit> =
+public suspend fun KeyValueStorage.putBoolean(key: String, value: Boolean): StorageResult<Unit> =
     put(key, value.toString())
 
 /** The string stored under [key], or [default] when it is absent or the store could not be read. */
-public fun KeyValueStorage.getStringOr(key: String, default: String): String = getStringOrNull(key) ?: default
+public suspend fun KeyValueStorage.getStringOr(key: String, default: String): String = getStringOrNull(key) ?: default
 
 /** The `Int` stored under [key], or [default] when it is absent, unreadable, or not an integer. */
-public fun KeyValueStorage.getIntOr(key: String, default: Int): Int = getInt(key).getOrNull() ?: default
+public suspend fun KeyValueStorage.getIntOr(key: String, default: Int): Int = getInt(key).getOrNull() ?: default
 
 /** The `Long` stored under [key], or [default] when it is absent, unreadable, or not an integer. */
-public fun KeyValueStorage.getLongOr(key: String, default: Long): Long = getLong(key).getOrNull() ?: default
+public suspend fun KeyValueStorage.getLongOr(key: String, default: Long): Long = getLong(key).getOrNull() ?: default
 
 /** The `Boolean` stored under [key], or [default] when it is absent, unreadable, or not a boolean. */
-public fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean =
+public suspend fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean =
     getBoolean(key).getOrNull() ?: default
 
 /**
@@ -68,7 +68,7 @@ private fun requireDecimal(value: String): String {
 
 private val DECIMAL: Regex = Regex("-?[0-9]+")
 
-private inline fun <T : Any> KeyValueStorage.getParsed(
+private suspend inline fun <T : Any> KeyValueStorage.getParsed(
     key: String,
     parse: (String) -> T,
 ): StorageResult<T?> = when (val stored: StorageResult<String?> = get(key)) {

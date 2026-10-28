@@ -22,13 +22,19 @@ internal object TestKeys {
 
     private val keys: MutableMap<String, SecretKey> = mutableMapOf()
 
-    fun source(name: String): SecretKeySource = SecretKeySource {
-        keys.getOrPut(name) { generate() }
+    fun source(name: String): SecretKeySource = object : SecretKeySource {
+        override suspend fun key(): SecretKey = keys.getOrPut(name) { generate() }
     }
 
     /** A source that always fails, standing in for a key store that will not open. */
-    fun unavailableSource(): SecretKeySource = SecretKeySource {
-        throw StorageKeyUnavailableException(IllegalStateException("no key store"))
+    fun unavailableSource(): SecretKeySource = object : SecretKeySource {
+        override suspend fun key(): SecretKey =
+            throw StorageKeyUnavailableException(IllegalStateException("no key store"))
+    }
+
+    /** A source that always hands out [key]. */
+    fun fixedSource(key: SecretKey): SecretKeySource = object : SecretKeySource {
+        override suspend fun key(): SecretKey = key
     }
 
     fun generate(): SecretKey = KeyGenerator.getInstance("AES")

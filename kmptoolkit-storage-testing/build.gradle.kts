@@ -32,5 +32,8 @@ kotlin {
             // returns StorageResult/StorageError, so those types are part of this module's own API.
             api(project(":kmptoolkit-storage"))
         }
+        commonTest.dependencies {
+            implementation(libs.kotlinx.coroutines.test)
+        }
     }
 }

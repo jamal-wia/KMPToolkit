@@ -9,6 +9,36 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Breaking
+
+- `kmptoolkit-storage`: the API is now `suspend`. `KeyValueStorage.get`, `put`, `remove` and
+  `clear`, `getStringOrNull`, every typed accessor (`getInt`, `putBoolean`, `getLongOr`, …) and
+  `DeviceIdProvider.current()` are `suspend` functions, and each is main-safe: the store runs its
+  own `SharedPreferences`, Keystore, `NSUserDefaults`, Keychain or file I/O on `Dispatchers.IO`.
+  Call sites move into a coroutine; a custom `KeyValueStorage` implementation marks its four
+  overrides `suspend`. `InMemoryKeyValueStorage` in `kmptoolkit-storage-testing` follows, so tests
+  that use it run inside `runTest`. The module now depends on `kotlinx-coroutines-core`
+  (as `implementation`; no coroutines type is in a public signature).
+
+### Fixed
+
+- `kmptoolkit-storage`: concurrent first use of a `SecureKeyValueStorage` on Android could make
+  stored values permanently unreadable. Looking the Keystore alias up and generating its key were
+  two unordered calls, and generating under an existing alias replaces it, so two overlapping first
+  uses — two coroutines, or two stores over the same `StorageConfig` — could each generate a key;
+  values encrypted under the replaced one read back as `Undecryptable`, and a store left holding
+  the replaced key kept writing under it until the process ended. Recovery from an unrecoverable
+  key (a changed device lock) had the same race and could delete the fresh replacement key. Key
+  resolution now runs under one process-wide `Mutex` and re-checks the Keystore inside it. Present
+  since 1.0.0. A second *process* of the same app is still not ordered — see
+  `docs/kmptoolkit-storage/05-platform-notes.md`.
+- `kmptoolkit-storage`: concurrent first calls to `DeviceIdProvider.current()` could each generate
+  and return a different id while only one was persisted. The read-generate-write now runs under a
+  process-wide `Mutex`, so every caller gets the stored id.
+- `kmptoolkit-storage`: on iOS, two concurrent first `put`s of the same key in the secure store made
+  one of them fail with `OperationFailed` (`errSecDuplicateItem`). The losing write now updates the
+  item instead.
+
 ## [2.2.1]
 
 ### Added

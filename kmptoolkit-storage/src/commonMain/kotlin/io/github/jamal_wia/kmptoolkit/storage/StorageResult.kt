@@ -41,4 +41,4 @@ public val StorageResult<*>.isSuccess: Boolean
  * whenever the difference matters: this collapses [StorageError.Undecryptable] into "not there",
  * which is the exact distinction a "your session ended, log in again" path needs.
  */
-public fun KeyValueStorage.getStringOrNull(key: String): String? = get(key).getOrNull()
+public suspend fun KeyValueStorage.getStringOrNull(key: String): String? = get(key).getOrNull()

@@ -16,7 +16,7 @@ Keystore and the Keychain, which agree about nothing. Shared Kotlin code cannot 
 val storage: KeyValueStorage = createKeyValueStorage(context)   // Android; no argument on iOS
 val secrets: SecureKeyValueStorage = createSecureKeyValueStorage(context)
 
-// Shared code — takes the interface, never the factory.
+// Shared code — takes the interface, never the factory. Every call is a main-safe suspend function.
 when (val token = secrets.get("refresh_token")) {
     is StorageResult.Success -> token.value?.let(::resume) ?: signIn()
     is StorageResult.Failure -> when (token.error) {
@@ -43,6 +43,11 @@ Four things follow from that shape, and they are why the module exists:
 - **The secure store has the same shape as the plain one.** `SecureKeyValueStorage` extends
   `KeyValueStorage` and adds a guarantee, not a method, so shared code can take either and a test
   can substitute one for the other.
+- **Concurrency cannot break the store.** Every call is a `suspend` function that moves its own
+  blocking work off the caller's thread, and any number of coroutines may call at once: nothing
+  corrupts, and no entry becomes unreadable because two first uses overlapped. The two places where
+  the library itself does read-then-create — the Android encryption key and the device id — are
+  atomic across the whole process.
 
 ## What this is **not**
 
@@ -65,13 +70,13 @@ Four things follow from that shape, and they are why the module exists:
 - **Not observable.** There is no `Flow`, no listener, no change notification. A value is read when
   you read it. If two parts of your app must react to the same value changing, hold that state in
   your own layer and use this only to persist it.
-- **Not asynchronous.** Every call is blocking and completes in microseconds to a couple of
-  milliseconds — except a `SecureKeyValueStorage` operation, which is a cipher round trip on Android
-  and an IPC hop to `securityd` on iOS. Neither belongs in a tight loop on the main thread. Store a
-  handful of values in the secure store, not a working set.
-- **Not ordered under concurrency.** The platform backends will not corrupt themselves, but two
-  threads writing the same key race and the winner is undefined. Read-modify-write atomicity is
-  yours to arrange.
+- **Not fast enough for a working set.** Calls suspend rather than block, but each one still costs
+  a dispatcher hop plus the platform call — a `SecureKeyValueStorage` operation is a cipher round
+  trip on Android and an IPC hop to `securityd` on iOS. Store a handful of values in the secure
+  store, not a working set, and keep calls out of per-item loops.
+- **Not ordered under concurrency.** Two coroutines writing the same key race and the winner is
+  undefined. Read-modify-write atomicity across two calls is yours to arrange — a `Mutex` around
+  your own logic.
 - **Not a migration tool.** It opens stores of its own naming. It will not adopt a preferences file
   or a Keychain service an earlier version of your app created; copying that data across is a
   one-time job for your own code.

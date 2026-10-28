@@ -62,17 +62,17 @@ private class CountingKeyValueStorage(
     var writes: Int = 0
         private set
 
-    override fun put(key: String, value: String): StorageResult<Unit> {
+    override suspend fun put(key: String, value: String): StorageResult<Unit> {
         writes++
         return delegate.put(key, value)
     }
 
-    override fun remove(key: String): StorageResult<Unit> {
+    override suspend fun remove(key: String): StorageResult<Unit> {
         writes++
         return delegate.remove(key)
     }
 
-    override fun clear(): StorageResult<Unit> {
+    override suspend fun clear(): StorageResult<Unit> {
         writes++
         return delegate.clear()
     }
@@ -130,12 +130,12 @@ class AndroidPermissionHandlerTest {
     private var waitedForActivity: Boolean = false
 
     /** An asked flag as this version writes it. */
-    private fun markAsked(permission: Permission) {
+    private suspend fun markAsked(permission: Permission) {
         storage.put(askedKey("test", permission), ASKED_BY_THIS_VERSION)
     }
 
     /** The state a real refusal through the dialog leaves: asked, and a rationale was once shown. */
-    private fun markRefusedOnce(permission: Permission) {
+    private suspend fun markRefusedOnce(permission: Permission) {
         markAsked(permission)
         storage.put(rationaleSeenKey("test", permission), "true")
     }
@@ -148,7 +148,7 @@ class AndroidPermissionHandlerTest {
         shadowOf(application).denyPermissions(androidPermission)
     }
 
-    private fun askedFlag(permission: Permission, keyPrefix: String = "test"): String? =
+    private suspend fun askedFlag(permission: Permission, keyPrefix: String = "test"): String? =
         storage.getStringOrNull(askedKey(keyPrefix, permission))
 
     // --- check --------------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 /**
  * What the Keychain store does when there is no Keychain.
@@ -24,29 +25,29 @@ class IosSecureKeyValueStorageTest {
         createSecureKeyValueStorage(StorageConfig("io.github.jamal_wia.kmptoolkit.storage.test"))
 
     @Test
-    fun `a read without a Keychain is a typed failure rather than a crash`() {
+    fun `a read without a Keychain is a typed failure rather than a crash`() = runTest {
         val result: StorageResult<String?> = storage.get("k")
 
         assertEquals(StorageError.Unavailable(), result.errorOrNull())
     }
 
     @Test
-    fun `a write without a Keychain is a typed failure rather than a crash`() {
+    fun `a write without a Keychain is a typed failure rather than a crash`() = runTest {
         assertEquals(StorageError.Unavailable(), storage.put("k", "v").errorOrNull())
     }
 
     @Test
-    fun `a remove without a Keychain is a typed failure rather than a crash`() {
+    fun `a remove without a Keychain is a typed failure rather than a crash`() = runTest {
         assertEquals(StorageError.Unavailable(), storage.remove("k").errorOrNull())
     }
 
     @Test
-    fun `a clear without a Keychain is a typed failure rather than a crash`() {
+    fun `a clear without a Keychain is a typed failure rather than a crash`() = runTest {
         assertEquals(StorageError.Unavailable(), storage.clear().errorOrNull())
     }
 
     @Test
-    fun `an empty value is accepted by the store rather than rejected before the Keychain`() {
+    fun `an empty value is accepted by the store rather than rejected before the Keychain`() = runTest {
         // The NSData conversion runs before any Security call, and an empty string must survive it:
         // a failure here would be an OperationFailed, not the Unavailable the Keychain reports.
         assertEquals(StorageError.Unavailable(), storage.put("k", "").errorOrNull())

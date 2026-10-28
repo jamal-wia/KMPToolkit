@@ -40,7 +40,7 @@ Nothing is encrypted; a double that encrypted would need the very key store that
 
 ```kotlin
 @Test
-fun `a stored session is resumed`() {
+fun `a stored session is resumed`() = runTest {
     val storage = InMemoryKeyValueStorage()
     storage.put("refresh_token", "abc")
 
@@ -70,7 +70,7 @@ one written, removed, and written again.
 
 ```kotlin
 @Test
-fun `a destroyed key forces a fresh sign-in`() {
+fun `a destroyed key forces a fresh sign-in`() = runTest {
     val storage = InMemoryKeyValueStorage()
     storage.put("refresh_token", "abc")
     storage.failNextOperationWith = StorageError.Undecryptable("refresh_token")
@@ -79,7 +79,7 @@ fun `a destroyed key forces a fresh sign-in`() {
 }
 
 @Test
-fun `a Keychain that is not ready is retried rather than treated as signed out`() {
+fun `a Keychain that is not ready is retried rather than treated as signed out`() = runTest {
     val storage = InMemoryKeyValueStorage()
     storage.failNextOperationWith = StorageError.Unavailable()
 
@@ -99,7 +99,9 @@ means the *write* fails. Set it again to fail more than one call.
 - **No encryption.** `Undecryptable` never occurs on its own; script it.
 - **No persistence.** A second instance is an empty, independent store.
 - **No platform failures.** `Unavailable` and `OperationFailed` likewise only happen when scripted.
-- **Not thread-safe**, exactly like the stores it replaces.
+- **Not synchronized for parallel threads.** No operation suspends, so on `runTest`'s single thread
+  every call is atomic however many coroutines interleave — which is what a test of your own code
+  needs. What the real stores do under parallel threads is pinned by this module's own suite.
 
 ## Testing the module itself
 
@@ -122,6 +124,13 @@ The suite is arranged around one shared contract class:
   plain one stores plaintext, that the encrypted one does not, that ciphertext differs between two
   writes of the same value, that a corrupted or tampered entry is `Undecryptable` rather than
   absent, and that removing and clearing still work when the key store does not.
+  `AndroidKeystoreKeySourceRaceTest` drives the key lookup from eight threads at once — on one
+  instance, on eight, and during recovery from an unrecoverable alias — against a fake key store
+  that holds every caller between "looked" and "generated", and asserts that exactly one key was
+  generated and every caller got it.
+- **`commonTest`'s `DeviceIdProviderConcurrencyTest`** does the same for the device id: concurrent
+  first calls, through one provider and through several, against a store that suspends inside
+  every call, must agree on the one id that was persisted.
 - **`iosTest`** runs the contract against a real `NSUserDefaults` suite and pins the two iOS
   specifics that can be checked without a device: that a `KeychainQuery` is not answered with
   `errSecParam`, and that every `OSStatus` maps to the error a caller should branch on.
@@ -140,7 +149,8 @@ The suite is arranged around one shared contract class:
   (`-25291`). A round trip can only be verified in an app on a simulator or device. What the suite
   does assert is the same code path an app on a locked-out Keychain takes — every operation returns
   a typed failure, none throws, none hangs — plus the query-construction guard described in
-  [`05-platform-notes.md`](05-platform-notes.md).
+  [`05-platform-notes.md`](05-platform-notes.md). The same limit means the `errSecDuplicateItem`
+  retry that settles two concurrent first writes of one item is verified by reading, not by a test.
 
 Both gaps are properties of the test environment rather than of the design, and both are worth
 knowing before reading a green suite as proof that encryption works end to end — it is not quite
