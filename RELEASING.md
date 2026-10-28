@@ -19,6 +19,15 @@ signing.secretKeyRingFile=<path to secring.gpg>
 CI does not read this file — it uses the equivalent `ORG_GRADLE_PROJECT_*` environment secrets set
 on the repository (see `.github/workflows/publish.yml`).
 
+The build machine needs:
+
+- **macOS with Xcode**, for the iOS targets. Kotlin/Native 2.4 supports Xcode 26.4, which is what
+  CI selects; a newer Xcode may build with a compatibility warning, but a release is built on the
+  supported one.
+- **JDK 21** for the Gradle daemon (`gradle/gradle-daemon-jvm.properties`); Gradle provisions it
+  through the toolchain resolver if it is missing, as it does the JDK 25 that the
+  `kmptoolkit-video-player-javafx` tests run on.
+
 ## Release steps
 
 1. **Confirm `main` is green.** `./gradlew build checkKotlinAbi` and
