@@ -9,6 +9,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [3.0.0]
+
 ### Breaking
 
 - `kmptoolkit-storage`: the API is now `suspend`. `KeyValueStorage.get`, `put`, `remove` and
@@ -170,6 +172,11 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   threads. A `play()` from a background thread followed by a main-thread `pause()` could leave the
   video playing while `stateFlow` said `Paused`, and volume, speed or repeat could end on the older
   value. With VLCJ and `RepeatMode.One`, a `pause()` right after the restart at the end was dropped.
+- `kmptoolkit-video-player-javafx`: after `seekTo`, the position no longer briefly jumps back to the
+  old playhead. A playhead reading JavaFX took before the seek but delivered after it, because the FX
+  thread was busy, overwrote the seek target, and a `seekForward()` or `seekBackward()` in that
+  window stepped from the wrong position. The engine keeps the target until the seek has reached the
+  FX thread.
 - `kmptoolkit-systembars`, `kmptoolkit-video-player-compose`: on iOS, `ScreenWakeLockController`
   and playing video surfaces no longer undo each other's `UIApplication.idleTimerDisabled` — the
   screen could sleep mid-video, or the timer stay disabled for good. Both share
