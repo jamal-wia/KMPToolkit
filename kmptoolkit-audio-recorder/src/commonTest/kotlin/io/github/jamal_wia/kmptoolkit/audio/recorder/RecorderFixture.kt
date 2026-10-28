@@ -12,8 +12,11 @@ import kotlinx.coroutines.test.runTest
 /** A fixed timestamp, so a generated file name is exactly predictable in a test. */
 internal const val FIXED_EPOCH_MILLIS: Long = 1_700_000_000_000L
 
-/** The file name [FIXED_EPOCH_MILLIS] and the default storage settings produce. */
-internal const val GENERATED_FILE_NAME: String = "recording_1700000000000.m4a"
+/** A fixed uniqueness token, so a generated file name is exactly predictable in a test. */
+internal const val FIXED_FILE_NAME_TOKEN: String = "token"
+
+/** The file name [FIXED_EPOCH_MILLIS], [FIXED_FILE_NAME_TOKEN] and the default storage settings produce. */
+internal const val GENERATED_FILE_NAME: String = "recording_1700000000000_token.m4a"
 
 /** Directory the default storage settings resolve to with [FakeRecordingFileSystem]'s defaults. */
 internal const val DEFAULT_DIRECTORY: String = "/data/app/com.example.consumer"
@@ -40,6 +43,7 @@ internal class RecorderFixture(
         config = config,
         workerContext = workerContext,
         epochClock = EpochClock { FIXED_EPOCH_MILLIS },
+        fileNameToken = FileNameToken { FIXED_FILE_NAME_TOKEN },
         timeSource = timeSource,
     )
 

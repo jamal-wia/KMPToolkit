@@ -131,8 +131,11 @@ public data class AudioRecorderConfig(
  *   apps that happen to share a directory (an app group, an SD card path) never write into each
  *   other's recordings. Ignored entirely when [directoryPath] is set.
  * @param fileNamePrefix leading part of a generated file name. The generated name is
- *   `"<prefix>_<epochMillis>.<extension>"`, e.g. `recording_1754000000000.m4a`. Only used when
- *   [AudioRecorder.prepare] is called without an explicit path. Must not be blank, and must not
+ *   `"<prefix>_<epochMillis>_<token>.<extension>"`, e.g.
+ *   `recording_1754000000000_9f3c0e5a1b7d4c2e8a6f0b1d3e5c7a9f.m4a`, where `<token>` is 32 random hex
+ *   characters: the timestamp keeps names sortable, the token keeps them unique even for two
+ *   recorders preparing in the same millisecond or after the wall clock stepped backwards. Only
+ *   used when [AudioRecorder.prepare] is called without an explicit path. Must not be blank, and must not
  *   contain a path separator — a prefix is a name, not a nested path.
  */
 public data class RecordingStorage(

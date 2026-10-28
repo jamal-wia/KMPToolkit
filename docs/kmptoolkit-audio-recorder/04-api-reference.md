@@ -198,8 +198,9 @@ Checks, in order — first failure ends the call and moves `state` to `Failed`:
 | free space ≥ `config.minimumFreeSpaceBytes` | `InsufficientStorage(path, required, available)` |
 | platform recorder prepares | `EngineFailure(PREPARE, cause)` |
 
-`outputPath = null` generates `<directory>/<prefix>_<epochMillis>.<extension>` from
-`config.storage`. Parent directories are created. An explicit `outputPath` must be absolute — a
+`outputPath = null` generates `<directory>/<prefix>_<epochMillis>_<token>.<extension>` from
+`config.storage`, where `<token>` is 32 random hex characters — unique even for two recorders
+preparing in the same millisecond, or after the wall clock stepped backwards. Parent directories are created. An explicit `outputPath` must be absolute — a
 blank or relative one is rejected before the filesystem is touched, because on iOS
 `NSURL.fileURLWithPath("")` raises an Objective-C exception that Kotlin/Native cannot catch.
 
@@ -468,7 +469,7 @@ public data class RecordingStorage(
 - `directoryPath` — absolute directory. `null` means `<app-private files>/<directoryName>`.
 - `directoryName` — subdirectory under the app-private base. `null` means the consumer's own
   application id / bundle identifier. Ignored when `directoryPath` is set.
-- `fileNamePrefix` — leading part of a generated name (`<prefix>_<epochMillis>.<ext>`). Must not be
+- `fileNamePrefix` — leading part of a generated name (`<prefix>_<epochMillis>_<token>.<ext>`). Must not be
   blank and must not contain `/` or `\`.
 
 Blank strings throw `IllegalArgumentException`; `null` selects the default.

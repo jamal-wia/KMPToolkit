@@ -94,7 +94,7 @@ is that an operation which can touch the filesystem suspends — see
 does I/O, and the absence of one is a promise that it does not.
 
 `prepare()` with no argument generates a path for you — `<app-private files>/<your app id>/
-recording_<timestamp>.m4a`. Pass one explicitly if you want to choose:
+recording_<timestamp>_<random>.m4a`. Pass one explicitly if you want to choose:
 `recorder.prepare(outputPath = "/…/take-1.m4a")`.
 
 ## 5. Show it on screen
