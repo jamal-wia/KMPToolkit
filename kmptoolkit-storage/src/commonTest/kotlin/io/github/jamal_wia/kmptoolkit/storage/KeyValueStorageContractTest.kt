@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 /**
  * The contract from `docs/kmptoolkit-storage/01-overview.md`, asserted against a real store.
@@ -28,17 +29,17 @@ abstract class KeyValueStorageContractTest {
      * an earlier run would satisfy an assertion that the current run never actually met.
      */
     @BeforeTest
-    fun emptyStoresUnderTest() {
+    fun emptyStoresUnderTest() = runTest {
         NAMES.forEach { create(StorageConfig(it)).clear() }
     }
 
     @Test
-    fun `a key that was never written reads back as absent`() {
+    fun `a key that was never written reads back as absent`() = runTest {
         assertEquals(StorageResult.Success(null), create().get("missing"))
     }
 
     @Test
-    fun `a written value reads back`() {
+    fun `a written value reads back`() = runTest {
         val storage: KeyValueStorage = create()
 
         storage.write("k", "v")
@@ -47,7 +48,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `an empty value is stored rather than treated as absent`() {
+    fun `an empty value is stored rather than treated as absent`() = runTest {
         val storage: KeyValueStorage = create()
 
         storage.write("k", "")
@@ -56,7 +57,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `writing a key twice keeps the second value`() {
+    fun `writing a key twice keeps the second value`() = runTest {
         val storage: KeyValueStorage = create()
         storage.write("k", "first")
 
@@ -66,7 +67,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `remove deletes the value`() {
+    fun `remove deletes the value`() = runTest {
         val storage: KeyValueStorage = create()
         storage.write("k", "v")
 
@@ -76,7 +77,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `removing a key that was never written succeeds and changes nothing`() {
+    fun `removing a key that was never written succeeds and changes nothing`() = runTest {
         val storage: KeyValueStorage = create()
         storage.write("kept", "v")
 
@@ -86,7 +87,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `clear empties the store`() {
+    fun `clear empties the store`() = runTest {
         val storage: KeyValueStorage = create()
         storage.write("a", "1")
         storage.write("b", "2")
@@ -98,12 +99,12 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `clear on an already empty store succeeds`() {
+    fun `clear on an already empty store succeeds`() = runTest {
         assertTrue(create().clear().isSuccess)
     }
 
     @Test
-    fun `a value written by one instance is readable by another over the same config`() {
+    fun `a value written by one instance is readable by another over the same config`() = runTest {
         // The stand-in for a process restart: durability is part of the contract, and apply()
         // instead of commit() would make this pass while still losing the value on a kill.
         create().write("k", "v")
@@ -112,7 +113,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `two stores with different names do not share keys`() {
+    fun `two stores with different names do not share keys`() = runTest {
         val first: KeyValueStorage = create(StorageConfig("$NAME.first"))
         val second: KeyValueStorage = create(StorageConfig("$NAME.second"))
 
@@ -124,7 +125,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `clearing one store leaves a differently named one untouched`() {
+    fun `clearing one store leaves a differently named one untouched`() = runTest {
         val first: KeyValueStorage = create(StorageConfig("$NAME.first"))
         val second: KeyValueStorage = create(StorageConfig("$NAME.second"))
         first.write("k", "1")
@@ -137,7 +138,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `keys are independent of one another`() {
+    fun `keys are independent of one another`() = runTest {
         val storage: KeyValueStorage = create()
         storage.write("a", "1")
         storage.write("b", "2")
@@ -149,7 +150,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `a long value round-trips`() {
+    fun `a long value round-trips`() = runTest {
         val storage: KeyValueStorage = create()
         val value: String = "x".repeat(100_000)
 
@@ -159,7 +160,7 @@ abstract class KeyValueStorageContractTest {
     }
 
     @Test
-    fun `a value with non-ASCII characters round-trips`() {
+    fun `a value with non-ASCII characters round-trips`() = runTest {
         val storage: KeyValueStorage = create()
         val value = "مرحبا — Привет — 🙂"
 
@@ -176,7 +177,7 @@ abstract class KeyValueStorageContractTest {
      * tests here would then report as a wrong *read* — the encrypted store's first run against a
      * missing key store failed exactly that way.
      */
-    protected fun KeyValueStorage.write(key: String, value: String) {
+    protected suspend fun KeyValueStorage.write(key: String, value: String) {
         val result: StorageResult<Unit> = put(key, value)
         assertTrue(result.isSuccess, "put($key) failed: $result")
     }

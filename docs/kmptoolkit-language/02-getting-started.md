@@ -60,8 +60,9 @@ class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         language = createAppLanguageHolder(
-            initialLanguage = catalog.fromId(storage.getString(LANGUAGE_KEY)),
-            onLanguageChanged = { storage.putString(LANGUAGE_KEY, catalog.idOf(it)) },
+            // kmptoolkit-storage is suspend-only; this one startup read blocks — see 03-guide.md.
+            initialLanguage = catalog.fromId(runBlocking { storage.getStringOrNull(LANGUAGE_KEY) }),
+            onLanguageChanged = { language -> appScope.launch { storage.put(LANGUAGE_KEY, catalog.idOf(language)) } },
         )
     }
 }

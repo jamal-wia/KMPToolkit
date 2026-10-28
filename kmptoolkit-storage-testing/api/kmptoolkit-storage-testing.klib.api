@@ -18,8 +18,8 @@ final class io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStora
         final fun <get-failNextOperationWith>(): io.github.jamal_wia.kmptoolkit.storage/StorageError? // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.failNextOperationWith.<get-failNextOperationWith>|<get-failNextOperationWith>(){}[0]
         final fun <set-failNextOperationWith>(io.github.jamal_wia.kmptoolkit.storage/StorageError?) // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.failNextOperationWith.<set-failNextOperationWith>|<set-failNextOperationWith>(io.github.jamal_wia.kmptoolkit.storage.StorageError?){}[0]
 
-    final fun clear(): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.clear|clear(){}[0]
-    final fun get(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/String?> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.get|get(kotlin.String){}[0]
-    final fun put(kotlin/String, kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.put|put(kotlin.String;kotlin.String){}[0]
-    final fun remove(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.remove|remove(kotlin.String){}[0]
+    final suspend fun clear(): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.clear|clear(){}[0]
+    final suspend fun get(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/String?> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.get|get(kotlin.String){}[0]
+    final suspend fun put(kotlin/String, kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.put|put(kotlin.String;kotlin.String){}[0]
+    final suspend fun remove(kotlin/String): io.github.jamal_wia.kmptoolkit.storage/StorageResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.storage.testing/InMemoryKeyValueStorage.remove|remove(kotlin.String){}[0]
 }

@@ -270,7 +270,18 @@ No permission is required; `FLAG_KEEP_SCREEN_ON` needs none.
 
 Backed by `UIApplication.idleTimerDisabled`. No activity-tracker equivalent is needed: iOS hosts one
 process-stable `UIWindow` for the app's whole lifetime, and the property is not reset by the OS on
-its own. The write is dispatched to the main queue, the same way status-bar updates are.
+its own. The write is dispatched to the main queue, the same way status-bar updates are. The value
+it applies is the one from the most recent call, read when the write runs, so a call queued from a
+background thread cannot overwrite a later call made on the main thread.
+
+The flag is one switch for the whole process, and `kmptoolkit-video-player-compose` keeps it on
+while a video plays. Both modules therefore go through one reference-counted holder in
+`kmptoolkit-core`, which is why this module depends on `kmptoolkit-core` on iOS. The wake lock owns at most
+one hold on it: `setKeepScreenOn(true)` takes it, `setKeepScreenOn(false)` gives it back, and the
+timer stays disabled while either the wake lock or any playing surface still holds it. When the
+last hold goes, the holder restores the value it found when the first one was taken, so an app
+that disabled the timer itself keeps it disabled. Writing `idleTimerDisabled` directly from your
+own code still conflicts with both, as the interface KDoc warns.
 
 ## `AutoSystemBarsIconStyle`
 

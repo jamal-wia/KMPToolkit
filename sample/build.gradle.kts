@@ -3,7 +3,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-android {
+// Configured through ApplicationExtension, the new-DSL type: the generated `android { }` accessor is
+// typed to the legacy BaseAppModuleExtension, which AGP 9 deprecates.
+extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
     namespace = "io.github.jamal_wia.kmptoolkit.sample"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
@@ -34,6 +36,11 @@ android {
         compose = true
     }
 }
+
+// No Kotlin plugin of its own: AGP 9's built-in Kotlin compiles the sample's sources and takes
+// Kotlin's jvmTarget from the compileOptions above, so the two bytecode levels cannot disagree.
+// After a change here, check that the sample's own classes really are in the APK — an app whose
+// Kotlin is not compiled still assembles, and fails only at launch (see RELEASING.md).
 
 // The sample exists to prove the published artifacts actually resolve and work — see
 // .claude/CLAUDE.md § 6.

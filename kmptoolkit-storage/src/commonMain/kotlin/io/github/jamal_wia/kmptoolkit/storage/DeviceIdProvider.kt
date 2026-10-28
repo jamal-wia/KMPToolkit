@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -47,22 +49,35 @@ public class DeviceIdProvider(
      * Deliberately not memoized in memory: the store is the single source of truth, so a
      * [KeyValueStorage.clear] takes effect at the very next call rather than at the next process
      * start. Every call is one small read.
+     *
+     * Concurrent first calls agree: the read-generate-write runs under one process-wide lock, so two
+     * coroutines asking at once — or two providers over the same store — both get the id that was
+     * persisted, never one each. Without it the loser's id would already be in a request header
+     * while the store holds the winner's.
      */
     @OptIn(ExperimentalUuidApi::class)
-    public fun current(): String {
+    public suspend fun current(): String = generation.withLock {
         val stored: String? = storage.get(key).getOrNull()
-        if (stored != null && stored.isNotBlank()) return stored
+        if (stored != null && stored.isNotBlank()) return@withLock stored
 
         // Reached when the key is absent, when the entry is unreadable, and when it holds a blank
         // value — a store hand-edited in a debug build, or a partial restore. All three mean "there
         // is no usable id here", and overwriting is the only way out of the last two.
         val generated: String = Uuid.random().toString()
         storage.put(key, generated)
-        return generated
+        generated
     }
 
     public companion object {
         /** `"kmptoolkit.storage.device_id"`. */
         public const val DEFAULT_KEY: String = "kmptoolkit.storage.device_id"
+
+        /**
+         * One lock for every provider in the process rather than one per instance: two providers built
+         * over the same store are as likely as one shared provider, and a per-instance lock would let
+         * them race. Holding it costs one small read per call, so sharing it across unrelated stores
+         * costs nothing worth a lock map.
+         */
+        private val generation: Mutex = Mutex()
     }
 }

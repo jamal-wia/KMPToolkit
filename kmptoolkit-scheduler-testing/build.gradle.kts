@@ -14,11 +14,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.scheduler.testing"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.scheduler.testing"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

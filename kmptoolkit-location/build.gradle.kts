@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: LibraryManifestTest asserts against a real PackageManager
+    // Robolectric for androidHostTest: LibraryManifestTest asserts against a real PackageManager
     // that neither location permission is in the merged manifest, and the settings-screen tests
     // need a real Application, activities and started intents.
     id("kmptoolkit.androidtest")
@@ -19,11 +19,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.location"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.location"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

@@ -17,11 +17,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.proximity"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.proximity"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

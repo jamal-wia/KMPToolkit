@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.testing
 
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
+import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlinx.coroutines.flow.first
 
@@ -70,18 +71,34 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
             ::insertReplaceSupersedesPendingAtTheTail,
             ::insertReplaceSupersedesInFlightAndResetsIt,
             ::insertReplaceSupersedesParked,
+            ::insertReplaceReturnsWhatItSuperseded,
+            ::insertReplaceReturnsNullWhenNothingWasSuperseded,
             ::recordFailureWritesEveryFieldAndClearsTheLease,
-            ::recordFailureAppliesWhenTheLeaseMatches,
-            ::recordFailureIsRejectedWhenTheLeaseMoved,
+            ::recordFailureAppliesWhenTheClaimMatches,
+            ::recordFailureIsRejectedWhenTheClaimMoved,
+            ::recordFailureIsRejectedWhenTheStateMoved,
+            ::recordFailureAppliesToAPendingItemReadAsPending,
+            ::recordFailureCanParkInTheSameWrite,
+            ::recordFailureCanDropInTheSameWrite,
+            ::recordFailureGivingUpIsRejectedWhenTheClaimMoved,
             ::recordFailureOnAnAbsentRowReturnsFalse,
             ::markInFlightLeavesAttemptsAlone,
+            ::markInFlightRehandsAnExpiredClaim,
+            ::markInFlightIsRejectedWhenTheClaimMoved,
+            ::guardsCompareTheClaimNotTheLease,
+            ::markInFlightIsRejectedForAParkedItem,
+            ::markInFlightIsRejectedForAnItemThatFailedSinceTheRead,
             ::markInFlightOnAnAbsentRowIsANoOp,
             ::parkKeepsTheItemAndClearsTheLease,
+            ::parkIsRejectedWhenTheClaimMoved,
+            ::parkIsRejectedWhenTheStateMoved,
             ::parkOnAnAbsentRowIsANoOp,
+            ::theClaimAdvancesByOneOnEveryAppliedWriteAndNoOther,
             ::deleteByIdRemovesOnlyThatItem,
             ::deleteByIdIsIdempotent,
             ::deleteByTagRemovesEveryStateOfThatTag,
             ::deleteByTagLeavesOtherTagsAlone,
+            ::deleteByTagReturnsWhatItRemoved,
             ::observeByTypeFiltersAndOrders,
             ::observeByTypeIncludesParked,
             ::observeByTypeEmitsEmptyForAnUnknownType,
@@ -146,7 +163,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         store.insertKeep(item(id = "a"))
         store.insertKeep(item(id = "b"))
         store.insertKeep(item(id = "c"))
-        store.park("b", "parked")
+        parkNow(store, "b", "parked")
         val actual: List<String> = store.getAllActive().map { it.id }
         expect(actual == listOf("a", "c")) {
             "getAllActive must exclude parked items and keep the rest in order; got $actual"
@@ -157,7 +174,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     public suspend fun getAllActiveIncludesInFlight() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a"))
-        store.markInFlight("a", leaseUntilEpochMillis = 500L)
+        claim(store, "a", leaseUntilEpochMillis = 500L)
         expect(store.getAllActive().map { it.id } == listOf("a")) {
             "getAllActive must include IN_FLIGHT items"
         }
@@ -187,7 +204,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     public suspend fun insertKeepIsRefusedByInFlight() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", uniqueKey = "u"))
-        store.markInFlight("a", leaseUntilEpochMillis = 900L)
+        claim(store, "a", leaseUntilEpochMillis = 900L)
         val inserted: Boolean = store.insertKeep(item(id = "b", uniqueKey = "u"))
         expect(!inserted) { "insertKeep must return false when an IN_FLIGHT item holds the key" }
     }
@@ -196,7 +213,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     public suspend fun insertKeepSupersedesParked() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", uniqueKey = "u"))
-        store.park("a", "gave up")
+        parkNow(store, "a", "gave up")
         val inserted: Boolean = store.insertKeep(item(id = "b", uniqueKey = "u"))
         expect(inserted) { "insertKeep must supersede a PARKED item holding the key" }
         expect(store.getById("a") == null) { "the superseded parked item must be gone" }
@@ -228,7 +245,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     public suspend fun insertReplaceSupersedesInFlightAndResetsIt() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", uniqueKey = "u", attempts = 4))
-        store.markInFlight("a", leaseUntilEpochMillis = 900L)
+        claim(store, "a", leaseUntilEpochMillis = 900L)
         store.insertReplace(item(id = "b", uniqueKey = "u"))
         expect(store.getById("a") == null) { "the superseded in-flight item must be gone" }
         val replacement: UploaderItem? = store.getById("b")
@@ -241,18 +258,44 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     public suspend fun insertReplaceSupersedesParked() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", uniqueKey = "u"))
-        store.park("a", "gave up")
+        parkNow(store, "a", "gave up")
         store.insertReplace(item(id = "b", uniqueKey = "u"))
         expect(store.getById("a") == null) { "the superseded parked item must be gone" }
         expect(store.getAllActive().map { it.id } == listOf("b")) { "the new item must be active" }
     }
 
-    /** A recorded failure sets all five fields at once, including clearing the lease. */
+    /**
+     * The superseded row comes back from the replacement itself, as it was just before its removal —
+     * the engine cancels that item's upload, and a read made beforehand could miss an item enqueued in
+     * between.
+     */
+    public suspend fun insertReplaceReturnsWhatItSuperseded() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a", uniqueKey = "u", tag = "t"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        val superseded: UploaderItem? = store.insertReplace(item(id = "b", uniqueKey = "u"))
+        expect(superseded?.id == "a") { "insertReplace must return the item it superseded; got $superseded" }
+        expect(superseded?.state == UploaderItemState.IN_FLIGHT) { "as it was: IN_FLIGHT" }
+        expect(superseded?.leaseUntilEpochMillis == 900L) { "as it was: under its lease" }
+        expect(superseded?.tag == "t") { "as it was: with its tag" }
+    }
+
+    /** Nothing superseded, nothing returned — a keyless append and a fresh key alike. */
+    public suspend fun insertReplaceReturnsNullWhenNothingWasSuperseded() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "other", type = "elsewhere", uniqueKey = "u"))
+        val keyless: UploaderItem? = store.insertReplace(item(id = "a", uniqueKey = null))
+        val freshKey: UploaderItem? = store.insertReplace(item(id = "b", uniqueKey = "u"))
+        expect(keyless == null) { "a keyless replacement supersedes nothing; got $keyless" }
+        expect(freshKey == null) { "a key held only under another type supersedes nothing; got $freshKey" }
+    }
+
+    /** A recorded failure sets all five fields at once, clears the lease and advances the claim. */
     public suspend fun recordFailureWritesEveryFieldAndClearsTheLease() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a"))
-        store.markInFlight("a", leaseUntilEpochMillis = 900L)
-        val applied: Boolean = store.recordFailure("a", 4, 77L, "e")
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        val applied: Boolean = store.recordFailure("a", 4, 77L, "e", UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
         expect(applied) { "recordFailure must report that it wrote" }
         val updated: UploaderItem? = store.getById("a")
         expect(updated?.state == UploaderItemState.PENDING) { "the item must return to PENDING" }
@@ -260,15 +303,16 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         expect(updated?.nextRunAtEpochMillis == 77L) { "the backoff gate must be stored" }
         expect(updated?.lastError == "e") { "the error must be stored" }
         expect(updated?.leaseUntilEpochMillis == 0L) { "the lease must be cleared" }
+        expect(updated?.claim == 2L) { "the claim must advance by one; got ${updated?.claim}" }
     }
 
     /** The optimistic guard lets the write through when nothing moved. */
-    public suspend fun recordFailureAppliesWhenTheLeaseMatches() {
+    public suspend fun recordFailureAppliesWhenTheClaimMatches() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a"))
-        store.markInFlight("a", leaseUntilEpochMillis = 900L)
-        val applied: Boolean = store.recordFailure("a", 1, 10L, null, expectedLeaseUntilEpochMillis = 900L)
-        expect(applied) { "a matching expected lease must let the write through" }
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        val applied: Boolean = store.recordFailure("a", 1, 10L, null, UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
+        expect(applied) { "a matching expected claim must let the write through" }
         expect(store.getById("a")?.attempts == 1) { "the write must have applied" }
     }
 
@@ -276,14 +320,14 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * And rejects it when the item was re-handed in between — the check that keeps a crash-and-
      * recover cycle from producing two live claims on one item.
      */
-    public suspend fun recordFailureIsRejectedWhenTheLeaseMoved() {
+    public suspend fun recordFailureIsRejectedWhenTheClaimMoved() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a"))
-        store.markInFlight("a", leaseUntilEpochMillis = 900L)
-        store.markInFlight("a", leaseUntilEpochMillis = 1_800L) // the drain re-handed it
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        rehand(store, "a", fromClaim = 1L, to = 1_800L) // the drain re-handed it
         val applied: Boolean =
-            store.recordFailure("a", 1, 10L, "stale", expectedLeaseUntilEpochMillis = 900L)
-        expect(!applied) { "a stale expected lease must reject the write" }
+            store.recordFailure("a", 1, 10L, "stale", UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
+        expect(!applied) { "a stale expected claim must reject the write" }
         val untouched: UploaderItem? = store.getById("a")
         expect(untouched?.state == UploaderItemState.IN_FLIGHT) { "the fresh claim must survive" }
         expect(untouched?.leaseUntilEpochMillis == 1_800L) { "the fresh lease must survive" }
@@ -291,10 +335,95 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         expect(untouched?.lastError == null) { "a rejected write must not store an error" }
     }
 
+    /**
+     * The guard covers the state as well as the claim: a failure expecting PENDING must not return a
+     * parked item to rotation, even under the claim the parked row now carries.
+     */
+    public suspend fun recordFailureIsRejectedWhenTheStateMoved() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        parkNow(store, "a", "permanent 400")
+        val claimNow: Long = store.getById("a")?.claim ?: -1L
+        val retried: Boolean = store.recordFailure("a", 1, 10L, "timeout", UploaderItemState.PENDING, claimNow)
+        val dropped: Boolean =
+            store.recordFailure("a", 1, 10L, "timeout", UploaderItemState.PENDING, claimNow, FailureDisposition.DROP)
+        expect(!retried && !dropped) { "a failure expecting PENDING must be rejected for a PARKED item" }
+        val parked: UploaderItem? = store.getById("a")
+        expect(parked?.state == UploaderItemState.PARKED) { "the item must stay PARKED" }
+        expect(parked?.lastError == "permanent 400") { "the park's reason must survive" }
+        expect(parked?.attempts == 0) { "a rejected write must not bump attempts" }
+    }
+
+    /** And a failure from a read of a pending item applies when nothing moved — the drain's own path. */
+    public suspend fun recordFailureAppliesToAPendingItemReadAsPending() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        val applied: Boolean = store.recordFailure("a", 1, 10L, "timeout", UploaderItemState.PENDING, 0L)
+        expect(applied) { "a failure expecting the current state and claim must be written" }
+        expect(store.getById("a")?.attempts == 1) { "the write must have applied" }
+    }
+
+    /** A failure that spends the budget parks in the same write, keeping its final count and error. */
+    public suspend fun recordFailureCanParkInTheSameWrite() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        val applied: Boolean = store.recordFailure(
+            "a",
+            3,
+            77L,
+            "gave up",
+            expectedState = UploaderItemState.IN_FLIGHT,
+            expectedClaim = 1L,
+            disposition = FailureDisposition.PARK,
+        )
+        expect(applied) { "recordFailure with PARK must report that it wrote" }
+        val parked: UploaderItem? = store.getById("a")
+        expect(parked?.state == UploaderItemState.PARKED) { "PARK must leave the item PARKED, never PENDING" }
+        expect(parked?.attempts == 3) { "the final attempt count must be stored" }
+        expect(parked?.lastError == "gave up") { "the error must be stored" }
+        expect(parked?.leaseUntilEpochMillis == 0L) { "the lease must be cleared" }
+        expect(store.getAllActive().isEmpty()) { "a parked item is out of rotation" }
+    }
+
+    /** And drops in the same write. */
+    public suspend fun recordFailureCanDropInTheSameWrite() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        store.insertKeep(item(id = "b"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        val applied: Boolean = store.recordFailure(
+            "a",
+            3,
+            77L,
+            "gave up",
+            expectedState = UploaderItemState.IN_FLIGHT,
+            expectedClaim = 1L,
+            disposition = FailureDisposition.DROP,
+        )
+        expect(applied) { "recordFailure with DROP must report that it deleted" }
+        expect(store.getById("a") == null) { "DROP must delete the item" }
+        expect(store.getAllActive().map { it.id } == listOf("b")) { "DROP must delete only that item" }
+    }
+
+    /** A give-up obeys the same guard as a retry: a stale one must not touch a fresh claim. */
+    public suspend fun recordFailureGivingUpIsRejectedWhenTheClaimMoved() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        rehand(store, "a", fromClaim = 1L, to = 1_800L)
+        val parked: Boolean = store.recordFailure("a", 1, 10L, "stale", UploaderItemState.IN_FLIGHT, 1L, FailureDisposition.PARK)
+        val dropped: Boolean = store.recordFailure("a", 1, 10L, "stale", UploaderItemState.IN_FLIGHT, 1L, FailureDisposition.DROP)
+        expect(!parked && !dropped) { "a stale expected claim must reject a give-up" }
+        val untouched: UploaderItem? = store.getById("a")
+        expect(untouched?.state == UploaderItemState.IN_FLIGHT) { "the fresh claim must survive" }
+        expect(untouched?.leaseUntilEpochMillis == 1_800L) { "the fresh lease must survive" }
+    }
+
     /** An absent row is a no-op, reported as `false`, never an exception. */
     public suspend fun recordFailureOnAnAbsentRowReturnsFalse() {
         val store: UploaderStore = createStore()
-        expect(!store.recordFailure("ghost", 1, 0L, null)) {
+        expect(!store.recordFailure("ghost", 1, 0L, null, UploaderItemState.PENDING, 0L)) {
             "recordFailure on an absent row must return false"
         }
     }
@@ -303,38 +432,184 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     public suspend fun markInFlightLeavesAttemptsAlone() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", attempts = 2))
-        store.markInFlight("a", leaseUntilEpochMillis = 4_000L)
+        val claimed: Boolean = store.markInFlight(
+            "a",
+            leaseUntilEpochMillis = 4_000L,
+            expectedState = UploaderItemState.PENDING,
+            expectedClaim = 0L,
+        )
+        expect(claimed) { "markInFlight must report a claim it wrote" }
         val updated: UploaderItem? = store.getById("a")
         expect(updated?.state == UploaderItemState.IN_FLIGHT) { "the item must be IN_FLIGHT" }
         expect(updated?.leaseUntilEpochMillis == 4_000L) { "the lease must be stored" }
         expect(updated?.attempts == 2) { "markInFlight must not touch the attempt counter" }
+        expect(updated?.claim == 1L) { "the claim must advance from 0 to 1; got ${updated?.claim}" }
+    }
+
+    /** An expired claim can be re-handed: the claim expects IN_FLIGHT under the claim that expired. */
+    public suspend fun markInFlightRehandsAnExpiredClaim() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        val rehanded: Boolean = store.markInFlight("a", 1_800L, UploaderItemState.IN_FLIGHT, 1L)
+        expect(rehanded) { "a re-hand that expects the current state and claim must be written" }
+        val updated: UploaderItem? = store.getById("a")
+        expect(updated?.state == UploaderItemState.IN_FLIGHT) { "the re-handed item must be IN_FLIGHT" }
+        expect(updated?.leaseUntilEpochMillis == 1_800L) { "the re-hand must carry the new lease" }
+        expect(updated?.claim == 2L) { "the re-hand must advance the claim; got ${updated?.claim}" }
+    }
+
+    /** Two claims made from one read: the second finds the claim moved and must not overwrite it. */
+    public suspend fun markInFlightIsRejectedWhenTheClaimMoved() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        rehand(store, "a", fromClaim = 1L, to = 1_800L)
+        val stale: Boolean = store.markInFlight("a", 2_700L, UploaderItemState.IN_FLIGHT, 1L)
+        expect(!stale) { "a claim expecting a claim that moved must be rejected" }
+        expect(store.getById("a")?.leaseUntilEpochMillis == 1_800L) { "the current claim must survive" }
+    }
+
+    /**
+     * Two claims can carry the same lease — written in the same millisecond, or across a wall clock
+     * that stepped back — so a guard on the lease would take a report from the first for one from the
+     * second. The guards compare the claim.
+     */
+    public suspend fun guardsCompareTheClaimNotTheLease() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        rehand(store, "a", fromClaim = 1L, to = 900L) // a second claim, under the very same lease
+        val failed: Boolean = store.recordFailure("a", 1, 10L, "stale", UploaderItemState.IN_FLIGHT, 1L)
+        val parked: Boolean = store.park("a", "stale", UploaderItemState.IN_FLIGHT, 1L)
+        val reclaimed: Boolean = store.markInFlight("a", 1_800L, UploaderItemState.IN_FLIGHT, 1L)
+        expect(!failed && !parked && !reclaimed) {
+            "a write expecting the first claim must be rejected under the second, though the lease is the same"
+        }
+        val untouched: UploaderItem? = store.getById("a")
+        expect(untouched?.state == UploaderItemState.IN_FLIGHT && untouched.claim == 2L) {
+            "the second claim must survive; got $untouched"
+        }
+        expect(untouched?.attempts == 0 && untouched.lastError == null) { "no rejected write may have landed" }
+    }
+
+    /**
+     * A claim made from a read that predates a park must not revive the item — the check that keeps a
+     * known-permanent failure from being uploaded again.
+     */
+    public suspend fun markInFlightIsRejectedForAParkedItem() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "pending"))
+        store.insertKeep(item(id = "expired"))
+        claim(store, "expired", leaseUntilEpochMillis = 900L)
+        parkNow(store, "pending", "permanent")
+        parkNow(store, "expired", "permanent")
+        val revivedPending: Boolean = store.markInFlight("pending", 900L, UploaderItemState.PENDING, 0L)
+        val revivedExpired: Boolean = store.markInFlight("expired", 1_800L, UploaderItemState.IN_FLIGHT, 1L)
+        expect(!revivedPending && !revivedExpired) { "markInFlight must not claim a PARKED item" }
+        expect(store.getById("pending")?.state == UploaderItemState.PARKED) { "it must stay PARKED" }
+        expect(store.getById("expired")?.state == UploaderItemState.PARKED) { "it must stay PARKED" }
+    }
+
+    /** Nor overwrite a failure that returned the item to PENDING under a backoff gate. */
+    public suspend fun markInFlightIsRejectedForAnItemThatFailedSinceTheRead() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        store.recordFailure("a", 1, 5_000L, "503", UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
+        val stale: Boolean = store.markInFlight("a", 1_800L, UploaderItemState.IN_FLIGHT, 1L)
+        expect(!stale) { "a claim expecting IN_FLIGHT must be rejected for a PENDING item" }
+        val failed: UploaderItem? = store.getById("a")
+        expect(failed?.state == UploaderItemState.PENDING) { "the failure's state must survive" }
+        expect(failed?.nextRunAtEpochMillis == 5_000L) { "the failure's backoff gate must survive" }
     }
 
     /** Every id-addressed write tolerates an absent row. */
     public suspend fun markInFlightOnAnAbsentRowIsANoOp() {
         val store: UploaderStore = createStore()
-        store.markInFlight("ghost", 4_000L)
+        val claimed: Boolean = store.markInFlight("ghost", 4_000L, UploaderItemState.PENDING, 0L)
+        expect(!claimed) { "markInFlight on an absent row must return false" }
         expect(store.getById("ghost") == null) { "markInFlight must not create a row" }
     }
 
-    /** Parking keeps the item and its attempt count, and drops the claim. */
+    /** Parking keeps the item and its attempt count, and drops the lease. */
     public suspend fun parkKeepsTheItemAndClearsTheLease() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", attempts = 5))
-        store.markInFlight("a", leaseUntilEpochMillis = 900L)
-        store.park("a", "permanent 400")
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        val applied: Boolean = store.park("a", "permanent 400", UploaderItemState.IN_FLIGHT, 1L)
+        expect(applied) { "park must report that it wrote" }
         val parked: UploaderItem? = store.getById("a")
         expect(parked?.state == UploaderItemState.PARKED) { "the item must be PARKED" }
         expect(parked?.lastError == "permanent 400") { "the reason must be stored" }
         expect(parked?.leaseUntilEpochMillis == 0L) { "parking must clear the lease" }
         expect(parked?.attempts == 5) { "parking must not touch the attempt counter" }
+        expect(parked?.claim == 2L) { "parking must advance the claim; got ${parked?.claim}" }
+    }
+
+    /**
+     * A park is a verdict on the attempt the caller read: after a re-hand it must not take the item from
+     * the executor now holding it.
+     */
+    public suspend fun parkIsRejectedWhenTheClaimMoved() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        rehand(store, "a", fromClaim = 1L, to = 1_800L)
+        val parked: Boolean = store.park("a", "stale", UploaderItemState.IN_FLIGHT, 1L)
+        expect(!parked) { "a park expecting a claim that moved must be rejected" }
+        val untouched: UploaderItem? = store.getById("a")
+        expect(untouched?.state == UploaderItemState.IN_FLIGHT) { "the fresh claim must survive" }
+        expect(untouched?.leaseUntilEpochMillis == 1_800L) { "the fresh lease must survive" }
+        expect(untouched?.lastError == null) { "a rejected park must not store its reason" }
+    }
+
+    /** And when the state moved under the same claim — the guard is the pair. */
+    public suspend fun parkIsRejectedWhenTheStateMoved() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        store.recordFailure("a", 1, 5_000L, "503", UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
+        val claimNow: Long = store.getById("a")?.claim ?: -1L
+        val parked: Boolean = store.park("a", "stale", UploaderItemState.IN_FLIGHT, claimNow)
+        expect(!parked) { "a park expecting IN_FLIGHT must be rejected for a PENDING item" }
+        expect(store.getById("a")?.state == UploaderItemState.PENDING) { "the failure's state must survive" }
     }
 
     /** Parking an absent row does nothing. */
     public suspend fun parkOnAnAbsentRowIsANoOp() {
         val store: UploaderStore = createStore()
-        store.park("ghost", "whatever")
+        val parked: Boolean = store.park("ghost", "whatever", UploaderItemState.PENDING, 0L)
+        expect(!parked) { "park on an absent row must return false" }
         expect(store.getById("ghost") == null) { "park must not create a row" }
+    }
+
+    /**
+     * The claim is a counter the engine derives the claims it hands out from: `0` on insert, one more
+     * on every guarded write that applies, unchanged by one that is rejected. A store that skips an
+     * advance would let a superseded executor's report pass for the current one.
+     */
+    public suspend fun theClaimAdvancesByOneOnEveryAppliedWriteAndNoOther() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        val claims: MutableList<Long?> = mutableListOf(store.getById("a")?.claim)
+        store.markInFlight("a", 900L, UploaderItemState.PENDING, 0L)
+        claims += store.getById("a")?.claim
+        store.markInFlight("a", 900L, UploaderItemState.PENDING, 0L) // rejected: the row moved
+        claims += store.getById("a")?.claim
+        store.recordFailure("a", 1, 10L, "503", UploaderItemState.IN_FLIGHT, 1L)
+        claims += store.getById("a")?.claim
+        store.recordFailure("a", 2, 10L, "503", UploaderItemState.IN_FLIGHT, 1L) // rejected
+        claims += store.getById("a")?.claim
+        store.markInFlight("a", 1_800L, UploaderItemState.PENDING, 2L)
+        claims += store.getById("a")?.claim
+        store.park("a", "400", UploaderItemState.IN_FLIGHT, 3L)
+        claims += store.getById("a")?.claim
+        store.park("a", "400", UploaderItemState.IN_FLIGHT, 3L) // rejected
+        claims += store.getById("a")?.claim
+        expect(claims == listOf<Long?>(0L, 1L, 1L, 2L, 2L, 3L, 4L, 4L)) {
+            "the claim must start at 0 and advance by exactly one per applied write; got $claims"
+        }
     }
 
     /** Deletion is addressed, not broad. */
@@ -368,8 +643,8 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         store.insertKeep(item(id = "parked", tag = "session"))
         store.insertKeep(item(id = "other", tag = "keep-me"))
         store.insertKeep(item(id = "untagged", tag = null))
-        store.markInFlight("inflight", 900L)
-        store.park("parked", "x")
+        claim(store, "inflight", leaseUntilEpochMillis = 900L)
+        parkNow(store, "parked", "x")
 
         store.deleteByTag("session")
 
@@ -392,6 +667,28 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         }
     }
 
+    /** The wipe hands back every row it removed, in every state and in insertion order, as each was. */
+    public suspend fun deleteByTagReturnsWhatItRemoved() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "pending", tag = "session"))
+        store.insertKeep(item(id = "other", tag = "keep-me"))
+        store.insertKeep(item(id = "inflight", tag = "session"))
+        store.insertKeep(item(id = "parked", tag = "session"))
+        claim(store, "inflight", leaseUntilEpochMillis = 900L)
+        parkNow(store, "parked", "x")
+
+        val removed: List<UploaderItem> = store.deleteByTag("session")
+
+        expect(removed.map { it.id } == listOf("pending", "inflight", "parked")) {
+            "deleteByTag must return every removed item in insertion order; got ${removed.map { it.id }}"
+        }
+        expect(removed.map { it.state } == listOf(UploaderItemState.PENDING, UploaderItemState.IN_FLIGHT, UploaderItemState.PARKED)) {
+            "each removed item must come back in the state it was removed in; got ${removed.map { it.state }}"
+        }
+        expect(removed[1].leaseUntilEpochMillis == 900L) { "the in-flight item must come back with its lease" }
+        expect(store.deleteByTag("session").isEmpty()) { "a second wipe of the same tag removes, and returns, nothing" }
+    }
+
     /** The observation flow filters by type and keeps insertion order. */
     public suspend fun observeByTypeFiltersAndOrders() {
         val store: UploaderStore = createStore()
@@ -408,7 +705,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     public suspend fun observeByTypeIncludesParked() {
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", type = "one"))
-        store.park("a", "x")
+        parkNow(store, "a", "x")
         expect(store.observeByType("one").first().map { it.id } == listOf("a")) {
             "observeByType must include PARKED items"
         }
@@ -427,7 +724,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         val store: UploaderStore = createStore()
         store.insertKeep(item(id = "a", tag = "one"))
         store.insertKeep(item(id = "b", tag = null))
-        store.park("b", "x")
+        parkNow(store, "b", "x")
         store.clearAll()
         expect(store.getAllActive().isEmpty()) { "clearAll must empty the active set" }
         expect(store.getById("a") == null && store.getById("b") == null) {
@@ -467,6 +764,28 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         lastError = null,
         leaseUntilEpochMillis = leaseUntilEpochMillis,
     )
+
+    /**
+     * A first hand-off of a freshly inserted item, asserted to have been written — the setup most checks
+     * need. It leaves the item under claim `1`.
+     */
+    private suspend fun claim(store: UploaderStore, id: String, leaseUntilEpochMillis: Long) {
+        val claimed: Boolean = store.markInFlight(id, leaseUntilEpochMillis, UploaderItemState.PENDING, 0L)
+        expect(claimed) { "markInFlight must claim a PENDING item expected as PENDING under claim 0" }
+    }
+
+    /** A re-hand of an expired claim, the drain's other use of [UploaderStore.markInFlight]. */
+    private suspend fun rehand(store: UploaderStore, id: String, fromClaim: Long, to: Long) {
+        val rehanded: Boolean = store.markInFlight(id, to, UploaderItemState.IN_FLIGHT, fromClaim)
+        expect(rehanded) { "markInFlight must re-hand an IN_FLIGHT item expected under its current claim" }
+    }
+
+    /** Parks [id] as it is right now, asserted to have been written — setup for checks about parked rows. */
+    private suspend fun parkNow(store: UploaderStore, id: String, reason: String) {
+        val current: UploaderItem = store.getById(id) ?: throw UploaderStoreContractViolation("no row '$id' to park")
+        val parked: Boolean = store.park(id, reason, current.state, current.claim)
+        expect(parked) { "park must apply to a row expected in its current state and claim" }
+    }
 
     private inline fun expect(condition: Boolean, message: () -> String) {
         if (!condition) throw UploaderStoreContractViolation(message())

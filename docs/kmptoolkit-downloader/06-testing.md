@@ -44,7 +44,9 @@ and then check only `DownloadUnit.sha256`; the fake does not.
   `tempFileStates` instead of calling `beginTempFile`; `beganWith` then stays empty.
 - **`commitResource` mirrors the real contract.** It throws `IllegalStateException` unless the
   unit's state is `Complete`, and on success the temp file is consumed: the state goes back to
-  `None`. Seed `tempFileStates[unit.id] = TempFileState.Complete` before committing.
+  `None`. Seed `tempFileStates[unit.id] = TempFileState.Complete` before committing. A unit in
+  `availableIds` without a `Complete` temp file commits as a no-op, as the real storages answer a
+  commit that a concurrent one already finalized.
 - **`beganWith: MutableList<Pair<String, Sha256?>>`** records every `beginTempFile` as (unit id,
   expected hash), in order. Assert on it to check that your downloader passes the hash of the
   response that began the transfer, passes `null` when the backend stated none, and does not call it

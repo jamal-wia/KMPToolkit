@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
 
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
+import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.KmpToolkitUploaderDatabase
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.Kmptoolkit_uploader_item
@@ -25,7 +26,7 @@ import kotlinx.coroutines.flow.map
  * stated plainly in `docs/kmptoolkit-uploader-sqldelight/04-api-reference.md` rather than papered over.
  *
  * Three parts of this are load-bearing and are documented where they happen: the insertion sequence
- * (`UploaderItem.sq`), the compare-and-set in [recordFailure], and the thread confinement that lets a
+ * (`UploaderItem.sq`), the compare-and-sets in [recordFailure], [markInFlight] and [park], and the thread confinement that lets a
  * nested call join an open transaction ([onDatabaseThread]).
  */
 internal class SqlDelightUploaderStore(
@@ -48,8 +49,9 @@ internal class SqlDelightUploaderStore(
                     return@transactionWithResult true
                 }
                 val holder: String? =
-                    queries.selectStateByIdentity(type = record.type, uniqueKey = key)
+                    queries.selectByIdentity(type = record.type, uniqueKey = key)
                         .executeAsOneOrNull()
+                        ?.state
                 when (holder) {
                     // Compared against the enum's own names rather than string constants, so a
                     // renamed state cannot drift apart from what is written into the column. The
@@ -72,21 +74,28 @@ internal class SqlDelightUploaderStore(
         }
     }
 
-    override suspend fun insertReplace(record: UploaderItem): Unit = onDatabaseThread(confinement) {
+    override suspend fun insertReplace(record: UploaderItem): UploaderItem? = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.INSERT_REPLACE) {
             val key: String? = record.uniqueKey
             if (key == null) {
                 // Nothing to supersede — a keyless item conflicts with nothing — so this is a plain
                 // append and needs no transaction to be atomic.
                 queries.insert(record)
+                null
             } else {
                 // Delete plus insert, never an in-place edit. The replacement takes a fresh id,
                 // attempt count, gate, lease and — because `sequence` is autoincrementing — a new
                 // position at the tail, so a key that is replaced over and over cannot hold the
-                // head of its ordering channel forever.
-                database.transaction {
+                // head of its ordering channel forever. The superseded row is read in the same
+                // transaction, so what is handed back is exactly what the delete removed.
+                database.transactionWithResult {
+                    val superseded: UploaderItem? =
+                        queries.selectByIdentity(type = record.type, uniqueKey = key)
+                            .executeAsOneOrNull()
+                            ?.toUploaderItem()
                     queries.deleteByIdentity(type = record.type, uniqueKey = key)
                     queries.insert(record)
+                    superseded
                 }
             }
         }
@@ -109,37 +118,77 @@ internal class SqlDelightUploaderStore(
         attempts: Int,
         nextRunAtEpochMillis: Long,
         lastError: String?,
-        expectedLeaseUntilEpochMillis: Long?,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
+        disposition: FailureDisposition,
     ): Boolean = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.RECORD_FAILURE) {
-            // One UPDATE carrying the guard in its WHERE clause, not a read followed by a write:
-            // a read-then-write loses exactly the race the guard exists to win, because the lease
-            // can move between the two.
+            // One statement carrying the guard in its WHERE clause, not a read followed by a write:
+            // a read-then-write loses exactly the race the guard exists to win, because the state
+            // or the claim can move between the two. A give-up is that same one statement — an UPDATE to PARKED,
+            // or a DELETE — so the row is never observable as PENDING once its budget is spent.
             //
             // The statement's own affected-row count answers "did a row change?", so there is no
             // second query and no transaction to keep two statements on one connection. That
             // matters beyond tidiness: `SELECT changes()` outside a transaction can be served by a
             // reader connection — where it is always 0 — on both of this module's drivers.
-            queries.recordFailure(
-                attempts = attempts.toLong(),
-                nextRunAt = nextRunAtEpochMillis,
-                lastError = lastError,
+            val changed: Long = when (disposition) {
+                FailureDisposition.DROP -> queries.dropOnFailure(
+                    id = id,
+                    expectedState = expectedState.name,
+                    expectedClaim = expectedClaim,
+                ).value
+
+                FailureDisposition.RETRY, FailureDisposition.PARK -> queries.recordFailure(
+                    state = if (disposition == FailureDisposition.PARK) {
+                        UploaderItemState.PARKED.name
+                    } else {
+                        UploaderItemState.PENDING.name
+                    },
+                    attempts = attempts.toLong(),
+                    nextRunAt = nextRunAtEpochMillis,
+                    lastError = lastError,
+                    id = id,
+                    expectedState = expectedState.name,
+                    expectedClaim = expectedClaim,
+                ).value
+            }
+            changed > 0L
+        }
+    }
+
+    override suspend fun markInFlight(
+        id: String,
+        leaseUntilEpochMillis: Long,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
+    ): Boolean = onDatabaseThread(confinement) {
+        mapFailures(UploaderStorageOperation.MARK_IN_FLIGHT) {
+            // The same shape as recordFailure: the guard lives in the WHERE clause and the
+            // affected-row count is the answer, so the claim is one atomic step.
+            queries.markInFlight(
+                leaseUntil = leaseUntilEpochMillis,
                 id = id,
-                expectedLease = expectedLeaseUntilEpochMillis,
+                expectedState = expectedState.name,
+                expectedClaim = expectedClaim,
             ).value > 0L
         }
     }
 
-    override suspend fun markInFlight(id: String, leaseUntilEpochMillis: Long): Unit =
-        onDatabaseThread(confinement) {
-            mapFailures(UploaderStorageOperation.MARK_IN_FLIGHT) {
-                queries.markInFlight(leaseUntil = leaseUntilEpochMillis, id = id)
-            }
-        }
-
-    override suspend fun park(id: String, lastError: String?): Unit = onDatabaseThread(confinement) {
+    override suspend fun park(
+        id: String,
+        lastError: String?,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
+    ): Boolean = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.PARK) {
-            queries.park(lastError = lastError, id = id)
+            // Guarded like markInFlight: the WHERE clause is the guard, the affected-row count the answer.
+            queries.park(
+                lastError = lastError,
+                id = id,
+                expectedState = expectedState.name,
+                expectedClaim = expectedClaim,
+            ).value > 0L
         }
     }
 
@@ -149,9 +198,18 @@ internal class SqlDelightUploaderStore(
         }
     }
 
-    override suspend fun deleteByTag(tag: String): Unit = onDatabaseThread(confinement) {
+    override suspend fun deleteByTag(tag: String): List<UploaderItem> = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.DELETE_BY_TAG) {
-            queries.deleteByTag(tag)
+            // A read and a delete in one transaction, so the rows handed back are exactly the rows
+            // removed: an enqueue landing between two separate statements would be deleted without
+            // being returned, and its upload never cancelled. (`DELETE … RETURNING` would do it in
+            // one statement, but needs SQLite 3.35 — see recordFailure.)
+            database.transactionWithResult {
+                val removed: List<UploaderItem> =
+                    queries.selectByTag(tag).executeAsList().map { row -> row.toUploaderItem() }
+                queries.deleteByTag(tag)
+                removed
+            }
         }
     }
 
@@ -197,6 +255,7 @@ internal class SqlDelightUploaderStore(
             createdAt = record.createdAtEpochMillis,
             lastError = record.lastError,
             leaseUntil = record.leaseUntilEpochMillis,
+            claim = record.claim,
         )
     }
 
@@ -214,6 +273,7 @@ internal class SqlDelightUploaderStore(
         createdAtEpochMillis = created_at,
         lastError = last_error,
         leaseUntilEpochMillis = lease_until,
+        claim = claim,
     )
 
     /**

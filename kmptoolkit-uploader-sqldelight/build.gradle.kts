@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: the contract has to run against a real SQLite, and the
+    // Robolectric for androidHostTest: the contract has to run against a real SQLite, and the
     // Android driver needs a real Context to open one. It is also what makes LibraryManifestTest
     // able to read the merged manifest through a real PackageManager.
     id("kmptoolkit.androidtest")
@@ -20,10 +20,6 @@ kmptoolkitPublish {
             "a genuinely transactional uploader. Pick this module if you use kmptoolkit-uploader and " +
             "do not want to implement its storage port yourself."
     )
-}
-
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.uploader.sqldelight"
 }
 
 sqldelight {
@@ -66,6 +62,10 @@ tasks.matching { task ->
 }
 
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.uploader.sqldelight"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -94,7 +94,7 @@ kotlin {
         iosMain.dependencies {
             implementation(libs.sqldelight.native.driver)
         }
-        androidUnitTest.dependencies {
+        androidHostTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
         }
     }

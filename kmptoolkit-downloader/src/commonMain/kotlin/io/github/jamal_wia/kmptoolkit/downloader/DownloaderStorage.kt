@@ -128,8 +128,8 @@ public interface DownloaderStorage {
     /**
      * Finalizes a completed download: moves the [TempFileState.Complete] temp file into place, or
      * — for [ResourceFormat.ZipArchive] — extracts it into the target directory and deletes the
-     * archive. Throws when there is no complete temp file, and when the resource cannot be
-     * finalized.
+     * archive. Throws when there is no complete temp file (unless the resource is already
+     * committed, see below), and when the resource cannot be finalized.
      *
      * Before anything reaches the final path — before an archive is extracted, a database opened or
      * a file moved — the bytes are hashed once and checked against every expectation there is:
@@ -144,6 +144,15 @@ public interface DownloaderStorage {
      *
      * The recorded expectation is deleted whenever the temp file is gone after this call, whether it
      * succeeded or failed, data first and record last.
+     *
+     * A commit is at-least-once, and two may run for the same unit at the same time: the group and
+     * the per-unit surface of one engine, two engines over the same directory, or a
+     * [BackgroundResourceDownloader] that commits on its own while the engine does too. Commits of
+     * one unit are therefore mutually exclusive, and a commit that finds no complete temp file but
+     * the resource available — another commit finalized it first — returns normally and touches
+     * nothing. A committed resource is never removed before its replacement is ready to take its
+     * place. The shipped storages serialize across every instance over the same base directory in
+     * the process; a custom implementation must give the same guarantee.
      */
     public suspend fun commitResource(unit: DownloadUnit)
 

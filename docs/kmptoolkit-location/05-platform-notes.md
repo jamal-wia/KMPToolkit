@@ -37,14 +37,14 @@ same as any other CoreLocation failure: log the error and resolve to `null` / em
 
 ### Relationship to `kmptoolkit-permission`
 
-`kmptoolkit-permission`'s `Permission` enum deliberately does **not** include location — see
-[`docs/kmptoolkit-permission/01-overview.md`](../kmptoolkit-permission/01-overview.md#why-the-catalog-is-closed):
-iOS's location authorization has no honest mapping onto that module's four-case `PermissionStatus`
-(it distinguishes "while in use" from "always", and answers arrive through a delegate callback that
-can land long after the request). There is no code dependency between the two modules and none is
-needed — if your app already uses `kmptoolkit-permission` for microphone or notifications, request
-location permission through your own platform code exactly as you would for any permission that
-module does not model, and hand the resulting `LocationProvider` to shared code once you have it.
+This module never asks for location permission; `kmptoolkit-permission` does, from shared code:
+`CommonPermission.Location` for "while in use" and `CommonPermission.LocationBackground` for
+"always" — see
+[`docs/kmptoolkit-permission/05-platform-notes.md`](../kmptoolkit-permission/05-platform-notes.md).
+An approximate-only grant reads `PermissionStatus.Limited` there, and this module still delivers
+fixes with it, at reduced accuracy — check `isUsable`, not `isGranted`, before calling in. There is
+no code dependency between the two modules: request the permission with either that module or your
+own platform code, then hand the `LocationProvider` to shared code.
 
 ## Android vs. Play Services
 

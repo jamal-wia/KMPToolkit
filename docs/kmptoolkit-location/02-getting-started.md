@@ -39,8 +39,8 @@ your app's decision.
 
 Request the runtime permission (Android) or trigger the authorization prompt (iOS) yourself, before
 calling into this module — see [`05-platform-notes.md`](05-platform-notes.md) for how
-`kmptoolkit-permission` relates to this module (it does not cover location; the two are used
-side by side). Without the permission, [`getCurrentLocation`](04-api-reference.md) returns `null`
+`kmptoolkit-permission` relates to this module (its `CommonPermission.Location` asks for the
+permission this module needs; the two are used side by side). Without the permission, [`getCurrentLocation`](04-api-reference.md) returns `null`
 and [`observeLocation`](04-api-reference.md) emits `null`; neither throws.
 
 ## 3. Create the provider

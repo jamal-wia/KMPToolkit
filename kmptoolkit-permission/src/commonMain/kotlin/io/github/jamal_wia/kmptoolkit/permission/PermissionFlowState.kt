@@ -3,10 +3,10 @@ package io.github.jamal_wia.kmptoolkit.permission
 /**
  * Where a [PermissionRequestFlow] currently stands.
  *
- * Three of these six states are **questions asked of you**: [AwaitingRationale] and
+ * Three of these eight states are **questions asked of you**: [AwaitingRationale] and
  * [AwaitingSettings] mean the flow has stopped and will not move until your UI shows something and
- * reports back, and [Requesting] means the OS has the screen. The other three — [Idle], [Granted],
- * [Denied] — are resting points where nothing is pending.
+ * reports back, and [Requesting] means the OS has the screen. The other five — [Idle], [Granted],
+ * [Limited], [Denied], [Unavailable] — are resting points where nothing is pending.
  *
  * The states carry no text, and deliberately so: *whether* to explain yourself is a platform fact
  * this module can determine, *what to say* is copy the consuming app owns. See
@@ -45,11 +45,23 @@ public sealed interface PermissionFlowState {
      * [PermissionRequestFlow.openSettings] or [PermissionRequestFlow.settingsDeclined]. After the
      * user comes back from settings, call [PermissionRequestFlow.refresh] — the flow is not told
      * what happened there.
+     *
+     * Never reached for an Android special access: requesting one already *is* the trip to Settings,
+     * so it goes through [AwaitingRationale] and [Requesting] instead.
      */
     public data object AwaitingSettings : PermissionFlowState
 
     /** The permission is granted. Proceed with whatever needed it. */
     public data object Granted : PermissionFlowState
+
+    /**
+     * The permission is usable, but narrower than asked for — [PermissionStatus.Limited]. Proceed with
+     * what the narrower grant allows.
+     *
+     * The flow does not ask for more on its own. A UI that offers to widen the grant calls
+     * [PermissionController.request] for the permission and then [PermissionRequestFlow.refresh].
+     */
+    public data object Limited : PermissionFlowState
 
     /**
      * The user declined, and no further step of this flow can change that right now.
@@ -59,4 +71,11 @@ public sealed interface PermissionFlowState {
      * which is why [PermissionRequestFlow.refresh] replaces it with whatever the OS now says.
      */
     public data object Denied : PermissionFlowState
+
+    /**
+     * Nothing this flow can show would change the permission: it is [PermissionStatus.Restricted] by a
+     * policy the user may not control, or [PermissionStatus.Unavailable] on this device, OS version or
+     * build. Show your own "not available" state, or hide the feature.
+     */
+    public data object Unavailable : PermissionFlowState
 }

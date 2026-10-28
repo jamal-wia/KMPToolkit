@@ -1,0 +1,586 @@
+package io.github.jamal_wia.kmptoolkit.permission
+
+import android.Manifest
+import android.app.Application
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
+import io.github.jamal_wia.kmptoolkit.storage.StorageResult
+import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
+import io.github.jamal_wia.kmptoolkit.storage.testing.InMemoryKeyValueStorage
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
+import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
+
+/** A [PermissionRequestHost] whose answer — and whose ability to answer — the test dictates. */
+private class StubHost(
+    granted: Boolean = true,
+    canLaunch: Boolean = true,
+    throwOnLaunch: Boolean = false,
+    answerThenReportFailure: Boolean = false,
+) : RecordingHost(
+    answers = { granted },
+    canLaunch = canLaunch,
+    throwOnLaunch = throwOnLaunch,
+    answerThenReportFailure = answerThenReportFailure,
+)
+
+/**
+ * A [KeyValueStorage] that counts the operations which reach persistent state.
+ *
+ * Reads are not counted: the point of the assertions using this is that a *query* must not write.
+ */
+private class CountingKeyValueStorage(
+    private val delegate: KeyValueStorage = InMemoryKeyValueStorage(),
+) : KeyValueStorage by delegate {
+
+    var writes: Int = 0
+        private set
+
+    override suspend fun put(key: String, value: String): StorageResult<Unit> {
+        writes++
+        return delegate.put(key, value)
+    }
+
+    override suspend fun remove(key: String): StorageResult<Unit> {
+        writes++
+        return delegate.remove(key)
+    }
+
+    override suspend fun clear(): StorageResult<Unit> {
+        writes++
+        return delegate.clear()
+    }
+}
+
+/**
+ * The Android status logic, exercised against a real `Context` and a real `PackageManager`.
+ *
+ * The cases come from the module's contract — `docs/kmptoolkit-permission/01-overview.md` and
+ * `05-platform-notes.md` — with particular attention to the distinction Android cannot draw for
+ * itself: "never asked" and "permanently denied" look identical through its API, and getting them
+ * the wrong way round either sends a first-run user to system settings or leaves a permanently
+ * denied user tapping a dead button forever.
+ */
+@RunWith(AndroidJUnit4::class)
+class AndroidPermissionControllerTest {
+
+    private val application: Application = ApplicationProvider.getApplicationContext()
+    private val context: Context = application
+    private val storage: KeyValueStorage = InMemoryKeyValueStorage()
+
+    private fun handler(
+        host: PermissionRequestHost = StubHost(),
+        shouldShowRationale: Boolean? = false,
+        rationaleAfterWaiting: Boolean? = shouldShowRationale,
+        sdkInt: Int = Build.VERSION_CODES.TIRAMISU,
+        keyPrefix: String = "test",
+        settings: (Intent) -> Boolean = { true },
+        storage: KeyValueStorage = this.storage,
+        declared: Set<String>? = null,
+        revokedByPolicy: Set<String> = emptySet(),
+        notificationsEnabled: Boolean = true,
+    ): AndroidPermissionController = testController(
+        context = context,
+        host = host,
+        storage = storage,
+        keyPrefix = keyPrefix,
+        sdkInt = sdkInt,
+        shouldShowRationale = { if (waitedForActivity) rationaleAfterWaiting else shouldShowRationale },
+        awaitActivity = { waitedForActivity = true },
+        launchScreen = { request -> settings(request.candidates.first()) },
+        declaredPermissions = { declared },
+        isRevokedByPolicy = { it in revokedByPolicy },
+        notificationsEnabled = { notificationsEnabled },
+    )
+
+    /** Whether the handler under test waited for an activity; flips the rationale the stub answers. */
+    private var waitedForActivity: Boolean = false
+
+    /** An asked flag as this version writes it. */
+    private suspend fun markAsked(permission: Permission) {
+        storage.put(askedKey("test", permission), ASKED_BY_THIS_VERSION)
+    }
+
+    /** The state a real refusal through the dialog leaves: asked, and a rationale was once shown. */
+    private suspend fun markRefusedOnce(permission: Permission) {
+        markAsked(permission)
+        storage.put(rationaleSeenKey("test", permission), "true")
+    }
+
+    private fun grant(androidPermission: String) {
+        shadowOf(application).grantPermissions(androidPermission)
+    }
+
+    private fun deny(androidPermission: String) {
+        shadowOf(application).denyPermissions(androidPermission)
+    }
+
+    private suspend fun askedFlag(permission: Permission, keyPrefix: String = "test"): String? =
+        storage.getStringOrNull(askedKey(keyPrefix, permission))
+
+    // --- check --------------------------------------------------------------------------------
+
+    @Test
+    fun `a granted permission is granted`() = runTest {
+        grant(Manifest.permission.CAMERA)
+
+        assertEquals(PermissionStatus.Granted, handler().check(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a permission never asked for is not determined`() = runTest {
+        deny(Manifest.permission.CAMERA)
+
+        assertEquals(PermissionStatus.NotDetermined, handler().check(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a permission the platform wants explained is denied once`() = runTest {
+        deny(Manifest.permission.CAMERA)
+
+        assertEquals(
+            PermissionStatus.Denied(explainFirst = true),
+            handler(shouldShowRationale = true).check(CommonPermission.Camera),
+        )
+    }
+
+    @Test
+    fun `a permission refused before with no rationale left is permanently denied`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        markRefusedOnce(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.PermanentlyDenied, handler().check(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a permission asked for but never refused is not determined`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        markAsked(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.NotDetermined, handler().check(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `an asked flag written before refusals were recorded still reads as permanently denied`() = runTest {
+        // 1.3.x wrote "true" and nothing else. Its users who refused for good must not turn into a
+        // request that returns at once forever, which is all Android offers a permanent refusal.
+        deny(Manifest.permission.CAMERA)
+        storage.put(askedKey("test", CommonPermission.Camera), "true")
+
+        assertEquals(PermissionStatus.PermanentlyDenied, handler().check(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a legacy asked flag is not rewritten by a later request`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        storage.put(askedKey("test", CommonPermission.Camera), "true")
+
+        handler(host = StubHost(granted = false), shouldShowRationale = true).request(CommonPermission.Camera)
+
+        assertEquals("true", askedFlag(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a rationale seen once is remembered`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        markAsked(CommonPermission.Camera)
+
+        handler(shouldShowRationale = true).check(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.PermanentlyDenied, handler(shouldShowRationale = false).check(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `with no activity to ask nothing is concluded to be permanent`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        markRefusedOnce(CommonPermission.Camera)
+
+        assertEquals(
+            PermissionStatus.Denied(explainFirst = false),
+            handler(shouldShowRationale = null).check(CommonPermission.Camera),
+        )
+        assertEquals(PermissionStatus.NotDetermined, handler(shouldShowRationale = null).check(CommonPermission.Microphone))
+    }
+
+    @Test
+    fun `granting clears the flag so a later revocation reads as not determined again`() = runTest {
+        markRefusedOnce(CommonPermission.Camera)
+        grant(Manifest.permission.CAMERA)
+        assertEquals(PermissionStatus.Granted, handler().check(CommonPermission.Camera))
+
+        deny(Manifest.permission.CAMERA)
+
+        assertEquals(PermissionStatus.NotDetermined, handler().check(CommonPermission.Camera))
+        assertNull(askedFlag(CommonPermission.Camera))
+        assertNull(storage.getStringOrNull(rationaleSeenKey("test", CommonPermission.Camera)))
+    }
+
+    @Test
+    fun `one permission's flag does not decide another's status`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        deny(Manifest.permission.RECORD_AUDIO)
+        markRefusedOnce(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.PermanentlyDenied, handler().check(CommonPermission.Camera))
+        assertEquals(PermissionStatus.NotDetermined, handler().check(CommonPermission.Microphone))
+    }
+
+    @Test
+    fun `checking shows nothing to the user`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val host = StubHost()
+
+        handler(host = host).check(CommonPermission.Camera)
+
+        assertEquals(0, host.launchCount)
+    }
+
+    // --- check is a query -----------------------------------------------------------------------
+
+    @Test
+    fun `checking a granted permission repeatedly writes nothing when there is no flag`() = runTest {
+        grant(Manifest.permission.CAMERA)
+        val counting = CountingKeyValueStorage()
+        val handler: AndroidPermissionController = handler(storage = counting)
+
+        repeat(10) { assertEquals(PermissionStatus.Granted, handler.check(CommonPermission.Camera)) }
+
+        assertEquals(
+            0,
+            counting.writes,
+            "check must be a query: a consumer polling a granted permission per frame must not " +
+                "pay a persistent write each time",
+        )
+    }
+
+    @Test
+    fun `clearing a flag on grant costs exactly one write however often it is checked`() = runTest {
+        val counting = CountingKeyValueStorage()
+        counting.put(askedKey("test", CommonPermission.Camera), "true")
+        val writesAfterSetup: Int = counting.writes
+        grant(Manifest.permission.CAMERA)
+        val handler: AndroidPermissionController = handler(storage = counting)
+
+        handler.check(CommonPermission.Camera)
+        handler.check(CommonPermission.Camera)
+
+        assertEquals(
+            1,
+            counting.writes - writesAfterSetup,
+            "the stale flag is cleared once; the second check has nothing left to clear",
+        )
+        assertNull(counting.getStringOrNull(askedKey("test", CommonPermission.Camera)))
+    }
+
+    @Test
+    fun `checking a permission that keeps asking for a rationale writes its flag once`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val counting = CountingKeyValueStorage()
+        val handler: AndroidPermissionController = handler(shouldShowRationale = true, storage = counting)
+
+        repeat(5) { handler.check(CommonPermission.Camera) }
+
+        assertEquals(1, counting.writes)
+    }
+
+    @Test
+    fun `checking a permission that is not granted writes nothing at all`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val counting = CountingKeyValueStorage()
+        val handler: AndroidPermissionController = handler(storage = counting)
+
+        handler.check(CommonPermission.Camera)
+        handler.check(CommonPermission.Camera)
+
+        assertEquals(0, counting.writes)
+    }
+
+    // --- Notifications before and after API 33 ------------------------------------------------
+
+    @Test
+    fun `below api 33 notifications report whether the app's notifications are switched on`() = runTest {
+        deny(Manifest.permission.POST_NOTIFICATIONS)
+        storage.put(askedKey("test", CommonPermission.Notifications), "true")
+
+        assertEquals(
+            PermissionStatus.Granted,
+            handler(sdkInt = Build.VERSION_CODES.S_V2, notificationsEnabled = true).check(CommonPermission.Notifications),
+        )
+        // Switched off in settings: no dialog can turn it back on, only settings can.
+        assertEquals(
+            PermissionStatus.PermanentlyDenied,
+            handler(sdkInt = Build.VERSION_CODES.S_V2, notificationsEnabled = false).check(CommonPermission.Notifications),
+        )
+    }
+
+    @Test
+    fun `requesting notifications below api 33 shows no dialog, switched on or off`() = runTest {
+        deny(Manifest.permission.POST_NOTIFICATIONS)
+        listOf(true, false).forEach { enabled ->
+            val host = StubHost()
+
+            val status: PermissionStatus = handler(host = host, sdkInt = Build.VERSION_CODES.S_V2, notificationsEnabled = enabled)
+                .request(CommonPermission.Notifications)
+
+            assertEquals(if (enabled) PermissionStatus.Granted else PermissionStatus.PermanentlyDenied, status)
+            assertEquals(0, host.launchCount, "enabled=$enabled")
+        }
+    }
+
+    @Test
+    fun `from api 33 the notification switch plays no part`() = runTest {
+        deny(Manifest.permission.POST_NOTIFICATIONS)
+
+        assertEquals(
+            PermissionStatus.NotDetermined,
+            handler(notificationsEnabled = true).check(CommonPermission.Notifications),
+        )
+    }
+
+    @Test
+    fun `notifications follow the normal path from api 33`() = runTest {
+        deny(Manifest.permission.POST_NOTIFICATIONS)
+
+        assertEquals(PermissionStatus.NotDetermined, handler().check(CommonPermission.Notifications))
+    }
+
+    // --- The platform permission strings ------------------------------------------------------
+
+    @Test
+    fun `each permission reaches the dialog as its own platform string`() = runTest {
+        val expected: Map<Permission, String> = mapOf(
+            CommonPermission.Camera to Manifest.permission.CAMERA,
+            CommonPermission.Microphone to Manifest.permission.RECORD_AUDIO,
+            CommonPermission.Notifications to Manifest.permission.POST_NOTIFICATIONS,
+        )
+
+        expected.forEach { (permission, androidPermission) ->
+            deny(androidPermission)
+            val host = StubHost(granted = false)
+
+            handler(host = host).request(permission)
+
+            assertEquals(androidPermission, host.launchedWith, "permission=$permission")
+        }
+    }
+
+    // --- request ------------------------------------------------------------------------------
+
+    @Test
+    fun `requesting a granted permission shows no dialog`() = runTest {
+        grant(Manifest.permission.CAMERA)
+        val host = StubHost()
+
+        assertEquals(PermissionStatus.Granted, handler(host = host).request(CommonPermission.Camera))
+        assertEquals(0, host.launchCount)
+    }
+
+    @Test
+    fun `requesting a permanently denied permission shows no dialog`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        markRefusedOnce(CommonPermission.Camera)
+        val host = StubHost()
+
+        val status: PermissionStatus = handler(host = host).request(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.PermanentlyDenied, status)
+        assertEquals(0, host.launchCount)
+    }
+
+    @Test
+    fun `a granted request reports granted and leaves no flag behind`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val host = StubHost(granted = true)
+
+        val status: PermissionStatus = handler(host = host).request(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.Granted, status)
+        assertEquals(1, host.launchCount)
+        assertNull(askedFlag(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a first refusal reports denied with a rationale and records the attempt`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val host = StubHost(granted = false)
+
+        val status: PermissionStatus =
+            handler(host = host, shouldShowRationale = true).request(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.Denied(explainFirst = true), status)
+        assertEquals(ASKED_BY_THIS_VERSION, askedFlag(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a first dialog dismissed without an answer is not a permanent refusal`() = runTest {
+        // Android 11+: back or a tap outside returns "denied" with no rationale, and changes nothing —
+        // the next request shows the dialog again. Reporting it as permanent sent the user to
+        // settings for good, which is the bug this test pins down.
+        deny(Manifest.permission.CAMERA)
+        val host = StubHost(granted = false)
+
+        val status: PermissionStatus =
+            handler(host = host, shouldShowRationale = false).request(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.NotDetermined, status)
+        assertEquals(ASKED_BY_THIS_VERSION, askedFlag(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a request after a dismissed dialog shows the dialog again`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        handler(host = StubHost(granted = false)).request(CommonPermission.Camera)
+        val host = StubHost(granted = true)
+
+        assertEquals(PermissionStatus.Granted, handler(host = host).request(CommonPermission.Camera))
+        assertEquals(1, host.launchCount)
+    }
+
+    @Test
+    fun `an answer arriving before the activity resumed waits for it to read the rationale`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val host = StubHost(granted = false)
+
+        val status: PermissionStatus = handler(
+            host = host,
+            shouldShowRationale = null,
+            rationaleAfterWaiting = true,
+        ).request(CommonPermission.Camera)
+
+        assertTrue(waitedForActivity)
+        assertEquals(PermissionStatus.Denied(explainFirst = true), status)
+    }
+
+    @Test
+    fun `a refusal whose rationale still cannot be read is not reported as permanent`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        markRefusedOnce(CommonPermission.Camera)
+
+        val status: PermissionStatus = handler(
+            host = StubHost(granted = false),
+            shouldShowRationale = null,
+            rationaleAfterWaiting = null,
+        ).request(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.Denied(explainFirst = false), status)
+    }
+
+    @Test
+    fun `a dialog that could not be shown is not recorded as a refusal`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val host = StubHost(canLaunch = false)
+
+        val status: PermissionStatus = handler(host = host).request(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.NotDetermined, status)
+        assertNull(
+            askedFlag(CommonPermission.Camera),
+            "a permission whose dialog never appeared must not become permanently denied",
+        )
+    }
+
+    @Test
+    fun `a host that throws is not recorded as a refusal either`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val host = StubHost(throwOnLaunch = true)
+
+        val status: PermissionStatus = handler(host = host).request(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.NotDetermined, status)
+        assertNull(askedFlag(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a host that answers and then reports failure is taken at its answer`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val host = StubHost(granted = true, answerThenReportFailure = true)
+
+        assertEquals(PermissionStatus.Granted, handler(host = host).request(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a second refusal after a first turns the permission permanently denied`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        val first: PermissionStatus = handler(host = StubHost(granted = false), shouldShowRationale = true)
+            .request(CommonPermission.Camera)
+        assertEquals(PermissionStatus.Denied(explainFirst = true), first)
+
+        val second: PermissionStatus = handler(host = StubHost(granted = false), shouldShowRationale = false)
+            .request(CommonPermission.Camera)
+
+        assertEquals(PermissionStatus.PermanentlyDenied, second)
+    }
+
+    // --- Keys ---------------------------------------------------------------------------------
+
+    @Test
+    fun `the flag is written under the configured prefix`() = runTest {
+        deny(Manifest.permission.CAMERA)
+
+        handler(host = StubHost(granted = false), keyPrefix = "com.example.custom")
+            .request(CommonPermission.Camera)
+
+        assertEquals(ASKED_BY_THIS_VERSION, askedFlag(CommonPermission.Camera, keyPrefix = "com.example.custom"))
+        assertNull(askedFlag(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `the factory defaults the prefix to the consuming app's package name`() = runTest {
+        deny(Manifest.permission.CAMERA)
+        application.declareInManifest(Manifest.permission.CAMERA)
+        val handler: PermissionController = createPermissionController(
+            context = context,
+            storage = storage,
+            host = StubHost(granted = false),
+        )
+
+        handler.request(CommonPermission.Camera)
+
+        assertEquals(
+            ASKED_BY_THIS_VERSION,
+            storage.getStringOrNull("${context.packageName}.kmptoolkit.permission.asked.CAMERA"),
+        )
+    }
+
+    // --- Settings -----------------------------------------------------------------------------
+
+    @Test
+    fun `opening settings targets this app's own details page`() {
+        var opened: Intent? = null
+
+        val result: Boolean = handler(settings = { intent -> opened = intent; true }).openSettings(CommonPermission.Camera)
+
+        assertTrue(result)
+        assertEquals(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, opened?.action)
+        assertEquals(context.packageName, opened?.data?.schemeSpecificPart)
+    }
+
+    @Test
+    fun `a settings screen that cannot be opened is reported rather than thrown`() {
+        val handler: AndroidPermissionController =
+            handler(settings = { error("no activity handles this intent") })
+
+        assertFalse(handler.openSettings(CommonPermission.Camera))
+    }
+
+    @Test
+    fun `a settings screen the platform refuses is reported as false`() {
+        assertFalse(handler(settings = { false }).openSettings(CommonPermission.Camera))
+    }
+
+    private companion object {
+        /** The value 1.5.0 writes under the asked key; 1.3.x wrote "true". */
+        const val ASKED_BY_THIS_VERSION = "dialog-shown"
+    }
+}

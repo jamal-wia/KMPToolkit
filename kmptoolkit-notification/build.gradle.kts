@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: the Android notifier needs a real NotificationManager to
+    // Robolectric for androidHostTest: the Android notifier needs a real NotificationManager to
     // answer "is this channel blocked", and the "this module merges no permission into a
     // consumer's manifest" guarantee is only assertable against a real PackageManager.
     id("kmptoolkit.androidtest")
@@ -20,17 +20,17 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.notification"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.notification"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
     sourceSets {
         commonMain.dependencies {
-            // api, not implementation: PermissionHandler is a parameter of both public factories,
+            // api, not implementation: PermissionController is a parameter of both public factories,
             // so a consumer needs it on their compile classpath to call one.
             api(project(":kmptoolkit-permission"))
 
@@ -48,10 +48,10 @@ kotlin {
             // and implementation-scoped: no type of it appears in this module's API.
             implementation(libs.androidx.media)
         }
-        androidUnitTest.dependencies {
+        androidHostTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
-            // RecordingPermissionHandler: the Android notifier's gates are only reachable with a
-            // permission handler a test can drive.
+            // FakePermissionController: the Android notifier's gates are only reachable with a
+            // permission controller a test can drive.
             implementation(project(":kmptoolkit-permission-testing"))
         }
     }

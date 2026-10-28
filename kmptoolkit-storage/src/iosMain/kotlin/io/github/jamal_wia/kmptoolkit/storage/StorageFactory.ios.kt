@@ -1,6 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import platform.CoreFoundation.CFTypeRef
 import platform.Foundation.NSBundle
 import platform.Foundation.NSUserDefaults
@@ -38,6 +40,7 @@ public fun createKeyValueStorage(config: StorageConfig = StorageConfig()): KeyVa
         // destructive. The fallback is for the impossible-in-practice case of the initializer
         // failing anyway; it keeps the store working rather than crashing the app at startup.
         defaults = NSUserDefaults(suiteName = suiteName) ?: NSUserDefaults.standardUserDefaults,
+        dispatcher = Dispatchers.IO,
     )
 }
 
@@ -74,6 +77,7 @@ public fun createSecureKeyValueStorage(
     service = secureStoreId(config.name ?: bundleIdentifier()),
     accessibility = accessibility,
     accessGroup = accessGroup,
+    dispatcher = Dispatchers.IO,
 )
 
 /**

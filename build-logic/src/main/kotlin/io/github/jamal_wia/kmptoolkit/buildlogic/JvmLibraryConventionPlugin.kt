@@ -20,8 +20,9 @@ import org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation
  * `jvmMain` resolves looks like every other kmptoolkit-* artifact's.
  *
  * The target is a bare `jvm()`, configured exactly like the `jvm()` targets the multiplatform
- * modules with a desktop exception declare, so a JVM-only artifact and the multiplatform module it
- * builds on (`kmptoolkit-video-player`) always share one bytecode level.
+ * modules with a desktop exception declare — both go through [pinDesktopBytecode] — so a JVM-only
+ * artifact and the multiplatform module it builds on (`kmptoolkit-video-player`) always share one
+ * bytecode level.
  *
  * This is not a way around docs/01-architecture.md § "Desktop targets": that rule is about *adding*
  * a desktop target to a multiplatform module. A JVM-only module is by definition something only a
@@ -37,6 +38,7 @@ class JvmLibraryConventionPlugin : Plugin<Project> {
                 explicitApi()
 
                 jvm()
+                pinDesktopBytecode(this)
 
                 abiValidation {
                     referenceDumpDir.set(layout.projectDirectory.dir("api"))

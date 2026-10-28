@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: both Android stores need a real Context, a real
+    // Robolectric for androidHostTest: both Android stores need a real Context, a real
     // SharedPreferences file, and — for the encrypted one — a real AndroidKeyStore provider.
     id("kmptoolkit.androidtest")
 }
@@ -21,11 +21,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.storage"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.storage"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -36,4 +36,17 @@ kotlin {
     // jvm half is real: a properties-file store the app points at its own directory. There is no
     // secure store on desktop — see `docs/kmptoolkit-storage/05-platform-notes.md`.
     jvm()
+
+    sourceSets {
+        commonMain.dependencies {
+            // implementation, not api: the public surface is suspend functions and this module's
+            // own types. Coroutines are how the backends move their blocking I/O off the caller's
+            // thread and how the get-or-create paths — the Android key, the device id — stay
+            // atomic; no coroutines type appears in a public signature.
+            implementation(libs.kotlinx.coroutines.core)
+        }
+        commonTest.dependencies {
+            implementation(libs.kotlinx.coroutines.test)
+        }
+    }
 }

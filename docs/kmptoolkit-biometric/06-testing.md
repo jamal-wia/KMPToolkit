@@ -133,7 +133,7 @@ the implementations. The donor module this was ported from had none, so every ca
 | Source set        | What it covers                                                                                                                              |
 |-------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | `commonTest`      | `BiometricPromptText` validation (empty, whitespace-only, per-parameter message, `copy` re-validation), `isTransient` pinned across the whole enum, config defaults |
-| `androidUnitTest` | every `canAuthenticate` status and every `BiometricPrompt.ERROR_*` code; the gate's orchestration (authenticator mask, no-host, outcome pass-through, duplicate outcome, cancellation, no pre-check); `PromptInfo` at SDK 24, 29, 30 and 35; enrolment — candidates per API level and enrolment state, the throttle, one launcher call per launch, `false`/throwing launchers — and, through the real factories, the task each one opens it in, the context it starts from, and the tracker that hosts the prompt; the merged-manifest permission set |
+| `androidHostTest` | every `canAuthenticate` status and every `BiometricPrompt.ERROR_*` code; the gate's orchestration (authenticator mask, no-host, outcome pass-through, duplicate outcome, cancellation, no pre-check); `PromptInfo` at SDK 24, 29, 30 and 35; enrolment — candidates per API level and enrolment state, the throttle, one launcher call per launch, `false`/throwing launchers — and, through the real factories, the task each one opens it in, the context it starts from, and the tracker that hosts the prompt; the merged-manifest permission set |
 | `iosTest`         | every `LAError` code on both the availability and authentication paths, the `biometryType` split, and policy selection                        |
 | `-testing`'s `commonTest` | the fixture's own contract, including that a scripted failure still records the prompt and that `clear()` does not un-script the gate  |
 
@@ -154,9 +154,9 @@ production for real reasons: no resumed activity, and an activity that is not a 
 
 ```bash
 ./gradlew :kmptoolkit-biometric:build :kmptoolkit-biometric-testing:build checkKotlinAbi
-./gradlew :kmptoolkit-biometric:testDebugUnitTest :kmptoolkit-biometric:iosSimulatorArm64Test
+./gradlew :kmptoolkit-biometric:testAndroidHostTest :kmptoolkit-biometric:iosSimulatorArm64Test
 ./gradlew :kmptoolkit-biometric-testing:iosSimulatorArm64Test
 ```
 
-`allTests` does **not** run the Android (Robolectric) unit tests — `testDebugUnitTest` is not
-optional here, since the whole Android mapping table lives in it.
+`testAndroidHostTest` (the Android Robolectric tests, also part of `allTests`) is not optional
+here, since the whole Android mapping table lives in it.

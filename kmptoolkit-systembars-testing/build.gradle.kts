@@ -20,11 +20,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.systembars.testing"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.systembars.testing"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

@@ -4,11 +4,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class DeviceIdProviderTest {
 
     @Test
-    fun `first call generates an id and persists it under the default key`() {
+    fun `first call generates an id and persists it under the default key`() = runTest {
         val storage = FakeKeyValueStorage()
 
         val id: String = DeviceIdProvider(storage).current()
@@ -18,7 +19,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `repeated calls on one provider return the same id`() {
+    fun `repeated calls on one provider return the same id`() = runTest {
         val provider = DeviceIdProvider(FakeKeyValueStorage())
 
         val first: String = provider.current()
@@ -27,7 +28,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `a freshly constructed provider over the same storage returns the same id`() {
+    fun `a freshly constructed provider over the same storage returns the same id`() = runTest {
         val storage = FakeKeyValueStorage()
         val first: String = DeviceIdProvider(storage).current()
 
@@ -36,7 +37,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `the id survives removal of unrelated keys`() {
+    fun `the id survives removal of unrelated keys`() = runTest {
         val storage = FakeKeyValueStorage()
         val provider = DeviceIdProvider(storage)
         val first: String = provider.current()
@@ -48,7 +49,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `clearing the storage produces a new id on the next call`() {
+    fun `clearing the storage produces a new id on the next call`() = runTest {
         val storage = FakeKeyValueStorage()
         val provider = DeviceIdProvider(storage)
         val first: String = provider.current()
@@ -61,7 +62,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `two ids generated over independent storages differ`() {
+    fun `two ids generated over independent storages differ`() = runTest {
         val first: String = DeviceIdProvider(FakeKeyValueStorage()).current()
         val second: String = DeviceIdProvider(FakeKeyValueStorage()).current()
 
@@ -69,7 +70,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `a custom key is where the id is written`() {
+    fun `a custom key is where the id is written`() = runTest {
         val storage = FakeKeyValueStorage()
 
         val id: String = DeviceIdProvider(storage, key = "my.device").current()
@@ -79,7 +80,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `an unreadable entry is replaced rather than reported`() {
+    fun `an unreadable entry is replaced rather than reported`() = runTest {
         val storage = FakeKeyValueStorage()
         storage.entries[DeviceIdProvider.DEFAULT_KEY] = "previously-stored"
         storage.failReadsWith = StorageError.Undecryptable(DeviceIdProvider.DEFAULT_KEY)
@@ -91,7 +92,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `a blank stored value is treated as no id at all`() {
+    fun `a blank stored value is treated as no id at all`() = runTest {
         val storage = FakeKeyValueStorage()
         storage.entries[DeviceIdProvider.DEFAULT_KEY] = "   "
 
@@ -102,7 +103,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `an empty stored value is treated as no id at all`() {
+    fun `an empty stored value is treated as no id at all`() = runTest {
         val storage = FakeKeyValueStorage()
         storage.entries[DeviceIdProvider.DEFAULT_KEY] = ""
 
@@ -113,7 +114,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `an id is still returned when it cannot be persisted`() {
+    fun `an id is still returned when it cannot be persisted`() = runTest {
         val storage = FakeKeyValueStorage()
         storage.failWritesWith = StorageError.Unavailable()
 
@@ -124,7 +125,7 @@ class DeviceIdProviderTest {
     }
 
     @Test
-    fun `the generated id looks like a random UUID`() {
+    fun `the generated id looks like a random UUID`() = runTest {
         val id: String = DeviceIdProvider(FakeKeyValueStorage()).current()
 
         // 8-4-4-4-12 lowercase hex, version nibble 4. Asserted because the value is sent to servers

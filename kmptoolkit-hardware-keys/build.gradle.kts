@@ -1,7 +1,3 @@
-// `compose.uiTest` (Compose Multiplatform's test artifact, used by the Robolectric-backed UI tests
-// in androidUnitTest) is still behind this opt-in as of Compose Multiplatform 1.11.
-@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
-
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.compose")
@@ -24,11 +20,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.hardwarekeys"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.hardwarekeys"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -42,8 +38,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             // `runtime` for DisposableEffect; `ui` for LocalView and DialogWindowProvider on Android.
-            implementation(compose.runtime)
-            implementation(compose.ui)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.ui)
         }
 
         androidMain.dependencies {
@@ -56,17 +52,12 @@ kotlin {
             api(project(":kmptoolkit-logging"))
         }
 
-        androidUnitTest.dependencies {
-            implementation(compose.uiTest)
+        androidHostTest.dependencies {
+            implementation(libs.compose.ui.test)
+            // ComponentActivity for the Robolectric Compose test host — see
+            // kmptoolkit-systembars/build.gradle.kts for why this is a host-test dependency.
+            implementation(project.dependencies.platform(libs.androidx.compose.bom))
+            implementation(libs.androidx.compose.ui.test.manifest)
         }
     }
-}
-
-dependencies {
-    // Robolectric launches the Compose test host through ActivityScenario, which needs an
-    // `androidx.activity.ComponentActivity` declared in the *merged debug manifest* — a test-only
-    // configuration is merged too late for that. The debug variant is never published, so nothing
-    // reaches a consumer. See kmptoolkit-systembars/build.gradle.kts for the long form.
-    debugImplementation(platform(libs.androidx.compose.bom))
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

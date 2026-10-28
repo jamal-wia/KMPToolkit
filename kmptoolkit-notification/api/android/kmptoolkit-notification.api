@@ -1,7 +1,19 @@
 public final class io/github/jamal_wia/kmptoolkit/notification/AndroidNotificationsKt {
-	public static final fun buildForegroundNotification (Landroid/content/Context;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;)Landroid/app/Notification;
-	public static synthetic fun buildForegroundNotification$default (Landroid/content/Context;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;ILjava/lang/Object;)Landroid/app/Notification;
-	public static final fun notificationIdOf (Ljava/lang/String;)I
+	public static final fun buildForegroundNotification (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/notification/ForegroundNotificationId;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;)Landroid/app/Notification;
+	public static synthetic fun buildForegroundNotification$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/notification/ForegroundNotificationId;Lio/github/jamal_wia/kmptoolkit/notification/LocalNotification;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Lio/github/jamal_wia/kmptoolkit/notification/NotificationOptions;ILjava/lang/Object;)Landroid/app/Notification;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/notification/ForegroundNotificationId {
+	public fun <init> (Ljava/lang/String;I)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun copy (Ljava/lang/String;I)Lio/github/jamal_wia/kmptoolkit/notification/ForegroundNotificationId;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/notification/ForegroundNotificationId;Ljava/lang/String;IILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/notification/ForegroundNotificationId;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getPlatformId ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/notification/LocalNotification {
@@ -275,7 +287,7 @@ public final class io/github/jamal_wia/kmptoolkit/notification/NotifierKt {
 }
 
 public final class io/github/jamal_wia/kmptoolkit/notification/Notifier_androidKt {
-	public static final fun createNotifier (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;)Lio/github/jamal_wia/kmptoolkit/notification/Notifier;
-	public static synthetic fun createNotifier$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/notification/Notifier;
+	public static final fun createNotifier (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionController;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Ljava/util/Set;)Lio/github/jamal_wia/kmptoolkit/notification/Notifier;
+	public static synthetic fun createNotifier$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionController;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Ljava/util/Set;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/notification/Notifier;
 }
 

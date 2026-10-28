@@ -84,7 +84,7 @@ public interface AppLanguageHolder {
 |---|---|
 | `languageFlow` | The currently selected language. Distinct values only |
 | `language` | Snapshot of the above |
-| `setLanguage(language)` | Calls [`applyLanguageGlobally`](#applylanguageglobally-and-getsystemlanguagecode) **on every call**, including one passing the language already in effect — the platform default is shared state the OS itself rewrites, so re-asserting it is the point. Then, only when the language actually changed, updates `languageFlow` and calls the `onLanguageChanged` callback given to [`createAppLanguageHolder`](#createapplanguageholder) |
+| `setLanguage(language)` | Calls [`applyLanguageGlobally`](#applylanguageglobally-and-getsystemlanguagecode) **on every call**, including one passing the language already in effect — the platform default is shared state the OS itself rewrites, so re-asserting it is the point. Then, only when the language actually changed, updates `languageFlow` and calls the `onLanguageChanged` callback given to [`createAppLanguageHolder`](#createapplanguageholder). Safe from any thread: concurrent calls are serialized, so the platform locale, `languageFlow` and the last value passed to `onLanguageChanged` always agree on whichever call ran last. The callback runs inside that serialized step — a slow one holds up a concurrent call, and calling `setLanguage` from inside it is allowed |
 
 ### `createAppLanguageHolder`
 

@@ -19,15 +19,27 @@ signing.secretKeyRingFile=<path to secring.gpg>
 CI does not read this file — it uses the equivalent `ORG_GRADLE_PROJECT_*` environment secrets set
 on the repository (see `.github/workflows/publish.yml`).
 
+The build machine needs:
+
+- **macOS with Xcode**, for the iOS targets. Kotlin/Native 2.4 supports Xcode 26.4, which is what
+  CI selects; a newer Xcode may build with a compatibility warning, but a release is built on the
+  supported one.
+- **JDK 21** for the Gradle daemon (`gradle/gradle-daemon-jvm.properties`); Gradle provisions it
+  through the toolchain resolver if it is missing, as it does the JDK 25 that the
+  `kmptoolkit-video-player-javafx` tests run on.
+
 ## Release steps
 
 1. **Confirm `main` is green.** `./gradlew build checkKotlinAbi` and
-   `./gradlew testDebugUnitTest iosSimulatorArm64Test` must both pass on the commit you intend to
+   `./gradlew testAndroidHostTest iosSimulatorArm64Test` must both pass on the commit you intend to
    release (see `.claude/CLAUDE.md` § Verification).
 2. **Bump the version.** Edit `kmptoolkit.version` in `gradle.properties` — this is the single
    source of truth; every `kmptoolkit-*` module and the `kmptoolkit-bom` constraints read it.
    Follow semver: see `.claude/CLAUDE.md` § Public API and compatibility for what qualifies as
-   patch/minor/major.
+   patch/minor/major. Read every `api/` dump diff since the last release before choosing: **any
+   added public symbol is at least a minor, never a patch** — and that includes a new entry in a
+   sealed hierarchy or enum (a new `CommonPermission` or `PermissionStatus` case, say), which is
+   binary-compatible but stops a consumer's exhaustive `when` from compiling.
 3. **Update `CHANGELOG.md`.** Move the `[Unreleased]` entries under a new `## [x.y.z] - YYYY-MM-DD`
    heading.
 4. **Update the root `README.md` install snippet** if the shown version string is pinned literally
@@ -49,13 +61,18 @@ on the repository (see `.github/workflows/publish.yml`).
        implementation("io.github.jamal-wia:kmptoolkit-logging")
    }
    ```
+   and with the sample app against Maven Central (`.claude/CLAUDE.md` § Verification):
+   `./gradlew :sample:assembleDebug -PusePublishedArtifacts`. An app whose own Kotlin sources were
+   not compiled still assembles, so confirm the sample's classes are in the APK —
+   `unzip -p sample/build/outputs/apk/debug/sample-debug.apk 'classes*.dex' | grep -a -c sample/MainActivity`
+   must print a number above zero.
 
 ## Manual publish (fallback)
 
 If the CI workflow is unavailable, publish locally from a machine with the one-time setup above:
 
 ```bash
-./gradlew checkKotlinAbi testDebugUnitTest
+./gradlew checkKotlinAbi testAndroidHostTest
 ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
 ```
 
@@ -68,7 +85,7 @@ configuration-cache compatible as of plugin version `0.37.0`.
 |---|---|
 | Central Portal deployment stuck in `VALIDATING` | A POM field is missing or malformed — check `kmptoolkitPublish.pomName` / `pomDescription` were set on every published module |
 | `signAllPublications()` did not run, artifacts unsigned | None of `signing.keyId`, `signingInMemoryKey`, or `ORG_GRADLE_PROJECT_signingInMemoryKey` was visible to the build — see `PublishConventionPlugin.kt`'s conditional |
-| `signAndroidReleasePublication` / `signXxxPublication` fails with `Could not read PGP secret key` | The `GPG_KEY_PASSWORD` secret is wrong or empty — Gradle parsed the key but could not unlock it with the passphrase in `ORG_GRADLE_PROJECT_signingInMemoryKeyPassword`. Verified locally against plugin `0.37.0`: a wrong or empty passphrase produces exactly this message. Check the secret exists in this repository (secrets are per-repository, not per-account) and matches the passphrase of the key in `GPG_KEY`. |
+| `signAndroidPublication` / `signXxxPublication` fails with `Could not read PGP secret key` | The `GPG_KEY_PASSWORD` secret is wrong or empty — Gradle parsed the key but could not unlock it with the passphrase in `ORG_GRADLE_PROJECT_signingInMemoryKeyPassword`. Verified locally against plugin `0.37.0`: a wrong or empty passphrase produces exactly this message. Check the secret exists in this repository (secrets are per-repository, not per-account) and matches the passphrase of the key in `GPG_KEY`. |
 | `signXxxPublication` fails with `has no configured signatory` | `GPG_KEY` is in a format Gradle cannot parse, or `GPG_KEY_ID` does not match any key in it. Accepted formats: the raw ASCII-armored output of `gpg --export-secret-keys --armor <key id>`, or the base64 of the *binary* export (`gpg --export-secret-keys <key id> \| base64`, which is what Paginator uses). Base64 of the *armored* text is **not** accepted. |
 | `checkKotlinAbi` fails right before a release | A module's public API changed without running `./gradlew updateKotlinAbi` and committing the updated `api/` dump — this is the ABI-validation gate doing its job, not a false positive |
 | A module resolves with the wrong version from a consumer | `kmptoolkit.version` was bumped but the `kmptoolkit-bom` constraint wasn't regenerated — the BOM reads the same property, so re-running the build should be enough; if not, check the BOM module's `constraints { }` block by hand |

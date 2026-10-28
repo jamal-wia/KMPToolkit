@@ -79,6 +79,7 @@ internal class DefaultAudioRecorder(
     private val config: AudioRecorderConfig,
     workerContext: CoroutineContext,
     private val epochClock: EpochClock,
+    private val fileNameToken: FileNameToken = FileNameToken.Random,
     private val timeSource: TimeSource = TimeSource.Monotonic,
     private val silenceDebounce: Duration = DEFAULT_SILENCE_DEBOUNCE,
     private val freeSpacePollInterval: Duration = DEFAULT_FREE_SPACE_POLL_INTERVAL,
@@ -817,7 +818,12 @@ internal class DefaultAudioRecorder(
             fileSystem.appPrivateDirectory(),
             storage.directoryName ?: fileSystem.applicationIdentifier(),
         )
-        val name = "${storage.fileNamePrefix}_${epochClock.nowMillis()}.${config.format.extension}"
+        // The timestamp keeps names sortable; the token is what keeps them apart. Without it, two
+        // recorders sharing the directory in one millisecond — or a clock stepped back onto an
+        // instant already used — would hand two recordings one path, and the second recorder's
+        // undoPreparation() would delete the first one's file.
+        val name: String = "${storage.fileNamePrefix}_${epochClock.nowMillis()}_${fileNameToken.next()}" +
+            ".${config.format.extension}"
         return fileSystem.resolve(directory, name)
     }
 

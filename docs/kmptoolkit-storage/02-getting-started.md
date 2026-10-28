@@ -49,9 +49,9 @@ cheap and cannot fail, so an app delegate or `onCreate` is the right place for i
 ```kotlin
 class OnboardingState(private val storage: KeyValueStorage) {
 
-    fun hasSeenOnboarding(): Boolean = storage.getStringOrNull(KEY) == "true"
+    suspend fun hasSeenOnboarding(): Boolean = storage.getStringOrNull(KEY) == "true"
 
-    fun markSeen() {
+    suspend fun markSeen() {
         storage.put(KEY, "true")
     }
 
@@ -60,6 +60,11 @@ class OnboardingState(private val storage: KeyValueStorage) {
     }
 }
 ```
+
+Every storage call is a `suspend` function and main-safe: the store moves its own disk and key-store
+work off the calling thread, so call it from whatever coroutine you are already in — a
+`viewModelScope.launch`, a `LaunchedEffect`, a repository's own suspend function — without a
+`withContext` of your own.
 
 `getStringOrNull` is the shorthand for "absent and unreadable are the same to me", which is true of
 a flag. It is not true of a session token — step 5.
@@ -72,7 +77,8 @@ httpClient.header("X-Device-Id", deviceId)
 ```
 
 The first call generates a UUID and stores it; every later call returns the same one, including
-after a restart, an app update, and a logout. Clearing app data resets it.
+after a restart, an app update, and a logout. Clearing app data resets it. `current()` suspends,
+like the store it reads, and concurrent first calls all get the one id that was stored.
 
 ## 5. Store a token in the encrypted store
 

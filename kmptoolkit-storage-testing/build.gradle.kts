@@ -14,11 +14,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.storage.testing"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.storage.testing"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -31,6 +31,9 @@ kotlin {
             // api, not implementation: InMemoryKeyValueStorage implements SecureKeyValueStorage and
             // returns StorageResult/StorageError, so those types are part of this module's own API.
             api(project(":kmptoolkit-storage"))
+        }
+        commonTest.dependencies {
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }

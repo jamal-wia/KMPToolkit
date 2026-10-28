@@ -123,8 +123,9 @@ The picture only. Never changes the player's state; never releases it.
   `videoGravity` from `scaleMode`; desktop the frames of a memory-rendering engine. A player with no
   such platform object (a fake, a custom engine) shows nothing.
 - **`keepScreenOn`**: only while `stateFlow` is `Playing`. Android `View.keepScreenOn`; iOS
-  `UIApplication.idleTimerDisabled`, shared by all surfaces and restored to the app's own value when
-  the last one stops; desktop nothing.
+  `UIApplication.idleTimerDisabled`, shared by all surfaces and the `kmptoolkit-systembars` wake
+  lock through one reference-counted holder, and restored to the app's own value when the last
+  holder lets go; desktop nothing.
 
 ### `VideoScaleMode`
 

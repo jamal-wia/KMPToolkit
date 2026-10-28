@@ -93,7 +93,7 @@ For reference when judging whether a behavior is already guaranteed:
   types, an empty handler list and case sensitivity; `ScheduledAlarm` and `AlarmSchedulerConfig`
   validation; the iOS trigger arithmetic including a past fire time, an exactly-now fire time, and
   a far-future value that must not overflow.
-- **`androidUnitTest`** (Robolectric) — arming and cancelling against a real `AlarmManager`,
+- **`androidHostTest`** (Robolectric) — arming and cancelling against a real `AlarmManager`,
   replacement by id, two ids whose hash codes collide staying independent, `cancelAll` semantics, a
   fire time in the past, exact scheduling below and above Android S, the missing-permission
   downgrade, the revoked-mid-flight downgrade (via a custom shadow that throws `SecurityException`),

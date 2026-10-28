@@ -16,9 +16,10 @@ import org.jetbrains.kotlin.compose.compiler.gradle.ComposeCompilerGradlePluginE
  * every Apple-silicon Mac.
  *
  * Deliberately adds **no** Compose dependencies: `kmptoolkit-systembars` needs only
- * `compose.runtime` + `compose.foundation`, `kmptoolkit-logging-overlay` needs `compose.ui` +
- * `compose.material3` — a uniform set would hand both modules dependencies they don't use, so
- * those stay explicit per module (same rationale as DrLeoKMP's `ComposeConventionPlugin.kt`).
+ * `libs.compose.runtime` + `libs.compose.foundation`, `kmptoolkit-logging-overlay` needs
+ * `libs.compose.ui` + `libs.compose.material3` — a uniform set would hand both modules dependencies
+ * they don't use, so those stay explicit per module, from the version catalog (same rationale as
+ * DrLeoKMP's `ComposeConventionPlugin.kt`).
  */
 class ComposeConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {

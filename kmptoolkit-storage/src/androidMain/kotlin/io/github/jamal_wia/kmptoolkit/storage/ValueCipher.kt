@@ -9,6 +9,8 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Turns a plaintext value into something safe to leave in a `SharedPreferences` file, and back.
@@ -21,7 +23,7 @@ import javax.crypto.spec.GCMParameterSpec
 internal interface ValueCipher {
 
     /** Encrypts [plaintext] and encodes the result as an ASCII string. */
-    fun encrypt(plaintext: String): String
+    suspend fun encrypt(plaintext: String): String
 
     /**
      * Reverses [encrypt].
@@ -30,7 +32,7 @@ internal interface ValueCipher {
      * @throws Exception the input is not something this cipher produced, or the key that produced
      *   it no longer exists.
      */
-    fun decrypt(encoded: String): String
+    suspend fun decrypt(encoded: String): String
 }
 
 /**
@@ -41,10 +43,10 @@ internal interface ValueCipher {
 internal class StorageKeyUnavailableException(cause: Throwable) : Exception(cause)
 
 /** Where [KeystoreValueCipher] gets its symmetric key from. */
-internal fun interface SecretKeySource {
+internal interface SecretKeySource {
 
     /** @throws StorageKeyUnavailableException the key cannot be obtained. */
-    fun key(): SecretKey
+    suspend fun key(): SecretKey
 }
 
 /**
@@ -64,14 +66,14 @@ internal fun interface SecretKeySource {
  */
 internal class KeystoreValueCipher(private val keySource: SecretKeySource) : ValueCipher {
 
-    override fun encrypt(plaintext: String): String {
+    override suspend fun encrypt(plaintext: String): String {
         val cipher: Cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, keySource.key())
         val ciphertext: ByteArray = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
         return Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
     }
 
-    override fun decrypt(encoded: String): String {
+    override suspend fun decrypt(encoded: String): String {
         // The key is resolved before the stored bytes are looked at, so that a key store which will
         // not open is reported as Unavailable — retry later — rather than as Undecryptable — the
         // value is lost. With the checks the other way round, an entry that is also malformed would
@@ -109,42 +111,90 @@ internal class KeystoreValueCipher(private val keySource: SecretKeySource) : Val
  * software-isolated on one that does not. The library does not require hardware backing and does
  * not check for it — refusing to store a token on the weaker device would only push the consumer
  * into storing it somewhere worse.
+ *
+ * ### Why the lookup runs under a process-wide lock
+ *
+ * "Look the alias up, generate a key if it is absent" is two key-store calls, and the second one
+ * does not fail when the alias already exists — it silently replaces the entry. Two callers that
+ * both miss would each generate a key, the later one would win the alias, and every value the
+ * earlier one encrypted would be [StorageError.Undecryptable] from then on; worse, if the earlier
+ * caller's key were the one left in its cache, every later write in that process would be encrypted
+ * under a key that is no longer in the store. The recovery path in
+ * [AliasedKeyStore.existingKey] has the same shape and a sharper edge: a caller still holding a
+ * stale `UnrecoverableKeyException` would delete the fresh key another caller had just generated.
+ *
+ * The lock is [keyResolution], one for the whole process, not one per instance: every
+ * `createSecureKeyValueStorage` call builds a new source, so two stores over the same configuration
+ * are two instances racing for one alias. Inside the lock the key store is asked again, so the
+ * second caller finds the first caller's key instead of making its own. It is held only while a key
+ * is resolved — once per instance, after which [cached] answers.
+ *
+ * Another *process* of the same app is not covered: the AndroidKeyStore has no atomic
+ * create-if-absent, and nothing in-process can stand in for one. See
+ * `docs/kmptoolkit-storage/05-platform-notes.md`.
+ *
+ * @param keyStore the two key-store calls this class orders. A seam so the ordering can be tested
+ *   on the JVM, where no AndroidKeyStore exists; production always uses [AndroidKeyStoreAliases].
  */
-internal class AndroidKeystoreKeySource(private val alias: String) : SecretKeySource {
+internal class AndroidKeystoreKeySource(
+    private val alias: String,
+    private val keyStore: AliasedKeyStore = AndroidKeyStoreAliases,
+) : SecretKeySource {
 
-    @Volatile
+    /** Read and written only under [keyResolution], which is what makes it visible across threads. */
     private var cached: SecretKey? = null
 
-    override fun key(): SecretKey {
-        cached?.let { return it }
-        val resolved: SecretKey = try {
-            loadOrCreateKey()
-        } catch (error: Exception) {
-            throw StorageKeyUnavailableException(error)
-        }
-        cached = resolved
-        return resolved
+    override suspend fun key(): SecretKey = keyResolution.withLock {
+        cached ?: resolve().also { cached = it }
     }
 
-    private fun loadOrCreateKey(): SecretKey {
+    private fun resolve(): SecretKey = try {
+        keyStore.existingKey(alias) ?: keyStore.generateKey(alias)
+    } catch (error: Exception) {
+        throw StorageKeyUnavailableException(error)
+    }
+
+    private companion object {
+        /** Serializes key resolution across every instance in the process — see the class KDoc. */
+        val keyResolution: Mutex = Mutex()
+    }
+}
+
+/** The two key-store operations [AndroidKeystoreKeySource] needs, and nothing else. */
+internal interface AliasedKeyStore {
+
+    /**
+     * The key filed under [alias], or `null` when there is none to use — never filed, or filed but
+     * unrecoverable, in which case the dead entry is removed so [generateKey] can replace it.
+     */
+    fun existingKey(alias: String): SecretKey?
+
+    /** Generates a new key under [alias], replacing whatever the alias held. */
+    fun generateKey(alias: String): SecretKey
+}
+
+/** [AliasedKeyStore] over the real AndroidKeyStore. */
+internal object AndroidKeyStoreAliases : AliasedKeyStore {
+
+    private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+    private const val KEY_SIZE_BITS = 256
+
+    override fun existingKey(alias: String): SecretKey? {
         val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        existingKey(keyStore)?.let { return it }
-        return generateKey()
+        return try {
+            (keyStore.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey
+        } catch (_: UnrecoverableKeyException) {
+            // The alias exists but its key is gone — the user changed the device lock, or the entry
+            // was restored to a device that cannot use it. Every value written under it is already
+            // unreadable, so drop the alias and start a new key: reads of old entries fail with
+            // Undecryptable, which is what they are, and new writes work again instead of the store
+            // being bricked for the lifetime of the install.
+            runCatching { keyStore.deleteEntry(alias) }
+            null
+        }
     }
 
-    private fun existingKey(keyStore: KeyStore): SecretKey? = try {
-        (keyStore.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey
-    } catch (_: UnrecoverableKeyException) {
-        // The alias exists but its key is gone — the user changed the device lock, or the entry was
-        // restored to a device that cannot use it. Every value written under it is already
-        // unreadable, so drop the alias and start a new key: reads of old entries fail with
-        // Undecryptable, which is what they are, and new writes work again instead of the store
-        // being bricked for the lifetime of the install.
-        runCatching { keyStore.deleteEntry(alias) }
-        null
-    }
-
-    private fun generateKey(): SecretKey {
+    override fun generateKey(alias: String): SecretKey {
         val generator: KeyGenerator =
             KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         generator.init(
@@ -162,10 +212,5 @@ internal class AndroidKeystoreKeySource(private val alias: String) : SecretKeySo
                 .build(),
         )
         return generator.generateKey()
-    }
-
-    private companion object {
-        const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        const val KEY_SIZE_BITS = 256
     }
 }

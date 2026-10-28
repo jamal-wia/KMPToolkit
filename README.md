@@ -43,12 +43,12 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 | `kmptoolkit-audio-recorder-testing` | `FakeAudioRecorder`, for `testImplementation` | `audio-recorder` | Available | [docs](docs/kmptoolkit-audio-recorder/06-testing.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | — | Available | [docs](docs/kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-scheduler-testing` | `RecordingAlarmScheduler` double, for `testImplementation` | `scheduler` | Available | [docs](docs/kmptoolkit-scheduler/06-testing.md) |
-| `kmptoolkit-storage` | Key-value storage, plain and encrypted, with typed `Int`/`Long`/`Boolean` accessors and a stable device id. Also publishes `jvm` (a plain properties-file store), for code shared with desktop | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
+| `kmptoolkit-storage` | Key-value storage, plain and encrypted, with a main-safe `suspend` API, typed `Int`/`Long`/`Boolean` accessors and a stable device id. Also publishes `jvm` (a plain properties-file store), for code shared with desktop | — | Available | [docs](docs/kmptoolkit-storage/01-overview.md) |
 | `kmptoolkit-storage-testing` | `InMemoryKeyValueStorage`, for `testImplementation` | `storage` | Available | [docs](docs/kmptoolkit-storage/06-testing.md) |
 | `kmptoolkit-biometric` | Biometric gate with typed outcomes, an enrolment shortcut whose launch you can customise, and opt-in weak-tier / single-attempt checks; prompt copy is yours | `activity` (Android) | Available | [docs](docs/kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-biometric-testing` | `ScriptedBiometricGate`, for `testImplementation` | `biometric` | Available | [docs](docs/kmptoolkit-biometric/06-testing.md) |
-| `kmptoolkit-permission` | Runtime permission request flow for notifications, microphone, camera, location, audio files and Bluetooth (connect and scan), with status observation, plus special-access permissions (exact alarms, overlay, …) | `storage`, `activity` (Android) | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
-| `kmptoolkit-permission-testing` | `RecordingPermissionHandler` / `RecordingSpecialPermissionHandler`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
+| `kmptoolkit-permission` | One `PermissionController` for every grant: 15 permissions both platforms have (notifications, microphone, camera, location, photos, contacts, calendar, motion, Bluetooth, …), Android runtime permissions, special accesses, roles and device admins, and iOS tracking, speech, reminders and Focus — with a status that tells limited, restricted and unavailable apart from a refusal, batch requests, observation, and a headless request flow | `storage`, `activity` (Android) | Available | [docs](docs/kmptoolkit-permission/01-overview.md) |
+| `kmptoolkit-permission-testing` | `FakePermissionController`, for `testImplementation` | `permission` | Available | [docs](docs/kmptoolkit-permission/06-testing.md) |
 | `kmptoolkit-notification` | Local notifications, channels, actions, and the notification a foreground service starts with | `permission` | Available | [docs](docs/kmptoolkit-notification/01-overview.md) |
 | `kmptoolkit-notification-testing` | `RecordingNotifier`, for `testImplementation` | `notification` | Available | [docs](docs/kmptoolkit-notification/06-testing.md) |
 | `kmptoolkit-uploader` | Transactional uploader engine (storage-agnostic), with `UploadHandler` and built-in background HTTP upload transports on Android (WorkManager) and iOS (background `NSURLSession`) | `logging` | Available | [docs](docs/kmptoolkit-uploader/01-overview.md) |
@@ -74,8 +74,9 @@ bundled DI framework, no hardcoded consumer identifiers, no user-facing text) an
 ### Internal support artifacts
 
 `kmptoolkit-core` (Android, iOS, `jvm`) is published and on the BOM but is not in the table above:
-it is an internal support artifact holding what several modules share (`@ToolkitInternalApi` and the
-`StateMachineLock` the players and the recorder use). Modules pull it in transitively — do not
+it is an internal support artifact holding what several modules share (`@ToolkitInternalApi`, the
+`StateMachineLock` the players and the recorder use, and the iOS `SharedIdleTimer` that the wake lock
+and the video surfaces share). Modules pull it in transitively — do not
 depend on it directly, and expect no compatibility promise from it. See
 [`docs/kmptoolkit-core/`](docs/kmptoolkit-core/01-overview.md).
 

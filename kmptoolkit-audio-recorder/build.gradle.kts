@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: AndroidRecordingFileSystem needs a real Context and a real
+    // Robolectric for androidHostTest: AndroidRecordingFileSystem needs a real Context and a real
     // filesystem, and the "RECORD_AUDIO is not in the merged manifest" guarantee is only assertable
     // against a real PackageManager.
     id("kmptoolkit.androidtest")
@@ -19,11 +19,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.audio.recorder"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.audio.recorder"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

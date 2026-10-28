@@ -26,7 +26,8 @@ import io.github.jamal_wia.kmptoolkit.downloader.TempFileState
  * recorded in [beganWith].
  *
  * [commitResource] mirrors the real contract too: it throws [IllegalStateException] unless the
- * unit's state is [TempFileState.Complete], and consumes the temp file on success. Add unit ids to
+ * unit's state is [TempFileState.Complete] (or the unit is already available, which returns
+ * normally as a commit racing an earlier one does), and consumes the temp file on success. Add unit ids to
  * [failIntegrityFor] to make [commitResource] throw [ResourceIntegrityException] for them (a unit's
  * temp file is then consumed as a failed check deletes it, so a new [beginTempFile] is required).
  * The fake hashes nothing: it cannot tell whether a downloader passed the right hash, only that it
@@ -102,8 +103,12 @@ public class FakeDownloaderStorage(
      * Throws [IllegalStateException] unless [unit]'s state is [TempFileState.Complete]. Otherwise the
      * temp file is consumed (state [TempFileState.None], [begunIds] cleared) and, for an id in
      * [failIntegrityFor], [ResourceIntegrityException] is thrown as a failed hash check would.
+     *
+     * An id in [availableIds] without a complete temp file returns normally and changes nothing, as
+     * the real storages do for a commit that a concurrent commit already finalized.
      */
     override suspend fun commitResource(unit: DownloadUnit) {
+        if (tempFileStates[unit.id] != TempFileState.Complete && unit.id in availableIds) return
         check(tempFileStates[unit.id] == TempFileState.Complete) {
             "No complete temp file for $unit — a partial transfer is resumed, never committed"
         }

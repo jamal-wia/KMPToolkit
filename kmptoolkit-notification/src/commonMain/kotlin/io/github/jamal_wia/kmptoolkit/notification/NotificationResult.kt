@@ -38,7 +38,7 @@ public sealed interface NotificationResult {
      * The app may not post notifications because the runtime permission is not granted:
      * `POST_NOTIFICATIONS` on Android 13+, notification authorization on iOS.
      *
-     * Ask for it with `kmptoolkit-permission` (`Permission.NOTIFICATIONS`) — this module never
+     * Ask for it with `kmptoolkit-permission` (`CommonPermission.Notifications`) — this module never
      * shows a system prompt on your behalf. On Android 12 and below there is no runtime permission
      * to be missing, so this value cannot occur there.
      */

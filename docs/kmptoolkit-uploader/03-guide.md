@@ -187,17 +187,19 @@ it is wrong — a multi-hundred-megabyte upload that should continue while the a
 
 ```kotlin
 override suspend fun execute(context: AttemptContext, payload: UploadVideo): AttemptResult {
-    // Idempotent by contract: if an executor for this id already exists, join it.
-    uploadExecutor.enqueueUnique(id = context.id, rejoinIfPresent = context.wasDetached)
+    // Idempotent by contract: if an executor for this id already exists, join it. It is handed
+    // the claim too, to report under.
+    uploadExecutor.enqueueUnique(id = context.id, claim = context.claim, rejoinIfPresent = context.wasDetached)
     return AttemptResult.Detached(leaseMillis = 30 * 60_000)
 }
 ```
 
-The engine moves the row to `IN_FLIGHT` with a lease. Later, from wherever the upload finishes:
+The engine moves the row to `IN_FLIGHT` with a lease, under the claim the context carried. Later,
+from wherever the upload finishes:
 
 ```kotlin
 val engine: UploaderEngine = UploaderEngineRegistry.await(5.seconds) ?: return Result.retry()
-engine.settle(itemId, SettleResult.Delivered)
+engine.settle(itemId, claim, SettleResult.Delivered)
 ```
 
 **The lease is a claim, not a lock.** While it is unexpired the drain leaves the item alone. Once it
@@ -210,15 +212,22 @@ Size the lease to the executor's realistic worst case. Too short and you get red
 racing a live executor — wasteful but survivable. Too long and recovery from a silently dead
 executor is delayed by exactly that much.
 
-Settling is addressed by item id, which makes every race degrade to a no-op: a superseded item was
-re-inserted under a new id, a wiped item is gone, and a duplicate settle finds nothing. `Failed` is
-additionally ignored for an item that is no longer in flight, and rejected if the item was re-handed
-between the settle's read and its write.
+Settling is addressed by item id and by claim, which makes every race degrade to a no-op. The id
+covers the item itself: a superseded item was re-inserted under a new id, a wiped item is gone, and a
+duplicate settle finds nothing. The claim covers the executor: every hand-off — the first, and every
+re-hand-off after an expired lease — is made under a new claim, so a report from an executor whose
+lease expired and whose item was handed to another can be told from the current one's. Which reports
+need to be current depends on what they say:
 
-One window stays open: an executor whose lease expired long ago, whose item was already re-handed,
-and which only then reports `Failed`. That report spends an attempt and returns the item to pending.
-The consequence is a possible redundant hand-off, never a lost effect — which is the same
-at-least-once bargain the rest of the module makes.
+- **`Delivered` and `Drop` stand from any claim.** They are facts about the effect. An executor that
+  delivered has delivered, whether or not its lease outlived it, and re-handing the item would send
+  it twice.
+- **`Failed` and `Park` stand only from the current claim.** They are verdicts on one attempt and
+  steer the next: spend an attempt and back off, or stop. A superseded executor's verdict is about an
+  attempt the engine has already given up on, so it neither returns to pending an item another
+  executor is uploading nor parks it under that executor; the current executor reports its own.
+
+The check and the write are one compare-and-set, so a re-hand-off landing mid-settle wins too.
 
 ### A ready-made executor for a multipart HTTP upload
 

@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import platform.Foundation.NSUserDefaults
 
 /**
@@ -14,27 +16,32 @@ import platform.Foundation.NSUserDefaults
  * reports no status — so every operation here succeeds. That is not a shortcut: there is genuinely
  * no error to surface, and inventing one would be a lie in the type. The results exist so the same
  * interface can carry the failures [IosSecureKeyValueStorage] really does have.
+ *
+ * Calls run on [dispatcher]: a suite's first access loads its property list through `cfprefsd`,
+ * which is a blocking IPC round trip the caller's thread should not pay for.
  */
 internal class IosKeyValueStorage(
     private val suiteName: String,
     private val defaults: NSUserDefaults,
+    private val dispatcher: CoroutineDispatcher,
 ) : KeyValueStorage {
 
-    override fun get(key: String): StorageResult<String?> =
+    override suspend fun get(key: String): StorageResult<String?> = withContext(dispatcher) {
         StorageResult.Success(defaults.stringForKey(key))
+    }
 
-    override fun put(key: String, value: String): StorageResult<Unit> {
+    override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {
         defaults.setObject(value, forKey = key)
-        return StorageResult.Success(Unit)
+        StorageResult.Success(Unit)
     }
 
-    override fun remove(key: String): StorageResult<Unit> {
+    override suspend fun remove(key: String): StorageResult<Unit> = withContext(dispatcher) {
         defaults.removeObjectForKey(key)
-        return StorageResult.Success(Unit)
+        StorageResult.Success(Unit)
     }
 
-    override fun clear(): StorageResult<Unit> {
+    override suspend fun clear(): StorageResult<Unit> = withContext(dispatcher) {
         defaults.removePersistentDomainForName(suiteName)
-        return StorageResult.Success(Unit)
+        StorageResult.Success(Unit)
     }
 }

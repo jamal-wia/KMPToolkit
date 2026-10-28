@@ -17,9 +17,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -35,6 +37,7 @@ import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.sample.ui.theme.KMPToolkitTheme
 import io.github.jamal_wia.kmptoolkit.storage.createKeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
+import kotlinx.coroutines.launch
 
 /**
  * Exercises three KMPToolkit modules against whatever the build resolved them from — project
@@ -76,8 +79,11 @@ private fun SampleScreen(modifier: Modifier = Modifier) {
     val storage = remember { createKeyValueStorage(context) }
     val haptics = remember { createHapticFeedback(context) }
 
-    var counter: Int by remember {
-        mutableStateOf(storage.getStringOrNull(COUNTER_KEY)?.toIntOrNull() ?: 0)
+    val scope = rememberCoroutineScope()
+
+    var counter: Int by remember { mutableStateOf(0) }
+    LaunchedEffect(storage) {
+        counter = storage.getStringOrNull(COUNTER_KEY)?.toIntOrNull() ?: 0
     }
 
     Column(
@@ -94,8 +100,11 @@ private fun SampleScreen(modifier: Modifier = Modifier) {
         Button(
             onClick = {
                 counter += 1
-                val result = storage.put(COUNTER_KEY, counter.toString())
-                logger.i { "stored counter=$counter, result=$result" }
+                val value: Int = counter
+                scope.launch {
+                    val result = storage.put(COUNTER_KEY, value.toString())
+                    logger.i { "stored counter=$value, result=$result" }
+                }
             },
             modifier = Modifier.fillMaxWidth(),
         ) {

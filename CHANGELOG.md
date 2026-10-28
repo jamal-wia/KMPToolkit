@@ -9,6 +9,201 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [3.0.0]
+
+### Breaking
+
+- `kmptoolkit-storage`: the API is now `suspend`. `KeyValueStorage.get`, `put`, `remove` and
+  `clear`, `getStringOrNull`, every typed accessor (`getInt`, `putBoolean`, `getLongOr`, …) and
+  `DeviceIdProvider.current()` are `suspend` functions, and each is main-safe: the store runs its
+  own `SharedPreferences`, Keystore, `NSUserDefaults`, Keychain or file I/O on `Dispatchers.IO`.
+  Call sites move into a coroutine; a custom `KeyValueStorage` implementation marks its four
+  overrides `suspend`. `InMemoryKeyValueStorage` in `kmptoolkit-storage-testing` follows, so tests
+  that use it run inside `runTest`. The module now depends on `kotlinx-coroutines-core`
+  (as `implementation`; no coroutines type is in a public signature).
+
+- `kmptoolkit-permission`: redesigned around one `PermissionController` for every grant an app asks
+  for. The `Permission` enum, `PermissionHandler`, `SpecialPermission` and
+  `SpecialPermissionHandler` are replaced by `PermissionController` and an open `Permission` base
+  with three sealed families: `CommonPermission` (both platforms, neutral names),
+  `AndroidPermission` (runtime permissions, special access, roles, device admins, and a raw
+  `Runtime(name)`) and `IosPermission`. Android-only accesses no longer sit in common code.
+  - `createPermissionHandler*` and `createSpecialPermissionHandler*` become one
+    `createPermissionController(context, storage, activityAccess, host, systemScreenLauncher,
+    config, logger)` on Android and `createPermissionController(options, logger)` on iOS.
+    `PermissionConfig` becomes `AndroidPermissionConfig`; `AppDetailsScreen` and
+    `SpecialPermissionScreen` become `PermissionScreen(permission)`;
+    `Denied(shouldShowRationale)` becomes `Denied(explainFirst)`.
+  - `PermissionRequestHost` loses the single-string `launch`; the list `launch` and a new
+    `launchForResult` are both abstract.
+  - Status semantics: approximate location (both platforms) and provisional notifications (iOS)
+    are now `Limited`, not `Granted` (use `isUsable`); iOS restricted is `Restricted`, not
+    `PermanentlyDenied`; an undeclared permission, a missing iOS usage description or
+    `BluetoothScan` without `neverForLocation` is `Unavailable` (on iOS this replaces the app being
+    terminated); notifications below API 33 report `areNotificationsEnabled()` instead of always
+    `Granted`.
+  - A special-access request now waits until the user is back in the app and returns the re-read
+    status. Its default launcher is `callerTask`; a kiosk app passes `SeparateTask`.
+  - Stored 2.x refusal flags keep their keys and are read unchanged.
+  - `kmptoolkit-permission-testing`: `RecordingPermissionHandler` and
+    `RecordingSpecialPermissionHandler` are replaced by `FakePermissionController`.
+  - The module now depends on `kmptoolkit-core` (`api`) and `androidx.activity`.
+  See `docs/kmptoolkit-permission/07-migrating-to-3.md`.
+- `kmptoolkit-notification`: `createNotifier` takes a `PermissionController`. On Android,
+  notifications are posted under the string id as the platform tag instead of untagged under its
+  hash. `notificationIdOf` is removed: a foreground service names its `startForeground` number with
+  `ForegroundNotificationId(id, platformId)`, which `buildForegroundNotification` takes and
+  `createNotifier(…, foregroundIds)` registers, so `post` and `cancel` of that id update the
+  service's notification in place. Until 4.0, `cancel(id)` and the first `post(id)` per process also
+  remove the copy 2.x left under the old hashed number — see "Updating from 2.x" in the guide.
+- `kmptoolkit-uploader`: the executor contract and the store SPI changed to close its races.
+  `UploaderEngine.settle(id, claim, result)` takes the claim from the new `AttemptContext.claim`;
+  `Failed` and `Park` from a superseded claim are ignored, `Delivered` and `Drop` apply from any
+  claim. `UploaderItem` gains `claim`. In `UploaderStore`, `markInFlight` is a compare-and-set on
+  the expected state and claim and returns `Boolean`; `recordFailure` always takes the expected
+  state and claim plus a `FailureDisposition`; `park` is guarded the same way and returns
+  `Boolean`; `insertReplace` returns the item it superseded and `deleteByTag` the items it removed.
+  Every applied guarded write advances `claim` by one. Custom stores need a `claim` column — see
+  `docs/kmptoolkit-uploader/07-custom-store.md`. `UploaderStoreContract` runs 46 checks.
+- `kmptoolkit-uploader-sqldelight`: schema version 2 adds the `claim` column. Standalone storage
+  migrates itself; a shared-driver consumer runs `uploaderDatabaseSchema.migrate(driver, 1, 2)`
+  from a migration of their own.
+- `kmptoolkit-audio-recorder`: a generated file name is now
+  `<prefix>_<epochMillis>_<token>.<ext>`, with a 32-hex-character random token (see Fixed).
+- `kmptoolkit-flashlight`: all `Flashlight` instances in a process share one blink loop, so any
+  instance's `start` or `stop` drives the one torch (see Fixed).
+- `kmptoolkit-activity`: an `addOnActivityResumedListener` subscription made off the main thread is
+  told about the current activity by a post to the main thread, no longer synchronously on the
+  caller's thread (see Fixed).
+- `kmptoolkit-systembars`: on iOS, `setKeepScreenOn(false)` restores the idle-timer value the app
+  had before the first hold instead of always writing `false`. The module now depends on
+  `kmptoolkit-core` on iOS.
+
+### Added
+
+- `kmptoolkit-permission`: `PermissionStatus.Limited`, `Restricted` and `Unavailable`, `isUsable`,
+  and flow states `Limited` and `Unavailable`; batch `request(Collection)` sharing one Android
+  dialog; serialized requests; `observe` and `openSettings(permission)`;
+  `ActivityResultPermissionRequestHost`, which needs no wiring and survives activity recreation.
+  New entries — common: `PhotoLibrary`, `PhotoLibraryAdd`, `Contacts`, `Calendar`,
+  `CalendarWriteOnly`, `MotionActivity`, `BluetoothAdvertise`; Android: `NearbyWifiDevices`,
+  `LocalNetwork`, `BodySensors`, `BodySensorsBackground`, `Runtime(name)`, `Role` / `Role.Home`,
+  `DeviceAdmin`, `AccessibilityService`; iOS: `Tracking`, `SpeechRecognition`, `Reminders`,
+  `FocusStatus`, `IosPermissionOptions` (Provisional, CriticalAlert) and
+  `presentLimitedPhotoLibraryPicker`.
+- `kmptoolkit-core`: `SharedIdleTimer` (iOS, `@ToolkitInternalApi`), a reference-counted holder of
+  `UIApplication.idleTimerDisabled` shared by the suite's modules.
+
+### Changed
+
+- The Android target of every module is built with the Android Gradle Plugin's Kotlin
+  Multiplatform library plugin (`com.android.kotlin.multiplatform.library`) instead of
+  `com.android.library`. Coordinates (`kmptoolkit-<module>-android`), dependencies and scopes are
+  unchanged; the Android publication now has a single variant (Gradle module metadata names it
+  `android*` instead of `release*` and adds `org.gradle.libraryelements=aar`).
+- Dependency updates that reach a consumer's graph: Kotlin 2.4.20 → 2.4.21, Compose Multiplatform
+  1.12.1 → 1.12.2 (Compose modules), SQLDelight 2.4.0 → 2.4.1 (`kmptoolkit-uploader-sqldelight`).
+  OpenJFX 27 → 27.0.1 is `compileOnly` in `kmptoolkit-video-player-javafx`; apps using that engine
+  should supply 27.0.1. `kmptoolkit-logging-overlay` pins Compose Multiplatform material3 to 1.9.0,
+  the latest stable.
+- Consumer minimums, now stated explicitly: Kotlin 2.4.21 for iOS consumers (Kotlin/Native
+  libraries are not forward compatible) and Kotlin 2.4 for Android/JVM; iOS deployment target
+  15.0; Android compileSdk 37 and Android Gradle Plugin 9.1.0 (required by androidx.core 1.19.1),
+  minSdk 24; desktop JDK 21 — the `jvm` bytecode level is now pinned to 21 rather than inherited
+  from the build JDK — and JDK 25 for `kmptoolkit-video-player-javafx`.
+- Build: Gradle 9.8.2; Android host tests run with `testAndroidHostTest` (was
+  `testDebugUnitTest`); the unused kotlinx-serialization and atomicfu catalog entries are removed.
+
+### Fixed
+
+- `kmptoolkit-storage`: concurrent first use of a `SecureKeyValueStorage` on Android could make
+  stored values permanently unreadable. Looking the Keystore alias up and generating its key were
+  two unordered calls, and generating under an existing alias replaces it, so two overlapping first
+  uses — two coroutines, or two stores over the same `StorageConfig` — could each generate a key;
+  values encrypted under the replaced one read back as `Undecryptable`, and a store left holding
+  the replaced key kept writing under it until the process ended. Recovery from an unrecoverable
+  key (a changed device lock) had the same race and could delete the fresh replacement key. Key
+  resolution now runs under one process-wide `Mutex` and re-checks the Keystore inside it. Present
+  since 1.0.0. A second *process* of the same app is still not ordered — see
+  `docs/kmptoolkit-storage/05-platform-notes.md`.
+- `kmptoolkit-storage`: concurrent first calls to `DeviceIdProvider.current()` could each generate
+  and return a different id while only one was persisted. The read-generate-write now runs under a
+  process-wide `Mutex`, so every caller gets the stored id.
+- `kmptoolkit-storage`: on iOS, two concurrent first `put`s of the same key in the secure store made
+  one of them fail with `OperationFailed` (`errSecDuplicateItem`). The losing write now updates the
+  item instead.
+- `kmptoolkit-permission`: Android `check` was documented as never suspending, but it suspends
+  since the storage became `suspend`. `InstallPackages` below API 26 reported the device-wide
+  "Unknown sources" switch, `FullScreenNotifications` below API 34 reported granted without the
+  manifest declaration, and `MediaManagement` below API 31 reported granted; all now read
+  `Unavailable`. Requesting an iOS permission without its usage description terminated the app.
+- `kmptoolkit-downloader`: two commits of the same unit no longer run at once — the group and
+  per-unit surfaces, two engines over one storage directory, or a self-committing
+  `BackgroundResourceDownloader` could overlap. On iOS the late commit could delete the resource
+  just committed; on Android it failed with a spurious `DownloadError.Storage`; archive commits
+  wiped each other's staging extraction. Commits are serialized per unit across the process, a
+  commit that finds the unit already committed returns normally, and on iOS a file is moved into
+  place with an atomic rename.
+- `kmptoolkit-uploader`: a drain claim made from a stale read no longer revives an item a detached
+  executor just parked or re-hands one under a fresh backoff gate, and a failure that spends the
+  retry budget parks or drops in the same write, so no attempt goes out past `maxAttempts`. A late
+  `settle(Park)` landing while the drain runs the item itself is no longer overwritten back to
+  pending. An executor whose lease expired and whose item was re-handed can no longer return it to
+  pending, spend an attempt or park it by reporting late, and a duplicate `Failed` after a re-claim
+  in the same millisecond no longer spends a second attempt.
+- `kmptoolkit-uploader`: an enqueue landing between the drain's empty read and its `cancelWake` no
+  longer has its platform wake cancelled; the drain re-checks and re-arms.
+- `kmptoolkit-uploader`: `cancelByTag` and `ConflictPolicy.REPLACE` now cancel the upload of every
+  row they remove, including one enqueued and handed off while they ran. Before, it could reach the
+  server after a logout wipe.
+- `kmptoolkit-uploader`: on iOS, a hand-off no longer joins a background session that a relaunch
+  opened only to drain events, or one whose upload had already completed. Either left the item in
+  flight, uploading nothing, until its lease expired.
+- `kmptoolkit-scheduler`: on Android, two overlapping `schedule` calls for one id no longer arm one
+  call's time carrying the other call's content. Arming and cancelling are serialized process-wide.
+- `kmptoolkit-audio-recorder`: two recorders preparing in the same millisecond, or after the clock
+  stepped back, no longer share one generated path — the second recording overwrote the first, and
+  a failed second `prepare()` deleted the first's file.
+- `kmptoolkit-audio-recorder`: on iOS, one recorder's `release()` (or a second recorder's failed
+  `prepare()`) no longer deactivates the shared `AVAudioSession` under another recorder that is
+  still recording. Session holds are counted across the process.
+- `kmptoolkit-video-player`, `kmptoolkit-video-player-javafx`, `kmptoolkit-video-player-vlcj`:
+  transport calls reach ExoPlayer, AVPlayer, JavaFX and libVLC in the order they were made across
+  threads. A `play()` from a background thread followed by a main-thread `pause()` could leave the
+  video playing while `stateFlow` said `Paused`, and volume, speed or repeat could end on the older
+  value. With VLCJ and `RepeatMode.One`, a `pause()` right after the restart at the end was dropped.
+- `kmptoolkit-video-player-javafx`: after `seekTo`, the position no longer briefly jumps back to the
+  old playhead. A playhead reading JavaFX took before the seek but delivered after it, because the FX
+  thread was busy, overwrote the seek target, and a `seekForward()` or `seekBackward()` in that
+  window stepped from the wrong position. The engine keeps the target until the seek has reached the
+  FX thread.
+- `kmptoolkit-systembars`, `kmptoolkit-video-player-compose`: on iOS, `ScreenWakeLockController`
+  and playing video surfaces no longer undo each other's `UIApplication.idleTimerDisabled` — the
+  screen could sleep mid-video, or the timer stay disabled for good. Both share
+  `SharedIdleTimer`.
+- `kmptoolkit-systembars`: `ScreenWakeLockController.setKeepScreenOn` lets the most recent call win
+  on Android and iOS; a background `true` still queued for the main thread could land after the
+  screen's `false`. On Android, a `SystemBarsController` change made from a background thread no
+  longer overwrites a later main-thread change on the window.
+- `kmptoolkit-activity`: the immediate replay to a listener added off the main thread now runs on
+  the main thread, as documented, and a `release()` racing a new subscription can no longer leave
+  that listener held.
+- `kmptoolkit-notification`: on Android, two ids with equal `String.hashCode()` (for example `"Aa"`
+  and `"BB"`) no longer replace or cancel each other, and their taps and buttons no longer share one
+  `PendingIntent` carrying the other's extras. The channel cache is safe under concurrent `post`s.
+- `kmptoolkit-language`: `AppLanguageHolder.setLanguage` is serialized across threads; two
+  concurrent calls could leave the platform locale on one language while `languageFlow` and the
+  persisted choice recorded the other. `onLanguageChanged` may itself call `setLanguage`.
+- `kmptoolkit-flashlight`: a `stop()` on one `Flashlight` instance now ends a pattern another
+  instance started; before, the torch kept blinking.
+- `kmptoolkit-biometric`: the `launchEnrollment` throttle is one atomic check-and-stamp; two calls
+  on two threads could both open a settings screen.
+- `kmptoolkit-location-testing`: `FakeLocationProvider` is documented as single-threaded, like the
+  suite's other doubles; only `emit` is safe from any thread.
+- Release process: 2.2.1 added public API (four `SpecialPermission` entries) in a patch release,
+  which semver reserves for a minor. `RELEASING.md` now checks that any new public symbol, including
+  a new enum or sealed entry, ships in at least a minor.
+
 ## [2.2.1]
 
 ### Added

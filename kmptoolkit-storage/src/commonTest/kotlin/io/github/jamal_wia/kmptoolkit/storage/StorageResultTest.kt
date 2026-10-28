@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class StorageResultTest {
 
@@ -44,7 +45,7 @@ class StorageResultTest {
     }
 
     @Test
-    fun `getStringOrNull returns a stored value`() {
+    fun `getStringOrNull returns a stored value`() = runTest {
         val storage = FakeKeyValueStorage()
         storage.put("k", "v")
 
@@ -52,12 +53,12 @@ class StorageResultTest {
     }
 
     @Test
-    fun `getStringOrNull returns null for a key that was never written`() {
+    fun `getStringOrNull returns null for a key that was never written`() = runTest {
         assertNull(FakeKeyValueStorage().getStringOrNull("missing"))
     }
 
     @Test
-    fun `getStringOrNull collapses a failed read into null`() {
+    fun `getStringOrNull collapses a failed read into null`() = runTest {
         val storage = FakeKeyValueStorage()
         storage.entries["k"] = "v"
         storage.failReadsWith = StorageError.Undecryptable("k")
@@ -66,7 +67,7 @@ class StorageResultTest {
     }
 
     @Test
-    fun `getStringOrNull preserves an empty value rather than reporting it absent`() {
+    fun `getStringOrNull preserves an empty value rather than reporting it absent`() = runTest {
         val storage = FakeKeyValueStorage()
         storage.put("k", "")
 

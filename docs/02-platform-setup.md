@@ -29,7 +29,9 @@ Some modules require usage-description strings before the OS will grant a permis
 (e.g. `NSCameraUsageDescription` for camera access via `kmptoolkit-permission`). These are
 consumer-owned for the same reason Android permissions are: the toolkit cannot write your app's
 user-facing justification text for you. Check the specific module's `05-platform-notes.md` for
-which key it needs.
+which key it needs. iOS terminates an app that requests an authorization without its key;
+`kmptoolkit-permission` checks first, reports the permission as `Unavailable`, and logs the missing
+key instead.
 
 ### Background modes
 

@@ -23,6 +23,12 @@ import kotlinx.coroutines.flow.asStateFlow
  * assertEquals(MapState.Centered, presenter.state)
  * ```
  *
+ * **Not thread-safe**, deliberately, unlike the real providers it stands in for: [openSettingsCount],
+ * [promptCount], [locationEnabled] and [servicePromptAnswer] are plain fields. Drive it from one
+ * thread — or one test coroutine — and assert after the work under test has finished. Only the fix
+ * itself, behind [emit], is a `StateFlow` and safe to publish from anywhere. Making the counters
+ * concurrent would mean an atomic dependency in an artifact whose value is being trivial.
+ *
  * @param current what [getCurrentLocation] returns and what [observeLocation] starts from.
  *   Defaults to `null` — no fix yet, matching a fresh real provider before the first callback.
  * @param locationEnabled what [isLocationEnabled] returns until changed.

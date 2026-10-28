@@ -10,6 +10,14 @@ open annotation class io.github.jamal_wia.kmptoolkit.core/ToolkitInternalApi : k
     constructor <init>() // io.github.jamal_wia.kmptoolkit.core/ToolkitInternalApi.<init>|<init>(){}[0]
 }
 
+abstract interface io.github.jamal_wia.kmptoolkit.core/IdleTimerHold { // io.github.jamal_wia.kmptoolkit.core/IdleTimerHold|null[0]
+    abstract fun release() // io.github.jamal_wia.kmptoolkit.core/IdleTimerHold.release|release(){}[0]
+}
+
+abstract interface io.github.jamal_wia.kmptoolkit.core/IdleTimerHolder { // io.github.jamal_wia.kmptoolkit.core/IdleTimerHolder|null[0]
+    abstract fun acquire(): io.github.jamal_wia.kmptoolkit.core/IdleTimerHold // io.github.jamal_wia.kmptoolkit.core/IdleTimerHolder.acquire|acquire(){}[0]
+}
+
 abstract interface io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle { // io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle|null[0]
     abstract fun lock() // io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle.lock|lock(){}[0]
     abstract fun tryLock(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle.tryLock|tryLock(){}[0]
@@ -23,4 +31,8 @@ final class io.github.jamal_wia.kmptoolkit.core/StateMachineLock { // io.github.
     final fun submit(kotlin/Function0<kotlin/Unit>) // io.github.jamal_wia.kmptoolkit.core/StateMachineLock.submit|submit(kotlin.Function0<kotlin.Unit>){}[0]
 }
 
+final val io.github.jamal_wia.kmptoolkit.core/SharedIdleTimer // io.github.jamal_wia.kmptoolkit.core/SharedIdleTimer|{}SharedIdleTimer[0]
+    final fun <get-SharedIdleTimer>(): io.github.jamal_wia.kmptoolkit.core/IdleTimerHolder // io.github.jamal_wia.kmptoolkit.core/SharedIdleTimer.<get-SharedIdleTimer>|<get-SharedIdleTimer>(){}[0]
+
+final fun io.github.jamal_wia.kmptoolkit.core/newIdleTimerHolder(kotlin/Function0<kotlin/Boolean>, kotlin/Function1<kotlin/Boolean, kotlin/Unit>, kotlin/Function0<kotlin/Boolean>, kotlin/Function1<kotlin/Function0<kotlin/Unit>, kotlin/Unit>): io.github.jamal_wia.kmptoolkit.core/IdleTimerHolder // io.github.jamal_wia.kmptoolkit.core/newIdleTimerHolder|newIdleTimerHolder(kotlin.Function0<kotlin.Boolean>;kotlin.Function1<kotlin.Boolean,kotlin.Unit>;kotlin.Function0<kotlin.Boolean>;kotlin.Function1<kotlin.Function0<kotlin.Unit>,kotlin.Unit>){}[0]
 final fun io.github.jamal_wia.kmptoolkit.core/newReentrantLock(): io.github.jamal_wia.kmptoolkit.core/ReentrantLockHandle // io.github.jamal_wia.kmptoolkit.core/newReentrantLock|newReentrantLock(){}[0]

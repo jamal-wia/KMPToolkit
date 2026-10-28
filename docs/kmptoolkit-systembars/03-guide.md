@@ -179,7 +179,9 @@ first composition, and each screen re-claims when it re-composes.
 Every method is safe to call from any thread. State transitions are a compare-and-set over the
 whole stack, so two writers cannot interleave into a lost axis — a theme updating the base on a
 background dispatcher while a screen pushes a claim on the main thread leaves both changes in
-place. Platform work is moved to the main thread by the implementation.
+place. Platform work is moved to the main thread by the implementation, and it always applies the
+configuration the controller holds when that work runs. A write queued by an earlier call from a
+background thread can therefore never land over a later one made on the main thread.
 
 Atomicity is not ordering, though: if two writers race to set the *same* axis, which one lands
 last is genuinely undefined, because the question has no answer. Two owners of one axis is the
@@ -257,6 +259,9 @@ composition-scoped effect shipped for it. Two things follow from that:
   an override is easy and costly; the wake lock has no composition-scoped equivalent, so call
   `setKeepScreenOn(false)` explicitly from whatever owns the session (a `DisposableEffect`'s
   `onDispose`, a component's teardown hook) when the reason to stay awake ends.
+- **The last call wins, from any thread.** A `true` from a background collector followed by the
+  teardown's `false` on the main thread leaves the screen free to sleep, even though the `true`
+  still had to be posted to the main thread when the `false` ran.
 
 Only one caller in your app should ever touch it. A second, independent caller of the same platform
 flag reintroduces the exact "last write wins" conflict `SystemBarsController` exists to prevent, and

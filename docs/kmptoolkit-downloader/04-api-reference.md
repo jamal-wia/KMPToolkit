@@ -149,7 +149,10 @@ transfer, resumed from `getTempFileSize`), `Complete` (marked by `markTempFileCo
 state committed without a transfer). `markTempFileComplete` is atomic, idempotent once complete,
 and throws when there is no file. `commitResource` throws when there is no complete file, and
 throws `ResourceIntegrityException(message, cause)` — after deleting the temp file — when the bytes
-fail a check; the engine answers that with one fresh download.
+fail a check; the engine answers that with one fresh download. Commits of one unit are mutually
+exclusive across every storage instance over the same base directory in the process, and a commit
+that finds the resource already committed by a concurrent one (no complete file, resource
+available) returns normally without touching anything.
 
 `beginTempFile(unit, expectedSha256)` is called by the party that owns the writer, exactly when it
 is about to write from byte 0, and replaces whatever transfer was there: afterwards `tempFileState`

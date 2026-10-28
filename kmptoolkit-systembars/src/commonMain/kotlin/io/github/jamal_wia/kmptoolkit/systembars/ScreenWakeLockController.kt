@@ -19,7 +19,9 @@ package io.github.jamal_wia.kmptoolkit.systembars
  * **This must be the app's only caller of the underlying platform flag.** A second owner of
  * `FLAG_KEEP_SCREEN_ON` / `idleTimerDisabled` reintroduces exactly the conflict this interface
  * exists to prevent: the last write wins, and whichever owner wrote second decides whether the
- * screen ever sleeps again.
+ * screen ever sleeps again. Inside the suite this is already taken care of: on iOS, the playing
+ * surfaces of `kmptoolkit-video-player-compose` share one reference-counted holder of
+ * `idleTimerDisabled` with this controller, so the two never undo each other.
  *
  * **Callers must clear the flag when they no longer need it.** Letting the owning `LaunchedEffect`
  * or coroutine scope simply get cancelled is not enough — a scope cancellation does not itself flip

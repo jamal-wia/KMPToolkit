@@ -27,18 +27,24 @@ whether a call can block.
 |---|---|---|
 | `start` | `fun start()` | Idempotent. Launches one drain coroutine, wires triggers, drains leftovers. A call after `close()` is a no-op. |
 | `drain` | `suspend fun drain()` | One full pass. **Do not call on a started engine** — it breaks single-flight. For tests and diagnostics. |
-| `settle` | `suspend fun settle(id: String, result: SettleResult)` | Reports a detached delivery. Every race degrades to a no-op; see below. |
+| `settle` | `suspend fun settle(id: String, claim: Long, result: SettleResult)` | Reports a detached delivery, with the `id` and `claim` from the executor's `AttemptContext`. Every race degrades to a no-op; see below. |
 | `awaitDrained` | `suspend fun awaitDrained(timeout: Duration): Boolean` | For a wake job. An `IN_FLIGHT` item counts as **not** drained. |
 | `close` | `fun close()` | Idempotent, non-suspending. Stops the engine, leaves the queue and your scope alone. |
 
 ### `settle` guards
 
+A report is **current** when its `claim` is the one the item is held under — or the one the drain is
+about to write, for a fast executor that reports before `execute` has returned its `Detached`. A
+re-hand-off after an expired lease writes a new claim and supersedes every earlier one.
+
 | Situation | Effect |
 |---|---|
 | Unknown id | No-op |
-| `Failed` on an item that is not `IN_FLIGHT` | No-op — parked stays parked, pending is already the drain's |
-| `Failed` whose lease changed between the read and the write | No-op — the fresh claim wins |
-| `Delivered` / `Drop` / `Park` | Applied unconditionally — terminal facts, not opinions about retry state |
+| `Delivered` / `Drop`, from any claim | Applied — facts about the effect: it landed, or it is no longer owed. A superseded executor that delivered has still delivered. |
+| `Failed` / `Park` from the current claim | Applied: `Failed` spends one attempt (and may give up in the same write), `Park` parks |
+| `Failed` / `Park` from a superseded claim | No-op — verdicts on an attempt the engine no longer runs; the executor now holding the item reaches its own |
+| `Failed` / `Park` on a parked item | No-op — parked stays parked |
+| Re-hand-off landing between the settle's read and its write | No-op — the write is a compare-and-set on the claim, so the fresh claim wins |
 
 ## `createUploaderEngine`
 
@@ -80,7 +86,12 @@ real cancellation of the engine's scope propagates, while one leaked by the hand
 
 ## `AttemptContext`
 
-`id`, `attempts`, `uniqueKey`, `orderingKey`, `wasDetached`.
+`id`, `attempts`, `uniqueKey`, `orderingKey`, `claim`, `wasDetached`.
+
+`claim` is the claim this attempt runs under: the value `UploaderItem.claim` takes when the attempt's
+hand-off is written. Unique per attempt of an item and never reused — unlike the lease, which two
+claims can share (written in the same millisecond, or across a clock stepped back). An executor passes
+it back to `settle` with the `id`.
 
 `wasDetached` is `true` only when a lease expired without a settle — the signal to rejoin or probe
 rather than start a fresh delivery.
@@ -102,7 +113,8 @@ expire the moment it was written and spin the drain.
 
 `Delivered`, `Failed(cause)`, `Drop(reason)`, `Park(reason)` — the same effects as their
 `AttemptResult` counterparts. There is deliberately no detached/retry split: an executor never owns
-retry policy.
+retry policy. `Delivered` and `Drop` apply from any claim; `Failed` and `Park` only from the current
+one — see [`settle` guards](#settle-guards).
 
 ## `UploadTransport`
 
@@ -238,7 +250,7 @@ positive.
 
 ## `UploaderItem` / `UploaderItemState`
 
-A data class of thirteen fields — see its KDoc for each. States: `PENDING`, `IN_FLIGHT`, `PARKED`.
+A data class of fourteen fields — see its KDoc for each; `claim` is the row's claim counter. States: `PENDING`, `IN_FLIGHT`, `PARKED`.
 There is deliberately no `RUNNING` state; a crash mid-execution needs no recovery pass because the
 row is still `PENDING` on the next launch.
 
@@ -280,7 +292,14 @@ registers on your behalf. `close()` clears the slot if the closing engine holds 
 Eleven functions; the full contract is in the interface KDoc and in
 [`07-custom-store.md`](07-custom-store.md). The invariants in one line each:
 
-- Durable before returning; atomic per function; `recordFailure`'s guard is a single compare-and-set.
+- Durable before returning; atomic per function; `recordFailure`, `markInFlight` and `park` are each a
+  single compare-and-set on the state and claim the caller read, returning whether it wrote —
+  `recordFailure` giving up (`FailureDisposition.PARK` or `DROP`) in that same write. None has an
+  unguarded form.
+- `UploaderItem.claim` is `0` on insert and advances by exactly one in every guarded write that
+  applies, and in no other way — the engine derives the claims it hands out from that rule.
+- `insertReplace` returns the item it superseded and `deleteByTag` the items it removed, each read in
+  the same atomic step as its delete — the engine cancels exactly those uploads.
 - `getAllActive` returns `PENDING` + `IN_FLIGHT` in **insertion order** (a sequence, not a timestamp).
 - Every id-addressed write treats an absent row as a no-op and is idempotent.
 - Callable concurrently.

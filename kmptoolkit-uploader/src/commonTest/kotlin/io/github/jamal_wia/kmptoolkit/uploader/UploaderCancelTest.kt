@@ -108,8 +108,9 @@ class UploaderCancelTest {
         val id: String = engine.enqueue(plain, "effect")!!
         engine.drain()
 
+        val claim: Long = store.find(id)!!.claim
         engine.cancel(id)
-        engine.settle(id, SettleResult.Failed())
+        engine.settle(id, claim, SettleResult.Failed())
 
         assertNull(store.find(id), "a later settle does not revive it")
         assertTrue(transport.events.isEmpty())
@@ -128,9 +129,9 @@ class UploaderCancelTest {
     }
 
     @Test
-    fun `an item withdrawn while its hand-off is being prepared has its upload cancelled after launch`() = runTest {
-        // The withdrawal lands while prepareUpload runs: there is no upload to cancel yet, and the
-        // hand-off goes on to launch one. The hand-off must notice the row is gone and cancel it.
+    fun `an item withdrawn while its hand-off is being prepared is never launched`() = runTest {
+        // The withdrawal lands while prepareUpload runs: there is no upload to cancel yet, and the row
+        // is gone before the hand-off claims it. The claim finds nothing to claim, so nothing launches.
         lateinit var withdraw: suspend () -> Unit
         val racing = TestUploadHandler(transport, prepare = {
             withdraw()
@@ -139,6 +140,21 @@ class UploaderCancelTest {
         val engine: UploaderEngine = startEngine(backgroundScope, racing)
         val id: String = engine.enqueue(racing, "homework")!!
         withdraw = { engine.cancel(id) }
+
+        engine.drain()
+
+        assertEquals(listOf("cancel:$id"), transport.events)
+        assertNull(store.find(id))
+    }
+
+    @Test
+    fun `an item withdrawn between its claim and its launch has its upload cancelled after launch`() = runTest {
+        // The withdrawal lands after the hand-off claimed the row but before the transport launched:
+        // there is no upload to cancel yet, and the hand-off goes on to launch one. The hand-off must
+        // notice the row is gone and cancel it.
+        val engine: UploaderEngine = startEngine(backgroundScope)
+        val id: String = engine.enqueue(audio, "homework")!!
+        store.afterNextMarkInFlight = { engine.cancel(id) }
 
         engine.drain()
 

@@ -39,6 +39,13 @@ internal class FxPlayback private constructor(
     /** Where events go. Called on the FX thread. */
     interface Sink {
         fun onTimes(durationMs: Long, positionMs: Long, bufferedMs: Long)
+
+        /**
+         * A [seekTo] has reached the FX thread — called whether or not it could still seek, so
+         * every [seekTo] is answered once (unless the toolkit has exited and the call was dropped).
+         */
+        fun onSeekApplied()
+
         fun onVideoSize(size: VideoSize?)
         fun onBuffering(isBuffering: Boolean)
         fun onCompleted()
@@ -137,10 +144,12 @@ internal class FxPlayback private constructor(
     }
 
     fun seekTo(positionMs: Long): Unit = FxThread.post {
-        if (disposed) return@post
-        atEnd = false
-        player.seek(Duration.millis(positionMs.toDouble()))
-        refreshPicture()
+        if (!disposed) {
+            atEnd = false
+            player.seek(Duration.millis(positionMs.toDouble()))
+            refreshPicture()
+        }
+        sink.onSeekApplied()
     }
 
     fun setSpeed(speed: Float): Unit = FxThread.post {

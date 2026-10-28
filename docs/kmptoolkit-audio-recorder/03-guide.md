@@ -259,11 +259,15 @@ Nothing is hardcoded. `RecordingStorage` has three knobs and a default derived f
 
 | You set | Result |
 |---|---|
-| nothing | `<app-private files>/<your application id>/recording_<epochMillis>.m4a` |
-| `directoryName = "voice-notes"` | `<app-private files>/voice-notes/recording_<epochMillis>.m4a` |
-| `directoryPath = "/…/cache/notes"` | `/…/cache/notes/recording_<epochMillis>.m4a` |
-| `fileNamePrefix = "note"` | `…/note_<epochMillis>.m4a` |
+| nothing | `<app-private files>/<your application id>/recording_<epochMillis>_<token>.m4a` |
+| `directoryName = "voice-notes"` | `<app-private files>/voice-notes/recording_<epochMillis>_<token>.m4a` |
+| `directoryPath = "/…/cache/notes"` | `/…/cache/notes/recording_<epochMillis>_<token>.m4a` |
+| `fileNamePrefix = "note"` | `…/note_<epochMillis>_<token>.m4a` |
 | `prepare(outputPath = "…")` | exactly that path, config ignored. Must be absolute |
+
+`<token>` is 32 random hex characters. The timestamp keeps generated names sortable, the token keeps
+them unique: two recorders sharing a directory can prepare in the same millisecond, and the wall
+clock can step backwards, and neither may hand two recordings one file.
 
 ```kotlin
 val recorder = createAudioRecorder(

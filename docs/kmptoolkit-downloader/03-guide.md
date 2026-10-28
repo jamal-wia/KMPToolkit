@@ -264,7 +264,10 @@ See its own KDoc for the full contract — one slot, explicit registration, safe
   this file exist", so a duplicate attempt costs bandwidth, never correctness. What *is*
   at-least-once is the **commit**: your transfer implementation may self-commit and the engine
   commits again on the next `ensureAvailable`, so commit checks `isResourceAvailable` first and
-  skips.
+  skips. Two commits of one unit may also overlap — the group and the per-unit surface, two
+  engines over one directory, or your self-commit racing the engine's — so the shipped storages
+  serialize commits per unit across the whole process and re-check under that lock: the later one
+  finds the unit committed and returns normally, never deleting what the first one put in place.
 - **Only a `Complete` temp file is committed without a transfer.** "Completed while nobody
   observed it" is a fact the downloader records with `markTempFileComplete`, never something the
   engine infers from a file's existence or size.

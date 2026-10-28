@@ -43,9 +43,12 @@
   animation, and its `videoGravity` follows the scale mode (`Fit` → `resizeAspect`, `Fill` →
   `resize`, `Crop` → `resizeAspectFill`). The view does not take touches — the Compose controls
   drawn over it do — and is hidden from VoiceOver; the controls carry the accessibility.
-- **Keep screen on.** `UIApplication.idleTimerDisabled`, a process-wide switch. The first playing
-  surface saves the app's own value and sets it; the last one to stop restores the saved value — so
-  an app that disabled the idle timer itself keeps it disabled, and two players never fight.
+- **Keep screen on.** `UIApplication.idleTimerDisabled`, a process-wide switch. Every playing
+  surface takes a hold on the suite's one reference-counted holder in `kmptoolkit-core`. The
+  `ScreenWakeLockController` from `kmptoolkit-systembars` uses the same holder. The timer stays
+  disabled while any surface or the wake lock holds it. When the last hold goes, the value found at
+  the first hold is restored, so an app that disabled the idle timer itself keeps it disabled. Two
+  players, or a player and the wake lock, never undo each other.
 - **Pause in background.** Compose Multiplatform moves the lifecycle to `STOPPED` when the app
   enters the background.
 - **Default factory.** `createVideoPlayer(config = config)` with the default asset bundle. For

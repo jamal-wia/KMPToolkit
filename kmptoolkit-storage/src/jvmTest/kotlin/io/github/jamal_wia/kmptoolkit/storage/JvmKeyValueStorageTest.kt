@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 import java.io.File
+import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -8,6 +9,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 /** The desktop store, held to the shared contract plus what is specific to a properties file. */
 class JvmKeyValueStorageTest : KeyValueStorageContractTest() {
@@ -17,14 +19,14 @@ class JvmKeyValueStorageTest : KeyValueStorageContractTest() {
     override fun create(config: StorageConfig): KeyValueStorage = createKeyValueStorage(directory, config)
 
     @Test
-    fun `the store is one file named after the config in the given directory`() {
+    fun `the store is one file named after the config in the given directory`() = runTest {
         create().put("k", "v")
 
         assertTrue(File(directory, "${plainStoreId(NAME)}.properties").isFile)
     }
 
     @Test
-    fun `clear deletes the file and nothing else in the directory`() {
+    fun `clear deletes the file and nothing else in the directory`() = runTest {
         val neighbour = File(directory, "unrelated.txt").apply { writeText("keep") }
         val storage: KeyValueStorage = create()
         storage.put("k", "v")
@@ -36,7 +38,7 @@ class JvmKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `a corrupted file is reported on every operation not thrown`() {
+    fun `a corrupted file is reported on every operation not thrown`() = runTest {
         val storage: KeyValueStorage = create()
         File(directory, "${plainStoreId(NAME)}.properties").writeText("broken=\\u12")
 
@@ -48,7 +50,7 @@ class JvmKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `clear removes a temporary file a killed write left behind`() {
+    fun `clear removes a temporary file a killed write left behind`() = runTest {
         val storage: KeyValueStorage = create()
         storage.put("k", "v")
         val leftover = File(directory, "${plainStoreId(NAME)}.properties123456.tmp").apply { writeText("partial") }
@@ -59,7 +61,7 @@ class JvmKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `a missing directory is created on the first write`() {
+    fun `a missing directory is created on the first write`() = runTest {
         val nested = File(Files.createTempDirectory("kmptoolkit-storage").toFile(), "a/b")
 
         val storage: KeyValueStorage = createKeyValueStorage(nested, StorageConfig(NAME))
@@ -70,7 +72,7 @@ class JvmKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `a write that cannot reach the disk is reported not thrown`() {
+    fun `a write that cannot reach the disk is reported not thrown`() = runTest {
         // A regular file where the directory should be: the store cannot create its file there.
         val blocker: File = File.createTempFile("kmptoolkit-storage", ".blocker")
 
@@ -83,7 +85,7 @@ class JvmKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `keys and values with properties-format special characters round-trip`() {
+    fun `keys and values with properties-format special characters round-trip`() = runTest {
         val storage: KeyValueStorage = create()
         val key = "a=b:c #d\\e"
         val value = "line one\nline two = x : y # z \\ end"
@@ -99,9 +101,9 @@ class JvmKeyValueStorageTest : KeyValueStorageContractTest() {
     }
 
     @Test
-    fun `concurrent writers through different instances lose no key`() {
+    fun `concurrent writers through different instances lose no key`() = runTest {
         val threads: List<Thread> = (0 until 8).map { index ->
-            Thread { create().put("key-$index", "value-$index") }
+            Thread { runBlocking { create().put("key-$index", "value-$index") } }
         }
         threads.forEach(Thread::start)
         threads.forEach(Thread::join)

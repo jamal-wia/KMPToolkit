@@ -65,7 +65,10 @@ public interface AlarmScheduler {
 ```
 
 Stateless: it remembers nothing, persists nothing, and cannot enumerate armed alarms.
-Implementations are safe to call from any thread.
+Implementations are safe to call from any thread, and concurrent calls for one id apply whole, one
+after the other — on Android every `schedule` and `cancel` in the process is serialized, across every
+scheduler instance, so two overlapping schedules of one id never arm one call's time with the other's
+content.
 
 | Member | Contract |
 |---|---|

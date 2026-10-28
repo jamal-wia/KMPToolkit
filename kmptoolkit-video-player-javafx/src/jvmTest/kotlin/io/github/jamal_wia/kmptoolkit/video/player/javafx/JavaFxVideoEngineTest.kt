@@ -6,7 +6,11 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerReleasedException
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import javafx.application.Platform
 import javafx.scene.media.MediaException
+import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -249,18 +253,58 @@ class JavaFxVideoEngineTest {
     @Test
     fun speedSetWhilePausedHoldsAfterResuming() {
         load()
+        // Played from 2 s, so every playhead read before the seek back to 0 below is 2 s or more.
+        // JavaFX seeks asynchronously, and its first reading after a seek can still show the old
+        // playhead; a reading under 1.5 s can then only be one taken after the seek.
+        engine.seekTo(2_000L)
         engine.start()
-        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 100L }
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 2_100L }
         engine.pause()
         // Set while paused: on macOS, play() alone would restart the native player at speed 1.
         engine.setSpeed(2f)
         engine.seekTo(0L)
         engine.start()
-        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 100L }
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() in 100L until 1_500L }
         val from: Long = engine.positionMs()
         Thread.sleep(1_000L)
+        // From under 1.5 s, the end of the 3 s clip (where the playhead stops) is still 1.5 s on.
         val covered: Long = engine.positionMs() - from
         assertTrue(covered >= 1_500L, "covered $covered ms of media in 1 s at speed 2")
+    }
+
+    @Test
+    fun aPlayheadReadBeforeASeekLandsDoesNotReplaceItsTarget() {
+        load()
+        engine.start()
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 500L }
+
+        // Hold the FX thread while the source plays on. JavaFX keeps polling the native playhead
+        // every 100 ms and queues each reading there, so readings of the pre-seek playhead are
+        // waiting ahead of the seek below when the thread is let go — as on a loaded machine.
+        val holding = CountDownLatch(1)
+        val letGo = CountDownLatch(1)
+        Platform.runLater {
+            holding.countDown()
+            letGo.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        }
+        assertTrue(holding.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS), "the FX thread did not run the hold")
+        Thread.sleep(500L)
+
+        engine.pause()
+        engine.seekTo(0L)
+        assertEquals(0L, engine.positionMs(), "right after seekTo")
+        // Queued right behind the seek, so it runs once the stale readings and the seek have run,
+        // before JavaFX's next reading of the moved playhead.
+        var afterSeek: Long = -1L
+        val probed = CountDownLatch(1)
+        Platform.runLater {
+            afterSeek = engine.positionMs()
+            probed.countDown()
+        }
+        letGo.countDown()
+        assertTrue(probed.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS), "the FX thread did not run the probe")
+
+        assertEquals(0L, afterSeek, "a reading taken before the seek replaced its target")
     }
 
     @Test
@@ -275,6 +319,45 @@ class JavaFxVideoEngineTest {
 
         engine.setLooping(false)
         awaitTrue(message = { "settings ${inspect().describe()}" }) { inspect().cycleCount == 1 }
+    }
+
+    @Test
+    fun aCallOnTheFxThreadDoesNotOvertakeOneQueuedFromAnotherThreadBeforeIt() {
+        load()
+        // start() from another thread is queued on the FX thread; pause() right after it, made on
+        // the FX thread itself (where engine callbacks arrive), must still land after it — or the
+        // source plays on while the player above says Paused.
+        onFxThread {
+            thread { engine.start() }.join()
+            engine.pause()
+        }
+        Thread.sleep(500L) // let JavaFX settle on whichever status the calls left it in
+        val held: Long = engine.positionMs()
+        Thread.sleep(300L)
+
+        assertTrue(inspect().status != "PLAYING", "the later pause() must win: ${inspect().describe()}")
+        assertTrue(abs(engine.positionMs() - held) <= 50L, "moved from $held to ${engine.positionMs()}")
+    }
+
+    @Test
+    fun settingsMadeOnTheFxThreadAfterOnesQueuedFromAnotherThreadWin() {
+        load()
+        onFxThread {
+            thread {
+                engine.setVolume(0.1f)
+                engine.setSpeed(2f)
+                engine.setLooping(true)
+            }.join()
+            engine.setVolume(0.7f)
+            engine.setSpeed(0.5f)
+            engine.setLooping(false)
+        }
+        // Read on the FX thread, so behind everything queued above.
+        val settled: FxPlayback.Inspection = inspect()
+
+        assertEquals(0.7f.toDouble(), settled.volume, settled.describe())
+        assertEquals(0.5, settled.rate, settled.describe())
+        assertEquals(1, settled.cycleCount, settled.describe())
     }
 
     @Test
@@ -386,6 +469,23 @@ class JavaFxVideoEngineTest {
         val centre: Int = frames.first().pixels[(TestClip.HEIGHT / 2) * TestClip.WIDTH + TestClip.WIDTH / 2]
         assertTrue((centre shr 16) and 0xFF > 180, "centre pixel #${Integer.toHexString(centre)}")
         assertNotNull(engine.frames.value)
+    }
+
+    /** Runs [block] on the FX thread and waits for it, rethrowing what it threw. */
+    private fun onFxThread(block: () -> Unit) {
+        val done = CountDownLatch(1)
+        var failure: Throwable? = null
+        Platform.runLater {
+            try {
+                block()
+            } catch (e: Throwable) {
+                failure = e
+            } finally {
+                done.countDown()
+            }
+        }
+        assertTrue(done.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS), "the FX thread did not run the block")
+        failure?.let { throw it }
     }
 
     private fun inspect(): FxPlayback.Inspection =

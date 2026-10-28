@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 
 /**
  * Creates a plain [KeyValueStorage] backed by one properties file in [directory].
@@ -35,5 +36,5 @@ public fun createKeyValueStorage(directory: File, config: StorageConfig): KeyVal
     val name: String = requireNotNull(config.name) {
         "StorageConfig.name is required on desktop: there is no application identifier to derive it from"
     }
-    return JvmKeyValueStorage(File(directory, "${plainStoreId(name)}.properties"))
+    return JvmKeyValueStorage(File(directory, "${plainStoreId(name)}.properties"), Dispatchers.IO)
 }

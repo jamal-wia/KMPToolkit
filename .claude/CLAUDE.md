@@ -133,14 +133,16 @@ library:
 
 ```bash
 ./gradlew build checkKotlinAbi
-./gradlew testDebugUnitTest iosSimulatorArm64Test
+./gradlew testAndroidHostTest iosSimulatorArm64Test
 ```
 
 - Run long checks in the background; never poll for completion in a loop.
 - Redirect Gradle output to a file and filter it — never paste a raw build log into the
   conversation.
-- `allTests` does **not** run Android (Robolectric) unit tests — don't rely on it alone; run
-  `testDebugUnitTest` explicitly.
+- Run the Android (Robolectric) host tests by name, `testAndroidHostTest`, as above — don't rely on
+  `allTests` alone. Since the move to the Kotlin Multiplatform library plugin `allTests` does
+  include them (under `com.android.library` it did not), but naming the task makes a renamed or
+  missing Android test task fail the gate instead of silently running nothing.
 - After a release, a smoke test that exercises the published artifacts — the only check that can
   catch a broken POM, a missing variant, or a publication that omits a target, since no unit test
   can see any of those: `./gradlew :sample:assembleDebug -PusePublishedArtifacts` against Maven

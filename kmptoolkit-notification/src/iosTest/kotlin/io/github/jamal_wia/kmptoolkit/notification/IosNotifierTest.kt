@@ -1,9 +1,11 @@
 package io.github.jamal_wia.kmptoolkit.notification
 
 import io.github.jamal_wia.kmptoolkit.permission.Permission
-import io.github.jamal_wia.kmptoolkit.permission.PermissionHandler
+import io.github.jamal_wia.kmptoolkit.permission.PermissionController
 import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
 import kotlin.test.Test
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlinx.coroutines.test.runTest
@@ -30,7 +32,7 @@ class IosNotifierTest {
     )
 
     private fun notifier(status: PermissionStatus): Notifier =
-        createNotifier(permissionHandler = FixedPermissionHandler(status))
+        createNotifier(permissions = FixedPermissionController(status))
 
     @Test
     fun `posting without authorization reports the permission rather than touching the center`() =
@@ -65,9 +67,12 @@ class IosNotifierTest {
         assertEquals(NotificationResult.PermissionDenied, result)
     }
 
-    private class FixedPermissionHandler(private val status: PermissionStatus) : PermissionHandler {
+    private class FixedPermissionController(private val status: PermissionStatus) : PermissionController {
         override suspend fun check(permission: Permission): PermissionStatus = status
         override suspend fun request(permission: Permission): PermissionStatus = status
-        override fun openAppSettings(): Boolean = false
+        override suspend fun request(permissions: Collection<Permission>): Map<Permission, PermissionStatus> =
+            permissions.associateWith { status }
+        override fun observe(permission: Permission): Flow<PermissionStatus> = flowOf(status)
+        override fun openSettings(permission: Permission): Boolean = false
     }
 }

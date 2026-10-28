@@ -10,20 +10,28 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: macos-latest
+    # Pinned rather than macos-latest, so the Xcode selected below is known to be installed.
+    runs-on: macos-26
     timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      # Kotlin/Native 2.4.x supports Xcode 26.4; the image's default Xcode is newer than that.
+      - name: Select Xcode 26.4.1
+        run: sudo xcode-select -s /Applications/Xcode_26.4.1.app
+
+      # The JDK the Gradle daemon runs on (gradle/gradle-daemon-jvm.properties); without it the
+      # daemon would provision its own JDK 21 on every run.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
+      # v5, not v6: v6 moves caching into a separately licensed component.
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       # Root-level task names (no module prefix) so this step never needs editing as
       # kmptoolkit-* modules are added — Gradle runs the task in every subproject that has it.
@@ -31,7 +39,7 @@ jobs:
         run: ./gradlew checkKotlinAbi --no-configuration-cache
 
       - name: Verify build (Android + iOS unit tests)
-        run: ./gradlew testDebugUnitTest iosSimulatorArm64Test --no-configuration-cache
+        run: ./gradlew testAndroidHostTest iosSimulatorArm64Test --no-configuration-cache
 
       - name: Publish to Maven Central
         run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache

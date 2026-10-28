@@ -76,6 +76,13 @@ What the engine does with it:
    `classify` settles as `Failed`; a thrown hook is logged and changes nothing — the upload already
    happened.
 
+   The gateway carries no claim, and needs none: it settles under the item's **current** claim.
+   `launch` is idempotent per item id — one unique WorkManager job, one background `NSURLSession` task
+   — so a re-hand-off rejoins the same job rather than starting another, and every claim of the item is
+   served by it. The rule `UploaderEngine.settle` applies to a superseded claim's report is for
+   executors that are not unique per item; a transport you write must keep `launch`'s contract, or the
+   gateway would take one executor's report for another's.
+
 `UploadGateway` reaches the engine through `UploaderEngineRegistry`, so **register the engine** after
 creating it. An engine that is not `createUploaderEngine`'s reads as unavailable.
 
@@ -136,7 +143,10 @@ one `prepareUpload` returned at hand-off, not one prepared when the transfer sta
 `nsurlsessiond` keeps its headers until the transfer ends. Size an `Authorization` token's lifetime —
 or the lease — for that.
 
-- **Idempotent launch.** A session live in this process is joined. In a new process, a re-hand
+- **Idempotent launch.** An upload an earlier hand-off in this process started is joined. A session
+  whose upload already completed is replaced rather than joined, and one that only a relaunch opened
+  is taken over and checked for a running task — so a hand-off never joins a session that has nothing
+  to upload and leaves the item in flight until its lease expires. In a new process, a re-hand
   rejoins a task the daemon is still running. A re-hand that finds nothing running waits
   `rehandFlushWindow` (3 s) for buffered completion events before starting afresh: the previous
   process may have finished without settling, and uploading again would deliver twice.
@@ -191,6 +201,10 @@ override suspend fun execute(context: AttemptContext, payload: AvatarUpload): At
     return AttemptResult.Detached(transport.leaseMillis)
 }
 ```
+
+Its worker settles under the item's current claim, as the gateway does and for the same reason: the
+job is unique per item id, so it serves every claim of the item. Like the gateway, it reaches only an
+engine made by `createUploaderEngine`, and retries the job otherwise.
 
 Its limits are the reason `UploadHandler` exists:
 

@@ -95,4 +95,24 @@ class AppLanguageHolderTest {
 
         assertEquals(listOf(korean, korean), applied)
     }
+
+    @Test
+    fun `onLanguageChanged may itself call setLanguage without deadlocking`() {
+        // setLanguage is serialized and the callback runs inside that serialized step, so the lock
+        // has to be reentrant — an app that redirects one choice to another from its callback must
+        // not hang its own thread. The redirected call runs to completion inside the outer one.
+        val arabic = AppLanguage(code = "ar", isLtr = false)
+        val english = AppLanguage(code = "en", isLtr = true)
+        val persisted = mutableListOf<AppLanguage>()
+        lateinit var holder: AppLanguageHolder
+        holder = holder(AppLanguage.System, onLanguageChanged = { language ->
+            persisted.add(language)
+            if (language == arabic) holder.setLanguage(english)
+        })
+
+        holder.setLanguage(arabic)
+
+        assertEquals(english, holder.language)
+        assertEquals(listOf(arabic, english), persisted)
+    }
 }

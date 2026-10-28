@@ -1,7 +1,3 @@
-// `compose.uiTest` (Compose Multiplatform's test artifact, used by the Robolectric-backed UI tests
-// in androidUnitTest) is still behind this opt-in as of Compose Multiplatform 1.11.
-@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
-
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.compose")
@@ -26,11 +22,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.systembars"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.systembars"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -54,16 +50,16 @@ kotlin {
             // controller, the layer stack) is plain Kotlin with no Compose dependency at all;
             // `runtime` is for the effect's DisposableEffect/SideEffect, and `ui` is only for the
             // dialog-window effect, which needs LocalView and DialogWindowProvider on Android.
-            implementation(compose.runtime)
-            implementation(compose.ui)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.ui)
 
             // AutoSystemBarsIconStyle's probe Box: Modifier.fillMaxSize(), WindowInsets.statusBars
             // / navigationBars.
-            implementation(compose.foundation)
+            implementation(libs.compose.foundation)
 
             // AutoSystemBarsIconStyle pauses sampling below Lifecycle.State.STARTED — a backgrounded
             // screen must be neither read nor written to. This is the one real dependency this pulls
-            // in beyond compose.runtime/compose.ui/compose.foundation: LocalLifecycleOwner +
+            // in beyond Compose's runtime/ui/foundation: LocalLifecycleOwner +
             // repeatOnLifecycle.
             implementation(libs.androidx.lifecycle.runtime.compose)
         }
@@ -78,14 +74,23 @@ kotlin {
             api(project(":kmptoolkit-activity"))
         }
 
+        iosMain.dependencies {
+            // The process-wide idle-timer holder, shared with kmptoolkit-video-player-compose so
+            // that the wake lock and a playing video surface take turns on the one
+            // `UIApplication.idleTimerDisabled` instead of undoing each other. iOS only: that is
+            // the only platform where the two write the same switch. `implementation`, because no
+            // core type appears in this module's API.
+            implementation(project(":kmptoolkit-core"))
+        }
+
         commonTest.dependencies {
             // Only for the concurrency tests, which need real parallelism from Dispatchers.Default
             // on both the JVM and Kotlin/Native.
             implementation(libs.kotlinx.coroutines.test)
         }
 
-        androidUnitTest.dependencies {
-            implementation(compose.uiTest)
+        androidHostTest.dependencies {
+            implementation(libs.compose.ui.test)
             // AutoSystemBarsIconStyleLifecycleTest drives the test clock frame by frame and needs a
             // real Activity to dispatch window insets into, which is `createAndroidComposeRule` —
             // the JUnit4 rule, not the `runComposeUiTest` the other UI tests here use. Versioned
@@ -93,20 +98,18 @@ kotlin {
             implementation(project.dependencies.platform(libs.androidx.compose.bom))
             implementation(libs.androidx.compose.ui.test.junit4)
             implementation(libs.androidx.activity.compose)
+
+            // Robolectric launches the Compose test host through ActivityScenario, which needs an
+            // `androidx.activity.ComponentActivity` declared in the manifest the host tests run
+            // against. Without it every UI test dies with "Unable to resolve activity for Intent ...
+            // ComponentActivity". ui-test-manifest is a manifest-only AAR that declares exactly
+            // that. Under com.android.library this had to be a `debugImplementation` dependency,
+            // because a unit-test dependency was merged too late; the Kotlin Multiplatform library
+            // plugin has no build types, and its host-test component merges this dependency's
+            // manifest into the one the tests run against. A host-test dependency never reaches
+            // the published artifact. Versioned through the Compose BOM above.
+            implementation(libs.androidx.compose.ui.test.manifest)
         }
     }
 }
 
-dependencies {
-    // Robolectric launches the Compose test host through ActivityScenario, which needs an
-    // `androidx.activity.ComponentActivity` declared in the *merged debug manifest* — a test-only
-    // configuration is merged too late for that, which is why this is `debugImplementation` and not
-    // an androidUnitTest dependency. Without it every UI test dies with "Unable to resolve activity
-    // for Intent ... ComponentActivity". ui-test-manifest is a manifest-only AAR, the debug variant
-    // is never published (`publishLibraryVariants("release")`), so nothing reaches a consumer.
-    //
-    // Versioned through the Compose BOM because the catalog's ui-test-manifest entry carries no
-    // version of its own.
-    debugImplementation(platform(libs.androidx.compose.bom))
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
-}

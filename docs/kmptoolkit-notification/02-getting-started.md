@@ -20,7 +20,7 @@ kotlin {
 
 With the BOM, drop the version — see [`docs/00-getting-started.md`](../00-getting-started.md).
 
-`kmptoolkit-permission` comes along transitively: the factories take a `PermissionHandler`, and you
+`kmptoolkit-permission` comes along transitively: the factories take a `PermissionController`, and you
 need one anyway to ask for `POST_NOTIFICATIONS`.
 
 ## 2. Declare the permission (Android)
@@ -39,19 +39,17 @@ for it. Full details in [`05-platform-notes.md`](05-platform-notes.md).
 **Android** — in `Application.onCreate`, or wherever you assemble dependencies:
 
 ```kotlin
-val permissionHandler: PermissionHandler = createPermissionHandler(
+val permissions: PermissionController = createPermissionController(
     context = this,
-    host = permissionRequestHost,
-    activityAccess = activityAccess,
-    storage = storage,
+    storage = createKeyValueStorage(this),
 )
-val notifier: Notifier = createNotifier(context = this, permissionHandler = permissionHandler)
+val notifier: Notifier = createNotifier(context = this, permissions = permissions)
 ```
 
 **iOS** — from your app delegate or wherever you build shared dependencies:
 
 ```kotlin
-val notifier: Notifier = createNotifier(permissionHandler = createPermissionHandler())
+val notifier: Notifier = createNotifier(permissions = createPermissionController())
 ```
 
 Pass the resulting `Notifier` into shared code as the interface. Shared code never calls the
@@ -63,7 +61,7 @@ factory — that is the point of there being two of them (see
 The module never prompts. Do it where your UI can explain why:
 
 ```kotlin
-val status: PermissionStatus = permissionHandler.request(Permission.NOTIFICATIONS)
+val status: PermissionStatus = permissions.request(CommonPermission.Notifications)
 ```
 
 You can post before asking — you will simply get `NotificationResult.PermissionDenied` back, which

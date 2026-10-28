@@ -27,6 +27,7 @@ Each module has its own `docs/<module>/` folder, numbered in learning order:
 | `05-platform-notes.md` *(if present)* | Android vs. iOS behavior, required permissions/manifest entries |
 | `06-testing.md` *(if present)* | Test fixtures the module ships, and how to use them |
 | `07-faq.md` *(if present)* | Answers to recurring real questions |
+| `07-migrating-to-<major>.md` *(if present)* | Moving from the previous major version: renames, behaviour changes, what carries over |
 
 A module with a substantial extension point may add a page for it — `kmptoolkit-uploader` documents
 implementing its storage SPI in [`07-custom-store.md`](kmptoolkit-uploader/07-custom-store.md) and
@@ -54,7 +55,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | [`kmptoolkit-scheduler/`](kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-storage` | Key-value storage, plain and encrypted | [`kmptoolkit-storage/`](kmptoolkit-storage/01-overview.md) |
 | `kmptoolkit-logging-overlay` | On-screen log overlay for debug builds | [`kmptoolkit-logging-overlay/`](kmptoolkit-logging-overlay/01-overview.md) |
-| `kmptoolkit-permission` | Runtime permission request flow | [`kmptoolkit-permission/`](kmptoolkit-permission/01-overview.md) |
+| `kmptoolkit-permission` | Runtime permissions, special access and roles behind one controller, plus a headless request flow ([migrating to 3.0](kmptoolkit-permission/07-migrating-to-3.md)) | [`kmptoolkit-permission/`](kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-biometric` | Biometric authentication gate | [`kmptoolkit-biometric/`](kmptoolkit-biometric/01-overview.md) |
 | `kmptoolkit-activity` | The currently resumed Android activity, scoped (Android only) | [`kmptoolkit-activity/`](kmptoolkit-activity/01-overview.md) |
 | `kmptoolkit-systembars` | Status and navigation bar control | [`kmptoolkit-systembars/`](kmptoolkit-systembars/01-overview.md) |

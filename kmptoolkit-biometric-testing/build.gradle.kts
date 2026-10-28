@@ -16,11 +16,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.biometric.testing"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.biometric.testing"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

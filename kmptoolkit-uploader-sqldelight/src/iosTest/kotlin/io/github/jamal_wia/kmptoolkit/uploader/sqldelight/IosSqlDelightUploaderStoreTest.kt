@@ -7,7 +7,7 @@ import kotlinx.coroutines.test.runTest
  * [SqlDelightUploaderStoreChecks] against `NativeSqliteDriver` on the iOS simulator.
  *
  * The assertions live in the shared checks class; this file exists to name them for the Kotlin/
- * Native test runner. `androidUnitTest`'s sibling declares the same methods against the Android
+ * Native test runner. `androidHostTest`'s sibling declares the same methods against the Android
  * driver, so a store that passes there and fails here — the native driver pools connections and
  * confines transactions differently — is caught rather than assumed away.
  */
@@ -28,6 +28,11 @@ class IosSqlDelightUploaderStoreTest {
     @Test
     fun `a stale settle never clobbers a fresh claim`() = runTest {
         checks.aStaleSettleNeverClobbersAFreshClaim()
+    }
+
+    @Test
+    fun `concurrent claims from one read let exactly one through`() = runTest {
+        checks.concurrentClaimsLetExactlyOneThrough()
     }
 
     @Test
@@ -113,6 +118,11 @@ class IosSqlDelightUploaderStoreTest {
     @Test
     fun `the queue can be created inside another database`() = runTest {
         checks.theQueueCanBeCreatedInsideAnotherDatabase()
+    }
+
+    @Test
+    fun `a schema 1 queue upgrades with its rows under claim 0`() = runTest {
+        checks.aSchemaOneQueueUpgradesWithItsRowsUnderClaimZero()
     }
 
     @Test

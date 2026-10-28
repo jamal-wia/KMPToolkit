@@ -233,14 +233,14 @@ class RecorderPreconditionTest {
     }
 
     @Test
-    fun `a generated file name uses the prefix timestamp and format extension`() {
+    fun `a generated file name uses the prefix timestamp uniqueness token and format extension`() {
         val config = AudioRecorderConfig(
             storage = RecordingStorage(fileNamePrefix = "note"),
             format = AudioFormat.AAC,
         )
         runRecorderTest(config) { fixture ->
             assertEquals(
-                RecorderResult.Success("$DEFAULT_DIRECTORY/note_$FIXED_EPOCH_MILLIS.aac"),
+                RecorderResult.Success("$DEFAULT_DIRECTORY/note_${FIXED_EPOCH_MILLIS}_$FIXED_FILE_NAME_TOKEN.aac"),
                 fixture.recorder.prepare(),
             )
         }

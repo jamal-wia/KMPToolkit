@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.notification
 
 import android.annotation.SuppressLint
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -8,10 +9,12 @@ import android.content.res.Resources
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationManagerCompat
-import io.github.jamal_wia.kmptoolkit.permission.Permission
-import io.github.jamal_wia.kmptoolkit.permission.PermissionHandler
-import io.github.jamal_wia.kmptoolkit.permission.isGranted
+import io.github.jamal_wia.kmptoolkit.permission.CommonPermission
+import io.github.jamal_wia.kmptoolkit.permission.PermissionController
+import io.github.jamal_wia.kmptoolkit.permission.isUsable
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Creates the Android [Notifier], backed by `NotificationManagerCompat`.
@@ -24,26 +27,35 @@ import kotlin.coroutines.cancellation.CancellationException
  * declares no permission and shows no prompt, on purpose. Without the grant every [Notifier.post]
  * returns [NotificationResult.PermissionDenied] instead of quietly doing nothing, which is what the
  * platform would do. Below API 33 there is no such permission and the check is skipped, whatever the
- * handler would say. See `docs/kmptoolkit-notification/05-platform-notes.md`.
+ * controller would say — whose own pre-API-33 answer is the app-wide switch, which this notifier
+ * reports separately as [NotificationResult.NotificationsDisabled]. See `docs/kmptoolkit-notification/05-platform-notes.md`.
  *
  * @param context any `Context`; its application context is what gets kept.
- * @param permissionHandler from `kmptoolkit-permission` — used to *check* `POST_NOTIFICATIONS`,
+ * @param permissions from `kmptoolkit-permission` — used to *check* `POST_NOTIFICATIONS`,
  *   never to request it. Pass the same instance the rest of your app uses so its denial bookkeeping
  *   stays consistent.
  * @param config identifiers and coalescing limits; see [NotificationConfig]. Its
  *   `actionBroadcastAction` default is derived from this app's own application id.
+ * @param foregroundIds the ids a foreground service shows its notification under, each bound to the
+ *   untagged `Int` it passed to `startForeground`; see [ForegroundNotificationId]. A [Notifier.post]
+ *   or [Notifier.cancel] of one of these ids addresses that `Int`, so it updates or removes the
+ *   service's own notification instead of posting a second one beside it. Every other id is posted
+ *   under its [String] as the platform tag. Empty by default.
+ * @throws IllegalArgumentException if two entries of [foregroundIds] share an id or a platform id.
  */
 public fun createNotifier(
     context: Context,
-    permissionHandler: PermissionHandler,
+    permissions: PermissionController,
     config: NotificationConfig = NotificationConfig(),
+    foregroundIds: Set<ForegroundNotificationId> = emptySet(),
 ): Notifier {
     val appContext: Context = context.applicationContext
     return AndroidNotifier(
         context = appContext,
-        permissionHandler = permissionHandler,
+        permissions = permissions,
         renderer = NotificationRenderer(appContext, config.resolveBroadcastAction(appContext.packageName)),
         coalescer = ProgressCoalescer(config.progressBucketPercent, config.minProgressInterval),
+        foregroundIds = foregroundIds,
     )
 }
 
@@ -60,16 +72,42 @@ public fun createNotifier(
  * Every one of those calls sits inside one guard, so a system service that is momentarily
  * unreachable comes back as [NotificationResult.Failed] rather than as an exception from a method
  * whose contract says it does not throw.
+ *
+ * **Identity.** A notification is posted as `notify(tag = id, TAGGED_NOTIFICATION_ID)`: the caller's
+ * [String] is the platform key itself, so two different ids are two notifications whatever their
+ * hash codes. Only an id in [foregroundIds] is posted untagged, under the `Int` its foreground
+ * service started with — the one key `startForeground` can share.
  */
 internal class AndroidNotifier(
     private val context: Context,
-    private val permissionHandler: PermissionHandler,
+    private val permissions: PermissionController,
     private val renderer: NotificationRenderer,
     private val coalescer: ProgressCoalescer,
+    foregroundIds: Set<ForegroundNotificationId> = emptySet(),
 ) : Notifier {
 
     private val notificationManager: NotificationManagerCompat =
         NotificationManagerCompat.from(context)
+
+    /** Foreground id to the untagged `Int` its service started with. */
+    private val foregroundPlatformIds: Map<String, Int> = foregroundIds.associate { foreground: ForegroundNotificationId ->
+        foreground.id to foreground.platformId
+    }
+
+    init {
+        require(foregroundPlatformIds.size == foregroundIds.size) {
+            "foregroundIds must not bind one id twice."
+        }
+        require(foregroundPlatformIds.values.toSet().size == foregroundIds.size) {
+            "foregroundIds must not share a platformId: two of them would be one notification."
+        }
+    }
+
+    /**
+     * Ids whose 2.x notification this instance has already swept away; see [sweepLegacy]. Updated
+     * with `update`, because [post] runs concurrently from any thread.
+     */
+    private val sweptLegacyIds: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     /**
      * Channel specs already handed to the platform by this instance.
@@ -78,8 +116,13 @@ internal class AndroidNotifier(
      * unchanged spec achieves nothing. Keying on the whole spec rather than on the id means a
      * changed `name` or `description` — the two fields the platform *does* still update — is
      * re-applied rather than cached away.
+     *
+     * A [MutableStateFlow] of an immutable set, updated with `update`, because [post] is documented
+     * safe to call concurrently from any thread and a plain `mutableSetOf()` — a `LinkedHashSet` —
+     * has undefined behavior under concurrent writes. A lost entry here would only cost one more
+     * idempotent channel write; a corrupted hash table would not be so harmless.
      */
-    private val ensuredChannels: MutableSet<NotificationChannelSpec> = mutableSetOf()
+    private val ensuredChannels: MutableStateFlow<Set<NotificationChannelSpec>> = MutableStateFlow(emptySet())
 
     override suspend fun post(id: String, notification: LocalNotification): NotificationResult =
         post(id, notification, NotificationOptions.DEFAULT)
@@ -106,7 +149,7 @@ internal class AndroidNotifier(
     }
 
     // The permission is checked before notify() is reached; the annotation only silences the static
-    // analysis that cannot see through the PermissionHandler indirection.
+    // analysis that cannot see through the PermissionController indirection.
     @SuppressLint("MissingPermission")
     private suspend fun postGated(
         id: String,
@@ -131,10 +174,15 @@ internal class AndroidNotifier(
             )
         }
         if (!coalescer.shouldPost(id, notification.progress, content)) return NotificationResult.Coalesced
-        notificationManager.notify(
-            platformNotificationId(id),
-            renderer.build(id, notification, options, iconResId),
-        )
+        val built: Notification = renderer.build(id, notification, options, iconResId)
+        when (val foregroundId: Int? = foregroundPlatformIds[id]) {
+            null -> notificationManager.notify(id, TAGGED_NOTIFICATION_ID, built)
+            else -> notificationManager.notify(foregroundId, built)
+        }
+        if (id !in sweptLegacyIds.value) {
+            sweepLegacy(id)
+            sweptLegacyIds.update { swept: Set<String> -> swept + id }
+        }
         return NotificationResult.Posted
     }
 
@@ -142,17 +190,35 @@ internal class AndroidNotifier(
      * Whether the runtime notification permission allows posting.
      *
      * Asked only from API 33, where `POST_NOTIFICATIONS` exists. Below it there is nothing to grant,
-     * and deciding that here rather than trusting the [PermissionHandler] to say so keeps a handler
+     * and deciding that here rather than trusting the [PermissionController] to say so keeps a controller
      * that answers differently — an adapter over an app's own permission code, a test double left at
      * "denied" — from silently suppressing every notification on older devices.
      */
     private suspend fun mayPostNotifications(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            permissionHandler.check(Permission.NOTIFICATIONS).isGranted
+            permissions.check(CommonPermission.Notifications).isUsable
 
     override fun cancel(id: String) {
         coalescer.forget(id)
-        notificationManager.cancel(platformNotificationId(id))
+        when (val foregroundId: Int? = foregroundPlatformIds[id]) {
+            null -> notificationManager.cancel(id, TAGGED_NOTIFICATION_ID)
+            else -> notificationManager.cancel(foregroundId)
+        }
+        sweepLegacy(id)
+    }
+
+    /**
+     * Removes the notification a 2.x version of this library would have shown under [id] — untagged,
+     * under [legacyPlatformNotificationId] — so an app updated from 2.x neither keeps a stale copy
+     * next to the one it now posts nor finds that copy beyond the reach of [cancel].
+     *
+     * Skipped when that `Int` is one of [foregroundPlatformIds]: there it is a live notification of
+     * this version, not a leftover. A migration aid for the 3.x line only; it goes in 4.0.
+     */
+    private fun sweepLegacy(id: String) {
+        val legacyId: Int = legacyPlatformNotificationId(id)
+        if (legacyId in foregroundPlatformIds.values) return
+        notificationManager.cancel(legacyId)
     }
 
     override fun cancelAll() {
@@ -182,9 +248,9 @@ internal class AndroidNotifier(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
         val manager: NotificationManager = context.frameworkNotificationManager() ?: return null
         var channel: NotificationChannel? = manager.getNotificationChannel(spec.id)
-        if (channel == null || (!redundant && spec !in ensuredChannels)) {
+        if (channel == null || (!redundant && spec !in ensuredChannels.value)) {
             manager.createNotificationChannel(context.notificationChannelFor(spec))
-            ensuredChannels += spec
+            ensuredChannels.update { ensured: Set<NotificationChannelSpec> -> ensured + spec }
             channel = manager.getNotificationChannel(spec.id)
         }
         val existing: NotificationChannel = channel ?: return null
@@ -213,5 +279,21 @@ internal class AndroidNotifier(
 
     private companion object {
         const val HEX: Int = 16
+
+        /**
+         * The `Int` half of every tagged notification's `(tag, id)` key. The tag — the caller's id —
+         * is what tells notifications apart, so this is a constant.
+         */
+        const val TAGGED_NOTIFICATION_ID: Int = 1
     }
 }
+
+/** Clears the sign bit, so a hash becomes a non-negative notification id. */
+private const val LEGACY_ID_MASK: Int = 0x7FFFFFFF
+
+/**
+ * The untagged `Int` a 2.x version of this library showed [id] under, and that its `notificationIdOf`
+ * returned: the masked `String.hashCode()`, never 0. Kept only so [AndroidNotifier] can sweep away
+ * what 2.x left in the tray; two ids with equal hashes shared it, which is why 3.0 stopped using it.
+ */
+internal fun legacyPlatformNotificationId(id: String): Int = (id.hashCode() and LEGACY_ID_MASK).coerceAtLeast(1)

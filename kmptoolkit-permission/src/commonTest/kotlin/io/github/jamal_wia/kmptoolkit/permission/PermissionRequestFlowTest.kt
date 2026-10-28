@@ -20,28 +20,28 @@ import kotlinx.coroutines.test.runTest
 class PermissionRequestFlowTest {
 
     private fun flowFor(
-        handler: FakePermissionHandler,
-        permission: Permission = Permission.MICROPHONE,
-    ): PermissionRequestFlow = PermissionRequestFlow(permission, handler)
+        controller: ScriptedPermissionController,
+        permission: Permission = CommonPermission.Microphone,
+    ): PermissionRequestFlow = PermissionRequestFlow(permission, controller)
 
     // --- Construction -------------------------------------------------------------------------
 
     @Test
     fun `a fresh flow is idle and has asked the platform nothing`() {
-        val handler = FakePermissionHandler()
+        val controller = ScriptedPermissionController()
 
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val flow: PermissionRequestFlow = flowFor(controller)
 
         assertEquals(PermissionFlowState.Idle, flow.state.value)
-        assertEquals(0, handler.checkCount)
-        assertEquals(0, handler.requestCount)
+        assertEquals(0, controller.checkCount)
+        assertEquals(0, controller.requestCount)
     }
 
     @Test
     fun `a flow reports the permission it was built for`() {
         assertEquals(
-            Permission.CAMERA,
-            flowFor(FakePermissionHandler(), Permission.CAMERA).permission,
+            CommonPermission.Camera,
+            flowFor(ScriptedPermissionController(), CommonPermission.Camera).permission,
         )
     }
 
@@ -49,86 +49,86 @@ class PermissionRequestFlowTest {
 
     @Test
     fun `start on a granted permission finishes without showing a dialog`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.Granted)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.Granted)
+        val flow: PermissionRequestFlow = flowFor(controller)
 
         assertEquals(PermissionFlowState.Granted, flow.start())
         assertEquals(PermissionFlowState.Granted, flow.state.value)
-        assertEquals(0, handler.requestCount)
+        assertEquals(0, controller.requestCount)
     }
 
     @Test
     fun `start on a permanently denied permission asks for settings without showing a dialog`() =
         runTest {
-            val handler = FakePermissionHandler(status = PermissionStatus.PermanentlyDenied)
-            val flow: PermissionRequestFlow = flowFor(handler)
+            val controller = ScriptedPermissionController(status = PermissionStatus.PermanentlyDenied)
+            val flow: PermissionRequestFlow = flowFor(controller)
 
             assertEquals(PermissionFlowState.AwaitingSettings, flow.start())
-            assertEquals(0, handler.requestCount)
+            assertEquals(0, controller.requestCount)
         }
 
     @Test
     fun `start stops for a rationale when the platform asks for one`() = runTest {
-        val handler =
-            FakePermissionHandler(status = PermissionStatus.Denied(shouldShowRationale = true))
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller =
+            ScriptedPermissionController(status = PermissionStatus.Denied(explainFirst = true))
+        val flow: PermissionRequestFlow = flowFor(controller)
 
         assertEquals(PermissionFlowState.AwaitingRationale, flow.start())
-        assertEquals(0, handler.requestCount)
+        assertEquals(0, controller.requestCount)
     }
 
     @Test
     fun `start requests straight away when denied without a rationale`() = runTest {
-        val handler = FakePermissionHandler(
-            status = PermissionStatus.Denied(shouldShowRationale = false),
+        val controller = ScriptedPermissionController(
+            status = PermissionStatus.Denied(explainFirst = false),
             requestOutcome = PermissionStatus.Granted,
         )
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val flow: PermissionRequestFlow = flowFor(controller)
 
         assertEquals(PermissionFlowState.Granted, flow.start())
-        assertEquals(1, handler.requestCount)
+        assertEquals(1, controller.requestCount)
     }
 
     @Test
     fun `start requests straight away when the permission was never asked for`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.NotDetermined)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.NotDetermined)
+        val flow: PermissionRequestFlow = flowFor(controller)
 
         flow.start()
 
-        assertEquals(1, handler.requestCount)
+        assertEquals(1, controller.requestCount)
     }
 
     // --- The request outcome ------------------------------------------------------------------
 
     @Test
     fun `a granted request lands on granted`() = runTest {
-        val handler = FakePermissionHandler(requestOutcome = PermissionStatus.Granted)
+        val controller = ScriptedPermissionController(requestOutcome = PermissionStatus.Granted)
 
-        assertEquals(PermissionFlowState.Granted, flowFor(handler).start())
+        assertEquals(PermissionFlowState.Granted, flowFor(controller).start())
     }
 
     @Test
     fun `a permanently denied request lands on the settings prompt`() = runTest {
-        val handler = FakePermissionHandler(requestOutcome = PermissionStatus.PermanentlyDenied)
+        val controller = ScriptedPermissionController(requestOutcome = PermissionStatus.PermanentlyDenied)
 
-        assertEquals(PermissionFlowState.AwaitingSettings, flowFor(handler).start())
+        assertEquals(PermissionFlowState.AwaitingSettings, flowFor(controller).start())
     }
 
     @Test
     fun `a refused request lands on denied rather than looping back to the rationale`() = runTest {
-        val handler = FakePermissionHandler(
-            requestOutcome = PermissionStatus.Denied(shouldShowRationale = true),
+        val controller = ScriptedPermissionController(
+            requestOutcome = PermissionStatus.Denied(explainFirst = true),
         )
 
-        assertEquals(PermissionFlowState.Denied, flowFor(handler).start())
+        assertEquals(PermissionFlowState.Denied, flowFor(controller).start())
     }
 
     @Test
     fun `a request that produced no answer at all lands on denied`() = runTest {
-        val handler = FakePermissionHandler(requestOutcome = PermissionStatus.NotDetermined)
+        val controller = ScriptedPermissionController(requestOutcome = PermissionStatus.NotDetermined)
 
-        assertEquals(PermissionFlowState.Denied, flowFor(handler).start())
+        assertEquals(PermissionFlowState.Denied, flowFor(controller).start())
     }
 
     // --- Requesting is observable and exclusive -----------------------------------------------
@@ -136,9 +136,9 @@ class PermissionRequestFlowTest {
     @Test
     fun `the requesting state is published while the dialog is up and locks the flow`() = runTest {
         val gate = CompletableDeferred<Unit>()
-        val handler = FakePermissionHandler(requestOutcome = PermissionStatus.Granted)
-        handler.whileRequesting = { gate.await() }
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(requestOutcome = PermissionStatus.Granted)
+        controller.whileRequesting = { gate.await() }
+        val flow: PermissionRequestFlow = flowFor(controller)
 
         val running = launch { flow.start() }
         runCurrent()
@@ -147,7 +147,7 @@ class PermissionRequestFlowTest {
         assertEquals(PermissionFlowState.Requesting, flow.start())
         assertEquals(PermissionFlowState.Requesting, flow.refresh())
         assertEquals(PermissionFlowState.Requesting, flow.reset())
-        assertEquals(1, handler.requestCount)
+        assertEquals(1, controller.requestCount)
 
         gate.complete(Unit)
         running.join()
@@ -158,9 +158,9 @@ class PermissionRequestFlowTest {
     @Test
     fun `a full run publishes idle then requesting then the outcome`() = runTest {
         val gate = CompletableDeferred<Unit>()
-        val handler = FakePermissionHandler(requestOutcome = PermissionStatus.PermanentlyDenied)
-        handler.whileRequesting = { gate.await() }
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(requestOutcome = PermissionStatus.PermanentlyDenied)
+        controller.whileRequesting = { gate.await() }
+        val flow: PermissionRequestFlow = flowFor(controller)
         val seen: MutableList<PermissionFlowState> = mutableListOf(flow.state.value)
 
         val running = launch { flow.start() }
@@ -184,42 +184,42 @@ class PermissionRequestFlowTest {
 
     @Test
     fun `acknowledging the rationale shows the dialog`() = runTest {
-        val handler = FakePermissionHandler(
-            status = PermissionStatus.Denied(shouldShowRationale = true),
+        val controller = ScriptedPermissionController(
+            status = PermissionStatus.Denied(explainFirst = true),
             requestOutcome = PermissionStatus.Granted,
         )
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         assertEquals(PermissionFlowState.Granted, flow.rationaleAcknowledged())
-        assertEquals(1, handler.requestCount)
+        assertEquals(1, controller.requestCount)
     }
 
     @Test
     fun `dismissing the rationale ends the flow without a dialog`() = runTest {
-        val handler =
-            FakePermissionHandler(status = PermissionStatus.Denied(shouldShowRationale = true))
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller =
+            ScriptedPermissionController(status = PermissionStatus.Denied(explainFirst = true))
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         assertEquals(PermissionFlowState.Denied, flow.rationaleDismissed())
-        assertEquals(0, handler.requestCount)
+        assertEquals(0, controller.requestCount)
     }
 
     @Test
     fun `acknowledging a rationale nobody asked for does nothing`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.Granted)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.Granted)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         assertEquals(PermissionFlowState.Granted, flow.rationaleAcknowledged())
-        assertEquals(0, handler.requestCount)
+        assertEquals(0, controller.requestCount)
     }
 
     @Test
     fun `dismissing a rationale nobody asked for does nothing`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.PermanentlyDenied)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.PermanentlyDenied)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         assertEquals(PermissionFlowState.AwaitingSettings, flow.rationaleDismissed())
@@ -227,68 +227,68 @@ class PermissionRequestFlowTest {
 
     @Test
     fun `a double-tapped rationale button requests only once`() = runTest {
-        val handler = FakePermissionHandler(
-            status = PermissionStatus.Denied(shouldShowRationale = true),
+        val controller = ScriptedPermissionController(
+            status = PermissionStatus.Denied(explainFirst = true),
             requestOutcome = PermissionStatus.Granted,
         )
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         flow.rationaleAcknowledged()
         flow.rationaleAcknowledged()
 
-        assertEquals(1, handler.requestCount)
+        assertEquals(1, controller.requestCount)
     }
 
     // --- The settings branch ------------------------------------------------------------------
 
     @Test
     fun `opening settings from the settings prompt leaves the flow waiting`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.PermanentlyDenied)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.PermanentlyDenied)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         assertTrue(flow.openSettings())
-        assertEquals(1, handler.openAppSettingsCount)
+        assertEquals(1, controller.openedSettings.size)
         assertEquals(PermissionFlowState.AwaitingSettings, flow.state.value)
     }
 
     @Test
     fun `opening settings outside the settings prompt does nothing at all`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.Granted)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.Granted)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         assertFalse(flow.openSettings())
-        assertEquals(0, handler.openAppSettingsCount)
+        assertEquals(0, controller.openedSettings.size)
     }
 
     @Test
     fun `a settings screen that cannot be opened is reported rather than assumed`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.PermanentlyDenied)
-        handler.settingsAvailable = false
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.PermanentlyDenied)
+        controller.settingsAvailable = false
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         assertFalse(flow.openSettings())
-        assertEquals(1, handler.openAppSettingsCount)
+        assertEquals(1, controller.openedSettings.size)
         assertEquals(PermissionFlowState.AwaitingSettings, flow.state.value)
     }
 
     @Test
     fun `declining the settings trip ends the flow`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.PermanentlyDenied)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.PermanentlyDenied)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         assertEquals(PermissionFlowState.Denied, flow.settingsDeclined())
-        assertEquals(0, handler.openAppSettingsCount)
+        assertEquals(0, controller.openedSettings.size)
     }
 
     @Test
     fun `declining a settings trip nobody offered does nothing`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.Granted)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.Granted)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
 
         assertEquals(PermissionFlowState.Granted, flow.settingsDeclined())
@@ -298,21 +298,21 @@ class PermissionRequestFlowTest {
 
     @Test
     fun `refresh reports a permission granted in settings`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.PermanentlyDenied)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.PermanentlyDenied)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
         flow.openSettings()
 
-        handler.status = PermissionStatus.Granted
+        controller.status = PermissionStatus.Granted
 
         assertEquals(PermissionFlowState.Granted, flow.refresh())
-        assertEquals(0, handler.requestCount)
+        assertEquals(0, controller.requestCount)
     }
 
     @Test
     fun `refresh keeps waiting for settings when the user changed nothing there`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.PermanentlyDenied)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.PermanentlyDenied)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
         flow.openSettings()
 
@@ -321,51 +321,51 @@ class PermissionRequestFlowTest {
 
     @Test
     fun `refresh reports a rationale the platform now asks for`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.NotDetermined)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.NotDetermined)
+        val flow: PermissionRequestFlow = flowFor(controller)
 
-        handler.status = PermissionStatus.Denied(shouldShowRationale = true)
+        controller.status = PermissionStatus.Denied(explainFirst = true)
 
         assertEquals(PermissionFlowState.AwaitingRationale, flow.refresh())
     }
 
     @Test
     fun `refresh reports idle for a permission that can simply be asked for`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.NotDetermined)
+        val controller = ScriptedPermissionController(status = PermissionStatus.NotDetermined)
 
-        assertEquals(PermissionFlowState.Idle, flowFor(handler).refresh())
+        assertEquals(PermissionFlowState.Idle, flowFor(controller).refresh())
     }
 
     @Test
     fun `refresh reports idle for a denial the platform does not want explained`() = runTest {
-        val handler =
-            FakePermissionHandler(status = PermissionStatus.Denied(shouldShowRationale = false))
+        val controller =
+            ScriptedPermissionController(status = PermissionStatus.Denied(explainFirst = false))
 
-        assertEquals(PermissionFlowState.Idle, flowFor(handler).refresh())
+        assertEquals(PermissionFlowState.Idle, flowFor(controller).refresh())
     }
 
     @Test
     fun `refresh replaces a denial the user made in this flow with the platform's view`() =
         runTest {
-            val handler = FakePermissionHandler(status = PermissionStatus.PermanentlyDenied)
-            val flow: PermissionRequestFlow = flowFor(handler)
+            val controller = ScriptedPermissionController(status = PermissionStatus.PermanentlyDenied)
+            val flow: PermissionRequestFlow = flowFor(controller)
             flow.start()
             flow.settingsDeclined()
             assertEquals(PermissionFlowState.Denied, flow.state.value)
 
-            handler.status = PermissionStatus.NotDetermined
+            controller.status = PermissionStatus.NotDetermined
 
             assertEquals(PermissionFlowState.Idle, flow.refresh())
         }
 
     @Test
     fun `refresh catches a permission revoked while the app was backgrounded`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.Granted)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.Granted)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
         assertEquals(PermissionFlowState.Granted, flow.state.value)
 
-        handler.status = PermissionStatus.NotDetermined
+        controller.status = PermissionStatus.NotDetermined
 
         assertEquals(PermissionFlowState.Idle, flow.refresh())
     }
@@ -373,11 +373,11 @@ class PermissionRequestFlowTest {
     @Test
     fun `refresh catches a permission turned off in settings while the app was backgrounded`() =
         runTest {
-            val handler = FakePermissionHandler(status = PermissionStatus.Granted)
-            val flow: PermissionRequestFlow = flowFor(handler)
+            val controller = ScriptedPermissionController(status = PermissionStatus.Granted)
+            val flow: PermissionRequestFlow = flowFor(controller)
             flow.start()
 
-            handler.status = PermissionStatus.PermanentlyDenied
+            controller.status = PermissionStatus.PermanentlyDenied
 
             assertEquals(PermissionFlowState.AwaitingSettings, flow.refresh())
         }
@@ -389,15 +389,15 @@ class PermissionRequestFlowTest {
         val statuses: List<PermissionStatus> = listOf(
             PermissionStatus.Granted,
             PermissionStatus.PermanentlyDenied,
-            PermissionStatus.Denied(shouldShowRationale = true),
+            PermissionStatus.Denied(explainFirst = true),
             PermissionStatus.NotDetermined,
         )
 
         statuses.forEach { status ->
             val flow: PermissionRequestFlow = flowFor(
-                FakePermissionHandler(
+                ScriptedPermissionController(
                     status = status,
-                    requestOutcome = PermissionStatus.Denied(shouldShowRationale = false),
+                    requestOutcome = PermissionStatus.Denied(explainFirst = false),
                 ),
             )
             flow.start()
@@ -408,14 +408,14 @@ class PermissionRequestFlowTest {
 
     @Test
     fun `reset asks the platform nothing`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.Granted)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.Granted)
+        val flow: PermissionRequestFlow = flowFor(controller)
         flow.start()
-        val checksBefore: Int = handler.checkCount
+        val checksBefore: Int = controller.checkCount
 
         flow.reset()
 
-        assertEquals(checksBefore, handler.checkCount)
+        assertEquals(checksBefore, controller.checkCount)
     }
 
     // --- Sequences a real screen produces -----------------------------------------------------
@@ -423,11 +423,11 @@ class PermissionRequestFlowTest {
     @Test
     fun `a first refusal becomes a rationale on the next attempt rather than a settings prompt`() =
         runTest {
-            val handler = FakePermissionHandler(
+            val controller = ScriptedPermissionController(
                 status = PermissionStatus.NotDetermined,
-                requestOutcome = PermissionStatus.Denied(shouldShowRationale = true),
+                requestOutcome = PermissionStatus.Denied(explainFirst = true),
             )
-            val flow: PermissionRequestFlow = flowFor(handler)
+            val flow: PermissionRequestFlow = flowFor(controller)
 
             assertEquals(PermissionFlowState.Denied, flow.start())
             assertEquals(PermissionFlowState.AwaitingRationale, flow.start())
@@ -435,11 +435,11 @@ class PermissionRequestFlowTest {
 
     @Test
     fun `a second refusal becomes a settings prompt rather than another rationale`() = runTest {
-        val handler = FakePermissionHandler(
-            status = PermissionStatus.Denied(shouldShowRationale = true),
+        val controller = ScriptedPermissionController(
+            status = PermissionStatus.Denied(explainFirst = true),
             requestOutcome = PermissionStatus.PermanentlyDenied,
         )
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val flow: PermissionRequestFlow = flowFor(controller)
         assertEquals(PermissionFlowState.AwaitingRationale, flow.start())
 
         assertEquals(PermissionFlowState.AwaitingSettings, flow.rationaleAcknowledged())
@@ -448,24 +448,82 @@ class PermissionRequestFlowTest {
 
     @Test
     fun `a granted permission is never asked for again however often start is called`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.Granted)
-        val flow: PermissionRequestFlow = flowFor(handler)
+        val controller = ScriptedPermissionController(status = PermissionStatus.Granted)
+        val flow: PermissionRequestFlow = flowFor(controller)
 
         repeat(3) { flow.start() }
 
-        assertEquals(0, handler.requestCount)
+        assertEquals(0, controller.requestCount)
         assertEquals(PermissionFlowState.Granted, flow.state.value)
     }
 
     @Test
-    fun `two flows over one handler track their own permissions independently`() = runTest {
-        val handler = FakePermissionHandler(status = PermissionStatus.Granted)
-        val microphone: PermissionRequestFlow = flowFor(handler, Permission.MICROPHONE)
-        val camera: PermissionRequestFlow = flowFor(handler, Permission.CAMERA)
+    fun `two flows over one controller track their own permissions independently`() = runTest {
+        val controller = ScriptedPermissionController(status = PermissionStatus.Granted)
+        val microphone: PermissionRequestFlow = flowFor(controller, CommonPermission.Microphone)
+        val camera: PermissionRequestFlow = flowFor(controller, CommonPermission.Camera)
 
         microphone.start()
 
         assertEquals(PermissionFlowState.Granted, microphone.state.value)
         assertEquals(PermissionFlowState.Idle, camera.state.value)
+    }
+
+    // --- 3.0: Limited, Restricted, Unavailable ------------------------------------------------
+
+    @Test
+    fun `start on a limited permission lands on limited without showing a dialog`() = runTest {
+        val controller = ScriptedPermissionController(status = PermissionStatus.Limited)
+
+        assertEquals(PermissionFlowState.Limited, flowFor(controller).start())
+        assertEquals(0, controller.requestCount)
+    }
+
+    @Test
+    fun `start on a restricted or unavailable permission lands on unavailable without a dialog`() = runTest {
+        listOf(PermissionStatus.Restricted, PermissionStatus.Unavailable).forEach { status ->
+            val controller = ScriptedPermissionController(status = status)
+
+            assertEquals(PermissionFlowState.Unavailable, flowFor(controller).start(), "status=$status")
+            assertEquals(0, controller.requestCount, "status=$status")
+        }
+    }
+
+    @Test
+    fun `a request that comes back limited lands on limited`() = runTest {
+        val controller = ScriptedPermissionController(requestOutcome = PermissionStatus.Limited)
+
+        assertEquals(PermissionFlowState.Limited, flowFor(controller).start())
+    }
+
+    @Test
+    fun `a request that comes back restricted or unavailable lands on unavailable`() = runTest {
+        listOf(PermissionStatus.Restricted, PermissionStatus.Unavailable).forEach { outcome ->
+            val controller = ScriptedPermissionController(requestOutcome = outcome)
+
+            assertEquals(PermissionFlowState.Unavailable, flowFor(controller).start(), "outcome=$outcome")
+        }
+    }
+
+    @Test
+    fun `refresh reports limited and unavailable`() = runTest {
+        val controller = ScriptedPermissionController(status = PermissionStatus.Limited)
+        val flow: PermissionRequestFlow = flowFor(controller)
+
+        assertEquals(PermissionFlowState.Limited, flow.refresh())
+        controller.status = PermissionStatus.Restricted
+        assertEquals(PermissionFlowState.Unavailable, flow.refresh())
+        controller.status = PermissionStatus.Unavailable
+        assertEquals(PermissionFlowState.Unavailable, flow.refresh())
+    }
+
+    @Test
+    fun `opening settings opens them for the flow's own permission`() = runTest {
+        val controller = ScriptedPermissionController(status = PermissionStatus.PermanentlyDenied)
+        val flow: PermissionRequestFlow = flowFor(controller, CommonPermission.Camera)
+        flow.start()
+
+        assertTrue(flow.openSettings())
+        assertEquals(listOf<Permission>(CommonPermission.Camera), controller.openedSettings)
     }
 }

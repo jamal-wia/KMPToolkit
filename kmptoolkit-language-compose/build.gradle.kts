@@ -1,7 +1,3 @@
-// `compose.uiTest` (Compose Multiplatform's test artifact, used by the Robolectric-backed UI tests
-// in androidUnitTest) is still behind this opt-in as of Compose Multiplatform 1.11.
-@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
-
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.compose")
@@ -20,11 +16,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.language.compose"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.language.compose"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -36,27 +32,23 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":kmptoolkit-language"))
-            implementation(compose.runtime)
-            implementation(compose.ui)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.ui)
         }
 
-        androidUnitTest.dependencies {
-            implementation(compose.uiTest)
+        androidHostTest.dependencies {
+            implementation(libs.compose.ui.test)
+            // ComponentActivity for the Robolectric Compose test host — see
+            // kmptoolkit-systembars/build.gradle.kts for why this is a host-test dependency.
+            implementation(project.dependencies.platform(libs.androidx.compose.bom))
+            implementation(libs.androidx.compose.ui.test.manifest)
         }
 
         jvmTest.dependencies {
-            implementation(compose.uiTest)
+            implementation(libs.compose.ui.test)
             // The Skia runtime runComposeUiTest renders through on desktop. Test-only, and for the
             // machine running the tests — nothing here reaches a published artifact.
             implementation(compose.desktop.currentOs)
         }
     }
-}
-
-dependencies {
-    // See kmptoolkit-systembars/build.gradle.kts for why this is debugImplementation rather than
-    // an androidUnitTest dependency: ActivityScenario needs a ComponentActivity declared in the
-    // merged *debug* manifest, which a test-only configuration is merged too late to provide.
-    debugImplementation(platform(libs.androidx.compose.bom))
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

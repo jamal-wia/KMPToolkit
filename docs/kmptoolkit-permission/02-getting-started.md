@@ -19,14 +19,14 @@ kotlin {
 }
 ```
 
-The Android side additionally pulls in `kmptoolkit-storage`, for the one flag per permission that
-Android's own API cannot report. It arrives transitively; you only name it if you construct it
-yourself, which the next step does.
+The Android side additionally pulls in `kmptoolkit-storage`, for the two flags per permission that
+Android's own API cannot report, `kmptoolkit-activity`, for the resumed activity the dialog is shown
+from, and `androidx.activity`. All of them arrive transitively.
 
 ## 2. Declare the permission — in **your** manifest and **your** `Info.plist`
 
-This library declares nothing on your behalf. Without this step the Android dialog never appears and
-iOS terminates your app the moment you request.
+This library declares nothing on your behalf. Without this step the permission reads `Unavailable`,
+a request shows nothing, and the controller logs which declaration is missing.
 
 ```xml
 <!-- androidMain/AndroidManifest.xml -->
@@ -39,93 +39,55 @@ iOS terminates your app the moment you request.
 <string>We record your voice so you can send an audio message.</string>
 ```
 
-The full table of what each `Permission` needs is in
-[`05-platform-notes.md`](05-platform-notes.md).
+The full table of what each entry needs is in [`05-platform-notes.md`](05-platform-notes.md).
 
-## 3. Android — implement the host and build the handler
-
-The system dialog is launched by an `ActivityResultLauncher`, which belongs to an activity and must
-be registered before it resumes. That is your ten lines; everything after the user taps is the
-library's.
-
-```kotlin
-class MainActivity : ComponentActivity(), PermissionRequestHost {
-
-    private var pending: ((Boolean) -> Unit)? = null
-
-    private val launcher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        pending?.invoke(granted)
-        pending = null
-    }
-
-    override fun launch(androidPermission: String, onResult: (Boolean) -> Unit): Boolean {
-        pending = onResult
-        return runCatching { launcher.launch(androidPermission) }.isSuccess
-    }
-}
-```
-
-`Permission.LOCATION` is requested as fine and coarse location in **one** dialog — the only way
-Android 12+ shows the Precise / Approximate choice — so a host that requests location also implements
-the multi-permission `launch`. A host without it can request every other permission; a location
-request then shows nothing and leaves the status as it was.
-
-```kotlin
-    private var pendingGroup: ((Map<String, Boolean>) -> Unit)? = null
-
-    private val groupLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) { answers ->
-        pendingGroup?.invoke(answers)
-        pendingGroup = null
-    }
-
-    override fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean {
-        pendingGroup = onResult
-        return runCatching { groupLauncher.launch(androidPermissions.toTypedArray()) }.isSuccess
-    }
-```
+## 3. Android — build the controller in `Application.onCreate`
 
 ```kotlin
 class MyApplication : Application() {
 
-    lateinit var storage: KeyValueStorage
+    lateinit var permissions: PermissionController
         private set
 
     override fun onCreate() {
         super.onCreate()
-        storage = createKeyValueStorage(this)
+        permissions = createPermissionController(
+            context = this,
+            storage = createKeyValueStorage(this),
+        )
     }
 }
-
-// In the activity, once — it is cheap and holds nothing that needs releasing:
-val handler: PermissionHandler = createPermissionHandler(
-    context = this,
-    host = this,
-    storage = app.storage,
-)
 ```
 
-There is no DI framework here and no global. Hold the handler wherever you already hold your
-dependencies — see [`../01-architecture.md`](../01-architecture.md#no-dependency-injection-framework).
+That is the whole Android setup. The controller shows its dialogs from whichever `ComponentActivity`
+is resumed — every `AppCompatActivity` and every Compose activity is one — through that activity's
+`ActivityResultRegistry`, so there is no launcher to register and no host to implement. A dialog that
+is on screen while the activity is recreated — a rotation — still delivers its answer.
+
+Build it in `Application.onCreate` for the same reason as any activity tracker: it has to be
+listening before your first activity resumes. Hold it wherever you already hold your dependencies —
+there is no DI framework here and no global; see
+[`../01-architecture.md`](../01-architecture.md#no-dependency-injection-framework).
+
+Already have an `ActivityAccess` from `kmptoolkit-activity`, your own `registerForActivityResult`
+plumbing, or a kiosk launcher? Every collaborator is a parameter with a default — see
+[`04-api-reference.md`](04-api-reference.md#android-factory).
 
 ## 4. iOS — one line
 
 ```kotlin
-val handler: PermissionHandler = createPermissionHandler()
+val permissions: PermissionController = createPermissionController()
 ```
 
 No context, no activity, no storage: iOS reports "not determined" itself, so there is nothing for
-the library to remember.
+the library to remember. Pass `IosPermissionOptions` to change what a notification request asks for.
 
 ## 5. Use it from shared code
 
 ```kotlin
-class RecorderPresenter(handler: PermissionHandler) {
+class RecorderPresenter(controller: PermissionController) {
 
-    private val microphone = PermissionRequestFlow(Permission.MICROPHONE, handler)
+    private val microphone = PermissionRequestFlow(CommonPermission.Microphone, controller)
 
     val permissionState: StateFlow<PermissionFlowState> = microphone.state
 
@@ -156,34 +118,46 @@ class RecorderPresenter(handler: PermissionHandler) {
 Your UI observes `permissionState` and renders its own dialog for `AwaitingRationale` and
 `AwaitingSettings`. The library never supplies the words.
 
-## 6. If you need a special access permission instead
-
-Exact alarms, drawing over other apps, all-files storage access — none of these go through
-`PermissionHandler`. They have no in-app dialog and no denial bookkeeping to speak of:
+A screen that only needs to show whether a feature is available, without asking, collects the
+controller directly:
 
 ```kotlin
-val specialHandler: SpecialPermissionHandler = createSpecialPermissionHandler(context) // createSpecialPermissionHandler() on iOS
+val cameraUsable: StateFlow<Boolean> = controller.observe(CommonPermission.Camera)
+    .map { status -> status.isUsable }
+    .stateIn(scope, SharingStarted.WhileSubscribed(5_000), false)
+```
 
-if (!specialHandler.isGranted(SpecialPermission.EXACT_ALARM)) {
-    specialHandler.requestViaSettings(SpecialPermission.EXACT_ALARM)
+## 6. A special access, on Android
+
+Exact alarms, drawing over other apps, battery-optimization exemption — an Android special access is
+asked for through the same controller. The request opens its Settings screen and returns when the
+user is back in the app, with the status re-read:
+
+```kotlin
+// androidMain
+when (permissions.request(AndroidPermission.ExactAlarm)) {
+    PermissionStatus.Granted -> scheduleExact()
+    else -> scheduleInexact()
 }
 ```
 
-See [`03-guide.md`](03-guide.md#special-access-permissions).
+See [`03-guide.md`](03-guide.md#special-access-roles-and-device-admins).
 
 ## What you did **not** have to write
 
 - Remembering that the dialog was already shown once, so a permanent denial can be told apart from
   a first run.
-- The API 33 branch for notifications.
-- The knowledge that iOS never shows a second dialog, so its denial is permanent immediately.
-- A settings intent with the right action, data URI and task flags, and a fallback for when there is
-  no resumed activity to launch it from.
-- For each special permission, the generic Settings list to fall back on when a device lacks the
-  app's own page.
+- The API 33 branch for notifications, the API 33 and 34 branches for photos, and the API 31 branch
+  for Bluetooth.
+- An `ActivityResultLauncher` per permission, registered before resume and re-attached after a
+  rotation.
+- The knowledge that iOS never shows a second dialog, so its denial is permanent immediately — and
+  that it terminates an app requesting without a purpose string.
+- A Settings intent with the right action, data URI and task flags for each special access, and a
+  fallback for when a device lacks the app's own page.
 
 ## Read next
 
-- [`03-guide.md`](03-guide.md) — the state machine in full, lifecycle, and the mistakes to avoid
-- [`05-platform-notes.md`](05-platform-notes.md) — the manifest/`Info.plist` table
-- [`06-testing.md`](06-testing.md) — testing your own screen against `RecordingPermissionHandler`
+- [`03-guide.md`](03-guide.md) — the state machine in full, batches, lifecycle, the mistakes to avoid
+- [`05-platform-notes.md`](05-platform-notes.md) — the manifest / `Info.plist` table
+- [`06-testing.md`](06-testing.md) — testing your own screen against `FakePermissionController`

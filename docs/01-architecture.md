@@ -96,7 +96,8 @@ public annotation class ToolkitInternalApi
 
 `kmptoolkit-core` is not a module you depend on: it is pulled in transitively by the modules that
 share something through it (today: the `StateMachineLock` the audio player, the video player and
-the audio recorder serialize their state machines with, and the marker itself). Everything in it
+the audio recorder serialize their state machines with; the iOS idle-timer holder the system-bars
+wake lock and the video surface share; and the marker itself). Everything in it
 is `@ToolkitInternalApi`; see [`kmptoolkit-core/`](kmptoolkit-core/01-overview.md).
 
 If your code needs `@OptIn(ToolkitInternalApi::class)` to compile against a KMPToolkit module,
@@ -224,7 +225,7 @@ The rules for a module that does this:
   activityAccess)` is one.
 - **Keep the existing factories' defaults**, documented on each: `SystemScreenLauncher.SeparateTask`
   where the factory has only a `Context`, and — where a factory already opened a screen from its own
-  activity tracker, as `openAppSettings` does — `callerTask` on that tracker. Screens a lock-task app
+  activity tracker, as `kmptoolkit-permission`'s controller does — `callerTask` on that tracker. Screens a lock-task app
   is known to open (biometric enrolment) default to `SeparateTask` everywhere.
 - **Never bare `FLAG_ACTIVITY_NEW_TASK`.** It reuses any background task with the target's affinity;
   for Settings that is a stale deep-link task, and the user ends up on an unrelated page. Every
@@ -244,6 +245,12 @@ Twelve artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-sto
 `kmptoolkit-video-player-vlcj` and `kmptoolkit-video-player-javafx`, built with the
 `kmptoolkit.library.jvm` convention. Every other module stays Android + iOS, and the exception is
 narrow and deliberate.
+
+All of them are compiled to one bytecode level, Java 21, so a desktop consumer needs JDK 21 or
+newer (the OpenJFX engine needs JDK 25 at runtime for OpenJFX's own sake). That level is fixed in
+build-logic (`DESKTOP_JVM_TARGET`) rather than inherited from the JDK the Gradle daemon happens to
+run on: it is part of what a consumer depends on, and changing it is a consumer-visible change that
+belongs in the changelog.
 
 Most modules expose a capability an app either wants on a platform or does not ask for there at all
 — a consumer with no use for haptics on desktop simply does not call into `kmptoolkit-haptics` from
@@ -294,21 +301,28 @@ would break a consumer's shared code* — and anything short of it stays Android
 Four things cost the first Compose module a build cycle each; they are recorded here so the next
 one does not rediscover them:
 
-- Robolectric Compose UI tests need `debugImplementation(platform(libs.androidx.compose.bom))` and
-  `debugImplementation(libs.androidx.compose.ui.test.manifest)` in a plain `dependencies { }`
-  block. It must be `debugImplementation` — an `androidUnitTest` dependency merges into the
-  manifest too late, and the failure is an opaque *"Unable to resolve activity for Intent …
-  ComponentActivity"*. The debug variant is never published, so nothing reaches consumers.
+- Robolectric Compose UI tests need `implementation(project.dependencies.platform(libs.androidx.compose.bom))`
+  and `implementation(libs.androidx.compose.ui.test.manifest)` in `androidHostTest.dependencies`.
+  Without the second, every UI test fails with an opaque *"Unable to resolve activity for Intent …
+  ComponentActivity"*: the test host is launched through `ActivityScenario`, and the manifest
+  the host tests run against must declare `ComponentActivity`. Under `com.android.library` (before
+  3.0.0) this had to be a `debugImplementation` dependency, because a unit-test dependency was
+  merged into the manifest too late; the Kotlin Multiplatform library plugin has no build types
+  and merges a host-test dependency's manifest in time. Either way it is a test-only dependency
+  and never reaches the published artifact.
 - Those tests also need `@Config(sdk = [34])` (or the module-wide pin below). Robolectric 4.17
   ships SDK 36 and 37 images, but Compose UI tests fail on them with `NoSuchMethodException:
   android.hardware.input.InputManager.getInstance()`, and every SDK 36+ run additionally needs
   `--add-exports=java.base/jdk.internal.access=ALL-UNNAMED` on the test JVM. The default is
   `compileSdk` 37, so an unpinned test lands on exactly that.
-- `compose.uiTest` requires `@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)`
-  at the top of the build file.
+- Compose dependencies come from the version catalog (`libs.compose.runtime`, `libs.compose.ui`,
+  `libs.compose.ui.test`, …), not from the Compose Gradle plugin's `compose.*` aliases, which are
+  deprecated since Compose Multiplatform 1.10. The catalog's `compose.ui.test` also needs no
+  `@file:OptIn(ExperimentalComposeLibrary::class)`, which the old `compose.uiTest` alias did.
+  `compose.desktop.currentOs` (desktop UI tests only) is not deprecated and stays.
 - `androidx.compose.ui.test.runComposeUiTest` is deprecated in 1.11; import
   `androidx.compose.ui.test.v2.runComposeUiTest` instead — same signature.
-- A module-wide `src/androidUnitTest/resources/robolectric.properties` holding `sdk=35` is
+- A module-wide `src/androidHostTest/resources/robolectric.properties` holding `sdk=35` is
   preferable to a per-class `@Config(sdk = [...])`: it also covers tests you would otherwise forget
   to annotate, such as the manifest assertion below.
 

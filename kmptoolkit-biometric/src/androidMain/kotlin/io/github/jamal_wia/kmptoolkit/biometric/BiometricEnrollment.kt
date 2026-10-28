@@ -7,6 +7,7 @@ import android.provider.Settings
 import androidx.biometric.BiometricManager
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenRequest
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * Hands every candidate of one [BiometricGate.launchEnrollment] call to whatever opens it; `true` if a
@@ -79,15 +80,25 @@ internal class BiometricEnrollmentLauncher(
     private val starter: EnrollmentScreenStarter,
 ) {
 
-    /** Elapsed-realtime stamp of the last launch attempt; `null` before the first. */
-    private var lastLaunchAtMillis: Long? = null
+    /**
+     * Elapsed-realtime stamp of the last launch attempt; `null` before the first.
+     *
+     * Checked and stamped in one compare-and-set, because [BiometricGate] is safe to call from any
+     * thread: with a plain field, two taps landing on two threads could both read the old stamp, both
+     * pass the window check and both open a settings screen — the exact double launch the throttle
+     * exists to stop. A `MutableStateFlow` rather than a lock, since [launch] is not suspending and
+     * the check-and-stamp is a single value swap.
+     */
+    private val lastLaunchAtMillis: MutableStateFlow<Long?> = MutableStateFlow(null)
 
     /** @param enrolled whether the gate's tier already has an enrolment, which decides the screen. */
     fun launch(enrolled: Boolean): BiometricEnrollmentLaunch {
         val now: Long = elapsedRealtimeMillis()
-        val last: Long? = lastLaunchAtMillis
-        if (last != null && now - last < throttleMillis) return BiometricEnrollmentLaunch.THROTTLED
-        lastLaunchAtMillis = now
+        while (true) {
+            val last: Long? = lastLaunchAtMillis.value
+            if (last != null && now - last < throttleMillis) return BiometricEnrollmentLaunch.THROTTLED
+            if (lastLaunchAtMillis.compareAndSet(last, now)) break
+        }
 
         val started: Boolean = try {
             starter.start(candidates(enrolled))

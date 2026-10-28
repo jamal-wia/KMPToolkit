@@ -92,7 +92,7 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
 - `NoOpNotifierTest` — reports `NotificationsDisabled`, stays callable, and rejects a blank id even
   though it posts nothing, so the bug cannot hide in the configuration that would never surface it.
 
-**`androidUnitTest`** (Robolectric, via the `kmptoolkit.androidtest` convention plugin):
+**`androidHostTest`** (Robolectric, via the `kmptoolkit.androidtest` convention plugin):
 
 - `AndroidNotifierTest` — the happy path, channel creation from the spec, custom sound resolution,
   replace-vs-stack, a blank id, and each way a post fails: permission absent, notifications disabled
@@ -104,10 +104,16 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
 - `AndroidNotificationOptionsTest` — each `NotificationOptions` field on a real notification
   (`FLAG_ONLY_ALERT_ONCE`, the delete intent and its separate `PendingIntent`, the media template and
   its compact actions, per-action icons), that a frame with changed content is not held back by the bucket, and
-  the Android helpers: `notificationIdOf` matching the posted id, a foreground notification that is
-  ongoing, creates its channel, posts nothing and carries the same broadcasts as a post, and channel
-  creation and deletion ahead of any post.
-- `AndroidNotifierPreTiramisuTest` — at `sdk = 32`, a `PermissionHandler` answering "denied" neither
+  the Android helpers: a post and a cancel under a `ForegroundNotificationId` reaching the
+  notification its service started with, an ordinary id never touching it, a foreground notification
+  that is ongoing, creates its channel, posts nothing and carries the same `PendingIntent`s as a post,
+  channel creation and deletion ahead of any post, and the 2.x migration sweep (a cancel and a first
+  post removing the old untagged copy, sparing a foreground `platformId`).
+- `NotificationIdCollisionCurrentApiTest` / `NotificationIdCollisionLegacyApiTest` — at the default
+  level and at `sdk = 28`: `"Aa"` and `"BB"`, whose hash codes are equal, stay two notifications, a
+  cancel of one leaves the other, and each one's tap and button carry its own extras. Below 29, a
+  button with no receiver to address stays a plain implicit broadcast.
+- `AndroidNotifierPreTiramisuTest` — at `sdk = 32`, a `PermissionController` answering "denied" neither
   blocks a post nor is asked.
 - `AndroidNotifierLegacyTest` — the API 24–25 path, at `@Config(sdk = [24])`, because the
   module-wide `robolectric.properties` pins `sdk=35` and nothing else here would ever execute a
@@ -131,7 +137,7 @@ and flaky.
 
 ```bash
 ./gradlew :kmptoolkit-notification:build :kmptoolkit-notification-testing:build checkKotlinAbi
-./gradlew :kmptoolkit-notification:testDebugUnitTest :kmptoolkit-notification:iosSimulatorArm64Test
+./gradlew :kmptoolkit-notification:testAndroidHostTest :kmptoolkit-notification:iosSimulatorArm64Test
 ```
 
-`allTests` does not run the Robolectric tests — run `testDebugUnitTest` explicitly.
+The Robolectric tests are `testAndroidHostTest`; `allTests` includes them too.

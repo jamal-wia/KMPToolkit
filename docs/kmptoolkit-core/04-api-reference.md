@@ -66,3 +66,48 @@ public expect fun newReentrantLock(): ReentrantLockHandle
 A plain reentrant lock: `java.util.concurrent.locks.ReentrantLock` on Android and `jvm`,
 `NSRecursiveLock` on iOS. The building block of `StateMachineLock`; exposed only because it is
 `expect`/`actual` public.
+
+## `SharedIdleTimer`, `IdleTimerHolder`, `IdleTimerHold` (iOS only)
+
+```kotlin
+@ToolkitInternalApi
+public interface IdleTimerHolder {
+    public fun acquire(): IdleTimerHold
+}
+
+@ToolkitInternalApi
+public interface IdleTimerHold {
+    public fun release()
+}
+
+@ToolkitInternalApi
+public val SharedIdleTimer: IdleTimerHolder
+
+@ToolkitInternalApi
+public fun newIdleTimerHolder(
+    readFlag: () -> Boolean,
+    writeFlag: (Boolean) -> Unit,
+    isMainThread: () -> Boolean,
+    postToMain: (() -> Unit) -> Unit,
+): IdleTimerHolder
+```
+
+Reference-counted holds on `UIApplication.idleTimerDisabled`, one switch for the whole process.
+`SharedIdleTimer` is the one instance over the real flag. Every module in the suite that keeps the
+screen on uses it: the system-bars `ScreenWakeLockController` and the video surface.
+
+| Member | Contract |
+|---|---|
+| `acquire()` | Takes a hold. The timer is disabled while at least one hold is live. Safe from any thread. |
+| `IdleTimerHold.release()` | Gives that hold back. Idempotent, so a double release cannot release someone else's hold. |
+| `newIdleTimerHolder(...)` | A holder over a fake flag and a fake main queue, for the tests of the modules that share `SharedIdleTimer`. A unit-test binary has no `UIApplication`. |
+
+Details that tests pin down:
+
+- **Save and restore.** The first hold saves the flag's current value, and the last release
+  restores it. An app that disabled the timer itself keeps it disabled.
+- **Main thread.** The flag is written only on the main thread. Called anywhere else, the write is
+  posted to the main queue.
+- **Last call wins.** The count changes atomically, at the call. Each main-thread write applies the
+  count as it is when the write runs. A change queued from a background thread therefore never
+  overrides a later one made on the main thread.

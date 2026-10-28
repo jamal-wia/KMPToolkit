@@ -41,11 +41,19 @@ already in the app can hold it.
 
 ```kotlin
 val storage: KeyValueStorage = /* kmptoolkit-storage, or your own */
+val appScope: CoroutineScope = /* your application-lifetime scope */
 val holder: AppLanguageHolder = createAppLanguageHolder(
-    initialLanguage = catalog.fromId(storage.getString(LANGUAGE_KEY)),
-    onLanguageChanged = { storage.putString(LANGUAGE_KEY, catalog.idOf(it)) },
+    // The language must be in place before the first string lookup, so this one read blocks.
+    initialLanguage = catalog.fromId(runBlocking { storage.getStringOrNull(LANGUAGE_KEY) }),
+    onLanguageChanged = { language -> appScope.launch { storage.put(LANGUAGE_KEY, catalog.idOf(language)) } },
 )
 ```
+
+`kmptoolkit-storage` calls are `suspend` functions. The holder is created synchronously and applies
+its language at once, so the initial read is the one place a blocking `runBlocking` is the right
+tool — at process start, on the main thread, before anything else runs; the store does its own I/O
+on `Dispatchers.IO`, so it cannot deadlock there. The write on every change has no such constraint
+and is launched instead.
 
 `idOf` and `fromId` are what make that a two-liner. Encoding `AppLanguage.System` otherwise needs a
 sentinel of your own, because `code == null` cannot be written to a string store directly; the

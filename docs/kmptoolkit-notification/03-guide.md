@@ -4,8 +4,9 @@ Scenarios in the order you are likely to meet them, and the mistakes each one in
 
 ## Ids: one string, three jobs
 
-`post(id, ...)` uses your id as the replace key, the cancel key, and (on Android) the seed for the
-platform's integer id. Two rules follow:
+`post(id, ...)` uses your id as the replace key, the cancel key, and the key of everything tapping
+the notification sends. On both platforms the string itself is the key — Android's notification tag,
+iOS's request identifier — so two different ids are always two notifications. Two rules follow:
 
 - **Re-post the same id to update.** A progress notification is one id posted many times, not many
   notifications.
@@ -13,8 +14,8 @@ platform's integer id. Two rules follow:
 
 The id is never shown to the user and never leaves the device. It **must not be blank** — that is
 the one thing `post` throws for (`IllegalArgumentException`), because it is a bug rather than a
-device state, and because the platforms disagree about it destructively: Android would fold it onto
-a shared integer id, iOS would take the process down.
+device state, and because the platforms disagree about it destructively: Android would quietly
+accept it as one more tag, iOS would take the process down.
 
 ## Channels
 
@@ -235,23 +236,35 @@ all.
 ## Foreground services (Android)
 
 A foreground service must call `startForeground(id, notification)` within seconds of starting, with a
-real `android.app.Notification`. Build it here, so it is the same notification `post` would show, and
-update it through the `Notifier` afterwards under the same id:
+real `android.app.Notification` and a bare `Int` — no tag. Everything else `Notifier` posts is keyed
+by your string id as the tag, so a notification the service starts with needs an `Int` of its own,
+chosen by you: only your app knows which numbers its other code already uses. Declare the pair once,
+build the service's notification with it, and give it to the notifier, which then posts and cancels
+that id under the `Int` instead of the tag:
 
 ```kotlin
+val PLAYBACK = ForegroundNotificationId(id = "playback", platformId = 1001)
+
 class PlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(
-            notificationIdOf("playback"),
-            buildForegroundNotification(this, "playback", nowPlaying, config, options),
+            PLAYBACK.platformId,
+            buildForegroundNotification(this, PLAYBACK, nowPlaying, config, options),
         )
         return START_NOT_STICKY
     }
 }
 
-// later, from anywhere:
+// wherever the notifier is built:
+val notifier = createNotifier(context, permissions, config, foregroundIds = setOf(PLAYBACK))
+
+// later, from anywhere — updates the service's notification in place:
 notifier.post("playback", nowPlaying.copy(body = nextTrack), options)
 ```
+
+Leave an id out of `foregroundIds` and its `post` shows a *second* notification beside the service's,
+under the tag. Two entries may not share an id or a `platformId`. `ForegroundNotificationId` exists
+only on Android: iOS has no foreground services.
 
 Pass the same `NotificationConfig` the notifier was created with — its broadcast action is what the
 buttons carry. The built notification is always `ongoing`, and building it runs none of the post
@@ -260,6 +273,29 @@ without `POST_NOTIFICATIONS` it returns `PermissionDenied` and the service's not
 showing what it started with (the platform still shows a foreground service's notification in the
 task manager). An icon that does not resolve is rejected when building, with
 `IllegalArgumentException`, rather than crashing `startForeground`.
+
+## Updating from 2.x
+
+3.0 changed how a notification is identified on Android. 2.x posted every id untagged, under its
+masked `String.hashCode()` — so two ids with equal hashes (`"Aa"` and `"BB"`) replaced and cancelled
+each other, and their taps and buttons shared one `PendingIntent`. 3.0 posts under the id itself as
+the tag. What that means for an app updated in place:
+
+- **Notifications posted by 2.x cannot be removed by a plain tagged cancel**, because 2.x posted them
+  under a different key. The 3.x notifier therefore also removes the old untagged copy: `cancel(id)`
+  cancels the hashed `Int` 2.x used for that id, and the first `post(id)` of each id in a process does
+  the same, so an update does not leave the 2.x copy showing next to the new one. `cancelAll` clears
+  everything, old and new. This sweep is a migration aid for the 3.x line and goes in 4.0; a 2.x
+  notification still showing by then needs `cancelAll`.
+- **The sweep skips a `platformId` of your `foregroundIds`**, so if you keep a service's old number
+  by choosing `notificationIdOf`'s 2.x value as its `platformId`, the live notification is not
+  swept away.
+- **`notificationIdOf` is gone.** Replace `startForeground(notificationIdOf(id), build…(this, id, …))`
+  with a `ForegroundNotificationId` as in [Foreground services](#foreground-services-android), and
+  pass it to `createNotifier`'s `foregroundIds`.
+- **The sweep can only hit what shares the old number.** It cancels untagged notifications only; one
+  your own code posts untagged through `NotificationManager` under the very `Int` an id of yours
+  hashed to in 2.x would be removed with it.
 
 ## Deciding what to do about a result
 

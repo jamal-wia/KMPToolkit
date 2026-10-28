@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.storage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlinx.coroutines.test.runTest
 
 /**
  * The typed extensions' encoding and failure rules, from the KDoc in `TypedAccess.kt`: one encoding
@@ -14,7 +15,7 @@ class TypedAccessTest {
     private val storage = FakeKeyValueStorage()
 
     @Test
-    fun `typed values are stored as their canonical strings`() {
+    fun `typed values are stored as their canonical strings`() = runTest {
         storage.putInt("i", -42)
         storage.putLong("l", Long.MAX_VALUE)
         storage.putBoolean("b", true)
@@ -25,7 +26,7 @@ class TypedAccessTest {
     }
 
     @Test
-    fun `typed values round-trip at their extremes`() {
+    fun `typed values round-trip at their extremes`() = runTest {
         storage.putInt("int", Int.MIN_VALUE)
         storage.putLong("long", Long.MIN_VALUE)
         storage.putBoolean("f", false)
@@ -36,14 +37,14 @@ class TypedAccessTest {
     }
 
     @Test
-    fun `an absent key reads back as null not as a failure`() {
+    fun `an absent key reads back as null not as a failure`() = runTest {
         assertEquals(StorageResult.Success(null), storage.getInt("missing"))
         assertEquals(StorageResult.Success(null), storage.getLong("missing"))
         assertEquals(StorageResult.Success(null), storage.getBoolean("missing"))
     }
 
     @Test
-    fun `a value that does not parse is a get failure naming the key`() {
+    fun `a value that does not parse is a get failure naming the key`() = runTest {
         storage.entries["i"] = "forty-two"
         storage.entries["l"] = "12.5"
         storage.entries["b"] = "TRUE"
@@ -61,14 +62,14 @@ class TypedAccessTest {
     }
 
     @Test
-    fun `an int read of a value beyond the int range is a failure`() {
+    fun `an int read of a value beyond the int range is a failure`() = runTest {
         storage.putLong("big", Int.MAX_VALUE.toLong() + 1)
 
         assertIs<StorageResult.Failure>(storage.getInt("big"))
     }
 
     @Test
-    fun `a store failure passes through unchanged`() {
+    fun `a store failure passes through unchanged`() = runTest {
         val unavailable = StorageError.Unavailable()
         storage.failReadsWith = unavailable
 
@@ -76,7 +77,7 @@ class TypedAccessTest {
     }
 
     @Test
-    fun `the or-variants fall back on absent and unparseable and unreadable values`() {
+    fun `the or-variants fall back on absent and unparseable and unreadable values`() = runTest {
         assertEquals(7, storage.getIntOr("missing", 7))
 
         storage.entries["bad"] = "x"
@@ -88,7 +89,7 @@ class TypedAccessTest {
     }
 
     @Test
-    fun `the or-variants return a stored value including an empty string`() {
+    fun `the or-variants return a stored value including an empty string`() = runTest {
         storage.put("s", "")
         storage.putInt("i", 3)
 

@@ -92,7 +92,13 @@ private class AndroidSystemBarsController(
             // Window and decor-view mutations are main-thread only, and a caller is allowed to be
             // anywhere. runOnUiThread runs inline when already there, so the common case costs
             // nothing.
-            activity.runOnUiThread { apply(activity, config) }
+            //
+            // The block reads the configuration when it runs instead of applying the captured
+            // [config]. Off the main thread the write is posted, and a later mutation made on the
+            // main thread applies inline, before the posted one runs. The posted block then lands
+            // last. Applied as captured, it would leave the window showing a configuration the
+            // controller no longer holds until the next resume.
+            activity.runOnUiThread { apply(activity, currentConfig) }
         }
     }
 

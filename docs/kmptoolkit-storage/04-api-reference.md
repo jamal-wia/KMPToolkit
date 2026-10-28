@@ -8,10 +8,10 @@ Every public symbol in `io.github.jamal_wia.kmptoolkit.storage`.
 
 ```kotlin
 public interface KeyValueStorage {
-    public fun get(key: String): StorageResult<String?>
-    public fun put(key: String, value: String): StorageResult<Unit>
-    public fun remove(key: String): StorageResult<Unit>
-    public fun clear(): StorageResult<Unit>
+    public suspend fun get(key: String): StorageResult<String?>
+    public suspend fun put(key: String, value: String): StorageResult<Unit>
+    public suspend fun remove(key: String): StorageResult<Unit>
+    public suspend fun clear(): StorageResult<Unit>
 }
 ```
 
@@ -24,7 +24,10 @@ A string-keyed, string-valued store whose contents survive a process restart.
 | `remove` | Idempotent; succeeds for a key that is not there |
 | `clear` | Removes only this store's entries. Never another store's, never the iOS standard defaults |
 
-Nothing throws. Not ordered under concurrent access — see [`03-guide.md`](03-guide.md).
+Every member is a main-safe `suspend` function: the store runs its blocking platform call on its own
+I/O dispatcher. Nothing throws except `CancellationException` for a cancelled caller. Safe to call
+from any number of coroutines at once — nothing corrupts — but not ordered under concurrent access:
+see [`03-guide.md`](03-guide.md).
 
 ---
 
@@ -55,7 +58,7 @@ public sealed interface StorageResult<out T> {
 public fun <T> StorageResult<T>.getOrNull(): T?
 public fun <T> StorageResult<T>.errorOrNull(): StorageError?
 public val StorageResult<*>.isSuccess: Boolean
-public fun KeyValueStorage.getStringOrNull(key: String): String?
+public suspend fun KeyValueStorage.getStringOrNull(key: String): String?
 ```
 
 `kotlin.Result` is not used because it can only carry a `Throwable`, and none of `StorageError`'s
@@ -119,7 +122,7 @@ public class DeviceIdProvider(
     storage: KeyValueStorage,
     key: String = DEFAULT_KEY,
 ) {
-    public fun current(): String
+    public suspend fun current(): String
 
     public companion object {
         public const val DEFAULT_KEY: String = "kmptoolkit.storage.device_id"
@@ -134,6 +137,10 @@ and process restarts; reset by `clear()`, by clearing app data, and by a reinsta
 for that call but a later call produces a different one — a degraded signal rather than an error to
 handle. Nothing is memoized in memory, so a `clear()` takes effect on the very next call.
 
+Concurrent first calls agree: the read-generate-write runs under one lock shared by every provider in
+the process, so callers racing on a fresh store — through one provider or several over the same
+store — all get the id that was persisted.
+
 Not a fingerprint and not a credential — see [`01-overview.md`](01-overview.md).
 
 ---
@@ -141,18 +148,18 @@ Not a fingerprint and not a credential — see [`01-overview.md`](01-overview.md
 ## Typed accessors
 
 ```kotlin
-public fun KeyValueStorage.getInt(key: String): StorageResult<Int?>
-public fun KeyValueStorage.getLong(key: String): StorageResult<Long?>
-public fun KeyValueStorage.getBoolean(key: String): StorageResult<Boolean?>
+public suspend fun KeyValueStorage.getInt(key: String): StorageResult<Int?>
+public suspend fun KeyValueStorage.getLong(key: String): StorageResult<Long?>
+public suspend fun KeyValueStorage.getBoolean(key: String): StorageResult<Boolean?>
 
-public fun KeyValueStorage.putInt(key: String, value: Int): StorageResult<Unit>
-public fun KeyValueStorage.putLong(key: String, value: Long): StorageResult<Unit>
-public fun KeyValueStorage.putBoolean(key: String, value: Boolean): StorageResult<Unit>
+public suspend fun KeyValueStorage.putInt(key: String, value: Int): StorageResult<Unit>
+public suspend fun KeyValueStorage.putLong(key: String, value: Long): StorageResult<Unit>
+public suspend fun KeyValueStorage.putBoolean(key: String, value: Boolean): StorageResult<Unit>
 
-public fun KeyValueStorage.getStringOr(key: String, default: String): String
-public fun KeyValueStorage.getIntOr(key: String, default: Int): Int
-public fun KeyValueStorage.getLongOr(key: String, default: Long): Long
-public fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean
+public suspend fun KeyValueStorage.getStringOr(key: String, default: String): String
+public suspend fun KeyValueStorage.getIntOr(key: String, default: Int): Int
+public suspend fun KeyValueStorage.getLongOr(key: String, default: Long): Long
+public suspend fun KeyValueStorage.getBooleanOr(key: String, default: Boolean): Boolean
 ```
 
 Encoding: `Int` and `Long` as decimal strings — an optional `-` and ASCII digits, nothing else (`"+42"` or `" 7"` reads as a failure) — and `Boolean` as exactly `"true"` or `"false"`.

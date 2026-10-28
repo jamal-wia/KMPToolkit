@@ -20,7 +20,7 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
  *
  * ```kotlin
  * @Test
- * fun `a destroyed key forces a fresh sign-in`() {
+ * fun `a destroyed key forces a fresh sign-in`() = runTest {
  *     val storage = InMemoryKeyValueStorage()
  *     storage.put("token", "abc")
  *     storage.failNextOperationWith = StorageError.Undecryptable("token")
@@ -31,7 +31,10 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
  * }
  * ```
  *
- * Not thread-safe, matching the real stores' own ordering caveat. Drive it from one thread.
+ * No operation suspends, so on a single-threaded dispatcher — `runTest`'s, or any one a test
+ * confines its coroutines to — every call is atomic however many coroutines interleave. It is not
+ * synchronized for parallel threads: drive it from one thread, which is what `runTest` already does.
+ * Testing what the real stores do under parallel threads is the real stores' own test suite's job.
  */
 public class InMemoryKeyValueStorage : SecureKeyValueStorage {
 
@@ -61,23 +64,23 @@ public class InMemoryKeyValueStorage : SecureKeyValueStorage {
     /** A snapshot of the current contents, for asserting on the store as a whole. */
     public val contents: Map<String, String> get() = entries.toMap()
 
-    override fun get(key: String): StorageResult<String?> =
+    override suspend fun get(key: String): StorageResult<String?> =
         scripted() ?: StorageResult.Success(entries[key])
 
-    override fun put(key: String, value: String): StorageResult<Unit> {
+    override suspend fun put(key: String, value: String): StorageResult<Unit> {
         scripted()?.let { return it }
         entries[key] = value
         recordedWrites += key
         return StorageResult.Success(Unit)
     }
 
-    override fun remove(key: String): StorageResult<Unit> {
+    override suspend fun remove(key: String): StorageResult<Unit> {
         scripted()?.let { return it }
         entries.remove(key)
         return StorageResult.Success(Unit)
     }
 
-    override fun clear(): StorageResult<Unit> {
+    override suspend fun clear(): StorageResult<Unit> {
         scripted()?.let { return it }
         entries.clear()
         return StorageResult.Success(Unit)

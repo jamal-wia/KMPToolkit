@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
+
 /**
  * What an engine reports on its own, while nobody is calling it. Raw: an engine says what the
  * platform told it and decides nothing — whether it ends the recording, after which debounce,
@@ -151,9 +154,29 @@ internal interface RecordingFileSystem {
 }
 
 /**
- * Wall-clock milliseconds since the Unix epoch, used only to make a generated file name unique and
- * sortable. Injected so a test can pin the name a recording gets.
+ * Wall-clock milliseconds since the Unix epoch, used only to make a generated file name sortable.
+ * Not what makes it unique — see [FileNameToken]. Injected so a test can pin the name a recording
+ * gets.
  */
 internal fun interface EpochClock {
     fun nowMillis(): Long
+}
+
+/**
+ * The part of a generated file name that makes it unique. The timestamp alone does not: two
+ * recorders sharing a directory (the default) can prepare in the same millisecond, and the wall
+ * clock can step backwards; either way two recordings would get one path, the second would
+ * overwrite the first, and a failed preparation of the second would delete the first's file.
+ *
+ * [Random] — 128 random bits — is what the factories use. Injected only so the module's own tests
+ * can pin the name a recording gets.
+ */
+@OptIn(ExperimentalUuidApi::class)
+internal fun interface FileNameToken {
+    fun next(): String
+
+    companion object {
+        /** A random UUID in hex: unique without coordination between recorders or processes. */
+        val Random: FileNameToken = FileNameToken { Uuid.random().toHexString() }
+    }
 }

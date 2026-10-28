@@ -37,7 +37,7 @@ place which task such a screen lands in. Two presets cover most apps:
 - `SystemScreenLauncher.SeparateTask` gives the screen a task of its own. Your task is never
   touched, and an unrelated Settings task left in the background is never joined; only a task
   already rooted at that same screen is brought forward. The default of every factory except
-  `createPermissionHandler`'s app-details page.
+  `createPermissionController`'s.
 - `SystemScreenLauncher.callerTask(activityAccess)` pushes the screen onto your task, so Back returns
   to the screen that asked and a two-pane tablet shows it in a single pane. With no activity resumed,
   or when called off the main thread, it falls back to `SeparateTask`.

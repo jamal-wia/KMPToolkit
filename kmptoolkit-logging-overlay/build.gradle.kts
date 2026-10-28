@@ -1,7 +1,3 @@
-// `compose.uiTest` (Compose Multiplatform's test artifact, used by the Robolectric-backed UI tests
-// in androidUnitTest) is still behind this opt-in as of Compose Multiplatform 1.11.
-@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
-
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.compose")
@@ -21,11 +17,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.logging.overlay"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.logging.overlay"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -43,10 +39,10 @@ kotlin {
             // Exactly what the overlay uses and nothing more: runtime for snapshot state and
             // collectAsState, foundation for LazyColumn/clickable/layout, material3 for the
             // Surface/Text/TextButton chrome, ui for Modifier and units.
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material3)
-            implementation(compose.ui)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.foundation)
+            implementation(libs.compose.material3)
+            implementation(libs.compose.ui)
         }
 
         commonTest.dependencies {
@@ -55,22 +51,12 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
 
-        androidUnitTest.dependencies {
-            implementation(compose.uiTest)
+        androidHostTest.dependencies {
+            implementation(libs.compose.ui.test)
+            // ComponentActivity for the Robolectric Compose test host — see
+            // kmptoolkit-systembars/build.gradle.kts for why this is a host-test dependency.
+            implementation(project.dependencies.platform(libs.androidx.compose.bom))
+            implementation(libs.androidx.compose.ui.test.manifest)
         }
     }
-}
-
-dependencies {
-    // Robolectric launches the Compose test host through ActivityScenario, which needs an
-    // `androidx.activity.ComponentActivity` declared in the *merged debug manifest* — a test-only
-    // configuration is merged too late for that, which is why this is `debugImplementation` and not
-    // an androidUnitTest dependency. Without it every UI test dies with "Unable to resolve activity
-    // for Intent ... ComponentActivity". ui-test-manifest is a manifest-only AAR, the debug variant
-    // is never published (`publishLibraryVariants("release")`), so nothing reaches a consumer.
-    //
-    // Versioned through the Compose BOM because the catalog's ui-test-manifest entry carries no
-    // version of its own.
-    debugImplementation(platform(libs.androidx.compose.bom))
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

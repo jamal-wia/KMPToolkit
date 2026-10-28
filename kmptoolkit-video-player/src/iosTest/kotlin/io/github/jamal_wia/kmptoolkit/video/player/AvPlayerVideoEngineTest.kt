@@ -477,6 +477,47 @@ class AvPlayerVideoEngineTest {
     }
 
     @Test
+    fun `a main thread call does not overtake one dispatched from a background thread before it`() {
+        val path: String = movie
+        val engine: AvPlayerVideoEngine = newEngine()
+        runOnMainLoop {
+            engine.load(VideoSource.File(path))
+
+            // start() from a background thread is dispatched to the main queue; pause() right after
+            // it, on the main thread, must still land after it — or the movie plays on while the
+            // player above says Paused.
+            onBackgroundThread { engine.start() }
+            engine.pause()
+            delay(200)
+
+            assertEquals(0f, engine.player.rate, "the later pause() must win over the earlier start()")
+            engine.release()
+        }
+    }
+
+    @Test
+    fun `settings made on the main thread after ones dispatched from a background thread win`() {
+        val path: String = movie
+        val engine: AvPlayerVideoEngine = newEngine()
+        runOnMainLoop {
+            engine.load(VideoSource.File(path))
+            engine.start()
+
+            onBackgroundThread {
+                engine.setVolume(0.1f)
+                engine.setSpeed(2f)
+            }
+            engine.setVolume(0.7f)
+            engine.setSpeed(0.5f)
+            delay(100)
+
+            assertEquals(0.7f, engine.player.volume)
+            assertEquals(0.5f, engine.player.rate)
+            engine.release()
+        }
+    }
+
+    @Test
     fun `volume set before load survives into playback and changes live`() {
         val path: String = movie
         val engine: AvPlayerVideoEngine = newEngine()

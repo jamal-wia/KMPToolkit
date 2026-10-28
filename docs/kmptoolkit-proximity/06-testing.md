@@ -74,7 +74,7 @@ prove it does not crash or wedge if it is wrong.
   `FakeProximitySensor` instead replays the most recent `emit` to every new collector, so `emit`
   never races your test's collection. If your test genuinely needs to prove registration/release
   timing, that is a property of the real Android implementation, not of this fixture, and belongs in
-  an `androidUnitTest` with Robolectric instead.
+  an `androidHostTest` with Robolectric instead.
 - **It does not hang on an absent sensor.** Collecting the real `observe()` on an Android device
   with no sensor never emits and never completes — correct, but unusable in a test that wants to
   assert "nothing came through" with something like `toList()`. `FakeProximitySensor.observe()`
@@ -94,7 +94,7 @@ Useful as a model, and as an answer to "is the Android sensor mapping actually v
 | Suite | Where | What it pins |
 |---|---|---|
 | `ProximityRuleTest` | `kmptoolkit-proximity/commonTest` (JVM + iOS) | The one subtle branch: comparing against the smaller of `NEAR_CM` and the sensor's own maximum |
-| `AndroidProximitySensorTest` | `kmptoolkit-proximity/androidUnitTest`, Robolectric | `isAvailable`, including a zero-range sensor counting as absent; that a collection holds a listener exactly as long as it runs; that raw `SensorEvent` distances reach the collector as near/far through `ProximityRule`, once per change; and that no usable sensor means no listener and a silent, open flow |
+| `AndroidProximitySensorTest` | `kmptoolkit-proximity/androidHostTest`, Robolectric | `isAvailable`, including a zero-range sensor counting as absent; that a collection holds a listener exactly as long as it runs; that raw `SensorEvent` distances reach the collector as near/far through `ProximityRule`, once per change; and that no usable sensor means no listener and a silent, open flow |
 | `IosProximitySensorTest` | `kmptoolkit-proximity/iosTest` | The documented always-absent contract |
 | `FakeProximitySensorTest` | `kmptoolkit-proximity-testing/commonTest` | The fixture's own contract — replay, availability gating, `emitCount` |
 

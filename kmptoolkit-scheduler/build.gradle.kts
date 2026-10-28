@@ -16,11 +16,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.scheduler"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.scheduler"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -31,7 +31,7 @@ kotlin {
             // is expressible without coroutines, and the public API is suspend regardless.
             implementation(libs.kotlinx.coroutines.core)
         }
-        androidUnitTest.dependencies {
+        androidHostTest.dependencies {
             implementation(libs.junit)
             implementation(libs.kotlinx.coroutines.test)
         }

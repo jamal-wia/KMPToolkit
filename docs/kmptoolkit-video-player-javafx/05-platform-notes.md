@@ -102,8 +102,9 @@ decoder writes straight into memory without a render-and-read-back step.
 - **The toolkit stays up.** `release()` frees the player, not the toolkit; it is process-wide and
   shared with the rest of the app. If the app calls `Platform.exit()`, players stop working and
   further transport calls are ignored.
-- **Where work happens.** Every `MediaPlayer` call runs on the JavaFX application thread; the
-  position, duration and buffered position the core module polls are cached there, so polling never
+- **Where work happens.** Every `MediaPlayer` call runs on the JavaFX application thread, in the
+  order the calls were made from whichever threads made them (a call made on that thread runs at
+  once only when nothing queued from another thread is still waiting to run); the position, duration and buffered position the core module polls are cached there, so polling never
   blocks. Opening a source (`new Media(uri)`, which may block on the network) runs on
   `Dispatchers.IO`.
 - **Where events come from.** State callbacks and frames are produced on the JavaFX application
@@ -114,7 +115,11 @@ decoder writes straight into memory without a render-and-read-back step.
 - **Start-up latency.** On macOS, JavaFX takes up to about a second after `play()` before the
   position starts moving; the position simply stays put briefly.
 - **Seeking** snaps to the nearest key frame JavaFX chooses and may land a little before the
-  requested position.
+  requested position. The position reports the requested one as soon as `seekTo` returns and keeps
+  it until the seek has reached the JavaFX application thread: a playhead reading JavaFX took before
+  the seek, but delivered after it because that thread was busy, never puts the old position back.
+  JavaFX then seeks asynchronously, so the one reading after that — about 100 ms later — can still
+  show the old playhead before the new one arrives.
 - **Looping** (`RepeatMode.One`) uses JavaFX's own `cycleCount = INDEFINITE`, so JavaFX restarts
   the source itself, and `Completed` is never reported while it is on.
 - **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine

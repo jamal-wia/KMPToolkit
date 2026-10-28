@@ -20,11 +20,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.downloader"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.downloader"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

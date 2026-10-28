@@ -15,11 +15,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.audio.player"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.audio.player"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

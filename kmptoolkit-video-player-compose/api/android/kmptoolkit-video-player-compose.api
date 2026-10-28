@@ -5,8 +5,8 @@ public final class io/github/jamal_wia/kmptoolkit/video/player/compose/Buffering
 public final class io/github/jamal_wia/kmptoolkit/video/player/compose/ComposableSingletons$VideoPlayerKt {
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/video/player/compose/ComposableSingletons$VideoPlayerKt;
 	public fun <init> ()V
-	public final fun getLambda$-1133930939$io_github_jamal_wia_kmptoolkit_video_player_compose_release ()Lkotlin/jvm/functions/Function3;
-	public final fun getLambda$189963911$io_github_jamal_wia_kmptoolkit_video_player_compose_release ()Lkotlin/jvm/functions/Function3;
+	public final fun getLambda$-1133930939$io_github_jamal_wia_kmptoolkit_video_player_compose ()Lkotlin/jvm/functions/Function3;
+	public final fun getLambda$189963911$io_github_jamal_wia_kmptoolkit_video_player_compose ()Lkotlin/jvm/functions/Function3;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/video/player/compose/DefaultVideoControlsKt {

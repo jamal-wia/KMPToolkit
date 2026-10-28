@@ -70,9 +70,14 @@ class PublishConventionPlugin : Plugin<Project> {
                 }
                 publishToMavenCentral(automaticRelease = true)
 
-                if (project.findProperty("signing.keyId") != null ||
-                    project.findProperty("signingInMemoryKey") != null ||
-                    System.getenv("ORG_GRADLE_PROJECT_signingInMemoryKey") != null
+                // Gradle properties through `providers`, not `project.findProperty`: findProperty
+                // also searches parent projects, which Gradle 10 removes, and is not visible to the
+                // configuration cache. `gradleProperty` already covers -P, gradle.properties and
+                // ORG_GRADLE_PROJECT_* variables; the explicit environment check states what CI
+                // sets rather than relying on that mapping.
+                if (providers.gradleProperty("signing.keyId").isPresent ||
+                    providers.gradleProperty("signingInMemoryKey").isPresent ||
+                    providers.environmentVariable("ORG_GRADLE_PROJECT_signingInMemoryKey").isPresent
                 ) {
                     signAllPublications()
                 }

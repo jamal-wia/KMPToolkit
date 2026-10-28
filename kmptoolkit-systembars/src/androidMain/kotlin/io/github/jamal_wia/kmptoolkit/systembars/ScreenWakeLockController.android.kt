@@ -61,18 +61,28 @@ public fun createScreenWakeLockController(activityAccess: ActivityAccess): Scree
  * put it on a window and has not managed to take it off yet — and in the second case only for that
  * same window, since a different one never carried this controller's flag.
  *
- * Everything — state included — runs on the main thread, because callers may wire [setKeepScreenOn]
- * off a state flow whose collection dispatcher this interface does not constrain, while the
- * activity tracker delivers resume events on the main thread. Deciding what to apply and where on
- * two different threads would let them disagree about which activity is current, which is how the
- * flag ends up set on a live window while this controller believes it holds nothing.
+ * Applying runs on the main thread, because callers may wire [setKeepScreenOn] off a state flow
+ * whose collection dispatcher this interface does not constrain, while the activity tracker
+ * delivers resume events on the main thread. Deciding what to apply and where on two different
+ * threads would let them disagree about which activity is current, which is how the flag ends up
+ * set on a live window while this controller believes it holds nothing.
+ *
+ * The one thing recorded on the caller's thread is [requested]. A call made off the main thread is
+ * posted, and a later call made on the main thread runs inline, so the posted one would run last.
+ * If each carried its own value, a hold queued by a background collector would land after the
+ * screen's main-thread teardown released it, and the screen would never sleep. Recording the value
+ * at the call and having every main-thread pass apply the latest one makes the last call win.
  */
 internal class AndroidScreenWakeLockController(
     private val activityAccess: ActivityAccess,
 ) : ScreenWakeLockController {
 
-    // What the caller wants.
+    // What the caller asked for last. Written on the caller's thread, at the call, so that the order
+    // of the calls decides it rather than the order in which their main-thread passes happen to run.
     @Volatile
+    private var requested: Boolean = false
+
+    // What this controller has applied. Main thread only.
     private var enabled: Boolean = false
 
     // The window this controller last turned the flag ON for and has not turned it off again — see
@@ -95,13 +105,18 @@ internal class AndroidScreenWakeLockController(
     }
 
     override fun setKeepScreenOn(enabled: Boolean) {
-        onMainThread {
-            if (this.enabled == enabled) return@onMainThread
-            this.enabled = enabled
-            // No activity means the screen is already going away. The write is not lost: pushedTo
-            // still names the window carrying the flag, so its next resume applies this release.
-            activityAccess.withActivity { activity -> applyFlag(activity, keepOn = enabled) }
-        }
+        requested = enabled
+        onMainThread { applyRequested() }
+    }
+
+    /** Main thread only. Applies whatever was asked for last, not what one particular call asked. */
+    private fun applyRequested() {
+        val target: Boolean = requested
+        if (enabled == target) return
+        enabled = target
+        // No activity means the screen is already going away. The write is not lost: pushedTo
+        // still names the window carrying the flag, so its next resume applies this release.
+        activityAccess.withActivity { activity -> applyFlag(activity, keepOn = target) }
     }
 
     private fun applyFlag(activity: Activity, keepOn: Boolean) {

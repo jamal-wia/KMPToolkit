@@ -111,3 +111,10 @@ fun `tapping enable opens the system settings`() = runTest {
 called — a real provider has no way to know either, and `openSettingsCount` is the only thing it can
 honestly report. Set `locationEnabled` yourself in the test to simulate the user turning it on and
 returning to your app.
+
+## What the fixture will not do for you
+
+- **It is not thread-safe**, unlike the real providers: `openSettingsCount`, `promptCount`,
+  `locationEnabled` and `servicePromptAnswer` are plain fields. Drive it from one thread, or one
+  test coroutine, and assert after the work under test has finished. `emit` alone is backed by a
+  `StateFlow` and may be called from anywhere.

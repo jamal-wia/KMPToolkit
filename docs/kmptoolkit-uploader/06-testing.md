@@ -106,9 +106,17 @@ clock.advanceBy(10_001)
 engine.drain()                    // the item is attemptable again, wasDetached == true
 ```
 
+Each hand-off carries its own `AttemptContext.claim`, so a test of a late report names which executor
+is reporting — the first one, whose lease expired, or the one holding the item now:
+
+```kotlin
+val first: AttemptContext = contextsSeen[0] // what your handler's first execute() received
+engine.settle(first.id, first.claim, SettleResult.Failed()) // superseded: changes nothing
+```
+
 ## Testing your own store
 
-If you implemented `UploaderStore`, run the contract against it. One test gets you thirty invariants:
+If you implemented `UploaderStore`, run the contract against it. One test gets you forty-six invariants:
 
 ```kotlin
 class MyUploaderStoreTest {
@@ -133,8 +141,8 @@ private val contract = UploaderStoreContract { MyUploaderStore(freshDatabase()) 
     contract.insertionOrderSurvivesSameMillisecondInserts()
 }
 
-@Test fun `a stale lease is rejected`() = runTest {
-    contract.recordFailureIsRejectedWhenTheLeaseMoved()
+@Test fun `a superseded claim is rejected`() = runTest {
+    contract.recordFailureIsRejectedWhenTheClaimMoved()
 }
 ```
 
@@ -218,7 +226,7 @@ backoff under an injected clock, give-up policies, ordering within and across ch
 gating, poison payloads, schema downgrades, the full detached-delivery protocol (lease expiry,
 settle-twice, a settle racing a re-hand, an executor that died with the process), withdrawal by id,
 by tag and by `REPLACE` (including one racing a hand-off, and two handlers sharing a transport),
-cancellation, transient store failures, and the start/close lifecycle. `androidUnitTest` pins the
+cancellation, transient store failures, and the start/close lifecycle. `androidHostTest` pins the
 merged-manifest permission set and the derived WorkManager work name, cancels one item's job while
 another's stays queued, and runs a real socket to check that a cancelled transfer never sends a
 complete body.

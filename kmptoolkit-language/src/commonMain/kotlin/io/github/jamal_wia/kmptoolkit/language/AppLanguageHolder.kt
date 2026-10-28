@@ -35,6 +35,12 @@ public interface AppLanguageHolder {
      *
      * [languageFlow] and `onLanguageChanged` are change-only: re-selecting the current language
      * emits nothing and persists nothing.
+     *
+     * Safe to call from any thread. Concurrent calls are serialized — each one's platform side
+     * effect, state update and callback run as one step — so the language in force on the platform,
+     * [languageFlow] and the last value handed to `onLanguageChanged` always agree: whichever call
+     * runs last wins all three. `onLanguageChanged` runs inside that step, so a slow callback holds up
+     * a concurrent `setLanguage`; calling `setLanguage` again from inside the callback is allowed.
      */
     public fun setLanguage(language: AppLanguage)
 }
@@ -73,10 +79,19 @@ private class DefaultAppLanguageHolder(
         applyGlobally(initialLanguage)
     }
 
+    /**
+     * Serializes [setLanguage]. Without it two calls interleave — A applies, B applies, updates and
+     * persists, then A updates and persists — and the platform ends on B while the holder and the
+     * app's stored choice say A. Not a coroutine `Mutex`: [setLanguage] is not a suspending function.
+     */
+    private val lock: LanguageLock = languageLock()
+
     override fun setLanguage(language: AppLanguage) {
-        applyGlobally(language)
-        if (state.value == language) return
-        state.value = language
-        onLanguageChanged(language)
+        lock.withLock {
+            applyGlobally(language)
+            if (state.value == language) return@withLock
+            state.value = language
+            onLanguageChanged(language)
+        }
     }
 }
