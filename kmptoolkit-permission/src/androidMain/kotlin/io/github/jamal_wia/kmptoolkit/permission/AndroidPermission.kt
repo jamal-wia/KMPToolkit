@@ -3,8 +3,8 @@ package io.github.jamal_wia.kmptoolkit.permission
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 
 /**
- * The permissions only Android has: special app accesses granted on a Settings screen, and — in later
- * groups — Android-only runtime permissions, roles and a raw-string escape hatch.
+ * The permissions only Android has: Android-only runtime permissions, special app accesses granted on a
+ * Settings screen, and the raw-string escape hatch [Runtime].
  *
  * None of these is visible to shared code. Shared code that needs one takes a [Permission] value from
  * Android code, typically through your DI:
@@ -121,6 +121,80 @@ public sealed interface AndroidPermission : Permission {
      */
     public data object KeepPermissionsWhenUnused : SpecialAccess {
         override val id: String = "KEEP_PERMISSIONS_WHEN_UNUSED"
+    }
+
+    // --- Android-only runtime permissions -------------------------------------------------------
+
+    /**
+     * Find and connect to nearby Wi-Fi devices without location — `NEARBY_WIFI_DEVICES` from API 33,
+     * which your manifest should declare with `android:usesPermissionFlags="neverForLocation"` unless
+     * you derive location from the results. Below API 33 Android hands Wi-Fi scan results only to an
+     * app holding location, so this entry is [CommonPermission.Location] there in every respect:
+     * status, dialog and remembered refusals.
+     */
+    public data object NearbyWifiDevices : AndroidPermission {
+        override val id: String = "NEARBY_WIFI_DEVICES"
+    }
+
+    /**
+     * Reach devices on the local network — `ACCESS_LOCAL_NETWORK`, a runtime permission from API 37 for
+     * an app that targets API 37 or higher. On any other combination local network access needs no
+     * grant, and this reports [PermissionStatus.Granted].
+     */
+    public data object LocalNetwork : AndroidPermission {
+        override val id: String = "LOCAL_NETWORK"
+    }
+
+    /**
+     * Read heart rate and other body sensors while the app is in use — `BODY_SENSORS` up to API 35;
+     * from API 36 Android replaced it with the Health Connect permission
+     * `android.permission.health.READ_HEART_RATE`, which is what this requests there. Declare the one
+     * your `targetSdk` and the devices you support need — both, usually, the old one with
+     * `android:maxSdkVersion="35"`.
+     */
+    public data object BodySensors : AndroidPermission {
+        override val id: String = "BODY_SENSORS"
+    }
+
+    /**
+     * Read body sensors while the app is in the background — `BODY_SENSORS_BACKGROUND` on API 33–35,
+     * `android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND` from API 36. Below API 33 the
+     * foreground grant covers background too, and this is [BodySensors] in every respect. Android grants
+     * it only on top of [BodySensors], so a request while that is not granted shows nothing and returns
+     * the current status — exactly as for [CommonPermission.LocationBackground].
+     */
+    public data object BodySensorsBackground : AndroidPermission {
+        override val id: String = "BODY_SENSORS_BACKGROUND"
+    }
+
+    /**
+     * Any Android permission by its manifest name — the escape hatch for one this vocabulary does not
+     * model (`READ_PHONE_STATE`, `READ_SMS`, a permission of another app, a development permission).
+     *
+     * The controller treats it by its protection level on this device:
+     *
+     * - **Dangerous** — a runtime permission: one dialog of its own, and the same bookkeeping as every
+     *   typed entry (first refusal, permanent refusal, policy restrictions), its flags keyed by [name].
+     * - **Anything else** — install-time, signature, privileged or development: no app can prompt for
+     *   it. A check reports [PermissionStatus.Granted] when the app holds it and
+     *   [PermissionStatus.Unavailable] otherwise, and a request shows nothing.
+     * - **Unknown to this device** — a typo, another app's permission that is not installed, or one
+     *   newer than the OS: [PermissionStatus.Unavailable].
+     *
+     * Prefer a typed entry where one exists: `Runtime(Manifest.permission.CAMERA)` is a different entry
+     * from [CommonPermission.Camera], with its own stored flags, and knows nothing of a permission's
+     * API-level history — `Runtime(ACCESS_BACKGROUND_LOCATION)` does not ask for foreground location
+     * first, for example.
+     *
+     * @property name the permission's manifest name, such as `android.permission.READ_PHONE_STATE`.
+     */
+    public data class Runtime(public val name: String) : AndroidPermission {
+        init {
+            require(name.isNotBlank()) { "A permission name must not be blank" }
+        }
+
+        /** [name] itself. */
+        override val id: String get() = name
     }
 
     public companion object {

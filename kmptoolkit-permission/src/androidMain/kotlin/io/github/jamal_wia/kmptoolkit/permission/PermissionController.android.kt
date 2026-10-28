@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.PermissionInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -113,6 +114,8 @@ public fun createPermissionController(
         keyPrefix = config.resolveKeyPrefix(applicationContext.packageName),
         logger = logger,
         sdkInt = Build.VERSION.SDK_INT,
+        targetSdk = applicationContext.applicationInfo.targetSdkVersion,
+        protectionOf = { androidPermission -> applicationContext.protectionOf(androidPermission) },
         shouldShowRationale = { androidPermission ->
             activityAccess.withActivity { activity ->
                 activity.shouldShowRequestPermissionRationale(androidPermission)
@@ -160,6 +163,25 @@ internal fun Context.declaredPermissions(logger: Logger): Set<String>? = try {
 } catch (cause: Exception) {
     logger.w(cause) { "Could not read this app's declared permissions" }
     null
+}
+
+/**
+ * [androidPermission]'s protection level on this device, or `null` when the device does not know it.
+ */
+internal fun Context.protectionOf(androidPermission: String): Protection? {
+    val info: PermissionInfo = try {
+        packageManager.getPermissionInfo(androidPermission, 0)
+    } catch (_: PackageManager.NameNotFoundException) {
+        return null
+    }
+    val base: Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.protection
+        } else {
+            @Suppress("DEPRECATION") // getProtection() is API 28+.
+            info.protectionLevel and PermissionInfo.PROTECTION_MASK_BASE
+        }
+    return if (base == PermissionInfo.PROTECTION_DANGEROUS) Protection.Dangerous else Protection.Other
 }
 
 /**
@@ -248,6 +270,10 @@ internal class AndroidPermissionController(
     private val keyPrefix: String,
     private val logger: Logger,
     private val sdkInt: Int,
+    /** The app's `targetSdkVersion`, which decides whether some permissions exist for it at all. */
+    private val targetSdk: Int,
+    /** A raw permission's protection level, `null` when the device does not know it. */
+    private val protectionOf: (String) -> Protection?,
     /** `null` when there is no activity to ask right now. */
     private val shouldShowRationale: (String) -> Boolean?,
     /** Suspends, briefly and at most once per call, until an activity can be asked. */
@@ -296,7 +322,7 @@ internal class AndroidPermissionController(
         val source: Permission = permission.statusSource()
         return when {
             source is AndroidPermission.SpecialAccess -> specialAccesses.status(source)
-            runtimeRule(source, sdkInt) != null -> runtimeStatus(source)
+            ruleOf(source) != null -> runtimeStatus(source)
             else -> PermissionStatus.Unavailable
         }
     }
@@ -347,7 +373,7 @@ internal class AndroidPermissionController(
             }
 
             source is AndroidPermission.SpecialAccess -> specialAccesses.candidates(source)
-            runtimeRule(source, sdkInt) != null -> listOf(appDetails())
+            ruleOf(source) != null -> listOf(appDetails())
             else -> emptyList()
         }
         if (candidates.isEmpty()) {
@@ -364,7 +390,7 @@ internal class AndroidPermissionController(
         val source: Permission = permission.statusSource()
         val status: PermissionStatus = when {
             source is AndroidPermission.SpecialAccess -> requestSpecialAccess(source)
-            runtimeRule(source, sdkInt) != null -> requestRuntime(source, requested = permission)
+            ruleOf(source) != null -> requestRuntime(source, requested = permission)
             else -> PermissionStatus.Unavailable
         }
         requestsResolved.tryEmit(source)
@@ -382,8 +408,8 @@ internal class AndroidPermissionController(
         val dialogs: MutableMap<Permission, List<String>> = linkedMapOf()
         for (permission in permissions) {
             val source: Permission = permission.statusSource()
-            if (source == CommonPermission.LocationBackground || source in dialogs) continue
-            val dialog: RuntimeRule.Dialog = runtimeRule(source, sdkInt) as? RuntimeRule.Dialog ?: continue
+            if (foregroundOf(source) != null || source in dialogs) continue
+            val dialog: RuntimeRule.Dialog = ruleOf(source) as? RuntimeRule.Dialog ?: continue
             if (!runtimeStatus(source).mayShowDialog() || source.isScanWithoutDisavowal()) continue
             dialogs[source] = declared(source, dialog.androidPermissions)
         }
@@ -408,14 +434,15 @@ internal class AndroidPermissionController(
             }
             return current
         }
-        if (permission == CommonPermission.LocationBackground && !runtimeStatus(CommonPermission.Location).isUsable) {
-            // Android grants background location only on top of foreground location: from API 30 a
-            // request without it is refused without any UI, and on API 29 it would silently widen
-            // into a foreground request. Either way there is no dialog for this call to wait on.
-            logger.w { "Not requesting $permission: request ${CommonPermission.Location} first" }
+        val foreground: Permission? = foregroundOf(permission)
+        if (foreground != null && !runtimeStatus(foreground).isUsable) {
+            // Android grants a background permission only on top of its foreground one: a request
+            // without it is refused without any UI (background location on API 29 would even widen
+            // silently into a foreground request). Either way there is no dialog to wait on.
+            logger.w { "Not requesting $permission: request $foreground first" }
             return current
         }
-        val dialog: RuntimeRule.Dialog = runtimeRule(permission, sdkInt) as? RuntimeRule.Dialog ?: return current
+        val dialog: RuntimeRule.Dialog = ruleOf(permission) as? RuntimeRule.Dialog ?: return current
         val strings: List<String> = declared(permission, dialog.androidPermissions)
         val answers: Map<String, Boolean> = launchDialog(strings) ?: return current
         return settle(permission, strings, answers)
@@ -426,7 +453,7 @@ internal class AndroidPermissionController(
         // The platform answers an interrupted request with no entries: nothing was decided, so nothing
         // is recorded, and the status is whatever it was.
         if (answers.isEmpty()) return runtimeStatus(permission)
-        val dialog: RuntimeRule.Dialog = runtimeRule(permission, sdkInt) as RuntimeRule.Dialog
+        val dialog: RuntimeRule.Dialog = ruleOf(permission) as RuntimeRule.Dialog
         return when (dialog.grantOf(answers)) {
             Grant.Full -> {
                 clearFlags(permission)
@@ -557,7 +584,7 @@ internal class AndroidPermissionController(
      * below API 29).
      */
     private fun Permission.statusSource(): Permission =
-        when (val rule: RuntimeRule? = runtimeRule(this, sdkInt)) {
+        when (val rule: RuntimeRule? = ruleOf(this)) {
             is RuntimeRule.SameAs -> rule.permission.statusSource()
             else -> this
         }
@@ -568,6 +595,8 @@ internal class AndroidPermissionController(
      */
     private fun Permission.isScanWithoutDisavowal(): Boolean =
         this == CommonPermission.BluetoothScan && !scanDisavowsLocation
+
+    private fun ruleOf(permission: Permission): RuntimeRule? = runtimeRule(permission, sdkInt, targetSdk, protectionOf)
 
     /** Whether a request from this status may put a dialog on screen. */
     private fun PermissionStatus.mayShowDialog(): Boolean =
@@ -584,13 +613,17 @@ internal class AndroidPermissionController(
     }
 
     private suspend fun runtimeStatus(permission: Permission): PermissionStatus =
-        when (val rule: RuntimeRule? = runtimeRule(permission, sdkInt)) {
+        when (val rule: RuntimeRule? = ruleOf(permission)) {
             null -> PermissionStatus.Unavailable
             RuntimeRule.NoGrantNeeded -> PermissionStatus.Granted
             is RuntimeRule.SameAs -> runtimeStatus(rule.permission)
             // Not a permission, and nothing but settings changes it.
             RuntimeRule.NotificationSwitch ->
                 if (notificationsEnabled()) PermissionStatus.Granted else PermissionStatus.PermanentlyDenied
+
+            // Nothing to ask, nothing to remember: the app holds it or cannot get it from any prompt.
+            is RuntimeRule.StatusOnly ->
+                if (isGranted(rule.androidPermission)) PermissionStatus.Granted else PermissionStatus.Unavailable
 
             is RuntimeRule.Dialog -> dialogStatus(permission, rule)
         }

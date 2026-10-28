@@ -17,6 +17,22 @@ public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$A
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$BodySensors : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$BodySensors;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$BodySensorsBackground : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$BodySensorsBackground;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Companion {
 	public final fun getSpecialAccesses ()Ljava/util/List;
 }
@@ -69,8 +85,24 @@ public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$K
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$LocalNetwork : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$LocalNetwork;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$MediaManagement : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$SpecialAccess {
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$MediaManagement;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$NearbyWifiDevices : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$NearbyWifiDevices;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getId ()Ljava/lang/String;
 	public fun hashCode ()I
@@ -89,6 +121,18 @@ public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$O
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Overlay;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Runtime : io/github/jamal_wia/kmptoolkit/permission/AndroidPermission {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Runtime;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Runtime;Ljava/lang/String;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/permission/AndroidPermission$Runtime;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public final fun getName ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

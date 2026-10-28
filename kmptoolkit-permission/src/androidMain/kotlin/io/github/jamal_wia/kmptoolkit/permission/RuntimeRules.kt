@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.permission
 
 import android.Manifest
+import android.health.connect.HealthPermissions
 import android.os.Build
 
 /** How much of a permission a set of Android grants amounts to. */
@@ -37,14 +38,42 @@ internal sealed interface RuntimeRule {
      * only settings changes.
      */
     data object NotificationSwitch : RuntimeRule
+
+    /**
+     * A permission no app can prompt for — install-time, signature, privileged, development: granted
+     * when the app holds [androidPermission], unavailable otherwise, and never a dialog.
+     */
+    class StatusOnly(val androidPermission: String) : RuntimeRule
+}
+
+/** A permission's protection level on this device, as far as this library cares. */
+internal enum class Protection { Dangerous, Other }
+
+/**
+ * Background entries Android grants only on top of a foreground one: a request for the key while its
+ * value is not usable has no dialog to show, and the two never share one.
+ */
+internal fun foregroundOf(permission: Permission): Permission? = when (permission) {
+    CommonPermission.LocationBackground -> CommonPermission.Location
+    AndroidPermission.BodySensorsBackground -> AndroidPermission.BodySensors
+    else -> null
 }
 
 /** Every string granted, and at least one string asked about. */
 internal fun allGranted(answers: Map<String, Boolean>): Grant =
     if (answers.isNotEmpty() && answers.values.all { it }) Grant.Full else Grant.None
 
-/** The rule for a runtime [permission] on [sdkInt], or `null` when it is not a runtime permission. */
-internal fun runtimeRule(permission: Permission, sdkInt: Int): RuntimeRule? = when (permission) {
+/**
+ * The rule for a runtime [permission] on [sdkInt], for an app targeting [targetSdk], or `null` when it
+ * is not a runtime permission at all. [protectionOf] reads a raw permission's protection level, `null`
+ * when this device does not know the permission.
+ */
+internal fun runtimeRule(
+    permission: Permission,
+    sdkInt: Int,
+    targetSdk: Int,
+    protectionOf: (String) -> Protection?,
+): RuntimeRule? = when (permission) {
     CommonPermission.Notifications ->
         if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
             RuntimeRule.Dialog(listOf(Manifest.permission.POST_NOTIFICATIONS))
@@ -142,6 +171,42 @@ internal fun runtimeRule(permission: Permission, sdkInt: Int): RuntimeRule? = wh
             // An install-time permission before API 29.
             RuntimeRule.NoGrantNeeded
         }
+
+    AndroidPermission.NearbyWifiDevices ->
+        if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
+            RuntimeRule.Dialog(listOf(Manifest.permission.NEARBY_WIFI_DEVICES))
+        } else {
+            // Wi-Fi scan results need location below API 33.
+            RuntimeRule.SameAs(CommonPermission.Location)
+        }
+
+    AndroidPermission.LocalNetwork ->
+        // A runtime permission only for an app that opted into API 37 behaviour, on API 37.
+        if (sdkInt >= Build.VERSION_CODES.CINNAMON_BUN && targetSdk >= Build.VERSION_CODES.CINNAMON_BUN) {
+            RuntimeRule.Dialog(listOf(Manifest.permission.ACCESS_LOCAL_NETWORK))
+        } else {
+            RuntimeRule.NoGrantNeeded
+        }
+
+    AndroidPermission.BodySensors ->
+        if (sdkInt >= Build.VERSION_CODES.BAKLAVA) {
+            RuntimeRule.Dialog(listOf(HealthPermissions.READ_HEART_RATE))
+        } else {
+            RuntimeRule.Dialog(listOf(Manifest.permission.BODY_SENSORS))
+        }
+
+    AndroidPermission.BodySensorsBackground -> when {
+        sdkInt >= Build.VERSION_CODES.BAKLAVA -> RuntimeRule.Dialog(listOf(HealthPermissions.READ_HEALTH_DATA_IN_BACKGROUND))
+        sdkInt >= Build.VERSION_CODES.TIRAMISU -> RuntimeRule.Dialog(listOf(Manifest.permission.BODY_SENSORS_BACKGROUND))
+        // No separate background grant before API 33: the foreground one covers it.
+        else -> RuntimeRule.SameAs(AndroidPermission.BodySensors)
+    }
+
+    is AndroidPermission.Runtime -> when (protectionOf(permission.name)) {
+        Protection.Dangerous -> RuntimeRule.Dialog(listOf(permission.name))
+        Protection.Other -> RuntimeRule.StatusOnly(permission.name)
+        null -> null
+    }
 
     else -> null
 }
