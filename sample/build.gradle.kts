@@ -3,7 +3,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-android {
+// Configured through ApplicationExtension, the new-DSL type: the generated `android { }` accessor is
+// typed to the legacy BaseAppModuleExtension, which AGP 9 deprecates.
+extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
     namespace = "io.github.jamal_wia.kmptoolkit.sample"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
