@@ -56,7 +56,8 @@ CREATE TABLE kmptoolkit_uploader_item (
     next_run_at     INTEGER NOT NULL,
     created_at      INTEGER NOT NULL,
     last_error      TEXT,
-    lease_until     INTEGER NOT NULL DEFAULT 0
+    lease_until     INTEGER NOT NULL DEFAULT 0,
+    claim           INTEGER NOT NULL DEFAULT 0   -- added by schema 2
 );
 
 CREATE UNIQUE INDEX kmptoolkit_uploader_item_identity
@@ -66,7 +67,7 @@ CREATE INDEX kmptoolkit_uploader_item_type  ON kmptoolkit_uploader_item(type, se
 CREATE INDEX kmptoolkit_uploader_item_tag   ON kmptoolkit_uploader_item(tag);
 ```
 
-Two columns are worth understanding rather than skimming.
+Three columns are worth understanding rather than skimming.
 
 **`sequence` is the insertion order**, and it is not `created_at`. Timestamps have millisecond
 resolution, so a burst of enqueues inside one millisecond has one timestamp; the engine derives its
@@ -75,6 +76,13 @@ under exactly the load where order matters. `AUTOINCREMENT` rather than a bare
 `INTEGER PRIMARY KEY` is also deliberate: SQLite reuses a plain rowid once the highest row is
 deleted, so a row enqueued **after** a successful delivery could sort **before** rows that were
 already waiting.
+
+**`claim` is the version the compare-and-sets compare.** `recordFailure`, `markInFlight` and `park`
+write only if the row is still in the state and under the claim the caller read, and each advances it
+by one when it does. The engine hands every executor the claim its hand-off writes and checks reports
+against it, which is how a report from an executor whose lease expired is told from the current
+one's. It is not the lease: two claims can share a lease, written in the same millisecond or across a
+clock stepped back.
 
 **`(type, unique_key)` is the dedup identity**, in a *partial* unique index. Keyless rows are not in
 the index at all, so any number of them can coexist — which is what "a null unique key never
@@ -88,9 +96,16 @@ repeatedly-replaced key from holding the head of its ordering channel forever.
 
 ### This module's schema
 
-It has its own version, currently **1**, dumped to
-`kmptoolkit-uploader-sqldelight/src/commonMain/sqldelight/databases/1.db` and verified on every build,
-so a change to the table that forgets its migration fails here rather than on a user's upgrade.
+It has its own version, currently **2**. Each version is dumped to
+`kmptoolkit-uploader-sqldelight/src/commonMain/sqldelight/databases/<version>.db` and the migrations
+between them (`src/commonMain/sqldelight/migrations/<from>.sqm`) are verified against those dumps on
+every build, so a change to the table that forgets its migration fails here rather than on a user's
+upgrade.
+
+| Version | Change | Migration |
+|---|---|---|
+| 1 | The queue table and its four indices | — |
+| 2 | `claim INTEGER NOT NULL DEFAULT 0` | `1.sqm`: `ALTER TABLE … ADD COLUMN`. Every row is kept; existing rows start at claim `0`, the claim a fresh insert carries. |
 
 For a **standalone** storage there is nothing for you to do: the driver creates the schema on first
 open and migrates it on an upgrade.
@@ -135,9 +150,9 @@ val driver = AndroidSqliteDriver(
 )
 ```
 
-**When this module's own schema changes** — a new column in a future release — the upgrade is not
+**When this module's own schema changes** — like the `claim` column of schema 2 — the upgrade is not
 carried by your database's version, because your version did not move. Two options, and the release
-that introduces such a change will say which applies:
+that introduces such a change says which applies (for schema 2: the first, migrating from `1` to `2`):
 
 1. Bump *your* database version and run `uploaderDatabaseSchema.migrate(driver, from, to)` from that
    migration. This is the recommended route: your database has exactly one version number, and

@@ -121,6 +121,11 @@ class IosSqlDelightUploaderStoreTest {
     }
 
     @Test
+    fun `a schema 1 queue upgrades with its rows under claim 0`() = runTest {
+        checks.aSchemaOneQueueUpgradesWithItsRowsUnderClaimZero()
+    }
+
+    @Test
     fun `a database failure arrives as an UploaderStorageException`() = runTest {
         checks.aDatabaseFailureArrivesAsAnUploaderStorageException()
     }

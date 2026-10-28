@@ -36,6 +36,11 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * @property lastError a short diagnostic from the most recent failure or park, or `null`.
  * @property leaseUntilEpochMillis epoch millis at which a detached executor's claim expires.
  *   Meaningful only in [UploaderItemState.IN_FLIGHT]; `0` otherwise.
+ * @property claim the row's claim counter: `0` when inserted, advanced by exactly one by every
+ *   guarded write the store applies to the row — a claim, a recorded failure, a park. The claim an
+ *   executor holds is the value this counter took when its hand-off was written, which is what
+ *   [UploaderEngine.settle] checks a report against. Unlike the lease it never repeats on one row:
+ *   two claims made in the same millisecond, or across a wall-clock jump backwards, still differ.
  */
 public data class UploaderItem(
     val id: String,
@@ -51,6 +56,7 @@ public data class UploaderItem(
     val createdAtEpochMillis: Long,
     val lastError: String?,
     val leaseUntilEpochMillis: Long = 0L,
+    val claim: Long = 0L,
 )
 
 /**

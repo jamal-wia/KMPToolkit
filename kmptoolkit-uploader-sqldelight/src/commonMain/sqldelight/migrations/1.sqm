@@ -1,0 +1,6 @@
+-- Schema 1 to 2: the claim counter the store's compare-and-sets compare (see UploaderItem.sq).
+--
+-- Existing rows start at 0, which is what a fresh insert carries. A row already in flight when the app
+-- upgrades keeps its lease; the executor holding it reports through an upload transport's
+-- current-claim route, or is re-handed under a new claim once its lease expires.
+ALTER TABLE kmptoolkit_uploader_item ADD COLUMN claim INTEGER NOT NULL DEFAULT 0;

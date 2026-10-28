@@ -58,8 +58,8 @@ public sealed interface AttemptResult {
      * executor will report the outcome later.
      *
      * The engine moves the row to [UploaderItemState.IN_FLIGHT] with a persisted lease of
-     * [leaseMillis]. The executor must eventually call [UploaderEngine.settle] with the item id it
-     * received in [AttemptContext.id].
+     * [leaseMillis]. The executor must eventually call [UploaderEngine.settle] with the item id and
+     * the claim it received in [AttemptContext.id] and [AttemptContext.claim].
      *
      * The attempt counter is **not** bumped: a successful hand-off is not a failure, and only
      * [SettleResult.Failed] spends retry budget.
@@ -94,7 +94,10 @@ public sealed interface AttemptResult {
  */
 public sealed interface SettleResult {
 
-    /** Delivery confirmed. The debt is settled and the row is deleted. */
+    /**
+     * Delivery confirmed. The debt is settled and the row is deleted — whichever claim reports it:
+     * an effect that landed has landed. See [UploaderEngine.settle].
+     */
     public data object Delivered : SettleResult
 
     /**
@@ -104,8 +107,9 @@ public sealed interface SettleResult {
      * [UploaderItemState.PENDING] with its lease cleared, under the handler's backoff, and parks or
      * drops if the give-up policy fires.
      *
-     * Ignored — with a log line — if the row is no longer [UploaderItemState.IN_FLIGHT], or if its
-     * lease has changed since the executor read it. See [UploaderEngine.settle].
+     * Ignored — with a log line — unless it comes from the item's current claim: a report from an
+     * executor whose lease expired and whose item was re-handed is superseded, and so is one on a
+     * parked item. See [UploaderEngine.settle].
      *
      * @property cause what went wrong, or `null`.
      */
@@ -113,7 +117,7 @@ public sealed interface SettleResult {
 
     /**
      * The effect is obsolete and must not be re-delivered. The row is deleted, exactly as with
-     * [AttemptResult.Drop].
+     * [AttemptResult.Drop] — whichever claim reports it, like [Delivered].
      *
      * @property reason why it is obsolete.
      */
@@ -121,7 +125,9 @@ public sealed interface SettleResult {
 
     /**
      * Delivery cannot proceed and retrying will not help, but deleting would lose data. The row is
-     * parked, exactly as with [AttemptResult.Park].
+     * parked, exactly as with [AttemptResult.Park] — but only from the item's current claim, like
+     * [Failed]: a superseded executor's verdict does not take the item from the executor now holding
+     * it. See [UploaderEngine.settle].
      *
      * @property reason why it cannot proceed.
      */

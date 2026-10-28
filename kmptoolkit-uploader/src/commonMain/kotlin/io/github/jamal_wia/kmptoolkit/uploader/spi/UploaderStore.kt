@@ -31,10 +31,19 @@ import kotlinx.coroutines.flow.Flow
  * Each individual function is atomic on its own: a concurrent reader sees the state before or
  * after, never halfway. Two calls are **not** atomic together — the engine never assumes they are.
  * That is why every decision the engine makes from a read and then acts on is a single
- * compare-and-set here rather than a read followed by a write: [markInFlight] claims a row only in
- * the state and lease the caller read, [recordFailure] writes only under the lease the caller read
- * (and gives up in that same write), and [insertReplace] and [deleteByTag] hand back exactly the rows
- * they removed. Each must be one atomic read-modify-write.
+ * compare-and-set here rather than a read followed by a write: [markInFlight], [recordFailure] and
+ * [park] write only if the row is still in the state and under the claim the caller read (and
+ * [recordFailure] gives up in that same write), and [insertReplace] and [deleteByTag] hand back
+ * exactly the rows they removed. Each must be one atomic read-modify-write.
+ *
+ * ### The claim counter
+ * [UploaderItem.claim] is the version those three guards compare. A store keeps it as written on
+ * insert (the engine inserts `0`) and **advances it by exactly one** — to the expected claim plus
+ * one — in every guarded write it applies, and in no other way. The engine derives the claim it
+ * hands an executor from that rule, so a store that skips an advance, or advances by anything else,
+ * lets a superseded executor's report pass for the current one. Because every applied write moves
+ * it, a row never returns to a (state, claim) pair it has left: the guards cannot be fooled by a
+ * row that went away and came back looking the same.
  *
  * ### Ordering
  * [getAllActive] returns items in **insertion order**: a monotonic per-store sequence, not a
@@ -145,7 +154,8 @@ public interface UploaderStore {
      * Records a failed attempt: sets [UploaderItem.attempts] to [attempts], [UploaderItem.nextRunAtEpochMillis]
      * to [nextRunAtEpochMillis], [UploaderItem.lastError] to [lastError], moves the item to the state
      * [disposition] names, and **clears the lease** ([UploaderItem.leaseUntilEpochMillis] to `0`). All
-     * five in one atomic write — or, for [FailureDisposition.DROP], the row's deletion instead.
+     * five in one atomic write, which also advances [UploaderItem.claim] to [expectedClaim] `+ 1` — or,
+     * for [FailureDisposition.DROP], the row's deletion instead.
      *
      * Clearing the lease is what returns a detached item to rotation, so a
      * [SettleResult.Failed][io.github.jamal_wia.kmptoolkit.uploader.SettleResult.Failed] on an
@@ -158,22 +168,32 @@ public interface UploaderStore {
      * it off once more — an attempt past `maxAttempts`, on an item already given up.
      *
      * ### The optimistic guard
-     * [expectedLeaseUntilEpochMillis] makes this a compare-and-set. When non-`null`, the write
-     * must apply **only if** the row's current [UploaderItem.leaseUntilEpochMillis] still equals it;
-     * otherwise nothing is written and the function returns `false`. This closes the
-     * lease-expiry-races-a-settle window: if the drain re-handed the item between the settle path's
-     * read and this write, the lease changed, and the stale failure report must not clobber the
-     * fresh claim (which would let two executors both believe they own the delivery).
+     * [expectedState] and [expectedClaim] make this a compare-and-set, exactly like [markInFlight]'s:
+     * the write must apply **only if** the row is still in [expectedState] under [expectedClaim], the
+     * state and claim the caller read it in; otherwise nothing is written and the function returns
+     * `false`. Every caller has such a read, and every one can be overtaken between that read and this
+     * write:
+     * - a settle reporting a failure, by the drain re-handing the item after its lease expired — the
+     *   claim moved, and the report must not clobber the fresh claim (which would let two executors
+     *   both believe they own the delivery);
+     * - the drain's own attempt, while the handler runs, by a settle from a detached executor of an
+     *   earlier attempt — a park moves the state and the claim, and the failure must not return a
+     *   known-permanent failure to rotation.
      *
-     * `null` skips the guard entirely — that is the drain's own path, where it already holds
-     * single-flight ownership of the item.
+     * The claim, not the lease, is what is compared: two claims can carry the same lease — written in
+     * the same millisecond, or across a wall clock that stepped backwards — and a park or a failure
+     * clears the lease to `0`, the lease a pending row carries too.
+     *
+     * There is no unguarded form. The drain's single-flight ownership covers other drain passes, not a
+     * settle arriving on an executor's own coroutine.
      *
      * @param id the item's [UploaderItem.id]; an absent row is a no-op returning `false`.
      * @param attempts the new absolute attempt count (not a delta).
      * @param nextRunAtEpochMillis epoch millis before which the item must not be attempted again.
      * @param lastError a short diagnostic string, or `null`.
-     * @param expectedLeaseUntilEpochMillis the lease value the caller observed, or `null` for no
-     *   guard.
+     * @param expectedState the state the caller read the item in — [UploaderItemState.IN_FLIGHT] for a
+     *   settle or a failed hand-off, the drain's read for an attempt it ran itself.
+     * @param expectedClaim the [UploaderItem.claim] the caller read alongside [expectedState].
      * @param disposition where the failure leaves the row: back in rotation ([FailureDisposition.RETRY],
      *   the default), out of it ([FailureDisposition.PARK]), or gone ([FailureDisposition.DROP]). The
      *   guard applies to all three alike.
@@ -185,15 +205,21 @@ public interface UploaderStore {
         attempts: Int,
         nextRunAtEpochMillis: Long,
         lastError: String?,
-        expectedLeaseUntilEpochMillis: Long? = null,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
         disposition: FailureDisposition = FailureDisposition.RETRY,
     ): Boolean
 
     /**
      * Claims the item for an external executor: moves it to [UploaderItemState.IN_FLIGHT] with
-     * [UploaderItem.leaseUntilEpochMillis] set to [leaseUntilEpochMillis] — **only if** it is still in
-     * [expectedState] under [expectedLeaseUntilEpochMillis], the state and lease the caller read it in.
-     * Otherwise nothing is written and the function returns `false`.
+     * [UploaderItem.leaseUntilEpochMillis] set to [leaseUntilEpochMillis] and [UploaderItem.claim]
+     * advanced to [expectedClaim] `+ 1` — **only if** it is still in [expectedState] under
+     * [expectedClaim], the state and claim the caller read it in. Otherwise nothing is written and the
+     * function returns `false`.
+     *
+     * The advanced claim is the one the new executor holds: the engine handed it out as
+     * [AttemptContext.claim][io.github.jamal_wia.kmptoolkit.uploader.AttemptContext.claim], and a report
+     * carrying any earlier one is superseded from this write on.
      *
      * The guard is what keeps a claim made from a stale read from reviving a settled item. The drain
      * reads the queue, then claims; in between, a detached executor may report its outcome — parking
@@ -210,30 +236,43 @@ public interface UploaderStore {
      * @param leaseUntilEpochMillis epoch millis at which the new claim expires.
      * @param expectedState the state the caller read the item in — [UploaderItemState.PENDING] for a
      *   first hand-off, [UploaderItemState.IN_FLIGHT] for a re-hand after an expired lease.
-     * @param expectedLeaseUntilEpochMillis the lease the caller read — `0` for a pending item, the
-     *   expired lease for a re-hand.
+     * @param expectedClaim the [UploaderItem.claim] the caller read alongside [expectedState].
      * @return `true` if the claim was written; `false` if the row was absent or had moved.
      */
     public suspend fun markInFlight(
         id: String,
         leaseUntilEpochMillis: Long,
         expectedState: UploaderItemState,
-        expectedLeaseUntilEpochMillis: Long,
+        expectedClaim: Long,
     ): Boolean
 
     /**
-     * Moves the item to [UploaderItemState.PARKED], stores [lastError], and clears any lease
-     * ([UploaderItem.leaseUntilEpochMillis] to `0`) — out of rotation, still persisted, still visible
-     * through [observeByType].
+     * Moves the item to [UploaderItemState.PARKED], stores [lastError], clears any lease
+     * ([UploaderItem.leaseUntilEpochMillis] to `0`) and advances [UploaderItem.claim] to
+     * [expectedClaim] `+ 1` — out of rotation, still persisted, still visible through [observeByType] —
+     * **only if** the item is still in [expectedState] under [expectedClaim]. Otherwise nothing is
+     * written and the function returns `false`.
      *
      * Parking must not delete anything, and must not touch the attempt counter. It is the engine's
      * answer to "this cannot be delivered and retrying will not help, but throwing it away would
      * lose the user's data".
      *
-     * @param id the item's [UploaderItem.id]; an absent row is a no-op.
+     * Guarded like [recordFailure], and for the same reason: a park is a verdict on the attempt the
+     * caller read, and a re-hand-off that landed since then has made it a verdict on an attempt the
+     * engine no longer runs. An unguarded park would take the item from the executor now holding it.
+     *
+     * @param id the item's [UploaderItem.id]; an absent row is a no-op returning `false`.
      * @param lastError why it was parked, or `null`.
+     * @param expectedState the state the caller read the item in.
+     * @param expectedClaim the [UploaderItem.claim] the caller read alongside [expectedState].
+     * @return `true` if the row was parked; `false` if it was absent or had moved.
      */
-    public suspend fun park(id: String, lastError: String?)
+    public suspend fun park(
+        id: String,
+        lastError: String?,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
+    ): Boolean
 
     /**
      * Deletes the item — the effect is no longer owed, either because it was delivered or because

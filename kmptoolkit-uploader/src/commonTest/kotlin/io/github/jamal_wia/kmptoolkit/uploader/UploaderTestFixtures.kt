@@ -122,15 +122,11 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
         attempts: Int,
         nextRunAtEpochMillis: Long,
         lastError: String?,
-        expectedLeaseUntilEpochMillis: Long?,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
         disposition: FailureDisposition,
     ): Boolean {
-        val current: UploaderItem = find(id) ?: return false
-        if (expectedLeaseUntilEpochMillis != null &&
-            current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis
-        ) {
-            return false
-        }
+        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return false
         when (disposition) {
             FailureDisposition.DROP -> deleteById(id)
             FailureDisposition.RETRY, FailureDisposition.PARK -> put(
@@ -144,6 +140,7 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
                     nextRunAtEpochMillis = nextRunAtEpochMillis,
                     lastError = lastError,
                     leaseUntilEpochMillis = 0L,
+                    claim = expectedClaim + 1,
                 ),
             )
         }
@@ -155,33 +152,47 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
         id: String,
         leaseUntilEpochMillis: Long,
         expectedState: UploaderItemState,
-        expectedLeaseUntilEpochMillis: Long,
+        expectedClaim: Long,
     ): Boolean {
         runOnce(beforeNextMarkInFlight) { beforeNextMarkInFlight = null }
-        val current: UploaderItem = find(id) ?: return false
-        if (current.state != expectedState || current.leaseUntilEpochMillis != expectedLeaseUntilEpochMillis) {
-            return false
-        }
+        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return false
         put(
             current.copy(
                 state = UploaderItemState.IN_FLIGHT,
                 leaseUntilEpochMillis = leaseUntilEpochMillis,
+                claim = expectedClaim + 1,
             ),
         )
         runOnce(afterNextMarkInFlight) { afterNextMarkInFlight = null }
         return true
     }
 
-    override suspend fun park(id: String, lastError: String?) {
-        val current: UploaderItem = find(id) ?: return
+    override suspend fun park(
+        id: String,
+        lastError: String?,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
+    ): Boolean {
+        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return false
         put(
             current.copy(
                 state = UploaderItemState.PARKED,
                 lastError = lastError,
                 leaseUntilEpochMillis = 0L,
+                claim = expectedClaim + 1,
             ),
         )
+        return true
     }
+
+    /** Test shorthand: parks [id] as it is right now — a park landing from elsewhere at this moment. */
+    suspend fun park(id: String, lastError: String?) {
+        val current: UploaderItem = find(id) ?: return
+        park(id, lastError, current.state, current.claim)
+    }
+
+    private fun guarded(id: String, expectedState: UploaderItemState, expectedClaim: Long): UploaderItem? =
+        find(id)?.takeIf { it.state == expectedState && it.claim == expectedClaim }
 
     override suspend fun deleteById(id: String) {
         deletedIds += id

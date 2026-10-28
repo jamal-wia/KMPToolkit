@@ -51,8 +51,8 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/InMemoryUploa
 	public fun insertReplace (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun markInFlight (Ljava/lang/String;JLio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun observeByType (Ljava/lang/String;)Lkotlinx/coroutines/flow/Flow;
-	public fun park (Ljava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public fun recordFailure (Ljava/lang/String;IJLjava/lang/String;Ljava/lang/Long;Lio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun park (Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordFailure (Ljava/lang/String;IJLjava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;JLio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun snapshot ()Ljava/util/List;
 }
 
@@ -132,6 +132,7 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStore
 	public final fun getAllActiveExcludesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getAllActiveIncludesInFlight (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getByIdReturnsNullForUnknownId (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun guardsCompareTheClaimNotTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertKeepIsRefusedByInFlight (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertKeepIsRefusedByPending (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertKeepSupersedesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -146,7 +147,7 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStore
 	public static synthetic fun item$default (Lio/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStoreContract;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;IJJJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;
 	public final fun markInFlightIsRejectedForAParkedItem (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun markInFlightIsRejectedForAnItemThatFailedSinceTheRead (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun markInFlightIsRejectedWhenTheLeaseMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun markInFlightIsRejectedWhenTheClaimMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun markInFlightLeavesAttemptsAlone (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun markInFlightOnAnAbsentRowIsANoOp (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun markInFlightRehandsAnExpiredClaim (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -154,15 +155,20 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStore
 	public final fun observeByTypeEmitsEmptyForAnUnknownType (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun observeByTypeFiltersAndOrders (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun observeByTypeIncludesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun parkIsRejectedWhenTheClaimMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun parkIsRejectedWhenTheStateMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun parkKeepsTheItemAndClearsTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun parkOnAnAbsentRowIsANoOp (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun recordFailureAppliesWhenTheLeaseMatches (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureAppliesToAPendingItemReadAsPending (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureAppliesWhenTheClaimMatches (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureCanDropInTheSameWrite (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureCanParkInTheSameWrite (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun recordFailureGivingUpIsRejectedWhenTheLeaseMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun recordFailureIsRejectedWhenTheLeaseMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureGivingUpIsRejectedWhenTheClaimMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureIsRejectedWhenTheClaimMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun recordFailureIsRejectedWhenTheStateMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureOnAnAbsentRowReturnsFalse (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureWritesEveryFieldAndClearsTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun theClaimAdvancesByOneOnEveryAppliedWriteAndNoOther (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun uniqueKeysAreScopedPerType (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun verifyAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }

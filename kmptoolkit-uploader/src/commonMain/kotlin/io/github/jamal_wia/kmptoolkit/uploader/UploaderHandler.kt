@@ -150,11 +150,16 @@ public interface UploaderHandler<P : Any> {
  *   send landed), so a detaching handler should rejoin or probe rather than blindly starting a
  *   fresh delivery. `false` for ordinary first attempts and for re-runs after
  *   [AttemptResult.Retry].
+ * @property claim the claim this attempt runs under — the value [UploaderItem.claim] takes when this
+ *   attempt's hand-off is written. An executor this attempt detaches to passes it back to
+ *   [UploaderEngine.settle], which is how the engine tells its report from a report by an earlier
+ *   executor of the same item whose lease expired. Unique per attempt of an item, never reused.
  */
 public data class AttemptContext(
     val id: String,
     val attempts: Int,
     val uniqueKey: String?,
     val orderingKey: String?,
+    val claim: Long,
     val wasDetached: Boolean = false,
 )

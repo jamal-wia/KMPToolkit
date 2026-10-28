@@ -106,9 +106,17 @@ clock.advanceBy(10_001)
 engine.drain()                    // the item is attemptable again, wasDetached == true
 ```
 
+Each hand-off carries its own `AttemptContext.claim`, so a test of a late report names which executor
+is reporting — the first one, whose lease expired, or the one holding the item now:
+
+```kotlin
+val first: AttemptContext = contextsSeen[0] // what your handler's first execute() received
+engine.settle(first.id, first.claim, SettleResult.Failed()) // superseded: changes nothing
+```
+
 ## Testing your own store
 
-If you implemented `UploaderStore`, run the contract against it. One test gets you forty invariants:
+If you implemented `UploaderStore`, run the contract against it. One test gets you forty-six invariants:
 
 ```kotlin
 class MyUploaderStoreTest {
@@ -133,8 +141,8 @@ private val contract = UploaderStoreContract { MyUploaderStore(freshDatabase()) 
     contract.insertionOrderSurvivesSameMillisecondInserts()
 }
 
-@Test fun `a stale lease is rejected`() = runTest {
-    contract.recordFailureIsRejectedWhenTheLeaseMoved()
+@Test fun `a superseded claim is rejected`() = runTest {
+    contract.recordFailureIsRejectedWhenTheClaimMoved()
 }
 ```
 

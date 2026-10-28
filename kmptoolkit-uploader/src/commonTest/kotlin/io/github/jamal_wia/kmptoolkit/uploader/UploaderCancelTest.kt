@@ -108,8 +108,9 @@ class UploaderCancelTest {
         val id: String = engine.enqueue(plain, "effect")!!
         engine.drain()
 
+        val claim: Long = store.find(id)!!.claim
         engine.cancel(id)
-        engine.settle(id, SettleResult.Failed())
+        engine.settle(id, claim, SettleResult.Failed())
 
         assertNull(store.find(id), "a later settle does not revive it")
         assertTrue(transport.events.isEmpty())

@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.map
  * stated plainly in `docs/kmptoolkit-uploader-sqldelight/04-api-reference.md` rather than papered over.
  *
  * Three parts of this are load-bearing and are documented where they happen: the insertion sequence
- * (`UploaderItem.sq`), the compare-and-sets in [recordFailure] and [markInFlight], and the thread confinement that lets a
+ * (`UploaderItem.sq`), the compare-and-sets in [recordFailure], [markInFlight] and [park], and the thread confinement that lets a
  * nested call join an open transaction ([onDatabaseThread]).
  */
 internal class SqlDelightUploaderStore(
@@ -118,13 +118,14 @@ internal class SqlDelightUploaderStore(
         attempts: Int,
         nextRunAtEpochMillis: Long,
         lastError: String?,
-        expectedLeaseUntilEpochMillis: Long?,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
         disposition: FailureDisposition,
     ): Boolean = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.RECORD_FAILURE) {
             // One statement carrying the guard in its WHERE clause, not a read followed by a write:
-            // a read-then-write loses exactly the race the guard exists to win, because the lease
-            // can move between the two. A give-up is that same one statement — an UPDATE to PARKED,
+            // a read-then-write loses exactly the race the guard exists to win, because the state
+            // or the claim can move between the two. A give-up is that same one statement — an UPDATE to PARKED,
             // or a DELETE — so the row is never observable as PENDING once its budget is spent.
             //
             // The statement's own affected-row count answers "did a row change?", so there is no
@@ -132,8 +133,11 @@ internal class SqlDelightUploaderStore(
             // matters beyond tidiness: `SELECT changes()` outside a transaction can be served by a
             // reader connection — where it is always 0 — on both of this module's drivers.
             val changed: Long = when (disposition) {
-                FailureDisposition.DROP ->
-                    queries.dropOnFailure(id = id, expectedLease = expectedLeaseUntilEpochMillis).value
+                FailureDisposition.DROP -> queries.dropOnFailure(
+                    id = id,
+                    expectedState = expectedState.name,
+                    expectedClaim = expectedClaim,
+                ).value
 
                 FailureDisposition.RETRY, FailureDisposition.PARK -> queries.recordFailure(
                     state = if (disposition == FailureDisposition.PARK) {
@@ -145,7 +149,8 @@ internal class SqlDelightUploaderStore(
                     nextRunAt = nextRunAtEpochMillis,
                     lastError = lastError,
                     id = id,
-                    expectedLease = expectedLeaseUntilEpochMillis,
+                    expectedState = expectedState.name,
+                    expectedClaim = expectedClaim,
                 ).value
             }
             changed > 0L
@@ -156,7 +161,7 @@ internal class SqlDelightUploaderStore(
         id: String,
         leaseUntilEpochMillis: Long,
         expectedState: UploaderItemState,
-        expectedLeaseUntilEpochMillis: Long,
+        expectedClaim: Long,
     ): Boolean = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.MARK_IN_FLIGHT) {
             // The same shape as recordFailure: the guard lives in the WHERE clause and the
@@ -165,14 +170,25 @@ internal class SqlDelightUploaderStore(
                 leaseUntil = leaseUntilEpochMillis,
                 id = id,
                 expectedState = expectedState.name,
-                expectedLease = expectedLeaseUntilEpochMillis,
+                expectedClaim = expectedClaim,
             ).value > 0L
         }
     }
 
-    override suspend fun park(id: String, lastError: String?): Unit = onDatabaseThread(confinement) {
+    override suspend fun park(
+        id: String,
+        lastError: String?,
+        expectedState: UploaderItemState,
+        expectedClaim: Long,
+    ): Boolean = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.PARK) {
-            queries.park(lastError = lastError, id = id)
+            // Guarded like markInFlight: the WHERE clause is the guard, the affected-row count the answer.
+            queries.park(
+                lastError = lastError,
+                id = id,
+                expectedState = expectedState.name,
+                expectedClaim = expectedClaim,
+            ).value > 0L
         }
     }
 
@@ -239,6 +255,7 @@ internal class SqlDelightUploaderStore(
             createdAt = record.createdAtEpochMillis,
             lastError = record.lastError,
             leaseUntil = record.leaseUntilEpochMillis,
+            claim = record.claim,
         )
     }
 
@@ -256,6 +273,7 @@ internal class SqlDelightUploaderStore(
         createdAtEpochMillis = created_at,
         lastError = last_error,
         leaseUntilEpochMillis = lease_until,
+        claim = claim,
     )
 
     /**

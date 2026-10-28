@@ -91,8 +91,8 @@ abstract interface io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore { /
     abstract suspend fun insertKeep(io.github.jamal_wia.kmptoolkit.uploader/UploaderItem): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.insertKeep|insertKeep(io.github.jamal_wia.kmptoolkit.uploader.UploaderItem){}[0]
     abstract suspend fun insertReplace(io.github.jamal_wia.kmptoolkit.uploader/UploaderItem): io.github.jamal_wia.kmptoolkit.uploader/UploaderItem? // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.insertReplace|insertReplace(io.github.jamal_wia.kmptoolkit.uploader.UploaderItem){}[0]
     abstract suspend fun markInFlight(kotlin/String, kotlin/Long, io.github.jamal_wia.kmptoolkit.uploader/UploaderItemState, kotlin/Long): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.markInFlight|markInFlight(kotlin.String;kotlin.Long;io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState;kotlin.Long){}[0]
-    abstract suspend fun park(kotlin/String, kotlin/String?) // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.park|park(kotlin.String;kotlin.String?){}[0]
-    abstract suspend fun recordFailure(kotlin/String, kotlin/Int, kotlin/Long, kotlin/String?, kotlin/Long? = ..., io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.recordFailure|recordFailure(kotlin.String;kotlin.Int;kotlin.Long;kotlin.String?;kotlin.Long?;io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition){}[0]
+    abstract suspend fun park(kotlin/String, kotlin/String?, io.github.jamal_wia.kmptoolkit.uploader/UploaderItemState, kotlin/Long): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.park|park(kotlin.String;kotlin.String?;io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState;kotlin.Long){}[0]
+    abstract suspend fun recordFailure(kotlin/String, kotlin/Int, kotlin/Long, kotlin/String?, io.github.jamal_wia.kmptoolkit.uploader/UploaderItemState, kotlin/Long, io.github.jamal_wia.kmptoolkit.uploader.spi/FailureDisposition = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.spi/UploaderStore.recordFailure|recordFailure(kotlin.String;kotlin.Int;kotlin.Long;kotlin.String?;io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState;kotlin.Long;io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition){}[0]
 }
 
 abstract interface io.github.jamal_wia.kmptoolkit.uploader.spi/WakeScheduler { // io.github.jamal_wia.kmptoolkit.uploader.spi/WakeScheduler|null[0]
@@ -136,7 +136,7 @@ abstract interface io.github.jamal_wia.kmptoolkit.uploader/UploaderEngine : io.g
     abstract fun start() // io.github.jamal_wia.kmptoolkit.uploader/UploaderEngine.start|start(){}[0]
     abstract suspend fun awaitDrained(kotlin.time/Duration): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/UploaderEngine.awaitDrained|awaitDrained(kotlin.time.Duration){}[0]
     abstract suspend fun drain() // io.github.jamal_wia.kmptoolkit.uploader/UploaderEngine.drain|drain(){}[0]
-    abstract suspend fun settle(kotlin/String, io.github.jamal_wia.kmptoolkit.uploader/SettleResult) // io.github.jamal_wia.kmptoolkit.uploader/UploaderEngine.settle|settle(kotlin.String;io.github.jamal_wia.kmptoolkit.uploader.SettleResult){}[0]
+    abstract suspend fun settle(kotlin/String, kotlin/Long, io.github.jamal_wia.kmptoolkit.uploader/SettleResult) // io.github.jamal_wia.kmptoolkit.uploader/UploaderEngine.settle|settle(kotlin.String;kotlin.Long;io.github.jamal_wia.kmptoolkit.uploader.SettleResult){}[0]
 }
 
 sealed interface io.github.jamal_wia.kmptoolkit.uploader/AttemptResult { // io.github.jamal_wia.kmptoolkit.uploader/AttemptResult|null[0]
@@ -428,10 +428,12 @@ abstract class <#A: kotlin/Any> io.github.jamal_wia.kmptoolkit.uploader/UploadHa
 }
 
 final class io.github.jamal_wia.kmptoolkit.uploader/AttemptContext { // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext|null[0]
-    constructor <init>(kotlin/String, kotlin/Int, kotlin/String?, kotlin/String?, kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.<init>|<init>(kotlin.String;kotlin.Int;kotlin.String?;kotlin.String?;kotlin.Boolean){}[0]
+    constructor <init>(kotlin/String, kotlin/Int, kotlin/String?, kotlin/String?, kotlin/Long, kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.<init>|<init>(kotlin.String;kotlin.Int;kotlin.String?;kotlin.String?;kotlin.Long;kotlin.Boolean){}[0]
 
     final val attempts // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.attempts|{}attempts[0]
         final fun <get-attempts>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.attempts.<get-attempts>|<get-attempts>(){}[0]
+    final val claim // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.claim|{}claim[0]
+        final fun <get-claim>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.claim.<get-claim>|<get-claim>(){}[0]
     final val id // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.id|{}id[0]
         final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.id.<get-id>|<get-id>(){}[0]
     final val orderingKey // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.orderingKey|{}orderingKey[0]
@@ -445,8 +447,9 @@ final class io.github.jamal_wia.kmptoolkit.uploader/AttemptContext { // io.githu
     final fun component2(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.component2|component2(){}[0]
     final fun component3(): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.component3|component3(){}[0]
     final fun component4(): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.component4|component4(){}[0]
-    final fun component5(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.component5|component5(){}[0]
-    final fun copy(kotlin/String = ..., kotlin/Int = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.uploader/AttemptContext // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.copy|copy(kotlin.String;kotlin.Int;kotlin.String?;kotlin.String?;kotlin.Boolean){}[0]
+    final fun component5(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.component5|component5(){}[0]
+    final fun component6(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.component6|component6(){}[0]
+    final fun copy(kotlin/String = ..., kotlin/Int = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/Long = ..., kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.uploader/AttemptContext // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.copy|copy(kotlin.String;kotlin.Int;kotlin.String?;kotlin.String?;kotlin.Long;kotlin.Boolean){}[0]
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext.toString|toString(){}[0]
@@ -590,10 +593,12 @@ final class io.github.jamal_wia.kmptoolkit.uploader/UploaderConfig { // io.githu
 }
 
 final class io.github.jamal_wia.kmptoolkit.uploader/UploaderItem { // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem|null[0]
-    constructor <init>(kotlin/String, kotlin/String, kotlin/String, kotlin/Int, kotlin/String?, kotlin/String?, kotlin/String?, io.github.jamal_wia.kmptoolkit.uploader/UploaderItemState, kotlin/Int, kotlin/Long, kotlin/Long, kotlin/String?, kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.<init>|<init>(kotlin.String;kotlin.String;kotlin.String;kotlin.Int;kotlin.String?;kotlin.String?;kotlin.String?;io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState;kotlin.Int;kotlin.Long;kotlin.Long;kotlin.String?;kotlin.Long){}[0]
+    constructor <init>(kotlin/String, kotlin/String, kotlin/String, kotlin/Int, kotlin/String?, kotlin/String?, kotlin/String?, io.github.jamal_wia.kmptoolkit.uploader/UploaderItemState, kotlin/Int, kotlin/Long, kotlin/Long, kotlin/String?, kotlin/Long = ..., kotlin/Long = ...) // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.<init>|<init>(kotlin.String;kotlin.String;kotlin.String;kotlin.Int;kotlin.String?;kotlin.String?;kotlin.String?;io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState;kotlin.Int;kotlin.Long;kotlin.Long;kotlin.String?;kotlin.Long;kotlin.Long){}[0]
 
     final val attempts // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.attempts|{}attempts[0]
         final fun <get-attempts>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.attempts.<get-attempts>|<get-attempts>(){}[0]
+    final val claim // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.claim|{}claim[0]
+        final fun <get-claim>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.claim.<get-claim>|<get-claim>(){}[0]
     final val createdAtEpochMillis // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.createdAtEpochMillis|{}createdAtEpochMillis[0]
         final fun <get-createdAtEpochMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.createdAtEpochMillis.<get-createdAtEpochMillis>|<get-createdAtEpochMillis>(){}[0]
     final val id // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.id|{}id[0]
@@ -624,6 +629,7 @@ final class io.github.jamal_wia.kmptoolkit.uploader/UploaderItem { // io.github.
     final fun component11(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component11|component11(){}[0]
     final fun component12(): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component12|component12(){}[0]
     final fun component13(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component13|component13(){}[0]
+    final fun component14(): kotlin/Long // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component14|component14(){}[0]
     final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component2|component2(){}[0]
     final fun component3(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component3|component3(){}[0]
     final fun component4(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component4|component4(){}[0]
@@ -632,7 +638,7 @@ final class io.github.jamal_wia.kmptoolkit.uploader/UploaderItem { // io.github.
     final fun component7(): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component7|component7(){}[0]
     final fun component8(): io.github.jamal_wia.kmptoolkit.uploader/UploaderItemState // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component8|component8(){}[0]
     final fun component9(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.component9|component9(){}[0]
-    final fun copy(kotlin/String = ..., kotlin/String = ..., kotlin/String = ..., kotlin/Int = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., io.github.jamal_wia.kmptoolkit.uploader/UploaderItemState = ..., kotlin/Int = ..., kotlin/Long = ..., kotlin/Long = ..., kotlin/String? = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.uploader/UploaderItem // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.copy|copy(kotlin.String;kotlin.String;kotlin.String;kotlin.Int;kotlin.String?;kotlin.String?;kotlin.String?;io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState;kotlin.Int;kotlin.Long;kotlin.Long;kotlin.String?;kotlin.Long){}[0]
+    final fun copy(kotlin/String = ..., kotlin/String = ..., kotlin/String = ..., kotlin/Int = ..., kotlin/String? = ..., kotlin/String? = ..., kotlin/String? = ..., io.github.jamal_wia.kmptoolkit.uploader/UploaderItemState = ..., kotlin/Int = ..., kotlin/Long = ..., kotlin/Long = ..., kotlin/String? = ..., kotlin/Long = ..., kotlin/Long = ...): io.github.jamal_wia.kmptoolkit.uploader/UploaderItem // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.copy|copy(kotlin.String;kotlin.String;kotlin.String;kotlin.Int;kotlin.String?;kotlin.String?;kotlin.String?;io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState;kotlin.Int;kotlin.Long;kotlin.Long;kotlin.String?;kotlin.Long;kotlin.Long){}[0]
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/UploaderItem.toString|toString(){}[0]

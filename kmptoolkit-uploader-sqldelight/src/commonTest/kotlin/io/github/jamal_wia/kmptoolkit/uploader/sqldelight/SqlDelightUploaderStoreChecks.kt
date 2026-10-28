@@ -74,7 +74,7 @@ internal class SqlDelightUploaderStoreChecks {
      * What it deliberately does not claim: this cannot, on its own, prove the guard is one SQL
      * statement. Every statement of a storage is confined to one thread, so the two calls are
      * serialized before they reach SQLite, and a read-then-write inside a transaction would pass
-     * here too. That the guard is a single `UPDATE … WHERE lease_until = :expected` is visible in
+     * here too. That the guard is a single `UPDATE … WHERE claim = :expectedClaim` is visible in
      * `UploaderItem.sq`; what this check is for is the outcome the SPI specifies — exactly one write
      * applies, and the row is never left holding a mixture of the two callers' fields.
      */
@@ -84,15 +84,15 @@ internal class SqlDelightUploaderStoreChecks {
             repeat(CONTENTION_ROUNDS) { round ->
                 val id = "id-$round"
                 store.insertKeep(item(id = id))
-                store.markInFlight(id, 900L, UploaderItemState.PENDING, expectedLeaseUntilEpochMillis = 0L)
+                store.markInFlight(id, 900L, UploaderItemState.PENDING, expectedClaim = 0L)
 
                 val outcomes: List<Boolean> = withContext(Dispatchers.Default) {
                     coroutineScope {
                         val first = async {
-                            store.recordFailure(id, 1, 10L, "first", expectedLeaseUntilEpochMillis = 900L)
+                            store.recordFailure(id, 1, 10L, "first", UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
                         }
                         val second = async {
-                            store.recordFailure(id, 2, 20L, "second", expectedLeaseUntilEpochMillis = 900L)
+                            store.recordFailure(id, 2, 20L, "second", UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
                         }
                         listOf(first.await(), second.await())
                     }
@@ -130,15 +130,15 @@ internal class SqlDelightUploaderStoreChecks {
             repeat(CONTENTION_ROUNDS) { round ->
                 val id = "id-$round"
                 store.insertKeep(item(id = id))
-                store.markInFlight(id, 900L, UploaderItemState.PENDING, expectedLeaseUntilEpochMillis = 0L)
+                store.markInFlight(id, 900L, UploaderItemState.PENDING, expectedClaim = 0L)
 
                 val (applied: Boolean, rehanded: Boolean) = withContext(Dispatchers.Default) {
                     coroutineScope {
                         val settle = async {
-                            store.recordFailure(id, 7, 70L, "stale", expectedLeaseUntilEpochMillis = 900L)
+                            store.recordFailure(id, 7, 70L, "stale", UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
                         }
                         val rehand = async {
-                            store.markInFlight(id, 1_800L, UploaderItemState.IN_FLIGHT, expectedLeaseUntilEpochMillis = 900L)
+                            store.markInFlight(id, 1_800L, UploaderItemState.IN_FLIGHT, expectedClaim = 1L)
                         }
                         settle.await() to rehand.await()
                     }
@@ -398,7 +398,7 @@ internal class SqlDelightUploaderStoreChecks {
             createFileUploaderStorage(name).use { storage ->
                 storage.store.insertKeep(original)
                 storage.store.insertKeep(item(id = "b"))
-                storage.store.park("b", "gave up")
+                storage.store.park("b", "gave up", UploaderItemState.PENDING, 0L)
             }
             createFileUploaderStorage(name).use { storage ->
                 assertEquals(original, storage.store.getById("a"), "every field must survive")
@@ -506,7 +506,7 @@ internal class SqlDelightUploaderStoreChecks {
                     store.insertKeep(item(id = "b", type = "one"))
                     assertEquals(listOf("a", "b"), emissions.awaitSettled(listOf("a", "b")))
 
-                    store.park("a", "gave up")
+                    store.park("a", "gave up", UploaderItemState.PENDING, 0L)
                     assertEquals(
                         listOf("a", "b"),
                         emissions.awaitSettled(listOf("a", "b")),
@@ -705,6 +705,69 @@ internal class SqlDelightUploaderStoreChecks {
     }
 
     /**
+     * A queue created at schema 1, before rows carried a claim, upgrades through
+     * [uploaderDatabaseSchema]`.migrate` — the route a shared-driver consumer runs from their own
+     * migration — with every row kept and its claim starting at `0`, the claim a fresh insert carries.
+     * A row in flight at the upgrade stays in flight under its lease, and can still be re-handed.
+     */
+    suspend fun aSchemaOneQueueUpgradesWithItsRowsUnderClaimZero() {
+        val driver: SqlDriver = createDriver(emptySchema, name = null)
+        try {
+            // The table exactly as schema 1 created it (src/commonMain/sqldelight/databases/1.db).
+            driver.execute(
+                identifier = null,
+                sql = """
+                    CREATE TABLE kmptoolkit_uploader_item (
+                        sequence        INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id              TEXT    NOT NULL UNIQUE,
+                        type            TEXT    NOT NULL,
+                        payload         TEXT    NOT NULL,
+                        schema_version  INTEGER NOT NULL,
+                        unique_key      TEXT,
+                        ordering_key    TEXT,
+                        tag             TEXT,
+                        state           TEXT    NOT NULL,
+                        attempts        INTEGER NOT NULL,
+                        next_run_at     INTEGER NOT NULL,
+                        created_at      INTEGER NOT NULL,
+                        last_error      TEXT,
+                        lease_until     INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent(),
+                parameters = 0,
+            )
+            driver.execute(
+                identifier = null,
+                sql = "INSERT INTO kmptoolkit_uploader_item(id, type, payload, schema_version, state, " +
+                    "attempts, next_run_at, created_at, lease_until) " +
+                    "VALUES ('a', 'checks.type', 'p', 1, 'IN_FLIGHT', 2, 0, 0, 900)",
+                parameters = 0,
+            )
+
+            assertEquals(2L, uploaderDatabaseSchema.version, "this check upgrades from 1 to the current schema")
+            uploaderDatabaseSchema.migrate(driver, oldVersion = 1L, newVersion = uploaderDatabaseSchema.version)
+
+            val storage: UploaderStorage = createUploaderStorage(driver)
+            try {
+                val upgraded: UploaderItem? = storage.store.getById("a")
+                assertEquals(UploaderItemState.IN_FLIGHT, upgraded?.state, "the row must survive the upgrade")
+                assertEquals(900L, upgraded?.leaseUntilEpochMillis, "and keep its lease")
+                assertEquals(2, upgraded?.attempts, "and its attempts")
+                assertEquals(0L, upgraded?.claim, "an upgraded row starts at claim 0")
+                assertTrue(
+                    storage.store.markInFlight("a", 1_800L, UploaderItemState.IN_FLIGHT, expectedClaim = 0L),
+                    "an upgraded in-flight row must be re-handable under claim 0",
+                )
+                assertEquals(1L, storage.store.getById("a")?.claim)
+            } finally {
+                storage.close()
+            }
+        } finally {
+            driver.close()
+        }
+    }
+
+    /**
      * A platform database failure arrives as [UploaderStorageException], naming the operation.
      *
      * Not merely tidier: `UploaderStore` has no result type, so a consumer's only handle on a failed
@@ -722,9 +785,9 @@ internal class SqlDelightUploaderStoreChecks {
                 UploaderStorageOperation.INSERT_REPLACE to { store.insertReplace(item(id = "a")) },
                 UploaderStorageOperation.GET_ALL_ACTIVE to { store.getAllActive() },
                 UploaderStorageOperation.GET_BY_ID to { store.getById("a") },
-                UploaderStorageOperation.RECORD_FAILURE to { store.recordFailure("a", 1, 0L, null) },
+                UploaderStorageOperation.RECORD_FAILURE to { store.recordFailure("a", 1, 0L, null, UploaderItemState.PENDING, 0L) },
                 UploaderStorageOperation.MARK_IN_FLIGHT to { store.markInFlight("a", 1L, UploaderItemState.PENDING, 0L) },
-                UploaderStorageOperation.PARK to { store.park("a", null) },
+                UploaderStorageOperation.PARK to { store.park("a", null, UploaderItemState.PENDING, 0L) },
                 UploaderStorageOperation.DELETE_BY_ID to { store.deleteById("a") },
                 UploaderStorageOperation.DELETE_BY_TAG to { store.deleteByTag("t") },
                 UploaderStorageOperation.CLEAR_ALL to { store.clearAll() },
@@ -844,7 +907,7 @@ internal class SqlDelightUploaderStoreChecks {
     private companion object {
 
         /** What [UploaderStoreContract.verifyAll] returns today. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 40
+        const val EXPECTED_CONTRACT_CHECKS: Int = 46
 
         /** Enough repetitions that a lost race would have to be lucky thirty times running. */
         const val CONTENTION_ROUNDS: Int = 30

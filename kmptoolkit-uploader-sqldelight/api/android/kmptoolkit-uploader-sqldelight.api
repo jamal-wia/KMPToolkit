@@ -63,13 +63,14 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/KmpTool
 }
 
 public final class io/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Kmptoolkit_uploader_item {
-	public fun <init> (JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJJLjava/lang/String;J)V
+	public fun <init> (JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJJLjava/lang/String;JJ)V
 	public final fun component1 ()J
 	public final fun component10 ()J
 	public final fun component11 ()J
 	public final fun component12 ()J
 	public final fun component13 ()Ljava/lang/String;
 	public final fun component14 ()J
+	public final fun component15 ()J
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/String;
@@ -78,10 +79,11 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Kmptool
 	public final fun component7 ()Ljava/lang/String;
 	public final fun component8 ()Ljava/lang/String;
 	public final fun component9 ()Ljava/lang/String;
-	public final fun copy (JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJJLjava/lang/String;J)Lio/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Kmptoolkit_uploader_item;
-	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Kmptoolkit_uploader_item;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJJLjava/lang/String;JILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Kmptoolkit_uploader_item;
+	public final fun copy (JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJJLjava/lang/String;JJ)Lio/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Kmptoolkit_uploader_item;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Kmptoolkit_uploader_item;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJJLjava/lang/String;JJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Kmptoolkit_uploader_item;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAttempts ()J
+	public final fun getClaim ()J
 	public final fun getCreated_at ()J
 	public final fun getId ()Ljava/lang/String;
 	public final fun getLast_error ()Ljava/lang/String;
@@ -105,20 +107,20 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Uploade
 	public final fun deleteById (Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun deleteByIdentity (Ljava/lang/String;Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun deleteByTag (Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;
-	public final fun dropOnFailure (Ljava/lang/String;Ljava/lang/Long;)Lapp/cash/sqldelight/db/QueryResult;
-	public final fun insert (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJJLjava/lang/String;J)Lapp/cash/sqldelight/db/QueryResult;
+	public final fun dropOnFailure (Ljava/lang/String;Ljava/lang/String;J)Lapp/cash/sqldelight/db/QueryResult;
+	public final fun insert (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JJJLjava/lang/String;JJ)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun markInFlight (JLjava/lang/String;Ljava/lang/String;J)Lapp/cash/sqldelight/db/QueryResult;
-	public final fun park (Ljava/lang/String;Ljava/lang/String;)Lapp/cash/sqldelight/db/QueryResult;
-	public final fun recordFailure (Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Lapp/cash/sqldelight/db/QueryResult;
+	public final fun park (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Lapp/cash/sqldelight/db/QueryResult;
+	public final fun recordFailure (Ljava/lang/String;JJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;J)Lapp/cash/sqldelight/db/QueryResult;
 	public final fun selectAllActive ()Lapp/cash/sqldelight/Query;
-	public final fun selectAllActive (Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
+	public final fun selectAllActive (Lkotlin/jvm/functions/Function15;)Lapp/cash/sqldelight/Query;
 	public final fun selectById (Ljava/lang/String;)Lapp/cash/sqldelight/Query;
-	public final fun selectById (Ljava/lang/String;Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
+	public final fun selectById (Ljava/lang/String;Lkotlin/jvm/functions/Function15;)Lapp/cash/sqldelight/Query;
 	public final fun selectByIdentity (Ljava/lang/String;Ljava/lang/String;)Lapp/cash/sqldelight/Query;
-	public final fun selectByIdentity (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
+	public final fun selectByIdentity (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/functions/Function15;)Lapp/cash/sqldelight/Query;
 	public final fun selectByTag (Ljava/lang/String;)Lapp/cash/sqldelight/Query;
-	public final fun selectByTag (Ljava/lang/String;Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
+	public final fun selectByTag (Ljava/lang/String;Lkotlin/jvm/functions/Function15;)Lapp/cash/sqldelight/Query;
 	public final fun selectByType (Ljava/lang/String;)Lapp/cash/sqldelight/Query;
-	public final fun selectByType (Ljava/lang/String;Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
+	public final fun selectByType (Ljava/lang/String;Lkotlin/jvm/functions/Function15;)Lapp/cash/sqldelight/Query;
 }
 

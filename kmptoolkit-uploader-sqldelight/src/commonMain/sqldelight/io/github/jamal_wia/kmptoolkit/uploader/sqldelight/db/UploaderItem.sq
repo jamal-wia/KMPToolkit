@@ -15,6 +15,11 @@
 --
 --   * `id` is the client-generated identity every write is addressed by, and it is UNIQUE rather
 --     than PRIMARY KEY so that `sequence` can own the rowid.
+--
+--   * `claim` is the row's version for the compare-and-sets below: every guarded write that applies
+--     advances it by one, and nothing else moves it. The engine hands an executor the value its claim
+--     writes, and a report carrying an older one is superseded. Last in the table because it was added
+--     by migration 1 (`migrations/1.sqm`), and ALTER TABLE appends.
 CREATE TABLE kmptoolkit_uploader_item (
     sequence        INTEGER PRIMARY KEY AUTOINCREMENT,
     id              TEXT    NOT NULL UNIQUE,
@@ -29,7 +34,8 @@ CREATE TABLE kmptoolkit_uploader_item (
     next_run_at     INTEGER NOT NULL,
     created_at      INTEGER NOT NULL,
     last_error      TEXT,
-    lease_until     INTEGER NOT NULL DEFAULT 0
+    lease_until     INTEGER NOT NULL DEFAULT 0,
+    claim           INTEGER NOT NULL DEFAULT 0
 );
 
 -- The dedup identity is (type, unique_key). Partial, so the index holds only keyed rows: a keyless
@@ -55,10 +61,10 @@ CREATE INDEX kmptoolkit_uploader_item_tag
 insert:
 INSERT INTO kmptoolkit_uploader_item(
     id, type, payload, schema_version, unique_key, ordering_key, tag,
-    state, attempts, next_run_at, created_at, last_error, lease_until
+    state, attempts, next_run_at, created_at, last_error, lease_until, claim
 )
 VALUES (:id, :type, :payload, :schemaVersion, :uniqueKey, :orderingKey, :tag,
-    :state, :attempts, :nextRunAt, :createdAt, :lastError, :leaseUntil);
+    :state, :attempts, :nextRunAt, :createdAt, :lastError, :leaseUntil, :claim);
 
 -- Both policies' lookup: what, if anything, currently holds this identity. KEEP decides on its
 -- state; REPLACE hands the whole row back as the item it superseded.
@@ -84,12 +90,15 @@ ORDER BY sequence ASC;
 selectById:
 SELECT * FROM kmptoolkit_uploader_item WHERE id = :id;
 
--- The compare-and-set. One statement, five fields: the attempt count, the backoff gate, the error,
--- the state — PENDING to retry, or PARKED when the failure spent the retry budget, so a give-up is
--- this same write and the row never passes through PENDING on its way out — and the cleared lease. A
--- non-null :expectedLease makes the whole write conditional on the lease not having moved since the
--- caller read it — that is what stops a stale failure report from a detached executor clearing a
--- claim a second executor is working under.
+-- The compare-and-set. One statement: the attempt count, the backoff gate, the error, the state —
+-- PENDING to retry, or PARKED when the failure spent the retry budget, so a give-up is this same write
+-- and the row never passes through PENDING on its way out — the cleared lease, and the advanced claim.
+-- The whole write is conditional on the state and the claim not having moved since the caller read
+-- them. That stops a failure report from a detached executor whose lease expired clearing the claim a
+-- second executor is working under, and the drain's own failure, written after a handler ran, from
+-- returning to PENDING a row a settle parked meanwhile. The claim rather than the lease: two claims can
+-- share a lease (same millisecond, or a clock stepped back), and a park clears the lease to 0, the lease
+-- a pending row carries too.
 --
 -- Whether a row was actually written comes from the statement's own affected-row count, which
 -- SQLDelight returns. No RETURNING clause: it needs SQLite 3.35 and minSdk 24 ships 3.9.
@@ -99,29 +108,32 @@ SET state = :state,
     attempts = :attempts,
     next_run_at = :nextRunAt,
     last_error = :lastError,
-    lease_until = 0
-WHERE id = :id AND (:expectedLease IS NULL OR lease_until = :expectedLease);
+    lease_until = 0,
+    claim = claim + 1
+WHERE id = :id AND state = :expectedState AND claim = :expectedClaim;
 
 -- recordFailure's give-up for a handler that drops what it cannot deliver: the same guard, a delete
 -- instead of an update.
 dropOnFailure:
 DELETE FROM kmptoolkit_uploader_item
-WHERE id = :id AND (:expectedLease IS NULL OR lease_until = :expectedLease);
+WHERE id = :id AND state = :expectedState AND claim = :expectedClaim;
 
--- Hand the row to a detached executor — only if it is still in the state and lease the caller read
--- it in. Between the drain's read and this write a detached executor of an earlier attempt may have
+-- Hand the row to a detached executor — only if it is still in the state and claim the caller read
+-- it in. The advanced claim is the one the new executor holds. Between the drain's read and this write a detached executor of an earlier attempt may have
 -- parked the row, or returned it to PENDING under a backoff gate; an unguarded claim would revive
 -- the one and skip the other. `attempts` is deliberately untouched: a hand-off is not a failure.
 markInFlight:
 UPDATE kmptoolkit_uploader_item
-SET state = 'IN_FLIGHT', lease_until = :leaseUntil
-WHERE id = :id AND state = :expectedState AND lease_until = :expectedLease;
+SET state = 'IN_FLIGHT', lease_until = :leaseUntil, claim = claim + 1
+WHERE id = :id AND state = :expectedState AND claim = :expectedClaim;
 
--- Out of rotation without being deleted. Clears the lease, leaves `attempts` alone.
+-- Out of rotation without being deleted. Clears the lease, leaves `attempts` alone. Guarded like the
+-- writes above: a park is a verdict on the attempt the caller read, and must not take the row from an
+-- executor that claimed it since.
 park:
 UPDATE kmptoolkit_uploader_item
-SET state = 'PARKED', last_error = :lastError, lease_until = 0
-WHERE id = :id;
+SET state = 'PARKED', last_error = :lastError, lease_until = 0, claim = claim + 1
+WHERE id = :id AND state = :expectedState AND claim = :expectedClaim;
 
 deleteById:
 DELETE FROM kmptoolkit_uploader_item WHERE id = :id;

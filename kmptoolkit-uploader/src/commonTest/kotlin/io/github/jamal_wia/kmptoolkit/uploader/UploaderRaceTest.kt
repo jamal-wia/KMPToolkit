@@ -57,11 +57,12 @@ class UploaderRaceTest {
         val engine: UploaderEngine = startEngine(backgroundScope, listOf(handler))
         val id: String = engine.enqueue(handler, "payload")!!
         engine.drain()
+        val firstClaim: Long = store.find(id)!!.claim
         clock.millis += RecordingTransport.LEASE + 1 // the first executor went silent
 
         // The drain has read the expired claim; the first executor reports a permanent failure
         // before the drain's new claim is written.
-        store.beforeNextMarkInFlight = { engine.settle(id, SettleResult.Park("permanent 400")) }
+        store.beforeNextMarkInFlight = { engine.settle(id, firstClaim, SettleResult.Park("permanent 400")) }
         engine.drain()
 
         assertEquals(UploaderItemState.PARKED, store.find(id)?.state, "a parked item must stay parked")
@@ -74,9 +75,10 @@ class UploaderRaceTest {
         val engine: UploaderEngine = startEngine(backgroundScope, listOf(handler))
         val id: String = engine.enqueue(handler, "payload")!!
         engine.drain()
+        val firstClaim: Long = store.find(id)!!.claim
         clock.millis += RecordingTransport.LEASE + 1
 
-        store.beforeNextMarkInFlight = { engine.settle(id, SettleResult.Failed(IllegalStateException("503"))) }
+        store.beforeNextMarkInFlight = { engine.settle(id, firstClaim, SettleResult.Failed(IllegalStateException("503"))) }
         engine.drain()
 
         val item: UploaderItem? = store.find(id)
@@ -92,7 +94,7 @@ class UploaderRaceTest {
         val handler = TestHandler(
             onExecute = { context, _ ->
                 // A fast executor finishes before execute() has even returned its Detached.
-                engine.settle(context.id, SettleResult.Park("rejected"))
+                engine.settle(context.id, context.claim, SettleResult.Park("rejected"))
                 AttemptResult.Detached(leaseMillis = 30_000L)
             },
         )
@@ -103,6 +105,76 @@ class UploaderRaceTest {
 
         assertEquals(UploaderItemState.PARKED, store.find(id)?.state)
         assertEquals(0L, store.find(id)?.leaseUntilEpochMillis)
+    }
+
+    // --- A failure from a stale read --------------------------------------------------------------
+
+    @Test
+    fun `a park reported while a plain handler runs inline is not overwritten by its failure`() = runTest {
+        lateinit var engine: UploaderEngine
+        val handler = TestHandler(
+            onExecute = { context, _ ->
+                // An executor this attempt started reports a permanent failure while the attempt is
+                // still running; the attempt itself then fails transiently.
+                engine.settle(context.id, context.claim, SettleResult.Park("permanent 400"))
+                AttemptResult.Retry(IllegalStateException("timeout"))
+            },
+        )
+        engine = startEngine(backgroundScope, listOf(handler))
+        val id: String = engine.enqueue(handler, "payload")!!
+
+        engine.drain()
+
+        val item: UploaderItem? = store.find(id)
+        assertEquals(UploaderItemState.PARKED, item?.state, "a parked item must stay parked")
+        assertEquals("permanent 400", item?.lastError, "the park's reason must survive")
+        assertEquals(0, item?.attempts, "a failure from a stale read must not spend the budget")
+    }
+
+    @Test
+    fun `a late park landing while an expired claim runs inline again is not overwritten by its failure`() = runTest {
+        lateinit var engine: UploaderEngine
+        var runs = 0
+        var firstClaim = 0L
+        val handler = TestHandler(
+            onExecute = { context, _ ->
+                runs++
+                if (runs == 1) {
+                    firstClaim = context.claim
+                    AttemptResult.Detached(leaseMillis = 10_000L)
+                } else {
+                    // The first executor, silent past its lease, finally reports — during the re-run,
+                    // before any new claim supersedes its own.
+                    engine.settle(context.id, firstClaim, SettleResult.Park("permanent 400"))
+                    AttemptResult.Retry(IllegalStateException("timeout"))
+                }
+            },
+        )
+        engine = startEngine(backgroundScope, listOf(handler))
+        val id: String = engine.enqueue(handler, "payload")!!
+        engine.drain()
+        clock.millis += 10_001L
+
+        engine.drain()
+
+        assertEquals(2, runs, "precondition: the expired claim was run again")
+        assertEquals(UploaderItemState.PARKED, store.find(id)?.state, "a parked item must stay parked")
+    }
+
+    @Test
+    fun `a park reported while an upload is being prepared is not overwritten by its preparation failure`() = runTest {
+        lateinit var engine: UploaderEngine
+        val handler = RaceUploadHandler(transport).apply {
+            duringPrepare = { context -> engine.settle(context.id, context.claim, SettleResult.Park("permanent 400")) }
+            failPrepareWith = IllegalStateException("token refresh failed")
+        }
+        engine = startEngine(backgroundScope, listOf(handler))
+        val id: String = engine.enqueue(handler, "payload")!!
+
+        engine.drain()
+
+        assertEquals(UploaderItemState.PARKED, store.find(id)?.state, "a parked item must stay parked")
+        assertTrue(transport.launches.isEmpty())
     }
 
     // --- Give-up is one write ---------------------------------------------------------------------
@@ -119,7 +191,7 @@ class UploaderRaceTest {
 
         // A drain pass runs the moment the failure is recorded, before any give-up could follow it.
         store.afterNextRecordFailure = { engine.drain() }
-        engine.settle(id, SettleResult.Failed(IllegalStateException("500")))
+        engine.settle(id, store.find(id)!!.claim, SettleResult.Failed(IllegalStateException("500")))
 
         val item: UploaderItem? = store.find(id)
         assertEquals(UploaderItemState.PARKED, item?.state)
@@ -138,7 +210,7 @@ class UploaderRaceTest {
         engine.drain()
 
         store.afterNextRecordFailure = { engine.drain() }
-        engine.settle(id, SettleResult.Failed(IllegalStateException("500")))
+        engine.settle(id, store.find(id)!!.claim, SettleResult.Failed(IllegalStateException("500")))
 
         assertNull(store.find(id))
         assertEquals(listOf(id), transport.launches, "maxAttempts = 1 allows exactly one upload")
@@ -253,8 +325,17 @@ class UploaderRaceTest {
 
         override fun decodePayload(raw: String): String = raw
 
-        override suspend fun prepareUpload(context: AttemptContext, payload: String): UploadPreparation =
-            UploadPreparation.Proceed(UploadRequest(url = "https://example.com/upload", fields = emptyList()))
+        /** Runs inside [prepareUpload] before it answers — a settle landing while preparation suspends. */
+        var duringPrepare: suspend (AttemptContext) -> Unit = {}
+
+        /** Thrown by [prepareUpload] after [duringPrepare], when set. */
+        var failPrepareWith: Throwable? = null
+
+        override suspend fun prepareUpload(context: AttemptContext, payload: String): UploadPreparation {
+            duringPrepare(context)
+            failPrepareWith?.let { throw it }
+            return UploadPreparation.Proceed(UploadRequest(url = "https://example.com/upload", fields = emptyList()))
+        }
 
         override suspend fun classify(payload: String, result: UploadResult): SettleResult =
             defaultUploadClassification(result)
