@@ -4,8 +4,11 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.pm.ResolveInfo
 import android.content.res.Resources
 import android.media.AudioAttributes
 import android.net.Uri
@@ -111,32 +114,43 @@ internal class NotificationRenderer(
     /**
      * A broadcast [PendingIntent] carrying the tapped button's id back to the app's receiver.
      *
-     * The request code folds in the notification id as well as the action id: two notifications
-     * offering the same button would otherwise share one `PendingIntent`, and
-     * `FLAG_UPDATE_CURRENT` would quietly rewrite the first one's extras to the second one's.
+     * Keyed by the notification id *and* the action id: two notifications offering the same button
+     * would otherwise share one `PendingIntent`, and `FLAG_UPDATE_CURRENT` would quietly rewrite the
+     * first one's extras to the second one's. See [distinguishBy] for how the key is applied.
      */
     private fun actionPendingIntent(id: String, action: NotificationAction): PendingIntent =
-        PendingIntent.getBroadcast(
-            context,
-            "$id:${action.id}".hashCode(),
-            actionBroadcast(id, action),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        broadcastPendingIntent(pendingIntentKey(KIND_ACTION, id, action.id), actionBroadcast(id, action))
 
     /**
      * The broadcast sent when the notification is swiped away: the same broadcast a button for
-     * [action] sends, so one receiver answers both, under a request code of its own so it never
-     * collapses onto that button's `PendingIntent`. The key is joined with a NUL rather than the
-     * button key's `:`, so no pair of ids a caller could choose — an action called `dismiss:stop`,
-     * say — yields the button key of another action.
+     * [action] sends, so one receiver answers both, under a key of its own so it never collapses
+     * onto that button's `PendingIntent`.
      */
     private fun dismissPendingIntent(id: String, action: NotificationAction): PendingIntent =
-        PendingIntent.getBroadcast(
-            context,
-            "$id\u0000dismiss\u0000${action.id}".hashCode(),
-            actionBroadcast(id, action),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        broadcastPendingIntent(pendingIntentKey(KIND_DISMISS, id, action.id), actionBroadcast(id, action))
+
+    private fun broadcastPendingIntent(key: String, broadcast: Intent): PendingIntent {
+        // Below API 29 the key can only be carried by an explicit intent (see distinguishBy), so the
+        // broadcast is addressed to the app's receiver directly — when there is exactly one to
+        // address. With none declared, or several, it stays the implicit broadcast it always was.
+        // From 29 the identifier carries the key and the broadcast is left implicit.
+        val explicit: Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && broadcast.addressToSoleReceiver()
+        val requestCode: Int = broadcast.distinguishBy(key, explicit)
+        return PendingIntent.getBroadcast(context, requestCode, broadcast, PENDING_INTENT_FLAGS)
+    }
+
+    /**
+     * Sets [component][Intent.setComponent] to the one manifest receiver of this broadcast's action in
+     * this app, and reports whether there was exactly one. An explicit broadcast is delivered without
+     * consulting the receiver's intent filter, which is what lets a category carry the key below
+     * API 29 even though the filter the docs tell an app to declare names only the action.
+     */
+    private fun Intent.addressToSoleReceiver(): Boolean {
+        val receivers: List<ResolveInfo> = context.packageManager.queryBroadcastReceivers(this, 0)
+        val receiver: ActivityInfo = receivers.singleOrNull()?.activityInfo ?: return false
+        component = ComponentName(receiver.packageName, receiver.name)
+        return true
+    }
 
     private fun actionBroadcast(id: String, action: NotificationAction): Intent =
         Intent(broadcastAction).apply {
@@ -152,6 +166,10 @@ internal class NotificationRenderer(
      * knowledge about the consuming app. `SINGLE_TOP` alongside `CLEAR_TOP` is what makes a tap
      * arrive in `onNewIntent` instead of occasionally recreating the activity. `null` when the app
      * has no launcher activity at all, which no normal app is.
+     *
+     * Keyed by the notification id, so two notifications' taps never share a `PendingIntent` — and
+     * with it, under `FLAG_UPDATE_CURRENT`, each other's extras. The launch intent names its
+     * component, so the key can ride on it at every API level; see [distinguishBy].
      */
     private fun contentPendingIntent(id: String, extras: Map<String, String>): PendingIntent? {
         val launch: Intent = context.packageManager
@@ -159,12 +177,52 @@ internal class NotificationRenderer(
             ?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             ?: return null
         extras.forEach { (key: String, value: String) -> launch.putExtra(key, value) }
-        return PendingIntent.getActivity(
-            context,
-            platformNotificationId(id),
-            launch,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val requestCode: Int = launch.distinguishBy(pendingIntentKey(KIND_CONTENT, id, null), explicit = true)
+        return PendingIntent.getActivity(context, requestCode, launch, PENDING_INTENT_FLAGS)
+    }
+
+    /**
+     * Makes this intent's `PendingIntent` identity depend on [key], and returns the request code to
+     * create it with.
+     *
+     * This is how a notification's `PendingIntent`s — the tap target, each button, the dismissal —
+     * are told apart. A `PendingIntent` is identified by its request code plus its intent as
+     * `Intent.filterEquals` sees it: action, data, type, identifier, package, component and
+     * categories, but **not** extras. Two notifications whose intents differ only in extras, created
+     * under one request code, share one `PendingIntent`, and `FLAG_UPDATE_CURRENT` rewrites the first
+     * one's extras to the second's. Up to 2.x the request code was a hash of the id, so two ids with
+     * equal hashes did exactly that.
+     *
+     * Now a collision-free string key ([pendingIntentKey]) is put into the intent itself:
+     *
+     * - **API 29+:** `Intent.setIdentifier(key)`, which exists for precisely this — it takes part in
+     *   `filterEquals` and in nothing else: not in which component receives the intent, and not in
+     *   anything an app reads from it.
+     * - **Below API 29:** as a category, but only on an **explicit** intent. An explicit intent is
+     *   delivered without consulting intent filters, so the extra category changes nothing about
+     *   who receives it — whereas on an implicit one a filter that does not list it would stop
+     *   matching. The tap target is always explicit; a broadcast is made explicit when the app
+     *   declares exactly one receiver for it.
+     * - **Data was not used**: it would show up as `intent.data` in the app's launcher activity,
+     *   where deep-link handling reads it, and an action-only receiver filter would stop matching a
+     *   broadcast carrying it.
+     *
+     * With the key in the intent, the request code is a constant.
+     */
+    private fun Intent.distinguishBy(key: String, explicit: Boolean): Int = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+            setIdentifier(key)
+            DISTINCT_REQUEST_CODE
+        }
+        explicit -> {
+            addCategory(key)
+            DISTINCT_REQUEST_CODE
+        }
+        // An implicit broadcast below API 29 with no single receiver to address: nothing in the
+        // intent can carry the key without changing who receives it, so the request code does,
+        // hashed — the one residual case where two keys can still meet. Documented in
+        // 05-platform-notes.md.
+        else -> key.hashCode()
     }
 
     private fun customSoundUri(resourceName: String): Uri = context.rawSoundUri(resourceName)
@@ -246,12 +304,27 @@ private val CUSTOM_SOUND_ATTRS: AudioAttributes = AudioAttributes.Builder()
     .setUsage(AudioAttributes.USAGE_NOTIFICATION)
     .build()
 
-/** Clears the sign bit, so a hash becomes a non-negative notification id. */
-private const val ID_MASK: Int = 0x7FFFFFFF
+/** Request code of every `PendingIntent` whose intent carries its own key. */
+private const val DISTINCT_REQUEST_CODE: Int = 0
+
+private const val PENDING_INTENT_FLAGS: Int = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+
+private const val KIND_CONTENT: String = "content"
+private const val KIND_ACTION: String = "action"
+private const val KIND_DISMISS: String = "dismiss"
 
 /**
- * The platform's `Int` id for a caller's `String` id: stable across processes (String hashing is
- * specified), never negative, and never 0 — `startForeground` rejects 0, and the empty string hashes
- * to exactly that.
+ * An unambiguous key for one `PendingIntent` of one notification: kind, notification id and action
+ * id as separately percent-encoded URI segments, so no choice of ids — an action called
+ * `dismiss/stop`, an id containing `:` — can produce another notification's or another kind's key.
  */
-internal fun platformNotificationId(id: String): Int = (id.hashCode() and ID_MASK).coerceAtLeast(1)
+private fun pendingIntentKey(kind: String, id: String, actionId: String?): String =
+    Uri.Builder()
+        .scheme(PENDING_INTENT_KEY_SCHEME)
+        .authority(kind)
+        .appendPath(id)
+        .apply { if (actionId != null) appendPath(actionId) }
+        .build()
+        .toString()
+
+private const val PENDING_INTENT_KEY_SCHEME: String = "kmptoolkit-notification"

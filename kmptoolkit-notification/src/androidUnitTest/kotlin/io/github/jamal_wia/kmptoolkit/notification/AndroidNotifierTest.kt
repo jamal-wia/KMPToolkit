@@ -18,7 +18,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -434,11 +433,8 @@ class AndroidNotifierTest {
         notifier.post("a", notification().copy(actions = actions))
         notifier.post("b", notification().copy(actions = actions))
 
-        // Sharing a request code would let FLAG_UPDATE_CURRENT rewrite the first button's extras.
-        assertNotEquals(
-            shadowOf(shown[0].actions[0].actionIntent).requestCode,
-            shadowOf(shown[1].actions[0].actionIntent).requestCode,
-        )
+        // Sharing one PendingIntent would let FLAG_UPDATE_CURRENT rewrite the first button's extras.
+        assertTrue(!samePendingIntent(shown[0].actions[0].actionIntent, shown[1].actions[0].actionIntent))
     }
 
     @Test
@@ -496,22 +492,6 @@ class AndroidNotifierTest {
         notifier().post("download", notification().copy(contentExtras = emptyMap()))
 
         assertNotNull(shown.single().contentIntent, "an empty map still means tappable-to-open")
-    }
-
-    // --- id mapping --------------------------------------------------------------------------
-
-    @Test
-    fun `the platform id is stable and non-negative and never zero`() {
-        // "" hashes to 0, which startForeground rejects; this tag hashes negative.
-        val negativeHash = "chat_thread_id_from_push"
-        assertTrue(negativeHash.hashCode() < 0)
-
-        assertTrue(platformNotificationId(negativeHash) > 0)
-        assertNotEquals(0, platformNotificationId(""))
-        assertEquals(
-            platformNotificationId(negativeHash),
-            platformNotificationId(negativeHash),
-        )
     }
 
     /**

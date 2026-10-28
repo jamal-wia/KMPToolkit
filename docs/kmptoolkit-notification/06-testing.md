@@ -104,9 +104,15 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
 - `AndroidNotificationOptionsTest` — each `NotificationOptions` field on a real notification
   (`FLAG_ONLY_ALERT_ONCE`, the delete intent and its separate `PendingIntent`, the media template and
   its compact actions, per-action icons), that a frame with changed content is not held back by the bucket, and
-  the Android helpers: `notificationIdOf` matching the posted id, a foreground notification that is
-  ongoing, creates its channel, posts nothing and carries the same broadcasts as a post, and channel
-  creation and deletion ahead of any post.
+  the Android helpers: a post and a cancel under a `ForegroundNotificationId` reaching the
+  notification its service started with, an ordinary id never touching it, a foreground notification
+  that is ongoing, creates its channel, posts nothing and carries the same `PendingIntent`s as a post,
+  channel creation and deletion ahead of any post, and the 2.x migration sweep (a cancel and a first
+  post removing the old untagged copy, sparing a foreground `platformId`).
+- `NotificationIdCollisionCurrentApiTest` / `NotificationIdCollisionLegacyApiTest` — at the default
+  level and at `sdk = 28`: `"Aa"` and `"BB"`, whose hash codes are equal, stay two notifications, a
+  cancel of one leaves the other, and each one's tap and button carry its own extras. Below 29, a
+  button with no receiver to address stays a plain implicit broadcast.
 - `AndroidNotifierPreTiramisuTest` — at `sdk = 32`, a `PermissionHandler` answering "denied" neither
   blocks a post nor is asked.
 - `AndroidNotifierLegacyTest` — the API 24–25 path, at `@Config(sdk = [24])`, because the
