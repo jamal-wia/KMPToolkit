@@ -39,7 +39,8 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
   `Error(JavaFxVideoPlayerException.RuntimeUnavailable)` — twice, the failure being remembered.
 - **Covered on the real engine:** loading from classpath and from a file, duration and picture
   size, a non-video file and an unreachable URL failing (and leaving nothing behind), frames of the
-  right size and content, a first frame without playing, play/pause/seek, completion once, restart
+  right size and content, a first frame without playing, play/pause/seek, the position holding a
+  seek's target against playhead readings JavaFX queued before the seek, completion once, restart
   after completion, a seek after completion staying paused (in JavaFX's own status too) and `start`
   resuming from there, looping without completion, settings given before load and changed after it
   read back from JavaFX (volume, rate, cycle count) and taking effect (double speed measured

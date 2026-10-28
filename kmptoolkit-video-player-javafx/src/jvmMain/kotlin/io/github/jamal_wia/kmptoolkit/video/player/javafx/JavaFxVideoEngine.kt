@@ -113,9 +113,13 @@ internal class JavaFxVideoEngine(
     }
 
     override fun seekTo(positionMs: Long) {
-        val session: Session = synchronized(lock) { session } ?: return
-        session.positionMs = positionMs
-        session.playback?.seekTo(positionMs)
+        val playback: FxPlayback? = synchronized(lock) {
+            val current: Session = session ?: return
+            // Reported at once, and held until the seek reaches the FX thread (see onTimes).
+            current.positionMs = positionMs
+            current.playback?.also { current.seeksInFlight++ }
+        }
+        playback?.seekTo(positionMs)
     }
 
     override fun setSpeed(speed: Float) {
@@ -167,6 +171,15 @@ internal class JavaFxVideoEngine(
         @Volatile var positionMs: Long = 0L
         @Volatile var bufferedMs: Long = 0L
 
+        /**
+         * Seeks posted to the FX thread that have not run there yet; guarded by [lock]. JavaFX
+         * polls the native playhead every 100 ms and queues each reading with `Platform.runLater`,
+         * so a reading taken before a seek can run on the FX thread after [seekTo] returned — and
+         * would put the old playhead back over the target it published, which a `seekForward()`
+         * right after would then step from.
+         */
+        var seeksInFlight: Int = 0
+
         /** Called on the FX thread once the player exists; disposes it if already closed. */
         fun attach(playback: FxPlayback) {
             val open: Boolean = synchronized(lock) {
@@ -199,8 +212,15 @@ internal class JavaFxVideoEngine(
 
         override fun onTimes(durationMs: Long, positionMs: Long, bufferedMs: Long) {
             this.durationMs = durationMs
-            this.positionMs = positionMs
             this.bufferedMs = bufferedMs
+            synchronized(lock) {
+                // Read before a seek still queued behind it: the target stands until that seek runs.
+                if (seeksInFlight == 0) this.positionMs = positionMs
+            }
+        }
+
+        override fun onSeekApplied() {
+            synchronized(lock) { seeksInFlight-- }
         }
 
         override fun onVideoSize(size: VideoSize?) = deliver { it.onVideoSizeChanged(size) }

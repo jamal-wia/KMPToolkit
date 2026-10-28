@@ -115,7 +115,11 @@ decoder writes straight into memory without a render-and-read-back step.
 - **Start-up latency.** On macOS, JavaFX takes up to about a second after `play()` before the
   position starts moving; the position simply stays put briefly.
 - **Seeking** snaps to the nearest key frame JavaFX chooses and may land a little before the
-  requested position.
+  requested position. The position reports the requested one as soon as `seekTo` returns and keeps
+  it until the seek has reached the JavaFX application thread: a playhead reading JavaFX took before
+  the seek, but delivered after it because that thread was busy, never puts the old position back.
+  JavaFX then seeks asynchronously, so the one reading after that — about 100 ms later — can still
+  show the old playhead before the new one arrives.
 - **Looping** (`RepeatMode.One`) uses JavaFX's own `cycleCount = INDEFINITE`, so JavaFX restarts
   the source itself, and `Completed` is never reported while it is on.
 - **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine

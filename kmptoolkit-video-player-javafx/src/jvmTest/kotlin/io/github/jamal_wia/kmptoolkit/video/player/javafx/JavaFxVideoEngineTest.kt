@@ -253,18 +253,58 @@ class JavaFxVideoEngineTest {
     @Test
     fun speedSetWhilePausedHoldsAfterResuming() {
         load()
+        // Played from 2 s, so every playhead read before the seek back to 0 below is 2 s or more.
+        // JavaFX seeks asynchronously, and its first reading after a seek can still show the old
+        // playhead; a reading under 1.5 s can then only be one taken after the seek.
+        engine.seekTo(2_000L)
         engine.start()
-        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 100L }
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 2_100L }
         engine.pause()
         // Set while paused: on macOS, play() alone would restart the native player at speed 1.
         engine.setSpeed(2f)
         engine.seekTo(0L)
         engine.start()
-        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 100L }
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() in 100L until 1_500L }
         val from: Long = engine.positionMs()
         Thread.sleep(1_000L)
+        // From under 1.5 s, the end of the 3 s clip (where the playhead stops) is still 1.5 s on.
         val covered: Long = engine.positionMs() - from
         assertTrue(covered >= 1_500L, "covered $covered ms of media in 1 s at speed 2")
+    }
+
+    @Test
+    fun aPlayheadReadBeforeASeekLandsDoesNotReplaceItsTarget() {
+        load()
+        engine.start()
+        awaitTrue(message = { "position ${engine.positionMs()}" }) { engine.positionMs() >= 500L }
+
+        // Hold the FX thread while the source plays on. JavaFX keeps polling the native playhead
+        // every 100 ms and queues each reading there, so readings of the pre-seek playhead are
+        // waiting ahead of the seek below when the thread is let go — as on a loaded machine.
+        val holding = CountDownLatch(1)
+        val letGo = CountDownLatch(1)
+        Platform.runLater {
+            holding.countDown()
+            letGo.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        }
+        assertTrue(holding.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS), "the FX thread did not run the hold")
+        Thread.sleep(500L)
+
+        engine.pause()
+        engine.seekTo(0L)
+        assertEquals(0L, engine.positionMs(), "right after seekTo")
+        // Queued right behind the seek, so it runs once the stale readings and the seek have run,
+        // before JavaFX's next reading of the moved playhead.
+        var afterSeek: Long = -1L
+        val probed = CountDownLatch(1)
+        Platform.runLater {
+            afterSeek = engine.positionMs()
+            probed.countDown()
+        }
+        letGo.countDown()
+        assertTrue(probed.await(LOAD_TIMEOUT_MS, TimeUnit.MILLISECONDS), "the FX thread did not run the probe")
+
+        assertEquals(0L, afterSeek, "a reading taken before the seek replaced its target")
     }
 
     @Test
