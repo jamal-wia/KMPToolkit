@@ -24,7 +24,10 @@ dropped, so a stale reference cannot reach your code. The block runs on the call
 
 Subscribes to activity resumption, and fires immediately if one is already resumed — so a listener
 that applies state to a window does not need a separate path for "an activity was already there".
-Invoked synchronously on the main thread.
+Always invoked on the main thread. The immediate replay is synchronous when you subscribe on the
+main thread, and posted to it when you subscribe from anywhere else. A posted replay is dropped if
+the subscription is cancelled first, the activity is no longer resumed, or a real resume has already
+reached the listener.
 
 The listener is held strongly until the returned subscription is cancelled. Do not let it store the
 activity.

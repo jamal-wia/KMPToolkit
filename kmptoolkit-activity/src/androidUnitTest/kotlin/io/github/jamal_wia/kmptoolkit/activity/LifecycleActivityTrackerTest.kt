@@ -2,9 +2,11 @@ package io.github.jamal_wia.kmptoolkit.activity
 
 import android.app.Activity
 import android.app.Application
+import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.lang.ref.WeakReference
+import kotlin.concurrent.thread
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,6 +16,7 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
 
 /**
@@ -220,6 +223,66 @@ class LifecycleActivityTrackerTest {
         launchActivity().setup()
 
         assertEquals(0, calls)
+    }
+
+    @Test
+    fun `a release that lands while a listener is being added does not leave it held`() {
+        // release() between the released check and the insertion: without a re-check the listener
+        // is added to a list nobody clears again, and the released tracker holds it — and whatever
+        // it captured — for as long as the tracker itself is reachable.
+        tracker.beforeListenerAddedForTest = { tracker.release() }
+
+        tracker.addOnActivityResumedListener { }
+
+        assertEquals(0, tracker.listenerCountForTest(), "a released tracker must hold no listener")
+    }
+
+    @Test
+    fun `the immediate replay to a listener added off the main thread runs on the main thread`() {
+        // The contract: listeners are invoked on the main thread. A listener that touches the
+        // window — every listener in this suite does — must not be handed the activity on whatever
+        // background thread happened to subscribe.
+        val controller: ActivityController<Activity> = launchActivity().setup()
+        val seen: MutableList<Activity> = mutableListOf()
+        val onMain: MutableList<Boolean> = mutableListOf()
+
+        thread {
+            tracker.addOnActivityResumedListener { activity ->
+                onMain += Looper.myLooper() == Looper.getMainLooper()
+                seen += activity
+            }
+        }.join()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf(controller.get()), seen)
+        assertEquals(listOf(true), onMain)
+    }
+
+    @Test
+    fun `a replay queued from another thread is dropped if the subscription is cancelled first`() {
+        launchActivity().setup()
+        var calls = 0
+
+        lateinit var subscription: ActivitySubscription
+        thread { subscription = tracker.addOnActivityResumedListener { calls++ } }.join()
+        subscription.cancel()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(0, calls)
+    }
+
+    @Test
+    fun `a replay queued from another thread is not repeated after a resume already delivered`() {
+        val controller: ActivityController<Activity> = launchActivity().setup()
+        val seen: MutableList<Activity> = mutableListOf()
+
+        thread { tracker.addOnActivityResumedListener { activity -> seen += activity } }.join()
+        // The activity pauses and resumes before the queued replay gets to run: the resume itself
+        // has already told the listener, and telling it again would be a duplicate.
+        controller.pause().resume()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf(controller.get()), seen)
     }
 
     @Test

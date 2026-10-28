@@ -81,7 +81,9 @@ captures lives as long as the tracker does. Capture the `ActivityAccess`, not an
 `withActivity` runs the block on the calling thread and does not move you to the main thread —
 most `Activity` APIs require it, so hop yourself if you are not already there. Listeners are invoked
 synchronously on whatever thread the framework delivers `onActivityResumed` on, which is the main
-thread.
+thread. The immediate replay to a new listener also runs on the main thread. It runs inline when
+you subscribe there. When you subscribe from a background thread it is posted to the main thread,
+so a listener never needs its own thread hop.
 
 ## Opening system screens
 

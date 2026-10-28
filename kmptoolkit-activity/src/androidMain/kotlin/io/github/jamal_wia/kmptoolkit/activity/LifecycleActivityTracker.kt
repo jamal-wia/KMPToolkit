@@ -3,8 +3,11 @@ package io.github.jamal_wia.kmptoolkit.activity
 import android.app.Activity
 import android.app.Application
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -31,11 +34,17 @@ internal class LifecycleActivityTracker(
      */
     private val current: AtomicReference<WeakReference<Activity>?> = AtomicReference(null)
 
-    /** Copy-on-write so a listener that subscribes or cancels during dispatch cannot break it. */
-    private val listeners: CopyOnWriteArrayList<(Activity) -> Unit> = CopyOnWriteArrayList()
+    /**
+     * Copy-on-write so a listener that subscribes or cancels during dispatch cannot break it. Each
+     * entry is its own [Registration] object rather than the bare lambda, so that cancelling removes
+     * exactly the subscription it was returned for, even when one lambda is added twice.
+     */
+    private val listeners: CopyOnWriteArrayList<Registration> = CopyOnWriteArrayList()
 
-    @Volatile
-    private var released: Boolean = false
+    /** Set before [release] clears [listeners] — see [addOnActivityResumedListener] for why. */
+    private val released: AtomicBoolean = AtomicBoolean(false)
+
+    private val mainHandler: Handler = Handler(Looper.getMainLooper())
 
     fun register() {
         application.registerActivityLifecycleCallbacks(this)
@@ -51,18 +60,39 @@ internal class LifecycleActivityTracker(
         return block(activity)
     }
 
+    /**
+     * The immediate replay runs where every other delivery runs: on the main thread. Called there,
+     * it is synchronous, as before. Called from anywhere else, it is posted — running it on the
+     * caller's thread would hand a window-touching listener the activity off the main thread, which
+     * is exactly what the interface promises never happens.
+     *
+     * A posted replay is skipped if the subscription is cancelled first, if the activity is no longer
+     * resumed by the time it runs, or if a real resume has already reached the listener in between —
+     * that delivery already said everything the replay would have.
+     */
     override fun addOnActivityResumedListener(listener: (Activity) -> Unit): ActivitySubscription {
-        if (released) return NoopSubscription
-        listeners.add(listener)
-        current.get()?.get()?.let { activity ->
-            if (!activity.isFinishing && !activity.isDestroyed) listener(activity)
+        if (released.get()) return NoopSubscription
+        beforeListenerAddedForTest()
+        val onMainThread: Boolean = Looper.myLooper() == Looper.getMainLooper()
+        val registration = Registration(listener, replayPending = !onMainThread)
+        listeners.add(registration)
+        // release() may have run between the check above and the add. It sets the flag before it
+        // clears the list, so either that clear already removed this registration, or this re-check
+        // sees the flag — without it, a released tracker would hold the listener for good.
+        if (released.get()) {
+            listeners.remove(registration)
+            return NoopSubscription
         }
-        return ListenerSubscription(listener)
+        if (onMainThread) {
+            replayCurrentTo(registration)
+        } else {
+            mainHandler.post { if (registration.replayPending) replayCurrentTo(registration) }
+        }
+        return registration
     }
 
     override fun release() {
-        if (released) return
-        released = true
+        if (!released.compareAndSet(false, true)) return
         application.unregisterActivityLifecycleCallbacks(this)
         current.set(null)
         listeners.clear()
@@ -77,7 +107,10 @@ internal class LifecycleActivityTracker(
     override fun onActivityResumed(activity: Activity) {
         if (!isTracked(activity)) return
         current.set(WeakReference(activity))
-        listeners.forEach { listener -> listener(activity) }
+        listeners.forEach { registration ->
+            registration.replayPending = false
+            registration.listener(activity)
+        }
     }
 
     /**
@@ -113,11 +146,38 @@ internal class LifecycleActivityTracker(
      */
     internal fun activityReferenceForTest(): WeakReference<Activity>? = current.get()
 
-    private inner class ListenerSubscription(
-        private val listener: (Activity) -> Unit,
+    /** Test seam: how many listeners the tracker holds strongly right now. */
+    internal fun listenerCountForTest(): Int = listeners.size
+
+    /**
+     * Test seam: runs between [addOnActivityResumedListener]'s released check and its insertion, so
+     * a test can make [release] land exactly in that window.
+     */
+    internal var beforeListenerAddedForTest: () -> Unit = {}
+
+    /** Main thread only, like every other delivery. */
+    private fun replayCurrentTo(registration: Registration) {
+        registration.replayPending = false
+        if (registration !in listeners) return
+        current.get()?.get()?.let { activity ->
+            if (!activity.isFinishing && !activity.isDestroyed) registration.listener(activity)
+        }
+    }
+
+    /**
+     * One subscription. Identity, not equality, is what [listeners] compares, which is why this is a
+     * plain class and not a data class.
+     *
+     * @param replayPending whether a posted immediate replay is still owed. Set at construction —
+     *   before the registration is visible to [onActivityResumed] — so a resume delivered in between
+     *   can clear it without a later write putting it back; read and cleared on the main thread.
+     */
+    private inner class Registration(
+        val listener: (Activity) -> Unit,
+        @Volatile var replayPending: Boolean,
     ) : ActivitySubscription {
         override fun cancel() {
-            listeners.remove(listener)
+            listeners.remove(this)
         }
     }
 

@@ -42,8 +42,12 @@ public interface ActivityAccess {
      * resumed activity — one whose resume it saw. An activity that resumed before the tracker was
      * created is not known to it; see [createActivityAccess].
      *
-     * The listener is invoked synchronously on whatever thread the framework delivers
-     * `onActivityResumed` on, which is the main thread.
+     * The listener is always invoked on the main thread. A resume is delivered synchronously from
+     * `onActivityResumed`, which the framework calls there. The immediate replay follows the same
+     * rule. Subscribe on the main thread and it runs synchronously, inside this
+     * call. Subscribe from any other thread and it is posted to the main thread instead. It is
+     * dropped if you cancel first, if the activity stops being resumed in the meantime, or if a
+     * real resume reaches the listener before it.
      *
      * **Do not let the listener store the activity.** It is held strongly by the tracker until you
      * cancel it, so anything it captures lives as long as the tracker does.
