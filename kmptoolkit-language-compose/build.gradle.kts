@@ -1,5 +1,5 @@
 // `compose.uiTest` (Compose Multiplatform's test artifact, used by the Robolectric-backed UI tests
-// in androidUnitTest) is still behind this opt-in as of Compose Multiplatform 1.11.
+// in androidHostTest) is still behind this opt-in as of Compose Multiplatform 1.11.
 @file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
 
 plugins {
@@ -20,11 +20,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.language.compose"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.language.compose"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -40,8 +40,12 @@ kotlin {
             implementation(compose.ui)
         }
 
-        androidUnitTest.dependencies {
+        androidHostTest.dependencies {
             implementation(compose.uiTest)
+            // ComponentActivity for the Robolectric Compose test host — see
+            // kmptoolkit-systembars/build.gradle.kts for why this is a host-test dependency.
+            implementation(project.dependencies.platform(libs.androidx.compose.bom))
+            implementation(libs.androidx.compose.ui.test.manifest)
         }
 
         jvmTest.dependencies {
@@ -51,12 +55,4 @@ kotlin {
             implementation(compose.desktop.currentOs)
         }
     }
-}
-
-dependencies {
-    // See kmptoolkit-systembars/build.gradle.kts for why this is debugImplementation rather than
-    // an androidUnitTest dependency: ActivityScenario needs a ComponentActivity declared in the
-    // merged *debug* manifest, which a test-only configuration is merged too late to provide.
-    debugImplementation(platform(libs.androidx.compose.bom))
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

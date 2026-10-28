@@ -7,7 +7,7 @@ import kotlinx.coroutines.test.runTest
  * [SqlDelightUploaderStoreChecks] against `NativeSqliteDriver` on the iOS simulator.
  *
  * The assertions live in the shared checks class; this file exists to name them for the Kotlin/
- * Native test runner. `androidUnitTest`'s sibling declares the same methods against the Android
+ * Native test runner. `androidHostTest`'s sibling declares the same methods against the Android
  * driver, so a store that passes there and fails here — the native driver pools connections and
  * confines transactions differently — is caught rather than assumed away.
  */

@@ -186,7 +186,7 @@ filesystem), which is what makes the whole contract — illegal transitions, per
 unwritable directory, a full disk, cancellation mid-preparation, double release, use after release —
 assertable without a device.
 
-`androidUnitTest` adds Robolectric coverage for the Android-specific pieces that are not a
+`androidHostTest` adds Robolectric coverage for the Android-specific pieces that are not a
 pass-through call: the real `Context`-backed filesystem, an assertion that `RECORD_AUDIO` is absent
 from the merged manifest and that a missing grant produces `PermissionDenied` rather than a crash,
 and the engine's event wiring — `ShadowMediaRecorder` exposes the error and info listeners the
@@ -201,8 +201,8 @@ here.
 
 ```bash
 ./gradlew :kmptoolkit-audio-recorder:build checkKotlinAbi
-./gradlew :kmptoolkit-audio-recorder:testDebugUnitTest :kmptoolkit-audio-recorder:iosSimulatorArm64Test
-./gradlew :kmptoolkit-audio-recorder-testing:testDebugUnitTest :kmptoolkit-audio-recorder-testing:iosSimulatorArm64Test
+./gradlew :kmptoolkit-audio-recorder:testAndroidHostTest :kmptoolkit-audio-recorder:iosSimulatorArm64Test
+./gradlew :kmptoolkit-audio-recorder-testing:testAndroidHostTest :kmptoolkit-audio-recorder-testing:iosSimulatorArm64Test
 ```
 
 `FakeAudioRecorder` restates the transition table rather than sharing the production state machine —

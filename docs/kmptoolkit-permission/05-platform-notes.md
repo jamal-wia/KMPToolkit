@@ -9,7 +9,7 @@ This module declares **no** Android permission in its own manifest. That is a re
 ([`../01-architecture.md`](../01-architecture.md#android-manifests)) and it matters most here: a
 permission library that merged `CAMERA` into every consumer's manifest would hand apps a Play Store
 declaration to justify and users a permission on the listing, for a capability they may never use.
-An `androidUnitTest` asserts the merged manifest against a real `PackageManager` to keep it honest.
+An `androidHostTest` asserts the merged manifest against a real `PackageManager` to keep it honest.
 
 So each permission you intend to request is yours to declare, on both platforms. A missing
 declaration reads `Unavailable`, a request shows nothing, and the controller logs, once, which

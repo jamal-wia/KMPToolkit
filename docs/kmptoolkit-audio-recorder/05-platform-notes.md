@@ -17,7 +17,7 @@ Consistent with [`../01-architecture.md`](../01-architecture.md#android-manifest
 library manifest is merged into every consumer's app silently. `RECORD_AUDIO` is a runtime,
 dangerous permission that shows up in the Play Store listing and in the app's permission screen —
 adding it to an app that merely depends on this library, perhaps without recording anything, is not
-a decision a library gets to make. The module has an `androidUnitTest` case that asserts the
+a decision a library gets to make. The module has an `androidHostTest` case that asserts the
 permission is absent from the merged manifest, so this cannot regress by accident.
 
 `RECORD_AUDIO` is also a **runtime** permission (dangerous, since API 23). Declaring it is not

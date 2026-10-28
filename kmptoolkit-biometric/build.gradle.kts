@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: the prompt configuration is an androidx.biometric
+    // Robolectric for androidHostTest: the prompt configuration is an androidx.biometric
     // PromptInfo whose validity is API-level dependent (a strong-biometric-plus-device-credential
     // prompt is rejected below API 30), and the "no permission is in the merged manifest"
     // guarantee is only assertable against a real PackageManager.
@@ -24,11 +24,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.biometric"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.biometric"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -51,7 +51,7 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
         }
-        androidUnitTest.dependencies {
+        androidHostTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
         }
     }

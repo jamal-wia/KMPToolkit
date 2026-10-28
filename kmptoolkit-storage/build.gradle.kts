@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: both Android stores need a real Context, a real
+    // Robolectric for androidHostTest: both Android stores need a real Context, a real
     // SharedPreferences file, and — for the encrypted one — a real AndroidKeyStore provider.
     id("kmptoolkit.androidtest")
 }
@@ -21,11 +21,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.storage"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.storage"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

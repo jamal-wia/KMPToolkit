@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: the Android controller needs a real Context to answer
+    // Robolectric for androidHostTest: the Android controller needs a real Context to answer
     // checkSelfPermission, and the "this module contributes no permission to a consumer's merged
     // manifest" guarantee is only assertable against a real PackageManager.
     id("kmptoolkit.androidtest")
@@ -22,11 +22,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.permission"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.permission"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -67,7 +67,7 @@ kotlin {
             // module's public signatures.
             implementation(libs.androidx.activity)
         }
-        androidUnitTest.dependencies {
+        androidHostTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
             implementation(project(":kmptoolkit-storage-testing"))
         }

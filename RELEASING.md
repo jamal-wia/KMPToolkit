@@ -22,7 +22,7 @@ on the repository (see `.github/workflows/publish.yml`).
 ## Release steps
 
 1. **Confirm `main` is green.** `./gradlew build checkKotlinAbi` and
-   `./gradlew testDebugUnitTest iosSimulatorArm64Test` must both pass on the commit you intend to
+   `./gradlew testAndroidHostTest iosSimulatorArm64Test` must both pass on the commit you intend to
    release (see `.claude/CLAUDE.md` § Verification).
 2. **Bump the version.** Edit `kmptoolkit.version` in `gradle.properties` — this is the single
    source of truth; every `kmptoolkit-*` module and the `kmptoolkit-bom` constraints read it.
@@ -58,7 +58,7 @@ on the repository (see `.github/workflows/publish.yml`).
 If the CI workflow is unavailable, publish locally from a machine with the one-time setup above:
 
 ```bash
-./gradlew checkKotlinAbi testDebugUnitTest
+./gradlew checkKotlinAbi testAndroidHostTest
 ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
 ```
 

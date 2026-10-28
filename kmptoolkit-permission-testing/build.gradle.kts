@@ -16,11 +16,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.permission.testing"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.permission.testing"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

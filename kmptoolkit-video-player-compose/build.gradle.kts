@@ -18,11 +18,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.video.player.compose"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.video.player.compose"
+    }
+
     iosArm64()
     iosSimulatorArm64()
     jvm()
@@ -45,10 +45,14 @@ kotlin {
         // The Compose UI tests are written once, in src/uiTest, and compiled into both JVM-hosted
         // test compilations: Robolectric on Android, Skia on desktop. Each side adds only a thin
         // subclass per suite (the Robolectric runner annotation exists on one side only).
-        androidUnitTest {
+        androidHostTest {
             kotlin.srcDir("src/uiTest/kotlin")
             dependencies {
                 implementation(compose.uiTest)
+                // ComponentActivity for the Robolectric Compose test host — see
+                // kmptoolkit-systembars/build.gradle.kts for why this is a host-test dependency.
+                implementation(project.dependencies.platform(libs.androidx.compose.bom))
+                implementation(libs.androidx.compose.ui.test.manifest)
             }
         }
         jvmTest {
@@ -61,10 +65,4 @@ kotlin {
             }
         }
     }
-}
-
-dependencies {
-    // See kmptoolkit-systembars/build.gradle.kts for why this is debugImplementation.
-    debugImplementation(platform(libs.androidx.compose.bom))
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

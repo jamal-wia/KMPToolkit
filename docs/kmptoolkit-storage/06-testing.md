@@ -107,8 +107,8 @@ means the *write* fails. Set it again to fail more than one call.
 
 ```bash
 ./gradlew :kmptoolkit-storage:build :kmptoolkit-storage-testing:build checkKotlinAbi
-./gradlew :kmptoolkit-storage:testDebugUnitTest :kmptoolkit-storage:iosSimulatorArm64Test
-./gradlew :kmptoolkit-storage-testing:testDebugUnitTest :kmptoolkit-storage-testing:iosSimulatorArm64Test
+./gradlew :kmptoolkit-storage:testAndroidHostTest :kmptoolkit-storage:iosSimulatorArm64Test
+./gradlew :kmptoolkit-storage-testing:testAndroidHostTest :kmptoolkit-storage-testing:iosSimulatorArm64Test
 ```
 
 The suite is arranged around one shared contract class:
@@ -119,7 +119,7 @@ The suite is arranged around one shared contract class:
   behavior as the plain one. `commonTest` also covers `DeviceIdProvider`, `StorageConfig`
   validation, the identifier derivation, and the `StorageResult` helpers, and runs on both the JVM
   and the iOS simulator.
-- **`androidUnitTest`** (Robolectric, via the `kmptoolkit.androidtest` convention plugin) runs the
+- **`androidHostTest`** (Robolectric, via the `kmptoolkit.androidtest` convention plugin) runs the
   contract against real `SharedPreferences` files, plus what is specific to each store: that the
   plain one stores plaintext, that the encrypted one does not, that ciphertext differs between two
   writes of the same value, that a corrupted or tampered entry is `Undecryptable` rather than

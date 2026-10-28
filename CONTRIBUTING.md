@@ -24,7 +24,7 @@ compatibility, branching, testing, documentation).
 4. Run the checks locally before opening a pull request:
    ```bash
    ./gradlew build checkKotlinAbi
-   ./gradlew testDebugUnitTest iosSimulatorArm64Test
+   ./gradlew testAndroidHostTest iosSimulatorArm64Test
    ```
 5. If your change adds or changes public API, run `./gradlew updateKotlinAbi` and commit the
    updated `api/` dump alongside the code change — don't hand-edit the dump file.

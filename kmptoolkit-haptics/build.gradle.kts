@@ -16,11 +16,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.haptics"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.haptics"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

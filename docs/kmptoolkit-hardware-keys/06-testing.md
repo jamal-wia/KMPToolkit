@@ -45,8 +45,8 @@ To assert that your `Application` installs it, construct the application under R
 a key through a Compose `Dialog` that calls the effect: inside the dialog content, read the window
 from `(LocalView.current.parent as DialogWindowProvider).window` and call
 `window.callback.dispatchKeyEvent(...)`. The module's own `DialogWindowHardwareKeyEffectUiTest` is a
-worked example of that setup, including the `debugImplementation` Compose test manifest Robolectric
-needs.
+worked example of that setup, including the Compose test manifest (`ui-test-manifest`, a host-test
+dependency in the module's build file) Robolectric needs.
 
 ## Test that every dialog calls the effect
 

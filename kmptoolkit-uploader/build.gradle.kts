@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: the WorkManager wake adapter is only meaningful against a
+    // Robolectric for androidHostTest: the WorkManager wake adapter is only meaningful against a
     // real Context, and the "no permission of our own is in the merged manifest" guarantee is only
     // assertable through a real PackageManager.
     id("kmptoolkit.androidtest")
@@ -21,11 +21,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.uploader"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.uploader"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -50,7 +50,7 @@ kotlin {
             // they cannot be removed.
             implementation(libs.androidx.work.runtime.ktx)
         }
-        androidUnitTest.dependencies {
+        androidHostTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
             // WorkManagerTestInitHelper and TestListenableWorkerBuilder, for the upload-handler worker.
             implementation(libs.androidx.work.testing)

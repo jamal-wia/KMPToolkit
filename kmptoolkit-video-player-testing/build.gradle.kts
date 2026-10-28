@@ -12,11 +12,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.video.player.testing"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.video.player.testing"
+    }
+
     iosArm64()
     iosSimulatorArm64()
     jvm()

@@ -62,7 +62,7 @@ In a test that is not about timing, pass a long delay so nothing hides mid-asser
 
 - **Pure functions** (`commonTest`, all targets): time and speed formatting, the next speed, the
   scale-mode geometry, the seek-bar hit mapping (including RTL).
-- **UI suites** (`src/uiTest`, compiled into both `androidUnitTest` with Robolectric and `jvmTest`
+- **UI suites** (`src/uiTest`, compiled into both `androidHostTest` with Robolectric and `jvmTest`
   with Skia). The player is the library's own — `createVideoPlayer(FakeVideoPlaybackEngine(…))`
   from `kmptoolkit-video-player-testing`, a test dependency only — with its position poll parked on
   a test dispatcher, so nothing races the test. Covered: every control reaching the engine; the
@@ -82,7 +82,7 @@ In a test that is not about timing, pass a long delay so nothing hides mid-asser
   reaches the screen through `VideoPlayerSurface` and `VideoPlayer(source = …)`, swapping players
   switches the frame source, and an anamorphic picture is drawn by its reported display size under
   `Fit` and `Crop`; a missing factory fails with a message naming the fix.
-- **Android** (`androidUnitTest`): with real ExoPlayers from `createVideoPlayer(context)`, the
+- **Android** (`androidHostTest`): with real ExoPlayers from `createVideoPlayer(context)`, the
   `SurfaceView` is present and sized, keeps the screen on only while playing, swapping players
   moves the surface from one ExoPlayer to the other, leaving the composition detaches, and
   `VideoPlayer(source = …)` leaving the composition releases its player without touching a

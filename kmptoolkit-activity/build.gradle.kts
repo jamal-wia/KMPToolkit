@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: the tracker is a thin wrapper over the framework's own
+    // Robolectric for androidHostTest: the tracker is a thin wrapper over the framework's own
     // activity lifecycle callbacks, so testing it without a real Application would test the wrapper
     // against a mock of the thing that actually decides its behaviour.
     id("kmptoolkit.androidtest")
@@ -23,6 +23,8 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.activity"
+kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.activity"
+    }
 }

@@ -15,11 +15,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.accelerometer.testing"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.accelerometer.testing"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 

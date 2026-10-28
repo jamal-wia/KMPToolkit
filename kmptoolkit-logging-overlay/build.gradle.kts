@@ -1,5 +1,5 @@
 // `compose.uiTest` (Compose Multiplatform's test artifact, used by the Robolectric-backed UI tests
-// in androidUnitTest) is still behind this opt-in as of Compose Multiplatform 1.11.
+// in androidHostTest) is still behind this opt-in as of Compose Multiplatform 1.11.
 @file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
 
 plugins {
@@ -21,11 +21,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.logging.overlay"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.logging.overlay"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -55,22 +55,12 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
 
-        androidUnitTest.dependencies {
+        androidHostTest.dependencies {
             implementation(compose.uiTest)
+            // ComponentActivity for the Robolectric Compose test host — see
+            // kmptoolkit-systembars/build.gradle.kts for why this is a host-test dependency.
+            implementation(project.dependencies.platform(libs.androidx.compose.bom))
+            implementation(libs.androidx.compose.ui.test.manifest)
         }
     }
-}
-
-dependencies {
-    // Robolectric launches the Compose test host through ActivityScenario, which needs an
-    // `androidx.activity.ComponentActivity` declared in the *merged debug manifest* — a test-only
-    // configuration is merged too late for that, which is why this is `debugImplementation` and not
-    // an androidUnitTest dependency. Without it every UI test dies with "Unable to resolve activity
-    // for Intent ... ComponentActivity". ui-test-manifest is a manifest-only AAR, the debug variant
-    // is never published (`publishLibraryVariants("release")`), so nothing reaches a consumer.
-    //
-    // Versioned through the Compose BOM because the catalog's ui-test-manifest entry carries no
-    // version of its own.
-    debugImplementation(platform(libs.androidx.compose.bom))
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

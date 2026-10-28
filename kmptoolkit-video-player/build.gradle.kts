@@ -15,11 +15,11 @@ kmptoolkitPublish {
     )
 }
 
-android {
-    namespace = "io.github.jamal_wia.kmptoolkit.video.player"
-}
-
 kotlin {
+    android {
+        namespace = "io.github.jamal_wia.kmptoolkit.video.player"
+    }
+
     iosArm64()
     iosSimulatorArm64()
 
@@ -47,7 +47,7 @@ kotlin {
             api(libs.androidx.media3.exoplayer)
             implementation(libs.androidx.media3.exoplayer.hls)
         }
-        androidUnitTest.dependencies {
+        androidHostTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.androidx.media3.test.utils)
             implementation(libs.androidx.media3.test.utils.robolectric)

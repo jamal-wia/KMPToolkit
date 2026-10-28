@@ -31,7 +31,7 @@ jobs:
         run: ./gradlew checkKotlinAbi --no-configuration-cache
 
       - name: Verify build (Android + iOS unit tests)
-        run: ./gradlew testDebugUnitTest iosSimulatorArm64Test --no-configuration-cache
+        run: ./gradlew testAndroidHostTest iosSimulatorArm64Test --no-configuration-cache
 
       - name: Publish to Maven Central
         run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache

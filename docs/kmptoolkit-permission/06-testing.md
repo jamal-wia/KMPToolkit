@@ -169,7 +169,7 @@ The module ships no text.
 
 ## Testing an Android controller directly
 
-You almost never need to. The module's own `androidUnitTest` suite shows the shape if you wrap one:
+You almost never need to. The module's own `androidHostTest` suite shows the shape if you wrap one:
 Robolectric, a `PermissionRequestHost` stub whose answer — and whose ability to answer at all — the
 test dictates, and the internal factory seams for the API level and the manifest. The failure modes
 worth copying are the ones a real device produces and a happy-path test never reaches: a host that
@@ -181,7 +181,7 @@ no rationale, no refusal remembered) — none of which may be recorded as a refu
 - **`commonTest`**, run on both Android and iOS: every row of the flow's transition table, the
   no-op behaviour of every method outside its state, the `Requesting` lock, the revoked-while-away
   paths, the status properties, and the stability and uniqueness of every common id.
-- **`androidUnitTest`** under Robolectric: the status logic against a real `PackageManager`, the
+- **`androidHostTest`** under Robolectric: the status logic against a real `PackageManager`, the
   stored flags' lifecycle and the 2.x keys, every common and Android-only entry on both sides of the
   API levels where it changes, the manifest filter and the policy restriction, a foreign type,
   serialization of concurrent requests, cancellation mid-request, the shared batch dialog, every

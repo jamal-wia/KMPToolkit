@@ -1,41 +1,34 @@
 package io.github.jamal_wia.kmptoolkit.buildlogic
 
-import com.android.build.api.dsl.LibraryExtension
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.kotlin.dsl.configure
 import org.gradle.kotlin.dsl.dependencies
 
 /**
- * `kmptoolkit.androidtest` — JVM-side Android unit tests via Robolectric (`androidUnitTest/`, no
+ * `kmptoolkit.androidtest` — JVM-side Android tests via Robolectric (`androidHostTest/`, no
  * emulator). Required by any module whose Android-specific logic needs a real `Context`/resources
  * to test — see `docs/<module>/06-testing.md` for which modules apply it.
  *
- * `isIncludeAndroidResources` is the part that is easy to forget and expensive to debug without:
- * omit it and Robolectric cannot inflate Android resources, so a test fails at *runtime* with a
- * resource-not-found rather than at compile time (same rationale as DrLeoKMP's
- * `RobolectricConventionPlugin.kt`, which this mirrors).
+ * Adds only the Robolectric dependencies. The host-test compilation itself, including
+ * `isIncludeAndroidResources`, is enabled by `kmptoolkit.library` for every module, because the
+ * KMP library plugin's `withHostTest` can be configured from one place only (see
+ * [LibraryConventionPlugin]). Robolectric depends on that flag: without it, it cannot read Android
+ * resources or the merged manifest, so a test fails at *runtime* with a resource-not-found rather
+ * than at compile time (same rationale as DrLeoKMP's `RobolectricConventionPlugin.kt`).
  *
- * KMP modules put Robolectric-backed tests in `androidUnitTest`, not the classic `src/test/` —
- * there is no such directory in a `kotlin.multiplatform` module.
+ * KMP modules put Robolectric-backed tests in `androidHostTest`, not the classic `src/test/` —
+ * there is no such directory in a `kotlin.multiplatform` module. They run under
+ * `testAndroidHostTest` (which `allTests` also includes).
  */
 class AndroidTestConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
             var configured = false
-            pluginManager.withPlugin("com.android.library") {
+            pluginManager.withPlugin("com.android.kotlin.multiplatform.library") {
                 configured = true
-                extensions.configure<LibraryExtension> {
-                    testOptions {
-                        unitTests {
-                            isIncludeAndroidResources = true
-                        }
-                    }
-                }
-
                 dependencies {
-                    add("androidUnitTestImplementation", libs.library("robolectric"))
-                    add("androidUnitTestImplementation", libs.library("androidx-test-ext-junit"))
+                    add("androidHostTestImplementation", libs.library("robolectric"))
+                    add("androidHostTestImplementation", libs.library("androidx-test-ext-junit"))
                 }
             }
 

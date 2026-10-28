@@ -92,7 +92,7 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
 - `NoOpNotifierTest` — reports `NotificationsDisabled`, stays callable, and rejects a blank id even
   though it posts nothing, so the bug cannot hide in the configuration that would never surface it.
 
-**`androidUnitTest`** (Robolectric, via the `kmptoolkit.androidtest` convention plugin):
+**`androidHostTest`** (Robolectric, via the `kmptoolkit.androidtest` convention plugin):
 
 - `AndroidNotifierTest` — the happy path, channel creation from the spec, custom sound resolution,
   replace-vs-stack, a blank id, and each way a post fails: permission absent, notifications disabled
@@ -137,7 +137,7 @@ and flaky.
 
 ```bash
 ./gradlew :kmptoolkit-notification:build :kmptoolkit-notification-testing:build checkKotlinAbi
-./gradlew :kmptoolkit-notification:testDebugUnitTest :kmptoolkit-notification:iosSimulatorArm64Test
+./gradlew :kmptoolkit-notification:testAndroidHostTest :kmptoolkit-notification:iosSimulatorArm64Test
 ```
 
-`allTests` does not run the Robolectric tests — run `testDebugUnitTest` explicitly.
+The Robolectric tests are `testAndroidHostTest`; `allTests` includes them too.

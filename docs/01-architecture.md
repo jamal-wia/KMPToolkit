@@ -301,11 +301,15 @@ would break a consumer's shared code* — and anything short of it stays Android
 Four things cost the first Compose module a build cycle each; they are recorded here so the next
 one does not rediscover them:
 
-- Robolectric Compose UI tests need `debugImplementation(platform(libs.androidx.compose.bom))` and
-  `debugImplementation(libs.androidx.compose.ui.test.manifest)` in a plain `dependencies { }`
-  block. It must be `debugImplementation` — an `androidUnitTest` dependency merges into the
-  manifest too late, and the failure is an opaque *"Unable to resolve activity for Intent …
-  ComponentActivity"*. The debug variant is never published, so nothing reaches consumers.
+- Robolectric Compose UI tests need `implementation(project.dependencies.platform(libs.androidx.compose.bom))`
+  and `implementation(libs.androidx.compose.ui.test.manifest)` in `androidHostTest.dependencies`.
+  Without the second, every UI test fails with an opaque *"Unable to resolve activity for Intent …
+  ComponentActivity"*: the test host is launched through `ActivityScenario`, and the manifest
+  the host tests run against must declare `ComponentActivity`. Under `com.android.library` (before
+  3.0.0) this had to be a `debugImplementation` dependency, because a unit-test dependency was
+  merged into the manifest too late; the Kotlin Multiplatform library plugin has no build types
+  and merges a host-test dependency's manifest in time. Either way it is a test-only dependency
+  and never reaches the published artifact.
 - Those tests also need `@Config(sdk = [34])` (or the module-wide pin below). Robolectric 4.17
   ships SDK 36 and 37 images, but Compose UI tests fail on them with `NoSuchMethodException:
   android.hardware.input.InputManager.getInstance()`, and every SDK 36+ run additionally needs
@@ -315,7 +319,7 @@ one does not rediscover them:
   at the top of the build file.
 - `androidx.compose.ui.test.runComposeUiTest` is deprecated in 1.11; import
   `androidx.compose.ui.test.v2.runComposeUiTest` instead — same signature.
-- A module-wide `src/androidUnitTest/resources/robolectric.properties` holding `sdk=35` is
+- A module-wide `src/androidHostTest/resources/robolectric.properties` holding `sdk=35` is
   preferable to a per-class `@Config(sdk = [...])`: it also covers tests you would otherwise forget
   to annotate, such as the manifest assertion below.
 

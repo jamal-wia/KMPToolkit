@@ -19,7 +19,7 @@ class FixedActivityAccess(private val activity: Activity?) : ActivityAccess {
 ## Testing a `SystemScreenLauncher` of your own
 
 `SystemScreenRequest` holds real `Intent`s and a real `Context`, so a launcher test runs under
-Robolectric (`androidUnitTest`), not on the plain JVM, where `Intent` is a stub. Build the request the
+Robolectric (`androidHostTest`), not on the plain JVM, where `Intent` is a stub. Build the request the
 way a module would — every candidate, no flags — and assert on what your launcher did. Here the kiosk
 launcher from [`03-guide.md`](03-guide.md#your-own-launcher) takes its window as a parameter,
 `kioskLauncher(window: AllowlistWindow)`, so a test can count what it opened:
