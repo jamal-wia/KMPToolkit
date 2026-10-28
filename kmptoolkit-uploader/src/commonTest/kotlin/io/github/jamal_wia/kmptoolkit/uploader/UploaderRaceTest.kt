@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.runTest
  *
  * - a settled item is never revived by a claim made from a stale read, and a give-up never lets one
  *   more attempt out (`UploaderEngine.settle`, `GiveUpPolicy`);
+ * - an enqueue racing the drain's "queue is empty" never loses its platform wake (`WakeScheduler`);
  * - a withdrawal cancels the upload of every row it removed, including one enqueued while it ran
  *   (`Uploader.cancelByTag`, `ConflictPolicy.REPLACE`).
  */
@@ -160,6 +161,24 @@ class UploaderRaceTest {
             seenAfterTheWrite,
             "the row must never be observable as PENDING once its budget is spent",
         )
+    }
+
+    // --- The wake --------------------------------------------------------------------------------
+
+    @Test
+    fun `an enqueue landing between the drain's empty read and its wake cancel keeps the wake armed`() = runTest {
+        val offline = TestConstraint("net", satisfied = false)
+        val handler = TestHandler(constraintKeys = setOf("net"))
+        val wake = TestWakeScheduler()
+        val engine: UploaderEngine = startEngine(backgroundScope, listOf(handler), wake, listOf(offline))
+
+        // The drain has just seen an empty queue; the enqueue persists, arms its wake, and only then
+        // does the drain act on its stale read.
+        store.afterNextGetAllActive = { engine.enqueue(handler, "payload") }
+        engine.drain()
+
+        assertEquals(1, store.items.size, "the item is owed")
+        assertTrue(wake.armed, "the platform wake must stay armed for an owed item")
     }
 
     // --- Withdrawal ------------------------------------------------------------------------------

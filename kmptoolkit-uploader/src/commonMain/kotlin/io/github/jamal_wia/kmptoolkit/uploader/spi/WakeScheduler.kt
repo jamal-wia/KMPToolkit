@@ -26,7 +26,10 @@ package io.github.jamal_wia.kmptoolkit.uploader.spi
  * - **[scheduleWake] means "there is work owed"**, not "run now". The engine does not ask for a
  *   deadline; it is the platform's decision when to grant execution.
  * - **[cancelWake] means "nothing is owed"** — it is called when a drain pass finds the queue
- *   empty. It must be safe to call when nothing is armed.
+ *   empty. It must be safe to call when nothing is armed. It may be followed at once by
+ *   [scheduleWake]: an enqueue can land between the pass's read and its cancel, and the engine
+ *   re-arms when a second read finds it. A [scheduleWake] after a [cancelWake] must arm afresh,
+ *   whatever the cancel left behind.
  * - **The woken process is expected to run its normal startup**, construct and `start()` the
  *   engine, and let the engine drain. A wake job should keep the process alive while that happens
  *   (`UploaderEngine.awaitDrained`) rather than draining the queue itself — draining from two places

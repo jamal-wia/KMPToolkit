@@ -312,7 +312,13 @@ internal class DefaultUploaderEngine(
             if (active.isEmpty()) {
                 cancelAlarm()
                 wakeScheduler.cancelWake() // nothing owed — disarm the platform wake
-                return
+                // An enqueue that landed between the read above and that cancel has already armed its
+                // wake, and the cancel has just disarmed it: a process killed before the next pass would
+                // then keep the item until the next launch. So the cancel only stands if the queue is
+                // still empty after it. Any enqueue landing later arms its wake after the cancel.
+                if (store.getAllActive().isEmpty()) return
+                wakeScheduler.scheduleWake()
+                continue
             }
             // Channel heads come from the FULL active list, so an in-flight head keeps blocking its
             // channel's tail: an in-flight delivery is still the oldest owed effect in it.
