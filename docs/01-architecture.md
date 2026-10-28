@@ -246,6 +246,12 @@ Twelve artifacts also publish `jvm`: `kmptoolkit-systembars` and `kmptoolkit-sto
 `kmptoolkit.library.jvm` convention. Every other module stays Android + iOS, and the exception is
 narrow and deliberate.
 
+All of them are compiled to one bytecode level, Java 21, so a desktop consumer needs JDK 21 or
+newer (the OpenJFX engine needs JDK 25 at runtime for OpenJFX's own sake). That level is fixed in
+build-logic (`DESKTOP_JVM_TARGET`) rather than inherited from the JDK the Gradle daemon happens to
+run on: it is part of what a consumer depends on, and changing it is a consumer-visible change that
+belongs in the changelog.
+
 Most modules expose a capability an app either wants on a platform or does not ask for there at all
 — a consumer with no use for haptics on desktop simply does not call into `kmptoolkit-haptics` from
 its desktop source set. These are different, because their types are the kind a consumer puts

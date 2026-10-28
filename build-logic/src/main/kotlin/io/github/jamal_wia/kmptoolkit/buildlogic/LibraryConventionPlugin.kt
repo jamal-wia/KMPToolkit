@@ -11,7 +11,8 @@ import org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation
 
 /**
  * `kmptoolkit.library` — everything shared by every published kmptoolkit-* module: the KMP +
- * Android library plugin pair, the Android-target JVM level, `explicitApi()` in strict mode, and
+ * Android library plugin pair, the Android-target JVM level, the desktop bytecode level of any
+ * `jvm()` target a module declares ([DESKTOP_JVM_TARGET]), `explicitApi()` in strict mode, and
  * ABI validation (`./gradlew checkKotlinAbi` / `updateKotlinAbi`), dumped to `<module>/api/`.
  *
  * Deliberately does **not** declare `iosArm64()` / `iosSimulatorArm64()`. Every module now declares
@@ -40,6 +41,10 @@ class LibraryConventionPlugin : Plugin<Project> {
                         jvmTarget.set(JvmTarget.JVM_11)
                     }
                 }
+
+                // Only modules under the desktop exception declare `jvm()`, in their own build
+                // file; this fixes the level whichever of them does.
+                pinDesktopBytecode(this)
 
                 // Declaring the block is what enables ABI validation — Kotlin 2.4 removed the
                 // `enabled` property.
