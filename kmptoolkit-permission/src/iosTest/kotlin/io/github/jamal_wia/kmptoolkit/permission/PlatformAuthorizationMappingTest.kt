@@ -4,6 +4,7 @@ import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlinx.coroutines.test.runTest
 import platform.AVFAudio.AVAudioSessionRecordPermissionDenied
@@ -26,6 +27,10 @@ import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusAuthorized
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusDenied
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusNotDetermined
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusRestricted
+import platform.AppTrackingTransparency.ATTrackingManagerAuthorizationStatusAuthorized
+import platform.AppTrackingTransparency.ATTrackingManagerAuthorizationStatusDenied
+import platform.AppTrackingTransparency.ATTrackingManagerAuthorizationStatusNotDetermined
+import platform.AppTrackingTransparency.ATTrackingManagerAuthorizationStatusRestricted
 import platform.Contacts.CNAuthorizationStatusAuthorized
 import platform.Contacts.CNAuthorizationStatusDenied
 import platform.Contacts.CNAuthorizationStatusLimited
@@ -41,12 +46,22 @@ import platform.EventKit.EKAuthorizationStatusFullAccess
 import platform.EventKit.EKAuthorizationStatusNotDetermined
 import platform.EventKit.EKAuthorizationStatusRestricted
 import platform.EventKit.EKAuthorizationStatusWriteOnly
+import platform.Intents.INFocusStatusAuthorizationStatusAuthorized
+import platform.Intents.INFocusStatusAuthorizationStatusDenied
+import platform.Intents.INFocusStatusAuthorizationStatusNotDetermined
+import platform.Intents.INFocusStatusAuthorizationStatusRestricted
 import platform.Photos.PHAuthorizationStatusAuthorized
 import platform.Photos.PHAuthorizationStatusDenied
 import platform.Photos.PHAuthorizationStatusLimited
 import platform.Photos.PHAuthorizationStatusNotDetermined
 import platform.Photos.PHAuthorizationStatusRestricted
+import platform.Speech.SFSpeechRecognizerAuthorizationStatus
 import platform.UIKit.UIViewController
+import platform.UserNotifications.UNAuthorizationOptionAlert
+import platform.UserNotifications.UNAuthorizationOptionBadge
+import platform.UserNotifications.UNAuthorizationOptionCriticalAlert
+import platform.UserNotifications.UNAuthorizationOptionProvisional
+import platform.UserNotifications.UNAuthorizationOptionSound
 import platform.UserNotifications.UNAuthorizationStatusAuthorized
 import platform.UserNotifications.UNAuthorizationStatusDenied
 import platform.UserNotifications.UNAuthorizationStatusEphemeral
@@ -193,11 +208,58 @@ class PlatformAuthorizationMappingTest {
         assertEquals(PermissionStatus.Unavailable, motionActivityStatus(CMAuthorizationStatusNotDetermined, available = false))
     }
 
+    @Test
+    fun `the iOS-only authorizations map restricted to restricted and a refusal to permanent`() {
+        assertEquals(PermissionStatus.Granted, trackingStatus(ATTrackingManagerAuthorizationStatusAuthorized))
+        assertEquals(PermissionStatus.PermanentlyDenied, trackingStatus(ATTrackingManagerAuthorizationStatusDenied))
+        assertEquals(PermissionStatus.Restricted, trackingStatus(ATTrackingManagerAuthorizationStatusRestricted))
+        assertEquals(PermissionStatus.NotDetermined, trackingStatus(ATTrackingManagerAuthorizationStatusNotDetermined))
+
+        assertEquals(PermissionStatus.Granted, speechRecognitionStatus(SFSpeechRecognizerAuthorizationStatus.SFSpeechRecognizerAuthorizationStatusAuthorized))
+        assertEquals(PermissionStatus.PermanentlyDenied, speechRecognitionStatus(SFSpeechRecognizerAuthorizationStatus.SFSpeechRecognizerAuthorizationStatusDenied))
+        assertEquals(PermissionStatus.Restricted, speechRecognitionStatus(SFSpeechRecognizerAuthorizationStatus.SFSpeechRecognizerAuthorizationStatusRestricted))
+        assertEquals(PermissionStatus.NotDetermined, speechRecognitionStatus(SFSpeechRecognizerAuthorizationStatus.SFSpeechRecognizerAuthorizationStatusNotDetermined))
+
+        assertEquals(PermissionStatus.Granted, focusStatusStatus(INFocusStatusAuthorizationStatusAuthorized))
+        assertEquals(PermissionStatus.PermanentlyDenied, focusStatusStatus(INFocusStatusAuthorizationStatusDenied))
+        assertEquals(PermissionStatus.Restricted, focusStatusStatus(INFocusStatusAuthorizationStatusRestricted))
+        assertEquals(PermissionStatus.NotDetermined, focusStatusStatus(INFocusStatusAuthorizationStatusNotDetermined))
+
+        assertEquals(PermissionStatus.Granted, remindersStatus(EKAuthorizationStatusFullAccess))
+        assertEquals(PermissionStatus.PermanentlyDenied, remindersStatus(EKAuthorizationStatusDenied))
+        assertEquals(PermissionStatus.Restricted, remindersStatus(EKAuthorizationStatusRestricted))
+        assertEquals(PermissionStatus.NotDetermined, remindersStatus(EKAuthorizationStatusNotDetermined))
+    }
+
+    @Test
+    fun `notification options become their UNAuthorizationOptions bits`() {
+        assertEquals(
+            UNAuthorizationOptionAlert or UNAuthorizationOptionBadge or UNAuthorizationOptionSound,
+            authorizationOptions(IosPermissionOptions().notificationOptions),
+        )
+        assertEquals(
+            UNAuthorizationOptionProvisional or UNAuthorizationOptionCriticalAlert,
+            authorizationOptions(setOf(IosNotificationOption.Provisional, IosNotificationOption.CriticalAlert)),
+        )
+    }
+
+    @Test
+    fun `notification options must not be empty`() {
+        assertFailsWith<IllegalArgumentException> { IosPermissionOptions(notificationOptions = emptySet()) }
+    }
+
+    @Test
+    fun `iOS-only ids are unique and distinct from the common ones`() {
+        val ids: List<String> = (CommonPermission.entries + IosPermission.entries).map { it.id }
+
+        assertEquals(ids.size, ids.toSet().size, "ids collided: $ids")
+    }
+
     // --- the controller ---------------------------------------------------------------------------
 
     /** A controller in a test bundle that pretends to have every purpose string. */
     private fun controller(hasKey: (String) -> Boolean = { true }): PermissionController =
-        IosPermissionController(NoopLogger, hasUsageDescription = hasKey)
+        IosPermissionController(NoopLogger, IosPermissionOptions(), hasUsageDescription = hasKey)
 
     @Test
     fun `checking every common entry reads the platform without prompting`() = runTest {
@@ -218,7 +280,27 @@ class PlatformAuthorizationMappingTest {
             CommonPermission.Calendar,
             CommonPermission.CalendarWriteOnly,
             CommonPermission.MotionActivity,
+            IosPermission.Tracking,
+            IosPermission.SpeechRecognition,
+            IosPermission.Reminders,
+            IosPermission.FocusStatus,
         ).forEach { permission -> controller.check(permission) }
+    }
+
+    @Test
+    fun `each iOS-only entry is unavailable without its purpose string and a request shows nothing`() = runTest {
+        val remindersKey: String = if (isIosAtLeast(17)) "NSRemindersFullAccessUsageDescription" else "NSRemindersUsageDescription"
+        mapOf(
+            IosPermission.Tracking to "NSUserTrackingUsageDescription",
+            IosPermission.SpeechRecognition to "NSSpeechRecognitionUsageDescription",
+            IosPermission.Reminders to remindersKey,
+            IosPermission.FocusStatus to "NSFocusStatusUsageDescription",
+        ).forEach { (permission, key) ->
+            val controller: PermissionController = controller(hasKey = { it != key })
+
+            assertEquals(PermissionStatus.Unavailable, controller.check(permission), "$permission without $key")
+            assertEquals(PermissionStatus.Unavailable, controller.request(permission), "$permission without $key")
+        }
     }
 
     @Test

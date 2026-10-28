@@ -29,9 +29,6 @@ import platform.Photos.PHAccessLevelReadWrite
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationOpenNotificationSettingsURLString
 import platform.UIKit.UIApplicationOpenSettingsURLString
-import platform.UserNotifications.UNAuthorizationOptionAlert
-import platform.UserNotifications.UNAuthorizationOptionBadge
-import platform.UserNotifications.UNAuthorizationOptionSound
 import platform.UserNotifications.UNNotificationSettings
 import platform.UserNotifications.UNUserNotificationCenter
 import platform.darwin.dispatch_async
@@ -40,8 +37,8 @@ import platform.darwin.dispatch_get_main_queue
 /**
  * Creates the iOS [PermissionController].
  *
- * It takes nothing but a logger, which is the whole reason the factory is per-platform rather than
- * an `expect fun`: iOS needs no context, no activity, and no storage. Every authorization it reads is
+ * It takes nothing but [options] and a logger, which is the whole reason the factory is per-platform
+ * rather than an `expect fun`: iOS needs no context, no activity, and no storage. Every authorization it reads is
  * a value the OS itself keeps and reports, with "not determined" among the values, so there is nothing
  * for this library to remember — compare `AndroidPermissionConfig`.
  *
@@ -56,10 +53,16 @@ import platform.darwin.dispatch_get_main_queue
  *   requests one without it. This controller checks first: a permission whose key is missing reads
  *   [PermissionStatus.Unavailable], a request shows nothing, and the missing key is logged.
  *
+ * It answers for every [CommonPermission] and every [IosPermission]; any other type is
+ * [PermissionStatus.Unavailable].
+ *
+ * @param options how notifications are asked for.
  * @param logger where a rejected authorization request or a missing purpose string is reported.
  */
-public fun createPermissionController(logger: Logger = NoopLogger): PermissionController =
-    IosPermissionController(logger, hasUsageDescription = ::hasInfoPlistKey)
+public fun createPermissionController(
+    options: IosPermissionOptions = IosPermissionOptions(),
+    logger: Logger = NoopLogger,
+): PermissionController = IosPermissionController(logger, options, hasUsageDescription = ::hasInfoPlistKey)
 
 /**
  * iOS's [PermissionController].
@@ -69,6 +72,7 @@ public fun createPermissionController(logger: Logger = NoopLogger): PermissionCo
  */
 internal class IosPermissionController(
     private val logger: Logger,
+    private val options: IosPermissionOptions,
     private val hasUsageDescription: (String) -> Boolean,
 ) : PermissionController {
 
@@ -184,6 +188,11 @@ internal class IosPermissionController(
         CommonPermission.CalendarWriteOnly ->
             listOf(if (isIosAtLeast(17)) "NSCalendarsWriteOnlyAccessUsageDescription" else "NSCalendarsUsageDescription")
         CommonPermission.MotionActivity -> listOf("NSMotionUsageDescription")
+        IosPermission.Tracking -> listOf("NSUserTrackingUsageDescription")
+        IosPermission.SpeechRecognition -> listOf("NSSpeechRecognitionUsageDescription")
+        IosPermission.Reminders ->
+            listOf(if (isIosAtLeast(17)) "NSRemindersFullAccessUsageDescription" else "NSRemindersUsageDescription")
+        IosPermission.FocusStatus -> listOf("NSFocusStatusUsageDescription")
         else -> null
     }
 
@@ -208,6 +217,10 @@ internal class IosPermissionController(
         CommonPermission.CalendarWriteOnly -> calendarStatus(CalendarAuthorization.current(), writeOnly = true)
         CommonPermission.MotionActivity ->
             motionActivityStatus(MotionActivityAuthorization.current(), MotionActivityAuthorization.isAvailable())
+        IosPermission.Tracking -> trackingStatus(TrackingAuthorization.current())
+        IosPermission.SpeechRecognition -> speechRecognitionStatus(SpeechRecognitionAuthorization.current())
+        IosPermission.Reminders -> remindersStatus(CalendarAuthorization.currentReminders())
+        IosPermission.FocusStatus -> focusStatusStatus(FocusStatusAuthorization.current())
         else -> PermissionStatus.Unavailable
     }
 
@@ -225,7 +238,7 @@ internal class IosPermissionController(
             return current
         }
         return when (permission) {
-            CommonPermission.Notifications -> requestNotifications()
+            CommonPermission.Notifications -> requestNotifications(upgrading = current is PermissionStatus.Limited)
             CommonPermission.Microphone -> requestMicrophone()
             CommonPermission.Camera -> requestCamera()
             CommonPermission.Location -> {
@@ -255,6 +268,13 @@ internal class IosPermissionController(
                 MotionActivityAuthorization.request()
                 currentStatus(permission)
             }
+            IosPermission.Tracking -> trackingStatus(TrackingAuthorization.request())
+            IosPermission.SpeechRecognition -> speechRecognitionStatus(SpeechRecognitionAuthorization.request())
+            IosPermission.Reminders -> {
+                CalendarAuthorization.requestReminders { error -> logger.w { "Reminders authorization failed: $error" } }
+                currentStatus(permission)
+            }
+            IosPermission.FocusStatus -> focusStatusStatus(FocusStatusAuthorization.request())
             else -> current
         }
     }
@@ -291,11 +311,18 @@ internal class IosPermissionController(
                 }
         }
 
-    private suspend fun requestNotifications(): PermissionStatus {
+    /**
+     * Asks with [options]' notification options — without provisional when [upgrading] from a
+     * provisional grant, since asking for provisional again would show nothing.
+     */
+    private suspend fun requestNotifications(upgrading: Boolean): PermissionStatus {
+        val asked: Set<IosNotificationOption> =
+            if (upgrading) options.notificationOptions - IosNotificationOption.Provisional else options.notificationOptions
+        // Provisional alone, already provisional: nothing more to ask for.
+        if (asked.isEmpty()) return checkNotifications()
         suspendCancellableCoroutine { continuation ->
-            val options: ULong = UNAuthorizationOptionAlert or UNAuthorizationOptionBadge or UNAuthorizationOptionSound
             UNUserNotificationCenter.currentNotificationCenter()
-                .requestAuthorizationWithOptions(options) { _, error ->
+                .requestAuthorizationWithOptions(authorizationOptions(asked)) { _, error ->
                     if (error != null) logger.w { "Notification authorization failed: $error" }
                     if (continuation.isActive) continuation.resume(Unit)
                 }

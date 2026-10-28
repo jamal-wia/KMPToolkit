@@ -34,6 +34,11 @@ import platform.AVFoundation.AVAuthorizationStatus
 import platform.AVFoundation.AVAuthorizationStatusAuthorized
 import platform.AVFoundation.AVAuthorizationStatusDenied
 import platform.AVFoundation.AVAuthorizationStatusRestricted
+import platform.AppTrackingTransparency.ATTrackingManager
+import platform.AppTrackingTransparency.ATTrackingManagerAuthorizationStatus
+import platform.AppTrackingTransparency.ATTrackingManagerAuthorizationStatusAuthorized
+import platform.AppTrackingTransparency.ATTrackingManagerAuthorizationStatusDenied
+import platform.AppTrackingTransparency.ATTrackingManagerAuthorizationStatusRestricted
 import platform.Contacts.CNAuthorizationStatus
 import platform.Contacts.CNAuthorizationStatusAuthorized
 import platform.Contacts.CNAuthorizationStatusDenied
@@ -54,6 +59,13 @@ import platform.EventKit.EKAuthorizationStatusWriteOnly
 import platform.EventKit.EKEntityType
 import platform.EventKit.EKEventStore
 import platform.Foundation.NSBundle
+import platform.Intents.INFocusStatusAuthorizationStatus
+import platform.Intents.INFocusStatusAuthorizationStatusAuthorized
+import platform.Intents.INFocusStatusAuthorizationStatusDenied
+import platform.Intents.INFocusStatusAuthorizationStatusRestricted
+import platform.Intents.INFocusStatusCenter
+import platform.Speech.SFSpeechRecognizer
+import platform.Speech.SFSpeechRecognizerAuthorizationStatus
 import platform.Foundation.NSDate
 import platform.Foundation.NSError
 import platform.Photos.PHAccessLevel
@@ -209,6 +221,35 @@ internal fun motionActivityStatus(status: CMAuthorizationStatus, available: Bool
     status == CMAuthorizationStatusAuthorized -> PermissionStatus.Granted
     status == CMAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
     status == CMAuthorizationStatusRestricted -> PermissionStatus.Restricted
+    else -> PermissionStatus.NotDetermined
+}
+
+/** [IosPermission.Reminders]: EventKit's reminders authorization has no write-only level. */
+internal fun remindersStatus(status: EKAuthorizationStatus): PermissionStatus = when (status) {
+    EKAuthorizationStatusFullAccess -> PermissionStatus.Granted
+    EKAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    EKAuthorizationStatusRestricted -> PermissionStatus.Restricted
+    else -> PermissionStatus.NotDetermined
+}
+
+internal fun trackingStatus(status: ATTrackingManagerAuthorizationStatus): PermissionStatus = when (status) {
+    ATTrackingManagerAuthorizationStatusAuthorized -> PermissionStatus.Granted
+    ATTrackingManagerAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    ATTrackingManagerAuthorizationStatusRestricted -> PermissionStatus.Restricted
+    else -> PermissionStatus.NotDetermined
+}
+
+internal fun speechRecognitionStatus(status: SFSpeechRecognizerAuthorizationStatus): PermissionStatus = when (status) {
+    SFSpeechRecognizerAuthorizationStatus.SFSpeechRecognizerAuthorizationStatusAuthorized -> PermissionStatus.Granted
+    SFSpeechRecognizerAuthorizationStatus.SFSpeechRecognizerAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    SFSpeechRecognizerAuthorizationStatus.SFSpeechRecognizerAuthorizationStatusRestricted -> PermissionStatus.Restricted
+    else -> PermissionStatus.NotDetermined
+}
+
+internal fun focusStatusStatus(status: INFocusStatusAuthorizationStatus): PermissionStatus = when (status) {
+    INFocusStatusAuthorizationStatusAuthorized -> PermissionStatus.Granted
+    INFocusStatusAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    INFocusStatusAuthorizationStatusRestricted -> PermissionStatus.Restricted
     else -> PermissionStatus.NotDetermined
 }
 
@@ -441,6 +482,25 @@ internal object CalendarAuthorization {
 
     fun current(): EKAuthorizationStatus = EKEventStore.authorizationStatusForEntityType(EKEntityType.EKEntityTypeEvent)
 
+    fun currentReminders(): EKAuthorizationStatus =
+        EKEventStore.authorizationStatusForEntityType(EKEntityType.EKEntityTypeReminder)
+
+    /** Asks for full access to reminders (iOS 17+; the one reminders request below it). */
+    suspend fun requestReminders(onError: (NSError) -> Unit) {
+        val store = EKEventStore()
+        suspendCancellableCoroutine { continuation ->
+            val completion: (Boolean, NSError?) -> Unit = { _, error ->
+                if (error != null) onError(error)
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+            if (isIosAtLeast(17)) {
+                store.requestFullAccessToRemindersWithCompletion(completion)
+            } else {
+                store.requestAccessToEntityType(EKEntityType.EKEntityTypeReminder, completion)
+            }
+        }
+    }
+
     /**
      * Asks for full or [writeOnly] access to events and suspends until the user answers. The split
      * requests exist from iOS 17; below it the one events request grants full access.
@@ -480,6 +540,41 @@ internal object MotionActivityAuthorization {
                 // A refusal arrives as an error; the caller re-reads the status either way.
                 if (continuation.isActive) continuation.resume(Unit)
             }
+        }
+    }
+}
+
+// --- iOS-only authorizations --------------------------------------------------------------------
+
+internal object TrackingAuthorization {
+
+    fun current(): ATTrackingManagerAuthorizationStatus = ATTrackingManager.trackingAuthorizationStatus()
+
+    suspend fun request(): ATTrackingManagerAuthorizationStatus = suspendCancellableCoroutine { continuation ->
+        ATTrackingManager.requestTrackingAuthorizationWithCompletionHandler { status: ATTrackingManagerAuthorizationStatus ->
+            if (continuation.isActive) continuation.resume(status)
+        }
+    }
+}
+
+internal object SpeechRecognitionAuthorization {
+
+    fun current(): SFSpeechRecognizerAuthorizationStatus = SFSpeechRecognizer.authorizationStatus()
+
+    suspend fun request(): SFSpeechRecognizerAuthorizationStatus = suspendCancellableCoroutine { continuation ->
+        SFSpeechRecognizer.requestAuthorization { status: SFSpeechRecognizerAuthorizationStatus ->
+            if (continuation.isActive) continuation.resume(status)
+        }
+    }
+}
+
+internal object FocusStatusAuthorization {
+
+    fun current(): INFocusStatusAuthorizationStatus = INFocusStatusCenter.defaultCenter.authorizationStatus
+
+    suspend fun request(): INFocusStatusAuthorizationStatus = suspendCancellableCoroutine { continuation ->
+        INFocusStatusCenter.defaultCenter.requestAuthorizationWithCompletionHandler { status: INFocusStatusAuthorizationStatus ->
+            if (continuation.isActive) continuation.resume(status)
         }
     }
 }
