@@ -17,7 +17,7 @@ package io.github.jamal_wia.kmptoolkit.notification
  *
  * // Wherever the notifier is built — post("playback", …) and cancel("playback") now address the
  * // service's notification:
- * val notifier = createNotifier(context, permissionHandler, config, foregroundIds = setOf(PLAYBACK))
+ * val notifier = createNotifier(context, permissions, config, foregroundIds = setOf(PLAYBACK))
  * ```
  *
  * Android only: iOS has no foreground services, and its notifications are identified by your

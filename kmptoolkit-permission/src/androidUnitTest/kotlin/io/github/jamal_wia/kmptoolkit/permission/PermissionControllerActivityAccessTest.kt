@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
 import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
 import io.github.jamal_wia.kmptoolkit.storage.testing.InMemoryKeyValueStorage
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.delay
@@ -24,7 +25,7 @@ import org.robolectric.Shadows.shadowOf
  * rationale — the difference between "refused once" and "dismissed" — can only be read once it is.
  */
 @RunWith(AndroidJUnit4::class)
-class PermissionHandlerActivityAccessTest {
+class PermissionControllerActivityAccessTest {
 
     private val application: Application = ApplicationProvider.getApplicationContext()
     private val activity: RationaleActivity = Robolectric.buildActivity(RationaleActivity::class.java).setup().get()
@@ -64,29 +65,34 @@ class PermissionHandlerActivityAccessTest {
     }
 
     /** Refuses the way the system dialog does: the host activity is paused, the rationale turns on. */
-    private fun refusingHost(access: ScriptedActivityAccess): PermissionRequestHost = object : PermissionRequestHost {
-        override fun launch(androidPermission: String, onResult: (Boolean) -> Unit): Boolean {
+    private fun refusingHost(access: ScriptedActivityAccess): PermissionRequestHost = object : RecordingHost() {
+        override fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean {
             access.resumed = false
             activity.rationale = true
-            onResult(false)
+            onResult(androidPermissions.associateWith { false })
             return true
         }
+    }
+
+    @BeforeTest
+    fun declareCamera() {
+        application.declareInManifest(Manifest.permission.CAMERA)
     }
 
     @Test
     fun `a refusal answered before the resume is read once the activity is back`() = runTest {
         shadowOf(application).denyPermissions(Manifest.permission.CAMERA)
         val access = ScriptedActivityAccess(activity)
-        val handler: PermissionHandler =
-            createPermissionHandler(application, refusingHost(access), InMemoryKeyValueStorage(), access)
+        val handler: PermissionController =
+            createPermissionController(application, InMemoryKeyValueStorage(), refusingHost(access), access)
         launch {
             delay(100)
             access.resume()
         }
 
-        val status: PermissionStatus = handler.request(Permission.CAMERA)
+        val status: PermissionStatus = handler.request(CommonPermission.Camera)
 
-        assertEquals(PermissionStatus.Denied(shouldShowRationale = true), status)
+        assertEquals(PermissionStatus.Denied(explainFirst = true), status)
         assertEquals(0, access.listenerCount, "the resume listener must not outlive the request")
     }
 
@@ -94,12 +100,12 @@ class PermissionHandlerActivityAccessTest {
     fun `an activity that never comes back does not turn the refusal permanent`() = runTest {
         shadowOf(application).denyPermissions(Manifest.permission.CAMERA)
         val access = ScriptedActivityAccess(activity)
-        val handler: PermissionHandler =
-            createPermissionHandler(application, refusingHost(access), InMemoryKeyValueStorage(), access)
+        val handler: PermissionController =
+            createPermissionController(application, InMemoryKeyValueStorage(), refusingHost(access), access)
 
-        val status: PermissionStatus = handler.request(Permission.CAMERA)
+        val status: PermissionStatus = handler.request(CommonPermission.Camera)
 
-        assertEquals(PermissionStatus.Denied(shouldShowRationale = false), status)
+        assertEquals(PermissionStatus.Denied(explainFirst = false), status)
         assertEquals(0, access.listenerCount)
     }
 
@@ -107,10 +113,10 @@ class PermissionHandlerActivityAccessTest {
     fun `a request cancelled while waiting for the activity leaves no listener behind`() = runTest {
         shadowOf(application).denyPermissions(Manifest.permission.CAMERA)
         val access = ScriptedActivityAccess(activity)
-        val handler: PermissionHandler =
-            createPermissionHandler(application, refusingHost(access), InMemoryKeyValueStorage(), access)
+        val handler: PermissionController =
+            createPermissionController(application, InMemoryKeyValueStorage(), refusingHost(access), access)
 
-        val requesting = launch { handler.request(Permission.CAMERA) }
+        val requesting = launch { handler.request(CommonPermission.Camera) }
         runCurrent()
         assertEquals(1, access.listenerCount, "the request should be waiting for the activity")
 
@@ -127,9 +133,9 @@ class PermissionHandlerActivityAccessTest {
         val access = ScriptedActivityAccess(activity)
 
         val status: PermissionStatus =
-            createPermissionHandler(application, refusingHost(access), InMemoryKeyValueStorage(), access)
-                .check(Permission.CAMERA)
+            createPermissionController(application, InMemoryKeyValueStorage(), refusingHost(access), access)
+                .check(CommonPermission.Camera)
 
-        assertEquals(PermissionStatus.Denied(shouldShowRationale = true), status)
+        assertEquals(PermissionStatus.Denied(explainFirst = true), status)
     }
 }

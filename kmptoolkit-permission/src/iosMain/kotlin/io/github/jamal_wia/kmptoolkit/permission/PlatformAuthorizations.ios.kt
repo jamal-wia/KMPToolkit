@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 package io.github.jamal_wia.kmptoolkit.permission
 
 import kotlin.coroutines.resume
@@ -13,6 +15,7 @@ import platform.CoreBluetooth.CBManagerAuthorization
 import platform.CoreBluetooth.CBManagerAuthorizationAllowedAlways
 import platform.CoreBluetooth.CBManagerAuthorizationDenied
 import platform.CoreBluetooth.CBManagerAuthorizationNotDetermined
+import platform.CoreLocation.CLAccuracyAuthorization
 import platform.CoreBluetooth.CBManagerAuthorizationRestricted
 import platform.CoreLocation.CLAuthorizationStatus
 import platform.CoreLocation.CLLocationManager
@@ -22,17 +25,32 @@ import platform.CoreLocation.kCLAuthorizationStatusAuthorizedWhenInUse
 import platform.CoreLocation.kCLAuthorizationStatusDenied
 import platform.CoreLocation.kCLAuthorizationStatusNotDetermined
 import platform.CoreLocation.kCLAuthorizationStatusRestricted
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.useContents
+import platform.AVFAudio.AVAudioSessionRecordPermission
+import platform.AVFAudio.AVAudioSessionRecordPermissionDenied
+import platform.AVFAudio.AVAudioSessionRecordPermissionGranted
+import platform.AVFoundation.AVAuthorizationStatus
+import platform.AVFoundation.AVAuthorizationStatusAuthorized
+import platform.AVFoundation.AVAuthorizationStatusDenied
+import platform.AVFoundation.AVAuthorizationStatusRestricted
+import platform.Foundation.NSBundle
 import platform.Foundation.NSNotification
+import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import platform.MediaPlayer.MPMediaLibrary
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatus
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusAuthorized
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusDenied
-import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusNotDetermined
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusRestricted
 import platform.UIKit.UIApplicationDidBecomeActiveNotification
 import platform.UIKit.UIApplicationWillResignActiveNotification
+import platform.UserNotifications.UNAuthorizationStatus
+import platform.UserNotifications.UNAuthorizationStatusAuthorized
+import platform.UserNotifications.UNAuthorizationStatusDenied
+import platform.UserNotifications.UNAuthorizationStatusEphemeral
+import platform.UserNotifications.UNAuthorizationStatusProvisional
 import platform.darwin.NSObject
 import platform.darwin.dispatch_after
 import platform.darwin.dispatch_get_main_queue
@@ -45,48 +63,94 @@ import platform.darwin.DISPATCH_TIME_NOW
 // without an authorization prompt.
 
 /**
- * [Permission.LOCATION]: "when in use" or "always" is granted. Restricted — a parental control or an
- * MDM profile — is folded into permanently denied, as for the camera: settings is the only place it
- * can change.
+ * [CommonPermission.Location]: "when in use" or "always" is granted — [PermissionStatus.Limited] when the
+ * user chose reduced accuracy ([reducedAccuracy], iOS 14+). Restricted — a parental control or an MDM
+ * profile — is [PermissionStatus.Restricted].
  */
-internal fun foregroundLocationStatus(status: CLAuthorizationStatus): PermissionStatus = when (status) {
-    kCLAuthorizationStatusAuthorizedAlways, kCLAuthorizationStatusAuthorizedWhenInUse -> PermissionStatus.Granted
-    kCLAuthorizationStatusDenied, kCLAuthorizationStatusRestricted -> PermissionStatus.PermanentlyDenied
+internal fun foregroundLocationStatus(
+    status: CLAuthorizationStatus,
+    reducedAccuracy: Boolean = false,
+): PermissionStatus = when (status) {
+    kCLAuthorizationStatusAuthorizedAlways, kCLAuthorizationStatusAuthorizedWhenInUse ->
+        if (reducedAccuracy) PermissionStatus.Limited else PermissionStatus.Granted
+    kCLAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    kCLAuthorizationStatusRestricted -> PermissionStatus.Restricted
     else -> PermissionStatus.NotDetermined
 }
 
 /**
- * [Permission.LOCATION_BACKGROUND]: only "always" is granted. "When in use" is a refusal the app may
- * still ask about once more — iOS can offer the upgrade to "always" — which is exactly what
- * `Denied(shouldShowRationale = true)` says; once that upgrade has been asked for ([upgradeAsked]) and
- * the status stayed "when in use", iOS will not offer it again and only settings can change it.
+ * [CommonPermission.LocationBackground]: only "always" is granted ([PermissionStatus.Limited] with reduced
+ * accuracy). "When in use" is a refusal the app may still ask about once more — iOS can offer the
+ * upgrade to "always" — which is exactly what `Denied(explainFirst = true)` says; once that upgrade has
+ * been asked for ([upgradeAsked]) and the status stayed "when in use", iOS will not offer it again and
+ * only settings can change it.
  */
 internal fun backgroundLocationStatus(
     status: CLAuthorizationStatus,
     upgradeAsked: Boolean = false,
+    reducedAccuracy: Boolean = false,
 ): PermissionStatus = when (status) {
-    kCLAuthorizationStatusAuthorizedAlways -> PermissionStatus.Granted
+    kCLAuthorizationStatusAuthorizedAlways ->
+        if (reducedAccuracy) PermissionStatus.Limited else PermissionStatus.Granted
     kCLAuthorizationStatusAuthorizedWhenInUse ->
-        if (upgradeAsked) PermissionStatus.PermanentlyDenied else PermissionStatus.Denied(shouldShowRationale = true)
-    kCLAuthorizationStatusDenied, kCLAuthorizationStatusRestricted -> PermissionStatus.PermanentlyDenied
+        if (upgradeAsked) PermissionStatus.PermanentlyDenied else PermissionStatus.Denied(explainFirst = true)
+    kCLAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    kCLAuthorizationStatusRestricted -> PermissionStatus.Restricted
     else -> PermissionStatus.NotDetermined
 }
 
 internal fun mediaLibraryStatus(status: MPMediaLibraryAuthorizationStatus): PermissionStatus = when (status) {
     MPMediaLibraryAuthorizationStatusAuthorized -> PermissionStatus.Granted
-    MPMediaLibraryAuthorizationStatusDenied, MPMediaLibraryAuthorizationStatusRestricted ->
-        PermissionStatus.PermanentlyDenied
-
-    MPMediaLibraryAuthorizationStatusNotDetermined -> PermissionStatus.NotDetermined
+    MPMediaLibraryAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    MPMediaLibraryAuthorizationStatusRestricted -> PermissionStatus.Restricted
     else -> PermissionStatus.NotDetermined
 }
 
 internal fun bluetoothStatus(authorization: CBManagerAuthorization): PermissionStatus = when (authorization) {
     CBManagerAuthorizationAllowedAlways -> PermissionStatus.Granted
-    CBManagerAuthorizationDenied, CBManagerAuthorizationRestricted -> PermissionStatus.PermanentlyDenied
-    CBManagerAuthorizationNotDetermined -> PermissionStatus.NotDetermined
+    CBManagerAuthorizationDenied -> PermissionStatus.PermanentlyDenied
+    CBManagerAuthorizationRestricted -> PermissionStatus.Restricted
     else -> PermissionStatus.NotDetermined
 }
+
+/**
+ * [CommonPermission.Notifications]: provisional authorization — delivered quietly, without alerts — is
+ * [PermissionStatus.Limited], and a request from there shows the full prompt. Ephemeral (an App Clip's)
+ * is granted for the clip's lifetime.
+ */
+internal fun notificationStatus(status: UNAuthorizationStatus?): PermissionStatus = when (status) {
+    UNAuthorizationStatusAuthorized, UNAuthorizationStatusEphemeral -> PermissionStatus.Granted
+    UNAuthorizationStatusProvisional -> PermissionStatus.Limited
+    UNAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    else -> PermissionStatus.NotDetermined
+}
+
+/** Microphone: iOS has no "restricted" record permission. */
+internal fun recordPermissionStatus(permission: AVAudioSessionRecordPermission): PermissionStatus = when (permission) {
+    AVAudioSessionRecordPermissionGranted -> PermissionStatus.Granted
+    AVAudioSessionRecordPermissionDenied -> PermissionStatus.PermanentlyDenied
+    else -> PermissionStatus.NotDetermined
+}
+
+/** Camera — and every `AVAuthorizationStatus`. */
+internal fun captureStatus(status: AVAuthorizationStatus): PermissionStatus = when (status) {
+    AVAuthorizationStatusAuthorized -> PermissionStatus.Granted
+    AVAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    AVAuthorizationStatusRestricted -> PermissionStatus.Restricted
+    else -> PermissionStatus.NotDetermined
+}
+
+/**
+ * Whether this OS is at least [major].[minor]. The deployment target is iOS 15, so every API introduced
+ * later is reached only behind this: sending its selector to an older system is a crash.
+ */
+internal fun isIosAtLeast(major: Long, minor: Long = 0): Boolean =
+    NSProcessInfo.processInfo.operatingSystemVersion.useContents {
+        majorVersion > major || (majorVersion == major && minorVersion >= minor)
+    }
+
+/** Whether the app's `Info.plist` has [key] — the purpose string a request for it requires. */
+internal fun hasInfoPlistKey(key: String): Boolean = NSBundle.mainBundle.objectForInfoDictionaryKey(key) != null
 
 // --- Location -----------------------------------------------------------------------------------
 
@@ -112,6 +176,12 @@ internal object LocationAuthorization {
 
     // Read on the calling thread: hopping to the main queue would deadlock a caller that blocks it.
     fun current(): CLAuthorizationStatus = CLLocationManager().authorizationStatus
+
+    /** Whether the user chose approximate location (iOS 14+, so always available on this target). */
+    fun isAccuracyReduced(): Boolean {
+        val accuracy: CLAccuracyAuthorization = CLLocationManager().accuracyAuthorization
+        return accuracy == CLAccuracyAuthorization.CLAccuracyAuthorizationReducedAccuracy
+    }
 
     /**
      * Asks for "when in use" and suspends until iOS reports a decision. The dialog is guaranteed to

@@ -42,7 +42,7 @@ The one type shared code depends on.
 **Ordering:** the checks run permission → app-level toggle → channel → icon → coalescing, so the
 result names the first reason the user would not have seen the notification. A coalesced post never
 hides a real failure. On Android below API 33 the permission check is skipped: there is no
-`POST_NOTIFICATIONS` to lack, whatever the `PermissionHandler` answers.
+`POST_NOTIFICATIONS` to lack, whatever the `PermissionController` answers.
 
 **Coalescing:** the bucket applies only to frames that differ from the one showing in nothing but the
 percentage; a changed title, body, button set or options bypasses it. The rate limit
@@ -54,14 +54,14 @@ percentage; a changed title, body, button set or options bypasses it. The rate l
 // androidMain
 public fun createNotifier(
     context: Context,
-    permissionHandler: PermissionHandler,
+    permissions: PermissionController,
     config: NotificationConfig = NotificationConfig(),
     foregroundIds: Set<ForegroundNotificationId> = emptySet(),
 ): Notifier
 
 // iosMain
 public fun createNotifier(
-    permissionHandler: PermissionHandler,
+    permissions: PermissionController,
     config: NotificationConfig = NotificationConfig(),
 ): Notifier
 ```

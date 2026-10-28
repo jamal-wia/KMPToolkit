@@ -28,7 +28,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
 
 /**
- * How `openAppSettings` opens this app's details page, through the real factories: from the resumed
+ * How `openSettings` opens this app's settings screens, through the real factories: from the resumed
  * activity with no task flags, and — with none — in a task of its own. Up to 1.6.0 that fallback used
  * a bare `FLAG_ACTIVITY_NEW_TASK`.
  *
@@ -43,10 +43,8 @@ class AppSettingsScreenLaunchTest {
     private val accesses: MutableList<ActivityAccess> = mutableListOf()
     private val controllers: MutableList<ActivityController<out Activity>> = mutableListOf()
 
-    /** A host that never shows a dialog; `openAppSettings` does not need one. */
-    private val host: PermissionRequestHost = object : PermissionRequestHost {
-        override fun launch(androidPermission: String, onResult: (Boolean) -> Unit): Boolean = false
-    }
+    /** A host that never shows a dialog; `openSettings` does not need one. */
+    private val host: PermissionRequestHost = RecordingHost(canLaunch = false)
 
     @AfterTest
     fun tearDown() {
@@ -58,10 +56,10 @@ class AppSettingsScreenLaunchTest {
 
     @Test
     fun `the default factory opens settings from the resumed activity, on the app's task`() {
-        val handler: PermissionHandler = createPermissionHandler(application, host, InMemoryKeyValueStorage())
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host)
         val activity: RecordingActivity = resumedRecordingActivity()
 
-        assertTrue(handler.openAppSettings())
+        assertTrue(handler.openSettings(CommonPermission.Camera))
 
         val started: Intent = activity.started.single()
         assertEquals(0, started.flags)
@@ -71,9 +69,9 @@ class AppSettingsScreenLaunchTest {
 
     @Test
     fun `the default factory opens settings in a task of its own with no activity resumed`() {
-        val handler: PermissionHandler = createPermissionHandler(application, host, InMemoryKeyValueStorage())
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host)
 
-        assertTrue(handler.openAppSettings())
+        assertTrue(handler.openSettings(CommonPermission.Camera))
 
         val started: Intent = assertNotNull(shadowOf(application).nextStartedActivity)
         assertEquals(SEPARATE_TASK, started.flags)
@@ -86,10 +84,10 @@ class AppSettingsScreenLaunchTest {
     @Test
     fun `the activity access factory opens settings from that access's activity`() {
         val activity: RecordingActivity = resumedRecordingActivity()
-        val handler: PermissionHandler =
-            createPermissionHandler(application, host, InMemoryKeyValueStorage(), FixedActivityAccess(activity))
+        val handler: PermissionController =
+            createPermissionController(application, InMemoryKeyValueStorage(), host, FixedActivityAccess(activity))
 
-        assertTrue(handler.openAppSettings())
+        assertTrue(handler.openSettings(CommonPermission.Camera))
 
         val started: Intent = activity.started.single()
         assertEquals(0, started.flags)
@@ -100,10 +98,10 @@ class AppSettingsScreenLaunchTest {
     @Test
     fun `the activity access factory uses the access it is given, not the last resumed activity`() {
         val access: ActivityAccess = createActivityAccess(application) { false }.also { accesses += it }
-        val handler: PermissionHandler = createPermissionHandler(application, host, InMemoryKeyValueStorage(), access)
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host, access)
         val activity: RecordingActivity = resumedRecordingActivity()
 
-        assertTrue(handler.openAppSettings())
+        assertTrue(handler.openSettings(CommonPermission.Camera))
 
         assertEquals(emptyList(), activity.started)
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
@@ -113,9 +111,9 @@ class AppSettingsScreenLaunchTest {
     @Test
     fun `the activity access factory falls back to a separate task with no activity resumed`() {
         val access: ActivityAccess = createActivityAccess(application).also { accesses += it }
-        val handler: PermissionHandler = createPermissionHandler(application, host, InMemoryKeyValueStorage(), access)
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host, access)
 
-        assertTrue(handler.openAppSettings())
+        assertTrue(handler.openSettings(CommonPermission.Camera))
 
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
         assertNull(shadowOf(application).nextStartedActivity, "exactly one start")
@@ -128,15 +126,15 @@ class AppSettingsScreenLaunchTest {
         val activity: RecordingActivity = resumedRecordingActivity()
         activity.unresolvable = setOf(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
         val logger = RecordingLogger()
-        val handler: PermissionHandler = createPermissionHandler(
+        val handler: PermissionController = createPermissionController(
             application,
-            host,
             InMemoryKeyValueStorage(),
+            host,
             FixedActivityAccess(activity),
             logger = logger,
         )
 
-        assertFalse(handler.openAppSettings())
+        assertFalse(handler.openSettings(CommonPermission.Camera))
 
         assertAppDetails(activity.started.single())
         assertNull(shadowOf(application).nextStartedActivity, "no second try from the application context")
@@ -146,24 +144,24 @@ class AppSettingsScreenLaunchTest {
     @Test
     fun `a details page the device does not have is reported as not opened`() {
         shadowOf(application).checkActivities(true)
-        val handler: PermissionHandler = createPermissionHandler(application, host, InMemoryKeyValueStorage())
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host)
 
-        assertFalse(handler.openAppSettings())
+        assertFalse(handler.openSettings(CommonPermission.Camera))
         assertNull(shadowOf(application).nextStartedActivity)
     }
 
-    // --- createPermissionHandlerWithLauncher ---
+    // --- a custom SystemScreenLauncher ---
 
     @Test
     fun `a custom launcher gets one request with the details page and its kind`() {
         val requests: MutableList<SystemScreenRequest> = mutableListOf()
-        val handler: PermissionHandler = handlerWith(SystemScreenLauncher { requests += it; true })
+        val handler: PermissionController = handlerWith(SystemScreenLauncher { requests += it; true })
         resumedRecordingActivity()
 
-        assertTrue(handler.openAppSettings())
+        assertTrue(handler.openSettings(CommonPermission.Camera))
 
         val request: SystemScreenRequest = requests.single()
-        assertEquals(AppDetailsScreen, request.kind)
+        assertEquals(PermissionScreen(CommonPermission.Camera), request.kind)
         val candidate: Intent = request.candidates.single()
         assertEquals(0, candidate.flags)
         assertAppDetails(candidate)
@@ -174,15 +172,15 @@ class AppSettingsScreenLaunchTest {
     fun `callerTask passed as the launcher opens from that access's activity`() {
         val activity: RecordingActivity = resumedRecordingActivity()
         val access = FixedActivityAccess(activity)
-        val handler: PermissionHandler = createPermissionHandlerWithLauncher(
+        val handler: PermissionController = createPermissionController(
             application,
-            host,
             InMemoryKeyValueStorage(),
+            host,
             access,
             SystemScreenLauncher.callerTask(access),
         )
 
-        assertTrue(handler.openAppSettings())
+        assertTrue(handler.openSettings(CommonPermission.Camera))
 
         assertEquals(0, activity.started.single().flags)
         assertNull(shadowOf(application).nextStartedActivity)
@@ -191,9 +189,9 @@ class AppSettingsScreenLaunchTest {
     @Test
     fun `SeparateTask passed as the launcher opens a separate task even with an activity resumed`() {
         val activity: RecordingActivity = resumedRecordingActivity()
-        val handler: PermissionHandler = handlerWith(SystemScreenLauncher.SeparateTask, FixedActivityAccess(activity))
+        val handler: PermissionController = handlerWith(SystemScreenLauncher.SeparateTask, FixedActivityAccess(activity))
 
-        assertTrue(handler.openAppSettings())
+        assertTrue(handler.openSettings(CommonPermission.Camera))
 
         assertEquals(emptyList(), activity.started)
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
@@ -201,23 +199,23 @@ class AppSettingsScreenLaunchTest {
     }
 
     @Test
-    fun `a launcher that opens nothing is called once, and openAppSettings reports false and logs`() {
+    fun `a launcher that opens nothing is called once, and openSettings reports false and logs`() {
         var calls = 0
         val logger = RecordingLogger()
 
-        assertFalse(handlerWith(SystemScreenLauncher { calls++; false }, logger = logger).openAppSettings())
+        assertFalse(handlerWith(SystemScreenLauncher { calls++; false }, logger = logger).openSettings(CommonPermission.Camera))
 
         assertEquals(1, calls)
         assertEquals(LogLevel.WARN, logger.entries.single().level)
     }
 
     @Test
-    fun `a launcher that throws is called once, and openAppSettings reports false and logs the cause`() {
+    fun `a launcher that throws is called once, and openSettings reports false and logs the cause`() {
         var calls = 0
         val bug = IllegalStateException("launcher bug")
         val logger = RecordingLogger()
 
-        assertFalse(handlerWith(SystemScreenLauncher { calls++; throw bug }, logger = logger).openAppSettings())
+        assertFalse(handlerWith(SystemScreenLauncher { calls++; throw bug }, logger = logger).openSettings(CommonPermission.Camera))
 
         assertEquals(1, calls)
         val entry: RecordingLogger.Entry = logger.entries.single()
@@ -226,25 +224,66 @@ class AppSettingsScreenLaunchTest {
     }
 
     @Test
-    fun `the launcher factory can be referenced without naming a function type`() {
-        val reference = ::createPermissionHandlerWithLauncher
+    fun `the factory can be referenced without naming a function type`() {
+        val reference = ::createPermissionController
 
-        assertIs<PermissionHandler>(
+        assertIs<PermissionController>(
             reference(
                 application,
-                host,
                 InMemoryKeyValueStorage(),
+                host,
                 FixedActivityAccess(resumedRecordingActivity()),
                 SystemScreenLauncher.SeparateTask,
-                PermissionConfig(),
+                AndroidPermissionConfig(),
                 NoopLogger,
             ),
         )
     }
 
     @Test
-    fun `the kind names itself`() {
-        assertEquals("AppDetailsScreen", AppDetailsScreen.toString())
+    fun `screen kinds are equal exactly when they name the same permission`() {
+        assertEquals(PermissionScreen(CommonPermission.Camera), PermissionScreen(CommonPermission.Camera))
+        assertTrue(PermissionScreen(CommonPermission.Camera) != PermissionScreen(CommonPermission.Microphone))
+        assertTrue(PermissionScreen(CommonPermission.Camera) != PermissionScreen(AndroidPermission.Overlay))
+    }
+
+    // --- the most specific screen per permission ---
+
+    @Test
+    fun `notifications open the app's notification settings first, then its details page`() {
+        val requests: MutableList<SystemScreenRequest> = mutableListOf()
+
+        assertTrue(handlerWith(SystemScreenLauncher { requests += it; true }).openSettings(CommonPermission.Notifications))
+
+        val request: SystemScreenRequest = requests.single()
+        assertEquals(PermissionScreen(CommonPermission.Notifications), request.kind)
+        val (notifications: Intent, details: Intent) = request.candidates
+        assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, notifications.action)
+        assertEquals(application.packageName, notifications.getStringExtra(Settings.EXTRA_APP_PACKAGE))
+        assertEquals(0, notifications.flags)
+        assertAppDetails(details)
+    }
+
+    @Test
+    fun `a special access opens its own screen, the same one a request opens`() {
+        val requests: MutableList<SystemScreenRequest> = mutableListOf()
+
+        assertTrue(handlerWith(SystemScreenLauncher { requests += it; true }).openSettings(AndroidPermission.Overlay))
+
+        val request: SystemScreenRequest = requests.single()
+        assertEquals(PermissionScreen(AndroidPermission.Overlay), request.kind)
+        assertEquals(
+            listOf(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Settings.ACTION_MANAGE_OVERLAY_PERMISSION),
+            request.candidates.map { it.action },
+        )
+    }
+
+    @Test
+    fun `a permission type the controller does not know opens nothing`() {
+        var calls = 0
+
+        assertFalse(handlerWith(SystemScreenLauncher { calls++; true }).openSettings(ForeignPermission))
+        assertEquals(0, calls)
     }
 
     // --- helpers ---
@@ -253,10 +292,10 @@ class AppSettingsScreenLaunchTest {
         launcher: SystemScreenLauncher,
         access: ActivityAccess = createActivityAccess(application).also { accesses += it },
         logger: Logger = NoopLogger,
-    ): PermissionHandler = createPermissionHandlerWithLauncher(
+    ): PermissionController = createPermissionController(
         context = application,
-        host = host,
         storage = InMemoryKeyValueStorage(),
+        host = host,
         activityAccess = access,
         systemScreenLauncher = launcher,
         logger = logger,

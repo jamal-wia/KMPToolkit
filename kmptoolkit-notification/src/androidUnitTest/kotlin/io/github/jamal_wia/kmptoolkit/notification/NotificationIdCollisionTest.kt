@@ -10,7 +10,7 @@ import android.content.IntentFilter
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
-import io.github.jamal_wia.kmptoolkit.permission.testing.RecordingPermissionHandler
+import io.github.jamal_wia.kmptoolkit.permission.testing.FakePermissionController
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -40,7 +40,7 @@ abstract class NotificationIdCollisionTest {
             posted.extras.getCharSequence(Notification.EXTRA_TITLE).toString()
         }
 
-    private val permissions = RecordingPermissionHandler(defaultStatus = PermissionStatus.Granted)
+    private val permissions = FakePermissionController(defaultStatus = PermissionStatus.Granted)
 
     private fun notifier(): Notifier =
         createNotifier(context, permissions, NotificationConfig(minProgressInterval = Duration.ZERO))
@@ -171,7 +171,7 @@ class NotificationIdCollisionLegacyApiTest : NotificationIdCollisionTest() {
     fun `with no receiver declared a button stays an implicit broadcast with nothing added`() = runTest {
         // Nothing to address it to: the broadcast must still match an action-only filter — a receiver
         // registered at runtime, say — so it carries neither a component nor an extra category.
-        createNotifier(context, RecordingPermissionHandler(defaultStatus = PermissionStatus.Granted)).post(
+        createNotifier(context, FakePermissionController(defaultStatus = PermissionStatus.Granted)).post(
             "Aa",
             LocalNotification(
                 title = "Aa",

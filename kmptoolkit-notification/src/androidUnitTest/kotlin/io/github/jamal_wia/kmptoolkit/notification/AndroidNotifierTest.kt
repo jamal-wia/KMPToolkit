@@ -11,9 +11,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import io.github.jamal_wia.kmptoolkit.permission.Permission
+import io.github.jamal_wia.kmptoolkit.permission.CommonPermission
 import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
-import io.github.jamal_wia.kmptoolkit.permission.testing.RecordingPermissionHandler
+import io.github.jamal_wia.kmptoolkit.permission.testing.FakePermissionController
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -45,7 +45,7 @@ class AndroidNotifierTest {
     private val shown: List<Notification>
         get() = shadowOf(manager).allNotifications
 
-    private val permissions = RecordingPermissionHandler(defaultStatus = PermissionStatus.Granted)
+    private val permissions = FakePermissionController(defaultStatus = PermissionStatus.Granted)
 
     private fun notifier(
         config: NotificationConfig = NotificationConfig(minProgressInterval = Duration.ZERO),
@@ -139,7 +139,7 @@ class AndroidNotifierTest {
 
     @Test
     fun `a missing permission is reported and nothing is posted`() = runTest {
-        permissions.setStatus(Permission.NOTIFICATIONS, PermissionStatus.Denied())
+        permissions.setStatus(CommonPermission.Notifications, PermissionStatus.Denied())
 
         val result: NotificationResult = notifier().post("download", notification())
 
@@ -149,7 +149,7 @@ class AndroidNotifierTest {
 
     @Test
     fun `a permanently denied permission is reported the same way`() = runTest {
-        permissions.setStatus(Permission.NOTIFICATIONS, PermissionStatus.PermanentlyDenied)
+        permissions.setStatus(CommonPermission.Notifications, PermissionStatus.PermanentlyDenied)
 
         assertEquals(NotificationResult.PermissionDenied, notifier().post("d", notification()))
     }
@@ -158,7 +158,7 @@ class AndroidNotifierTest {
     fun `the permission is checked rather than requested`() = runTest {
         notifier().post("download", notification())
 
-        assertEquals(listOf(Permission.NOTIFICATIONS), permissions.checks)
+        assertEquals(listOf(CommonPermission.Notifications), permissions.checks)
         assertEquals(emptyList(), permissions.requests, "the module must never show a prompt")
     }
 
@@ -385,7 +385,7 @@ class AndroidNotifierTest {
         // has to learn that, not "Coalesced", however often they posted before.
         val notifier: Notifier = notifier()
         notifier.post("d", notification().copy(progress = NotificationProgress.Determinate(40)))
-        permissions.setStatus(Permission.NOTIFICATIONS, PermissionStatus.Denied())
+        permissions.setStatus(CommonPermission.Notifications, PermissionStatus.Denied())
 
         val result: NotificationResult = notifier.post(
             "d",

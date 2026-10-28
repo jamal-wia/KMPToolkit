@@ -36,6 +36,10 @@ kotlin {
 
             // api, not implementation: both platform factories take a `logger: Logger = NoopLogger`.
             api(project(":kmptoolkit-logging"))
+
+            // api, not implementation: Permission is @SubclassOptInRequired(ToolkitInternalApi::class),
+            // so the marker is part of this module's public signature.
+            api(project(":kmptoolkit-core"))
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
@@ -45,13 +49,14 @@ kotlin {
             // needs it on their compile classpath to call it.
             api(project(":kmptoolkit-storage"))
 
-            // NotificationManagerCompat.getEnabledListenerPackages() — the only way to check
-            // SpecialPermission.NOTIFICATION_LISTENER_ACCESS; the platform SDK has no equivalent.
+            // NotificationManagerCompat: getEnabledListenerPackages(), the only way to check
+            // AndroidPermission.NotificationListenerAccess, and areNotificationsEnabled(), the
+            // pre-API-33 notification status.
             implementation(libs.androidx.core.ktx)
 
-            // api, not implementation: the factory overload that takes an app's own tracker has
-            // ActivityAccess in its signature, so a consumer needs it on their compile classpath to
-            // call it.
+            // api, not implementation: the factory takes an ActivityAccess and a SystemScreenLauncher,
+            // and PermissionScreen is a SystemScreenKind, so a consumer needs it on their compile
+            // classpath to call it.
             api(project(":kmptoolkit-activity"))
         }
         androidUnitTest.dependencies {

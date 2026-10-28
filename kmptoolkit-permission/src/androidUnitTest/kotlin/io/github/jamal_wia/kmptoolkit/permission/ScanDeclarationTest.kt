@@ -15,7 +15,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /**
- * The manifest read behind [Permission.BLUETOOTH_SCAN]'s API 31+ contract: `neverForLocation` on the
+ * The manifest read behind [CommonPermission.BluetoothScan]'s API 31+ contract: `neverForLocation` on the
  * app's own `BLUETOOTH_SCAN` declaration, read from the same `PackageInfo` flags Android reads.
  */
 @RunWith(AndroidJUnit4::class)

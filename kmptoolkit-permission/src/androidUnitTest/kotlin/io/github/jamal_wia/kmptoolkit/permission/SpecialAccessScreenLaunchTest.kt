@@ -3,7 +3,6 @@ package io.github.jamal_wia.kmptoolkit.permission
 import android.app.Activity
 import android.app.Application
 import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.provider.Settings
@@ -16,11 +15,11 @@ import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.storage.testing.InMemoryKeyValueStorage
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -32,13 +31,15 @@ import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 
 /**
- * How `requestViaSettings` opens its screens, through the real factories: which context starts the
- * screen and with which flags decide the task it lands in. Up to 1.6.0 they were a bare
- * `FLAG_ACTIVITY_NEW_TASK` from the application context, which brought a stale background Settings
- * task forward.
+ * How a special access's Settings screen is opened, through the real factory: which candidates, which
+ * context starts the screen and with which flags decide the task it lands in. Exercised through
+ * `openSettings`, which opens exactly the screen a request opens but does not wait for the user to come
+ * back — the waiting is pinned in `AndroidSpecialAccessTest`. Up to 1.6.0 these were a bare
+ * `FLAG_ACTIVITY_NEW_TASK` from the application context, which brought a stale background Settings task
+ * forward.
  */
 @RunWith(AndroidJUnit4::class)
-class SpecialPermissionScreenLaunchTest {
+class SpecialAccessScreenLaunchTest {
 
     private val application: Application = ApplicationProvider.getApplicationContext()
     private val accesses: MutableList<ActivityAccess> = mutableListOf()
@@ -50,14 +51,14 @@ class SpecialPermissionScreenLaunchTest {
         controllers.forEach { controller -> controller.close() }
     }
 
-    // --- the Context-only factory ---
+    // --- SeparateTask ---
 
     @Test
-    fun `the default factory opens every screen in a task of its own, once`() {
-        val handler: SpecialPermissionHandler = createSpecialPermissionHandler(application)
+    fun `SeparateTask opens every screen in a task of its own, once`() {
+        val handler: PermissionController = special(SystemScreenLauncher.SeparateTask)
 
-        for (permission in SpecialPermission.entries) {
-            assertTrue(handler.requestViaSettings(permission), "$permission")
+        for (permission in AndroidPermission.specialAccesses) {
+            assertTrue(handler.openSettings(permission), "$permission")
             val started: Intent = assertNotNull(shadowOf(application).nextStartedActivity, "$permission")
             assertEquals(SEPARATE_TASK, started.flags, "$permission")
             assertEquals(expectedCandidates(permission).first(), started.describe(), "$permission")
@@ -66,13 +67,11 @@ class SpecialPermissionScreenLaunchTest {
     }
 
     @Test
-    fun `the default factory opens a separate task, not from the resumed activity`() {
-        // Created before the activity resumes: a default that secretly tracked activities would still
-        // see it, one that does not never can.
-        val handler: SpecialPermissionHandler = createSpecialPermissionHandler(application)
+    fun `SeparateTask opens a separate task, not from the resumed activity`() {
+        val handler: PermissionController = special(SystemScreenLauncher.SeparateTask)
         val activity: RecordingActivity = resumed(RecordingActivity::class.java)
 
-        assertTrue(handler.requestViaSettings(SpecialPermission.OVERLAY))
+        assertTrue(handler.openSettings(AndroidPermission.Overlay))
 
         assertEquals(emptyList(), activity.started)
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
@@ -84,32 +83,32 @@ class SpecialPermissionScreenLaunchTest {
         shadowOf(application).checkActivities(true)
         val logger = RecordingLogger()
 
-        assertFalse(createSpecialPermissionHandler(application, logger).requestViaSettings(SpecialPermission.OVERLAY))
+        assertFalse(special(SystemScreenLauncher.SeparateTask, logger).openSettings(AndroidPermission.Overlay))
 
         assertNull(shadowOf(application).nextStartedActivity)
         assertEquals(LogLevel.WARN, logger.entries.single().level)
     }
 
-    // --- fallback candidates, through the default factory ---
+    // --- fallback candidates ---
 
     @Test
     fun `each screen falls back to the generic list when the device lacks this app's page`() {
         shadowOf(application).checkActivities(true)
-        val handler: SpecialPermissionHandler = createSpecialPermissionHandler(application)
-        val chains: Map<SpecialPermission, String> = mapOf(
-            SpecialPermission.EXACT_ALARM to Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-            SpecialPermission.OVERLAY to Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            SpecialPermission.WRITE_SETTINGS to Settings.ACTION_MANAGE_WRITE_SETTINGS,
-            SpecialPermission.ALL_FILES_ACCESS to Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION,
-            SpecialPermission.IGNORE_BATTERY_OPTIMIZATIONS to Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
-            SpecialPermission.INSTALL_UNKNOWN_APPS to Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+        val handler: PermissionController = special(SystemScreenLauncher.SeparateTask)
+        val chains: Map<AndroidPermission.SpecialAccess, String> = mapOf(
+            AndroidPermission.ExactAlarm to Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+            AndroidPermission.Overlay to Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            AndroidPermission.WriteSettings to Settings.ACTION_MANAGE_WRITE_SETTINGS,
+            AndroidPermission.AllFilesAccess to Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION,
+            AndroidPermission.IgnoreBatteryOptimizations to Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+            AndroidPermission.InstallPackages to Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
         )
         // Only the generic lists exist on this "device": a filter without a data scheme does not
         // match an intent that carries a package: URI.
         chains.values.forEach { action -> registerScreen(action, withPackageUri = false) }
 
         for ((permission, list) in chains) {
-            assertTrue(handler.requestViaSettings(permission), "$permission")
+            assertTrue(handler.openSettings(permission), "$permission")
             val started: Intent = assertNotNull(shadowOf(application).nextStartedActivity, "$permission")
             assertEquals(Screen(list), started.describe(), "$permission")
             assertEquals(SEPARATE_TASK, started.flags, "$permission")
@@ -123,27 +122,25 @@ class SpecialPermissionScreenLaunchTest {
         registerScreen(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, withPackageUri = true)
         registerScreen(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, withPackageUri = false)
 
-        assertTrue(createSpecialPermissionHandler(application).requestViaSettings(SpecialPermission.OVERLAY))
+        assertTrue(special(SystemScreenLauncher.SeparateTask).openSettings(AndroidPermission.Overlay))
 
         val started: Intent = assertNotNull(shadowOf(application).nextStartedActivity)
         assertEquals(Screen(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, thisPackage()), started.describe())
         assertNull(shadowOf(application).nextStartedActivity)
     }
 
-    // --- createSpecialPermissionHandlerWithLauncher with callerTask ---
+    // --- callerTask ---
 
     @Test
     fun `callerTask on the app's access opens every screen from its activity, with no task flags`() {
         val activity: RecordingActivity = resumed(RecordingActivity::class.java)
-        val handler: SpecialPermissionHandler = createSpecialPermissionHandlerWithLauncher(
-            application,
-            SystemScreenLauncher.callerTask(FixedActivityAccess(activity)),
+        val handler: PermissionController = special(SystemScreenLauncher.callerTask(FixedActivityAccess(activity)),
         )
 
-        for (permission in SpecialPermission.entries) {
+        for (permission in AndroidPermission.specialAccesses) {
             activity.started.clear()
 
-            assertTrue(handler.requestViaSettings(permission), "$permission")
+            assertTrue(handler.openSettings(permission), "$permission")
 
             val started: Intent = activity.started.single()
             assertEquals(0, started.flags, "$permission")
@@ -156,11 +153,11 @@ class SpecialPermissionScreenLaunchTest {
     fun `callerTask on an access that tracks no activity opens a separate task`() {
         // Proves the access passed in is the one used: this one never reports the resumed activity.
         val access: ActivityAccess = createActivityAccess(application) { false }.also { accesses += it }
-        val handler: SpecialPermissionHandler =
-            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher.callerTask(access))
+        val handler: PermissionController =
+            special(SystemScreenLauncher.callerTask(access))
         val activity: RecordingActivity = resumed(RecordingActivity::class.java)
 
-        assertTrue(handler.requestViaSettings(SpecialPermission.WRITE_SETTINGS))
+        assertTrue(handler.openSettings(AndroidPermission.WriteSettings))
 
         assertEquals(emptyList(), activity.started)
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
@@ -170,10 +167,10 @@ class SpecialPermissionScreenLaunchTest {
     @Test
     fun `callerTask falls back to a separate task with no activity resumed`() {
         val access: ActivityAccess = createActivityAccess(application).also { accesses += it }
-        val handler: SpecialPermissionHandler =
-            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher.callerTask(access))
+        val handler: PermissionController =
+            special(SystemScreenLauncher.callerTask(access))
 
-        assertTrue(handler.requestViaSettings(SpecialPermission.WRITE_SETTINGS))
+        assertTrue(handler.openSettings(AndroidPermission.WriteSettings))
 
         assertEquals(SEPARATE_TASK, assertNotNull(shadowOf(application).nextStartedActivity).flags)
         assertNull(shadowOf(application).nextStartedActivity)
@@ -184,16 +181,16 @@ class SpecialPermissionScreenLaunchTest {
     @Test
     fun `a custom launcher gets one request per call, with every candidate and the screen's kind`() {
         val requests: MutableList<SystemScreenRequest> = mutableListOf()
-        val handler: SpecialPermissionHandler =
-            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { requests += it; true })
+        val handler: PermissionController =
+            special(SystemScreenLauncher { requests += it; true })
 
-        for (permission in SpecialPermission.entries) {
+        for (permission in AndroidPermission.specialAccesses) {
             requests.clear()
 
-            assertTrue(handler.requestViaSettings(permission), "$permission")
+            assertTrue(handler.openSettings(permission), "$permission")
 
             val request: SystemScreenRequest = requests.single()
-            assertEquals(SpecialPermissionScreen(permission), request.kind, "$permission")
+            assertEquals(PermissionScreen(permission), request.kind, "$permission")
             assertEquals(expectedCandidates(permission), request.candidates.map { it.describe() }, "$permission")
             assertTrue(request.candidates.all { it.flags == 0 }, "$permission: candidates carry no launch flags")
         }
@@ -202,34 +199,32 @@ class SpecialPermissionScreenLaunchTest {
 
     @Test
     fun `a launcher that opens nothing is called once, and the request reports false and is logged`() {
-        for (permission in SpecialPermission.entries) {
+        for (permission in AndroidPermission.specialAccesses) {
             var calls = 0
             val logger = RecordingLogger()
-            val handler: SpecialPermissionHandler =
-                createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { calls++; false }, logger)
+            val handler: PermissionController =
+                special(SystemScreenLauncher { calls++; false }, logger)
 
-            assertFalse(handler.requestViaSettings(permission), "$permission")
+            assertFalse(handler.openSettings(permission), "$permission")
 
             assertEquals(1, calls, "$permission")
             val entry: RecordingLogger.Entry = logger.entries.single()
             assertEquals(LogLevel.WARN, entry.level, "$permission")
-            assertTrue(permission.name in entry.message, "$permission: ${entry.message}")
+            assertTrue("$permission" in entry.message, "$permission: ${entry.message}")
         }
     }
 
     @Test
     fun `a launcher that throws is called once, and the request reports false and logs the cause`() {
-        for (permission in SpecialPermission.entries) {
+        for (permission in AndroidPermission.specialAccesses) {
             var calls = 0
             val bug = IllegalStateException("launcher bug")
             val logger = RecordingLogger()
-            val handler: SpecialPermissionHandler = createSpecialPermissionHandlerWithLauncher(
-                application,
-                SystemScreenLauncher { calls++; throw bug },
+            val handler: PermissionController = special(SystemScreenLauncher { calls++; throw bug },
                 logger,
             )
 
-            assertFalse(handler.requestViaSettings(permission), "$permission")
+            assertFalse(handler.openSettings(permission), "$permission")
 
             assertEquals(1, calls, "$permission")
             val entry: RecordingLogger.Entry = logger.entries.single()
@@ -244,11 +239,11 @@ class SpecialPermissionScreenLaunchTest {
     @Config(sdk = [29])
     fun `on API 29 exact alarms and all-files access never reach the launcher`() {
         val requests: MutableList<SystemScreenRequest> = mutableListOf()
-        val handler: SpecialPermissionHandler =
-            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { requests += it; true })
+        val handler: PermissionController =
+            special(SystemScreenLauncher { requests += it; true })
 
-        assertFalse(handler.requestViaSettings(SpecialPermission.EXACT_ALARM))
-        assertFalse(handler.requestViaSettings(SpecialPermission.ALL_FILES_ACCESS))
+        assertFalse(handler.openSettings(AndroidPermission.ExactAlarm))
+        assertFalse(handler.openSettings(AndroidPermission.AllFilesAccess))
 
         assertEquals(emptyList(), requests)
     }
@@ -263,14 +258,14 @@ class SpecialPermissionScreenLaunchTest {
                     extras = mapOf(Settings.EXTRA_APP_PACKAGE to application.packageName),
                 ),
             ),
-            candidatesFor(SpecialPermission.USAGE_STATS_ACCESS),
+            candidatesFor(AndroidPermission.UsageStatsAccess),
         )
     }
 
     @Test
     @Config(sdk = [28])
     fun `on API 28 usage access does not name the app, which the platform would not read`() {
-        assertEquals(listOf(Screen(Settings.ACTION_USAGE_ACCESS_SETTINGS)), candidatesFor(SpecialPermission.USAGE_STATS_ACCESS))
+        assertEquals(listOf(Screen(Settings.ACTION_USAGE_ACCESS_SETTINGS)), candidatesFor(AndroidPermission.UsageStatsAccess))
     }
 
     @Test
@@ -278,15 +273,13 @@ class SpecialPermissionScreenLaunchTest {
     fun `on API 30 all-files access has its chain and exact alarms still have nothing to open`() {
         var calls = 0
         val requests: MutableList<SystemScreenRequest> = mutableListOf()
-        val handler: SpecialPermissionHandler = createSpecialPermissionHandlerWithLauncher(
-            application,
-            SystemScreenLauncher { calls++; requests += it; true },
+        val handler: PermissionController = special(SystemScreenLauncher { calls++; requests += it; true },
         )
 
-        assertFalse(handler.requestViaSettings(SpecialPermission.EXACT_ALARM))
+        assertFalse(handler.openSettings(AndroidPermission.ExactAlarm))
         assertEquals(0, calls)
 
-        assertTrue(handler.requestViaSettings(SpecialPermission.ALL_FILES_ACCESS))
+        assertTrue(handler.openSettings(AndroidPermission.AllFilesAccess))
         assertEquals(1, calls)
         assertEquals(
             listOf(
@@ -305,14 +298,18 @@ class SpecialPermissionScreenLaunchTest {
                 Screen(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, thisPackage()),
                 Screen(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM),
             ),
-            candidatesFor(SpecialPermission.EXACT_ALARM),
+            candidatesFor(AndroidPermission.ExactAlarm),
         )
     }
 
     @Test
     @Config(sdk = [25])
-    fun `on API 25 installing unknown apps opens the device-wide switch on the security screen`() {
-        assertEquals(listOf(Screen(Settings.ACTION_SECURITY_SETTINGS)), candidatesFor(SpecialPermission.INSTALL_UNKNOWN_APPS))
+    fun `on API 25 installing packages has nothing to open, since there is no per-app grant`() {
+        // 2.x opened the device-wide "Unknown sources" switch here: a different setting under the same words.
+        val requests: MutableList<SystemScreenRequest> = mutableListOf()
+
+        assertFalse(special(SystemScreenLauncher { requests += it; true }).openSettings(AndroidPermission.InstallPackages))
+        assertEquals(emptyList(), requests)
     }
 
     @Test
@@ -323,7 +320,7 @@ class SpecialPermissionScreenLaunchTest {
                 Screen(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, thisPackage()),
                 Screen(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES),
             ),
-            candidatesFor(SpecialPermission.INSTALL_UNKNOWN_APPS),
+            candidatesFor(AndroidPermission.InstallPackages),
         )
     }
 
@@ -331,12 +328,12 @@ class SpecialPermissionScreenLaunchTest {
     @Config(sdk = [29])
     fun `on API 29 media management full-screen intents and unused-app exemption never reach the launcher`() {
         val requests: MutableList<SystemScreenRequest> = mutableListOf()
-        val handler: SpecialPermissionHandler =
-            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { requests += it; true })
+        val handler: PermissionController =
+            special(SystemScreenLauncher { requests += it; true })
 
-        assertFalse(handler.requestViaSettings(SpecialPermission.MEDIA_MANAGEMENT))
-        assertFalse(handler.requestViaSettings(SpecialPermission.FULL_SCREEN_INTENT))
-        assertFalse(handler.requestViaSettings(SpecialPermission.KEEP_PERMISSIONS_WHEN_UNUSED))
+        assertFalse(handler.openSettings(AndroidPermission.MediaManagement))
+        assertFalse(handler.openSettings(AndroidPermission.FullScreenNotifications))
+        assertFalse(handler.openSettings(AndroidPermission.KeepPermissionsWhenUnused))
 
         assertEquals(emptyList(), requests)
     }
@@ -346,11 +343,11 @@ class SpecialPermissionScreenLaunchTest {
     fun `on API 30 the unused-app exemption has this app's page and media management still has nothing`() {
         assertEquals(
             listOf(Screen(Intent.ACTION_AUTO_REVOKE_PERMISSIONS, thisPackage())),
-            candidatesFor(SpecialPermission.KEEP_PERMISSIONS_WHEN_UNUSED),
+            candidatesFor(AndroidPermission.KeepPermissionsWhenUnused),
         )
         assertFalse(
-            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { true })
-                .requestViaSettings(SpecialPermission.MEDIA_MANAGEMENT),
+            special(SystemScreenLauncher { true })
+                .openSettings(AndroidPermission.MediaManagement),
         )
     }
 
@@ -359,11 +356,11 @@ class SpecialPermissionScreenLaunchTest {
     fun `on API 31 media management has this app's page and full-screen intents still have nothing`() {
         assertEquals(
             listOf(Screen(Settings.ACTION_REQUEST_MANAGE_MEDIA, thisPackage())),
-            candidatesFor(SpecialPermission.MEDIA_MANAGEMENT),
+            candidatesFor(AndroidPermission.MediaManagement),
         )
         assertFalse(
-            createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { true })
-                .requestViaSettings(SpecialPermission.FULL_SCREEN_INTENT),
+            special(SystemScreenLauncher { true })
+                .openSettings(AndroidPermission.FullScreenNotifications),
         )
     }
 
@@ -372,42 +369,38 @@ class SpecialPermissionScreenLaunchTest {
     fun `on API 34 full-screen intents have this app's page`() {
         assertEquals(
             listOf(Screen(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, thisPackage())),
-            candidatesFor(SpecialPermission.FULL_SCREEN_INTENT),
+            candidatesFor(AndroidPermission.FullScreenNotifications),
         )
-    }
-
-    // --- the factories as values ---
-
-    @Test
-    fun `the factories can be referenced without naming a function type`() {
-        // An untyped reference — what `singleOf(::createSpecialPermissionHandler)` and similar DI
-        // declarations need — compiles only while each name has exactly one overload.
-        val plain = ::createSpecialPermissionHandler
-        val withLauncher = ::createSpecialPermissionHandlerWithLauncher
-
-        val typedPlain: (Context, Logger) -> SpecialPermissionHandler = plain
-        val typedWithLauncher: (Context, SystemScreenLauncher, Logger) -> SpecialPermissionHandler = withLauncher
-        assertIs<SpecialPermissionHandler>(typedPlain(application, NoopLogger))
-        assertIs<SpecialPermissionHandler>(typedWithLauncher(application, SystemScreenLauncher.SeparateTask, NoopLogger))
     }
 
     // --- the kind ---
 
     @Test
     fun `screen kinds are equal exactly when they name the same permission`() {
-        assertEquals(SpecialPermissionScreen(SpecialPermission.OVERLAY), SpecialPermissionScreen(SpecialPermission.OVERLAY))
+        assertEquals(PermissionScreen(AndroidPermission.Overlay), PermissionScreen(AndroidPermission.Overlay))
         assertEquals(
-            SpecialPermissionScreen(SpecialPermission.OVERLAY).hashCode(),
-            SpecialPermissionScreen(SpecialPermission.OVERLAY).hashCode(),
+            PermissionScreen(AndroidPermission.Overlay).hashCode(),
+            PermissionScreen(AndroidPermission.Overlay).hashCode(),
         )
         assertNotEquals(
-            SpecialPermissionScreen(SpecialPermission.OVERLAY),
-            SpecialPermissionScreen(SpecialPermission.WRITE_SETTINGS),
+            PermissionScreen(AndroidPermission.Overlay),
+            PermissionScreen(AndroidPermission.WriteSettings),
         )
-        assertEquals("SpecialPermissionScreen(OVERLAY)", SpecialPermissionScreen(SpecialPermission.OVERLAY).toString())
+        assertEquals("PermissionScreen(permission=Overlay)", PermissionScreen(AndroidPermission.Overlay).toString())
     }
 
     // --- helpers ---
+
+    /** The controller, opening screens through [launcher]; it never shows a runtime dialog here. */
+    private fun special(launcher: SystemScreenLauncher, logger: Logger = NoopLogger): PermissionController =
+        createPermissionController(
+            context = application,
+            storage = InMemoryKeyValueStorage(),
+            host = RecordingHost(canLaunch = false),
+            activityAccess = createActivityAccess(application).also { accesses += it },
+            systemScreenLauncher = launcher,
+            logger = logger,
+        )
 
     /** What a started or requested intent opens, independent of its flags. */
     private data class Screen(val action: String?, val data: String? = null, val extras: Map<String, Any?> = emptyMap())
@@ -422,59 +415,59 @@ class SpecialPermissionScreenLaunchTest {
     private fun thisPackage(): String = "package:${application.packageName}"
 
     /** The candidates a launcher receives for [permission], on the current API level. */
-    private fun candidatesFor(permission: SpecialPermission): List<Screen> {
+    private fun candidatesFor(permission: AndroidPermission.SpecialAccess): List<Screen> {
         val requests: MutableList<SystemScreenRequest> = mutableListOf()
-        createSpecialPermissionHandlerWithLauncher(application, SystemScreenLauncher { requests += it; true })
-            .requestViaSettings(permission)
+        special(SystemScreenLauncher { requests += it; true })
+            .openSettings(permission)
         return requests.single().candidates.map { it.describe() }
     }
 
     /** The contract, per entry, on the Robolectric default API level (35). */
-    private fun expectedCandidates(permission: SpecialPermission): List<Screen> = when (permission) {
-        SpecialPermission.EXACT_ALARM -> listOf(
+    private fun expectedCandidates(permission: AndroidPermission.SpecialAccess): List<Screen> = when (permission) {
+        AndroidPermission.ExactAlarm -> listOf(
             Screen(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, thisPackage()),
             Screen(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM),
         )
 
-        SpecialPermission.OVERLAY -> listOf(
+        AndroidPermission.Overlay -> listOf(
             Screen(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, thisPackage()),
             Screen(Settings.ACTION_MANAGE_OVERLAY_PERMISSION),
         )
 
-        SpecialPermission.WRITE_SETTINGS -> listOf(
+        AndroidPermission.WriteSettings -> listOf(
             Screen(Settings.ACTION_MANAGE_WRITE_SETTINGS, thisPackage()),
             Screen(Settings.ACTION_MANAGE_WRITE_SETTINGS),
         )
 
-        SpecialPermission.ALL_FILES_ACCESS -> listOf(
+        AndroidPermission.AllFilesAccess -> listOf(
             Screen(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, thisPackage()),
             Screen(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION),
         )
 
-        SpecialPermission.USAGE_STATS_ACCESS -> listOf(
+        AndroidPermission.UsageStatsAccess -> listOf(
             Screen(
                 Settings.ACTION_USAGE_ACCESS_SETTINGS,
                 extras = mapOf(Settings.EXTRA_APP_PACKAGE to application.packageName),
             ),
         )
 
-        SpecialPermission.IGNORE_BATTERY_OPTIMIZATIONS -> listOf(
+        AndroidPermission.IgnoreBatteryOptimizations -> listOf(
             Screen(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, thisPackage()),
             Screen(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
         )
 
-        SpecialPermission.NOTIFICATION_LISTENER_ACCESS -> listOf(Screen(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-        SpecialPermission.DO_NOT_DISTURB_ACCESS -> listOf(Screen(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
-        SpecialPermission.MEDIA_MANAGEMENT -> listOf(Screen(Settings.ACTION_REQUEST_MANAGE_MEDIA, thisPackage()))
-        SpecialPermission.INSTALL_UNKNOWN_APPS -> listOf(
+        AndroidPermission.NotificationListenerAccess -> listOf(Screen(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        AndroidPermission.DoNotDisturbAccess -> listOf(Screen(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+        AndroidPermission.MediaManagement -> listOf(Screen(Settings.ACTION_REQUEST_MANAGE_MEDIA, thisPackage()))
+        AndroidPermission.InstallPackages -> listOf(
             Screen(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, thisPackage()),
             Screen(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES),
         )
 
-        SpecialPermission.FULL_SCREEN_INTENT ->
+        AndroidPermission.FullScreenNotifications ->
             listOf(Screen(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, thisPackage()))
 
-        SpecialPermission.KEEP_PERMISSIONS_WHEN_UNUSED ->
+        AndroidPermission.KeepPermissionsWhenUnused ->
             listOf(Screen(Intent.ACTION_AUTO_REVOKE_PERMISSIONS, thisPackage()))
     }
 

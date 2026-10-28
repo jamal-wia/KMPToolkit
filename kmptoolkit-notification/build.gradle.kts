@@ -30,7 +30,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            // api, not implementation: PermissionHandler is a parameter of both public factories,
+            // api, not implementation: PermissionController is a parameter of both public factories,
             // so a consumer needs it on their compile classpath to call one.
             api(project(":kmptoolkit-permission"))
 
@@ -50,8 +50,8 @@ kotlin {
         }
         androidUnitTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
-            // RecordingPermissionHandler: the Android notifier's gates are only reachable with a
-            // permission handler a test can drive.
+            // FakePermissionController: the Android notifier's gates are only reachable with a
+            // permission controller a test can drive.
             implementation(project(":kmptoolkit-permission-testing"))
         }
     }

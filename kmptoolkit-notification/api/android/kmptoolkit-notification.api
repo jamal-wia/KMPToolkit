@@ -287,7 +287,7 @@ public final class io/github/jamal_wia/kmptoolkit/notification/NotifierKt {
 }
 
 public final class io/github/jamal_wia/kmptoolkit/notification/Notifier_androidKt {
-	public static final fun createNotifier (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Ljava/util/Set;)Lio/github/jamal_wia/kmptoolkit/notification/Notifier;
-	public static synthetic fun createNotifier$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionHandler;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Ljava/util/Set;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/notification/Notifier;
+	public static final fun createNotifier (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionController;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Ljava/util/Set;)Lio/github/jamal_wia/kmptoolkit/notification/Notifier;
+	public static synthetic fun createNotifier$default (Landroid/content/Context;Lio/github/jamal_wia/kmptoolkit/permission/PermissionController;Lio/github/jamal_wia/kmptoolkit/notification/NotificationConfig;Ljava/util/Set;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/notification/Notifier;
 }
 

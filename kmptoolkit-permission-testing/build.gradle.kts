@@ -6,10 +6,11 @@ plugins {
 kmptoolkitPublish {
     pomName.set("KMPToolkit Permission Testing")
     pomDescription.set(
-        "Test fixtures for kmptoolkit-permission: RecordingPermissionHandler, a PermissionHandler " +
-            "double that records every check, request and settings trip, and lets a test script " +
-            "what each one answers — including a request that flips the status the way a real " +
-            "system dialog would. Pick this module as a testImplementation dependency alongside " +
+        "Test fixtures for kmptoolkit-permission: FakePermissionController, a PermissionController " +
+            "double for any permission — common or platform-specific — that records every check, " +
+            "request, batch and settings trip, lets a test script what each one answers — including " +
+            "a request that flips the status the way a real system dialog would — and can hold a " +
+            "request in flight to test cancellation. Pick this module as a testImplementation dependency alongside " +
             "kmptoolkit-permission to drive your own screens through the denied, permanently " +
             "denied and revoked-while-backgrounded paths without an emulator."
     )
@@ -25,7 +26,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            // api, not implementation: RecordingPermissionHandler implements PermissionHandler and
+            // api, not implementation: FakePermissionController implements PermissionController and
             // deals in Permission/PermissionStatus, so all three are its own public API.
             api(project(":kmptoolkit-permission"))
         }

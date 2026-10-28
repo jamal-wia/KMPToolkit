@@ -256,7 +256,7 @@ class PlaybackService : Service() {
 }
 
 // wherever the notifier is built:
-val notifier = createNotifier(context, permissionHandler, config, foregroundIds = setOf(PLAYBACK))
+val notifier = createNotifier(context, permissions, config, foregroundIds = setOf(PLAYBACK))
 
 // later, from anywhere — updates the service's notification in place:
 notifier.post("playback", nowPlaying.copy(body = nextTrack), options)

@@ -2,9 +2,9 @@
 
 package io.github.jamal_wia.kmptoolkit.notification
 
-import io.github.jamal_wia.kmptoolkit.permission.Permission
-import io.github.jamal_wia.kmptoolkit.permission.PermissionHandler
-import io.github.jamal_wia.kmptoolkit.permission.isGranted
+import io.github.jamal_wia.kmptoolkit.permission.CommonPermission
+import io.github.jamal_wia.kmptoolkit.permission.PermissionController
+import io.github.jamal_wia.kmptoolkit.permission.isUsable
 import kotlin.coroutines.resume
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
@@ -26,19 +26,19 @@ import platform.UserNotifications.UNUserNotificationCenter
  * progress-coalescing bookkeeping and nothing needs releasing.
  *
  * Asking the user for notification authorization is your app's job, not this module's — request it
- * with `kmptoolkit-permission` (`Permission.NOTIFICATIONS`) at a moment you choose. Posting while
+ * with `kmptoolkit-permission` (`CommonPermission.Notifications`) at a moment you choose. Posting while
  * unauthorized returns [NotificationResult.PermissionDenied] rather than handing the OS a request
  * it silently discards.
  *
- * @param permissionHandler from `kmptoolkit-permission`; used only to check authorization.
+ * @param permissions from `kmptoolkit-permission`; used only to check authorization.
  * @param config coalescing limits; see [NotificationConfig]. Its `actionBroadcastAction` is
  *   Android-only and ignored here.
  */
 public fun createNotifier(
-    permissionHandler: PermissionHandler,
+    permissions: PermissionController,
     config: NotificationConfig = NotificationConfig(),
 ): Notifier = IosNotifier(
-    permissionHandler = permissionHandler,
+    permissions = permissions,
     coalescer = ProgressCoalescer(config.progressBucketPercent, config.minProgressInterval),
 )
 
@@ -54,7 +54,7 @@ public fun createNotifier(
  * reason — see [NotificationAction] and [LocalNotification.iosCategoryId].
  */
 internal class IosNotifier(
-    private val permissionHandler: PermissionHandler,
+    private val permissions: PermissionController,
     private val coalescer: ProgressCoalescer,
 ) : Notifier {
 
@@ -69,8 +69,9 @@ internal class IosNotifier(
         requireValidNotificationId(id)
         // iOS reports "the user switched notifications off in Settings" and "the user answered no
         // to the prompt" as one and the same authorization status, so there is no honest way to
-        // return NotificationsDisabled here — PermissionDenied covers both.
-        if (!permissionHandler.check(Permission.NOTIFICATIONS).isGranted) {
+        // return NotificationsDisabled here — PermissionDenied covers both. Provisional authorization
+        // (PermissionStatus.Limited) does deliver, quietly, so it passes this gate as it did in 2.x.
+        if (!permissions.check(CommonPermission.Notifications).isUsable) {
             return NotificationResult.PermissionDenied
         }
         if (!coalescer.shouldPost(id, notification.progress, notification.copy(progress = null))) {

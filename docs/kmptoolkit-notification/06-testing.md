@@ -113,7 +113,7 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
   level and at `sdk = 28`: `"Aa"` and `"BB"`, whose hash codes are equal, stay two notifications, a
   cancel of one leaves the other, and each one's tap and button carry its own extras. Below 29, a
   button with no receiver to address stays a plain implicit broadcast.
-- `AndroidNotifierPreTiramisuTest` — at `sdk = 32`, a `PermissionHandler` answering "denied" neither
+- `AndroidNotifierPreTiramisuTest` — at `sdk = 32`, a `PermissionController` answering "denied" neither
   blocks a post nor is asked.
 - `AndroidNotifierLegacyTest` — the API 24–25 path, at `@Config(sdk = [24])`, because the
   module-wide `robolectric.properties` pins `sdk=35` and nothing else here would ever execute a

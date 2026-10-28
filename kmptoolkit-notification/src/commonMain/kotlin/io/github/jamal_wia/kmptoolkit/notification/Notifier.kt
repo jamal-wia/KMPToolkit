@@ -5,8 +5,8 @@ package io.github.jamal_wia.kmptoolkit.notification
  * `NotificationManagerCompat` on Android, `UNUserNotificationCenter` on iOS.
  *
  * This is the only type your shared code should depend on. The concrete instance is built in
- * platform code — `createNotifier(context, permissionHandler)` on Android,
- * `createNotifier(permissionHandler)` on iOS — because the two platforms need different things to
+ * platform code — `createNotifier(context, permissions)` on Android,
+ * `createNotifier(permissions)` on iOS — because the two platforms need different things to
  * construct it (see `docs/01-architecture.md`).
  *
  * **Contract:**

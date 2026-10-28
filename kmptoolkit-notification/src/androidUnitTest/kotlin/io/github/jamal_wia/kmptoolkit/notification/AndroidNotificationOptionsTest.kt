@@ -8,7 +8,7 @@ import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
-import io.github.jamal_wia.kmptoolkit.permission.testing.RecordingPermissionHandler
+import io.github.jamal_wia.kmptoolkit.permission.testing.FakePermissionController
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -38,7 +38,7 @@ class AndroidNotificationOptionsTest {
     private val shown: List<Notification>
         get() = shadowOf(manager).allNotifications
 
-    private val permissions = RecordingPermissionHandler(defaultStatus = PermissionStatus.Granted)
+    private val permissions = FakePermissionController(defaultStatus = PermissionStatus.Granted)
 
     private val config = NotificationConfig(minProgressInterval = Duration.ZERO)
 

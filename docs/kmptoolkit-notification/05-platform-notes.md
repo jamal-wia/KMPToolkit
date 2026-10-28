@@ -89,7 +89,7 @@ usage-description string.
 ## Android specifics
 
 - **`POST_NOTIFICATIONS` exists from API 33.** Below that there is no runtime grant, so the notifier
-  does not ask the `PermissionHandler` at all and `PermissionDenied` cannot occur — but notifications can still be off app-wide, which is
+  does not ask the `PermissionController` at all and `PermissionDenied` cannot occur — but notifications can still be off app-wide, which is
   `NotificationsDisabled`. The two are genuinely different states and both are reported.
 - **Channels exist from API 26.** Below that the module skips channel creation and
   `ChannelBlocked` cannot occur; the sound is applied to the notification itself, since there is no

@@ -9,9 +9,9 @@ import android.content.res.Resources
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationManagerCompat
-import io.github.jamal_wia.kmptoolkit.permission.Permission
-import io.github.jamal_wia.kmptoolkit.permission.PermissionHandler
-import io.github.jamal_wia.kmptoolkit.permission.isGranted
+import io.github.jamal_wia.kmptoolkit.permission.CommonPermission
+import io.github.jamal_wia.kmptoolkit.permission.PermissionController
+import io.github.jamal_wia.kmptoolkit.permission.isUsable
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -27,10 +27,11 @@ import kotlinx.coroutines.flow.update
  * declares no permission and shows no prompt, on purpose. Without the grant every [Notifier.post]
  * returns [NotificationResult.PermissionDenied] instead of quietly doing nothing, which is what the
  * platform would do. Below API 33 there is no such permission and the check is skipped, whatever the
- * handler would say. See `docs/kmptoolkit-notification/05-platform-notes.md`.
+ * controller would say — whose own pre-API-33 answer is the app-wide switch, which this notifier
+ * reports separately as [NotificationResult.NotificationsDisabled]. See `docs/kmptoolkit-notification/05-platform-notes.md`.
  *
  * @param context any `Context`; its application context is what gets kept.
- * @param permissionHandler from `kmptoolkit-permission` — used to *check* `POST_NOTIFICATIONS`,
+ * @param permissions from `kmptoolkit-permission` — used to *check* `POST_NOTIFICATIONS`,
  *   never to request it. Pass the same instance the rest of your app uses so its denial bookkeeping
  *   stays consistent.
  * @param config identifiers and coalescing limits; see [NotificationConfig]. Its
@@ -44,14 +45,14 @@ import kotlinx.coroutines.flow.update
  */
 public fun createNotifier(
     context: Context,
-    permissionHandler: PermissionHandler,
+    permissions: PermissionController,
     config: NotificationConfig = NotificationConfig(),
     foregroundIds: Set<ForegroundNotificationId> = emptySet(),
 ): Notifier {
     val appContext: Context = context.applicationContext
     return AndroidNotifier(
         context = appContext,
-        permissionHandler = permissionHandler,
+        permissions = permissions,
         renderer = NotificationRenderer(appContext, config.resolveBroadcastAction(appContext.packageName)),
         coalescer = ProgressCoalescer(config.progressBucketPercent, config.minProgressInterval),
         foregroundIds = foregroundIds,
@@ -79,7 +80,7 @@ public fun createNotifier(
  */
 internal class AndroidNotifier(
     private val context: Context,
-    private val permissionHandler: PermissionHandler,
+    private val permissions: PermissionController,
     private val renderer: NotificationRenderer,
     private val coalescer: ProgressCoalescer,
     foregroundIds: Set<ForegroundNotificationId> = emptySet(),
@@ -148,7 +149,7 @@ internal class AndroidNotifier(
     }
 
     // The permission is checked before notify() is reached; the annotation only silences the static
-    // analysis that cannot see through the PermissionHandler indirection.
+    // analysis that cannot see through the PermissionController indirection.
     @SuppressLint("MissingPermission")
     private suspend fun postGated(
         id: String,
@@ -189,13 +190,13 @@ internal class AndroidNotifier(
      * Whether the runtime notification permission allows posting.
      *
      * Asked only from API 33, where `POST_NOTIFICATIONS` exists. Below it there is nothing to grant,
-     * and deciding that here rather than trusting the [PermissionHandler] to say so keeps a handler
+     * and deciding that here rather than trusting the [PermissionController] to say so keeps a controller
      * that answers differently — an adapter over an app's own permission code, a test double left at
      * "denied" — from silently suppressing every notification on older devices.
      */
     private suspend fun mayPostNotifications(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            permissionHandler.check(Permission.NOTIFICATIONS).isGranted
+            permissions.check(CommonPermission.Notifications).isUsable
 
     override fun cancel(id: String) {
         coalescer.forget(id)

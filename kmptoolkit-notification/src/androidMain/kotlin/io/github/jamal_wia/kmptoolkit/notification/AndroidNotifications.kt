@@ -20,7 +20,7 @@ import android.os.Build
  *     PLAYBACK.platformId,
  *     buildForegroundNotification(this, PLAYBACK, notification, config, options),
  * )
- * // elsewhere: createNotifier(context, permissionHandler, config, foregroundIds = setOf(PLAYBACK))
+ * // elsewhere: createNotifier(context, permissions, config, foregroundIds = setOf(PLAYBACK))
  * ```
  *
  * The result is always `ongoing`, whatever [notification] says: the platform's own requirement for a

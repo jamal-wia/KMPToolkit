@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * The check → rationale → request → settings decision for one [Permission], as an explicit state
  * machine and nothing else.
  *
- * A [PermissionHandler] alone leaves the interesting part to the caller, and in practice the caller
+ * A [PermissionController] alone leaves the interesting part to the caller, and in practice the caller
  * drops it: code calls `request()`, gets [PermissionStatus.PermanentlyDenied] back, and shows
  * nothing — so the user taps a button that will never work again for as long as the app is
  * installed. This type is that missing part, made testable by having no UI in it at all.
@@ -19,11 +19,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * matching method. See `docs/kmptoolkit-permission/03-guide.md`.
  *
  * ```kotlin
- * val flow = PermissionRequestFlow(Permission.MICROPHONE, handler)
+ * val flow = PermissionRequestFlow(CommonPermission.Microphone, controller)
  *
  * // On a "record" tap:
  * when (flow.start()) {
- *     PermissionFlowState.Granted -> startRecording()
+ *     PermissionFlowState.Granted, PermissionFlowState.Limited -> startRecording()
  *     PermissionFlowState.AwaitingRationale -> showWhyWeNeedTheMic()
  *     PermissionFlowState.AwaitingSettings -> offerToOpenSettings()
  *     else -> Unit
@@ -35,17 +35,21 @@ import kotlinx.coroutines.flow.asStateFlow
  * | From | Event | To |
  * |---|---|---|
  * | any but `Requesting` | `start()`, status `Granted` | `Granted` |
+ * | any but `Requesting` | `start()`, status `Limited` | `Limited` |
  * | any but `Requesting` | `start()`, status `PermanentlyDenied` | `AwaitingSettings` |
- * | any but `Requesting` | `start()`, status `Denied(rationale = true)` | `AwaitingRationale` |
- * | any but `Requesting` | `start()`, status `Denied(rationale = false)` or `NotDetermined` | `Requesting`, then the request outcome |
+ * | any but `Requesting` | `start()`, status `Restricted` or `Unavailable` | `Unavailable` |
+ * | any but `Requesting` | `start()`, status `Denied(explainFirst = true)` | `AwaitingRationale` |
+ * | any but `Requesting` | `start()`, status `Denied(explainFirst = false)` or `NotDetermined` | `Requesting`, then the request outcome |
  * | `Requesting` | request granted | `Granted` |
+ * | `Requesting` | request limited | `Limited` |
  * | `Requesting` | request permanently denied | `AwaitingSettings` |
+ * | `Requesting` | request restricted or unavailable | `Unavailable` |
  * | `Requesting` | request denied or unanswered | `Denied` |
  * | `AwaitingRationale` | `rationaleAcknowledged()` | `Requesting`, then the request outcome |
  * | `AwaitingRationale` | `rationaleDismissed()` | `Denied` |
  * | `AwaitingSettings` | `openSettings()` | `AwaitingSettings` (the app is backgrounded) |
  * | `AwaitingSettings` | `settingsDeclined()` | `Denied` |
- * | any but `Requesting` | `refresh()` | the OS's current view: `Granted` / `AwaitingSettings` / `AwaitingRationale` / `Idle` |
+ * | any but `Requesting` | `refresh()` | the OS's current view: `Granted` / `Limited` / `AwaitingSettings` / `Unavailable` / `AwaitingRationale` / `Idle` |
  * | any but `Requesting` | `reset()` | `Idle` |
  *
  * Every method that does not apply to the current state is a **no-op that returns the unchanged
@@ -55,20 +59,21 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * **Drive one flow from one coroutine**, normally the UI one. It holds mutable state and does not
  * synchronize; two coroutines calling [start] concurrently can both get past the
- * [PermissionFlowState.Requesting] guard. This mirrors the single-dialog-at-a-time reality of both
- * platforms rather than papering over it.
+ * [PermissionFlowState.Requesting] guard. The controller underneath does serialize their requests, so
+ * no two dialogs ever overlap, but the flow's own state would then follow whichever finished last.
  *
  * The instance is cheap and holds no platform resource — there is nothing to release. Keep one per
  * screen, or build one per tap; both are fine.
  *
- * @param permission the single permission this flow is about. A flow is deliberately not a
- *   multi-permission batch: the rationale and settings decisions differ per permission, and a
- *   batch would have to collapse them into one answer.
- * @param handler the platform seam it drives.
+ * @param permission the single permission this flow is about — common or platform-specific. A flow
+ *   is deliberately not a multi-permission batch: the rationale and settings decisions differ per
+ *   permission, and a batch would have to collapse them into one answer. For a batch without those
+ *   decisions, call [PermissionController.request] with a collection.
+ * @param controller the platform engine it drives.
  */
 public class PermissionRequestFlow(
     public val permission: Permission,
-    private val handler: PermissionHandler,
+    private val controller: PermissionController,
 ) {
 
     private val mutableState: MutableStateFlow<PermissionFlowState> =
@@ -95,11 +100,13 @@ public class PermissionRequestFlow(
      */
     public suspend fun start(): PermissionFlowState {
         if (mutableState.value == PermissionFlowState.Requesting) return PermissionFlowState.Requesting
-        return when (val status: PermissionStatus = handler.check(permission)) {
+        return when (val status: PermissionStatus = controller.check(permission)) {
             is PermissionStatus.Granted -> moveTo(PermissionFlowState.Granted)
+            is PermissionStatus.Limited -> moveTo(PermissionFlowState.Limited)
             is PermissionStatus.PermanentlyDenied -> moveTo(PermissionFlowState.AwaitingSettings)
+            is PermissionStatus.Restricted, is PermissionStatus.Unavailable -> moveTo(PermissionFlowState.Unavailable)
             is PermissionStatus.Denied ->
-                if (status.shouldShowRationale) {
+                if (status.explainFirst) {
                     moveTo(PermissionFlowState.AwaitingRationale)
                 } else {
                     prompt()
@@ -133,7 +140,8 @@ public class PermissionRequestFlow(
         }
 
     /**
-     * Sends the user to the system settings page for this app.
+     * Sends the user to the most specific system settings screen for [permission] —
+     * [PermissionController.openSettings].
      *
      * The state stays [PermissionFlowState.AwaitingSettings], because nothing has been decided —
      * the app is merely in the background now. Call [refresh] when your screen returns to the
@@ -143,7 +151,7 @@ public class PermissionRequestFlow(
      *   opened), or when the platform could not open the settings screen at all.
      */
     public fun openSettings(): Boolean =
-        mutableState.value == PermissionFlowState.AwaitingSettings && handler.openAppSettings()
+        mutableState.value == PermissionFlowState.AwaitingSettings && controller.openSettings(permission)
 
     /**
      * The user declined the trip to settings: the flow ends at [PermissionFlowState.Denied].
@@ -175,11 +183,13 @@ public class PermissionRequestFlow(
     public suspend fun refresh(): PermissionFlowState {
         if (mutableState.value == PermissionFlowState.Requesting) return PermissionFlowState.Requesting
         return moveTo(
-            when (val status: PermissionStatus = handler.check(permission)) {
+            when (val status: PermissionStatus = controller.check(permission)) {
                 is PermissionStatus.Granted -> PermissionFlowState.Granted
+                is PermissionStatus.Limited -> PermissionFlowState.Limited
                 is PermissionStatus.PermanentlyDenied -> PermissionFlowState.AwaitingSettings
+                is PermissionStatus.Restricted, is PermissionStatus.Unavailable -> PermissionFlowState.Unavailable
                 is PermissionStatus.Denied ->
-                    if (status.shouldShowRationale) {
+                    if (status.explainFirst) {
                         PermissionFlowState.AwaitingRationale
                     } else {
                         PermissionFlowState.Idle
@@ -220,9 +230,11 @@ public class PermissionRequestFlow(
     private suspend fun prompt(): PermissionFlowState {
         moveTo(PermissionFlowState.Requesting)
         return moveTo(
-            when (handler.request(permission)) {
+            when (controller.request(permission)) {
                 is PermissionStatus.Granted -> PermissionFlowState.Granted
+                is PermissionStatus.Limited -> PermissionFlowState.Limited
                 is PermissionStatus.PermanentlyDenied -> PermissionFlowState.AwaitingSettings
+                is PermissionStatus.Restricted, is PermissionStatus.Unavailable -> PermissionFlowState.Unavailable
                 is PermissionStatus.Denied, is PermissionStatus.NotDetermined ->
                     PermissionFlowState.Denied
             },

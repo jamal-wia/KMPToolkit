@@ -3,9 +3,9 @@ package io.github.jamal_wia.kmptoolkit.notification
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import io.github.jamal_wia.kmptoolkit.permission.Permission
+import io.github.jamal_wia.kmptoolkit.permission.CommonPermission
 import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
-import io.github.jamal_wia.kmptoolkit.permission.testing.RecordingPermissionHandler
+import io.github.jamal_wia.kmptoolkit.permission.testing.FakePermissionController
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.test.runTest
@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 
 /**
- * Below API 33 `POST_NOTIFICATIONS` does not exist, so nothing a [PermissionHandler] says about it
+ * Below API 33 `POST_NOTIFICATIONS` does not exist, so nothing a [PermissionController] says about it
  * may keep a notification from being posted there.
  */
 @RunWith(AndroidJUnit4::class)
@@ -30,7 +30,7 @@ class AndroidNotifierPreTiramisuTest {
 
     @Test
     fun `a handler reporting the permission denied does not block a post below API 33`() = runTest {
-        val permissions = RecordingPermissionHandler(defaultStatus = PermissionStatus.Denied())
+        val permissions = FakePermissionController(defaultStatus = PermissionStatus.Denied())
 
         val result: NotificationResult = createNotifier(context, permissions).post("n", notification)
 
@@ -39,10 +39,10 @@ class AndroidNotifierPreTiramisuTest {
 
     @Test
     fun `the handler is not even asked below API 33`() = runTest {
-        val permissions = RecordingPermissionHandler(defaultStatus = PermissionStatus.Granted)
+        val permissions = FakePermissionController(defaultStatus = PermissionStatus.Granted)
 
         createNotifier(context, permissions).post("n", notification)
 
-        assertEquals(emptyList(), permissions.checks.filter { it == Permission.NOTIFICATIONS })
+        assertEquals(emptyList(), permissions.checks.filter { it == CommonPermission.Notifications })
     }
 }

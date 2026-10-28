@@ -7,7 +7,7 @@ import android.provider.Settings
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
-import io.github.jamal_wia.kmptoolkit.permission.testing.RecordingPermissionHandler
+import io.github.jamal_wia.kmptoolkit.permission.testing.FakePermissionController
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -43,7 +43,7 @@ class AndroidNotifierLegacyTest {
     private val shown: List<Notification>
         get() = shadowOf(manager).allNotifications
 
-    private val permissions = RecordingPermissionHandler(defaultStatus = PermissionStatus.Granted)
+    private val permissions = FakePermissionController(defaultStatus = PermissionStatus.Granted)
 
     private fun notifier(): Notifier = createNotifier(
         context,

@@ -64,7 +64,7 @@ Posting a notification looks like one line on each platform, and behaves like ne
   [`03-guide.md`](03-guide.md#action-buttons).
 
 Dependencies: [`kmptoolkit-permission`](../kmptoolkit-permission/01-overview.md) (to check
-`Permission.NOTIFICATIONS`, never to request it), `kotlinx-coroutines-core`, and `androidx.core` on
+`CommonPermission.Notifications`, never to request it), `kotlinx-coroutines-core`, and `androidx.core` on
 Android. No DI framework, no Compose, no push SDK.
 
 ## What this is **not**
