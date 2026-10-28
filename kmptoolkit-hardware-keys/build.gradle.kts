@@ -1,7 +1,3 @@
-// `compose.uiTest` (Compose Multiplatform's test artifact, used by the Robolectric-backed UI tests
-// in androidHostTest) is still behind this opt-in as of Compose Multiplatform 1.11.
-@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
-
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.compose")
@@ -42,8 +38,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             // `runtime` for DisposableEffect; `ui` for LocalView and DialogWindowProvider on Android.
-            implementation(compose.runtime)
-            implementation(compose.ui)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.ui)
         }
 
         androidMain.dependencies {
@@ -57,7 +53,7 @@ kotlin {
         }
 
         androidHostTest.dependencies {
-            implementation(compose.uiTest)
+            implementation(libs.compose.ui.test)
             // ComponentActivity for the Robolectric Compose test host — see
             // kmptoolkit-systembars/build.gradle.kts for why this is a host-test dependency.
             implementation(project.dependencies.platform(libs.androidx.compose.bom))

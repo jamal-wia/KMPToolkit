@@ -315,8 +315,11 @@ one does not rediscover them:
   android.hardware.input.InputManager.getInstance()`, and every SDK 36+ run additionally needs
   `--add-exports=java.base/jdk.internal.access=ALL-UNNAMED` on the test JVM. The default is
   `compileSdk` 37, so an unpinned test lands on exactly that.
-- `compose.uiTest` requires `@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)`
-  at the top of the build file.
+- Compose dependencies come from the version catalog (`libs.compose.runtime`, `libs.compose.ui`,
+  `libs.compose.ui.test`, …), not from the Compose Gradle plugin's `compose.*` aliases, which are
+  deprecated since Compose Multiplatform 1.10. The catalog's `compose.ui.test` also needs no
+  `@file:OptIn(ExperimentalComposeLibrary::class)`, which the old `compose.uiTest` alias did.
+  `compose.desktop.currentOs` (desktop UI tests only) is not deprecated and stays.
 - `androidx.compose.ui.test.runComposeUiTest` is deprecated in 1.11; import
   `androidx.compose.ui.test.v2.runComposeUiTest` instead — same signature.
 - A module-wide `src/androidHostTest/resources/robolectric.properties` holding `sdk=35` is

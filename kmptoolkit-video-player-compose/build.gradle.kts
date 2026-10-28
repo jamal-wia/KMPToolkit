@@ -1,6 +1,3 @@
-// `compose.uiTest` is still behind this opt-in as of Compose Multiplatform 1.11.
-@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
-
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.compose")
@@ -30,10 +27,10 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":kmptoolkit-video-player"))
-            implementation(compose.runtime)
-            implementation(compose.ui)
-            implementation(compose.foundation)
-            implementation(compose.animation)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.ui)
+            implementation(libs.compose.foundation)
+            implementation(libs.compose.animation)
             implementation(libs.androidx.lifecycle.runtime.compose)
         }
         // The UI tests drive the library's real state machine over the fake engine, not a
@@ -48,7 +45,7 @@ kotlin {
         androidHostTest {
             kotlin.srcDir("src/uiTest/kotlin")
             dependencies {
-                implementation(compose.uiTest)
+                implementation(libs.compose.ui.test)
                 // ComponentActivity for the Robolectric Compose test host — see
                 // kmptoolkit-systembars/build.gradle.kts for why this is a host-test dependency.
                 implementation(project.dependencies.platform(libs.androidx.compose.bom))
@@ -58,7 +55,7 @@ kotlin {
         jvmTest {
             kotlin.srcDir("src/uiTest/kotlin")
             dependencies {
-                implementation(compose.uiTest)
+                implementation(libs.compose.ui.test)
                 // The Skia runtime runComposeUiTest renders through on desktop. Test-only, and for
                 // the machine running the tests — nothing here reaches a published artifact.
                 implementation(compose.desktop.currentOs)

@@ -1,7 +1,3 @@
-// `compose.uiTest` (Compose Multiplatform's test artifact, used by the Robolectric-backed UI tests
-// in androidHostTest) is still behind this opt-in as of Compose Multiplatform 1.11.
-@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
-
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.compose")
@@ -54,16 +50,16 @@ kotlin {
             // controller, the layer stack) is plain Kotlin with no Compose dependency at all;
             // `runtime` is for the effect's DisposableEffect/SideEffect, and `ui` is only for the
             // dialog-window effect, which needs LocalView and DialogWindowProvider on Android.
-            implementation(compose.runtime)
-            implementation(compose.ui)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.ui)
 
             // AutoSystemBarsIconStyle's probe Box: Modifier.fillMaxSize(), WindowInsets.statusBars
             // / navigationBars.
-            implementation(compose.foundation)
+            implementation(libs.compose.foundation)
 
             // AutoSystemBarsIconStyle pauses sampling below Lifecycle.State.STARTED — a backgrounded
             // screen must be neither read nor written to. This is the one real dependency this pulls
-            // in beyond compose.runtime/compose.ui/compose.foundation: LocalLifecycleOwner +
+            // in beyond Compose's runtime/ui/foundation: LocalLifecycleOwner +
             // repeatOnLifecycle.
             implementation(libs.androidx.lifecycle.runtime.compose)
         }
@@ -94,7 +90,7 @@ kotlin {
         }
 
         androidHostTest.dependencies {
-            implementation(compose.uiTest)
+            implementation(libs.compose.ui.test)
             // AutoSystemBarsIconStyleLifecycleTest drives the test clock frame by frame and needs a
             // real Activity to dispatch window insets into, which is `createAndroidComposeRule` —
             // the JUnit4 rule, not the `runComposeUiTest` the other UI tests here use. Versioned
