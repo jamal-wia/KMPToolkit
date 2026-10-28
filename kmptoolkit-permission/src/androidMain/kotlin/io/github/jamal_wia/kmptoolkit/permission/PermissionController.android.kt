@@ -8,6 +8,8 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
@@ -59,7 +61,7 @@ private const val LEGACY_ASKED: String = "true"
 /**
  * Creates the Android [PermissionController].
  *
- * Every collaborator has a default except the two Android forces on you, and each exists for a reason:
+ * Every collaborator but [context] and [storage] has a default, and each exists for a reason:
  *
  * - **[storage]** holds two flags per runtime permission. Android cannot distinguish "never asked",
  *   "dismissed" and "permanently denied" on its own — all three look identical through its API — and
@@ -70,7 +72,10 @@ private const val LEGACY_ASKED: String = "true"
  *   open from. The default tracks activities itself; it must then be created in
  *   `Application.onCreate`, because a tracker created after the first activity resumed does not know
  *   that activity until it resumes again. Pass your app's own access to narrow it to your activities.
- * - **[host]** shows the system dialog — see [PermissionRequestHost].
+ * - **[host]** shows the system dialog and the screens that answer with a result. The default,
+ *   [ActivityResultPermissionRequestHost] on [activityAccess], needs no wiring and survives an activity
+ *   recreated while a dialog is up; pass your own [PermissionRequestHost] if your app already owns that
+ *   plumbing. The controller always calls it on the main thread.
  * - **[systemScreenLauncher]** decides how Settings screens open. The default,
  *   `SystemScreenLauncher.callerTask(activityAccess)`, opens them from the resumed activity on your
  *   task, and in a task of their own with no activity resumed. A lock-task (kiosk) app passes
@@ -93,8 +98,8 @@ private const val LEGACY_ASKED: String = "true"
 public fun createPermissionController(
     context: Context,
     storage: KeyValueStorage,
-    host: PermissionRequestHost,
     activityAccess: ActivityAccess = createActivityAccess(context.applicationContext as Application),
+    host: PermissionRequestHost = ActivityResultPermissionRequestHost(activityAccess),
     systemScreenLauncher: SystemScreenLauncher = SystemScreenLauncher.callerTask(activityAccess),
     config: AndroidPermissionConfig = AndroidPermissionConfig(),
     logger: Logger = NoopLogger,
@@ -509,24 +514,40 @@ internal class AndroidPermissionController(
      *   distinction the caller needs, because "no dialog appeared" must not be recorded as a refusal.
      */
     private suspend fun launchDialog(androidPermissions: List<String>): Map<String, Boolean>? =
+        launchOnHost("The permission dialog for $androidPermissions") { deliver ->
+            host.launch(androidPermissions) { answers -> deliver(answers) }
+        }
+
+    /**
+     * Runs [launch] on the main thread — an `ActivityResultLauncher` must be started there, and the
+     * caller's coroutine may be anywhere — and suspends for the value it delivers.
+     *
+     * @return the delivered value, or `null` when the host could not show anything. A host that both
+     *   reports failure and delivers breaks its contract; the continuation is resumed exactly once
+     *   regardless.
+     */
+    private suspend fun <T : Any> launchOnHost(what: String, launch: (deliver: (T) -> Unit) -> Boolean): T? =
         suspendCancellableCoroutine { continuation ->
-            // A host that both reports failure and invokes the callback breaks its contract; this
-            // guarantees the continuation is resumed exactly once regardless.
             val delivered = AtomicBoolean(false)
-            val deliver: (Map<String, Boolean>?) -> Unit = { answers ->
-                if (delivered.compareAndSet(false, true) && continuation.isActive) continuation.resume(answers)
+            val deliver: (T?) -> Unit = { value ->
+                if (delivered.compareAndSet(false, true) && continuation.isActive) continuation.resume(value)
             }
-            val launched: Boolean = runCatching {
-                host.launch(androidPermissions) { answers -> deliver(answers) }
-            }.getOrElse { cause ->
-                logger.w(cause) { "The permission request host threw while launching" }
-                false
-            }
-            if (!launched && !delivered.get()) {
-                logger.w { "The permission dialog for $androidPermissions could not be shown" }
-                deliver(null)
+            onMainThread {
+                val launched: Boolean = runCatching { launch { value -> deliver(value) } }.getOrElse { cause ->
+                    logger.w(cause) { "The permission request host threw while launching" }
+                    false
+                }
+                if (!launched && !delivered.get()) {
+                    logger.w { "$what could not be shown" }
+                    deliver(null)
+                }
             }
         }
+
+    private fun onMainThread(block: () -> Unit) {
+        val main: Looper = Looper.getMainLooper()
+        if (Looper.myLooper() == main) block() else Handler(main).post(block)
+    }
 
     // --- status ---------------------------------------------------------------------------------
 

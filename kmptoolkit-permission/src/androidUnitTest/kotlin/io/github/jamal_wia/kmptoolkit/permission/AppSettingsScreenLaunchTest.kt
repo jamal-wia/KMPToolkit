@@ -56,7 +56,7 @@ class AppSettingsScreenLaunchTest {
 
     @Test
     fun `the default factory opens settings from the resumed activity, on the app's task`() {
-        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host)
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host = host)
         val activity: RecordingActivity = resumedRecordingActivity()
 
         assertTrue(handler.openSettings(CommonPermission.Camera))
@@ -69,7 +69,7 @@ class AppSettingsScreenLaunchTest {
 
     @Test
     fun `the default factory opens settings in a task of its own with no activity resumed`() {
-        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host)
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host = host)
 
         assertTrue(handler.openSettings(CommonPermission.Camera))
 
@@ -85,7 +85,7 @@ class AppSettingsScreenLaunchTest {
     fun `the activity access factory opens settings from that access's activity`() {
         val activity: RecordingActivity = resumedRecordingActivity()
         val handler: PermissionController =
-            createPermissionController(application, InMemoryKeyValueStorage(), host, FixedActivityAccess(activity))
+            createPermissionController(application, InMemoryKeyValueStorage(), FixedActivityAccess(activity), host)
 
         assertTrue(handler.openSettings(CommonPermission.Camera))
 
@@ -98,7 +98,7 @@ class AppSettingsScreenLaunchTest {
     @Test
     fun `the activity access factory uses the access it is given, not the last resumed activity`() {
         val access: ActivityAccess = createActivityAccess(application) { false }.also { accesses += it }
-        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host, access)
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), access, host)
         val activity: RecordingActivity = resumedRecordingActivity()
 
         assertTrue(handler.openSettings(CommonPermission.Camera))
@@ -111,7 +111,7 @@ class AppSettingsScreenLaunchTest {
     @Test
     fun `the activity access factory falls back to a separate task with no activity resumed`() {
         val access: ActivityAccess = createActivityAccess(application).also { accesses += it }
-        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host, access)
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), access, host)
 
         assertTrue(handler.openSettings(CommonPermission.Camera))
 
@@ -129,8 +129,8 @@ class AppSettingsScreenLaunchTest {
         val handler: PermissionController = createPermissionController(
             application,
             InMemoryKeyValueStorage(),
-            host,
             FixedActivityAccess(activity),
+            host,
             logger = logger,
         )
 
@@ -144,7 +144,7 @@ class AppSettingsScreenLaunchTest {
     @Test
     fun `a details page the device does not have is reported as not opened`() {
         shadowOf(application).checkActivities(true)
-        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host)
+        val handler: PermissionController = createPermissionController(application, InMemoryKeyValueStorage(), host = host)
 
         assertFalse(handler.openSettings(CommonPermission.Camera))
         assertNull(shadowOf(application).nextStartedActivity)
@@ -175,8 +175,8 @@ class AppSettingsScreenLaunchTest {
         val handler: PermissionController = createPermissionController(
             application,
             InMemoryKeyValueStorage(),
-            host,
             access,
+            host,
             SystemScreenLauncher.callerTask(access),
         )
 
@@ -231,8 +231,8 @@ class AppSettingsScreenLaunchTest {
             reference(
                 application,
                 InMemoryKeyValueStorage(),
-                host,
                 FixedActivityAccess(resumedRecordingActivity()),
+                host,
                 SystemScreenLauncher.SeparateTask,
                 AndroidPermissionConfig(),
                 NoopLogger,

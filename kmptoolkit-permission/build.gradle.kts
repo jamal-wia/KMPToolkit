@@ -58,6 +58,12 @@ kotlin {
             // and PermissionScreen is a SystemScreenKind, so a consumer needs it on their compile
             // classpath to call it.
             api(project(":kmptoolkit-activity"))
+
+            // ActivityResultPermissionRequestHost: a ComponentActivity's ActivityResultRegistry is the
+            // one way to show a permission dialog or a role chooser that survives the activity being
+            // recreated meanwhile. implementation, not api: no androidx.activity type is in this
+            // module's public signatures.
+            implementation(libs.androidx.activity)
         }
         androidUnitTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

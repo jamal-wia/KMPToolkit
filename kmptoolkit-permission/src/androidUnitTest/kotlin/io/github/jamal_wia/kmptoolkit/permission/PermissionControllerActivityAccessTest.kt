@@ -84,7 +84,7 @@ class PermissionControllerActivityAccessTest {
         shadowOf(application).denyPermissions(Manifest.permission.CAMERA)
         val access = ScriptedActivityAccess(activity)
         val handler: PermissionController =
-            createPermissionController(application, InMemoryKeyValueStorage(), refusingHost(access), access)
+            createPermissionController(application, InMemoryKeyValueStorage(), access, refusingHost(access))
         launch {
             delay(100)
             access.resume()
@@ -101,7 +101,7 @@ class PermissionControllerActivityAccessTest {
         shadowOf(application).denyPermissions(Manifest.permission.CAMERA)
         val access = ScriptedActivityAccess(activity)
         val handler: PermissionController =
-            createPermissionController(application, InMemoryKeyValueStorage(), refusingHost(access), access)
+            createPermissionController(application, InMemoryKeyValueStorage(), access, refusingHost(access))
 
         val status: PermissionStatus = handler.request(CommonPermission.Camera)
 
@@ -114,7 +114,7 @@ class PermissionControllerActivityAccessTest {
         shadowOf(application).denyPermissions(Manifest.permission.CAMERA)
         val access = ScriptedActivityAccess(activity)
         val handler: PermissionController =
-            createPermissionController(application, InMemoryKeyValueStorage(), refusingHost(access), access)
+            createPermissionController(application, InMemoryKeyValueStorage(), access, refusingHost(access))
 
         val requesting = launch { handler.request(CommonPermission.Camera) }
         runCurrent()
@@ -133,7 +133,7 @@ class PermissionControllerActivityAccessTest {
         val access = ScriptedActivityAccess(activity)
 
         val status: PermissionStatus =
-            createPermissionController(application, InMemoryKeyValueStorage(), refusingHost(access), access)
+            createPermissionController(application, InMemoryKeyValueStorage(), access, refusingHost(access))
                 .check(CommonPermission.Camera)
 
         assertEquals(PermissionStatus.Denied(explainFirst = true), status)
