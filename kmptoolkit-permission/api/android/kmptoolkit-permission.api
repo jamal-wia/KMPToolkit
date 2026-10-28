@@ -137,6 +137,14 @@ public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Au
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$BluetoothAdvertise : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$BluetoothAdvertise;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$BluetoothConnect : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$BluetoothConnect;
 	public fun equals (Ljava/lang/Object;)Z
@@ -153,6 +161,22 @@ public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Bl
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Calendar : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$Calendar;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$CalendarWriteOnly : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$CalendarWriteOnly;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Camera : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$Camera;
 	public fun equals (Ljava/lang/Object;)Z
@@ -163,6 +187,14 @@ public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Ca
 
 public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Companion {
 	public final fun getEntries ()Ljava/util/List;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Contacts : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$Contacts;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Location : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
@@ -189,8 +221,32 @@ public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Mi
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$MotionActivity : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$MotionActivity;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$Notifications : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$Notifications;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$PhotoLibrary : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$PhotoLibrary;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/permission/CommonPermission$PhotoLibraryAdd : io/github/jamal_wia/kmptoolkit/permission/CommonPermission {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/permission/CommonPermission$PhotoLibraryAdd;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getId ()Ljava/lang/String;
 	public fun hashCode ()I

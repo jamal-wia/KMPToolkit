@@ -24,6 +24,8 @@ import platform.AVFoundation.requestAccessForMediaType
 import platform.CoreLocation.CLAuthorizationStatus
 import platform.CoreLocation.kCLAuthorizationStatusNotDetermined
 import platform.Foundation.NSURL
+import platform.Photos.PHAccessLevelAddOnly
+import platform.Photos.PHAccessLevelReadWrite
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationOpenNotificationSettingsURLString
 import platform.UIKit.UIApplicationOpenSettingsURLString
@@ -132,9 +134,15 @@ internal class IosPermissionController(
         return true
     }
 
-    /** iOS has one Bluetooth authorization: a request for any Bluetooth entry answers all of them. */
-    private fun Permission.statusSource(): Permission =
-        if (this == CommonPermission.BluetoothScan) CommonPermission.BluetoothConnect else this
+    /**
+     * The entry whose request answers [this] too: iOS has one Bluetooth authorization for every
+     * Bluetooth entry, and one events authorization for both calendar entries.
+     */
+    private fun Permission.statusSource(): Permission = when (this) {
+        CommonPermission.BluetoothScan, CommonPermission.BluetoothAdvertise -> CommonPermission.BluetoothConnect
+        CommonPermission.CalendarWriteOnly -> CommonPermission.Calendar
+        else -> this
+    }
 
     /**
      * The `Info.plist` key [permission] needs and the app lacks: `""` when nothing is missing, `null`
@@ -165,7 +173,17 @@ internal class IosPermissionController(
         CommonPermission.LocationBackground ->
             listOf("NSLocationWhenInUseUsageDescription", "NSLocationAlwaysAndWhenInUseUsageDescription")
         CommonPermission.AudioLibrary -> listOf("NSAppleMusicUsageDescription")
-        CommonPermission.BluetoothConnect, CommonPermission.BluetoothScan -> listOf("NSBluetoothAlwaysUsageDescription")
+        CommonPermission.BluetoothConnect, CommonPermission.BluetoothScan, CommonPermission.BluetoothAdvertise ->
+            listOf("NSBluetoothAlwaysUsageDescription")
+        CommonPermission.PhotoLibrary -> listOf("NSPhotoLibraryUsageDescription")
+        CommonPermission.PhotoLibraryAdd -> listOf("NSPhotoLibraryAddUsageDescription")
+        CommonPermission.Contacts -> listOf("NSContactsUsageDescription")
+        // iOS 17 split the calendar purpose string by access level; the old key is ignored there.
+        CommonPermission.Calendar ->
+            listOf(if (isIosAtLeast(17)) "NSCalendarsFullAccessUsageDescription" else "NSCalendarsUsageDescription")
+        CommonPermission.CalendarWriteOnly ->
+            listOf(if (isIosAtLeast(17)) "NSCalendarsWriteOnlyAccessUsageDescription" else "NSCalendarsUsageDescription")
+        CommonPermission.MotionActivity -> listOf("NSMotionUsageDescription")
         else -> null
     }
 
@@ -181,8 +199,15 @@ internal class IosPermissionController(
             LocationAuthorization.isAccuracyReduced(),
         )
         CommonPermission.AudioLibrary -> mediaLibraryStatus(MediaLibraryAuthorization.current())
-        CommonPermission.BluetoothConnect, CommonPermission.BluetoothScan ->
+        CommonPermission.BluetoothConnect, CommonPermission.BluetoothScan, CommonPermission.BluetoothAdvertise ->
             bluetoothStatus(BluetoothAuthorization.current())
+        CommonPermission.PhotoLibrary -> photoLibraryStatus(PhotoLibraryAuthorization.current(PHAccessLevelReadWrite))
+        CommonPermission.PhotoLibraryAdd -> photoLibraryStatus(PhotoLibraryAuthorization.current(PHAccessLevelAddOnly))
+        CommonPermission.Contacts -> contactsStatus(ContactsAuthorization.current())
+        CommonPermission.Calendar -> calendarStatus(CalendarAuthorization.current(), writeOnly = false)
+        CommonPermission.CalendarWriteOnly -> calendarStatus(CalendarAuthorization.current(), writeOnly = true)
+        CommonPermission.MotionActivity ->
+            motionActivityStatus(MotionActivityAuthorization.current(), MotionActivityAuthorization.isAvailable())
         else -> PermissionStatus.Unavailable
     }
 
@@ -195,7 +220,7 @@ internal class IosPermissionController(
         // iOS shows nothing for these, so asking would suspend on a callback that fires immediately
         // with the same answer — or, for a missing purpose string, terminate the app.
         if (current !is PermissionStatus.NotDetermined && current !is PermissionStatus.Denied &&
-            !(current is PermissionStatus.Limited && permission == CommonPermission.Notifications)
+            !(current is PermissionStatus.Limited && permission.upgradesFromLimited())
         ) {
             return current
         }
@@ -209,11 +234,38 @@ internal class IosPermissionController(
             }
             CommonPermission.LocationBackground -> requestBackgroundLocation()
             CommonPermission.AudioLibrary -> mediaLibraryStatus(MediaLibraryAuthorization.request())
-            CommonPermission.BluetoothConnect, CommonPermission.BluetoothScan ->
+            CommonPermission.BluetoothConnect, CommonPermission.BluetoothScan, CommonPermission.BluetoothAdvertise ->
                 bluetoothStatus(BluetoothAuthorization.request())
+            CommonPermission.PhotoLibrary ->
+                photoLibraryStatus(PhotoLibraryAuthorization.request(PHAccessLevelReadWrite))
+            CommonPermission.PhotoLibraryAdd ->
+                photoLibraryStatus(PhotoLibraryAuthorization.request(PHAccessLevelAddOnly))
+            CommonPermission.Contacts -> {
+                ContactsAuthorization.request { error -> logger.w { "Contacts authorization failed: $error" } }
+                // Re-read rather than trusting the Boolean: it does not tell limited from full.
+                currentStatus(permission)
+            }
+            CommonPermission.Calendar, CommonPermission.CalendarWriteOnly -> {
+                CalendarAuthorization.request(writeOnly = permission == CommonPermission.CalendarWriteOnly) { error ->
+                    logger.w { "Calendar authorization failed: $error" }
+                }
+                currentStatus(permission)
+            }
+            CommonPermission.MotionActivity -> {
+                MotionActivityAuthorization.request()
+                currentStatus(permission)
+            }
             else -> current
         }
     }
+
+    /**
+     * Whether iOS still shows a dialog from a [PermissionStatus.Limited] grant of this entry: the full
+     * notification prompt from provisional, and the full-access prompt from write-only calendar access.
+     * A limited photo library or contact list is changed in the system's own pickers instead.
+     */
+    private fun Permission.upgradesFromLimited(): Boolean =
+        this == CommonPermission.Notifications || this == CommonPermission.Calendar
 
     /**
      * iOS grants "always" as an upgrade of "when in use": asking for it while location is not

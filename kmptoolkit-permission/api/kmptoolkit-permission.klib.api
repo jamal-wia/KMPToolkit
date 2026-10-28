@@ -29,6 +29,15 @@ sealed interface io.github.jamal_wia.kmptoolkit.permission/CommonPermission : io
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.AudioLibrary.toString|toString(){}[0]
     }
 
+    final object BluetoothAdvertise : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothAdvertise|null[0]
+        final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothAdvertise.id|{}id[0]
+            final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothAdvertise.id.<get-id>|<get-id>(){}[0]
+
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothAdvertise.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothAdvertise.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothAdvertise.toString|toString(){}[0]
+    }
+
     final object BluetoothConnect : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothConnect|null[0]
         final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothConnect.id|{}id[0]
             final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothConnect.id.<get-id>|<get-id>(){}[0]
@@ -47,6 +56,24 @@ sealed interface io.github.jamal_wia.kmptoolkit.permission/CommonPermission : io
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.BluetoothScan.toString|toString(){}[0]
     }
 
+    final object Calendar : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Calendar|null[0]
+        final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Calendar.id|{}id[0]
+            final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Calendar.id.<get-id>|<get-id>(){}[0]
+
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Calendar.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Calendar.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Calendar.toString|toString(){}[0]
+    }
+
+    final object CalendarWriteOnly : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.CalendarWriteOnly|null[0]
+        final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.CalendarWriteOnly.id|{}id[0]
+            final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.CalendarWriteOnly.id.<get-id>|<get-id>(){}[0]
+
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.CalendarWriteOnly.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.CalendarWriteOnly.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.CalendarWriteOnly.toString|toString(){}[0]
+    }
+
     final object Camera : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Camera|null[0]
         final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Camera.id|{}id[0]
             final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Camera.id.<get-id>|<get-id>(){}[0]
@@ -59,6 +86,15 @@ sealed interface io.github.jamal_wia.kmptoolkit.permission/CommonPermission : io
     final object Companion { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Companion|null[0]
         final val entries // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Companion.entries|{}entries[0]
             final fun <get-entries>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.permission/CommonPermission> // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Companion.entries.<get-entries>|<get-entries>(){}[0]
+    }
+
+    final object Contacts : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Contacts|null[0]
+        final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Contacts.id|{}id[0]
+            final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Contacts.id.<get-id>|<get-id>(){}[0]
+
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Contacts.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Contacts.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Contacts.toString|toString(){}[0]
     }
 
     final object Location : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Location|null[0]
@@ -88,6 +124,15 @@ sealed interface io.github.jamal_wia.kmptoolkit.permission/CommonPermission : io
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Microphone.toString|toString(){}[0]
     }
 
+    final object MotionActivity : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.MotionActivity|null[0]
+        final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.MotionActivity.id|{}id[0]
+            final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.MotionActivity.id.<get-id>|<get-id>(){}[0]
+
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.MotionActivity.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.MotionActivity.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.MotionActivity.toString|toString(){}[0]
+    }
+
     final object Notifications : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Notifications|null[0]
         final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Notifications.id|{}id[0]
             final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Notifications.id.<get-id>|<get-id>(){}[0]
@@ -95,6 +140,24 @@ sealed interface io.github.jamal_wia.kmptoolkit.permission/CommonPermission : io
         final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Notifications.equals|equals(kotlin.Any?){}[0]
         final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Notifications.hashCode|hashCode(){}[0]
         final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.Notifications.toString|toString(){}[0]
+    }
+
+    final object PhotoLibrary : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibrary|null[0]
+        final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibrary.id|{}id[0]
+            final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibrary.id.<get-id>|<get-id>(){}[0]
+
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibrary.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibrary.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibrary.toString|toString(){}[0]
+    }
+
+    final object PhotoLibraryAdd : io.github.jamal_wia.kmptoolkit.permission/CommonPermission { // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibraryAdd|null[0]
+        final val id // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibraryAdd.id|{}id[0]
+            final fun <get-id>(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibraryAdd.id.<get-id>|<get-id>(){}[0]
+
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibraryAdd.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibraryAdd.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.permission/CommonPermission.PhotoLibraryAdd.toString|toString(){}[0]
     }
 }
 
@@ -224,3 +287,4 @@ final val io.github.jamal_wia.kmptoolkit.permission/isUsable // io.github.jamal_
     final fun (io.github.jamal_wia.kmptoolkit.permission/PermissionStatus).<get-isUsable>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/isUsable.<get-isUsable>|<get-isUsable>@io.github.jamal_wia.kmptoolkit.permission.PermissionStatus(){}[0]
 
 final fun io.github.jamal_wia.kmptoolkit.permission/createPermissionController(io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.permission/PermissionController // io.github.jamal_wia.kmptoolkit.permission/createPermissionController|createPermissionController(io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]
+final suspend fun io.github.jamal_wia.kmptoolkit.permission/presentLimitedPhotoLibraryPicker(platform.UIKit/UIViewController): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.permission/presentLimitedPhotoLibraryPicker|presentLimitedPhotoLibraryPicker(platform.UIKit.UIViewController){}[0]

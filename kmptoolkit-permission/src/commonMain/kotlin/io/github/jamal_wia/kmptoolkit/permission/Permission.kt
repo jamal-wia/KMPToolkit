@@ -159,6 +159,92 @@ public sealed interface CommonPermission : Permission {
         override val id: String = "BLUETOOTH_SCAN"
     }
 
+    /**
+     * Advertise this device to nearby Bluetooth devices — act as a BLE peripheral.
+     *
+     * - Android: `BLUETOOTH_ADVERTISE` from API 31; below it there is no runtime grant and this reports
+     *   [PermissionStatus.Granted].
+     * - iOS: `CBManager` authorization — the same single Bluetooth authorization as [BluetoothConnect].
+     */
+    public data object BluetoothAdvertise : CommonPermission {
+        override val id: String = "BLUETOOTH_ADVERTISE"
+    }
+
+    /**
+     * Read the user's photos and videos.
+     *
+     * - Android: `READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` from API 33 (whichever of the two your
+     *   manifest declares), `READ_EXTERNAL_STORAGE` below it. From API 34 the dialog also offers
+     *   "Select photos and videos" when you declare `READ_MEDIA_VISUAL_USER_SELECTED`: that partial
+     *   grant is [PermissionStatus.Limited], and a request from there shows the dialog again, which is
+     *   how the user changes the selection.
+     * - iOS: `PHPhotoLibrary` authorization for the read-write access level. A limited library
+     *   (iOS 14+) is [PermissionStatus.Limited]; iOS does not show the dialog again, so a request from
+     *   there returns at once — call `presentLimitedPhotoLibraryPicker` (iosMain) to let the user change
+     *   the selection.
+     */
+    public data object PhotoLibrary : CommonPermission {
+        override val id: String = "PHOTO_LIBRARY"
+    }
+
+    /**
+     * Save photos and videos to the user's library, without reading it.
+     *
+     * - Android: `WRITE_EXTERNAL_STORAGE` up to API 28; from API 29 an app adds media through
+     *   `MediaStore` without any permission, and this reports [PermissionStatus.Granted].
+     * - iOS: `PHPhotoLibrary` authorization for the add-only access level.
+     */
+    public data object PhotoLibraryAdd : CommonPermission {
+        override val id: String = "PHOTO_LIBRARY_ADD"
+    }
+
+    /**
+     * The user's contacts.
+     *
+     * - Android: `READ_CONTACTS`, together with `WRITE_CONTACTS` when your manifest declares it — both in
+     *   one dialog, and granted only when every declared one is.
+     * - iOS: `CNContactStore` authorization. Limited access — the contacts the user picked, iOS 18+ — is
+     *   [PermissionStatus.Limited].
+     */
+    public data object Contacts : CommonPermission {
+        override val id: String = "CONTACTS"
+    }
+
+    /**
+     * Read and write the user's calendar events.
+     *
+     * - Android: `READ_CALENDAR` and `WRITE_CALENDAR`, in one dialog.
+     * - iOS: EventKit full access to events (`requestFullAccessToEvents` from iOS 17, the single
+     *   events authorization below it). Write-only access, which an iOS 17+ user can grant instead, is
+     *   [PermissionStatus.Limited], and a request from there asks for the upgrade to full access.
+     */
+    public data object Calendar : CommonPermission {
+        override val id: String = "CALENDAR"
+    }
+
+    /**
+     * Add events to the user's calendar, without reading it.
+     *
+     * - Android: `WRITE_CALENDAR`.
+     * - iOS 17+: EventKit write-only access to events; full access also counts. Below iOS 17 there is
+     *   no write-only access, and a request asks for — and the dialog grants — full access.
+     */
+    public data object CalendarWriteOnly : CommonPermission {
+        override val id: String = "CALENDAR_WRITE_ONLY"
+    }
+
+    /**
+     * Recognise the user's physical activity — walking, running, driving — and count steps.
+     *
+     * - Android: `ACTIVITY_RECOGNITION` from API 29; below it there is no runtime grant and this
+     *   reports [PermissionStatus.Granted].
+     * - iOS: `CMMotionActivityManager` authorization. A device without motion-activity hardware is
+     *   [PermissionStatus.Unavailable].
+     */
+    public data object MotionActivity : CommonPermission {
+        override val id: String = "MOTION_ACTIVITY"
+    }
+
     public companion object {
 
         /** Every common permission, in declaration order. */
@@ -172,6 +258,13 @@ public sealed interface CommonPermission : Permission {
                 AudioLibrary,
                 BluetoothConnect,
                 BluetoothScan,
+                BluetoothAdvertise,
+                PhotoLibrary,
+                PhotoLibraryAdd,
+                Contacts,
+                Calendar,
+                CalendarWriteOnly,
+                MotionActivity,
             )
         }
     }

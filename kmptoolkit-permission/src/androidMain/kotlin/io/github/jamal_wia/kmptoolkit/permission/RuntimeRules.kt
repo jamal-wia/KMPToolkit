@@ -94,7 +94,69 @@ internal fun runtimeRule(permission: Permission, sdkInt: Int): RuntimeRule? = wh
             RuntimeRule.SameAs(CommonPermission.Location)
         }
 
+    CommonPermission.BluetoothAdvertise ->
+        if (sdkInt >= Build.VERSION_CODES.S) {
+            RuntimeRule.Dialog(listOf(Manifest.permission.BLUETOOTH_ADVERTISE))
+        } else {
+            RuntimeRule.NoGrantNeeded
+        }
+
+    CommonPermission.PhotoLibrary -> when {
+        // Partial access: the dialog offers "Select photos and videos" only when this is asked too.
+        sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> RuntimeRule.Dialog(
+            listOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+            ),
+            grantOf = ::photoGrant,
+        )
+
+        sdkInt >= Build.VERSION_CODES.TIRAMISU -> RuntimeRule.Dialog(
+            listOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO),
+        )
+
+        else -> RuntimeRule.Dialog(listOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+    }
+
+    CommonPermission.PhotoLibraryAdd ->
+        if (sdkInt >= Build.VERSION_CODES.Q) {
+            // Scoped storage: an app adds media through MediaStore without any permission.
+            RuntimeRule.NoGrantNeeded
+        } else {
+            RuntimeRule.Dialog(listOf(Manifest.permission.WRITE_EXTERNAL_STORAGE))
+        }
+
+    CommonPermission.Contacts ->
+        RuntimeRule.Dialog(listOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS))
+
+    CommonPermission.Calendar ->
+        RuntimeRule.Dialog(listOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR))
+
+    CommonPermission.CalendarWriteOnly -> RuntimeRule.Dialog(listOf(Manifest.permission.WRITE_CALENDAR))
+
+    CommonPermission.MotionActivity ->
+        if (sdkInt >= Build.VERSION_CODES.Q) {
+            RuntimeRule.Dialog(listOf(Manifest.permission.ACTIVITY_RECOGNITION))
+        } else {
+            // An install-time permission before API 29.
+            RuntimeRule.NoGrantNeeded
+        }
+
     else -> null
+}
+
+/**
+ * Photos and videos from API 34: every declared full-access string is the full grant; the
+ * user-selected string alone — the user picked some items — is a limited one.
+ */
+private fun photoGrant(answers: Map<String, Boolean>): Grant {
+    val full: Map<String, Boolean> = answers.filterKeys { it != Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED }
+    return when {
+        full.isNotEmpty() && full.values.all { it } -> Grant.Full
+        answers[Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED] == true -> Grant.Limited
+        else -> Grant.None
+    }
 }
 
 /**

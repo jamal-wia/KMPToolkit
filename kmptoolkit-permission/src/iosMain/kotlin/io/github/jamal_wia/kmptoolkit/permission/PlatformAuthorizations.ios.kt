@@ -34,7 +34,35 @@ import platform.AVFoundation.AVAuthorizationStatus
 import platform.AVFoundation.AVAuthorizationStatusAuthorized
 import platform.AVFoundation.AVAuthorizationStatusDenied
 import platform.AVFoundation.AVAuthorizationStatusRestricted
+import platform.Contacts.CNAuthorizationStatus
+import platform.Contacts.CNAuthorizationStatusAuthorized
+import platform.Contacts.CNAuthorizationStatusDenied
+import platform.Contacts.CNAuthorizationStatusLimited
+import platform.Contacts.CNAuthorizationStatusRestricted
+import platform.Contacts.CNContactStore
+import platform.Contacts.CNEntityType
+import platform.CoreMotion.CMAuthorizationStatus
+import platform.CoreMotion.CMAuthorizationStatusAuthorized
+import platform.CoreMotion.CMAuthorizationStatusDenied
+import platform.CoreMotion.CMAuthorizationStatusRestricted
+import platform.CoreMotion.CMMotionActivityManager
+import platform.EventKit.EKAuthorizationStatus
+import platform.EventKit.EKAuthorizationStatusDenied
+import platform.EventKit.EKAuthorizationStatusFullAccess
+import platform.EventKit.EKAuthorizationStatusRestricted
+import platform.EventKit.EKAuthorizationStatusWriteOnly
+import platform.EventKit.EKEntityType
+import platform.EventKit.EKEventStore
 import platform.Foundation.NSBundle
+import platform.Foundation.NSDate
+import platform.Foundation.NSError
+import platform.Photos.PHAccessLevel
+import platform.Photos.PHAuthorizationStatus
+import platform.Photos.PHAuthorizationStatusAuthorized
+import platform.Photos.PHAuthorizationStatusDenied
+import platform.Photos.PHAuthorizationStatusLimited
+import platform.Photos.PHAuthorizationStatusRestricted
+import platform.Photos.PHPhotoLibrary
 import platform.Foundation.NSNotification
 import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSNotificationCenter
@@ -137,6 +165,50 @@ internal fun captureStatus(status: AVAuthorizationStatus): PermissionStatus = wh
     AVAuthorizationStatusAuthorized -> PermissionStatus.Granted
     AVAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
     AVAuthorizationStatusRestricted -> PermissionStatus.Restricted
+    else -> PermissionStatus.NotDetermined
+}
+
+/**
+ * [CommonPermission.PhotoLibrary] and [CommonPermission.PhotoLibraryAdd]: a limited library — the
+ * items the user picked — is [PermissionStatus.Limited]. iOS reports it only for the read-write level.
+ */
+internal fun photoLibraryStatus(status: PHAuthorizationStatus): PermissionStatus = when (status) {
+    PHAuthorizationStatusAuthorized -> PermissionStatus.Granted
+    PHAuthorizationStatusLimited -> PermissionStatus.Limited
+    PHAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    PHAuthorizationStatusRestricted -> PermissionStatus.Restricted
+    else -> PermissionStatus.NotDetermined
+}
+
+/** [CommonPermission.Contacts]: limited access (iOS 18+), the contacts the user picked, is [PermissionStatus.Limited]. */
+internal fun contactsStatus(status: CNAuthorizationStatus): PermissionStatus = when (status) {
+    CNAuthorizationStatusAuthorized -> PermissionStatus.Granted
+    CNAuthorizationStatusLimited -> PermissionStatus.Limited
+    CNAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    CNAuthorizationStatusRestricted -> PermissionStatus.Restricted
+    else -> PermissionStatus.NotDetermined
+}
+
+/**
+ * [CommonPermission.Calendar] and, with [writeOnly], [CommonPermission.CalendarWriteOnly]. Below iOS 17
+ * the one "authorized" value is full access (`EKAuthorizationStatusAuthorized` is
+ * `EKAuthorizationStatusFullAccess`). Write-only access is all [CommonPermission.CalendarWriteOnly]
+ * asks for, and a [PermissionStatus.Limited] grant of [CommonPermission.Calendar].
+ */
+internal fun calendarStatus(status: EKAuthorizationStatus, writeOnly: Boolean): PermissionStatus = when (status) {
+    EKAuthorizationStatusFullAccess -> PermissionStatus.Granted
+    EKAuthorizationStatusWriteOnly -> if (writeOnly) PermissionStatus.Granted else PermissionStatus.Limited
+    EKAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    EKAuthorizationStatusRestricted -> PermissionStatus.Restricted
+    else -> PermissionStatus.NotDetermined
+}
+
+/** [CommonPermission.MotionActivity]: a device without the hardware ([available] `false`) is unavailable. */
+internal fun motionActivityStatus(status: CMAuthorizationStatus, available: Boolean): PermissionStatus = when {
+    !available -> PermissionStatus.Unavailable
+    status == CMAuthorizationStatusAuthorized -> PermissionStatus.Granted
+    status == CMAuthorizationStatusDenied -> PermissionStatus.PermanentlyDenied
+    status == CMAuthorizationStatusRestricted -> PermissionStatus.Restricted
     else -> PermissionStatus.NotDetermined
 }
 
@@ -332,6 +404,83 @@ private class BluetoothStateDelegate(
         if (updated || CBManager.authorization == CBManagerAuthorizationNotDetermined) return
         updated = true
         onUpdated(this)
+    }
+}
+
+// --- Photos, contacts, calendar, motion ---------------------------------------------------------
+
+internal object PhotoLibraryAuthorization {
+
+    fun current(level: PHAccessLevel): PHAuthorizationStatus = PHPhotoLibrary.authorizationStatusForAccessLevel(level)
+
+    suspend fun request(level: PHAccessLevel): PHAuthorizationStatus = suspendCancellableCoroutine { continuation ->
+        PHPhotoLibrary.requestAuthorizationForAccessLevel(level) { status: PHAuthorizationStatus ->
+            if (continuation.isActive) continuation.resume(status)
+        }
+    }
+}
+
+internal object ContactsAuthorization {
+
+    fun current(): CNAuthorizationStatus = CNContactStore.authorizationStatusForEntityType(CNEntityType.CNEntityTypeContacts)
+
+    /** Suspends until the user answers; the caller re-reads the status, which tells limited from full. */
+    suspend fun request(onError: (NSError) -> Unit) {
+        // Held until the completion runs: the store owns the pending request.
+        val store = CNContactStore()
+        suspendCancellableCoroutine { continuation ->
+            store.requestAccessForEntityType(CNEntityType.CNEntityTypeContacts) { _: Boolean, error: NSError? ->
+                if (error != null) onError(error)
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+        }
+    }
+}
+
+internal object CalendarAuthorization {
+
+    fun current(): EKAuthorizationStatus = EKEventStore.authorizationStatusForEntityType(EKEntityType.EKEntityTypeEvent)
+
+    /**
+     * Asks for full or [writeOnly] access to events and suspends until the user answers. The split
+     * requests exist from iOS 17; below it the one events request grants full access.
+     */
+    suspend fun request(writeOnly: Boolean, onError: (NSError) -> Unit) {
+        val store = EKEventStore()
+        suspendCancellableCoroutine { continuation ->
+            val completion: (Boolean, NSError?) -> Unit = { _, error ->
+                if (error != null) onError(error)
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+            when {
+                !isIosAtLeast(17) -> store.requestAccessToEntityType(EKEntityType.EKEntityTypeEvent, completion)
+                writeOnly -> store.requestWriteOnlyAccessToEventsWithCompletion(completion)
+                else -> store.requestFullAccessToEventsWithCompletion(completion)
+            }
+        }
+    }
+}
+
+/**
+ * Motion activity through `CMMotionActivityManager`, which has no "request" call: the prompt appears
+ * on the first query for activity data. An empty query — from now to now — triggers it, and its
+ * handler runs once the user has answered.
+ */
+internal object MotionActivityAuthorization {
+
+    fun current(): CMAuthorizationStatus = CMMotionActivityManager.authorizationStatus()
+
+    fun isAvailable(): Boolean = CMMotionActivityManager.isActivityAvailable()
+
+    suspend fun request() {
+        val manager = CMMotionActivityManager()
+        suspendCancellableCoroutine { continuation ->
+            val now = NSDate()
+            manager.queryActivityStartingFromDate(now, toDate = now, toQueue = NSOperationQueue.mainQueue) { _, _ ->
+                // A refusal arrives as an error; the caller re-reads the status either way.
+                if (continuation.isActive) continuation.resume(Unit)
+            }
+        }
     }
 }
 

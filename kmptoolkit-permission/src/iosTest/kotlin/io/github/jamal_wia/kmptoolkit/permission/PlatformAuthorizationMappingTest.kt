@@ -26,6 +26,27 @@ import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusAuthorized
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusDenied
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusNotDetermined
 import platform.MediaPlayer.MPMediaLibraryAuthorizationStatusRestricted
+import platform.Contacts.CNAuthorizationStatusAuthorized
+import platform.Contacts.CNAuthorizationStatusDenied
+import platform.Contacts.CNAuthorizationStatusLimited
+import platform.Contacts.CNAuthorizationStatusNotDetermined
+import platform.Contacts.CNAuthorizationStatusRestricted
+import platform.CoreMotion.CMAuthorizationStatusAuthorized
+import platform.CoreMotion.CMAuthorizationStatusDenied
+import platform.CoreMotion.CMAuthorizationStatusNotDetermined
+import platform.CoreMotion.CMAuthorizationStatusRestricted
+import platform.EventKit.EKAuthorizationStatusAuthorized
+import platform.EventKit.EKAuthorizationStatusDenied
+import platform.EventKit.EKAuthorizationStatusFullAccess
+import platform.EventKit.EKAuthorizationStatusNotDetermined
+import platform.EventKit.EKAuthorizationStatusRestricted
+import platform.EventKit.EKAuthorizationStatusWriteOnly
+import platform.Photos.PHAuthorizationStatusAuthorized
+import platform.Photos.PHAuthorizationStatusDenied
+import platform.Photos.PHAuthorizationStatusLimited
+import platform.Photos.PHAuthorizationStatusNotDetermined
+import platform.Photos.PHAuthorizationStatusRestricted
+import platform.UIKit.UIViewController
 import platform.UserNotifications.UNAuthorizationStatusAuthorized
 import platform.UserNotifications.UNAuthorizationStatusDenied
 import platform.UserNotifications.UNAuthorizationStatusEphemeral
@@ -126,6 +147,52 @@ class PlatformAuthorizationMappingTest {
         assertEquals(PermissionStatus.NotDetermined, notificationStatus(null))
     }
 
+    @Test
+    fun `a limited photo library is limited and add-only access is never limited`() {
+        assertEquals(PermissionStatus.Granted, photoLibraryStatus(PHAuthorizationStatusAuthorized))
+        assertEquals(PermissionStatus.Limited, photoLibraryStatus(PHAuthorizationStatusLimited))
+        assertEquals(PermissionStatus.PermanentlyDenied, photoLibraryStatus(PHAuthorizationStatusDenied))
+        assertEquals(PermissionStatus.Restricted, photoLibraryStatus(PHAuthorizationStatusRestricted))
+        assertEquals(PermissionStatus.NotDetermined, photoLibraryStatus(PHAuthorizationStatusNotDetermined))
+    }
+
+    @Test
+    fun `limited contacts access is limited`() {
+        assertEquals(PermissionStatus.Granted, contactsStatus(CNAuthorizationStatusAuthorized))
+        assertEquals(PermissionStatus.Limited, contactsStatus(CNAuthorizationStatusLimited))
+        assertEquals(PermissionStatus.PermanentlyDenied, contactsStatus(CNAuthorizationStatusDenied))
+        assertEquals(PermissionStatus.Restricted, contactsStatus(CNAuthorizationStatusRestricted))
+        assertEquals(PermissionStatus.NotDetermined, contactsStatus(CNAuthorizationStatusNotDetermined))
+    }
+
+    @Test
+    fun `write-only calendar access is limited for full access and granted for write-only`() {
+        assertEquals(PermissionStatus.Granted, calendarStatus(EKAuthorizationStatusFullAccess, writeOnly = false))
+        assertEquals(PermissionStatus.Granted, calendarStatus(EKAuthorizationStatusFullAccess, writeOnly = true))
+        assertEquals(PermissionStatus.Limited, calendarStatus(EKAuthorizationStatusWriteOnly, writeOnly = false))
+        assertEquals(PermissionStatus.Granted, calendarStatus(EKAuthorizationStatusWriteOnly, writeOnly = true))
+        listOf(false, true).forEach { writeOnly ->
+            assertEquals(PermissionStatus.PermanentlyDenied, calendarStatus(EKAuthorizationStatusDenied, writeOnly))
+            assertEquals(PermissionStatus.Restricted, calendarStatus(EKAuthorizationStatusRestricted, writeOnly))
+            assertEquals(PermissionStatus.NotDetermined, calendarStatus(EKAuthorizationStatusNotDetermined, writeOnly))
+        }
+    }
+
+    @Test
+    fun `the pre-iOS-17 authorized calendar status is full access`() {
+        assertEquals(PermissionStatus.Granted, calendarStatus(EKAuthorizationStatusAuthorized, writeOnly = false))
+    }
+
+    @Test
+    fun `motion activity without the hardware is unavailable whatever the authorization`() {
+        assertEquals(PermissionStatus.Granted, motionActivityStatus(CMAuthorizationStatusAuthorized, available = true))
+        assertEquals(PermissionStatus.PermanentlyDenied, motionActivityStatus(CMAuthorizationStatusDenied, available = true))
+        assertEquals(PermissionStatus.Restricted, motionActivityStatus(CMAuthorizationStatusRestricted, available = true))
+        assertEquals(PermissionStatus.NotDetermined, motionActivityStatus(CMAuthorizationStatusNotDetermined, available = true))
+        assertEquals(PermissionStatus.Unavailable, motionActivityStatus(CMAuthorizationStatusAuthorized, available = false))
+        assertEquals(PermissionStatus.Unavailable, motionActivityStatus(CMAuthorizationStatusNotDetermined, available = false))
+    }
+
     // --- the controller ---------------------------------------------------------------------------
 
     /** A controller in a test bundle that pretends to have every purpose string. */
@@ -144,7 +211,49 @@ class PlatformAuthorizationMappingTest {
             CommonPermission.BluetoothScan,
             CommonPermission.Camera,
             CommonPermission.Microphone,
+            CommonPermission.BluetoothAdvertise,
+            CommonPermission.PhotoLibrary,
+            CommonPermission.PhotoLibraryAdd,
+            CommonPermission.Contacts,
+            CommonPermission.Calendar,
+            CommonPermission.CalendarWriteOnly,
+            CommonPermission.MotionActivity,
         ).forEach { permission -> controller.check(permission) }
+    }
+
+    @Test
+    fun `bluetooth advertising reports the one Bluetooth authorization`() = runTest {
+        val controller: PermissionController = controller()
+
+        assertEquals(controller.check(CommonPermission.BluetoothConnect), controller.check(CommonPermission.BluetoothAdvertise))
+    }
+
+    @Test
+    fun `each new entry is unavailable without its own purpose string and a request shows nothing`() = runTest {
+        val calendarKey: String = if (isIosAtLeast(17)) "NSCalendarsFullAccessUsageDescription" else "NSCalendarsUsageDescription"
+        val writeOnlyKey: String =
+            if (isIosAtLeast(17)) "NSCalendarsWriteOnlyAccessUsageDescription" else "NSCalendarsUsageDescription"
+        mapOf(
+            CommonPermission.BluetoothAdvertise to "NSBluetoothAlwaysUsageDescription",
+            CommonPermission.PhotoLibrary to "NSPhotoLibraryUsageDescription",
+            CommonPermission.PhotoLibraryAdd to "NSPhotoLibraryAddUsageDescription",
+            CommonPermission.Contacts to "NSContactsUsageDescription",
+            CommonPermission.Calendar to calendarKey,
+            CommonPermission.CalendarWriteOnly to writeOnlyKey,
+            CommonPermission.MotionActivity to "NSMotionUsageDescription",
+        ).forEach { (permission, key) ->
+            // A request reaching the platform here would terminate the test process.
+            val controller: PermissionController = controller(hasKey = { it != key })
+
+            assertEquals(PermissionStatus.Unavailable, controller.check(permission), "$permission without $key")
+            assertEquals(PermissionStatus.Unavailable, controller.request(permission), "$permission without $key")
+        }
+    }
+
+    @Test
+    fun `the photo picker for a limited library shows nothing when the library is not limited`() = runTest {
+        // A test bundle has no photo library authorization at all.
+        assertFalse(presentLimitedPhotoLibraryPicker(UIViewController()))
     }
 
     @Test
