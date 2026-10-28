@@ -203,6 +203,37 @@ class Media3VideoEngineTest {
     }
 
     @Test
+    fun `a call on the looper thread does not overtake one posted from another thread before it`() {
+        loadOrThrow()
+        // start() from a background thread is posted; pause() right after it, on the looper thread,
+        // must still land after it — or the source plays on while the player above says Paused.
+        offLooper { engine.start() }
+        engine.pause()
+        ShadowLooper.idleMainLooper()
+
+        assertFalse(player.playWhenReady, "the later pause() must win over the earlier, posted start()")
+        assertFalse(player.isPlaying)
+    }
+
+    @Test
+    fun `settings made on the looper thread after ones posted from another thread win`() {
+        loadOrThrow()
+        offLooper {
+            engine.setVolume(0.1f)
+            engine.setSpeed(2f)
+            engine.setLooping(true)
+        }
+        engine.setVolume(0.7f)
+        engine.setSpeed(1.25f)
+        engine.setLooping(false)
+        ShadowLooper.idleMainLooper()
+
+        assertEquals(0.7f, player.volume)
+        assertEquals(1.25f, player.playbackParameters.speed)
+        assertEquals(Player.REPEAT_MODE_OFF, player.repeatMode)
+    }
+
+    @Test
     fun `a seek from another thread is visible to the next position read at once`() {
         loadOrThrow()
         val position: Long = offLooper {
