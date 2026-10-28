@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.systembars
 
 import android.app.Activity
 import android.app.Application
+import android.os.Looper
 import android.view.WindowManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -9,7 +10,9 @@ import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ActivityController
+import kotlin.concurrent.thread
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -227,5 +230,34 @@ class AndroidScreenWakeLockControllerTest {
         controller.setKeepScreenOn(true)
 
         assertTrue(activity.hasKeepScreenOnFlag())
+    }
+
+    @Test
+    fun `a release made on the main thread is not undone by an earlier hold queued from a background thread`() {
+        // The setup the interface KDoc names: a session collector off the main thread turns the
+        // flag on, then the screen's teardown turns it off on the main thread. The hold is queued
+        // behind the paused main looper; the release runs inline. The last call made is `false`,
+        // so the screen must be allowed to sleep once the queue drains.
+        val activity = resumedActivity().get()
+        val controller = AndroidScreenWakeLockController(activityAccess)
+
+        thread { controller.setKeepScreenOn(true) }.join()
+        controller.setKeepScreenOn(false)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertFalse(activity.hasKeepScreenOnFlag(), "the last call was a release; the queued hold must not win")
+    }
+
+    @Test
+    fun `a hold made on the main thread is not undone by an earlier release queued from a background thread`() {
+        val activity = resumedActivity().get()
+        val controller = AndroidScreenWakeLockController(activityAccess)
+        controller.setKeepScreenOn(true)
+
+        thread { controller.setKeepScreenOn(false) }.join()
+        controller.setKeepScreenOn(true)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertTrue(activity.hasKeepScreenOnFlag(), "the last call was a hold; the queued release must not win")
     }
 }

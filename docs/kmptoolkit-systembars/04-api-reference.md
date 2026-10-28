@@ -366,7 +366,7 @@ module because both are thin wrappers over a single per-window platform flag. Se
 
 | Member | Contract |
 |---|---|
-| `setKeepScreenOn(enabled)` | Idempotent: calling it with the value it already holds is a no-op. There is no `release()` — callers must call `setKeepScreenOn(false)` themselves when the reason to stay awake ends |
+| `setKeepScreenOn(enabled)` | Idempotent: calling it with the value it already holds is a no-op. There is no `release()` — callers must call `setKeepScreenOn(false)` themselves when the reason to stay awake ends. Safe from any thread; the most recent call decides the flag, even when an earlier one was made off the main thread and is applied later |
 
 ### Factories
 

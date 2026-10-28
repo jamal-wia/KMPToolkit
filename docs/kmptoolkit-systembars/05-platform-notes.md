@@ -270,7 +270,9 @@ No permission is required; `FLAG_KEEP_SCREEN_ON` needs none.
 
 Backed by `UIApplication.idleTimerDisabled`. No activity-tracker equivalent is needed: iOS hosts one
 process-stable `UIWindow` for the app's whole lifetime, and the property is not reset by the OS on
-its own. The write is dispatched to the main queue, the same way status-bar updates are.
+its own. The write is dispatched to the main queue, the same way status-bar updates are. The value
+it writes is the one from the most recent call, read when the write runs, so a call queued from a
+background thread cannot overwrite a later call made on the main thread.
 
 ## `AutoSystemBarsIconStyle`
 
