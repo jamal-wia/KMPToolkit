@@ -24,6 +24,9 @@ import platform.AVFoundation.setTorchMode
  * holding is untouched.
  *
  * The torch needs no camera permission on iOS — only starting a capture session does.
+ *
+ * The blink loop is [ProcessTorch]'s, not this instance's: there is one torch per device, so every
+ * instance in the process starts and stops the same pattern.
  */
 @OptIn(ExperimentalForeignApi::class)
 internal class IosFlashlight : Flashlight {
@@ -39,27 +42,41 @@ internal class IosFlashlight : Flashlight {
 
     override val isAvailable: Boolean get() = torchDevice != null
 
-    /**
-     * The torch the blink loop switches, found once per [start] rather than on every switch: a
-     * discovery session per toggle would run several times a second on a fast pattern. [stop] keeps
-     * switching the one last found, which is the torch a running pattern lit.
-     */
-    @Volatile
-    private var blinkingDevice: AVCaptureDevice? = null
-
-    private val blinker: TorchBlinker = TorchBlinker(
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-        setTorch = { on: Boolean -> blinkingDevice?.let { device: AVCaptureDevice -> setTorch(device, on) } },
-    )
-
     override fun start(pattern: FlashPattern) {
-        blinkingDevice = torchDevice ?: return
-        blinker.start(pattern)
+        ProcessTorch.blinkingDevice = torchDevice ?: return
+        ProcessTorch.blinker.start(pattern)
     }
 
     override fun stop() {
-        blinker.stop()
+        ProcessTorch.blinker.stop()
     }
+}
+
+/**
+ * The one blink loop of the process, shared by every [IosFlashlight].
+ *
+ * The torch is a single device-wide resource, so the loop that drives it has to be single too. With
+ * a loop per instance, a [Flashlight.stop] on one instance could not reach a pattern another instance
+ * had started — it went dark for an instant and the other loop lit the torch again on its next
+ * cycle — and two instances' patterns blinked over each other. Sharing the [TorchBlinker] gives
+ * several instances the same guarantees it already gives several threads: the last `start` or `stop`
+ * wins, and one `stop` ends whatever is blinking.
+ */
+@OptIn(ExperimentalForeignApi::class)
+private object ProcessTorch {
+
+    /**
+     * The torch the blink loop switches, found once per [IosFlashlight.start] rather than on every
+     * switch: a discovery session per toggle would run several times a second on a fast pattern. A
+     * `stop` keeps switching the one last found, which is the torch a running pattern lit.
+     */
+    @Volatile
+    var blinkingDevice: AVCaptureDevice? = null
+
+    val blinker: TorchBlinker = TorchBlinker(
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        setTorch = { on: Boolean -> blinkingDevice?.let { device: AVCaptureDevice -> setTorch(device, on) } },
+    )
 
     private fun setTorch(device: AVCaptureDevice, on: Boolean) {
         val mode: Long = if (on) AVCaptureTorchModeOn else AVCaptureTorchModeOff

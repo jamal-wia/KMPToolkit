@@ -115,5 +115,5 @@ tries again.
 
 No permission, no capture session, no manifest or `Info.plist` entry. Both implementations run the
 same blink loop: they replace rather than stack a second `start` — also when the calls race from
-different threads — and guarantee the torch is off once `stop` runs or the blink job is cancelled. Neither platform reports back whether the LED
+different threads or from different instances, which share one process-wide loop — and guarantee the torch is off once `stop` runs or the blink job is cancelled. Neither platform reports back whether the LED
 physically lit — `isAvailable` is the only synchronous fact either one can offer.

@@ -111,6 +111,42 @@ class AndroidFlashlightTest {
     }
 
     @Test
+    fun `stop on a second instance ends a pattern started by the first`() {
+        // There is one torch per device, not one per Flashlight. A second instance — built by a
+        // different feature, or by a caller that ignored "build it once" — must still reach the
+        // pattern the first one started; otherwise its stop goes dark for an instant and the other
+        // instance's loop lights the torch again on its next cycle.
+        addCamera(id = "0", hasFlash = true)
+        val first = AndroidFlashlight(context)
+        val second = AndroidFlashlight(context)
+        first.start(FlashPattern.Attention)
+        awaitTorch(expected = true)
+
+        second.stop()
+        awaitTorch(expected = false)
+
+        // Several full Attention cycles: a loop still running would have relit the torch by now.
+        assertTorchStaysOff(forMillis = 3 * ATTENTION_CYCLE_MS)
+    }
+
+    @Test
+    fun `a start on a second instance replaces the first instance's pattern`() {
+        addCamera(id = "0", hasFlash = true)
+        val first = AndroidFlashlight(context)
+        val second = AndroidFlashlight(context)
+        first.start(FlashPattern.Blink)
+        second.start(FlashPattern.Attention)
+        awaitTorch(expected = true)
+
+        // One stop, on the instance that did not start the replaced pattern, is enough to go dark:
+        // only one loop is running.
+        second.stop()
+        awaitTorch(expected = false)
+
+        assertTorchStaysOff(forMillis = BLINK_CYCLE_MS + ATTENTION_CYCLE_MS)
+    }
+
+    @Test
     fun `a device without a torch survives start and stop`() {
         // No flash unit: every call is a no-op, and none of them may throw into the caller.
         addCamera(id = "0", hasFlash = false)
@@ -132,6 +168,14 @@ class AndroidFlashlightTest {
         }
     }
 
+    private fun assertTorchStaysOff(forMillis: Long) {
+        val deadline: Long = System.currentTimeMillis() + forMillis
+        while (System.currentTimeMillis() < deadline) {
+            assertEquals(false, torchMode(), "a blink loop relit the torch after stop")
+            Thread.sleep(TORCH_POLL_INTERVAL_MS)
+        }
+    }
+
     /**
      * The torch as the platform shadow sees it, or `null` while it has never been set —
      * Robolectric keeps no default and throws on a read before the first write.
@@ -141,5 +185,7 @@ class AndroidFlashlightTest {
     private companion object {
         const val TORCH_POLL_ATTEMPTS = 100
         const val TORCH_POLL_INTERVAL_MS = 10L
+        const val ATTENTION_CYCLE_MS = 300L
+        const val BLINK_CYCLE_MS = 1_000L
     }
 }

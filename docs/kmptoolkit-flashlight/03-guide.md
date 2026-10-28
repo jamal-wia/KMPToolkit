@@ -84,6 +84,12 @@ running, which one `stop` ends; and a new pattern — whether it replaces a runn
 cut short. When a `start` and a `stop`
 race, the later call wins.
 
+It holds across instances as well. There is one torch per device, so every `Flashlight` the factory
+builds in one process drives the same blink loop: a `start` on one instance replaces a pattern
+another instance started, and a `stop` on any instance ends it. Building one instance and sharing it
+is still the intended setup — the point is only that a second one cannot leave a pattern running
+that nothing can stop.
+
 ## Firing from shared code that is not on the main thread
 
 Just call it. Both implementations launch their own coroutine internally and return before the
