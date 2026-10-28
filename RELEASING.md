@@ -27,7 +27,10 @@ on the repository (see `.github/workflows/publish.yml`).
 2. **Bump the version.** Edit `kmptoolkit.version` in `gradle.properties` — this is the single
    source of truth; every `kmptoolkit-*` module and the `kmptoolkit-bom` constraints read it.
    Follow semver: see `.claude/CLAUDE.md` § Public API and compatibility for what qualifies as
-   patch/minor/major.
+   patch/minor/major. Read every `api/` dump diff since the last release before choosing: **any
+   added public symbol is at least a minor, never a patch** — and that includes a new entry in a
+   sealed hierarchy or enum (a new `CommonPermission` or `PermissionStatus` case, say), which is
+   binary-compatible but stops a consumer's exhaustive `when` from compiling.
 3. **Update `CHANGELOG.md`.** Move the `[Unreleased]` entries under a new `## [x.y.z] - YYYY-MM-DD`
    heading.
 4. **Update the root `README.md` install snippet** if the shown version string is pinned literally
