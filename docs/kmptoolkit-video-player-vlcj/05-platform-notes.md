@@ -88,6 +88,20 @@ user for access to protected folders (Desktop, Documents, removable volumes) the
 | Assets | App bundle | Classpath resources; copied to a temporary file when packed in a jar |
 | Cleartext `http://` | Blocked by default | Allowed — desktop has no such policy |
 
+## Threading
+
+VLC delivers events on its own event thread and pictures on its video-output thread, and neither may
+call back into libvlc. The player reacts to some events by calling the engine from that thread — for
+`RepeatMode.One`, a rewind and a restart when the end is reported — and those calls are handed to
+VLCJ's task thread, a single thread that runs its work first in, first out.
+
+Transport calls reach libvlc **in the order they were made**, whichever threads made them. A call
+from the app runs at once when nothing is waiting on the task thread, and is queued behind what is
+otherwise; every call's own checks (not started yet, already at the end) are made when it runs,
+against what the calls before it left. So a `pause()` made right after such a restart always wins
+over it, and a seek made as output starts is never undone by the seek that was pending until then.
+Volume and speed are applied from their latest values whenever they are applied.
+
 ## Rendering
 
 The engine asks VLC for 32-bit RGB frames of the decoded picture size and copies each one into an

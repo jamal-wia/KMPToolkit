@@ -53,7 +53,9 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   on the task thread; settings during playback; buffering reported only once loaded and only on
   change; completion once, not while looping; a seek after the end staying paused until `start`;
   playback errors; a listener calling back into the engine from `onCompleted` or another callback
-  (re-submitted, never run on the event thread); the parsed display size winning over the decoder's
+  (re-submitted, never run on the event thread); transport calls reaching libvlc in call order across
+  the app's thread and VLC's (a `pause` after a restart queued from `onCompleted` wins, an app call
+  never overtakes one submitted from a callback, a pending seek never undoes a later one); the parsed display size winning over the decoder's
   stored size, which is only a fallback; a fresh pixel array per frame; after `release` no callback,
   frame or native call; `release` returning while libvlc is still stopping a stalled input, with
   stop → release on the teardown thread; `release` from inside a callback; a new load silencing the
