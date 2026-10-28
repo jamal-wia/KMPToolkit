@@ -1,7 +1,7 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
-    // Robolectric for androidUnitTest: the Android handler needs a real Context to answer
+    // Robolectric for androidUnitTest: the Android controller needs a real Context to answer
     // checkSelfPermission, and the "this module contributes no permission to a consumer's merged
     // manifest" guarantee is only assertable against a real PackageManager.
     id("kmptoolkit.androidtest")
@@ -10,13 +10,15 @@ plugins {
 kmptoolkitPublish {
     pomName.set("KMPToolkit Permission")
     pomDescription.set(
-        "A runtime-permission seam plus the flow around it: a PermissionHandler that checks and " +
-            "requests notifications, microphone, camera, location, audio media and Bluetooth on Android and iOS, a PermissionStatus " +
-            "that tells a first refusal apart from a permanent one, and a headless " +
-            "PermissionRequestFlow state machine covering rationale, request and the trip to " +
-            "system settings. Pick this module if shared Kotlin code has to decide what to show a " +
-            "user about a permission — it ships no UI and no copy, declares no permission in its " +
-            "own manifest, and derives its stored flags from your own application id."
+        "One PermissionController for every grant an app asks for on Android and iOS: runtime " +
+            "permissions shared by both platforms (notifications, microphone, camera, location, " +
+            "photos, contacts, calendar, motion, Bluetooth), Android special access, roles and device " +
+            "admins, and iOS tracking, speech, reminders and Focus — with a PermissionStatus that " +
+            "tells a first refusal from a permanent one and a limited, restricted or unavailable " +
+            "permission from a refusal, batch requests, observation, and a headless " +
+            "PermissionRequestFlow covering rationale, request and the trip to system settings. It " +
+            "ships no UI and no copy, declares no permission in its own manifest, and derives its " +
+            "stored flags from your own application id."
     )
 }
 

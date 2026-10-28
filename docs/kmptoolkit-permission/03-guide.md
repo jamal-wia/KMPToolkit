@@ -1,49 +1,49 @@
 # kmptoolkit-permission — Guide
 
-From the simplest case to the ones that actually bite: the state machine, the lifecycle, and the
-mistakes.
+From the simplest case to the ones that actually bite: the state machine, the lifecycle, batches,
+the Android-only grants, and the mistakes.
 
 ## The state machine
 
-`PermissionRequestFlow` has six states. Three are questions asked of *you*, three are resting points.
+`PermissionRequestFlow` has eight states. Two are questions asked of *you*, one means the OS owns
+the screen, and five are resting points.
 
 ```
                         ┌───────────────────────────────┐
                         │            Idle               │◄────── refresh(), reset()
                         └───────────────┬───────────────┘
                                  start()│
-              ┌─────────────────────────┼──────────────────────────┐
-              │                         │                          │
-     status Granted            status Denied(rationale)   status PermanentlyDenied
-              │                         │                          │
-              ▼                         ▼                          ▼
-        ┌──────────┐          ┌──────────────────┐        ┌──────────────────┐
-        │ Granted  │          │ AwaitingRationale│        │ AwaitingSettings │
-        └──────────┘          └────────┬─────────┘        └────────┬─────────┘
-                        acknowledged() │  dismissed()   openSettings()│  declined()
+   ┌──────────────┬─────────────────────┼──────────────────────────┬────────────────┐
+   │              │                     │                          │                │
+Granted        Limited          Denied(explainFirst)       PermanentlyDenied   Restricted /
+   │              │                     │                          │            Unavailable
+   ▼              ▼                     ▼                          ▼                ▼
+┌───────┐   ┌─────────┐       ┌──────────────────┐        ┌──────────────────┐ ┌─────────────┐
+│Granted│   │ Limited │       │ AwaitingRationale│        │ AwaitingSettings │ │ Unavailable │
+└───────┘   └─────────┘       └────────┬─────────┘        └────────┬─────────┘ └─────────────┘
+                     acknowledged()    │  dismissed()   openSettings()│  declined()
                                        ▼        └──────┐             ▼        └──────┐
-                                ┌────────────┐         │      (stays here,           │
-                                │ Requesting │         │       call refresh()        │
-                                └─────┬──────┘         │       on resume)            │
-                       granted / permanently denied /  │                             │
-                              denied or unanswered     ▼                             ▼
+                                ┌────────────┐         │      (stays here; observe   │
+                                │ Requesting │         │       or refresh() on       │
+                                └─────┬──────┘         │       resume)               │
+             granted / limited / permanently denied /  │                             │
+           unavailable / denied or unanswered          ▼                             ▼
                                        │           ┌────────┐                   ┌────────┐
                                        └──────────►│ Denied │◄──────────────────┤ Denied │
                                                    └────────┘                   └────────┘
 ```
 
-`start()` with a status of `Denied(shouldShowRationale = false)` or `NotDetermined` goes straight to
-`Requesting` — there is nothing to explain yet.
-
-The complete transition table is in the KDoc on `PermissionRequestFlow` and in
-[`04-api-reference.md`](04-api-reference.md); every row of it is pinned by a test.
+`start()` with a status of `Denied(explainFirst = false)` or `NotDetermined` goes straight to
+`Requesting` — there is nothing to explain yet. The complete transition table is in the KDoc on
+`PermissionRequestFlow` and in [`04-api-reference.md`](04-api-reference.md#permissionrequestflow);
+every row of it is pinned by a test.
 
 ## The simplest useful screen
 
 ```kotlin
-class CameraPresenter(handler: PermissionHandler) {
+class CameraPresenter(controller: PermissionController) {
 
-    private val flow = PermissionRequestFlow(Permission.CAMERA, handler)
+    private val flow = PermissionRequestFlow(CommonPermission.Camera, controller)
 
     val state: StateFlow<PermissionFlowState> = flow.state
 
@@ -65,66 +65,78 @@ becomes `AwaitingSettings` you offer the settings trip. Both are your components
 | `AwaitingRationale` | your explanation, with a continue and a cancel | `rationaleAcknowledged()` / `rationaleDismissed()` |
 | `AwaitingSettings` | your prompt offering system settings | `openSettings()` / `settingsDeclined()` |
 | `Granted` | proceed | — |
+| `Limited` | proceed with what was granted; optionally offer to widen it | `start()` again to ask where the platform can — see [Limited grants](#limited-grants) |
+| `Unavailable` | hide or disable the feature; do **not** send the user to settings | — |
 | `Denied` | degrade gracefully; leave a way to try again | `start()` again later |
 
-Every method that does not apply to the current state is a no-op returning the state unchanged.
-A double-tapped button therefore requests once, not twice, and nothing throws.
+Every method that does not apply to the current state is a no-op returning the state unchanged. A
+double-tapped button therefore requests once, not twice, and nothing throws.
 
-## The lifecycle: `refresh()` is not optional
+`Unavailable` covers both `PermissionStatus.Restricted` (a parental control, an MDM profile or a
+device policy withholds it — the user may not be able to change that) and
+`PermissionStatus.Unavailable` (the OS, the device or your manifest has nothing to grant). Neither is
+a refusal the user can undo, which is why the flow does not offer settings for them. Read the
+controller's `check` if your UI must tell the two apart.
+
+## The lifecycle: observe, or refresh on resume
 
 A permission granted when your screen opened may be gone when it resumes. The user can revoke it in
 settings, Android can auto-reset it for an app they have not opened in months, and an MDM profile
-can withdraw it. None of that notifies you.
+can withdraw it. None of that notifies you — but the controller re-reads every permission you
+`observe` whenever the app comes back to the foreground:
 
 ```kotlin
-// Android: a lifecycle observer, a LaunchedEffect keyed on the lifecycle, or your own onResume.
-// iOS: viewWillAppear, or a UIApplication.didBecomeActiveNotification observer.
+controller.observe(CommonPermission.Location)
+    .map { status -> status.isUsable }
+    .collect { usable -> autoLocateEnabled = usable }
+```
+
+`observe` re-reads on every activity resume (Android) or every time the app becomes active (iOS), and
+after every request through the same controller that covered the permission; it emits only on a
+change. For long-lived UI state, `stateIn` it once per screen rather than collecting per composable.
+
+A flow does not observe on its own. Call `refresh()` from your screen's resume:
+
+```kotlin
 suspend fun onScreenResumed() {
     when (flow.refresh()) {
-        PermissionFlowState.Granted -> enableTheFeature()
+        PermissionFlowState.Granted, PermissionFlowState.Limited -> enableTheFeature()
         else -> disableTheFeature()
     }
 }
 ```
 
-`refresh()` never shows a dialog, so it is safe to call on every resume. It is also the only way to
-learn what happened during a settings trip — the OS does not tell you, and `openSettings()` returns
-`true` merely because the settings screen opened.
-
-One thing it deliberately does: it **clears** a `Denied` reached earlier in this flow. `Denied`
-records a choice the user made in *your* UI; the OS has no memory of it, and after a resume the
-honest answer is whatever the OS now says. A permission that can simply be asked for again lands
-back on `Idle`.
+`refresh()` never shows anything, so it is safe on every resume. It deliberately **clears** a
+`Denied` reached earlier in this flow: `Denied` records a choice the user made in *your* UI, and after
+a resume the honest answer is whatever the OS now says.
 
 ## Denied once versus permanently denied
 
 This is the distinction that makes the module worth having.
 
-- **`AwaitingRationale`** — the OS will still show its dialog. Explain, then ask again. Android
-  reaches this after the first refusal.
+- **`AwaitingRationale`** — the OS will still show its UI. Explain, then ask again. Android reaches
+  this after the first refusal; a special access, a role or a device admin that is not granted reads
+  it too, because its request leaves your app and should be announced first.
 - **`AwaitingSettings`** — the OS will show nothing. Asking again is a silent no-op, and only a trip
   to settings can change it. Android reaches this after the second refusal (on Android 11+ the
-  second "Don't allow"; before it, "Don't ask again"); **iOS reaches it after the first**, because iOS
-  shows its dialog at most once per install.
+  second "Don't allow"; before it, "Don't ask again"), and a role after its second refusal; **iOS
+  reaches it after the first**, because iOS shows its dialog at most once per install.
 
 A dialog the user **dismissed** — back, or a tap outside it — is neither. On Android 11+ it changes
 nothing, so the permission still reads `NotDetermined` and the next request shows the dialog again.
 
-An app that treats these the same either nags a user the OS is willing to prompt, or leaves a user
-tapping a button that can never work.
-
-On Android the distinction rests on a flag this module persists, because Android's own API cannot
-report it — see [`05-platform-notes.md`](05-platform-notes.md#the-asked-flag).
+On Android the distinction rests on two flags this module persists, because Android's own API cannot
+report it — see [`05-platform-notes.md`](05-platform-notes.md#the-stored-flags).
 
 ## Explain *before* asking, on iOS
 
-Because iOS treats a refusal as final, its `AwaitingRationale` never happens: there is no second
-dialog for a rationale to precede. If your permission is one users refuse when surprised by it, show
+Because iOS treats a refusal as final, its `AwaitingRationale` never happens — the one exception is
+the "always" location upgrade. If your permission is one users refuse when surprised by it, show
 your explanation *before* calling `start()`, while the status is still `NotDetermined`:
 
 ```kotlin
 suspend fun onFeatureOpened() {
-    if (handler.check(Permission.MICROPHONE) == PermissionStatus.NotDetermined) {
+    if (controller.check(CommonPermission.Microphone) == PermissionStatus.NotDetermined) {
         showYourPreDialogExplanation()   // then call flow.start() from its continue button
     } else {
         flow.start()
@@ -132,146 +144,177 @@ suspend fun onFeatureOpened() {
 }
 ```
 
-That is a product decision, not a platform one, which is why the flow does not do it for you: a
-pre-dialog explanation costs a screen the user may not need.
+That is a product decision, not a platform one, which is why the flow does not do it for you.
 
-## Using the handler directly
+## Limited grants
 
-Not every case needs the flow. A settings screen that only shows the current state wants
-`check()` and nothing else:
+`PermissionStatus.Limited` — and the flow's `Limited` state — is a grant the app can use, narrower
+than it asked for. Treat it as usable (`isUsable` is `true`); whether to offer a way to widen it is
+your call, and how to widen it depends on the entry:
+
+| Entry | Limited means | To widen it |
+|---|---|---|
+| `Location`, `LocationBackground` | approximate location only (Android 12+, iOS 14+) | Android: `request` again — the dialog offers the upgrade to precise. iOS: the user changes it in settings (a temporary full-accuracy prompt is outside this module) |
+| `PhotoLibrary` | the user picked some photos (Android 14+ with `READ_MEDIA_VISUAL_USER_SELECTED` declared, iOS 14+) | Android: `request` again — the dialog lets the user change the selection. iOS: `presentLimitedPhotoLibraryPicker(viewController)` |
+| `Contacts` | the user picked some contacts (iOS 18+) | the user changes it in settings, or your app uses the system contact picker |
+| `Calendar` | write-only access granted instead of full (iOS 17+) | `request` again — iOS asks for the upgrade to full access |
+| `Notifications` | provisional: delivered quietly to Notification Center (iOS) | `request` again — iOS shows the full prompt |
+
+`canPrompt` is `false` for `Limited`, because whether a request shows anything depends on the
+platform and the entry. `PermissionRequestFlow.start()` from `Limited` re-checks and lands on
+`Limited` again; call `controller.request(permission)` directly when you mean "ask to widen it".
+
+## Using the controller directly
+
+Not every case needs the flow. A settings screen that only shows the current state wants `check()`:
 
 ```kotlin
-val enabled: Boolean = handler.check(Permission.NOTIFICATIONS).isGranted
+val enabled: Boolean = controller.check(CommonPermission.Notifications).isUsable
 ```
 
-`isGranted` and `canPrompt` cover the two questions a toggle actually asks: is it on, and would
-tapping it prompt or need a settings trip.
+The extension properties answer the questions a toggle actually asks:
 
-A screen that has to *stay* correct — a feature switched off when its permission is revoked in
-settings, a kiosk checklist that ticks itself when the user comes back — collects `observe()`
-instead of checking once:
+| Property | `true` for |
+|---|---|
+| `isGranted` | `Granted` only — the full grant |
+| `isUsable` | `Granted` and `Limited` — what a call site about to *use* the capability wants |
+| `canPrompt` | `NotDetermined` and `Denied` — tapping would put the system UI on screen; otherwise the button should open settings, or not exist |
+
+`check` never shows UI. It suspends — iOS answers some authorizations asynchronously and Android reads
+and occasionally clears the stored flags — so call it from a coroutine, and `observe` instead of
+polling it from a composition.
+
+## Several permissions at once
 
 ```kotlin
-handler.observe(Permission.LOCATION)
-    .map { status -> status.isGranted }
-    .collect { granted -> autoLocateEnabled = granted }
+val statuses: Map<Permission, PermissionStatus> = controller.request(
+    listOf(CommonPermission.Camera, CommonPermission.Microphone),
+)
 ```
 
-It re-reads the status whenever the app comes back to the foreground and after every request through
-the same handler, and emits only on a change.
+The map has one entry per distinct permission, in your order. On Android every runtime permission in
+the batch that can still show a dialog shares **one** system dialog — the user sees "Allow camera?"
+and "Allow microphone?" back to back, without your app in between — and everything else (special
+accesses, roles, background location, an entry already decided) is then requested one by one, in
+order. On iOS there is no shared dialog: each prompt follows the previous one.
+
+Use a batch where the permissions belong to one feature and one explanation covers them all. Where
+each needs its own explanation, drive a `PermissionRequestFlow` per permission instead — that is why
+the flow takes exactly one.
+
+Background location (and background body sensors) never joins the shared dialog: Android grants it
+only on top of the foreground permission and silently ignores a request for both at once. Put
+`Location` before `LocationBackground` in the batch, and the second is asked for once the first is
+granted.
+
+## Platform permissions from shared code
+
+Shared code cannot name `AndroidPermission.ExactAlarm` or `IosPermission.Tracking`. When shared code
+has to decide something about one, take the permission as a value:
+
+```kotlin
+// commonMain
+class ExactReminders(private val controller: PermissionController, private val exactAlarm: Permission?) {
+    suspend fun canBeExact(): Boolean = exactAlarm == null || controller.check(exactAlarm).isGranted
+}
+
+// androidMain
+ExactReminders(controller, AndroidPermission.ExactAlarm)
+// iosMain
+ExactReminders(controller, exactAlarm = null)   // nothing to grant on iOS
+```
+
+A controller asked about a type it does not know — an `AndroidPermission` handed to the iOS
+controller through such a parameter, say — answers `Unavailable` and shows nothing.
+
+## Special access, roles and device admins
+
+On Android three kinds of grant are not the permission dialog, and all three go through the same
+`check` / `request` / `openSettings`:
+
+- **A special access** (`AndroidPermission.SpecialAccess`: exact alarms, overlays, all-files access,
+  usage stats, battery optimizations, notification-listener access, Do Not Disturb, media management,
+  installing packages, full-screen notifications, keeping permissions when unused, and one of your
+  accessibility services) is a toggle on a Settings screen. `request` opens that screen and suspends
+  until an activity of your app is resumed again — the user coming back — then re-reads the status.
+  Not granted reads `Denied(explainFirst = true)`: the screen can always be opened again, and sending
+  a user out of the app unannounced is the worst way to ask. Nothing is stored.
+- **A role** (`AndroidPermission.Role`, API 29+ — `Role.Home` for the default launcher, any other by
+  its `RoleManager.ROLE_*` name) is a system dialog answering with a result. A first refusal reads
+  `Denied(explainFirst = true)`; after the second, Android stops showing the dialog and the role reads
+  `PermanentlyDenied` — `openSettings` then opens the default-apps screen.
+- **A device admin** (`AndroidPermission.DeviceAdmin(component)`) is the "Activate device admin app"
+  screen, which Android shows every time it is asked, so a refusal is never permanent.
+
+```kotlin
+// androidMain
+suspend fun onBecomeLauncherTapped() {
+    when (controller.request(AndroidPermission.Role.Home)) {
+        PermissionStatus.Granted -> showHome()
+        PermissionStatus.PermanentlyDenied -> controller.openSettings(AndroidPermission.Role.Home)
+        else -> Unit
+    }
+}
+```
+
+`PermissionRequestFlow` works over all three. A special access's `AwaitingRationale` is where you say
+"we are about to take you to Settings".
+
+A special access request that is cancelled while the user is on the Settings screen leaves the screen
+where it is; the next `check` or `observe` sees what the user did there.
+
+## Any other Android permission: `Runtime(name)`
+
+```kotlin
+val phoneState = AndroidPermission.Runtime(Manifest.permission.READ_PHONE_STATE)
+controller.request(phoneState)
+```
+
+The escape hatch for a permission this vocabulary does not model. It is handled by the permission's
+protection level on the device: a **dangerous** permission gets its own dialog and the same refusal
+bookkeeping as every typed entry, with its flags keyed by the name; **any other** level (install-time,
+signature, privileged, development) cannot be prompted for, and reads `Granted` when the app holds it
+and `Unavailable` otherwise; a name **unknown to the device** reads `Unavailable`. It knows nothing of
+a permission's history across API levels — prefer a typed entry where one exists.
 
 ## Scanning for Bluetooth devices
 
-A device picker that lists what is nearby and then connects to the chosen device needs two entries:
-`BLUETOOTH_SCAN` to list and `BLUETOOTH_CONNECT` to connect. Drive them one after the other; from
-Android 12 both are in the "Nearby devices" dialog, and once the first is granted Android grants the
-second without showing anything.
+A device picker that lists what is nearby and then connects needs `BluetoothScan` to list and
+`BluetoothConnect` to connect — one batch:
 
 ```kotlin
 suspend fun canOpenPicker(): Boolean =
-    handler.request(Permission.BLUETOOTH_SCAN).isGranted &&
-        handler.request(Permission.BLUETOOTH_CONNECT).isGranted
+    controller.request(listOf(CommonPermission.BluetoothScan, CommonPermission.BluetoothConnect))
+        .values.all { it.isGranted }
 ```
 
-Two things differ from every other entry:
-
-- **Below Android 12 the scan permission is location.** `BLUETOOTH_SCAN` then reports and requests
-  exactly what `LOCATION` does, so the user sees the location dialog. Say in your own copy, before the
+- **Below Android 12 the scan permission is location.** `BluetoothScan` then reports and requests
+  exactly what `Location` does, so the user sees the location dialog. Say in your own copy, before the
   request, that listing Bluetooth devices is why.
 - **From Android 12 the manifest decides.** Declare `BLUETOOTH_SCAN` with
-  `android:usesPermissionFlags="neverForLocation"`. Without it the entry reads `NotDetermined` and a
-  request shows nothing — the same symptom as an undeclared permission — and the handler logs a
-  warning naming the attribute.
+  `android:usesPermissionFlags="neverForLocation"`. Without it the entry reads `Unavailable`, a request
+  shows nothing, and the controller logs a warning naming the attribute.
 
 A granted scan still finds nothing with Bluetooth off, or — below Android 12 — with location services
-off; neither is a permission. If all the picker has to do is let the user choose one device to pair
-with, Android's `CompanionDeviceManager` shows a system chooser that needs neither permission. The
-details are in [`05-platform-notes.md`](05-platform-notes.md#location-audio-files-and-bluetooth).
-
-## Special access permissions
-
-`SpecialPermissionHandler` is not a variant of `PermissionHandler` — it is a different contract for
-a different category of Android grant, and understanding why clarifies when to reach for each.
-
-A runtime [`Permission`] has a system dialog: the OS asks, the user taps, your process gets the
-answer back synchronously (or, on iOS, through a short async round trip). A [`SpecialPermission`]
-has no dialog at all — `SCHEDULE_EXACT_ALARM`, `SYSTEM_ALERT_WINDOW`, `MANAGE_EXTERNAL_STORAGE`, and
-the rest are granted only by the user finding a specific toggle in system Settings and flipping it
-there, on their own schedule, with your app usually not even running. There is nothing to await and
-nothing to distinguish a first refusal from a permanent one — the permission is simply on or off
-right now, which is exactly what `isGranted()` answers and all it promises.
-
-```kotlin
-val specialHandler: SpecialPermissionHandler = createSpecialPermissionHandler(context)
-// or, to open the screens on your own task: see "How settings screens open" below
-
-fun onExactRemindersToggled(wantExact: Boolean) {
-    if (wantExact && !specialHandler.isGranted(SpecialPermission.EXACT_ALARM)) {
-        specialHandler.requestViaSettings(SpecialPermission.EXACT_ALARM)
-    }
-}
-
-// Re-check whenever your screen could plausibly have missed the change — typically resume:
-suspend fun onScreenResumed() {
-    exactRemindersEnabled = specialHandler.isGranted(SpecialPermission.EXACT_ALARM)
-}
-```
-
-### There is no `refresh()` here, and that is not an oversight
-
-`PermissionRequestFlow` exists because a runtime permission's state machine has enough shape to be
-worth modelling — rationale, request, settings, each a real decision point. A special permission has
-exactly one useful question ("is it on?") and one useful action ("open the place to turn it on"), so
-wrapping it in a flow would add a type without adding a decision. Call `isGranted()` from wherever
-your screen already re-reads state on resume.
-
-### Every entry is a no-op on iOS
-
-`isGranted()` always returns `true` and `requestViaSettings()` always returns `false` on iOS — there
-is no `SpecialPermission` case that maps to anything there. Code that checks before requesting
-(`if (!isGranted(...)) requestViaSettings(...)`) is therefore automatically a no-op on iOS without
-an `expect`/`actual` branch anywhere in your own code.
+off; neither is a permission. To let the user pick one device to pair with, Android's
+`CompanionDeviceManager` shows a system chooser that needs neither permission.
 
 ## How settings screens open (Android)
 
-`openAppSettings()` and `requestViaSettings()` both leave the app for a system screen, and which
-task that screen lands in decides where Back goes, what Recents shows, and whether a kiosk app's
-lock-task allowlist still applies. That decision is a `SystemScreenLauncher` from
-`kmptoolkit-activity`. Every existing factory keeps the default it has always had; a `…WithLauncher`
-factory takes yours.
+`openSettings()` and every special-access request leave the app for a system screen, and which task
+that screen lands in decides where Back goes, what Recents shows, and whether a kiosk app's lock-task
+allowlist still applies. That decision is a `SystemScreenLauncher` from `kmptoolkit-activity`, the
+factory's `systemScreenLauncher` parameter. The default is `SystemScreenLauncher.callerTask` on the
+controller's `ActivityAccess`:
 
-| Factory | Launcher |
-|---|---|
-| `createPermissionHandler(context, host, storage, …)` | `callerTask` on the tracker it creates |
-| `createPermissionHandler(context, host, storage, activityAccess, …)` | `callerTask(activityAccess)` |
-| `createPermissionHandlerWithLauncher(context, host, storage, activityAccess, systemScreenLauncher, …)` | yours |
-| `createSpecialPermissionHandler(context, …)` | `SeparateTask` — it has no activity to launch from |
-| `createSpecialPermissionHandlerWithLauncher(context, systemScreenLauncher, …)` | yours |
-
-- **`SeparateTask`** opens the screen in a task of its own, from any thread. Back leaves Settings;
-  each different screen gets its own Recents card.
-- **`callerTask(activityAccess)`** puts the screen on your task, from the resumed activity, when it is
-  called on the main thread; off the main thread, or with no activity resumed, it opens the screen
-  in a separate task instead. Back returns to the screen that asked, and a two-pane Settings shows
-  the page in a single pane.
+- Called on the main thread with an activity resumed, the screen is started from that activity with no
+  task flags, so it lands on your task, Back returns to the screen that asked, and a two-pane Settings
+  shows it in a single pane.
+- Off the main thread, or with no activity resumed, it opens in a task of its own
+  (`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_NEW_DOCUMENT`).
 
 The defaults of all the suite's factories side by side are in
 [`kmptoolkit-activity`'s guide](../kmptoolkit-activity/03-guide.md#opening-system-screens).
-
-### An ordinary app: open special permissions on your own task
-
-For an ordinary app, `callerTask` is what the user expects — Back returns to your screen, and a
-tablet shows the page without handing it to the Settings homepage. Call `requestViaSettings` on the
-main thread (a click handler is):
-
-```kotlin
-// In Application.onCreate
-val activityAccess: ActivityAccess = createActivityAccess(this)
-val specialHandler: SpecialPermissionHandler =
-    createSpecialPermissionHandlerWithLauncher(this, SystemScreenLauncher.callerTask(activityAccess))
-```
-
-`openAppSettings()` already works this way through either `createPermissionHandler`.
 
 ### A kiosk (lock-task) app
 
@@ -280,13 +323,12 @@ put Settings inside it, where the allowlist no longer confines it. Settings in a
 its package on the allowlist, and that allows the **whole** Settings package while it is on the
 list, not just the one screen. So open the allowlist only for the screens you expect, close it again
 if the launch did not happen — it returned `false` or threw — and otherwise close it when your app
-resumes. `startActivity` returns before the screen appears, so there is nothing to wrap the launch
-in:
+resumes:
 
 ```kotlin
 val kiosk = SystemScreenLauncher { request ->
     when (request.kind) {
-        SpecialPermissionScreen(SpecialPermission.EXACT_ALARM), AppDetailsScreen -> {
+        PermissionScreen(AndroidPermission.ExactAlarm), PermissionScreen(CommonPermission.Notifications) -> {
             settingsWindow.open() // yours: adds the Settings package to the lock-task allowlist
             val launched: Boolean = try {
                 SystemScreenLauncher.SeparateTask.launch(request)
@@ -302,8 +344,7 @@ val kiosk = SystemScreenLauncher { request ->
 }
 // …and settingsWindow.close() in your activity's onResume.
 
-val specialHandler = createSpecialPermissionHandlerWithLauncher(context, kiosk, logger)
-val handler = createPermissionHandlerWithLauncher(context, host, storage, activityAccess, kiosk, logger = logger)
+val controller = createPermissionController(context, storage, activityAccess, systemScreenLauncher = kiosk)
 ```
 
 ### Logging each launch without changing it
@@ -312,66 +353,63 @@ A launcher that only observes wraps the **same** default the factory would have 
 adding a log line silently moves the screens to another task:
 
 ```kotlin
-fun logging(delegate: SystemScreenLauncher): SystemScreenLauncher = SystemScreenLauncher { request ->
-    Log.i("Screens", "opening ${request.kind}")
-    delegate.launch(request)
-}
-
-// createSpecialPermissionHandler's default is SeparateTask…
-val specialHandler = createSpecialPermissionHandlerWithLauncher(
-    context,
-    logging(SystemScreenLauncher.SeparateTask),
-)
-// …and createPermissionHandler's is callerTask on its tracker.
-val handler = createPermissionHandlerWithLauncher(
-    context,
-    host,
-    storage,
-    activityAccess,
-    logging(SystemScreenLauncher.callerTask(activityAccess)),
+val activityAccess: ActivityAccess = createActivityAccess(application)
+val controller = createPermissionController(
+    context = application,
+    storage = storage,
+    activityAccess = activityAccess,
+    systemScreenLauncher = SystemScreenLauncher { request ->
+        Log.i("Screens", "opening ${request.kind}")
+        SystemScreenLauncher.callerTask(activityAccess).launch(request)
+    },
 )
 ```
 
 ### What the launcher receives
 
-The launcher is called once per `openAppSettings()` / `requestViaSettings()`, with every candidate
-intent at once: one or more, most specific first — this app's own page, then the generic list of
-the same permission where the platform has one. `SeparateTask` and `callerTask` open the first one
-the device can show. Returning `false`, or throwing, makes that call return `false`, and is logged. A
-special permission with nothing to open on the device's API level never reaches the launcher. The
-candidates per screen are in [`05-platform-notes.md`](05-platform-notes.md#how-the-screens-open);
-tasks, Recents, two-pane Settings and lock-task details in
-[`05-platform-notes.md`](05-platform-notes.md#the-settings-trip).
+One call per `openSettings()` or special-access request, with kind `PermissionScreen(permission)` and
+every candidate intent at once: one or more, most specific first — this app's own page, then the
+generic list of the same access where the platform has one, and for `openSettings` of a runtime
+permission the app's details page. `SeparateTask` and `callerTask` open the first one the device can
+show. Returning `false`, or throwing, makes that call return `false` (or the request return the
+status unchanged), and is logged. The candidates per screen are in
+[`05-platform-notes.md`](05-platform-notes.md#special-accesses).
+
+## Bringing your own host (Android)
+
+The default `ActivityResultPermissionRequestHost` covers every `ComponentActivity`. If your app
+already owns its `registerForActivityResult` plumbing — or shows dialogs from something that is not a
+`ComponentActivity` — implement `PermissionRequestHost` and pass it as `host`. Its two members show the
+permission dialog for a list of Android permission strings and start an intent for a result (roles,
+device admins); each must call back exactly once when it returns `true`, and never when it returns
+`false`. The controller always calls them on the main thread. See
+[`04-api-reference.md`](04-api-reference.md#permissionrequesthost-android-only).
 
 ## Mistakes worth avoiding
 
-- **Requesting without declaring.** A permission missing from your `AndroidManifest.xml` produces no
-  dialog and an immediate denial with no rationale — which reads exactly like a dismissed dialog, so
-  the status stays `NotDetermined` and every request returns at once without showing anything. On iOS a missing `Info.plist` usage string terminates the
-  app. Check [`05-platform-notes.md`](05-platform-notes.md) first.
-- **Declaring `BLUETOOTH_SCAN` without `neverForLocation`.** Android then withholds scan results from
-  an app without fine location, so `BLUETOOTH_SCAN` reads `NotDetermined` and a request shows nothing
-  on Android 12 and later. Add the flag, or — if the app does derive location from scans — call the
-  platform API instead of this entry.
-- **Building the handler before the launcher is registered.** `registerForActivityResult` must be
-  called while the activity is below `RESUMED`. Register it as a field initializer, as in
-  [`02-getting-started.md`](02-getting-started.md); the handler itself can be built whenever.
-- **Driving one flow from two coroutines.** It holds mutable state and does not synchronize.
-  Neither platform will show two permission dialogs at once anyway.
-- **Treating `openSettings() == true` as consent.** It means the settings screen opened. Call
-  `refresh()` when you come back.
+- **Requesting without declaring.** A permission missing from your manifest or `Info.plist` reads
+  `Unavailable` and logs a warning; a request shows nothing. Check
+  [`05-platform-notes.md`](05-platform-notes.md) first.
+- **Building the Android controller after the first activity resumed.** Its activity tracker is then
+  not told about the activity already on screen, and the first request finds no activity to show its
+  dialog from. Build it in `Application.onCreate`.
+- **Sending an `Unavailable` user to settings.** There is nothing to switch on there.
+- **Treating `Limited` as refused.** An approximate location or a few photos is usually enough;
+  `isUsable` is the check for "may I proceed".
+- **Driving one flow from two coroutines.** It holds mutable state and does not synchronize. The
+  controller underneath serializes requests, so no two dialogs overlap, but the flow's state would
+  follow whichever finished last.
+- **Treating `openSettings() == true` as consent.** It means a screen was handed to the system. Read
+  the status when the user is back — `observe` does that for you.
 - **Asking on app start.** Both platforms give you one good moment to ask. Spending it on a splash
   screen, before the user has seen why the permission matters, is how a permission becomes
-  permanently denied on the first run.
-- **Reading `state.value` instead of the return value.** They are the same thing; the return value
-  just saves you a read. But do not read `state.value` *while* a `start()` is in flight expecting
-  the outcome — it will be `Requesting`.
-- **Reaching for `PermissionRequestFlow` around a `SpecialPermission`.** There is no rationale state
-  and no permanent-denial bookkeeping to model — call `isGranted()` / `requestViaSettings()`
-  directly, and re-check on resume.
+  permanently denied on the first run. On iOS App Tracking Transparency is not even shown then: a
+  request before the app is active returns `NotDetermined` at once.
+- **Reading `state.value` while a `start()` is in flight** expecting the outcome — it will be
+  `Requesting`. Use the return value.
 
 ## Read next
 
 - [`04-api-reference.md`](04-api-reference.md) — every public symbol
-- [`05-platform-notes.md`](05-platform-notes.md) — manifest, `Info.plist`, and what does not map
-- [`06-testing.md`](06-testing.md) — driving your own screen through all six states
+- [`05-platform-notes.md`](05-platform-notes.md) — manifest, `Info.plist`, and what each entry maps to
+- [`06-testing.md`](06-testing.md) — driving your own screen through every state

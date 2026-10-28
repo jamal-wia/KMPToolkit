@@ -41,9 +41,7 @@ for it. Full details in [`05-platform-notes.md`](05-platform-notes.md).
 ```kotlin
 val permissions: PermissionController = createPermissionController(
     context = this,
-    host = permissionRequestHost,
-    activityAccess = activityAccess,
-    storage = storage,
+    storage = createKeyValueStorage(this),
 )
 val notifier: Notifier = createNotifier(context = this, permissions = permissions)
 ```

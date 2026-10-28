@@ -19,8 +19,8 @@ nothing to add to your manifest, and nothing this library declares in its own.
 capture session* — again, something this module never does. No `Info.plist` entry, no user
 consent dialog.
 
-**Practical consequence:** unlike `kmptoolkit-haptics` (`VIBRATE`) or `kmptoolkit-permission`'s
-catalog, there is no missing-declaration failure mode to document here, because there is no
+**Practical consequence:** unlike `kmptoolkit-haptics` (`VIBRATE`) or the permissions
+`kmptoolkit-permission` asks for, there is no missing-declaration failure mode to document here, because there is no
 declaration to forget.
 
 ## Android

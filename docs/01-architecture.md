@@ -225,7 +225,7 @@ The rules for a module that does this:
   activityAccess)` is one.
 - **Keep the existing factories' defaults**, documented on each: `SystemScreenLauncher.SeparateTask`
   where the factory has only a `Context`, and — where a factory already opened a screen from its own
-  activity tracker, as `openAppSettings` does — `callerTask` on that tracker. Screens a lock-task app
+  activity tracker, as `kmptoolkit-permission`'s controller does — `callerTask` on that tracker. Screens a lock-task app
   is known to open (biometric enrolment) default to `SeparateTask` everywhere.
 - **Never bare `FLAG_ACTIVITY_NEW_TASK`.** It reuses any background task with the target's affinity;
   for Settings that is a stale deep-link task, and the user ends up on an unrelated page. Every

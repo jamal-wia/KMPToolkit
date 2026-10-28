@@ -134,6 +134,6 @@ public interface SystemScreenKind
 ```
 
 Which screen a request opens. Open on purpose: each module declares its own kinds
-(`BiometricEnrollmentScreen`, `LocationSettingsScreen`, `AppDetailsScreen`,
-`SpecialPermissionScreen(permission)`), and later releases may add more — match with an `else`
+(`BiometricEnrollmentScreen`, `LocationSettingsScreen`, `PermissionScreen(permission)`), and later
+releases may add more — match with an `else`
 branch. A kind's `toString()` is for diagnostics only.

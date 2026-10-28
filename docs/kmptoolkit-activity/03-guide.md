@@ -88,8 +88,9 @@ so a listener never needs its own thread hop.
 ## Opening system screens
 
 `kmptoolkit-biometric` (enrolment), `kmptoolkit-location` (location settings) and
-`kmptoolkit-permission` (app details, the special-permission screens) open Settings screens for you.
-Each has a `…WithLauncher` factory that takes a `SystemScreenLauncher`, which decides how.
+`kmptoolkit-permission` (every permission's Settings page, the special-access screens) open Settings
+screens for you. Each takes a `SystemScreenLauncher`, which decides how — through a `…WithLauncher`
+factory, or `createPermissionController`'s `systemScreenLauncher` parameter.
 
 ### Which preset
 
@@ -112,9 +113,8 @@ longer confined by the lock-task allowlist.
 |---|---|---|
 | `createBiometricGate(…)` (every overload) | enrolment | `SeparateTask` |
 | `createLocationProvider(context, config, logger)` | location settings | `SeparateTask` |
-| `createSpecialPermissionHandler(context, logger)` | special-permission screens | `SeparateTask` |
-| `createPermissionHandler(…)` (both overloads) | app details (`openAppSettings`) | `callerTask` on its tracker — the one you pass, or the one it creates |
-| `create…WithLauncher(…, systemScreenLauncher, …)` | the module's screens | the launcher you pass |
+| `createPermissionController(…)` | every permission's Settings page and the special-access screens | `callerTask` on its `activityAccess` — the one you pass, or the one it creates |
+| `create…WithLauncher(…, systemScreenLauncher, …)`, `createPermissionController(…, systemScreenLauncher = …)` | the module's screens | the launcher you pass |
 
 So in an ordinary app, opting every screen into your own task looks like this:
 
@@ -122,7 +122,6 @@ So in an ordinary app, opting every screen into your own task looks like this:
 val launcher = SystemScreenLauncher.callerTask(activityAccess)
 
 val location = createLocationProviderWithLauncher(context, launcher)
-val special = createSpecialPermissionHandlerWithLauncher(context, launcher)
 val gate = createBiometricGateWithLauncher(context, launcher, activityAccess = activityAccess)
 ```
 
@@ -144,8 +143,8 @@ fun logged(delegate: SystemScreenLauncher) = SystemScreenLauncher { request ->
 }
 
 val location = createLocationProviderWithLauncher(context, logged(SystemScreenLauncher.SeparateTask))
-val permissions = createPermissionHandlerWithLauncher(
-    context, host, storage, activityAccess, logged(SystemScreenLauncher.callerTask(activityAccess)),
+val permissions = createPermissionController(
+    context, storage, activityAccess, systemScreenLauncher = logged(SystemScreenLauncher.callerTask(activityAccess)),
 )
 ```
 
