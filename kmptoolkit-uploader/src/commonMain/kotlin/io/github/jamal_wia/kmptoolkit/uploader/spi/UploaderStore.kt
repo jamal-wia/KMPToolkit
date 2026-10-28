@@ -32,8 +32,9 @@ import kotlinx.coroutines.flow.Flow
  * after, never halfway. Two calls are **not** atomic together — the engine never assumes they are.
  * That is why every decision the engine makes from a read and then acts on is a single
  * compare-and-set here rather than a read followed by a write: [markInFlight] claims a row only in
- * the state and lease the caller read, and [recordFailure] writes only under the lease the caller
- * read (and gives up in that same write). Each must be one atomic read-modify-write.
+ * the state and lease the caller read, [recordFailure] writes only under the lease the caller read
+ * (and gives up in that same write), and [insertReplace] and [deleteByTag] hand back exactly the rows
+ * they removed. Each must be one atomic read-modify-write.
  *
  * ### Ordering
  * [getAllActive] returns items in **insertion order**: a monotonic per-store sequence, not a
@@ -45,8 +46,8 @@ import kotlinx.coroutines.flow.Flow
  *
  * ### Idempotency and absent rows
  * [recordFailure], [markInFlight], [park], [deleteById] and [deleteByTag] are addressed by id (or
- * tag) and **must treat an absent row as a no-op** (reported as `false` where the function returns
- * one), never as an error. The settle and lease races
+ * tag) and **must treat an absent row as a no-op** (reported as `false`, or an empty list, where the
+ * function returns something), never as an error. The settle and lease races
  * are designed around this: a late settle from an executor whose row was already superseded lands
  * on nothing and degrades to a no-op instead of corrupting a fresh claim. Calling any of them
  * twice with the same arguments must be indistinguishable from calling it once.
@@ -103,9 +104,15 @@ public interface UploaderStore {
      *
      * A `null` [UploaderItem.uniqueKey] never conflicts: this is then a plain append.
      *
+     * The superseded row comes back from the same atomic step that removed it. The engine cancels
+     * that item's upload, so a read made beforehand would not do: an item enqueued between that read
+     * and this delete would lose its row without its upload ever being cancelled.
+     *
      * @param record the new item, already carrying its final id and timestamps.
+     * @return the item [record] superseded, as it was just before its removal, or `null` if none held
+     *   the identity.
      */
-    public suspend fun insertReplace(record: UploaderItem)
+    public suspend fun insertReplace(record: UploaderItem): UploaderItem?
 
     /**
      * Every [UploaderItemState.PENDING] and [UploaderItemState.IN_FLIGHT] item, in insertion order.
@@ -243,9 +250,15 @@ public interface UploaderStore {
      * queued effects in one call. The canonical use is a logout wipe: effects enqueued under one
      * account must never replay under another's credentials.
      *
+     * The removed rows come back from the same atomic step that removed them, for the same reason as
+     * [insertReplace]'s: the engine cancels the upload of every item the wipe removed, and an item
+     * enqueued while the wipe ran must be among them — a read made beforehand would miss it.
+     *
      * @param tag the exact tag to match; items with a different tag or a `null` tag are untouched.
+     * @return every item removed, in every state and in insertion order, as each was just before its
+     *   removal; empty when nothing carried [tag].
      */
-    public suspend fun deleteByTag(tag: String)
+    public suspend fun deleteByTag(tag: String): List<UploaderItem>
 
     /**
      * A live view of every item of one [UploaderItem.type], **in any state**, in insertion order.

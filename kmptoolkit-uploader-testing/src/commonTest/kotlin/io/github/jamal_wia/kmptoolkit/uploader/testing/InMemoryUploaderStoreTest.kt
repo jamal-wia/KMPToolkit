@@ -198,7 +198,7 @@ class InMemoryUploaderStoreTest {
 
     private companion object {
         /** Guards against a silently shrinking contract: verifyAll must keep running them all. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 37
+        const val EXPECTED_CONTRACT_CHECKS: Int = 40
         const val CONCURRENT_WRITERS: Int = 8
     }
 }

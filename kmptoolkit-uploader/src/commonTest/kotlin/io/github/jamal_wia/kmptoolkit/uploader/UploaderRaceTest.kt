@@ -15,7 +15,9 @@ import kotlinx.coroutines.test.runTest
  * that interleaving:
  *
  * - a settled item is never revived by a claim made from a stale read, and a give-up never lets one
- *   more attempt out (`UploaderEngine.settle`, `GiveUpPolicy`).
+ *   more attempt out (`UploaderEngine.settle`, `GiveUpPolicy`);
+ * - a withdrawal cancels the upload of every row it removed, including one enqueued while it ran
+ *   (`Uploader.cancelByTag`, `ConflictPolicy.REPLACE`).
  */
 class UploaderRaceTest {
 
@@ -158,6 +160,44 @@ class UploaderRaceTest {
             seenAfterTheWrite,
             "the row must never be observable as PENDING once its budget is spent",
         )
+    }
+
+    // --- Withdrawal ------------------------------------------------------------------------------
+
+    @Test
+    fun `cancelByTag cancels the upload of an item enqueued and handed off while it ran`() = runTest {
+        val handler = RaceUploadHandler(transport)
+        val engine: UploaderEngine = startEngine(backgroundScope, listOf(handler))
+        var racer: String? = null
+
+        store.beforeNextDeleteByTag = {
+            racer = engine.enqueue(handler, "payload", tag = "session")
+            engine.drain()
+        }
+        engine.cancelByTag("session")
+
+        val racerId: String = racer!!
+        assertEquals(listOf(racerId), transport.launches, "precondition: the racer was handed off")
+        assertNull(store.find(racerId), "the wipe removed the racer's row")
+        assertEquals(listOf(racerId), transport.cancels, "an upload whose row the wipe removed must be cancelled")
+    }
+
+    @Test
+    fun `a REPLACE cancels the upload of an item enqueued and handed off while it ran`() = runTest {
+        val handler = RaceUploadHandler(transport)
+        val engine: UploaderEngine = startEngine(backgroundScope, listOf(handler))
+        var racer: String? = null
+
+        store.beforeNextInsertReplace = {
+            racer = engine.enqueue(handler, "older", uniqueKey = "avatar")
+            engine.drain()
+        }
+        val replacement: String = engine.enqueue(handler, "newer", uniqueKey = "avatar", conflictPolicy = ConflictPolicy.REPLACE)!!
+
+        val racerId: String = racer!!
+        assertNull(store.find(racerId), "the replacement superseded the racer's row")
+        assertEquals(UploaderItemState.PENDING, store.find(replacement)?.state)
+        assertEquals(listOf(racerId), transport.cancels, "the superseded upload must be cancelled")
     }
 
     private class RecordingTransport : UploadTransport {

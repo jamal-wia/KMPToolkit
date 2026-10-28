@@ -49,10 +49,11 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
         }
     }
 
-    override suspend fun insertReplace(record: UploaderItem) {
+    override suspend fun insertReplace(record: UploaderItem): UploaderItem? {
         runOnce(beforeNextInsertReplace) { beforeNextInsertReplace = null }
         val existing: UploaderItem? = conflict(record)
         state.value = state.value.filterNot { it.id == existing?.id } + record
+        return existing
     }
 
     /**
@@ -187,9 +188,11 @@ internal class TestUploaderStore(initial: List<UploaderItem> = emptyList()) : Up
         state.value = state.value.filterNot { it.id == id }
     }
 
-    override suspend fun deleteByTag(tag: String) {
+    override suspend fun deleteByTag(tag: String): List<UploaderItem> {
         runOnce(beforeNextDeleteByTag) { beforeNextDeleteByTag = null }
-        state.value = state.value.filterNot { it.tag == tag }
+        val (removed: List<UploaderItem>, kept: List<UploaderItem>) = state.value.partition { it.tag == tag }
+        state.value = kept
+        return removed
     }
 
     override fun observeByType(type: String): Flow<List<UploaderItem>> =

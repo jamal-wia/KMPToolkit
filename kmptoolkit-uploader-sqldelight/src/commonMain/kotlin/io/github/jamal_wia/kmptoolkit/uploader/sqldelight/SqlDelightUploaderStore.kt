@@ -49,8 +49,9 @@ internal class SqlDelightUploaderStore(
                     return@transactionWithResult true
                 }
                 val holder: String? =
-                    queries.selectStateByIdentity(type = record.type, uniqueKey = key)
+                    queries.selectByIdentity(type = record.type, uniqueKey = key)
                         .executeAsOneOrNull()
+                        ?.state
                 when (holder) {
                     // Compared against the enum's own names rather than string constants, so a
                     // renamed state cannot drift apart from what is written into the column. The
@@ -73,21 +74,28 @@ internal class SqlDelightUploaderStore(
         }
     }
 
-    override suspend fun insertReplace(record: UploaderItem): Unit = onDatabaseThread(confinement) {
+    override suspend fun insertReplace(record: UploaderItem): UploaderItem? = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.INSERT_REPLACE) {
             val key: String? = record.uniqueKey
             if (key == null) {
                 // Nothing to supersede — a keyless item conflicts with nothing — so this is a plain
                 // append and needs no transaction to be atomic.
                 queries.insert(record)
+                null
             } else {
                 // Delete plus insert, never an in-place edit. The replacement takes a fresh id,
                 // attempt count, gate, lease and — because `sequence` is autoincrementing — a new
                 // position at the tail, so a key that is replaced over and over cannot hold the
-                // head of its ordering channel forever.
-                database.transaction {
+                // head of its ordering channel forever. The superseded row is read in the same
+                // transaction, so what is handed back is exactly what the delete removed.
+                database.transactionWithResult {
+                    val superseded: UploaderItem? =
+                        queries.selectByIdentity(type = record.type, uniqueKey = key)
+                            .executeAsOneOrNull()
+                            ?.toUploaderItem()
                     queries.deleteByIdentity(type = record.type, uniqueKey = key)
                     queries.insert(record)
+                    superseded
                 }
             }
         }
@@ -174,9 +182,18 @@ internal class SqlDelightUploaderStore(
         }
     }
 
-    override suspend fun deleteByTag(tag: String): Unit = onDatabaseThread(confinement) {
+    override suspend fun deleteByTag(tag: String): List<UploaderItem> = onDatabaseThread(confinement) {
         mapFailures(UploaderStorageOperation.DELETE_BY_TAG) {
-            queries.deleteByTag(tag)
+            // A read and a delete in one transaction, so the rows handed back are exactly the rows
+            // removed: an enqueue landing between two separate statements would be deleted without
+            // being returned, and its upload never cancelled. (`DELETE … RETURNING` would do it in
+            // one statement, but needs SQLite 3.35 — see recordFailure.)
+            database.transactionWithResult {
+                val removed: List<UploaderItem> =
+                    queries.selectByTag(tag).executeAsList().map { row -> row.toUploaderItem() }
+                queries.deleteByTag(tag)
+                removed
+            }
         }
     }
 

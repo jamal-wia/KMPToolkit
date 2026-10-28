@@ -67,9 +67,10 @@ Each function is atomic on its own — a concurrent reader sees before or after,
 functions are **not** atomic together, and the engine never assumes they are.
 
 The places the engine does depend on more are the two compare-and-sets — inside `recordFailure` and
-inside `markInFlight`. Each is a decision the engine made from an earlier read, and each must be one
-atomic read-modify-write so a concurrent writer that changed the row in between is detected rather
-than overwritten. See below.
+inside `markInFlight` — and the two removals that hand back what they removed — `insertReplace` and
+`deleteByTag`. Each replaces a decision the engine would otherwise make from an earlier read, and each
+must be one atomic read-modify-write so a concurrent writer that changed the rows in between is
+detected, or included, rather than missed. See below.
 
 ### 3. Insertion order from `getAllActive`
 
@@ -120,6 +121,10 @@ would be silently swallowed. A fresh enqueue is new intent.
 `insertReplace` is simpler: delete any row with the same identity, in any state, then insert the new
 one at the tail. Never an in-place update — the replacement must carry a clean id, attempt count,
 gate and lease.
+
+It returns the row it superseded, as it was just before the delete, read in the **same** atomic step
+— the engine cancels that item's upload. A read made first and then a separate replace would miss an
+item enqueued in between: its row would go and its upload run on.
 
 ### `recordFailure` — the optimistic guard
 
@@ -179,7 +184,7 @@ is not a failure.
 | `getById` | Tolerant lookup; `null` is a normal answer, not an error |
 | `park` | Sets state and `last_error`, clears the lease, leaves `attempts` alone. Deletes nothing |
 | `deleteById` | Removes one row |
-| `deleteByTag` | Removes every row with that exact tag, in **every** state — this is a logout wipe |
+| `deleteByTag` | Removes every row with that exact tag, in **every** state — this is a logout wipe. Returns the removed rows, in insertion order, read in the same atomic step as the delete: the engine cancels each one's upload, so an item enqueued while the wipe ran must be among them |
 | `observeByType` | Live flow, **all** states, insertion order. Emits on collection and on every change; never completes |
 | `clearAll` | Removes everything. A debug/test hatch |
 
@@ -198,9 +203,9 @@ class MyUploaderStoreTest {
 }
 ```
 
-Thirty-seven checks covering insertion ordering under a same-millisecond burst, both conflict policies
-against all three states, both compare-and-sets and the give-up dispositions, no-op-on-absent-row, tag
-deletion across states, and the observation flow. The lambda must return a fresh, empty store each call.
+Forty checks covering insertion ordering under a same-millisecond burst, both conflict policies
+against all three states, both compare-and-sets and the give-up dispositions, what the removals hand
+back, no-op-on-absent-row, tag deletion across states, and the observation flow. The lambda must return a fresh, empty store each call.
 
 Do not skip this on the grounds that the implementation is obviously correct. Every invariant on
 this page exists because breaking it produces a bug that looks like something else: a message

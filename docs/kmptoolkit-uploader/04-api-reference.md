@@ -284,6 +284,8 @@ Eleven functions; the full contract is in the interface KDoc and in
   compare-and-set — `recordFailure` on the lease the caller read, giving up (`FailureDisposition.PARK`
   or `DROP`) in that same write, and `markInFlight` on the state and lease the caller read, returning
   whether it claimed the row.
+- `insertReplace` returns the item it superseded and `deleteByTag` the items it removed, each read in
+  the same atomic step as its delete — the engine cancels exactly those uploads.
 - `getAllActive` returns `PENDING` + `IN_FLIGHT` in **insertion order** (a sequence, not a timestamp).
 - Every id-addressed write treats an absent row as a no-op and is idempotent.
 - Callable concurrently.

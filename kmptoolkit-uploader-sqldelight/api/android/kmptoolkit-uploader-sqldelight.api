@@ -114,8 +114,11 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/sqldelight/db/Uploade
 	public final fun selectAllActive (Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
 	public final fun selectById (Ljava/lang/String;)Lapp/cash/sqldelight/Query;
 	public final fun selectById (Ljava/lang/String;Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
+	public final fun selectByIdentity (Ljava/lang/String;Ljava/lang/String;)Lapp/cash/sqldelight/Query;
+	public final fun selectByIdentity (Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
+	public final fun selectByTag (Ljava/lang/String;)Lapp/cash/sqldelight/Query;
+	public final fun selectByTag (Ljava/lang/String;Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
 	public final fun selectByType (Ljava/lang/String;)Lapp/cash/sqldelight/Query;
 	public final fun selectByType (Ljava/lang/String;Lkotlin/jvm/functions/Function14;)Lapp/cash/sqldelight/Query;
-	public final fun selectStateByIdentity (Ljava/lang/String;Ljava/lang/String;)Lapp/cash/sqldelight/Query;
 }
 

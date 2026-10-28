@@ -71,6 +71,8 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
             ::insertReplaceSupersedesPendingAtTheTail,
             ::insertReplaceSupersedesInFlightAndResetsIt,
             ::insertReplaceSupersedesParked,
+            ::insertReplaceReturnsWhatItSuperseded,
+            ::insertReplaceReturnsNullWhenNothingWasSuperseded,
             ::recordFailureWritesEveryFieldAndClearsTheLease,
             ::recordFailureAppliesWhenTheLeaseMatches,
             ::recordFailureIsRejectedWhenTheLeaseMoved,
@@ -90,6 +92,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
             ::deleteByIdIsIdempotent,
             ::deleteByTagRemovesEveryStateOfThatTag,
             ::deleteByTagLeavesOtherTagsAlone,
+            ::deleteByTagReturnsWhatItRemoved,
             ::observeByTypeFiltersAndOrders,
             ::observeByTypeIncludesParked,
             ::observeByTypeEmitsEmptyForAnUnknownType,
@@ -253,6 +256,32 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         store.insertReplace(item(id = "b", uniqueKey = "u"))
         expect(store.getById("a") == null) { "the superseded parked item must be gone" }
         expect(store.getAllActive().map { it.id } == listOf("b")) { "the new item must be active" }
+    }
+
+    /**
+     * The superseded row comes back from the replacement itself, as it was just before its removal —
+     * the engine cancels that item's upload, and a read made beforehand could miss an item enqueued in
+     * between.
+     */
+    public suspend fun insertReplaceReturnsWhatItSuperseded() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a", uniqueKey = "u", tag = "t"))
+        claim(store, "a", leaseUntilEpochMillis = 900L)
+        val superseded: UploaderItem? = store.insertReplace(item(id = "b", uniqueKey = "u"))
+        expect(superseded?.id == "a") { "insertReplace must return the item it superseded; got $superseded" }
+        expect(superseded?.state == UploaderItemState.IN_FLIGHT) { "as it was: IN_FLIGHT" }
+        expect(superseded?.leaseUntilEpochMillis == 900L) { "as it was: under its lease" }
+        expect(superseded?.tag == "t") { "as it was: with its tag" }
+    }
+
+    /** Nothing superseded, nothing returned — a keyless append and a fresh key alike. */
+    public suspend fun insertReplaceReturnsNullWhenNothingWasSuperseded() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "other", type = "elsewhere", uniqueKey = "u"))
+        val keyless: UploaderItem? = store.insertReplace(item(id = "a", uniqueKey = null))
+        val freshKey: UploaderItem? = store.insertReplace(item(id = "b", uniqueKey = "u"))
+        expect(keyless == null) { "a keyless replacement supersedes nothing; got $keyless" }
+        expect(freshKey == null) { "a key held only under another type supersedes nothing; got $freshKey" }
     }
 
     /** A recorded failure sets all five fields at once, including clearing the lease. */
@@ -514,6 +543,28 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         expect(store.getAllActive().map { it.id } == listOf("a")) {
             "deleting an unused tag must change nothing"
         }
+    }
+
+    /** The wipe hands back every row it removed, in every state and in insertion order, as each was. */
+    public suspend fun deleteByTagReturnsWhatItRemoved() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "pending", tag = "session"))
+        store.insertKeep(item(id = "other", tag = "keep-me"))
+        store.insertKeep(item(id = "inflight", tag = "session"))
+        store.insertKeep(item(id = "parked", tag = "session"))
+        claim(store, "inflight", leaseUntilEpochMillis = 900L)
+        store.park("parked", "x")
+
+        val removed: List<UploaderItem> = store.deleteByTag("session")
+
+        expect(removed.map { it.id } == listOf("pending", "inflight", "parked")) {
+            "deleteByTag must return every removed item in insertion order; got ${removed.map { it.id }}"
+        }
+        expect(removed.map { it.state } == listOf(UploaderItemState.PENDING, UploaderItemState.IN_FLIGHT, UploaderItemState.PARKED)) {
+            "each removed item must come back in the state it was removed in; got ${removed.map { it.state }}"
+        }
+        expect(removed[1].leaseUntilEpochMillis == 900L) { "the in-flight item must come back with its lease" }
+        expect(store.deleteByTag("session").isEmpty()) { "a second wipe of the same tag removes, and returns, nothing" }
     }
 
     /** The observation flow filters by type and keeps insertion order. */

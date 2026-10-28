@@ -165,24 +165,24 @@ internal class DefaultUploaderEngine(
             createdAtEpochMillis = clock.nowEpochMillis(),
             lastError = null,
         )
-        // The items a REPLACE supersedes, read first so their uploads can be cancelled once their rows
-        // are gone. One handed off between this read and the insert cancels itself: its hand-off finds
-        // the row gone right after launching.
-        var superseded: List<UploaderItem> = emptyList()
+        // The item a REPLACE supersedes comes back from the replacement itself rather than from a read
+        // made first: under a TransactionRunner that is not a real transaction (Direct, the default), an
+        // item enqueued between such a read and the replacement would lose its row without its upload
+        // ever being cancelled. One handed off before the replacement lands is cancelled here; one whose
+        // hand-off is still launching cancels itself, finding its row gone right after the launch.
+        var superseded: UploaderItem? = null
         val inserted: Boolean = transactionRunner.inTransaction {
             when (conflictPolicy) {
                 ConflictPolicy.KEEP -> store.insertKeep(record)
                 ConflictPolicy.REPLACE -> {
-                    if (uniqueKey != null && handler is UploadHandler<*>) {
-                        superseded = store.getAllActive()
-                            .filter { it.type == handler.type && it.uniqueKey == uniqueKey }
-                    }
-                    store.insertReplace(record)
+                    superseded = store.insertReplace(record)
                     true
                 }
             }
         }
-        superseded.forEach { old -> cancelUpload(old, reason = "superseded by ${record.logName}") }
+        // A parked item has no upload to cancel; only an upload handler's items have one at all.
+        superseded?.takeIf { handler is UploadHandler<*> && it.state != UploaderItemState.PARKED }
+            ?.let { old -> cancelUpload(old, reason = "superseded by ${record.logName}") }
         if (inserted) {
             logger.d { "Enqueued ${record.logName}." }
         } else {
@@ -210,9 +210,10 @@ internal class DefaultUploaderEngine(
     }
 
     override suspend fun cancelByTag(tag: String) {
-        // Parked items are not in the active list, and have no upload to cancel.
-        val owed: List<UploaderItem> = store.getAllActive().filter { it.tag == tag }
-        store.deleteByTag(tag)
+        // The rows come back from the wipe itself rather than from a read made first: an item enqueued
+        // and handed off between such a read and the delete would lose its row while its upload ran on —
+        // after a logout wipe, under the next account. Parked items have no upload to cancel.
+        val owed: List<UploaderItem> = store.deleteByTag(tag).filter { it.state != UploaderItemState.PARKED }
         owed.forEach { record -> cancelUpload(record, reason = "withdrawn by tag") }
         logger.i { "Withdrew every item tagged '$tag' (${owed.size} active)." }
         trigger()

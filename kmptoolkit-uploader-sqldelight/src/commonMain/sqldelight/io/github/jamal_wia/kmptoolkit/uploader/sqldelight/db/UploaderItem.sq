@@ -60,9 +60,10 @@ INSERT INTO kmptoolkit_uploader_item(
 VALUES (:id, :type, :payload, :schemaVersion, :uniqueKey, :orderingKey, :tag,
     :state, :attempts, :nextRunAt, :createdAt, :lastError, :leaseUntil);
 
--- The KEEP policy's lookup: what, if anything, currently holds this identity.
-selectStateByIdentity:
-SELECT state FROM kmptoolkit_uploader_item
+-- Both policies' lookup: what, if anything, currently holds this identity. KEEP decides on its
+-- state; REPLACE hands the whole row back as the item it superseded.
+selectByIdentity:
+SELECT * FROM kmptoolkit_uploader_item
 WHERE type = :type AND unique_key = :uniqueKey
 LIMIT 1;
 
@@ -124,6 +125,11 @@ WHERE id = :id;
 
 deleteById:
 DELETE FROM kmptoolkit_uploader_item WHERE id = :id;
+
+-- What the logout wipe below removes, read inside the same transaction so the rows handed back are
+-- exactly the rows deleted — the engine cancels each one's upload.
+selectByTag:
+SELECT * FROM kmptoolkit_uploader_item WHERE tag = :tag ORDER BY sequence ASC;
 
 -- The logout wipe: every row carrying this exact tag, in every state. A NULL tag matches nothing,
 -- which is what `=` already gives us.

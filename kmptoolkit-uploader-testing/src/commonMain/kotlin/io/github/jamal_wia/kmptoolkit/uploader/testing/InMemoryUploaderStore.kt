@@ -73,11 +73,13 @@ public class InMemoryUploaderStore(
         }
     }
 
-    override suspend fun insertReplace(record: UploaderItem): Unit = mutex.withLock {
+    override suspend fun insertReplace(record: UploaderItem): UploaderItem? = mutex.withLock {
         val existing: UploaderItem? = findConflict(record)
         // Delete-and-append, never an in-place edit: the replacement enters at the tail of the
         // insertion sequence, so a repeatedly replaced key cannot hold its channel's head forever.
         state.value = state.value.filterNot { it.id == existing?.id } + record
+        // Read and removed under the same lock, so what comes back is exactly what was superseded.
+        existing
     }
 
     override suspend fun getAllActive(): List<UploaderItem> = state.value.filter {
@@ -158,8 +160,10 @@ public class InMemoryUploaderStore(
         state.value = state.value.filterNot { it.id == id }
     }
 
-    override suspend fun deleteByTag(tag: String): Unit = mutex.withLock {
-        state.value = state.value.filterNot { it.tag == tag }
+    override suspend fun deleteByTag(tag: String): List<UploaderItem> = mutex.withLock {
+        val (removed: List<UploaderItem>, kept: List<UploaderItem>) = state.value.partition { it.tag == tag }
+        state.value = kept
+        removed
     }
 
     override fun observeByType(type: String): Flow<List<UploaderItem>> =

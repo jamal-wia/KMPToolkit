@@ -844,7 +844,7 @@ internal class SqlDelightUploaderStoreChecks {
     private companion object {
 
         /** What [UploaderStoreContract.verifyAll] returns today. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 37
+        const val EXPECTED_CONTRACT_CHECKS: Int = 40
 
         /** Enough repetitions that a lost race would have to be lucky thirty times running. */
         const val CONTENTION_ROUNDS: Int = 30
