@@ -106,8 +106,14 @@ usage-description string.
   turns it off for one post.
 - **Ids are hashed** from your string to a non-negative, non-zero `Int` — non-zero because
   `startForeground` rejects 0, and stable across processes because `String.hashCode` is specified.
-  `notificationIdOf` returns it. Two different strings could in principle collide; use readable,
-  distinct ids.
+  `notificationIdOf` returns it. Two different strings can collide — `"Aa"` and `"BB"` hash alike,
+  and so do two strings whose hashes differ only in the sign bit the mapping clears. Colliding ids are one
+  notification to Android: a post under one replaces the other, a `cancel` of one removes the
+  other, and the tap target's `PendingIntent` (keyed by the same number) is shared, so a tap can
+  deliver the other post's `extras`. Use readable, distinct ids, and don't derive them from
+  arbitrary user input. The mapping is deliberately not a `(tag, id)` pair: `startForeground` takes
+  no tag, and a `Notifier.post` must be able to update a foreground service's notification in place
+  under the id `notificationIdOf` returns.
 - **`NotificationOptions.mediaStyle`** uses `androidx.media`'s `NotificationCompat.MediaStyle`, which
   this module depends on (implementation scope) for exactly that.
 - **A channel is "blocked" two ways**: muted directly (`IMPORTANCE_NONE`), or — from API 28 — sitting

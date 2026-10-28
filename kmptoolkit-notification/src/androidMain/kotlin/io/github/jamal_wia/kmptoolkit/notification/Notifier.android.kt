@@ -12,6 +12,8 @@ import io.github.jamal_wia.kmptoolkit.permission.Permission
 import io.github.jamal_wia.kmptoolkit.permission.PermissionHandler
 import io.github.jamal_wia.kmptoolkit.permission.isGranted
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Creates the Android [Notifier], backed by `NotificationManagerCompat`.
@@ -78,8 +80,13 @@ internal class AndroidNotifier(
      * unchanged spec achieves nothing. Keying on the whole spec rather than on the id means a
      * changed `name` or `description` — the two fields the platform *does* still update — is
      * re-applied rather than cached away.
+     *
+     * A [MutableStateFlow] of an immutable set, updated with `update`, because [post] is documented
+     * safe to call concurrently from any thread and a plain `mutableSetOf()` — a `LinkedHashSet` —
+     * has undefined behavior under concurrent writes. A lost entry here would only cost one more
+     * idempotent channel write; a corrupted hash table would not be so harmless.
      */
-    private val ensuredChannels: MutableSet<NotificationChannelSpec> = mutableSetOf()
+    private val ensuredChannels: MutableStateFlow<Set<NotificationChannelSpec>> = MutableStateFlow(emptySet())
 
     override suspend fun post(id: String, notification: LocalNotification): NotificationResult =
         post(id, notification, NotificationOptions.DEFAULT)
@@ -182,9 +189,9 @@ internal class AndroidNotifier(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
         val manager: NotificationManager = context.frameworkNotificationManager() ?: return null
         var channel: NotificationChannel? = manager.getNotificationChannel(spec.id)
-        if (channel == null || (!redundant && spec !in ensuredChannels)) {
+        if (channel == null || (!redundant && spec !in ensuredChannels.value)) {
             manager.createNotificationChannel(context.notificationChannelFor(spec))
-            ensuredChannels += spec
+            ensuredChannels.update { ensured: Set<NotificationChannelSpec> -> ensured + spec }
             channel = manager.getNotificationChannel(spec.id)
         }
         val existing: NotificationChannel = channel ?: return null
