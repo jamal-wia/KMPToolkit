@@ -10,10 +10,12 @@ import kotlinx.coroutines.flow.Flow
  * and pass your implementation to [io.github.jamal_wia.kmptoolkit.downloader.createDownloader].
  *
  * **No pause/resume.** Only cancel and re-enqueue. On Android, resumption via HTTP `Range` happens
- * only when a partial temp file survives — an automatic retry, or process death mid-transfer; on
- * iOS the OS-owned background session is what survives, reconnected by identifier on relaunch, and
- * the temp file appears only on completion. A user cancel and a final failure both delete the temp
- * file, so those start fresh.
+ * whenever a partial temp file survives — an automatic retry, a later `ensureAvailable` after a
+ * failure, or process death mid-transfer; on iOS the OS-owned background session is what survives,
+ * reconnected by identifier on relaunch, and the temp file appears only on completion. The engine
+ * keeps the partial temp file when a transfer fails (a lost connection, a timeout, a server error,
+ * a rejected request) and deletes it only on a user cancel, on bytes that fail their integrity
+ * check, and when the server says the object is gone (404/410), so only those start from byte zero.
  *
  * The engine owns every retry decision; an implementation reports what happened and stops there.
  *

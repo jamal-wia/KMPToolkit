@@ -142,7 +142,7 @@ class DownloaderEngineUnitDownloadTest {
     }
 
     @Test
-    fun `a failed download throws DownloadFailedException and reports Error and deletes the temp file`() = runTest {
+    fun `a failed download throws DownloadFailedException and reports Error and keeps the temp file`() = runTest {
         val storage = FakeStorage()
         val downloader = FailingDownloader(asset, "boom")
         val engine = engine(storage, downloader, this)
@@ -157,7 +157,9 @@ class DownloaderEngineUnitDownloadTest {
         assertTrue(state is UnitDownloadState.Error, "expected Error but was $state")
         assertEquals(state.error, thrown.error)
         assertEquals(asset, thrown.unit)
-        assertTrue(storage.tempFileDeletedFor.contains(asset))
+        // The partial is the user's progress: only a NotFound, a cancel or an integrity failure
+        // takes it away (DownloaderEngineTempFileTest), not an unclassified failure.
+        assertTrue(storage.tempFileDeletedFor.isEmpty(), "a failure must not delete the temp file")
     }
 
     @Test

@@ -36,8 +36,9 @@ Two invariants make the rest of this document make sense:
   are different files, and only `markTempFileComplete` turns one into the other. A partial file is
   resumed via a ranged request — or attached to, while its transfer is still running — however
   large it is: a transfer killed mid-way leaves a file that exists and is not empty, and before
-  2.0.0 the engine committed exactly that as the finished resource. A user cancel and a final
-  failure both delete the temp file, so those restart from zero.
+  2.0.0 the engine committed exactly that as the finished resource. A failed transfer keeps its
+  partial file for the next `ensureAvailable` to resume from; only a user cancel, an integrity
+  failure and a `NotFound` failure delete it, so only those restart from zero.
 
 ## Group path vs. per-unit path
 
@@ -158,7 +159,15 @@ The group path's policy, as a table because it is not obvious:
 | `Error` classified `NotFound` or `Unauthorized` | either | never retried: clear the failure count, `Error` state + notification, throw `DownloadFailedException` |
 | `Error`, any other | yes | restart the run: failure count = 1, wait, re-enqueue |
 | `Error`, any other | no, count ≤ 2 | increment, wait, re-enqueue |
-| `Error`, any other | no, count > 2 | clear the failure count (the next `ensureAvailable` gets a fresh budget), delete temp file, `Error` state + notification, throw `DownloadFailedException` |
+| `Error`, any other | no, count > 2 | clear the failure count (the next `ensureAvailable` gets a fresh budget), `Error` state + notification, throw `DownloadFailedException` |
+
+**What happens to the partial file.** A failed transfer keeps it, so the user's retry resumes
+instead of starting over — a drive through a tunnel must not cost a 1.8 GB download. It is deleted
+in exactly three cases: the user cancels (`cancelDownload`, either overload, whatever state the file
+is in), the bytes fail their integrity check at commit, and the failure is `NotFound` (404/410 — the
+object is gone, so the bytes can never be completed). `Unauthorized` keeps it: a refreshed session
+fixes that. The engine has no rule for a 416; see
+[`07-background-downloader.md`](07-background-downloader.md).
 
 **Progress means moving forward.** The engine remembers the highest fraction any attempt of one
 `ensureAvailable` has reported (the high-water mark). Only a `Progress` beyond it counts: a transfer

@@ -413,7 +413,7 @@ internal class DefaultDownloaderEngine(
                     logger.e { "Download failed for $unit: $errorMessage" }
                     groupState.value = GroupDownloadState.Error(error = downloadError)
                     notifier.showError(group = group, error = downloadError)
-                    safeDeleteTempFile(unit)
+                    deleteTempFileAfterFailure(unit, downloadError)
                     throw DownloadFailedException(unit = unit, error = downloadError)
                 }
             }
@@ -657,6 +657,23 @@ internal class DefaultDownloaderEngine(
         }
     }
 
+    /**
+     * What a transfer that ended in [error] leaves behind. The partial file is the user's progress,
+     * so it stays for the next [ensureAvailable] to resume from, unless the failure says those bytes
+     * are of no use: [DownloadError.NotFound] means the object is gone from the server, so whatever
+     * was downloaded of it can never be completed. A lost connection, a timeout, a 5xx, an
+     * [DownloadError.Unauthorized] that a refreshed session fixes, or an unclassified failure all
+     * keep it. The other deletions are not failures of the transfer: a user cancel, and bytes that
+     * fail their integrity check at commit.
+     */
+    private fun deleteTempFileAfterFailure(unit: DownloadUnit, error: DownloadError) {
+        if (error == DownloadError.NotFound) {
+            safeDeleteTempFile(unit)
+        } else {
+            logger.i { "Keeping the temp file of $unit after $error, so a retry resumes from it" }
+        }
+    }
+
     private fun safeDeleteTempFile(unit: DownloadUnit) {
         try {
             storage.deleteTempFile(unit)
@@ -863,7 +880,7 @@ internal class DefaultDownloaderEngine(
                 val downloadError: DownloadError =
                     if (stalled) DownloadError.Timeout else terminalEvent.message.toDownloadError()
                 stateFlow.value = UnitDownloadState.Error(downloadError)
-                safeDeleteTempFile(unit)
+                deleteTempFileAfterFailure(unit, downloadError)
                 throw DownloadFailedException(unit = unit, error = downloadError)
             }
         }
