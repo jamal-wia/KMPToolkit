@@ -11,7 +11,6 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.runBlocking
 import platform.Foundation.NSBundle
-import platform.Foundation.NSFileManager
 import platform.posix.pthread_self
 
 /**
@@ -48,7 +47,7 @@ public fun createUploaderStorage(config: UploaderDatabaseConfig = UploaderDataba
             if (config.recreateOnCorruption) openVerified(fileName) else openNative(fileName)
         } catch (failure: Throwable) {
             if (!config.recreateOnCorruption || !looksCorrupt(failure)) throw failure
-            deleteDatabaseFiles(fileName)
+            DatabaseFileContext.deleteDatabase(fileName)
             openNative(fileName)
         }
     }
@@ -89,20 +88,6 @@ private fun openVerified(fileName: String): NativeSqliteDriver {
     }
     return driver
 }
-
-/**
- * Deletes the database file and the `-wal`, `-shm` and `-journal` files next to it. Removing the main file
- * alone would leave a dead write-ahead log that SQLite replays into the new file, bringing the old queue
- * back into a database that was meant to start empty.
- */
-@OptIn(ExperimentalForeignApi::class)
-private fun deleteDatabaseFiles(fileName: String) {
-    DatabaseFileContext.deleteDatabase(fileName)
-    val path: String = DatabaseFileContext.databasePath(fileName, null)
-    SIDECAR_SUFFIXES.forEach { suffix -> NSFileManager.defaultManager.removeItemAtPath(path + suffix, null) }
-}
-
-private val SIDECAR_SUFFIXES: List<String> = listOf("-wal", "-shm", "-journal")
 
 /**
  * Whether SQLite reported that the file is not a database or is malformed (`SQLITE_NOTADB`,

@@ -128,7 +128,7 @@ class UploaderStorageLifecycleRound2IosAdversarialTest {
     }
 
     @Test
-    fun `recreateOnCorruption does not let a dead write-ahead log leak the old queue into the new file`() = runTest {
+    fun `recreateOnCorruption does not replay a dead write-ahead log over the recreated file`() = runTest {
         val config = UploaderDatabaseConfig(
             "com.example.r2.wal-${uniqueDatabaseName("ios")}",
             recreateOnCorruption = true,
@@ -136,32 +136,38 @@ class UploaderStorageLifecycleRound2IosAdversarialTest {
         val path: String = DatabaseFileContext.databasePath(uploaderDatabaseFileName(config.name!!), null)
         removeAll(path)
         try {
+            seed(config, 600)
+            // One more commit that lives only in the write-ahead log: the log of a process killed right after it.
             val live: UploaderStorage = createUploaderStorage(config)
             val walSnapshot: ByteArray
             try {
-                live.store.insertKeep(anItem("old-1"))
-                live.store.insertKeep(anItem("old-2"))
+                live.store.insertKeep(anItem("late"))
                 walSnapshot = read("$path-wal")
             } finally {
                 live.close()
             }
-            assertTrue(walSnapshot.isNotEmpty(), "setup: the rows are not in a write-ahead log, so this scenario cannot arise")
+            assertTrue(walSnapshot.isNotEmpty(), "setup: the commit is not in a write-ahead log, so this scenario cannot arise")
 
-            // The crash image: the log the dead process left, next to a main file that is no database.
-            removeAll(path)
-            write(path, ByteArray(4_096) { (it * 17).toByte() })
+            // The crash image: a main file whose header is gone, next to that log.
+            val bytes: ByteArray = read(path)
+            for (index in 0 until 100) bytes[index] = (index * 7 + 1).toByte()
+            write(path, bytes)
             write("$path-wal", walSnapshot)
 
             val storage: UploaderStorage = createUploaderStorage(config)
             try {
-                assertEquals(emptyList(), storage.store.getAllActive().map { it.id }, "the recreated queue must be empty")
+                assertEquals(
+                    emptyList(),
+                    storage.store.getAllActive().map { it.id },
+                    "the recreated queue must be empty: the dead log of the old file must not be replayed into it",
+                )
                 storage.store.insertKeep(anItem("fresh"))
             } finally {
                 storage.close()
             }
             val reopened: UploaderStorage = createUploaderStorage(config)
             try {
-                assertEquals(listOf("fresh"), reopened.store.getAllActive().map { it.id }, "the recreated file did not stay consistent")
+                assertEquals(listOf("fresh"), reopened.store.getAllActive().map { it.id })
             } finally {
                 reopened.close()
             }
