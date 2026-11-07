@@ -226,6 +226,44 @@ class AndroidDownloaderEngineAdversarialTest {
         }
     }
 
+    @Test
+    fun `a commit racing 6 threads that delete the temp file ends with a whole resource or none never a partial one`() {
+        val payload: ByteArray = ByteArray(256 * 1024) { index: Int -> (index % 241).toByte() }
+        repeat(30) { round: Int ->
+            root.deleteRecursively()
+            val group = Group("catalogue")
+            val unit = FileUnit("model", group).also { group.units = listOf(it) }
+            val storage: DownloaderStorage = createDownloaderStorage(context, config)
+            File(storage.getTempFilePath(unit)).apply { parentFile!!.mkdirs() }.writeBytes(payload)
+            storage.markTempFileComplete(unit)
+            val go = java.util.concurrent.CountDownLatch(1)
+
+            val committer = Thread {
+                go.await()
+                runBlocking { runCatching { createDownloaderStorage(context, config).commitResource(unit) } }
+            }
+            val deleters: List<Thread> = (0 until 6).map {
+                Thread {
+                    go.await()
+                    repeat(20) { createDownloaderStorage(context, config).deleteTempFile(unit) }
+                }
+            }
+            (deleters + committer).forEach(Thread::start)
+            go.countDown()
+            (deleters + committer).forEach { it.join(15_000) }
+            assertTrue((deleters + committer).none { it.isAlive }, "round $round: a thread is blocked")
+
+            val resource = File(storage.getResourcePath(unit))
+            if (resource.exists()) {
+                assertContentEquals(payload, resource.readBytes(), "round $round: the committed file is not whole")
+            }
+            assertFalse(
+                File(storage.getTempFilePath(unit)).exists() && resource.exists() && storage.tempFileState(unit) == TempFileState.None,
+                "round $round",
+            )
+        }
+    }
+
     private companion object {
         const val ROUNDS: Int = 30
     }
