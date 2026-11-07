@@ -47,7 +47,9 @@ public interface ActivityAccess {
      * rule. Subscribe on the main thread and it runs synchronously, inside this
      * call. Subscribe from any other thread and it is posted to the main thread instead. It is
      * dropped if you cancel first, if the activity stops being resumed in the meantime, or if a
-     * real resume reaches the listener before it.
+     * real resume reaches the listener before it. If the listener throws during the synchronous
+     * replay, the exception propagates out of this call and the listener is not subscribed (you never
+     * received a handle to cancel it with).
      *
      * **Do not let the listener store the activity.** It is held strongly by the tracker until you
      * cancel it, so anything it captures lives as long as the tracker does.

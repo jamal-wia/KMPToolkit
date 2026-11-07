@@ -27,7 +27,8 @@ that applies state to a window does not need a separate path for "an activity wa
 Always invoked on the main thread. The immediate replay is synchronous when you subscribe on the
 main thread, and posted to it when you subscribe from anywhere else. A posted replay is dropped if
 the subscription is cancelled first, the activity is no longer resumed, or a real resume has already
-reached the listener.
+reached the listener. If the listener throws during the synchronous replay, the exception propagates
+out of the call and the listener is not subscribed, since no handle was returned to cancel it with.
 
 The listener is held strongly until the returned subscription is cancelled. Do not let it store the
 activity.
