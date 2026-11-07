@@ -47,7 +47,7 @@ is where these live.
 
 | Platform | Default base directory | Notes |
 |---|---|---|
-| Android | `filesDir/kmptoolkit_downloader/` | Configurable via `DownloaderStorageConfig.baseDirectoryName`. |
+| Android | `filesDir/kmptoolkit_downloader/` | Configurable via `DownloaderStorageConfig.baseDirectoryName`: one plain folder name, not blank, not `.` or `..`, no path separator or NUL (otherwise the constructor throws `IllegalArgumentException`). |
 | iOS | `Application Support/kmptoolkit_downloader/` | Not `Documents/` — these are re-downloadable assets, and Application Support is excluded from the user-facing "Documents & Data" iCloud backup by default. Also explicitly marked `NSURLIsExcludedFromBackupKey` as a second net. |
 
 Temp files live under `<base>/tmp/`: an unfinished transfer at `<unit.id>.<unit.tempExtension>`,

@@ -234,7 +234,8 @@ Android; `createDownloaderStorage(config = DownloaderStorageConfig(), logger = N
 
 `DownloaderStorageConfig(baseDirectoryName: String = "kmptoolkit_downloader")` — the one thing
 about the shipped storage you might need to change, so two libraries sharing a process never
-collide.
+collide. The name must be one plain folder name: not blank, not `.` or `..`, and without a path
+separator or NUL; anything else throws `IllegalArgumentException` from the constructor.
 
 ## `spi` package
 

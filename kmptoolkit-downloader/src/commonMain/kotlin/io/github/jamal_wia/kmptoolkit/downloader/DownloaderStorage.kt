@@ -222,6 +222,9 @@ public class ResourceIntegrityException(message: String, cause: Throwable? = nul
  *
  * @param baseDirectoryName the folder name committed and in-progress resources live under, relative
  *   to the platform's own app-storage root (`filesDir` on Android, `Application Support` on iOS).
+ *   It must be one plain folder name: not blank, not `.` or `..` (either would put the base outside
+ *   or on the root itself), and without a path separator or a null character. An invalid name
+ *   throws [IllegalArgumentException] from the constructor, before any file is touched.
  *   Nothing in this module hardcodes an identifier of its own — see `docs/01-architecture.md`.
  */
 public data class DownloaderStorageConfig(
@@ -230,6 +233,9 @@ public data class DownloaderStorageConfig(
     init {
         require(baseDirectoryName.isNotBlank()) {
             "baseDirectoryName must not be blank, was '$baseDirectoryName'"
+        }
+        require(baseDirectoryName != "." && baseDirectoryName != "..") {
+            "baseDirectoryName must not be '.' or '..', was '$baseDirectoryName'"
         }
         require(baseDirectoryName.none { it in FORBIDDEN_CHARACTERS }) {
             "baseDirectoryName must not contain a path separator or a null character, " +
