@@ -100,6 +100,14 @@ class DownloaderEngineClassificationTest {
     }
 
     @Test
+    fun `a stated status wins over the words unauthorized and forbidden`() = runTest {
+        assertEquals(DownloadError.Server(503), classify("HTTP 503: upstream returned Forbidden"))
+        assertEquals(DownloadError.Server(500), classify("HTTP 500 unauthorized client cert on origin"))
+        assertEquals(DownloadError.Unauthorized, classify("access forbidden"))
+        assertEquals(DownloadError.Unauthorized, classify("Unauthorized"))
+    }
+
+    @Test
     fun `transport phrases are still classified`() = runTest {
         assertEquals(DownloadError.NoConnection, classify("Unable to resolve host \"cdn.example.com\""))
         assertEquals(DownloadError.Timeout, classify("SocketTimeoutException: timeout"))

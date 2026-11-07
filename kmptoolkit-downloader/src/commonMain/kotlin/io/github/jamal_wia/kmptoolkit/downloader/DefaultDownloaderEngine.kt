@@ -1181,9 +1181,11 @@ private fun String.toDownloadError(): DownloadError {
     return when {
         status == 404 || status == 410 -> DownloadError.NotFound
 
+        // The wording is a fallback for a message that states no status: next to a stated 5xx or
+        // 416 it is only text ("HTTP 503: upstream said Forbidden").
         status == 401 || status == 403 ||
-            "unauthorized" in lowered ||
-            "forbidden" in lowered -> DownloadError.Unauthorized
+            (status == null && ("unauthorized" in lowered || "forbidden" in lowered)) ->
+            DownloadError.Unauthorized
 
         status != null && status in 500..599 -> DownloadError.Server(statusCode = status)
 
