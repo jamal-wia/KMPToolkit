@@ -391,15 +391,12 @@ internal class DefaultUploaderEngine(
         store.park(record.id, boundedFailureText(reason), record.state, record.claim)
 
     override suspend fun drain() {
-        // Items whose attempt threw out of `executeItem` during this call (a store write failing after the
-        // effect ran, a consumer policy throwing). A later sweep of the same call must not run the same
-        // effect again in a tight loop; an alarm retries them instead.
-        val failedThisCall: MutableSet<String> = mutableSetOf()
         while (true) {
             // A store whose calls never suspend gives cancellation no other place to be seen: without this a
             // close() (or a cancelled scope) from inside a handler would not stop the pass.
             currentCoroutineContext().ensureActive()
             val active: List<UploaderItem> = store.getAllActive()
+            pruneOutsideFailures(active)
             if (active.isEmpty()) {
                 cancelAlarm()
                 wakeScheduler.cancelWake() // nothing owed — disarm the platform wake
@@ -460,21 +457,44 @@ internal class DefaultUploaderEngine(
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, item.nextRunAtEpochMillis)
                     continue
                 }
-                if (item.id in failedThisCall) {
-                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, saturatingAdd(nowMillis, config.minAlarmDelay.inWholeMilliseconds))
+                // An attempt that failed outside its handler (a store write failing after the effect ran, a
+                // consumer policy throwing) waits out a growing backoff kept in memory, across passes: the
+                // same effect must not be run again at the alarm floor, pass after pass.
+                val outside: OutsideFailure? = outsideFailures.value[item.id]
+                if (outside != null && !outside.isDue(nowMillis)) {
+                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, outside.notBeforeMillis)
+                    continue
+                }
+                if (outside != null && outside.deliveredUnconfirmed) {
+                    // The effect succeeded in this process and only its confirming delete failed: repeating the
+                    // effect would send it twice, so only the delete is retried.
+                    try {
+                        store.deleteById(item.id)
+                        outsideFailures.update { it - item.id }
+                        logger.i { "Confirmed the delivery of ${item.logName} after its delete failed earlier." }
+                    } catch (e: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        logger.e(e) { "Confirming the delivery of ${item.logName} leaked a cancellation; retrying later." }
+                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
+                    } catch (e: Throwable) {
+                        logger.e(e) { "Confirming the delivery of ${item.logName} failed again; retrying later." }
+                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
+                    }
+                    executedAny = true
                     continue
                 }
                 // One item's failure must not abort the pass: the items behind it would not run, no alarm
                 // would be armed for their gates, and the same row would be first again on the next trigger.
                 try {
                     executeItem(item, handler)
+                    outsideFailures.update { it - item.id }
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
                     logger.e(e) { "Attempt of ${item.logName} leaked a cancellation; retrying later." }
-                    failedThisCall += item.id
+                    bumpOutsideFailure(item.id)
                 } catch (e: Throwable) {
                     logger.e(e) { "Attempt of ${item.logName} failed outside its handler; retrying later." }
-                    failedThisCall += item.id
+                    bumpOutsideFailure(item.id)
                 }
                 executedAny = true
             }
@@ -621,7 +641,7 @@ internal class DefaultUploaderEngine(
     ) {
         when (outcome) {
             is AttemptResult.Success -> {
-                store.deleteById(item.id)
+                deleteAfterEffect(item.id)
                 logger.i { "Delivered ${item.logName} after ${item.attempts} failed attempts." }
             }
 
@@ -646,7 +666,7 @@ internal class DefaultUploaderEngine(
             }
 
             is AttemptResult.Drop -> {
-                store.deleteById(item.id)
+                deleteAfterEffect(item.id)
                 logger.i { "Dropped ${item.logName} — ${outcome.reason}." }
             }
 
@@ -786,6 +806,63 @@ internal class DefaultUploaderEngine(
             FailureDisposition.PARK -> logger.e { "Parked ${record.logName} after $attempts attempts ($error)." }
             FailureDisposition.DROP -> logger.e { "Dropped ${record.logName} after $attempts attempts ($error)." }
             FailureDisposition.RETRY -> logger.w { "Retry scheduled for ${record.logName} (attempt $attempts, $error)." }
+        }
+    }
+
+    /**
+     * What the engine remembers, in memory only, about an item whose attempt failed outside its handler.
+     * [notBeforeMillis] is the earliest wall-clock time of the next try; [deliveredUnconfirmed] means the
+     * handler already succeeded (or dropped the item) and only the confirming delete failed.
+     */
+    private data class OutsideFailure(val count: Int, val notBeforeMillis: Long, val deliveredUnconfirmed: Boolean) {
+        /**
+         * Due when its time has come, or when it lies further ahead than the heartbeat (a clock stepped
+         * backwards must not freeze the item for the whole jump).
+         */
+        fun isDue(nowMillis: Long, heartbeatMillis: Long): Boolean {
+            val ahead: Long = saturatingSubtract(notBeforeMillis, nowMillis)
+            return ahead <= 0 || ahead > heartbeatMillis
+        }
+    }
+
+    private val outsideFailures: MutableStateFlow<Map<String, OutsideFailure>> = MutableStateFlow(emptyMap())
+
+    private fun OutsideFailure.isDue(nowMillis: Long): Boolean =
+        isDue(nowMillis, config.heartbeatInterval.inWholeMilliseconds)
+
+    /** Forgets the entries of items that left the queue, so the map is bounded by the queue itself. */
+    private fun pruneOutsideFailures(active: List<UploaderItem>) {
+        if (outsideFailures.value.isEmpty()) return
+        val ids: Set<String> = active.mapTo(HashSet()) { it.id }
+        outsideFailures.update { map -> map.filterKeys { it in ids } }
+    }
+
+    /** Records one more failure outside the handler for [id] and returns the time of its next try. */
+    private fun bumpOutsideFailure(id: String): Long {
+        val now: Long = clock.nowEpochMillis()
+        var notBefore = 0L
+        outsideFailures.update { map ->
+            val old: OutsideFailure? = map[id]
+            val count: Int = (old?.count ?: 0) + 1
+            notBefore = saturatingAdd(now, failedPassRetryMillis(count))
+            map + (id to OutsideFailure(count, notBefore, old?.deliveredUnconfirmed ?: false))
+        }
+        return notBefore
+    }
+
+    /**
+     * Deletes the row of an item whose handler has finished with it (delivered, or dropped). A delete that
+     * fails is remembered as such: the effect already ran in this process, so the drain retries only the
+     * delete and never the handler.
+     */
+    private suspend fun deleteAfterEffect(id: String) {
+        try {
+            store.deleteById(id)
+        } catch (e: Throwable) {
+            outsideFailures.update { map ->
+                map + (id to (map[id]?.copy(deliveredUnconfirmed = true) ?: OutsideFailure(0, 0L, true)))
+            }
+            throw e
         }
     }
 

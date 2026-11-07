@@ -325,6 +325,79 @@ class UploaderEngineStormRound3AdversarialTest {
         }
     }
 
+    // --- fixer round 3, group 5b ---
+
+    @Test
+    fun `an effect whose confirming delete keeps failing is not repeated at the alarm floor for ten seconds`() = runTest {
+        val handler = TestHandler()
+        val engine: UploaderEngine = createUploaderEngine(
+            store = FailingDelete(store),
+            handlers = listOf(handler),
+            scope = backgroundScope,
+            clock = clock,
+            idGenerator = SequentialIds()::next,
+        )
+        try {
+            engine.enqueue(handler, "send-message")
+            engine.start()
+            repeat(100) { // ten virtual seconds, the wall clock moving with them
+                advanceTimeBy(100.milliseconds)
+                clock.millis += 100
+            }
+            runCurrent()
+
+            assertTrue(
+                handler.payloads.size <= 20,
+                "the same effect ran ${handler.payloads.size} times in ten seconds while its confirming delete kept failing",
+            )
+        } finally {
+            engine.close()
+        }
+    }
+
+    private class FailingDelete(private val delegate: TestUploaderStore) : UploaderStore by delegate {
+        override suspend fun deleteById(id: String) {
+            throw IllegalStateException("disk full")
+        }
+    }
+
+    private class FailingRecordFailure(private val delegate: TestUploaderStore) : UploaderStore by delegate {
+        override suspend fun recordFailure(
+            id: String,
+            attempts: Int,
+            nextRunAtEpochMillis: Long,
+            lastError: String?,
+            expectedState: UploaderItemState,
+            expectedClaim: Long,
+            disposition: FailureDisposition,
+        ): Boolean = throw IllegalStateException("database is locked")
+    }
+
+    @Test
+    fun `a store failing recordFailure backs the attempt off instead of retrying at the alarm floor`() = runTest {
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Retry(IllegalStateException("down")) })
+        val engine: UploaderEngine = createUploaderEngine(
+            store = FailingRecordFailure(store),
+            handlers = listOf(handler),
+            scope = backgroundScope,
+            clock = clock,
+            idGenerator = SequentialIds()::next,
+        )
+        try {
+            engine.enqueue(handler, "p")
+            engine.start()
+            repeat(100) { // ten virtual seconds, the wall clock moving with them
+                advanceTimeBy(100.milliseconds)
+                clock.millis += 100
+            }
+            runCurrent()
+
+            assertTrue(handler.payloads.size <= 10, "the attempt ran ${handler.payloads.size} times in ten seconds with its bookkeeping failing")
+        } finally {
+            engine.close()
+        }
+    }
+
     // --- registry storm on real threads ---------------------------------------------------------------
 
     @Test

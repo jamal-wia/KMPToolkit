@@ -26,6 +26,11 @@ Scenarios in roughly increasing order of subtlety.
 
 Three states, and only two ways out of the queue: a confirmed delivery, or a decision.
 
+Delivery is at-least-once: a process that dies between a successful send and the deletion of the row sends again
+on the next launch. Within one process an effect whose handler succeeded but whose row could not be deleted is
+never run again; the engine retries only the delete, with a growing backoff. An attempt that fails outside its
+handler (a store write failing, say) backs off the same way instead of repeating at the alarm floor.
+
 ## Deduplicating an effect
 
 A unique key makes an effect idempotent at the *queue* level, before it ever reaches the network.
