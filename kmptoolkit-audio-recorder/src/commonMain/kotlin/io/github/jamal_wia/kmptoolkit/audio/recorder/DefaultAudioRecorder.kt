@@ -178,6 +178,16 @@ internal class DefaultAudioRecorder(
     // --- prepare ---
 
     override suspend fun prepare(outputPath: String?): RecorderResult<String> {
+        // One claim per call, dropped whatever way the call ends (see OutputPathOwners).
+        val claim = OutputPathClaim()
+        try {
+            return prepareClaiming(outputPath, claim)
+        } finally {
+            OutputPathOwners.release(claim)
+        }
+    }
+
+    private suspend fun prepareClaiming(outputPath: String?, claim: OutputPathClaim): RecorderResult<String> {
         var token: Long
         while (true) {
             when (val step: Begin<RecorderResult<String>, Long> = gate.exclusive { beginPrepare() }) {
@@ -207,6 +217,9 @@ internal class DefaultAudioRecorder(
             }
             val directory: String = fileSystem.parentOf(path)
                 ?: return failPrepare(RecorderError.DirectoryNotWritable(path))
+            // Before the file is looked at: from here on this call is the path's owner until a later
+            // recorder takes the path over, and only the owner's tail may delete (undoPreparation).
+            OutputPathOwners.claim(path, claim)
             storage = withContext(workerContext) {
                 // Before ensureWritableDirectory and the engine touch anything: undoPreparation
                 // deletes only a file this call created.
@@ -245,7 +258,7 @@ internal class DefaultAudioRecorder(
             // Leave nothing half-open behind: the caller's coroutine is going away, and a native
             // recorder holding the microphone plus a zero-byte file would outlive it.
             gate.exclusive {
-                undoPreparation(path, storage.pathExisted)
+                undoPreparation(path, storage.pathExisted, claim)
                 // Released is terminal: a release() that landed meanwhile keeps its state.
                 if (!released) _state.value = RecorderState.Idle
             }
@@ -258,11 +271,11 @@ internal class DefaultAudioRecorder(
             // resurrect a dead recorder, which would both overwrite Released and leak the handle
             // release() could not reach because the engine had not been assigned yet.
             if (released) {
-                undoPreparation(path, storage.pathExisted)
+                undoPreparation(path, storage.pathExisted, claim)
                 return@exclusive releasedFailure(RecorderOperation.PREPARE)
             }
             if (prepareFailure != null) {
-                undoPreparation(path, storage.pathExisted)
+                undoPreparation(path, storage.pathExisted, claim)
                 return@exclusive fail(
                     RecorderError.EngineFailure(RecorderOperation.PREPARE, prepareFailure)
                 )
@@ -797,11 +810,13 @@ internal class DefaultAudioRecorder(
      * and neither waits on I/O of any consequence — deleting a file that was opened and never
      * written to. Lock held.
      */
-    private fun undoPreparation(path: String, pathExisted: Boolean) {
+    private fun undoPreparation(path: String, pathExisted: Boolean, claim: OutputPathClaim) {
         engine.release()
         // A file that was already at an explicit outputPath is the caller's: a failed or cancelled
         // attempt must not delete it. (The platform may already have truncated it; that is documented.)
-        if (!pathExisted) fileSystem.delete(path)
+        // Nor may a tail whose path a newer recorder has taken over: by now the file there may be
+        // that recorder's finished recording, not the one this attempt created.
+        if (!pathExisted) OutputPathOwners.deleteIfOwner(path, claim) { fileSystem.delete(path) }
     }
 
     private fun discardPreparedButUnusedFile(current: RecorderState) {

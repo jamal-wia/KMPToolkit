@@ -736,6 +736,97 @@ class RecorderLifecycleChaosTest {
             }
         }
 
+    // --- Process death, strict: the late tail of a released recorder meets the next screen's file ---
+
+    @Test
+    fun `a released recorders late prepare tail never deletes a file the next recorder now owns`() =
+        runTest(timeout = 120.seconds) {
+            withContext(Dispatchers.Default) {
+                withTimeout(100.seconds) {
+                    val fs = ChaosFileSystem()
+                    val path = "/data/shared-take.m4a"
+                    val engineA = ChaosEngine()
+                    val recorderA: DefaultAudioRecorder = recorder(engineA, fs)
+                    engineA.prepareOpen.store(false)
+                    val preparingA: Job = launch(Dispatchers.Default) { recorderA.prepare(path) }
+                    awaitTrue("A is inside engine.prepare") { engineA.inPrepare.load() }
+                    // The screen is destroyed while the microphone is still opening.
+                    recorderA.release()
+
+                    // The next screen records to the same explicit path and finishes.
+                    val engineB = ChaosEngine(onPrepared = { fs.create(it) })
+                    val recorderB: DefaultAudioRecorder = recorder(engineB, fs)
+                    assertTrue(recorderB.prepare(path).isSuccess)
+                    assertTrue(recorderB.start().isSuccess)
+                    assertTrue(recorderB.stop().isSuccess)
+                    assertTrue(fs.has(path))
+
+                    engineA.prepareOpen.store(true)
+                    withTimeout(10.seconds) { preparingA.join() }
+                    awaitOne(engineA, "A")
+
+                    assertTrue(fs.has(path), "the released recorder's prepare tail deleted the next recorder's recording")
+                    assertTrue(fs.deletions().isEmpty(), "deleted: ${fs.deletions()}")
+                    recorderB.release()
+                }
+            }
+        }
+
+    @Test
+    fun `a released recorders prepare tail that finishes before the next recorder takes the path still removes its own file`() =
+        runTest(timeout = 120.seconds) {
+            withContext(Dispatchers.Default) {
+                withTimeout(100.seconds) {
+                    val fs = ChaosFileSystem()
+                    val path = "/data/handoff-after.m4a"
+                    val engineA = ChaosEngine(onPrepared = { fs.create(it) })
+                    val recorderA: DefaultAudioRecorder = recorder(engineA, fs)
+                    engineA.prepareOpen.store(false)
+                    val preparingA: Job = launch(Dispatchers.Default) { recorderA.prepare(path) }
+                    awaitTrue("A is inside engine.prepare") { engineA.inPrepare.load() }
+                    recorderA.release()
+                    engineA.prepareOpen.store(true)
+                    withTimeout(10.seconds) { preparingA.join() }
+                    awaitOne(engineA, "A")
+                    // A was still the owner, so the file its engine created is cleaned up.
+                    assertFalse(fs.has(path), "the released recorder left its own file behind")
+                    assertEquals(listOf(path), fs.deletions())
+
+                    val engineB = ChaosEngine(onPrepared = { fs.create(it) })
+                    val recorderB: DefaultAudioRecorder = recorder(engineB, fs)
+                    assertTrue(recorderB.prepare(path).isSuccess)
+                    assertTrue(recorderB.start().isSuccess)
+                    assertTrue(recorderB.stop().isSuccess)
+                    assertTrue(fs.has(path))
+                    assertEquals(listOf(path), fs.deletions(), "B's recording must not have been deleted")
+                    recorderB.release()
+                }
+            }
+        }
+
+    @Test
+    fun `a released recorders prepare tail never deletes a file that existed before it even when it is the owner`() =
+        runTest(timeout = 120.seconds) {
+            withContext(Dispatchers.Default) {
+                withTimeout(100.seconds) {
+                    val fs = ChaosFileSystem()
+                    val path = "/data/callers-own.m4a"
+                    fs.create(path)
+                    val engine = ChaosEngine()
+                    val recorder: DefaultAudioRecorder = recorder(engine, fs)
+                    engine.prepareOpen.store(false)
+                    val preparing: Job = launch(Dispatchers.Default) { recorder.prepare(path) }
+                    awaitTrue("engine.prepare running") { engine.inPrepare.load() }
+                    recorder.release()
+                    engine.prepareOpen.store(true)
+                    withTimeout(10.seconds) { preparing.join() }
+                    awaitOne(engine, "recorder")
+                    assertTrue(fs.has(path))
+                    assertTrue(fs.deletions().isEmpty(), "deleted: ${fs.deletions()}")
+                }
+            }
+        }
+
     // --- Virtual-time chaos ---
 
     private fun TestScope.passTime(fixture: RecorderFixture, duration: Duration) {
