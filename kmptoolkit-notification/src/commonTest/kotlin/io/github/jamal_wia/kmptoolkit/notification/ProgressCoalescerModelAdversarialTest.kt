@@ -22,7 +22,7 @@ class ProgressCoalescerModelAdversarialTest {
      * settled, a determinate update may be redundant only if the tray shows a frame in its bucket.
      */
     @Test
-    fun `no interleaving of finishing, failing, abandoning and cancelling leaves a baseline the tray does not show`() {
+    fun `no interleaving of finishing and failing and abandoning and cancelling leaves a baseline the tray does not show`() {
         repeat(SEEDS) { seed: Int ->
             val random = Random(seed)
             val coalescer: ProgressCoalescer = coalescer()
