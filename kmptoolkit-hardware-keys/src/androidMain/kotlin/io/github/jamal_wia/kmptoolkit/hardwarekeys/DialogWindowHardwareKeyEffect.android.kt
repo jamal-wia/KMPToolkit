@@ -12,10 +12,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
-import androidx.core.view.ViewCompat
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.e
+import java.lang.ref.WeakReference
+import java.util.WeakHashMap
 
 /**
  * Registration point for the app's policy on hardware key events inside Compose dialog-class
@@ -68,7 +69,12 @@ public object DialogWindowHardwareKeyPolicy {
         installed = interceptor
     }
 
-    /** Removes the policy, restoring completely stock dialog-window key handling. Main thread only. */
+    /**
+     * Removes the policy. Windows composed afterwards get stock key handling; a window already in
+     * composition keeps the interceptor it read when it was composed until it leaves composition (see
+     * [install]). To switch a policy off at runtime - logout, a feature turning off - keep it installed
+     * and return `false` from the lambda instead. Main thread only.
+     */
     public fun uninstall() {
         installed = null
     }
@@ -109,9 +115,11 @@ public actual fun DialogWindowHardwareKeyEffect() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             return@DisposableEffect onDispose { }
         }
-        val listener = ViewCompat.OnUnhandledKeyEventListenerCompat { _, event -> interceptor(event) }
-        ViewCompat.addOnUnhandledKeyEventListener(view, listener)
-        onDispose { ViewCompat.removeOnUnhandledKeyEventListener(view, listener) }
+        // Registered through the platform directly (this branch only runs from API 28), not through
+        // ViewCompat: its remove drops the platform listener but leaves the entry it keeps in the view's
+        // tag map, so every enter/leave would pin one more listener on the view.
+        UnhandledKeyListeners.acquire(view, interceptor)
+        onDispose { UnhandledKeyListeners.release(view) }
     }
 }
 
@@ -121,24 +129,83 @@ public actual fun DialogWindowHardwareKeyEffect() {
  * rather than decorating again, which would run the policy twice per key; and because each one holds
  * a share, the decoration outlives whichever of them leaves first.
  *
- * The decoration is found through the window's own callback and carries its own share count, so no
- * global registry references the window. A registry keyed by the window would be pinned by its own
- * value: the decoration reaches the window's previous callback, which for a `Dialog` is the `Dialog`
- * itself and holds the window, so a window whose effect was never disposed could not be collected.
+ * The decoration is found first through the window's own callback (it is the outermost one), and,
+ * when another decorator was layered on top of it, through [WindowDecorations], so a foreign decorator
+ * between two live effects does not hide it and a second live layer is never stacked. That registry
+ * holds both the window and the decoration weakly: a strong value would be pinned by its own key
+ * (the decoration reaches the window's previous callback, which for a `Dialog` is the `Dialog` itself
+ * and holds the window, so a window whose effect was never disposed could not be collected), whereas
+ * the decoration is reachable only through the window's callback chain, and a cleared reference means
+ * our layer has left that chain. An inert decoration (no shares) that is not outermost is never
+ * revived, because nothing proves it is still in the chain.
  * Touched only by effect enter and dispose, which Compose runs on the main thread.
  */
 internal fun acquireInstallation(
     window: Window,
     interceptor: (KeyEvent) -> Boolean,
 ): KeyInterceptingWindowCallback {
-    val existing: KeyInterceptingWindowCallback? = window.callback as? KeyInterceptingWindowCallback
-    if (existing != null) {
-        existing.shares++
-        return existing
+    val outermost: KeyInterceptingWindowCallback? = window.callback as? KeyInterceptingWindowCallback
+    if (outermost != null) {
+        outermost.shares++
+        return outermost
+    }
+    val registered: KeyInterceptingWindowCallback? = WindowDecorations.live(window)
+    if (registered != null) {
+        registered.shares++
+        return registered
     }
     val decorated = KeyInterceptingWindowCallback(window.callback, interceptor)
     window.callback = decorated
+    WindowDecorations.register(window, decorated)
     return decorated
+}
+
+/**
+ * Which decoration of ours, if any, is in a window's callback chain, for [acquireInstallation] to find
+ * when it is not the outermost. Weak key and weak value (see there); confined to the main thread by
+ * Compose's effect scheduling, so it needs no lock and no atomic (D-21: thread confinement).
+ */
+private object WindowDecorations {
+    private val byWindow: WeakHashMap<Window, WeakReference<KeyInterceptingWindowCallback>> = WeakHashMap()
+
+    /** The decoration still in use (shares left) for [window], or `null`. */
+    fun live(window: Window): KeyInterceptingWindowCallback? =
+        byWindow[window]?.get()?.takeIf { decoration -> decoration.shares > 0 }
+
+    fun register(window: Window, decoration: KeyInterceptingWindowCallback) {
+        byWindow[window] = WeakReference(decoration)
+    }
+}
+
+/**
+ * One platform unhandled-key listener per view, shared by every effect composed on it (two effects in
+ * the same activity content consult the policy once per key). The listener captures only the
+ * interceptor, never the view, so the strong value does not pin its weak key. Main thread only, like
+ * the effect (D-21: thread confinement, no lock).
+ */
+@RequiresApi(Build.VERSION_CODES.P)
+private object UnhandledKeyListeners {
+    private class Share(val listener: View.OnUnhandledKeyEventListener, var shares: Int)
+
+    private val byView: WeakHashMap<View, Share> = WeakHashMap()
+
+    fun acquire(view: View, interceptor: (KeyEvent) -> Boolean) {
+        val existing: Share? = byView[view]
+        if (existing != null) {
+            existing.shares++
+            return
+        }
+        val listener = View.OnUnhandledKeyEventListener { _, event -> interceptor(event) }
+        view.addOnUnhandledKeyEventListener(listener)
+        byView[view] = Share(listener, 1)
+    }
+
+    fun release(view: View) {
+        val share: Share = byView[view] ?: return
+        if (--share.shares > 0) return
+        view.removeOnUnhandledKeyEventListener(share.listener)
+        byView.remove(view)
+    }
 }
 
 internal fun releaseInstallation(window: Window, installation: KeyInterceptingWindowCallback) {
@@ -147,7 +214,8 @@ internal fun releaseInstallation(window: Window, installation: KeyInterceptingWi
     // silently drop its behaviour. When something did, the decoration stays in the chain with no share
     // left, and is inert: it forwards every key to its delegate without consulting the policy, so the
     // policy stops acting with the effect that installed it. An effect entering again under that
-    // foreign decorator stacks a new decoration on top; the inert one below costs one forwarded call
+    // foreign decorator while another effect still holds the decoration shares it (WindowDecorations);
+    // once none does, it stacks a new decoration on top, and the inert one below costs one forwarded call
     // per key, never a second run of the policy.
     if (window.callback === installation) window.callback = installation.delegate
 }

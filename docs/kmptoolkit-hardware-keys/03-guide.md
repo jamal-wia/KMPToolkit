@@ -87,5 +87,6 @@ installed**. If some other code replaced the callback after the effect ran, that
 alone rather than overwritten, so the other decorator keeps working. The effect's wrapper then stays in
 the chain, but inert: with its effect gone it forwards every key to what it wraps and no longer consults
 the policy, so a key is not consumed after the effect left composition. An effect entering the same
-window again under that decorator stacks a fresh wrapper over it and the policy still runs once per key;
-the inert wrapper below costs one forwarded call.
+window while another effect still holds the wrapper shares it, even through such a decorator, so the
+policy runs once per key. Only once no effect holds it does a new effect stack a fresh wrapper over
+the decorator, and the inert wrapper below costs one forwarded call.

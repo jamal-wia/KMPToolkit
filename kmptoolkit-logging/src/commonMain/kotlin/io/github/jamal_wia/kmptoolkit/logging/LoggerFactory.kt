@@ -28,6 +28,16 @@ internal fun Throwable.isContainedSinkFailure(): Boolean =
 internal expect fun Throwable.isLinkageError(): Boolean
 
 /**
+ * Whether this is the JVM's `InterruptedException`; never true where the platform has none. A sink's
+ * blocking write woken by the caller's interrupt throws it and the throw clears the thread's interrupt
+ * flag, so the logger has to put the flag back after containing it.
+ */
+internal expect fun Throwable.isInterruptSignal(): Boolean
+
+/** Re-raises the current thread's interrupt flag where the platform has one; a no-op elsewhere. */
+internal expect fun restoreInterruptFlag()
+
+/**
  * Creates a [LoggerFactory] that forwards every event at or above [minLevel] to each of [sinks],
  * in list order.
  *
@@ -47,7 +57,10 @@ internal expect fun Throwable.isLinkageError(): Boolean
  *   there is no re-entrancy guard, so it recurses until the stack overflows and that error reaches
  *   the caller. A logging call is not part of the behavior a caller is trying to
  *   execute, so a broken log destination must not turn into a crash in unrelated code — and there
- *   is nowhere to report the failure to that is not itself a sink.
+ *   is nowhere to report the failure to that is not itself a sink. A sink's `InterruptedException`
+ *   (a blocking write woken by the caller's interrupt) is contained too, but the interrupt flag that
+ *   throw cleared is set on the caller's thread again once every sink has had the event (JVM and
+ *   Android), so a worker or blocking section that logs still sees its interrupt.
  * - **An exception from the message lambda is *not* swallowed** and propagates to the caller. That
  *   is a defect in the calling code, not in a log destination, and hiding it would make it
  *   unfindable.
@@ -86,6 +99,7 @@ private class TagLogger(
         // The first cancellation a sink raised: rethrown once every sink has had the event, so a
         // cancelling sink costs the sinks after it nothing.
         var cancellation: CancellationException? = null
+        var interrupted = false
         sinks.forEach { sink ->
             @Suppress("TooGenericExceptionCaught", "SwallowedException")
             try {
@@ -107,8 +121,12 @@ private class TagLogger(
                 // (StackOverflowError from a sink that logs into itself, OutOfMemoryError) and
                 // swallowing it would turn a loud, findable bug into an invisible one.
                 if (!e.isContainedSinkFailure()) throw e
+                if (e.isInterruptSignal()) interrupted = true
             }
         }
+        // After the loop, not inside it: restoring at once would make every later blocking sink
+        // throw straight away and lose its event.
+        if (interrupted) restoreInterruptFlag()
         cancellation?.let { throw it }
     }
 }

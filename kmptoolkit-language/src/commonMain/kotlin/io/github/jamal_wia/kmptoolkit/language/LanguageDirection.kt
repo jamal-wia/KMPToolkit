@@ -29,7 +29,9 @@ public fun AppLanguage(code: String): AppLanguage =
 /**
  * Whether [code] names a language written right-to-left.
  *
- * An explicit script subtag decides on its own, because it is the writing system that has a
+ * An explicit script subtag decides on its own (the four-letter subtag right after the language, as
+ * BCP-47 places it; a four-letter subtag inside a `-u-` extension such as `ar-u-nu-latn`, or after the
+ * private-use `-x-`, is not a script and is ignored), because it is the writing system that has a
  * direction and not the language: `az-Arab` is right-to-left where `az` is not, and `pa-Arab`
  * (Shahmukhi) where `pa` (Gurmukhi) is not. Only when there is no script subtag does the primary
  * language subtag decide, using its default script.
@@ -48,16 +50,28 @@ public fun isRightToLeft(code: String): Boolean {
     val subtags: List<String> = code.split('-', '_').filter(String::isNotEmpty)
     if (subtags.isEmpty()) return false
 
-    // A script subtag is the four-letter one, and there is at most one. Checked before the language,
-    // because a language written in a script it does not default to follows the script.
-    val script: String? = subtags.drop(1).firstOrNull { subtag -> subtag.length == SCRIPT_TAG_LENGTH }
+    // The script is the subtag in the BCP-47 script position: exactly four letters right after the
+    // language and its optional three-letter extlangs, before any region or variant. Checked before the
+    // language, because a language written in a script it does not default to follows the script. The
+    // search stops there: a four-letter subtag inside a `-u-` extension (`ar-u-nu-latn`, a numbering
+    // system) or after `-x-` (private use) is not a script and never decides the direction.
+    var position = 1
+    while (position < subtags.size && position <= MAX_EXTLANGS && subtags[position].isExtlang()) position++
+    val script: String? = subtags.getOrNull(position)?.takeIf { subtag -> subtag.isScriptSubtag() }
     if (script != null) return script.lowercase() in RIGHT_TO_LEFT_SCRIPTS
 
     return subtags[0].lowercase() in RIGHT_TO_LEFT_LANGUAGES
 }
 
-/** ISO 15924 script subtags are always four letters; nothing else in a tag is. */
+/** ISO 15924 script subtags are always four letters. */
 private const val SCRIPT_TAG_LENGTH: Int = 4
+
+/** BCP-47 allows at most three extended language subtags (three letters each) after the language. */
+private const val MAX_EXTLANGS: Int = 3
+
+private fun String.isScriptSubtag(): Boolean = length == SCRIPT_TAG_LENGTH && all(Char::isLetter)
+
+private fun String.isExtlang(): Boolean = length == 3 && all(Char::isLetter)
 
 /** Lowercased ISO 15924 codes for the right-to-left scripts a user interface is written in. */
 private val RIGHT_TO_LEFT_SCRIPTS: Set<String> = setOf(

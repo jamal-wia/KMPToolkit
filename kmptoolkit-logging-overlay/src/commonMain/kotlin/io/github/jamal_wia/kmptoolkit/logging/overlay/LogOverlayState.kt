@@ -80,7 +80,7 @@ public class LogOverlayState(
     public fun record(level: LogLevel, tag: String, message: String, throwable: Throwable? = null) {
         if (level < minLevel) return
         val elapsedMillis: Long = startMark.elapsedNow().inWholeMilliseconds
-        val throwableText: String? = throwable?.stackTraceToString()
+        val throwableText: String? = throwable?.let(::describeThrowable)
         _records.update { current ->
             // Derived from the list rather than a separate counter so the lambda stays pure: under
             // contention `update` re-runs it, and a counter incremented here would skip ids.
@@ -99,6 +99,17 @@ public class LogOverlayState(
             }
         }
     }
+
+    // A throwable whose own toString()/message throws (a message built lazily from a null field) makes
+    // stackTraceToString() throw. The sink promises never to throw and the message is still worth
+    // showing, so the record keeps a placeholder naming the class instead of losing the event.
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
+    private fun describeThrowable(throwable: Throwable): String =
+        try {
+            throwable.stackTraceToString()
+        } catch (failure: Exception) {
+            "${throwable::class.simpleName ?: "Throwable"} (stack trace unavailable: ${failure::class.simpleName ?: "Exception"})"
+        }
 
     /** Drops every retained record. Id numbering restarts at `1` for the next recorded event. */
     public fun clear(): Unit = _records.update { emptyList() }
