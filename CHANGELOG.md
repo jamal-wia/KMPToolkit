@@ -13,13 +13,42 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Breaking
 
+- `kmptoolkit-audio-player` (iOS): the default `coroutineContext` of `createAudioPlayer` is now
+  `Dispatchers.Main` (it was `Default`), so `AVPlayer` is only touched from the main thread. Position
+  updates need a free main thread; pass `Dispatchers.Default` to restore the 3.0 behavior.
+  `AudioPlayer.prepare` is documented as having no built-in deadline.
 - `kmptoolkit-uploader` (iOS): the deprecated three-parameter `BackgroundUploadConfig` constructor no
   longer has default arguments (it had them in 3.0.0). Only a library precompiled against 3.0.0 that
   calls it with arguments omitted, for example `BackgroundUploadConfig()`, must be recompiled against
   3.1.0. Kotlin source code, Swift code and apps are unaffected.
+- `kmptoolkit-uploader`: the engine honours a lease for at most 24 hours. A longer
+  `AttemptResult.Detached` or `UploadTransport.leaseMillis` is shortened to 24 hours, and the item
+  is re-handed after a day (the hand-off must already be idempotent). An in-flight item stored by an
+  earlier version with a lease more than `clockAnomalyFactor` x 24 hours ahead is re-handed at the
+  first drain after upgrading.
+- `kmptoolkit-uploader-sqldelight`: a corrupt database file no longer silently recreates an empty
+  queue on Android. `createUploaderStorage` now fails with `UploaderStorageException(OPEN)` and
+  leaves the file untouched, the same as iOS. Handle it at launch (see
+  `docs/kmptoolkit-uploader-sqldelight/03-guide.md`) or set
+  `UploaderDatabaseConfig.recreateOnCorruption = true` to get the old behavior. A binary compiled
+  against 3.0.0 that calls `UploaderDatabaseConfig.copy()` with every argument omitted must be
+  recompiled against 3.1.0; the 3.0.0 constructor and `copy(name)` stay as hidden declarations, so
+  every other call still links.
 
 ### Added
 
+- `kmptoolkit-downloader`: `DownloaderConfig` with `stallTimeout` (default
+  `DownloaderConfig.DEFAULT_STALL_TIMEOUT`, 5 minutes; `Duration.INFINITE` turns stall detection off)
+  and a `createDownloader` overload that takes it, placed right after `stateStore`. The existing
+  overload is unchanged and behaves like `DownloaderConfig()`. A new guide,
+  `docs/kmptoolkit-downloader/07-background-downloader.md`, states the contract for a
+  `BackgroundResourceDownloader`: subscribe before enqueue, replay rules, the message phrasing the
+  error classifier reads, what happens to the partial file, the iOS keep-alive recipe, the Android 15
+  `dataSync` limit, and a thread-safe sample.
+- `kmptoolkit-downloader`: `InvalidDownloadUnitException(unit, reason)` with `Reason { EMPTY,
+  INVALID_CHARACTER, ESCAPES_BASE_DIRECTORY, RESERVED_INTERNAL_PATH }`. The shipped storages throw
+  it for a `DownloadUnit.relativePath` that cannot be used safely; see the `relativePath` entry
+  under Changed.
 - `kmptoolkit-uploader`: an `UploadHandler` now receives what the server answered. The new
   `UploadResponse` (status code, headers with lowercase names, the start of the body, and
   `isBodyTruncated`) reaches the handler in `classify(payload, result, response)` and
@@ -52,22 +81,13 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   new constructor; only a call that supplies exactly the three old arguments (positionally or by name)
   and no timeout lands on the deprecated one, with a warning. See Breaking for the one binary
   consequence.
-- `kmptoolkit-downloader`: `DownloaderConfig` with `stallTimeout` (default
-  `DownloaderConfig.DEFAULT_STALL_TIMEOUT`, 5 minutes; `Duration.INFINITE` turns stall detection off)
-  and a `createDownloader` overload that takes it, placed right after `stateStore`. The existing
-  overload is unchanged and behaves like `DownloaderConfig()`. A new guide,
-  `docs/kmptoolkit-downloader/07-background-downloader.md`, states the contract for a
-  `BackgroundResourceDownloader`: subscribe before enqueue, replay rules, the message phrasing the
-  error classifier reads, what happens to the partial file, the iOS keep-alive recipe, the Android 15
-  `dataSync` limit, and a thread-safe sample.
+- `kmptoolkit-uploader-sqldelight`: `UploaderDatabaseConfig.recreateOnCorruption` (default `false`).
+  When `true`, `createUploaderStorage` deletes a database file it recognises as corrupt, including
+  one damaged below a valid header, and opens an empty queue, on Android and iOS. This is what 3.0.0
+  did on Android; see Breaking for the new default.
 
 ### Changed
 
-- `kmptoolkit-uploader`: `UploadHandler.classify(payload, result)` is no longer abstract. It is now
-  `open` and defaults to `defaultUploadClassification(result)`, so a new handler need not implement
-  it; handlers written for 3.0 keep overriding it unchanged. This is the one intentional modifier
-  change in the ABI dump, and it is binary and source compatible. The legacy
-  `createWorkManagerUploadTransport` (global classifier) stays status-only.
 - `kmptoolkit-downloader`: a failed transfer now keeps its partial temp file, so the next
   `ensureAvailable` resumes from it. The engine deletes it only on a user cancel, on bytes that fail
   their integrity check, on a `NotFound` (404/410) failure, or when the downloader reports `Cancelled`.
@@ -98,22 +118,203 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   and must not replay a finished transfer's terminal event after a new `enqueueDownload`.
   `cancelDownload(group)` also cancels a per-unit `ensureAvailable` running for one of the group's
   units; a call whose last commit has already succeeded is not cancelled and publishes `Completed`.
-- `kmptoolkit-audio-player` (iOS): the default `coroutineContext` of `createAudioPlayer` is now
-  `Dispatchers.Main` (it was `Default`), so `AVPlayer` is only touched from the main thread. Position
-  updates need a free main thread; pass `Dispatchers.Default` to restore the 3.0 behavior.
-  `AudioPlayer.prepare` is documented as having no built-in deadline.
+- `kmptoolkit-downloader`: a `relativePath` that is empty or normalizes to nothing, contains NUL,
+  escapes the base directory, or points at `tmp`, `tmp/expect`, `tmp/expect-staged`,
+  `tmp/kmptoolkit-internal`, `tmp/staging-...` or the unit's own temp files now fails the unit
+  before any transfer with `DownloadFailedException(DownloadError.Unknown)` whose cause is
+  `InvalidDownloadUnitException`; `isAvailable` is `false` and `pathOf` throws. These paths never
+  worked or lay outside the documented layout (they wiped the base directory, files outside it, or
+  other units' records). Other paths under `tmp/` still work and log a warning, and `tmp/trash/...`
+  stays accepted.
 - `kmptoolkit-notification`: `post` can now return `Coalesced` for any notification, not only a
   progress update, when a `cancel` or a newer post of the same id overtook it (per `Notifier` instance);
   nothing is posted then. Before, `Coalesced` meant only a redundant progress frame, so a caller that
   treats the result of a non-progress post as `Posted` or an error now sees a new answer.
+- `kmptoolkit-notification` and `kmptoolkit-scheduler` (Android): `Notifier.cancel`,
+  `Notifier.cancelAll`, `AlarmScheduler.cancel` and `AlarmScheduler.cancelAll` no longer throw when
+  the platform refuses (a `SecurityException` or `IllegalStateException`): the refusal is logged,
+  the notification or alarm may stay, and `cancelAll` continues with the remaining ids.
+- `kmptoolkit-uploader`: `UploadHandler.classify(payload, result)` is no longer abstract. It is now
+  `open` and defaults to `defaultUploadClassification(result)`, so a new handler need not implement
+  it; handlers written for 3.0 keep overriding it unchanged. This is the one intentional modifier
+  change in the ABI dump, and it is binary and source compatible. The legacy
+  `createWorkManagerUploadTransport` (global classifier) stays status-only.
 - Docs: the `kmptoolkit-scheduler` platform notes describe the real iOS cap behaviour;
   `kmptoolkit-location` documents that iOS updates stop while the app is suspended and what background
   location needs; `kmptoolkit-language` documents that `onLanguageChanged` runs
   under the holder lock. Also corrected: the hijri getting-started imports, the `RELEASING.md`
   configuration-cache note, version-catalog comments and a stale Robolectric comment.
+  Also documented: that `AlarmSchedulerConfig.alarmIntentScheme`, `alarmIdKey` and `alarmTypeKey`
+  must stay stable across app versions (alarms armed under an earlier value cannot be cancelled or
+  replaced); the per-id state of the downloader engine, the stable-id requirement, how to release
+  abandoned units and what `DownloaderStorage.deleteTempFile` cleans up; the migration of 3.0.0 temp
+  files; that a second `createBackgroundUploadTransport` call replaces the relaunch target and does
+  not stop the first transport; the lifetime of factory-created activity trackers, of a pending
+  permission request after cancellation and of the alarm handler provider; what the biometric prompt
+  gate releases after an outcome; that the iOS audio player never deactivates `AVAudioSession` and
+  when `AudioPlayer.release()` takes effect during a load; that the iOS video player leaves
+  `AVAudioSession` active after `release()`; the iOS `hostViewController` retain cycle of
+  `kmptoolkit-systembars` and one wake-lock controller per screen.
+- Internal: synchronization in `kmptoolkit-activity`, `kmptoolkit-audio-player`,
+  `kmptoolkit-audio-recorder`, `kmptoolkit-flashlight`, `kmptoolkit-permission`,
+  `kmptoolkit-scheduler`, `kmptoolkit-uploader`, `kmptoolkit-uploader-sqldelight` and
+  `kmptoolkit-video-player` now uses `kotlinx.coroutines` tools (`CompletableDeferred`,
+  `MutableStateFlow` compare-and-set) instead of `Atomic*` and `@Volatile` fields where the code
+  allows it, and the places that keep a low-level primitive say why. No API or behavior change
+  except where listed under Fixed.
 
 ### Fixed
 
+- `kmptoolkit-activity`: `ActivitySubscription.cancel()` and `ActivityAccess.release()` are a strict
+  stop on every thread: once they return, the listener is never called again, and they wait for a
+  delivery already running on the main thread (cancelling from inside a listener never deadlocks). A
+  second or concurrent `release()` no longer returns before the listeners are stopped, a listener
+  added while `release()` runs is never called, and both calls drop the listener itself so a handle
+  the caller keeps no longer pins what it captured. Before, a resume or replay racing a cancel from
+  another thread could still reach the listener.
+- `kmptoolkit-audio-player`: a cancelled middle prepare could let the next load (or unload's engine
+  release) start while an earlier load was still unwinding; an error reported right after prepared is no
+  longer lost (`Error` wins over `Ready`); an Android error that arrives after a load was cancelled no
+  longer flashes `Error`; iOS end-of-item notifications already in flight no longer mark a newly loaded
+  source `Completed`.
+- `kmptoolkit-audio-player`: an Android callback of the previous source's `MediaPlayer` that arrives
+  late no longer fails or completes the source that replaced it. On iOS, a failed or cancelled
+  `prepare` releases its `AVPlayer`, item and end-of-item observer at once instead of holding them
+  until the next load, unload or release.
+- `kmptoolkit-audio-recorder`: `release()` during an in-flight prepare no longer drives the engine from
+  two threads or opens the microphone after release; a low-storage reading taken before `pause()` no
+  longer ends the paused recording; meter samples no longer overlap stop and release; a throw from a
+  platform call before the engine runs now yields `EngineFailure` instead of leaving the recorder in
+  `Preparing`; a failed or cancelled prepare no longer deletes a file that already existed at an
+  explicit `outputPath`.
+- `kmptoolkit-audio-recorder`: a recorder released while its `prepare()` was still opening the file
+  no longer deletes the finished recording of a newer recorder that reuses the same explicit
+  `outputPath`; a prepare deletes the file only while it still owns the path. A file that already
+  existed there is still never deleted.
+- `kmptoolkit-biometric` (Android): the prompt's lifecycle is one atomic state. Cancelling
+  `authenticate` at any moment, from any thread, either stops the sheet from appearing or dismisses
+  it, and no result is delivered after a cancel. Neither the prompt nor the caller's callback (so
+  not the activity either) is retained once an outcome is delivered, so a rotation during a prompt
+  no longer pins the old activity. `authenticate` no longer stays suspended when the activity saves
+  its state between the prompt being posted and shown; it returns `BiometricResult.NoPromptHost`.
+- `kmptoolkit-downloader`: a complete download whose commit failed for a reason other than its bytes
+  (a full disk, an archive that would not extract) was deleted; it is now kept and the next
+  `ensureAvailable` commits it without downloading again.
+- `kmptoolkit-downloader`: a terminal event emitted while enqueueing (through a flow without replay)
+  was lost, so the attempt stalled and a finished temp file could be deleted. A complete temp file is
+  now committed instead of being re-downloaded or deleted after an `Error` or a stall, and an attach to
+  a transfer that ended before the engine subscribed no longer hangs. A flow that completes on a
+  leftover terminal event of an earlier transfer no longer leaves `ensureAvailable` waiting for a stall
+  (forever with `stallTimeout = Duration.INFINITE`).
+- `kmptoolkit-downloader`: an exception from a port the host implements (`enqueueDownload`,
+  `isDownloadInProgress`, the event flow, `DownloadStateStore`) escaped `ensureAvailable` raw and left
+  the group at `Downloading`; it now ends as a `DownloadFailedException` carrying the cause. A
+  `DownloadNotifier` that throws is logged and no longer fails the download.
+- `kmptoolkit-downloader`: `cancelDownload(group)`, `cancelDownload(unit)` and `cancelAllDownloads()`
+  now end a running `ensureAvailable` with `DownloadCancelledException` at once, also while it waits
+  out a retry backoff, between units of a group, or during a commit. Before, such a call carried on and
+  re-enqueued a download the user had cancelled (including after logout). A cancel during a commit is
+  reported as a cancel, not as a `Storage` error with an error notification, and no longer deletes the
+  temp file under a commit in flight; a late `Progress` can no longer bring a cancelled group back to
+  `Downloading`.
+- `kmptoolkit-downloader`: the group loop and the per-unit surface no longer transfer and commit the
+  same unit at the same time, a group call no longer downloads again a unit the per-unit surface
+  committed meanwhile, and a redundant per-unit `ensureAvailable` no longer overwrites `Completed` with
+  `Available`. A group whose last unit was committed by the per-unit surface now ends as `Completed`
+  (not `Downloading` with its notification posted), also when the cancel arrives after the last commit.
+- `kmptoolkit-downloader`: a late transfer of an engine whose unit another engine over the same
+  directory, or the platform downloader, had already committed no longer leaves its complete temp
+  file on disk; it is deleted.
+- `kmptoolkit-downloader`: `cancelDownload(unit)` and `cancelDownload(group)` also remove the
+  archive extraction directory an interrupted commit left behind (Android and iOS), but not while a
+  commit of that unit is running; the directory is then reclaimed by the next cancel, commit or temp
+  file delete, including after a process kill. The recursive delete no longer holds the process-wide
+  commit lock registry, so other units' commits are not stalled. Cancelling a unit the engine has
+  never tracked neither makes it track the unit nor deletes the temp data of a request that starts
+  at that moment.
+- `kmptoolkit-downloader`: unit ids containing `/`, NUL or an over-long name no longer collide with
+  other units' files, escape `tmp/` or fail with `ENAMETOOLONG`: they are stored under a hashed name
+  in `tmp/kmptoolkit-internal/`. Their 3.0.0 temp files are migrated on first use, with a move that
+  never replaces an existing destination and only for files that existed before the first 3.1.0 use
+  of the base directory (recorded by a marker file), so a resource another unit later commits at
+  such a path is never moved. Ids that are plain file names keep their exact paths, and a
+  `relativePath` equal to the unit's own 3.0.0 temp path is rejected.
+- `kmptoolkit-downloader`: case variants of one id (`Model`, `model`) no longer commit or detach a
+  staging tree concurrently on a case-insensitive volume, and `DownloaderStorageConfig` rejects `.`
+  and `..` as `baseDirectoryName` (`IllegalArgumentException`), which would have placed the storage
+  outside the platform's storage root.
+- `kmptoolkit-hardware-keys`: the dialog-window key policy stays in force while any
+  `DialogWindowHardwareKeyEffect` in that window is composed, even when the one that decorated the
+  window leaves composition first.
+- `kmptoolkit-hardware-keys` (Android): a dialog window whose key-policy effect was never disposed
+  is no longer pinned by a global map.
+- `kmptoolkit-location`: on Android, `observeLocation()` sends the cached fix before registering its
+  listeners, so a live fix is never overtaken by an older cached one; on iOS,
+  `withSystemServicesPrompt` keeps at most one alert request pending.
+- `kmptoolkit-location` (Android): `observeLocation()` removes the already-registered provider
+  listener when a later provider registration fails.
+- `kmptoolkit-logging`: a sink's `CancellationException` is rethrown only after every sink has been
+  offered the event.
+- `kmptoolkit-notification`: a progress frame becomes the coalescing baseline only after the platform
+  accepted the post, so retrying the same progress after a failed post is posted instead of returning
+  `Coalesced` (Android and iOS). A `cancel` is ordered against in-flight posts, so it is no longer
+  followed by a post it should have cancelled, and a post (progress or not) overtaken by a newer post
+  for the same id, or by a `cancel`, is dropped.
+  On iOS, an add rejected because authorization was revoked after the check returns `PermissionDenied`
+  instead of `Failed`.
+- `kmptoolkit-notification`: progress coalescing no longer trusts a frame that was never shown. When
+  posts of one id overlap and fail, a retry is not judged redundant against such a frame, a failed
+  newer frame no longer drops an older frame still being posted, a frame that gave up because a
+  newer one overtook it is neither remembered as shown nor revived when the newer one fails, and two
+  iOS frames refused by the notification center leave no baseline. Baselines of ids that went quiet,
+  bookkeeping of unfinished frames and the 2.x sweep cache are released over time instead of growing
+  with every distinct id. On Android, a refused legacy sweep no longer turns a shown post into
+  `Failed`, and a refused or dropped frame no longer changes where the frame on the tray opens the
+  app.
+- `kmptoolkit-permission`: `PermissionRequestFlow` no longer stays in `Requesting` after the caller is
+  cancelled (it goes back to `Idle`, and the next `refresh()` reads the real choice), and a stale
+  refresh or start result no longer overwrites newer state. A special-access
+  request from a background dispatcher no longer returns early while the Settings screen is open, a
+  request cancelled before its dialog is posted no longer shows the dialog, and `observe` subscribes to
+  resolved requests before its first status read on any dispatcher, so it no longer misses a request
+  that resolves as collection starts. A pending request whose activity finished is abandoned (also when
+  the next activity resumes before the finished one is destroyed), so it no longer blocks later
+  requests. The iOS "when in use" location request no longer waits forever when no prompt appears.
+- `kmptoolkit-permission`: `PermissionRequestFlow.reset()`, `rationaleDismissed()` and
+  `settingsDeclined()` are atomic and a request's outcome is published with a compare-and-set, so
+  concurrent calls can no longer overwrite a running request or start a second one. On Android, a
+  request queued behind one that was cancelled while its system dialog was still up waits (at most
+  30 seconds) for that dialog to be answered and then shows its own; if the stale dialog is still up
+  after the wait, it fails like a refused launch (before, it returned the unchanged status at once
+  with nothing shown).
+- `kmptoolkit-scheduler` (iOS): `schedule` no longer reports `Exact` for a request iOS would silently
+  discard past its 64-pending-notification cap; with 64 other requests pending it returns
+  `Failed(PlatformError)` and adds nothing (re-scheduling a pending id still succeeds). The check and
+  the add run under one process-wide lock, and `cancel` and `cancelAll` take the same lock, so a cancel
+  can no longer be overtaken by an in-flight schedule.
+- `kmptoolkit-scheduler` (Android): `AlarmScheduler.schedule` reports any `RuntimeException` from
+  `AlarmManager` as `Failed`, a replacement the platform refuses leaves the armed alarm exactly as
+  it was, `cancelAll` copies its ids first, and a `schedule` call cancelled while waiting for the
+  platform lock is cancelled instead of returning `Failed`.
+- `kmptoolkit-storage`: on Android, the secure store caches its key per alias for the whole process and
+  drops a key the platform rejects. A keystore fault no longer makes it delete its alias and every
+  stored secret on a transient fault (API 33+) or on any key lookup after the first in the process;
+  the delete-and-regenerate recovery runs only on the first key resolution, where on API 24-32 a
+  keystore fault still looks like an unrecoverable key. A transient fault neither drops the cached key
+  nor re-resolves it. A read reports such a fault, including a transient decrypt failure, as
+  `Unavailable` (before, a decrypt failure was `Undecryptable` and the value was reported as lost), and
+  a write reports a transient cipher fault as `OperationFailed`; stored values are kept.
+  `DeviceIdProvider.current()` no longer replaces the stored id when the store is only
+  temporarily unavailable.
+- `kmptoolkit-storage`: `JvmKeyValueStorage.clear()` no longer deletes the in-flight temporary file
+  of another store in the same directory whose file name starts with this store's file name.
+- `kmptoolkit-systembars`: `release()` is atomic with concurrent pushes (ids are never reused),
+  icon-style samples never overlap, and a new `onSampled` lambda no longer restarts sampling.
+- `kmptoolkit-systembars` (Android): `Context`-based `createSystemBarsController` and
+  `createScreenWakeLockController` share one activity tracker per `Application`, so creating and
+  releasing controllers no longer leaves a lifecycle callback behind each. A wake-lock controller
+  subscribes to resumes only while it has a flag to apply, and releasing it also clears
+  `FLAG_KEEP_SCREEN_ON` from an earlier window of the app that the hold had put it on.
 - `kmptoolkit-uploader`: an upload whose answer arrived but whose settlement was lost no longer uploads
   again. The Android and iOS handler transports write the completed outcome (status, headers, capped
   body) to a small file before settling and delete it once the engine has the answer; a worker restart,
@@ -141,80 +342,52 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
     create a task on an invalidated session, and the drained callback runs once. A replacement
     background session opens only after the previous session of the same item reported itself invalid,
     and cancelling the item meanwhile withdraws the hand-off.
-- `kmptoolkit-uploader-testing`: `FakeUploader` is thread-safe and its result hook may call back into
-  the fake.
+- `kmptoolkit-uploader`: engine hardening. `enqueue` arms the drain trigger and the platform wake
+  even when its caller is cancelled after the row committed; `awaitDrained` returns `true` for an
+  empty queue with any timeout (zero included) and returns `false` at the timeout when the store
+  keeps failing to read, instead of throwing; a `ConstraintProvider` that throws keeps only its own
+  item waiting and no longer stops the pass for other handlers; a `Logger` that throws no longer
+  stops the drain (the line is lost, the work is not); cancelling the engine from inside a handler
+  stops the pass even over a store that never suspends.
+- `kmptoolkit-uploader`: an engine whose owning scope is cancelled without `close()`, or that is
+  already closed, is unregistered from `UploaderEngineRegistry` and never handed out, and
+  `UploaderEngineRegistry.await` finds a registered engine with a zero wait.
+  `RetryPolicy.maxDelayMillis = Long.MAX_VALUE` and `AttemptResult.Detached(Long.MAX_VALUE)` no
+  longer overflow, and a lease written before a backwards wall-clock step no longer freezes its item
+  and ordering channel for the whole jump.
+- `kmptoolkit-uploader` (iOS): a session dropped without a task (a cancel of an item that is not
+  uploading, a hand-off that fails before creating its task, an idle relaunch session) no longer
+  leaves its progress forwarder suspended for the life of the process. A "finished events" signal
+  that arrives before the relaunch completion handler is registered, and a second registration on
+  the same session, no longer fall back to the 25 s safety timeout. A relaunch wake on a session
+  that stays live no longer hands the OS completion handler back before that wake's events are
+  delivered; each wake waits for its own signal. An early signal is remembered on a session the wake
+  opens; on a session still live from an earlier wake it can land before the wake starts and is
+  dropped, so that wake waits for the settlement or the 25 s timeout, as before.
 - `kmptoolkit-uploader-sqldelight`: `UploaderStorage.close()` called on the database thread throws
   instead of deadlocking, and a second `close()` is always a no-op (also on iOS, where a thread id can
   be reused). The transaction-await deadlock and the close order are documented.
-- `kmptoolkit-downloader`: a complete download whose commit failed for a reason other than its bytes
-  (a full disk, an archive that would not extract) was deleted; it is now kept and the next
-  `ensureAvailable` commits it without downloading again.
-- `kmptoolkit-downloader`: a terminal event emitted while enqueueing (through a flow without replay)
-  was lost, so the attempt stalled and a finished temp file could be deleted. A complete temp file is
-  now committed instead of being re-downloaded or deleted after an `Error` or a stall, and an attach to
-  a transfer that ended before the engine subscribed no longer hangs. A flow that completes on a
-  leftover terminal event of an earlier transfer no longer leaves `ensureAvailable` waiting for a stall
-  (forever with `stallTimeout = Duration.INFINITE`).
-- `kmptoolkit-downloader`: an exception from a port the host implements (`enqueueDownload`,
-  `isDownloadInProgress`, the event flow, `DownloadStateStore`) escaped `ensureAvailable` raw and left
-  the group at `Downloading`; it now ends as a `DownloadFailedException` carrying the cause. A
-  `DownloadNotifier` that throws is logged and no longer fails the download.
-- `kmptoolkit-downloader`: `cancelDownload(group)`, `cancelDownload(unit)` and `cancelAllDownloads()`
-  now end a running `ensureAvailable` with `DownloadCancelledException` at once, also while it waits
-  out a retry backoff, between units of a group, or during a commit. Before, such a call carried on and
-  re-enqueued a download the user had cancelled (including after logout). A cancel during a commit is
-  reported as a cancel, not as a `Storage` error with an error notification, and no longer deletes the
-  temp file under a commit in flight; a late `Progress` can no longer bring a cancelled group back to
-  `Downloading`.
-- `kmptoolkit-downloader`: the group loop and the per-unit surface no longer transfer and commit the
-  same unit at the same time, a group call no longer downloads again a unit the per-unit surface
-  committed meanwhile, and a redundant per-unit `ensureAvailable` no longer overwrites `Completed` with
-  `Available`. A group whose last unit was committed by the per-unit surface now ends as `Completed`
-  (not `Downloading` with its notification posted), also when the cancel arrives after the last commit.
-- `kmptoolkit-scheduler` (iOS): `schedule` no longer reports `Exact` for a request iOS would silently
-  discard past its 64-pending-notification cap; with 64 other requests pending it returns
-  `Failed(PlatformError)` and adds nothing (re-scheduling a pending id still succeeds). The check and
-  the add run under one process-wide lock, and `cancel` and `cancelAll` take the same lock, so a cancel
-  can no longer be overtaken by an in-flight schedule.
-- `kmptoolkit-notification`: a progress frame becomes the coalescing baseline only after the platform
-  accepted the post, so retrying the same progress after a failed post is posted instead of returning
-  `Coalesced` (Android and iOS). A `cancel` is ordered against in-flight posts, so it is no longer
-  followed by a post it should have cancelled, and a post (progress or not) overtaken by a newer post
-  for the same id, or by a `cancel`, is dropped.
-  On iOS, an add rejected because authorization was revoked after the check returns `PermissionDenied`
-  instead of `Failed`.
-- `kmptoolkit-permission`: `PermissionRequestFlow` no longer stays in `Requesting` after the caller is
-  cancelled (it goes back to `Idle`, and the next `refresh()` reads the real choice), and a stale
-  refresh or start result no longer overwrites newer state. A special-access
-  request from a background dispatcher no longer returns early while the Settings screen is open, a
-  request cancelled before its dialog is posted no longer shows the dialog, and `observe` subscribes to
-  resolved requests before its first status read on any dispatcher, so it no longer misses a request
-  that resolves as collection starts. A pending request whose activity finished is abandoned (also when
-  the next activity resumes before the finished one is destroyed), so it no longer blocks later
-  requests. The iOS "when in use" location request no longer waits forever when no prompt appears.
-- `kmptoolkit-activity`: a resume listener cancelled during a dispatch is no longer called for that
-  resume.
-- `kmptoolkit-storage`: on Android, the secure store caches its key per alias for the whole process and
-  drops a key the platform rejects. A keystore fault no longer makes it delete its alias and every
-  stored secret on a transient fault (API 33+) or on any key lookup after the first in the process;
-  the delete-and-regenerate recovery runs only on the first key resolution, where on API 24-32 a
-  keystore fault still looks like an unrecoverable key. A transient fault neither drops the cached key
-  nor re-resolves it. A read reports such a fault, including a transient decrypt failure, as
-  `Unavailable` (before, a decrypt failure was `Undecryptable` and the value was reported as lost), and
-  a write reports a transient cipher fault as `OperationFailed`; stored values are kept.
-  `DeviceIdProvider.current()` no longer replaces the stored id when the store is only
-  temporarily unavailable.
-- `kmptoolkit-audio-player`: a cancelled middle prepare could let the next load (or unload's engine
-  release) start while an earlier load was still unwinding; an error reported right after prepared is no
-  longer lost (`Error` wins over `Ready`); an Android error that arrives after a load was cancelled no
-  longer flashes `Error`; iOS end-of-item notifications already in flight no longer mark a newly loaded
-  source `Completed`.
-- `kmptoolkit-audio-recorder`: `release()` during an in-flight prepare no longer drives the engine from
-  two threads or opens the microphone after release; a low-storage reading taken before `pause()` no
-  longer ends the paused recording; meter samples no longer overlap stop and release; a throw from a
-  platform call before the engine runs now yields `EngineFailure` instead of leaving the recorder in
-  `Preparing`; a failed or cancelled prepare no longer deletes a file that already existed at an
-  explicit `outputPath`.
+- `kmptoolkit-uploader-sqldelight`: `createUploaderStorage` (iOS) closes a driver that was opened
+  but failed its first probe (a corrupt file, a failed migration) before it throws
+  `UploaderStorageException`, and `UploaderStorage.close()` releases the database thread even when
+  closing the driver throws.
+- `kmptoolkit-uploader-testing`: `FakeUploader` is thread-safe and its result hook may call back into
+  the fake.
+- `kmptoolkit-video-player`: the Android engine no longer lets a position refresh posted before an
+  off-thread `seekTo` or `pause` undo it, and the iOS engine no longer clears a newer seek's target
+  when an older seek to the same position is interrupted.
+- `kmptoolkit-video-player`: a `prepare` no longer starts a third load while the first is still
+  unwinding when a waiting prepare is superseded and then cancelled, and no longer calls
+  `engine.release()` after `dispose()` when its caller is cancelled right after `release()`. On
+  Android, a position read made right after `seekTo` or `pause` from another thread no longer
+  returns the pre-call position while a player refresh is in progress.
+- `kmptoolkit-video-player-compose`: `VideoSeekBar` releases its handle when the bar becomes inactive
+  while a seek the player dropped was pending.
+- `kmptoolkit-video-player-compose`: `rememberVideoPlayer` and `VideoPlayer(source = ...)` release
+  their player when the composition that created it is discarded before it was applied (for example
+  a dropped lazy-list prefetch), not only when it leaves the composition. `VideoPlayer(source = ...,
+  autoPlay = true)` no longer starts playing when the source finishes loading while the app is in
+  the background (with `pauseOnBackground`).
 - `kmptoolkit-video-player-javafx`: the engine's `isJavaFxMediaAvailable()` and first `prepare()` no
   longer stall for 10 s and report the runtime unavailable for the rest of the process when called on
   the JavaFX thread (a busy thread is not remembered as unavailable, a runtime whose thread check
@@ -223,21 +396,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   once a paused picture has settled.
 - `kmptoolkit-video-player-vlcj`: the engine no longer overwrites a seek target with libvlc's pre-seek
   clock, so quick repeated seeks step from the target.
-- `kmptoolkit-video-player`: the Android engine no longer lets a position refresh posted before an
-  off-thread `seekTo` or `pause` undo it, and the iOS engine no longer clears a newer seek's target
-  when an older seek to the same position is interrupted.
-- `kmptoolkit-video-player-compose`: `VideoSeekBar` releases its handle when the bar becomes inactive
-  while a seek the player dropped was pending.
-- `kmptoolkit-hardware-keys`: the dialog-window key policy stays in force while any
-  `DialogWindowHardwareKeyEffect` in that window is composed, even when the one that decorated the
-  window leaves composition first.
-- `kmptoolkit-logging`: a sink's `CancellationException` is rethrown only after every sink has been
-  offered the event.
-- `kmptoolkit-systembars`: `release()` is atomic with concurrent pushes (ids are never reused),
-  icon-style samples never overlap, and a new `onSampled` lambda no longer restarts sampling.
-- `kmptoolkit-location`: on Android, `observeLocation()` sends the cached fix before registering its
-  listeners, so a live fix is never overtaken by an older cached one; on iOS,
-  `withSystemServicesPrompt` keeps at most one alert request pending.
+- `kmptoolkit-video-player-vlcj`: a player dropped without `release()` while a source was loaded
+  frees its native media player when garbage-collected, not only the libvlc instance, and libvlc's
+  callbacks can no longer be freed while the native player can still call them (a player that is
+  still playing is not collectable; release it). Temporary copies of jar-packed assets are deleted
+  explicitly instead of through `File.deleteOnExit()`, which grew a JDK-global set by one entry per
+  load; a copy that cannot be deleted when its source closes (on Windows, while still held open) is
+  retried by the shutdown hook, and disposing an engine while its own teardown claims the last open
+  player no longer throws `NoSuchElementException`.
 
 ## [3.0.0]
 
