@@ -6,6 +6,7 @@ import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.concurrent.AtomicInt
+import kotlin.concurrent.AtomicReference
 import kotlin.concurrent.Volatile
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
@@ -474,6 +475,7 @@ internal class BackgroundSessionUploadTransport(
             scope = scope,
             logger = logger,
             journal = journal,
+            terminalLock = liveLock,
             onTerminal = ::releaseAfterTerminal,
         )
         val session: NSURLSession = NSURLSession.sessionWithConfiguration(
@@ -548,6 +550,15 @@ internal class BackgroundSessionUploadTransport(
         try {
             if (live.delegate.cancelled) {
                 logger.i { "Upload cancelled before it started — item=$itemId" }
+                removeTemporaryBody(itemId)
+                return
+            }
+            // The session reports: the previous process's task finished (its terminal event invalidated this
+            // session, so a task created now would raise) or is delivering events. Either way that task owns
+            // the outcome; starting a second upload would at best repeat it. Decided here, atomically with the
+            // creation, rather than a flush window ago.
+            if (live.delegate.terminalDelivered || live.delegate.receivedAnyEvent) {
+                logger.i { "A buffered event arrived while the body was written; no task started — item=$itemId" }
                 removeTemporaryBody(itemId)
                 return
             }
@@ -702,6 +713,7 @@ private class UploadSessionDelegate(
     private val scope: CoroutineScope,
     private val logger: Logger,
     private val journal: OutcomeJournal,
+    private val terminalLock: NSLock,
     private val onTerminal: (UploadSessionDelegate) -> Unit,
 ) : NSObject(), NSURLSessionDataDelegateProtocol {
 
@@ -720,8 +732,8 @@ private class UploadSessionDelegate(
     @Volatile
     private var terminalHandled: Boolean = false
 
-    @Volatile
-    private var onAllEventsDelivered: (() -> Unit)? = null
+    /** The drained callback; taken with a compare-and-set, so however many callers race, it runs once. */
+    private val onAllEventsDelivered: AtomicReference<(() -> Unit)?> = AtomicReference(null)
 
     /**
      * Progress goes through one conflated channel and one forwarder, so fractions reach the handler in order
@@ -736,14 +748,18 @@ private class UploadSessionDelegate(
 
     /** Chains [callback] to "the buffered events are drained"; fires at once if they already are. */
     fun notifyWhenDrained(callback: () -> Unit) {
-        onAllEventsDelivered = callback
+        onAllEventsDelivered.value = callback
         if (terminalHandled) fireDrained()
     }
 
     private fun fireDrained() {
-        val callback: (() -> Unit)? = onAllEventsDelivered
-        onAllEventsDelivered = null
-        callback?.invoke()
+        while (true) {
+            val callback: (() -> Unit) = onAllEventsDelivered.value ?: return
+            if (onAllEventsDelivered.compareAndSet(callback, null)) {
+                callback()
+                return
+            }
+        }
     }
 
     /** The response body so far, kept up to the engine's ceiling plus one byte; handed over once, at completion. */
@@ -771,8 +787,17 @@ private class UploadSessionDelegate(
     }
 
     override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
-        receivedAnyEvent = true
-        terminalDelivered = true
+        // Under the lock startUpload creates its task under: a hand-off that has not created its task yet sees
+        // the terminal state and starts nothing, so no task is ever created on the session invalidated below —
+        // which raises an Objective-C exception Kotlin/Native cannot catch. A hand-off that already created
+        // its task is unaffected.
+        terminalLock.lock()
+        try {
+            receivedAnyEvent = true
+            terminalDelivered = true
+        } finally {
+            terminalLock.unlock()
+        }
         val httpResponse: NSHTTPURLResponse? = task.response as? NSHTTPURLResponse
         val statusCode: Long = httpResponse?.statusCode ?: STATUS_UNKNOWN
         val outcome: UploadResult = when {
