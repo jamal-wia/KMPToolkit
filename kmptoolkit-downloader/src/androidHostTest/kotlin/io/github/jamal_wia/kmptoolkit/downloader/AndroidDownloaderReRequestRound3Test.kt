@@ -27,6 +27,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.runner.RunWith
@@ -290,6 +291,15 @@ class AndroidDownloaderReRequestRound3Test {
             // What a cancelled retry left running on an engine scope finishes its cleanup before the next round reuses the directory.
             runBlocking { engines.forEach { it.cancelAllDownloads() } }
             Thread.sleep(200)
+            // Nothing runs any more, so no engine may still claim a download: a state stuck at Downloading is a lost cancel.
+            for ((engineIndex: Int, engine: Downloader) in engines.withIndex()) {
+                assertTrue(engine.downloadState(group).value !is GroupDownloadState.Downloading, "round $round: engine $engineIndex group state ${engine.downloadState(group).value}")
+                for (unit in units) {
+                    val state: UnitDownloadState = runBlocking { engine.unitDownloadStateFlow(unit).first() }
+                    assertTrue(state !is UnitDownloadState.Downloading, "round $round: engine $engineIndex ${unit.id} state $state")
+                }
+                assertTrue(!runBlocking { engine.hasActiveUnitDownload() }, "round $round: engine $engineIndex still reports an active unit download")
+            }
             assertEquals(emptyList(), File(root, UnitFileLayout.TRASH_DIRECTORY).list().orEmpty().toList(), "round $round: trash")
             assertEquals(emptyList(), File(root, "tmp").list().orEmpty().filter { it.startsWith("staging-") }, "round $round: staging")
         }

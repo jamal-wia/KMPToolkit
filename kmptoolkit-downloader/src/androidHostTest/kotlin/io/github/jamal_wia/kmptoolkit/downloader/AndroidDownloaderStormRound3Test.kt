@@ -27,6 +27,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.runner.RunWith
@@ -459,6 +460,14 @@ class AndroidDownloaderStormRound3Test {
             }
             val archive = File(storageA.getResourcePath(a1))
             assertEquals(listOf("marker.txt", "page1.webp", "page2.webp"), archive.list().orEmpty().sorted(), "round $round: archive")
+            // Nothing runs any more: no engine may still claim a download (a state stuck at Downloading is a lost cancel).
+            for ((engineIndex: Int, engine: Downloader) in engines.withIndex()) {
+                assertTrue(engine.downloadState(group).value !is GroupDownloadState.Downloading, "round $round: engine $engineIndex group state ${engine.downloadState(group).value}")
+                for (unit in listOf(f1, f2, a1, h1)) {
+                    val state: UnitDownloadState = runBlocking { engine.unitDownloadStateFlow(unit).first() }
+                    assertTrue(state !is UnitDownloadState.Downloading, "round $round: engine $engineIndex ${unit.id} state $state")
+                }
+            }
             val staging: List<String> = File(root, "tmp").list().orEmpty().filter { it.startsWith("staging-") }
             assertEquals(emptyList(), staging, "round $round: staging trees left")
             val trash: List<String> = File(root, UnitFileLayout.TRASH_DIRECTORY).list().orEmpty().toList()
