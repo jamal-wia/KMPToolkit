@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import io.github.jamal_wia.kmptoolkit.core.ReentrantLockHandle
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.newReentrantLock
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.AtomicReference
@@ -43,7 +46,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Every wait is bounded in real time (engine gates give up after ten seconds, every test body runs
  * under `withTimeout`), the jitter is seeded and the seed is in each failure message.
  */
-@OptIn(ExperimentalAtomicApi::class, ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalAtomicApi::class, ExperimentalCoroutinesApi::class, ToolkitInternalApi::class)
 class RecorderStormTest {
 
     /** Thread-safe engine with gates for `prepare`, `stop` and `release`, and a model of "the microphone is open". */
@@ -478,6 +481,92 @@ class RecorderStormTest {
     private suspend fun recordingStart(recorder: DefaultAudioRecorder, path: String, seed: Long) {
         assertTrue(recorder.prepare(path).isSuccess, "seed $seed: prepare")
         assertTrue(recorder.start().isSuccess, "seed $seed: start")
+    }
+
+    /**
+     * An engine whose every call runs under a lock of its own and which reports from inside its calls
+     * and from a platform thread under that same lock: the recorder's lock and this one are taken in
+     * opposite orders by the two sides.
+     */
+    private class LockedEngine : RecorderEngine {
+        val lock: ReentrantLockHandle = newReentrantLock()
+        private val listener: AtomicReference<((EngineEvent) -> Unit)?> = AtomicReference(null)
+        val open: AtomicBoolean = AtomicBoolean(false)
+
+        private inline fun <T> locked(block: () -> T): T {
+            lock.lock()
+            try {
+                return block()
+            } finally {
+                lock.unlock()
+            }
+        }
+
+        fun reportFromPlatformThread(silenced: Boolean) {
+            locked { listener.load()?.invoke(EngineEvent.InputSilenced(silenced)) }
+        }
+
+        override fun hasRecordAudioPermission(): Boolean = true
+        override fun supportsFormat(format: AudioFormat): Boolean = true
+        override suspend fun prepare(outputPath: String, config: AudioRecorderConfig, maxFileSizeBytes: Long?) {
+            locked { open.store(true) }
+        }
+        override fun setEventListener(listener: ((EngineEvent) -> Unit)?) = locked { this.listener.store(listener) }
+        override fun start() {
+            locked { listener.load()?.invoke(EngineEvent.InputSilenced(false)) }
+        }
+        override fun pause() = locked { repeat(50) { Unit } }
+        override fun resume() {
+            locked { listener.load()?.invoke(EngineEvent.InputSilenced(false)) }
+        }
+        override fun peakDbfs(): Float? = locked { -20f }
+        override fun stop() = locked { repeat(200) { Unit } }
+        override fun release() = locked { open.store(false) }
+    }
+
+    @Test
+    fun `an engine reporting under its own lock while the recorder holds its lock never deadlocks`() = storm {
+        repeat(STORM_ROUNDS) { round: Int ->
+            val seed: Long = 373_587_883L * round + 3L
+            val engine = LockedEngine()
+            val config = AudioRecorderConfig(
+                minimumFreeSpaceBytes = 0L,
+                durationUpdateInterval = 1.milliseconds,
+                levelUpdateInterval = 1.milliseconds,
+            )
+            val fs = StormFs()
+            val recorder: DefaultAudioRecorder = recorder(engine, fs, config)
+            val done = AtomicBoolean(false)
+            val platform: List<Job> = (0..1).map { w: Int ->
+                val own = Random(seed + w)
+                launch(Dispatchers.Default) {
+                    while (!done.load()) {
+                        engine.reportFromPlatformThread(own.nextBoolean())
+                        if (own.nextInt(3) == 0) delay(1L)
+                    }
+                }
+            }
+            val collector: Job = launch(Dispatchers.Default) { recorder.level.collect { } }
+            val own = Random(seed)
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                repeat(OPS) {
+                    when (own.nextInt(6)) {
+                        0 -> recorder.prepare("/data/locked-$round.m4a")
+                        1 -> recorder.start()
+                        2 -> recorder.pause()
+                        3 -> recorder.resume()
+                        4 -> recorder.stop()
+                        else -> recorder.cancel()
+                    }
+                }
+            }
+            done.store(true)
+            platform.joinAll()
+            collector.cancel()
+            recorder.release()
+            assertEquals(RecorderState.Released, recorder.state.value, "seed $seed")
+            awaitTrue("seed $seed: handle freed") { !engine.open.load() }
+        }
     }
 
     @Test

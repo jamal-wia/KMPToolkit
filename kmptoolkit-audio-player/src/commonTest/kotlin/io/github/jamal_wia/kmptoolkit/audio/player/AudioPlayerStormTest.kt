@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.audio.player
 
+import io.github.jamal_wia.kmptoolkit.core.ReentrantLockHandle
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.newReentrantLock
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.AtomicReference
@@ -40,7 +43,7 @@ import kotlinx.coroutines.yield
  * Every wait is bounded in real time and every test body runs under `withTimeout`; the jitter is
  * seeded and the seed is in each failure message.
  */
-@OptIn(ExperimentalAtomicApi::class, ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalAtomicApi::class, ExperimentalCoroutinesApi::class, ToolkitInternalApi::class)
 class AudioPlayerStormTest {
 
     private val sources: List<AudioSource> = List(5) { AudioSource.Remote("https://example.test/clip-$it.mp3") }
@@ -322,6 +325,96 @@ class AudioPlayerStormTest {
             assertEquals(1, engine.live.load(), "seed $seed: a Ready player must hold exactly one handle")
             player.release()
             awaitTrue("seed $seed: handle freed after release") { engine.live.load() == 0 }
+        }
+    }
+
+    /**
+     * An engine like the real ones: every call runs under a lock of its own, and some of them report an
+     * event from inside the call, the way a platform does. The platform's own thread reports under the
+     * same lock. The player's lock and this one are taken in opposite orders by the two sides, which is
+     * the inversion `submit` exists to survive.
+     */
+    private class LockedEngine : PlaybackEngine {
+        val lock: ReentrantLockHandle = newReentrantLock()
+        private val listenerRef: AtomicReference<PlaybackEngineListener?> = AtomicReference(null)
+        private val playing: AtomicBoolean = AtomicBoolean(false)
+
+        private inline fun <T> locked(block: () -> T): T {
+            lock.lock()
+            try {
+                return block()
+            } finally {
+                lock.unlock()
+            }
+        }
+
+        fun reportFromPlatformThread(random: Random) {
+            locked {
+                val target: PlaybackEngineListener? = listenerRef.load()
+                if (random.nextInt(4) == 0) target?.onFailed(IllegalStateException("platform")) else target?.onCompleted()
+            }
+        }
+
+        override fun setListener(listener: PlaybackEngineListener?) = locked { listenerRef.store(listener) }
+        override suspend fun load(source: AudioSource) { yield() }
+        override fun start() {
+            locked {
+                playing.store(true)
+                // Reported from inside the call that is running under the player's lock.
+                listenerRef.load()?.onCompleted()
+            }
+        }
+        override fun pause() = locked { playing.store(false) }
+        override fun seekTo(positionMs: Long) = locked { repeat(50) { Unit } }
+        override fun setSpeed(speed: Float) = locked { repeat(50) { Unit } }
+        override fun durationMs(): Long = locked { 10_000L }
+        override fun positionMs(): Long = locked { 1_234L }
+        override fun release() = locked { playing.store(false) }
+    }
+
+    @Test
+    fun `an engine reporting under its own lock while the player holds its lock never deadlocks`() = storm {
+        repeat(ROUNDS) { round: Int ->
+            val seed: Long = 982_451_653L * round + 7L
+            val engine = LockedEngine()
+            val player: AudioPlayer = createAudioPlayer(
+                engine = engine,
+                config = AudioPlayerConfig(positionUpdateIntervalMs = 1L),
+                coroutineContext = Dispatchers.Default,
+            )
+            withTimeout(5.seconds) { player.prepare(sources[0]) }
+            val done = AtomicBoolean(false)
+            val platform: List<Job> = (0..1).map { w: Int ->
+                val own = Random(seed + w)
+                launch(Dispatchers.Default) {
+                    while (!done.load()) {
+                        engine.reportFromPlatformThread(own)
+                        if (own.nextInt(3) == 0) yield()
+                    }
+                }
+            }
+            val callers: List<Job> = (0 until 3).map { w: Int ->
+                val own = Random(seed + 10L + w)
+                launch(Dispatchers.Default) {
+                    repeat(OPS * 4) {
+                        when (own.nextInt(8)) {
+                            0 -> player.play()
+                            1 -> player.pause()
+                            2 -> player.stop()
+                            3 -> player.replay()
+                            4 -> player.seekTo(own.nextLong(0L, 10_000L))
+                            5 -> player.setPlaybackSpeed(0.5f + own.nextInt(4) * 0.5f)
+                            6 -> player.seekForward(500L)
+                            else -> yield()
+                        }
+                    }
+                }
+            }
+            callers.joinAll()
+            done.store(true)
+            platform.joinAll()
+            player.release()
+            assertEquals(PlayerState.Idle, player.stateFlow.value, "seed $seed")
         }
     }
 
