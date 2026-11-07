@@ -41,8 +41,10 @@ could be started.
 
 - **Side effect:** starts the toolkit when it is not running yet, exactly as the first `prepare`
   would. It does not create a player or open a source.
-- **Remembered:** a success holds until the toolkit exits (after `Platform.exit()` the answer is
-  `false`); a permanent failure (missing runtime, no display) holds for the life of the process. A JavaFX thread too busy to answer within 10 s is not remembered; the next
+- **Remembered:** a success holds until the toolkit exits (after `Platform.exit()`, after the app's last window
+  closed with implicit exit on, or after the JavaFX thread died, the answer is `false`; the exit
+  itself is detected from the thread, or from a heartbeat block the JavaFX thread leaves unanswered
+  for 2 s, which also costs the first call after such an exit up to 2 s); a permanent failure (missing runtime, no display) holds for the life of the process. A JavaFX thread too busy to answer within 10 s is not remembered; the next
   call tries again.
   Callers that were waiting meanwhile each try again in turn, so while the thread stays
   unresponsive, N concurrent first calls can take up to N x 10 s; the bound is per attempt, not per

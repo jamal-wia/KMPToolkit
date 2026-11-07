@@ -48,6 +48,6 @@ class ToolkitImplicitExitAdversarialTest {
         assertTrue(result["crashed"] == null, "$result")
         assertEquals("ok", result["firstLoad"], "$result")
         assertEquals("RuntimeUnavailable", result["reload"], "$result")
-        assertTrue(result.getValue("reloadMs").toLong() < 2_000L, "slow after the exit: $result")
+        assertTrue(result.getValue("reloadMs").toLong() < 3_500L, "slow after the exit: $result")
     }
 }

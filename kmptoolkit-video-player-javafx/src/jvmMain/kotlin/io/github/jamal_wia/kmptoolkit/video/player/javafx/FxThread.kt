@@ -5,12 +5,15 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javafx.application.Platform
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** The JavaFX application thread: starting the toolkit, and getting work onto that thread. */
 internal object FxThread {
 
     private const val START_TIMEOUT_SECONDS: Long = 10L
     private const val TOOLKIT_EXITED_MESSAGE: String = "Platform.exit has been called"
+    private const val EXIT_SILENCE_MS: Long = 2_000L
+    private const val NANOS_PER_MILLI: Long = 1_000_000L
 
     /**
      * How many blocks [post] and [call] have queued with `Platform.runLater` that have not started yet,
@@ -19,6 +22,59 @@ internal object FxThread {
      * calls, and the count must be right on whichever thread makes one.
      */
     private val queued: AtomicInteger = AtomicInteger(0)
+
+    /**
+     * The JavaFX application thread, as soon as this object has seen it run something. A cheap,
+     * definitive exit signal on every platform where the thread ends with the toolkit; on macOS it
+     * does not (the thread outlives an implicit exit), which is why [hasExited] also has [probe]. A
+     * state flow rather than a volatile (D-21).
+     */
+    private val toolkitThread: MutableStateFlow<Thread?> = MutableStateFlow(null)
+
+    private fun noteToolkitThread() {
+        toolkitThread.value = Thread.currentThread()
+    }
+
+    /**
+     * A heartbeat block handed to the FX thread. The toolkit ends in three ways: `Platform.exit()`
+     * (OpenJFX says so on a later `startup`), implicit exit when the host's last window closes, and
+     * the thread dying; after the last two OpenJFX gives no signal at all, and `runLater` silently
+     * drops what it is given. A block that has stayed unanswered for [EXIT_SILENCE_MS] therefore
+     * counts as an exited toolkit, until it does run (a busy thread that recovers is alive again).
+     * At most one probe is outstanding, so a dead toolkit costs one block, never a backlog.
+     */
+    private class Probe {
+        val issuedAtNanos: Long = System.nanoTime()
+        // A latch: [hasExited] is plain synchronous code and must be able to wait for it (D-21).
+        val answered: CountDownLatch = CountDownLatch(1)
+
+        fun silentMs(): Long = (System.nanoTime() - issuedAtNanos) / NANOS_PER_MILLI
+    }
+
+    private val probe: MutableStateFlow<Probe?> = MutableStateFlow(null)
+
+    /** The outstanding probe, or a freshly issued one when the last was answered. */
+    private fun currentProbe(): Probe {
+        while (true) {
+            val current: Probe? = probe.value
+            if (current != null && current.answered.count != 0L) return current
+            val fresh = Probe()
+            if (probe.compareAndSet(current, fresh)) {
+                try {
+                    runLater(
+                        Runnable {
+                            noteToolkitThread()
+                            fresh.answered.countDown()
+                        },
+                    )
+                } catch (e: IllegalStateException) {
+                    // The toolkit was never initialized: nothing to probe, nothing exited.
+                    fresh.answered.countDown()
+                }
+                return fresh
+            }
+        }
+    }
 
     /**
      * How a block is handed to the FX thread; `Platform.runLater` unless a test swaps it, to
@@ -50,7 +106,10 @@ internal object FxThread {
         // must block its caller (never the FX thread, see the early return) (D-21).
         val started = CountDownLatch(1)
         val startedHere: Boolean = try {
-            startup(Runnable { started.countDown() })
+            startup(Runnable {
+                noteToolkitThread()
+                started.countDown()
+            })
             true
         } catch (e: IllegalStateException) {
             // "Toolkit already initialized" — the app, or an earlier player, started it.
@@ -59,8 +118,14 @@ internal object FxThread {
             // the only signal OpenJFX gives.
             if (e.message == TOOLKIT_EXITED_MESSAGE) throw e
             // On the FX thread the toolkit is running and accepts work: nothing left to confirm.
-            if (Platform.isFxApplicationThread()) return
-            Platform.runLater { started.countDown() }
+            if (Platform.isFxApplicationThread()) {
+                noteToolkitThread()
+                return
+            }
+            Platform.runLater {
+                noteToolkitThread()
+                started.countDown()
+            }
             false
         }
         if (!started.await(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
@@ -72,20 +137,36 @@ internal object FxThread {
     }
 
     /**
-     * Whether the toolkit has exited. Only for a toolkit already seen running: `Platform.startup` then
-     * throws at once without side effects, with the exit message after Platform.exit. Called before the
+     * Whether the toolkit has exited, however it ended. Only for a toolkit already seen running:
+     * `Platform.startup` then throws at once without side effects, with the exit message after
+     * `Platform.exit()`. An implicit exit (the last window closed) and a dead toolkit give no
+     * message: a dead [toolkitThread] answers at once, and otherwise a [Probe] that the FX thread
+     * leaves unanswered for [EXIT_SILENCE_MS]. With [wait], waits up to that long for the answer, so
+     * a live idle toolkit answers in well under a millisecond and a stalled or exited one in at most
+     * [EXIT_SILENCE_MS], once: the next call finds the same probe already old. Without it, never
+     * waits. Never waits on the FX thread itself, which is alive by being there. Called before the
      * toolkit was ever initialised it would start it.
      */
-    fun hasExited(): Boolean = try {
-        startup(Runnable { })
-        false
-    } catch (e: IllegalStateException) {
-        e.message == TOOLKIT_EXITED_MESSAGE
+    fun hasExited(wait: Boolean = true): Boolean {
+        try {
+            startup(Runnable { })
+        } catch (e: IllegalStateException) {
+            if (e.message == TOOLKIT_EXITED_MESSAGE) return true
+        }
+        val thread: Thread? = toolkitThread.value
+        if (thread != null && !thread.isAlive) return true
+        if (isCurrent()) return false
+        val outstanding: Probe = currentProbe()
+        if (wait) {
+            val remainingMs: Long = EXIT_SILENCE_MS - outstanding.silentMs()
+            if (remainingMs > 0L) outstanding.answered.await(remainingMs, TimeUnit.MILLISECONDS)
+        }
+        return outstanding.answered.count != 0L && outstanding.silentMs() >= EXIT_SILENCE_MS
     }
 
     /** Whether the caller is the FX application thread; false where JavaFX cannot even load. */
     fun isCurrent(): Boolean = try {
-        Platform.isFxApplicationThread()
+        Platform.isFxApplicationThread().also { if (it) noteToolkitThread() }
     } catch (e: LinkageError) {
         false
     }
