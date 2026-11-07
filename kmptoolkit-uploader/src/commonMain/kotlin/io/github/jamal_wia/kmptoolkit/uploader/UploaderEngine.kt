@@ -160,7 +160,8 @@ public interface UploaderEngine : Uploader {
  * ```
  *
  * @param store where items are persisted. The one thing this module cannot supply for you — see
- *   [UploaderStore] and `docs/kmptoolkit-uploader/07-custom-store.md`.
+ *   [UploaderStore] and `docs/kmptoolkit-uploader/07-custom-store.md`. An engine owns every row of its store, and
+ *   parks a row whose type it has no handler for: two engines need two stores (or two tables), never one shared queue.
  * @param handlers one per effect type. Their [UploaderHandler.type]s must be distinct.
  * @param scope the scope the drain coroutine, the heartbeat and the backoff alarms run in.
  *   Cancelling it stops the engine as surely as [UploaderEngine.close] does; the scope's dispatcher
@@ -181,7 +182,8 @@ public interface UploaderEngine : Uploader {
  *   that log line.
  * @param clock the wall clock backing backoff gates and leases. Substitute it in tests.
  * @param idGenerator produces each item's id. The default is a random UUID; override it if your
- *   server requires a particular idempotency-key shape.
+ *   server requires a particular idempotency-key shape. It must return a new unique id on every call; never
+ *   derive it from the domain object (use `uniqueKey` for that), or a REPLACE would reuse the superseded id.
  * @return a constructed, **not yet started** engine. Call [UploaderEngine.start].
  * @throws IllegalArgumentException if two handlers share a [UploaderHandler.type], or two constraint
  *   providers share a [ConstraintProvider.key]. Both are wiring bugs whose symptom would otherwise

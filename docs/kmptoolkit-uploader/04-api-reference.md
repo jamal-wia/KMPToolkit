@@ -63,6 +63,9 @@ fun createUploaderEngine(
 ): UploaderEngine
 ```
 
+`idGenerator` must return a new unique id on every call; never derive it from the domain object (use `uniqueKey`
+for that).
+
 Returns a constructed but **not started** engine. Throws `IllegalArgumentException` if two handlers
 share a `type` or two providers share a `key` — both are wiring bugs whose symptom would otherwise
 be delayed, silent data loss.

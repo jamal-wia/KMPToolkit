@@ -106,7 +106,8 @@ What the engine does with it:
    gateway would take one executor's report for another's.
 
 `UploadGateway` reaches the engine through `UploaderEngineRegistry`, so **register the engine** after
-creating it. An engine that is not `createUploaderEngine`'s reads as unavailable.
+creating it. An engine that is not `createUploaderEngine`'s reads as unavailable; that includes a decorator
+registered in its place, which serves wake jobs only. Register the engine itself.
 
 ### Reading the response
 

@@ -86,7 +86,9 @@ public interface UploaderHandler<P : Any> {
      * Encodes [payload] into the string stored in [UploaderItem.payload].
      *
      * The format is entirely yours — `kotlinx.serialization` JSON, protobuf in Base64, a single id.
-     * This module has no serialization dependency and never looks inside the result.
+     * This module has no serialization dependency and never looks inside the result. The result is text, and
+     * a store may replace an unpaired surrogate in it (for example with U+FFFD), so encode binary data as, for
+     * example, Base64.
      *
      * @param payload the value passed to [Uploader.enqueue].
      * @return the encoded form to persist.

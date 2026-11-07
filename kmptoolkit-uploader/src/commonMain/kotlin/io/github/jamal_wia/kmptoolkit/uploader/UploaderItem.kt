@@ -17,7 +17,8 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * @property type the owning handler's [UploaderHandler.type]. Renaming a type orphans every queued
  *   row of that type — they park with "no handler registered".
  * @property payload the encoded payload, produced by [UploaderHandler.encodePayload]. Opaque to the
- *   engine and to the store.
+ *   engine and to the store. It is text: a store may replace an unpaired surrogate (with U+FFFD, say), so encode
+ *   binary data as, for example, Base64.
  * @property schemaVersion the [UploaderHandler.schemaVersion] in force when this row was written. A
  *   row whose version exceeds the current handler's is parked rather than mis-decoded.
  * @property uniqueKey dedup identity together with [type], or `null` for an item that never

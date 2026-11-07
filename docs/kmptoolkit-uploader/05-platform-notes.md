@@ -78,6 +78,10 @@ in one app. Give a second queue its own `uniqueWorkName`.
 reflectively by WorkManager, outside your object graph; without `UploaderEngineRegistry.register` it
 finds nothing and returns `Result.retry()` forever.
 
+Register the engine `createUploaderEngine` returned, not a wrapper around it: a decorator registered in its place
+serves wake jobs (`awaitDrained`), but upload transports and `UploadGateway` reach only the library's own engine and
+report it unavailable, so an `UploadHandler`'s uploads would retry and re-hand forever.
+
 **Reliability.** Good. WorkManager persists across reboots and runs in Doze maintenance windows. It
 is not instant, and it is not meant to be.
 

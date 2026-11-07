@@ -82,6 +82,11 @@ public interface Uploader {
      * Nothing is settled and no handler hook runs: the caller decided the item's fate, and is the
      * place to clean up after it — a source file, a "sending" badge.
      *
+     * **Side effects are not transactional.** Cancelling a running upload or attempt happens at once and is not
+     * rolled back. When this call runs inside a consumer's transaction that later rolls back, the row is
+     * restored and stays queued; its upload resumes no later than when its lease expires, and a cancelled plain
+     * attempt, which recorded nothing, simply runs on the next pass.
+     *
      * @param id the id [enqueue] returned. An unknown id — already delivered, dropped, or never
      *   queued — is a no-op.
      * @since 2.0.0
@@ -92,7 +97,8 @@ public interface Uploader {
      * [cancel] for every item whose [UploaderItem.tag] equals [tag], in any state — the logout wipe:
      * effects queued under one account must neither replay nor keep uploading under its credentials
      * once it has signed out. Each item is withdrawn as by [cancel], including the guarantee that no attempt
-     * begins afterwards and a running one is cancelled.
+     * begins afterwards and a running one is cancelled. As for [cancel], those side effects are not rolled
+     * back when an enclosing transaction rolls back.
      *
      * @param tag the exact tag to match; items with another tag or none are untouched.
      * @since 2.0.0
