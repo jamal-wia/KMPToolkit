@@ -8,7 +8,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.test.runTest
 import platform.Foundation.create
 import platform.Foundation.stringWithContentsOfFile
@@ -45,6 +48,51 @@ class BackgroundUploadTransportTest {
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(sessionIdentifierPrefix = " ") }
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(lease = Duration.ZERO) }
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(rehandFlushWindow = (-1).minutes) }
+    }
+
+    @Test
+    fun `the timeout defaults equal the system's own session values`() {
+        val config = BackgroundUploadConfig()
+        assertEquals(60.seconds, config.requestTimeout)
+        assertEquals(7.days, config.resourceTimeout)
+
+        val configuration = buildSessionConfiguration("p.item", config)
+        val system = platform.Foundation.NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier("p.baseline")
+        assertEquals(system.timeoutIntervalForRequest, configuration.timeoutIntervalForRequest)
+        assertEquals(system.timeoutIntervalForResource, configuration.timeoutIntervalForResource)
+    }
+
+    @Test
+    fun `custom timeouts reach the background session configuration`() {
+        val config = BackgroundUploadConfig(requestTimeout = 90.seconds, resourceTimeout = 36.hours)
+
+        val configuration = buildSessionConfiguration("p.item", config)
+
+        assertEquals(90.0, configuration.timeoutIntervalForRequest)
+        assertEquals(36.0 * 3600.0, configuration.timeoutIntervalForResource)
+    }
+
+    @Test
+    fun `the config rejects non-positive and infinite timeouts`() {
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(requestTimeout = Duration.ZERO) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(requestTimeout = (-1).seconds) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(resourceTimeout = Duration.ZERO) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(resourceTimeout = (-1).hours) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(requestTimeout = Duration.INFINITE) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(resourceTimeout = Duration.INFINITE) }
+    }
+
+    @Test
+    fun `equals hashCode and toString include the timeouts`() {
+        val base = BackgroundUploadConfig(requestTimeout = 30.seconds, resourceTimeout = 1.days)
+        val same = BackgroundUploadConfig(requestTimeout = 30.seconds, resourceTimeout = 1.days)
+
+        assertEquals(base, same)
+        assertEquals(base.hashCode(), same.hashCode())
+        assertTrue(base != BackgroundUploadConfig(requestTimeout = 31.seconds, resourceTimeout = 1.days))
+        assertTrue(base != BackgroundUploadConfig(requestTimeout = 30.seconds, resourceTimeout = 2.days))
+        assertTrue(base.toString().contains("requestTimeout=30s"))
+        assertTrue(base.toString().contains("resourceTimeout=1d"))
     }
 
     @Test

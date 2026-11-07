@@ -513,11 +513,16 @@ final class io.github.jamal_wia.kmptoolkit.uploader/BackgroundTaskWakeScheduler 
 
 final class io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig { // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig|null[0]
     constructor <init>(kotlin/String? = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ...) // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.<init>|<init>(kotlin.String?;kotlin.time.Duration;kotlin.time.Duration){}[0]
+    constructor <init>(kotlin/String? = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ...) // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.<init>|<init>(kotlin.String?;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration){}[0]
 
     final val lease // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.lease|{}lease[0]
         final fun <get-lease>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.lease.<get-lease>|<get-lease>(){}[0]
     final val rehandFlushWindow // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.rehandFlushWindow|{}rehandFlushWindow[0]
         final fun <get-rehandFlushWindow>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.rehandFlushWindow.<get-rehandFlushWindow>|<get-rehandFlushWindow>(){}[0]
+    final val requestTimeout // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.requestTimeout|{}requestTimeout[0]
+        final fun <get-requestTimeout>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.requestTimeout.<get-requestTimeout>|<get-requestTimeout>(){}[0]
+    final val resourceTimeout // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.resourceTimeout|{}resourceTimeout[0]
+        final fun <get-resourceTimeout>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.resourceTimeout.<get-resourceTimeout>|<get-resourceTimeout>(){}[0]
     final val sessionIdentifierPrefix // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.sessionIdentifierPrefix|{}sessionIdentifierPrefix[0]
         final fun <get-sessionIdentifierPrefix>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.sessionIdentifierPrefix.<get-sessionIdentifierPrefix>|<get-sessionIdentifierPrefix>(){}[0]
 

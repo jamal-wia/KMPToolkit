@@ -31,6 +31,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
     `BackgroundUploadRelaunch.handleEvents` is wired.
   - See `docs/kmptoolkit-uploader/03-guide.md` for the recommended recipe: the server answers `202`
     with a job id, and the client sends the item id as an `Idempotency-Key`.
+- `kmptoolkit-uploader`: `BackgroundUploadConfig` (iOS) gains `requestTimeout` and `resourceTimeout`,
+  applied to the background session's `timeoutIntervalForRequest` and `timeoutIntervalForResource`.
+  The defaults are the system's own (60 s and 7 days), so behaviour does not change. The request
+  timeout is an idle timeout, and a background session retries silently after it until the resource
+  timeout runs out, so `resourceTimeout` bounds re-uploads; see
+  `docs/kmptoolkit-uploader/08-upload-transport.md`. The three-parameter constructor stays as a
+  hidden, deprecated declaration, so Kotlin code and binaries built against 3.0 keep working. Swift
+  code that constructs `BackgroundUploadConfig` directly may need a source change, because hidden
+  declarations and default arguments are not exported to Swift.
 
 ### Changed
 

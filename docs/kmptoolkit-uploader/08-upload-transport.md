@@ -236,6 +236,30 @@ or the lease — for that.
 - **Lease.** 60 minutes by default. iOS may run a background session long after the hand-off; the
   identifier rejoin keeps a shorter lease safe too.
 
+### Timeouts
+
+`BackgroundUploadConfig(requestTimeout = 60.seconds, resourceTimeout = 7.days)` sets the session's
+`timeoutIntervalForRequest` and `timeoutIntervalForResource`. The defaults are the system's own values,
+so behaviour is unchanged unless you set them; both must be positive and finite.
+
+- **`requestTimeout` is an idle timeout.** Apple's documentation describes it as how long a task waits
+  for additional data to arrive before giving up, with the timer reset whenever new data arrives. It is
+  not a bound on the whole upload: a slow but steady transfer never trips it, and neither does a long
+  upload. It trips when the connection goes silent — including while the server works on the request
+  after the last byte was sent and has not started answering.
+- **A background session retries instead of failing.** After an idle timeout `nsurlsessiond` silently
+  re-sends the upload, and keeps doing so until `resourceTimeout` runs out. The handler sees no failure
+  in between, and the server may receive the same upload more than once. `resourceTimeout` is therefore
+  the bound on re-uploads: shorten it if you would rather fail an upload than send it again for days.
+  Make the server idempotent (the item id is the recommended `Idempotency-Key`).
+- **Keep the lease below `resourceTimeout`.** The lease is when the engine re-hands an item that has not
+  settled; the transport joins the task `nsurlsessiond` is still running (a running task is found
+  through the session identifier), so an expired lease is safe, not a second upload. Once
+  `resourceTimeout` has passed iOS fails the transfer, and only then is a re-hand a fresh upload.
+- **Long server work.** Do not hold the upload response open while the server works: the connection sits
+  idle and trips the timeout and its retry. Answer `202` with a job id and finish the work behind it, as
+  in the recipe in [`03-guide.md`](03-guide.md).
+
 ### The relaunch hook — required
 
 When an upload finishes while the app is not running, iOS relaunches the app and calls an app-delegate
