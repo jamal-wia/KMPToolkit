@@ -120,6 +120,13 @@ afterwards, and a post that a newer one for the id (typically the terminal "Done
 dropped (`Coalesced`) rather than shown on top of it. A cancelled in-flight post is `Coalesced` too. All of this holds per `Notifier` instance. Posts for one id should still come from one
 coroutine at a time; that ordering is up to the caller.
 
+**Abandoned runs.** A run that ends without a terminal frame and without a `cancel` (a failed
+download, a notification the user swiped away: the library is never told about a swipe) leaves its
+bar position behind. The notifier forgets such a position by itself once the id has been quiet for
+far longer than any sensible rate limit (the larger of 120 times `minProgressInterval` and ten
+minutes), so an app that posts under a fresh id per run does not accumulate state. The only visible
+effect is that a very late frame for a forgotten id is posted, like the first frame of any run.
+
 **Do not build your own throttle on top.** A caller that only posts every 5% just gets a coarser bar;
 the module is already bounding the rate.
 

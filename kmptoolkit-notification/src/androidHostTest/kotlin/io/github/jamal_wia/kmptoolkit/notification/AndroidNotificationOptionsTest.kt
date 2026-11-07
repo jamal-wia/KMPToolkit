@@ -308,6 +308,45 @@ class AndroidNotificationOptionsTest {
     }
 
     @Test
+    fun `cancelling every id empties the legacy sweep cache`() = runTest {
+        val notifier: AndroidNotifier = notifier() as AndroidNotifier
+        repeat(1_000) { index: Int -> notifier.post("id-$index", notification()) }
+        repeat(1_000) { index: Int -> notifier.cancel("id-$index") }
+
+        assertEquals(0, notifier.sweptLegacyCountForTest())
+    }
+
+    @Test
+    fun `cancelAll empties the legacy sweep cache`() = runTest {
+        val notifier: AndroidNotifier = notifier() as AndroidNotifier
+        repeat(50) { index: Int -> notifier.post("id-$index", notification()) }
+
+        notifier.cancelAll()
+
+        assertEquals(0, notifier.sweptLegacyCountForTest())
+    }
+
+    @Test
+    fun `the legacy sweep cache stays bounded however many fresh ids are posted`() = runTest {
+        val notifier: AndroidNotifier = notifier() as AndroidNotifier
+        repeat(300) { index: Int -> notifier.post("id-$index", notification()) }
+
+        assertTrue(notifier.sweptLegacyCountForTest() <= 256, "was ${notifier.sweptLegacyCountForTest()}")
+    }
+
+    @Test
+    fun `a re-post after cancel still removes a 2_x copy planted in between`() = runTest {
+        val notifier: Notifier = notifier()
+        notifier.post("download", notification(title = "Now"))
+        notifier.cancel("download")
+        manager.notify(legacyPlatformNotificationId("download"), legacyNotification())
+
+        notifier.post("download", notification(title = "Again"))
+
+        assertEquals("Again", shown.single().extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+    }
+
+    @Test
     fun `the hashed 2_x platform id is still computed exactly as 2_x did`() {
         // "" hashes to 0, which 2.x moved to 1; this one hashes negative, and 2.x cleared the sign bit.
         val negativeHash = "chat_thread_id_from_push"

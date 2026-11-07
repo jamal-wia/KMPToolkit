@@ -6,6 +6,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TestTimeSource
 
 /**
@@ -419,6 +420,66 @@ class ProgressCoalescerTest {
         coalescer.rollback(requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(100))))
 
         assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(100)) != null)
+    }
+
+    // --- abandoned ids -----------------------------------------------------------------------
+
+    @Test
+    fun `baselines of ids abandoned without a terminal frame are dropped once they are stale`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        repeat(1_000) { index: Int ->
+            coalescer.prepare("run-$index", NotificationProgress.Determinate(10))
+        }
+        assertEquals(1_000, coalescer.postedCountForTest())
+
+        time += 11.minutes
+        coalescer.prepare("fresh", NotificationProgress.Determinate(10))
+
+        assertEquals(1, coalescer.postedCountForTest())
+        assertEquals(1, coalescer.latestCountForTest())
+    }
+
+    @Test
+    fun `a baseline younger than the horizon survives a prune`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        repeat(100) { index: Int ->
+            coalescer.prepare("run-$index", NotificationProgress.Determinate(10))
+        }
+
+        time += 2.minutes
+        coalescer.prepare("fresh", NotificationProgress.Determinate(10))
+
+        assertEquals(101, coalescer.postedCountForTest())
+    }
+
+    @Test
+    fun `a pruned id posts again as a first frame`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        repeat(100) { index: Int ->
+            coalescer.prepare("run-$index", NotificationProgress.Determinate(10))
+        }
+
+        time += 11.minutes
+        coalescer.prepare("other", NotificationProgress.Determinate(10))
+
+        assertTrue(coalescer.prepare("run-0", NotificationProgress.Determinate(10)) != null)
+    }
+
+    @Test
+    fun `a terminal frame whose post failed leaves no newest-serial entry behind`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.rollback(requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(100))))
+
+        assertEquals(0, coalescer.latestCountForTest())
+    }
+
+    @Test
+    fun `a progress frame whose post failed leaves no entry in either map`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.rollback(requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(40))))
+
+        assertEquals(0, coalescer.postedCountForTest())
+        assertEquals(0, coalescer.latestCountForTest())
     }
 
     private fun ProgressCoalescer.shouldPost(
