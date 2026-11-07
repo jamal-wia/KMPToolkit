@@ -367,7 +367,7 @@ public class ActivityResultPermissionRequestHost(
 The default host. It launches from the `ComponentActivity` `activityAccess` reports as resumed,
 through that activity's `ActivityResultRegistry`, and re-registers on each activity that resumes
 while a request is pending — so the answer reaches the waiting request even when the activity was
-recreated meanwhile (not across process death). One request at a time: a launch while another is
+recreated meanwhile (not across process death). One request at a time (a request whose activity is finished, not recreated, ends as interrupted — an empty answer — so it cannot block the next one): a launch while another is
 pending returns `false`. A launch returns `false` with no resumed activity, or one that is not a
 `ComponentActivity`. Holds no activity.
 
