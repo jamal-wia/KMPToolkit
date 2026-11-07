@@ -92,6 +92,20 @@ class DeviceIdProviderTest {
     }
 
     @Test
+    fun `a transient read failure answers a fresh id for the call and leaves the stored one alone`() = runTest {
+        val storage = FakeKeyValueStorage()
+        val stored: String = DeviceIdProvider(storage).current()
+        storage.failReadsWith = StorageError.Unavailable()
+
+        val duringOutage: String = DeviceIdProvider(storage).current()
+
+        assertNotEquals(stored, duringOutage)
+        assertEquals(stored, storage.entries[DeviceIdProvider.DEFAULT_KEY], "the persisted id must survive")
+        storage.failReadsWith = null
+        assertEquals(stored, DeviceIdProvider(storage).current(), "found again once the store recovers")
+    }
+
+    @Test
     fun `a blank stored value is treated as no id at all`() = runTest {
         val storage = FakeKeyValueStorage()
         storage.entries[DeviceIdProvider.DEFAULT_KEY] = "   "
