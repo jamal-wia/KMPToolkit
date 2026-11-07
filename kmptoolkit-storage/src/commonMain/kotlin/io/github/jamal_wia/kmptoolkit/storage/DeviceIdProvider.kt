@@ -43,7 +43,9 @@ public class DeviceIdProvider(
      * Always returns an id — there is no failure case for a caller to handle, because a header that
      * must be sent cannot wait for storage to recover. What can fail is the *persistence*: if the
      * store cannot be written, the returned id is still valid for this call but a later call
-     * produces a different one. The same holds when the entry cannot be read *right now*
+     * produces a different one. A store that cannot be written at all, such as a desktop store file
+     * that can no longer be parsed, therefore yields a new id on every call until the host repairs or
+     * clears it; the provider never clears a store on its own. The same holds when the entry cannot be read *right now*
      * ([StorageError.Unavailable], for example a keystore that is momentarily not answering): the id
      * returned is fresh for this call and the stored one is left alone, so it is found again once the
      * store recovers. An id that changes is a degraded signal, not a broken app, which is why this is

@@ -8,6 +8,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.text.Normalizer
+import java.util.Locale
 import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineDispatcher
@@ -24,7 +26,9 @@ import kotlinx.coroutines.withContext
  * small values — and it is what makes a write durable when the call returns.
  *
  * Nothing throws: an unreadable or corrupted file, a path the file system rejects, and a denied
- * security check all arrive as [StorageError.OperationFailed].
+ * security check all arrive as [StorageError.OperationFailed]. A file that cannot be parsed fails
+ * every operation on it, writes included, and is never replaced: its other values may still be
+ * recoverable by hand. [KeyValueStorage.clear] is the way out.
  *
  * The file I/O runs on [dispatcher], never on the caller's thread.
  */
@@ -33,8 +37,12 @@ internal class JvmKeyValueStorage(
     private val dispatcher: CoroutineDispatcher,
 ) : KeyValueStorage {
 
-    /** Shared by every instance over the same canonical path, so their read-modify-write cycles never interleave. */
-    private val lock: Mutex = LOCKS.computeIfAbsent(lockKey(file)) { Mutex() }
+    /**
+     * Shared by every instance whose path is the same file on a volume that folds case or Unicode
+     * normalization (macOS, Windows), so their read-modify-write cycles never interleave. On a
+     * case-sensitive volume two such spellings are two files that share one lock.
+     */
+    private val lock: Mutex = LOCKS.computeIfAbsent(jvmStorageLockKey(file)) { Mutex() }
 
     override suspend fun get(key: String): StorageResult<String?> = guarded(StorageOperation.GET, key) {
         load().getProperty(key)
@@ -134,14 +142,25 @@ internal class JvmKeyValueStorage(
         // ConcurrentHashMap, not a Mutex-guarded map: looked up from the non-suspending constructor; JVM-only, so no
         // Kotlin/Native constraint. The values are coroutine Mutexes.
         val LOCKS: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap()
-
-        /** The canonical path — symlinks and case-insensitive spellings resolved — or the absolute one. */
-        fun lockKey(file: File): String = try {
-            file.canonicalPath
-        } catch (_: IOException) {
-            file.absoluteFile.normalize().path
-        } catch (_: SecurityException) {
-            file.absoluteFile.normalize().path
-        }
     }
+}
+
+/**
+ * The key of the lock shared by every store over one file: the canonical path (or the absolute one),
+ * Unicode-normalized (NFC) and lower-cased. Folded always, never probed: a case-sensitive volume
+ * only loses some parallelism between `Settings` and `settings` (two files behind one lock; the
+ * guarded block never suspends and never nests another lock, so nothing can deadlock), while a
+ * volume that folds case would otherwise lose keys, because the canonical path of a file that does
+ * not exist yet keeps the spelling it was given. Probing the volume would need file I/O in a
+ * constructor.
+ */
+internal fun jvmStorageLockKey(file: File): String {
+    val path: String = try {
+        file.canonicalPath
+    } catch (_: IOException) {
+        file.absoluteFile.normalize().path
+    } catch (_: SecurityException) {
+        file.absoluteFile.normalize().path
+    }
+    return Normalizer.normalize(path, Normalizer.Form.NFC).lowercase(Locale.ROOT)
 }

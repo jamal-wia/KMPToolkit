@@ -93,4 +93,29 @@ class JvmKeyValueStorageStormRound3Test {
             assertEquals(ids.first(), runBlocking { storages[3].get(DeviceIdProvider.DEFAULT_KEY).getOrNull() }, "round $round")
         }
     }
+
+    @Test
+    fun `a store file that cannot be parsed fails writes, is never replaced and gives a new device id per call until cleared`() {
+        val directory: File = newDirectory()
+        val config = StorageConfig("corrupt")
+        val file = File(directory, "corrupt.kmptoolkit.storage.properties")
+        file.writeText("broken=\\uZZZZ\nother=kept\n")
+        val bytesBefore: ByteArray = file.readBytes()
+        val storage: KeyValueStorage = createKeyValueStorage(directory, config)
+        val provider = DeviceIdProvider(storage)
+
+        val put: StorageResult<Unit> = runBlocking { storage.put("k", "v") }
+        val first: String = runBlocking { provider.current() }
+        val second: String = runBlocking { provider.current() }
+
+        assertTrue(
+            put is StorageResult.Failure && put.error is StorageError.OperationFailed,
+            "a put over an unparsable file must fail with OperationFailed, was $put",
+        )
+        assertTrue(first.isNotBlank() && second.isNotBlank())
+        assertTrue(bytesBefore.contentEquals(file.readBytes()), "the unparsable file must be left untouched")
+
+        runBlocking { storage.clear() }
+        assertEquals(runBlocking { provider.current() }, runBlocking { provider.current() })
+    }
 }
