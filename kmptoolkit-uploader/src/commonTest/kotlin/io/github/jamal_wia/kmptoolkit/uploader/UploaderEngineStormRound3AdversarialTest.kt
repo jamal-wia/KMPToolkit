@@ -278,6 +278,53 @@ class UploaderEngineStormRound3AdversarialTest {
         }
     }
 
+    // --- fixer round 3, group 5a ---
+
+    private class FailsNthRead(private val delegate: TestUploaderStore) : UploaderStore by delegate {
+        var failOnCall: Int = -1
+        var calls: Int = 0
+        var failed: Boolean = false
+        override suspend fun getAllActive(): List<UploaderItem> {
+            calls++
+            if (calls == failOnCall) {
+                failed = true
+                throw IllegalStateException("database is locked")
+            }
+            return delegate.getAllActive()
+        }
+    }
+
+    @Test
+    fun `awaitDrained keeps nudging the drain so a pass that failed transiently under it still ends drained`() = runTest {
+        val handler = TestHandler()
+        val flaky = FailsNthRead(store)
+        val engine: UploaderEngine = createUploaderEngine(
+            store = flaky,
+            handlers = listOf(handler),
+            scope = backgroundScope,
+            clock = clock,
+            idGenerator = SequentialIds()::next,
+        )
+        try {
+            engine.start()
+            runCurrent()
+            // The item lands from elsewhere (another process's wake, a feeder engine): nothing triggers `engine`.
+            val feeder: UploaderEngine = engineOf(backgroundScope, listOf(handler))
+            feeder.enqueue(handler, "owed")
+            runCurrent()
+            assertEquals(emptyList(), handler.payloads, "setup: the engine under test must not have been triggered")
+            flaky.calls = 0
+            flaky.failOnCall = 2 // awaitDrained's own read is call 1; the drain it triggers reads second
+
+            val drained: Boolean = engine.awaitDrained(5.seconds)
+
+            assertTrue(flaky.failed, "setup: the drain's read was meant to fail")
+            assertTrue(drained, "a wake job's drain failed once on a locked database and was never retried within its budget")
+        } finally {
+            engine.close()
+        }
+    }
+
     // --- registry storm on real threads ---------------------------------------------------------------
 
     @Test

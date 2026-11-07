@@ -345,6 +345,9 @@ uploader.awaitDrained(60.seconds)        // suspend until the queue is empty, fo
 `trigger()` is for "the user pulled to refresh" or "a push told us to sync". You do not need it
 after an enqueue.
 
+A drain pass that fails as a whole (a locked database, say) retries itself: after `minAlarmDelay`, then with a
+delay that doubles on every consecutive failure, at most `heartbeatInterval`. A pass that succeeds resets it.
+
 `drain()` exists too, but calling it on a started engine breaks single-flight. It is for tests and
 diagnostics.
 

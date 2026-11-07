@@ -118,20 +118,28 @@ internal class DefaultUploaderEngine(
         if (!started.compareAndSet(expect = false, update = true)) return
 
         engineScope.launch {
+            // Local to this one coroutine, so it needs no synchronisation.
+            var consecutiveFailures = 0
             while (true) {
                 triggerChannel.receive()
                 // The engine's whole liveness rests on this one coroutine, so nothing may kill it.
                 // A transient store failure, or a CancellationException leaked by a handler's own
                 // withTimeout, would otherwise stall the queue forever while the heartbeat keeps
                 // feeding a channel nobody reads. Real cancellation still propagates via
-                // ensureActive().
+                // ensureActive(). A pass that fails re-arms itself with a growing delay, so a locked
+                // database is retried in milliseconds rather than at the next heartbeat.
                 try {
                     drain()
+                    consecutiveFailures = 0
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
-                    logger.e(e) { "Drain aborted by a leaked cancellation; retrying on next trigger." }
+                    logger.e(e) { "Drain aborted by a leaked cancellation; retrying shortly." }
+                    consecutiveFailures++
+                    scheduleAlarm(saturatingAdd(clock.nowEpochMillis(), failedPassRetryMillis(consecutiveFailures)))
                 } catch (e: Throwable) {
-                    logger.e(e) { "Drain failed; queue intact, retrying on next trigger." }
+                    logger.e(e) { "Drain failed; queue intact, retrying shortly." }
+                    consecutiveFailures++
+                    scheduleAlarm(saturatingAdd(clock.nowEpochMillis(), failedPassRetryMillis(consecutiveFailures)))
                 }
             }
         }
@@ -779,6 +787,22 @@ internal class DefaultUploaderEngine(
             FailureDisposition.DROP -> logger.e { "Dropped ${record.logName} after $attempts attempts ($error)." }
             FailureDisposition.RETRY -> logger.w { "Retry scheduled for ${record.logName} (attempt $attempts, $error)." }
         }
+    }
+
+    /**
+     * How long to wait before retrying after [failures] consecutive failed passes (`>= 1`): [UploaderConfig.minAlarmDelay]
+     * doubling with each one, at most [UploaderConfig.heartbeatInterval]. Saturating, so a long failure streak
+     * cannot overflow.
+     */
+    private fun failedPassRetryMillis(failures: Int): Long {
+        val ceiling: Long = config.heartbeatInterval.inWholeMilliseconds.coerceAtLeast(1L)
+        var delayMillis: Long = config.minAlarmDelay.inWholeMilliseconds.coerceAtLeast(1L)
+        var step = 1
+        while (step < failures && delayMillis < ceiling) {
+            delayMillis = saturatingMultiply(delayMillis, 2L)
+            step++
+        }
+        return minOf(delayMillis, ceiling)
     }
 
     /** Arms — or re-arms — the one-shot alarm that re-triggers the drain at the soonest gate. */

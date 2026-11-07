@@ -21,7 +21,8 @@ import kotlinx.coroutines.CoroutineScope
  * Construct with [createUploaderEngine], call [start] once, and call [close] when the owning scope
  * goes away. Between those, the engine runs one drain coroutine that wakes on: startup (to pick up
  * whatever the previous process left behind), every enqueue, every `false → true` transition of a
- * [ConstraintProvider], every backoff gate coming due, every [trigger], and a heartbeat backstop.
+ * [ConstraintProvider], every backoff gate coming due, every [trigger], a failed pass retrying itself after a
+ * growing delay (from [UploaderConfig.minAlarmDelay], at most the heartbeat interval), and a heartbeat backstop.
  *
  * ## Guarantees
  *
