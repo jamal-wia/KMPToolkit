@@ -264,4 +264,36 @@ class AndroidStorageAdversarialTest {
         assertEquals(0, crashes.get())
         assertEquals(800, failures.get())
     }
+
+    private class HangsOnce(private val inner: KeyValueStorage) : KeyValueStorage by inner {
+        val hang: AtomicBoolean = AtomicBoolean(true)
+        val entered: kotlinx.coroutines.CompletableDeferred<Unit> = kotlinx.coroutines.CompletableDeferred()
+
+        override suspend fun get(key: String): StorageResult<String?> {
+            if (hang.getAndSet(false)) {
+                entered.complete(Unit)
+                kotlinx.coroutines.awaitCancellation()
+            }
+            return inner.get(key)
+        }
+    }
+
+    @Test
+    fun `a device id caller cancelled while its read hangs does not wedge the process-wide lock for the next caller`() =
+        runTest {
+            val config = StorageConfig(uniqueName("wedge"))
+            val hanging = HangsOnce(createKeyValueStorage(context, config))
+            val first: kotlinx.coroutines.Job = launch(Dispatchers.Default) {
+                DeviceIdProvider(hanging, "wedge-id").current()
+            }
+            withContext(Dispatchers.Default) { withTimeout(5_000) { hanging.entered.await() } }
+
+            first.cancel()
+            withContext(Dispatchers.Default) { withTimeout(5_000) { first.join() } }
+
+            val next: String = withContext(Dispatchers.Default) {
+                withTimeout(5_000) { DeviceIdProvider(createKeyValueStorage(context, config), "wedge-id").current() }
+            }
+            assertTrue(next.isNotBlank())
+        }
 }
