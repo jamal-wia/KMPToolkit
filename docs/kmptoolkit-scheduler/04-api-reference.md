@@ -124,7 +124,7 @@ public sealed interface AlarmScheduleResult {
 |---|---|---|
 | `Exact` | yes | Android accepted `setExactAndAllowWhileIdle`, or iOS accepted the notification request. |
 | `Inexact` | yes | Android could not schedule exactly and fell back to `setAndAllowWhileIdle`. |
-| `Failed` | **no** | Nothing was armed. On Android this includes any `RuntimeException` from `AlarmManager`, not only a refusal. A refused *replacement* leaves the alarm that was armed exactly as it was, content and time included. |
+| `Failed` | **no** | Nothing was armed. On Android this includes any `RuntimeException` from `AlarmManager`, not only a refusal. A refused *replacement* leaves the alarm that was armed exactly as it was, content and time included. On Android an id owns four `PendingIntent` slots, and a retirement the platform refused leaves its slot occupied; when all four are occupied, a further `schedule` of that id answers `Failed(PlatformError)` without touching anything, and `cancel(id)` frees the slots so the id can be scheduled again. |
 
 ## `InexactReason`
 

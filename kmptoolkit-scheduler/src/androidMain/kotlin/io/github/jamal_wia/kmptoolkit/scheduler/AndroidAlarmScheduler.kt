@@ -143,21 +143,21 @@ internal class AndroidAlarmScheduler(
      * before the new alarm is armed leaves every occupied slot untouched (and drops the
      * `PendingIntent` this call created, which would otherwise be a leftover with no alarm).
      *
-     * A slot that is already occupied is never written to while a free one exists: writing it would
-     * rewrite, with `FLAG_UPDATE_CURRENT`, the extras of an alarm that stays armed if the
-     * replacement is then refused. Slots stay occupied only after a refused retirement, so all of
-     * them are taken only after [AlarmIntents.SLOT_COUNT] - 1 such refusals in a row, with no
-     * successful schedule or cancel of the id in between; then the first slot is rewritten in place
-     * (documented in 04-api-reference.md), because refusing the schedule would leave the id unable
-     * to recover.
+     * A slot that is already occupied is never written to: writing it would rewrite, with
+     * `FLAG_UPDATE_CURRENT`, the extras of an alarm that stays armed if the replacement is then
+     * refused. Slots stay occupied only after a refused retirement, so all of them are taken only
+     * after [AlarmIntents.SLOT_COUNT] - 1 such refusals in a row, with no successful schedule or
+     * cancel of the id in between. Then the replacement is refused without touching anything
+     * ([AlarmScheduleResult.Failed], documented in 04-api-reference.md): the armed alarm stays exactly
+     * as it was, and `cancel(id)` (which retires every slot) lets the id schedule again.
      */
     private fun arm(manager: AlarmManager, alarm: ScheduledAlarm): AlarmScheduleResult {
         val occupied: Map<Int, PendingIntent> = SLOTS
             .mapNotNull { slot: Int -> resolve(alarm.id, slot)?.let { slot to it } }
             .toMap()
-        val targetSlot: Int = SLOTS.firstOrNull { it !in occupied } ?: FIRST_SLOT
-        val occupiedTarget: Boolean = targetSlot in occupied
-        val retired: List<PendingIntent> = occupied.filterKeys { it != targetSlot }.values.toList()
+        val targetSlot: Int = SLOTS.firstOrNull { it !in occupied }
+            ?: return AlarmScheduleResult.Failed(AlarmFailure.PlatformError(SATURATED_MESSAGE))
+        val retired: List<PendingIntent> = occupied.values.toList()
         val pendingIntent: PendingIntent = PendingIntent.getBroadcast(
             context,
             AlarmIntents.requestCode(alarm.id, targetSlot),
@@ -167,7 +167,7 @@ internal class AndroidAlarmScheduler(
         val result: AlarmScheduleResult = try {
             armIn(manager, alarm, pendingIntent)
         } catch (refusal: RuntimeException) {
-            if (!occupiedTarget) pendingIntent.cancel()
+            pendingIntent.cancel()
             throw refusal
         }
         // Each retirement on its own, so a refusal for one does not skip the others.
@@ -260,7 +260,9 @@ internal class AndroidAlarmScheduler(
 
         const val LOG_TAG: String = "KmpToolkitScheduler"
 
-        const val FIRST_SLOT: Int = 0
+        const val SATURATED_MESSAGE: String =
+            "Every PendingIntent slot of this alarm id is held by an alarm the platform refused to cancel; " +
+                "nothing was changed. Call cancel(id) to free them."
         val SLOTS: List<Int> = (0 until AlarmIntents.SLOT_COUNT).toList()
 
         /**
