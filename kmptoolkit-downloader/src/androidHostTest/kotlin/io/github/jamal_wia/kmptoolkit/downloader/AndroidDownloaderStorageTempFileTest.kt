@@ -10,7 +10,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.runner.RunWith
 
 /**
@@ -146,6 +151,60 @@ class AndroidDownloaderStorageTempFileTest {
 
         assertFalse(storage.isResourceAvailable(unit))
         assertEquals(TempFileState.None, storage.tempFileState(unit))
+    }
+
+    @Test
+    fun `deleting the temp file also removes the staging tree an interrupted extraction left`() {
+        val unit = TestUnit(id = "model")
+        writePartial(unit, ByteArray(10))
+        storage.markTempFileComplete(unit)
+        val staging = File(root, "tmp/staging-model/nested").apply { mkdirs() }
+        File(staging, "marker").writeText("half-extracted")
+        val other = File(root, "tmp/staging-other").apply { mkdirs() }
+
+        storage.deleteTempFile(unit)
+
+        assertFalse(File(root, "tmp/staging-model").exists())
+        assertTrue(other.exists(), "another unit's staging tree is not touched")
+        assertEquals(
+            emptyList<String>(),
+            File(root, "tmp/trash").list()?.toList().orEmpty(),
+            "the detached tree must be deleted, not left as trash",
+        )
+    }
+
+    @Test
+    fun `deleting a temp file sweeps a trash tree a killed process left, whatever unit it belonged to`() {
+        val leftover = File(root, "tmp/trash/gone-123/nested").apply { mkdirs() }
+        File(leftover, "file").writeText("half-deleted")
+        val other = File(root, "tmp/staging-other").apply { mkdirs() }
+        // A unit whose id merely starts with "trash-" owns a temp file that must survive the sweep.
+        val lookalike = TestUnit(id = "trash-model")
+        writePartial(lookalike, ByteArray(10))
+
+        storage.deleteTempFile(TestUnit(id = "unrelated"))
+
+        assertFalse(File(root, "tmp/trash/gone-123").exists(), "the leftover trash tree is reclaimed")
+        assertTrue(other.exists(), "another unit's staging tree is not touched")
+        assertTrue(File(storage.getTempFilePath(lookalike)).exists(), "a unit id starting with trash- is not trash")
+    }
+
+    @Test
+    fun `deleting the temp file leaves the staging tree alone while a commit of the unit runs`() = runTest {
+        val unit = TestUnit(id = "model")
+        val staging = File(root, "tmp/staging-model/nested").apply { mkdirs() }
+        val gate = CompletableDeferred<Unit>()
+        val commit: Job = launch(Dispatchers.Unconfined) {
+            UnitCommitLocks.withUnitLock(root.absolutePath, "model") { gate.await() }
+        }
+
+        storage.deleteTempFile(unit)
+
+        assertTrue(staging.exists(), "an extraction in progress must survive a cancel")
+        gate.complete(Unit)
+        withTimeout(5_000) { commit.join() }
+        storage.deleteTempFile(unit)
+        assertFalse(File(root, "tmp/staging-model").exists(), "reclaimed once no commit runs")
     }
 
     private fun writePartial(unit: DownloadUnit, bytes: ByteArray) {

@@ -84,6 +84,10 @@ player.play()        // no-op — a stray tap after teardown does nothing
 player.seekTo(500)   // no-op
 ```
 
+`release()` frees the native handle immediately, or as soon as a load still running on the platform
+has unwound: a blocking `setDataSource` on Android cannot be interrupted, and the handle is never freed
+under it.
+
 ```kotlin
 player.release()
 player.prepare(source)

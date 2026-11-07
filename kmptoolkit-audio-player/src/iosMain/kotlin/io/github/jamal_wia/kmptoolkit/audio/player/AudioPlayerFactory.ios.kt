@@ -24,7 +24,10 @@ import kotlin.coroutines.CoroutineContext
  *   playback category and activates it while loading. Left `true` because without it playback is
  *   silent under the ringer switch and stops at screen lock, which is almost never what a caller
  *   wants. Set it to `false` when the app configures the session itself — that setting is
- *   process-wide, and an app mixing recording with playback must own it. See
+ *   process-wide, and an app mixing recording with playback must own it. [AudioPlayer.release]
+ *   and [AudioPlayer.unload] never deactivate the session, because other audio of the app may be
+ *   using it: an app that wants other apps' audio to resume deactivates it itself (with
+ *   `NotifyOthersOnDeactivation`) or passes `false`. See
  *   `docs/kmptoolkit-audio-player/05-platform-notes.md`.
  * @param coroutineContext context for the position-polling coroutine. The default is
  *   [Dispatchers.Main], so that `AVPlayer` — which documents no thread safety and which this engine

@@ -266,6 +266,23 @@ implementation has somewhere standard to turn a unit's `apiPath` into something 
 
 ## Cancelling — user, and logout
 
+**What a cancel releases, and what it leaves.** `cancelDownload(unit)` is also how a host releases a
+unit it no longer wants: it deletes the partial temp file, the expected-hash record and, for an
+archive unit, an extraction tree (`tmp/staging-<unit.id>/`) that a process kill left half-done (not
+touched while a commit of that unit is running, and, very rarely, while another unit's commit is
+registering; the next cancel or commit of the unit removes it). The same call also sweeps
+`tmp/trash/`, where a detached tree waits for its delete, so a delete that a kill cut short is
+finished by the next cancel of any unit.
+Nothing else enumerates the temp area, and keeping a partial after a transient failure is the resume
+contract, so a unit that is dropped from your catalogue keeps its partial until you call
+`cancelDownload(unit)` for it. Do that when a catalogue revision removes ids.
+
+**The engine keeps light state per id.** For every unit id it has seen during its lifetime (a
+request, a state subscription, a cancel of a tracked unit) the engine keeps a state flow and a lock
+until it is garbage collected. Ids must therefore come from a stable catalogue (they also key the
+temp file, the background session and the stall count, so a fresh id per session would defeat
+resume); minting a new id on every launch is not supported.
+
 Three distinct operations:
 
 - **`cancelDownload(group)`** — cancels each unit, clears stall counts, deletes temp files, drops
@@ -275,6 +292,9 @@ Three distinct operations:
   line starts a fresh transfer instead of racing a cancel that is still on its way. (That relies
   on the port: after its `cancelDownload`, `isDownloadInProgress` must be `false` and the cancelled
   transfer's `Cancelled` must not be replayed to the next subscriber.)
+  A cancel of a unit this engine has never tracked (never requested, never observed) still cancels
+  the platform transfer, clears the stall count and deletes the unit's temp data, but starts no
+  tracking for it.
 - **`cancelAllDownloads()`** — the **logout** entry point: cancels every group-level and per-unit
   download the engine tracks (each as above, so every running `ensureAvailable` ends with
   `DownloadCancelledException`), then the engine's own coroutines (a notification-shade Retry).
