@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 
 /**
  * The platform-independent half of every [SystemBarsController]: the layer stack, the atomic
@@ -114,11 +115,10 @@ internal abstract class LayeredSystemBarsController(
     override fun release() {
         // `nextId` is carried across rather than reset: handles taken before the teardown must stay
         // dead afterwards, and restarting the sequence would let one of them alias a later layer.
-        layers.value = Layers(
-            base = SystemBarsConfig(),
-            overrides = emptyList(),
-            nextId = layers.value.nextId,
-        )
+        // Atomic with the other transitions: a push that wins its CAS meanwhile keeps its id counted.
+        layers.update { current ->
+            Layers(base = SystemBarsConfig(), overrides = emptyList(), nextId = current.nextId)
+        }
     }
 
     private inner class Handle(private val id: Long) : SystemBarsOverrideHandle {
