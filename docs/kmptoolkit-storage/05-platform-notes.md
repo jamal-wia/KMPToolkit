@@ -224,7 +224,11 @@ call from the main thread and from any number of coroutines at once:
 
 - **Android.** `SharedPreferences` reads block on a file's first load, and `commit()` writes to disk;
   both run on the I/O dispatcher. Key resolution for the secure store runs under the process-wide
-  lock described above.
+  lock described above. The resolved key is cached per alias for the whole process, not per store
+  instance, so every store over one alias uses the same key handle. A key the platform rejects
+  (`InvalidKeyException`) is dropped from that cache and looked up again once — if another instance
+  replaced an unrecoverable key meanwhile, the next use picks the new one up instead of failing until
+  the process restarts.
 - **iOS.** `NSUserDefaults` and Keychain calls go through `cfprefsd` and `securityd`, both IPC. Two
   writers adding the same Keychain item at once — two coroutines, or an app extension sharing the
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then

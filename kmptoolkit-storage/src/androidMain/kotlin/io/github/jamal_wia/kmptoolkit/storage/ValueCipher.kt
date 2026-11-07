@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.storage
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import java.security.InvalidKeyException
 import java.security.KeyStore
 import java.security.UnrecoverableKeyException
 import javax.crypto.Cipher
@@ -47,6 +48,14 @@ internal interface SecretKeySource {
 
     /** @throws StorageKeyUnavailableException the key cannot be obtained. */
     suspend fun key(): SecretKey
+
+    /**
+     * Reports that [stale], a key this source handed out, turned out to be unusable. The next [key]
+     * looks the key up again instead of answering [stale] — unless a newer key has replaced it by
+     * then, which is never dropped. The default does nothing: a source with no cache has nothing to
+     * forget.
+     */
+    suspend fun invalidate(stale: SecretKey) {}
 }
 
 /**
@@ -67,8 +76,7 @@ internal interface SecretKeySource {
 internal class KeystoreValueCipher(private val keySource: SecretKeySource) : ValueCipher {
 
     override suspend fun encrypt(plaintext: String): String {
-        val cipher: Cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, keySource.key())
+        val cipher: Cipher = initialised { candidate: SecretKey, fresh: Cipher -> fresh.init(Cipher.ENCRYPT_MODE, candidate) }
         val ciphertext: ByteArray = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
         return Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP)
     }
@@ -78,18 +86,34 @@ internal class KeystoreValueCipher(private val keySource: SecretKeySource) : Val
         // not open is reported as Unavailable — retry later — rather than as Undecryptable — the
         // value is lost. With the checks the other way round, an entry that is also malformed would
         // hide the outage behind a permanent-sounding error.
-        val key: SecretKey = keySource.key()
+        val first: SecretKey = keySource.key()
         val bytes: ByteArray = Base64.decode(encoded, Base64.NO_WRAP)
         require(bytes.size > IV_LENGTH_BYTES) { "ciphertext is too short to contain an IV" }
-        val cipher: Cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(
-            Cipher.DECRYPT_MODE,
-            key,
-            GCMParameterSpec(TAG_LENGTH_BITS, bytes, 0, IV_LENGTH_BYTES),
-        )
+        val spec = GCMParameterSpec(TAG_LENGTH_BITS, bytes, 0, IV_LENGTH_BYTES)
+        val cipher: Cipher = initialised(first) { candidate: SecretKey, fresh: Cipher ->
+            fresh.init(Cipher.DECRYPT_MODE, candidate, spec)
+        }
         val plaintext: ByteArray =
             cipher.doFinal(bytes, IV_LENGTH_BYTES, bytes.size - IV_LENGTH_BYTES)
         return plaintext.toString(Charsets.UTF_8)
+    }
+
+    /**
+     * A cipher [init] accepted a key for. A key the platform rejects ([InvalidKeyException], which
+     * includes `KeyPermanentlyInvalidatedException`) is reported to the source, which forgets it, and
+     * the lookup is repeated once: a key replaced in the key store by another instance is picked up
+     * instead of failing every use for the life of the process. Each attempt gets a new [Cipher]; one
+     * whose `init` failed must not be reused.
+     */
+    private suspend fun initialised(first: SecretKey? = null, init: (SecretKey, Cipher) -> Unit): Cipher {
+        val key: SecretKey = first ?: keySource.key()
+        try {
+            return Cipher.getInstance(TRANSFORMATION).also { init(key, it) }
+        } catch (_: InvalidKeyException) {
+            keySource.invalidate(key)
+        }
+        val retry: SecretKey = keySource.key()
+        return Cipher.getInstance(TRANSFORMATION).also { init(retry, it) }
     }
 
     internal companion object {
@@ -127,7 +151,7 @@ internal class KeystoreValueCipher(private val keySource: SecretKeySource) : Val
  * `createSecureKeyValueStorage` call builds a new source, so two stores over the same configuration
  * are two instances racing for one alias. Inside the lock the key store is asked again, so the
  * second caller finds the first caller's key instead of making its own. It is held only while a key
- * is resolved — once per instance, after which [cached] answers.
+ * is resolved or dropped; once resolved, [cache] answers for the whole process.
  *
  * Another *process* of the same app is not covered: the AndroidKeyStore has no atomic
  * create-if-absent, and nothing in-process can stand in for one. See
@@ -141,12 +165,18 @@ internal class AndroidKeystoreKeySource(
     private val keyStore: AliasedKeyStore = AndroidKeyStoreAliases,
 ) : SecretKeySource {
 
-    /** Read and written only under [keyResolution], which is what makes it visible across threads. */
-    private var cached: SecretKey? = null
-
     override suspend fun key(): SecretKey = keyResolution.withLock {
-        cached ?: resolve().also { cached = it }
+        cache[cacheKey] ?: resolve().also { cache[cacheKey] = it }
     }
+
+    /** Compare-and-remove: only the handle that failed is dropped, never a fresh key another caller made. */
+    override suspend fun invalidate(stale: SecretKey) {
+        keyResolution.withLock {
+            if (cache[cacheKey] === stale) cache.remove(cacheKey)
+        }
+    }
+
+    private val cacheKey: Pair<AliasedKeyStore, String> = keyStore to alias
 
     private fun resolve(): SecretKey = try {
         keyStore.existingKey(alias) ?: keyStore.generateKey(alias)
@@ -157,6 +187,14 @@ internal class AndroidKeystoreKeySource(
     private companion object {
         /** Serializes key resolution across every instance in the process — see the class KDoc. */
         val keyResolution: Mutex = Mutex()
+
+        /**
+         * The resolved key per alias, for the whole process and guarded by [keyResolution] — not per
+         * instance: an instance that cached a key another instance later replaced would keep using
+         * the dead handle for the life of the process. Keyed by the key store too, so a test's fake
+         * store never sees another's keys.
+         */
+        val cache: MutableMap<Pair<AliasedKeyStore, String>, SecretKey> = mutableMapOf()
     }
 }
 
