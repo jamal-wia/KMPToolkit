@@ -55,7 +55,11 @@ import kotlinx.coroutines.withContext
  * the outcome. Events that arrive meanwhile see the marker and are dropped, so a `stop()` is never
  * reported as a failure and a `cancel()` never as a saved recording; `release()` arriving meanwhile
  * flips the state to `Released` and leaves `engine.release()` to the finalizer, so the engine is
- * never driven from two threads.
+ * never driven from two threads. An in-flight `prepare()` has the same ownership: while the state
+ * is `Preparing` the engine's `prepare` runs on the worker, so `release()` flips the state and
+ * leaves the engine to `prepare`'s own tail, which undoes the preparation when it sees `released`;
+ * a `release()` that landed before the worker started is seen by a check under the lock, so the
+ * microphone is never opened for a recorder that is already gone.
  *
  * Every `prepare()` starts a new session ([session]); engine events carry the session they were
  * registered with and a stale one is dropped, which keeps an event from one recording from ending
@@ -215,6 +219,12 @@ internal class DefaultAudioRecorder(
             throw cancellation
         }
         storage.error?.let { error -> return failPrepare(error) }
+
+        // A release() that already landed must not be followed by the microphone opening. The check
+        // is under the lock; what slips in after it is covered by release() leaving the engine to
+        // the tail below while the state is Preparing.
+        gate.exclusive { if (released) releasedFailure(RecorderOperation.PREPARE) else null }
+            ?.let { return it }
 
         val prepareFailure: Throwable?
         try {
@@ -502,8 +512,9 @@ internal class DefaultAudioRecorder(
             // gone. The exception is a session some operation is already finishing off the lock:
             // that finalizer owns the engine and frees it when it is done, so the engine is never
             // driven from two threads at once.
-            if (finalizing == null) {
-                // Only here: a finalizer owns the engine and beginFinalize already detached the
+            if (finalizing == null && current != RecorderState.Preparing) {
+                // Not while Preparing either: engine.prepare() is running on the worker, and prepare's
+                // own tail undoes the preparation when it sees `released`. Only here: a finalizer owns the engine and beginFinalize already detached the
                 // listener, so touching it now would be a second thread driving the engine.
                 engine.setEventListener(null)
                 if (current.isActive) stopEngineQuietly()

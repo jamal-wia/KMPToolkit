@@ -16,6 +16,9 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
     /** `-1` means "the platform could not tell". */
     var freeSpace: Long = Long.MAX_VALUE
 
+    /** Runs inside [ensureWritableDirectory], before it answers and with no recorder lock held. */
+    var onEnsureWritableDirectory: () -> Unit = {}
+
     val createdDirectories: MutableSet<String> = mutableSetOf()
     val deletedPaths: MutableList<String> = mutableListOf()
 
@@ -33,6 +36,7 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
         path.substringBeforeLast('/', missingDelimiterValue = "").takeIf { it.isNotEmpty() }
 
     override fun ensureWritableDirectory(path: String): Boolean {
+        onEnsureWritableDirectory()
         if (path in unwritableDirectories) return false
         createdDirectories += path
         return true

@@ -76,6 +76,16 @@ internal class FakeRecorderEngine : RecorderEngine {
     /** Runs inside `release()`, after it was counted and with no recorder lock held. */
     var onRelease: () -> Unit = {}
 
+    /** Whether `prepare` is running, and how many times `release` ran while it was. */
+    var inPrepare: Boolean = false
+        private set
+    var releasesDuringPrepare: Int = 0
+        private set
+
+    /** Whether a `peakDbfs()` call is in progress, and the engine calls made while one was. */
+    private var inPeak: Boolean = false
+    val callsDuringPeak: MutableList<String> = mutableListOf()
+
     val calls: MutableList<String> = mutableListOf()
     var releaseCount: Int = 0
         private set
@@ -94,8 +104,13 @@ internal class FakeRecorderEngine : RecorderEngine {
     ) {
         calls += "prepare($outputPath)"
         preparedMaxFileSizes += maxFileSizeBytes
-        prepareGate?.await()
-        failures[RecorderOperation.PREPARE]?.let { throw it }
+        inPrepare = true
+        try {
+            prepareGate?.await()
+            failures[RecorderOperation.PREPARE]?.let { throw it }
+        } finally {
+            inPrepare = false
+        }
     }
 
     override fun start() {
@@ -118,6 +133,7 @@ internal class FakeRecorderEngine : RecorderEngine {
     override fun setEventListener(listener: ((EngineEvent) -> Unit)?) {
         // Deliberately not in `calls`, like peakDbfs: the existing tests assert the exact sequence
         // of lifecycle calls, and wiring a listener is not one of them.
+        if (inPeak) callsDuringPeak += "setEventListener(${listener != null})"
         this.listener = listener
         listenerCalls += listener != null
         if (listener != null) {
@@ -144,18 +160,26 @@ internal class FakeRecorderEngine : RecorderEngine {
         // Deliberately not in `calls`: it ticks every interval and would bury the lifecycle calls
         // the existing tests assert on; peakCalls counts it instead.
         peakCalls++
-        onPeak()
+        inPeak = true
+        try {
+            onPeak()
+        } finally {
+            inPeak = false
+        }
         return if (peakSamples.isEmpty()) defaultPeak else peakSamples.removeFirst()
     }
 
     override fun stop() {
         calls += "stop"
+        if (inPeak) callsDuringPeak += "stop"
         onStop()
         failures[RecorderOperation.STOP]?.let { throw it }
     }
 
     override fun release() {
         calls += "release"
+        if (inPrepare) releasesDuringPrepare++
+        if (inPeak) callsDuringPeak += "release"
         releaseCount++
         onRelease()
     }

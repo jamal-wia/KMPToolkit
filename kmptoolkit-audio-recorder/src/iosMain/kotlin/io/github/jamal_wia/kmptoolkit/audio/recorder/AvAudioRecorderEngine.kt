@@ -86,7 +86,9 @@ internal class AvAudioRecorderEngine(
     private var channelCount: Int = 1
 
     // Whether this engine holds one of the counted audio-session holds, so it gives back exactly
-    // the one it took, however many failure paths call deactivateAudioSession().
+    // the one it took, however many failure paths call deactivateAudioSession(). Plain, not atomic:
+    // prepare() (worker) and release() (caller) never run at once — DefaultAudioRecorder leaves the
+    // engine to prepare's own tail while a prepare is in flight, so this field has one thread at a time.
     private var holdsSession: Boolean = false
 
     // Read by delegate and notification callbacks on whichever thread they arrive on, written by
