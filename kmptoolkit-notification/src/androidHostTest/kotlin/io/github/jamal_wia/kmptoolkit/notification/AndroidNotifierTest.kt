@@ -395,6 +395,55 @@ class AndroidNotifierTest {
         assertEquals(NotificationResult.PermissionDenied, result)
     }
 
+    @Test
+    fun `a failed post does not become the baseline so a retry of the same progress is posted`() =
+        runTest {
+            val failing = FailingOnceRenderer(context)
+            val notifier: Notifier = AndroidNotifier(
+                context = context,
+                permissions = permissions,
+                renderer = failing,
+                coalescer = ProgressCoalescer(minInterval = Duration.ZERO),
+            )
+            val frame: LocalNotification =
+                notification().copy(progress = NotificationProgress.Determinate(40))
+
+            val first: NotificationResult = notifier.post("d", frame)
+            val retry: NotificationResult = notifier.post("d", frame)
+
+            assertIs<NotificationResult.Failed>(first)
+            assertEquals(NotificationResult.Posted, retry)
+            assertEquals(1, shown.size)
+        }
+
+    @Test
+    fun `after a successful post the same progress is coalesced`() = runTest {
+        val notifier: Notifier = notifier()
+        val frame: LocalNotification =
+            notification().copy(progress = NotificationProgress.Determinate(40))
+        assertEquals(NotificationResult.Posted, notifier.post("d", frame))
+
+        assertEquals(NotificationResult.Coalesced, notifier.post("d", frame))
+    }
+
+    /** A renderer whose first build throws, standing in for a framework call that refused a post. */
+    private class FailingOnceRenderer(context: Context) : NotificationRenderer(context, "test.ACTION") {
+        private var failed: Boolean = false
+
+        override fun build(
+            id: String,
+            notification: LocalNotification,
+            options: NotificationOptions,
+            iconResId: Int,
+        ): Notification {
+            if (!failed) {
+                failed = true
+                throw IllegalStateException("the framework refused the post")
+            }
+            return super.build(id, notification, options, iconResId)
+        }
+    }
+
     // --- action buttons ----------------------------------------------------------------------
 
     @Test

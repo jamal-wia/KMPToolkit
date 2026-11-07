@@ -93,7 +93,7 @@ public enum class StorageOperation { GET, PUT, REMOVE, CLEAR }
 
 | Case | Means | Response |
 |---|---|---|
-| `Unavailable` | the store cannot be opened right now — a key store that will not load, a Keychain before first unlock | retry later; nothing is lost |
+| `Unavailable` | the store cannot be opened right now — a key store that will not load, a Keychain before first unlock; on Android 13+ (API 33) also a decrypt that failed with a keystore fault the platform calls transient | retry later; nothing is lost |
 | `Undecryptable` | the entry exists and its plaintext cannot be recovered — the key that encrypted it is gone | discard and re-acquire; retrying will not help |
 | `OperationFailed` | the operation itself failed. `platformCode` carries an iOS `OSStatus`, `cause` an exception where the platform threw one | log it; it is not a state to branch on |
 

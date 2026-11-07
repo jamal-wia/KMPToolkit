@@ -54,39 +54,59 @@ internal class ProgressCoalescer(
     private val posted: MutableMap<String, Post> = mutableMapOf()
 
     /**
-     * Whether the notification for [id] carrying [progress] should reach the platform.
+     * Decides whether the notification for [id] carrying [progress] should reach the platform, and
+     * **records the decision atomically** as the baseline for the next call.
      *
-     * Calling this **records** the decision: a `true` becomes the baseline the next call is
-     * measured against, so call it exactly once per attempted post and honour the answer.
+     * Returns `null` when the frame is redundant. Otherwise it returns a [PostTicket]: post, and if
+     * the post **fails** (an exception, or the platform rejecting it) hand the ticket to
+     * [rollback], so a retry of the very same progress is posted rather than judged redundant
+     * against a frame that was never shown. Call it exactly once per attempted post.
+     *
+     * Recording at decision time keeps the rate limit and the cancel semantics atomic: two
+     * concurrent posts cannot both pass, and [forget] / [clear] erase the record whenever they run.
      *
      * @param content everything about the post other than [progress], compared by equality. A change
      *   in it bypasses the bucket but not the rate limit. `null` compares equal to `null`.
      */
-    fun shouldPost(
+    fun prepare(
         id: String,
         progress: NotificationProgress?,
         content: Any? = null,
-    ): Boolean = lock.withLock {
+    ): PostTicket? = lock.withLock {
         when (val decision: Decision = decide(id, progress, content)) {
-            Decision.Suppress -> false
+            Decision.Suppress -> null
             Decision.Reset -> {
                 posted.remove(id)
-                true
+                PostTicket(id, previous = null, recorded = null)
             }
 
             is Decision.Record -> {
-                posted[id] = Post(bucket = decision.bucket, content = content, at = timeSource.markNow())
-                true
+                val recorded = Post(bucket = decision.bucket, content = content, at = timeSource.markNow())
+                val previous: Post? = posted.put(id, recorded)
+                PostTicket(id, previous = previous, recorded = recorded)
             }
         }
     }
 
     /**
-     * The same question as [shouldPost], asked **without** recording anything.
+     * Undoes [ticket]'s record because its post failed: restores what the id held before, but only
+     * if the id still holds exactly what that ticket recorded. A [forget], a [clear], or a newer
+     * post for the id in the meantime means the record is no longer this ticket's to undo, and
+     * nothing changes. A terminal frame ([prepare] cleared the id) has nothing to restore.
+     */
+    fun rollback(ticket: PostTicket): Unit = lock.withLock {
+        val recorded: Post = ticket.recorded ?: return@withLock
+        if (posted[ticket.id] !== recorded) return@withLock
+        val previous: Post? = ticket.previous
+        if (previous == null) posted.remove(ticket.id) else posted[ticket.id] = previous
+    }
+
+    /**
+     * The same question as [prepare], asked without recording anything.
      *
      * It exists so a caller can find out that a frame is redundant *before* paying for work that
      * only matters to a frame that will actually be shown — while still running every gate whose
-     * answer could outrank "redundant". Nothing here is a commitment: [shouldPost] is what decides,
+     * answer could outrank "redundant". Nothing here is a commitment: [prepare] is what decides,
      * and it may disagree if time has passed in between.
      */
     fun wouldSuppress(id: String, progress: NotificationProgress?, content: Any? = null): Boolean =
@@ -109,7 +129,17 @@ internal class ProgressCoalescer(
     /** Forgets every id's state. Called on [Notifier.cancelAll]. */
     fun clear(): Unit = lock.withLock { posted.clear() }
 
-    private data class Post(val bucket: Int, val content: Any?, val at: TimeMark)
+    /**
+     * A recorded decision to post. Opaque to callers: pass it to [rollback] if the post failed.
+     */
+    class PostTicket internal constructor(
+        internal val id: String,
+        internal val previous: Post?,
+        internal val recorded: Post?,
+    )
+
+    /** One recorded post. A plain class: [rollback] compares records by identity. */
+    internal class Post(val bucket: Int, val content: Any?, val at: TimeMark)
 
     /** What [decide] concluded, kept separate from acting on it so it can also be asked about. */
     private sealed interface Decision {
