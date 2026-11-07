@@ -55,7 +55,7 @@ if you need it, set the interruption level yourself in platform code.
 **This module declares no Android permission**, and a `LibraryManifestTest` asserts it against a real
 `PackageManager` on every build (see [`docs/01-architecture.md`](../01-architecture.md#asserting-the-no-permissions-invariant)).
 
-**No dependency merges one either.** `androidx.core`, the only Android dependency, contributes no
+**No dependency merges one either.** `androidx.core` and `androidx.media` (plus `kmptoolkit-permission`), the module's Android dependencies, contribute no
 `<uses-permission>`. The only entries the assertion has to subtract come from the *test* harness and
 never reach a published artifact:
 
@@ -111,7 +111,9 @@ usage-description string.
   `startForeground` takes no tag. Up to 2.x every id was posted untagged under its masked
   `String.hashCode()`, so `"Aa"` and `"BB"` — equal hashes — were one notification; see
   [`03-guide.md`](03-guide.md#updating-from-2x) for what the 3.x notifier does about what 2.x left in
-  the tray.
+  the tray. Ids (and action ids) that differ only in unpaired surrogates are distinct too: their
+  `PendingIntent` keys encode such characters losslessly, because plain URI encoding would turn each
+  into `?` and merge them.
 - **Every `PendingIntent` carries its own key.** A `PendingIntent` is identified by request code plus
   the intent as `Intent.filterEquals` sees it — extras do not count — so two notifications whose
   intents differed only in extras would share one, and `FLAG_UPDATE_CURRENT` would rewrite the
