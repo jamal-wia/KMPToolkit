@@ -173,12 +173,16 @@ internal class AndroidNotifier(
                 Resources.NotFoundException("Notification icon resource 0x${iconResId.toString(HEX)} does not resolve."),
             )
         }
-        if (!coalescer.shouldPost(id, notification.progress, content)) return NotificationResult.Coalesced
+        val ticket: ProgressCoalescer.PostTicket =
+            coalescer.prepare(id, notification.progress, content) ?: return NotificationResult.Coalesced
         val built: Notification = renderer.build(id, notification, options, iconResId)
         when (val foregroundId: Int? = foregroundPlatformIds[id]) {
             null -> notificationManager.notify(id, TAGGED_NOTIFICATION_ID, built)
             else -> notificationManager.notify(foregroundId, built)
         }
+        // Only now is the frame on screen; a build or notify that threw above leaves the baseline
+        // alone, so a retry of the same progress is posted rather than coalesced.
+        coalescer.commit(ticket)
         if (id !in sweptLegacyIds.value) {
             sweepLegacy(id)
             sweptLegacyIds.update { swept: Set<String> -> swept + id }

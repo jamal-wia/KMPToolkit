@@ -83,7 +83,8 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
 
 - `ProgressCoalescerTest` — bucketing (including widths 1 and 100), the two frames that are never
   suppressed (non-determinate, and 100%), clamping of out-of-range percentages, per-id independence,
-  `forget`/`clear`, an exact-count assertion that a 0..100 run produces eleven posts, and that the
+  `forget`/`clear`, that a frame is recorded only when committed after a successful post (a failed
+  post leaves the baseline and the rate-limit window untouched), an exact-count assertion that a 0..100 run produces eleven posts, and that the
   non-committing `wouldSuppress` query agrees with `shouldPost` while recording nothing.
 - `NotificationConfigTest` — defaults, the application-id-derived broadcast action (and that two
   applications never resolve to the same one), and every rejected value.
@@ -97,7 +98,8 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
 - `AndroidNotifierTest` — the happy path, channel creation from the spec, custom sound resolution,
   replace-vs-stack, a blank id, and each way a post fails: permission absent, notifications disabled
   app-wide, a blocked channel, a channel whose *group* the user muted, an icon that does not resolve.
-  Plus cancelling an id that is not showing, `cancelAll` on an empty tray, coalescing through the
+  Plus a failed post followed by a retry of the same progress (posted, not coalesced), a successful
+  post followed by the same progress (coalesced), cancelling an id that is not showing, `cancelAll` on an empty tray, coalescing through the
   real notifier (including that a coalesced post never hides a permission failure, and that a
   channel which disappeared is re-created even on a suppressed frame), the action-button broadcast
   and its distinct `PendingIntent`s, and the tap target's extras and flags.

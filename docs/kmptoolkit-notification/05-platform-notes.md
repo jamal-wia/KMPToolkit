@@ -145,7 +145,10 @@ usage-description string.
   "notifications are off in Settings", so `NotificationsDisabled` is never returned there;
   `PermissionDenied` covers both.
 - **`add(request:)` is asynchronous** and its `NSError` is awaited, so a rejection becomes
-  `Failed(cause)` rather than a success you would have believed.
+  `Failed(cause)` rather than a success you would have believed. The one rejection with its own
+  result is `UNErrorCodeNotificationsNotAllowed` — authorization revoked between the check and the
+  `add` — which is reported as `PermissionDenied`, the answer the check would have given a moment
+  later. A failed `add` does not become the coalescing baseline, so retrying the same progress posts.
 - **No progress bar, no small icon, no `ongoing`, no `autoCancel`.** Those fields are ignored; put a
   percentage in `body` if it must be visible.
 - **`cancelAll` removes delivered notifications only.** Pending (scheduled) requests are left alone,

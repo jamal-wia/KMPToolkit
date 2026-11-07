@@ -46,7 +46,9 @@ hides a real failure. On Android below API 33 the permission check is skipped: t
 
 **Coalescing:** the bucket applies only to frames that differ from the one showing in nothing but the
 percentage; a changed title, body, button set or options bypasses it. The rate limit
-(`minProgressInterval`) applies to every determinate frame, changed or not.
+(`minProgressInterval`) applies to every determinate frame, changed or not. A frame becomes the
+baseline later frames are judged against **only after the platform accepted the post**: if a post
+returns `Failed`, retrying the same progress posts it again instead of answering `Coalesced`.
 
 ## Factories
 
@@ -302,7 +304,7 @@ public val NotificationResult.isPosted: Boolean
 |---|---|---|
 | `Posted` | accepted by the platform (not "drawn") | both |
 | `Coalesced` | redundant progress update, previous frame stands | both |
-| `PermissionDenied` | no runtime grant | Android 13+, iOS |
+| `PermissionDenied` | no runtime grant — on iOS also an `add` rejected because authorization was revoked after the check | Android 13+, iOS |
 | `NotificationsDisabled` | app-level toggle off | Android (iOS folds this into `PermissionDenied`) |
 | `ChannelBlocked` | channel muted by the user, or its group muted (API 28+) | Android 8+ |
 | `Failed` | icon that does not resolve, framework refusal, `NSError` | both |

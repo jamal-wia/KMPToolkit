@@ -32,12 +32,12 @@ import androidx.media.app.NotificationCompat as MediaNotificationCompat
  * @param context the application context.
  * @param broadcastAction the action every button and dismissal broadcast carries.
  */
-internal class NotificationRenderer(
+internal open class NotificationRenderer(
     private val context: Context,
     private val broadcastAction: String,
 ) {
 
-    fun build(
+    open fun build(
         id: String,
         notification: LocalNotification,
         options: NotificationOptions,
