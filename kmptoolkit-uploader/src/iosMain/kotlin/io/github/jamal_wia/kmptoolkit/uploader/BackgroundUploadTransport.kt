@@ -172,7 +172,8 @@ public class BackgroundUploadConfig(
  * file — and removed when the upload completes. It is rebuilt on every hand-off.
  *
  * Create it once per process, before the engine starts; the relaunch entry point finds it through a
- * process-wide registration.
+ * process-wide registration. A second call replaces that registration with the new transport and does not
+ * stop the first one, which keeps the sessions it owns.
  *
  * @since 1.5.0
  */
@@ -345,6 +346,7 @@ internal class BackgroundSessionUploadTransport(
                     if (invalidated == null) {
                         logger.w { "The previous session was not reported invalid in time; continuing — item=$itemId" }
                         forgetInvalidating(itemId, claim.predecessor)
+                        claim.predecessor.closeProgress()
                     }
                     handOff(itemId, isRehandOff, request, claim.token)
                 }
@@ -383,6 +385,8 @@ internal class BackgroundSessionUploadTransport(
                 // retry budget.
                 live.delegate.cancelled = true
                 live.session.invalidateAndCancel()
+                // A session cancelled before it had a task never gets a completion to close its progress pipe.
+                live.delegate.closeProgress()
                 removeTemporaryBody(itemId)
                 orphan = null
             } else if (invalidating.containsKey(itemId)) {
@@ -408,6 +412,8 @@ internal class BackgroundSessionUploadTransport(
             liveLock.lock()
             try {
                 orphan.session.invalidateAndCancel()
+                // No task of this process ever ran on the orphan session, so no completion will close it.
+                orphan.delegate.closeProgress()
                 if (liveUploads[itemId] === orphan) liveUploads.remove(itemId)
                 removeTemporaryBody(itemId)
             } finally {
@@ -601,6 +607,8 @@ internal class BackgroundSessionUploadTransport(
                 // Inside the lock, so a hand-off that finds the slot empty creates its session — with the
                 // same identifier — only after this one is invalidated.
                 live.session.finishTasksAndInvalidate()
+                // The session never had a task, so no completion will close its progress pipe.
+                live.delegate.closeProgress()
             } finally {
                 liveLock.unlock()
             }
@@ -659,6 +667,8 @@ internal class BackgroundSessionUploadTransport(
         live.delegate.cancelled = true
         live.delegate.terminalDelivered = true
         live.session.invalidateAndCancel()
+        // No task was created, so no completion will close the progress pipe either.
+        live.delegate.closeProgress()
         scope.launch {
             if (!UploadGateway.complete(itemId, UploadResult.TransportFailure(message))) {
                 logger.w { "Upload failure did not reach an engine — item=$itemId" }
@@ -880,7 +890,7 @@ internal class UploadSessionDelegate(
      * and the forwarder is joined before the settlement — never a progress call after the item settled.
      */
     private val fractions: Channel<Float> = Channel(Channel.CONFLATED)
-    private val forwarder: Job = scope.launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
+    internal val forwarder: Job = scope.launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
 
     private val progress: WholePercentProgress = WholePercentProgress(totalBytes = PERCENT_BASIS) { fraction ->
         fractions.trySend(fraction)
@@ -893,8 +903,21 @@ internal class UploadSessionDelegate(
         reportInvalidated()
     }
 
+    /**
+     * Ends the progress pipe from the owner's side, for a session that is dropped without ever delivering a
+     * terminal event (no task was created, or it was cancelled while idle): `didCompleteWithError` is sent
+     * once per task, so without this the forwarder would stay suspended on the channel for the life of the
+     * transport and pin this delegate. Idempotent, and a no-op once [complete] has closed the channel. The
+     * forwarder drains the one conflated value that may be pending and ends; later progress is dropped.
+     */
+    fun closeProgress() {
+        fractions.close()
+    }
+
     /** What `didBecomeInvalidWithError` does; separate so a test double of the session can report it. */
     fun reportInvalidated() {
+        // After this callback no task can run on the session, so nothing more is worth forwarding.
+        closeProgress()
         onInvalidated(this)
         invalidated.complete(Unit)
     }
