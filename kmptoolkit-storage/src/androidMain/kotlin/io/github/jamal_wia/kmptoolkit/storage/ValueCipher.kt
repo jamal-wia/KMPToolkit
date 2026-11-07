@@ -111,7 +111,8 @@ internal class KeystoreValueCipher(
      *
      * A fault the platform itself calls transient ([isTransientKeystoreFailure]) is rethrown
      * unchanged and the key is kept: the key is fine, the key store is briefly not, and a re-lookup
-     * against a sick key store is exactly what must not happen — the caller maps it to `Unavailable`.
+     * against a sick key store is exactly what must not happen. A read reports it as `Unavailable`;
+     * a write reports it as `OperationFailed` (the key is kept either way).
      */
     private suspend fun initialised(first: SecretKey? = null, init: (SecretKey, Cipher) -> Unit): Cipher {
         val key: SecretKey = first ?: keySource.key()
@@ -175,7 +176,10 @@ internal class AndroidKeystoreKeySource(
 ) : SecretKeySource {
 
     override suspend fun key(): SecretKey = keyResolution.withLock {
-        cache[cacheKey] ?: resolve().also { cache[cacheKey] = it }
+        cache[cacheKey] ?: resolve().also {
+            cache[cacheKey] = it
+            resolvedOnce += cacheKey
+        }
     }
 
     /** Compare-and-remove: only the handle that failed is dropped, never a fresh key another caller made. */
@@ -187,8 +191,15 @@ internal class AndroidKeystoreKeySource(
 
     private val cacheKey: Pair<AliasedKeyStore, String> = keyStore to alias
 
+    /**
+     * Only the first resolution in the process may delete an unrecoverable alias. A later one is a
+     * re-lookup after [invalidate], and a keystore fault during it also surfaces as an unrecoverable
+     * entry on API 24-32, where nothing tells it from a dead key: deleting then would destroy every
+     * stored value over a hiccup. It fails with [StorageKeyUnavailableException] instead, and the
+     * next process start recovers a key that really died.
+     */
     private fun resolve(): SecretKey = try {
-        keyStore.existingKey(alias) ?: keyStore.generateKey(alias)
+        keyStore.existingKey(alias, mayDelete = cacheKey !in resolvedOnce) ?: keyStore.generateKey(alias)
     } catch (error: Exception) {
         throw StorageKeyUnavailableException(error)
     }
@@ -204,6 +215,9 @@ internal class AndroidKeystoreKeySource(
          * store never sees another's keys.
          */
         val cache: MutableMap<Pair<AliasedKeyStore, String>, SecretKey> = mutableMapOf()
+
+        /** Aliases resolved at least once in this process, guarded by [keyResolution]. */
+        val resolvedOnce: MutableSet<Pair<AliasedKeyStore, String>> = mutableSetOf()
     }
 }
 
@@ -212,9 +226,11 @@ internal interface AliasedKeyStore {
 
     /**
      * The key filed under [alias], or `null` when there is none to use — never filed, or filed but
-     * unrecoverable, in which case the dead entry is removed so [generateKey] can replace it.
+     * unrecoverable, in which case the dead entry is removed so [generateKey] can replace it —
+     * but only when [mayDelete]. When it is `false` an unrecoverable entry is rethrown instead and
+     * nothing is deleted.
      */
-    fun existingKey(alias: String): SecretKey?
+    fun existingKey(alias: String, mayDelete: Boolean = true): SecretKey?
 
     /** Generates a new key under [alias], replacing whatever the alias held. */
     fun generateKey(alias: String): SecretKey
@@ -226,7 +242,7 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     private const val KEY_SIZE_BITS = 256
 
-    override fun existingKey(alias: String): SecretKey? {
+    override fun existingKey(alias: String, mayDelete: Boolean): SecretKey? {
         val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         return try {
             (keyStore.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey
@@ -235,7 +251,7 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
             // cause is the KeyStoreException). When the platform calls it transient the key is
             // still there: deleting the alias would destroy every stored value over a hiccup.
             // Throw instead, which the caller reports as Unavailable (retry later).
-            if (isTransientKeystoreFailure(e)) throw e
+            if (!mayDelete || isTransientKeystoreFailure(e)) throw e
             // The alias exists but its key is gone — the user changed the device lock, or the entry
             // was restored to a device that cannot use it. Every value written under it is already
             // unreadable, so drop the alias and start a new key: reads of old entries fail with

@@ -22,7 +22,8 @@ class KeystoreKeyInvalidationTest {
     private class ScriptedKeyStore(private vararg val answers: SecretKey) : AliasedKeyStore {
         var lookups: Int = 0
 
-        override fun existingKey(alias: String): SecretKey = answers[minOf(lookups++, answers.lastIndex)]
+        override fun existingKey(alias: String, mayDelete: Boolean): SecretKey =
+            answers[minOf(lookups++, answers.lastIndex)]
 
         override fun generateKey(alias: String): SecretKey = error("an existing key is always answered")
     }
@@ -60,6 +61,36 @@ class KeystoreKeyInvalidationTest {
 
         assertEquals(0, invalidations, "a transient fault never reports the key as dead")
         assertEquals(1, store.lookups, "and the key store is not asked again while it is unwell")
+    }
+
+    /** First lookup answers [first]; later ones are unrecoverable entries, deleted only if allowed. */
+    private class UnrecoverableAfterFirst(private val first: SecretKey) : AliasedKeyStore {
+        var lookups: Int = 0
+        var deletions: Int = 0
+        var generated: Int = 0
+
+        override fun existingKey(alias: String, mayDelete: Boolean): SecretKey? {
+            if (lookups++ == 0) return first
+            if (!mayDelete) throw java.security.UnrecoverableKeyException("keystore fault")
+            deletions++
+            return null
+        }
+
+        override fun generateKey(alias: String): SecretKey {
+            generated++
+            return TestKeys.generate()
+        }
+    }
+
+    @Test
+    fun `a re-lookup after a rejected key never deletes the alias and surfaces as unavailable`() = runTest {
+        val store = UnrecoverableAfterFirst(deadKey())
+        val cipher = KeystoreValueCipher(AndroidKeystoreKeySource("recovery.alias", store))
+
+        assertFailsWith<StorageKeyUnavailableException> { cipher.encrypt("secret") }
+
+        assertEquals(0, store.deletions, "the recovery lookup never deletes the alias")
+        assertEquals(0, store.generated, "and never replaces the key")
     }
 
     @Test

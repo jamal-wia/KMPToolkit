@@ -111,8 +111,13 @@ still `Undecryptable`, as before. A failure the platform does not call transient
 
 The same rule protects the key itself: a transient fault never makes the module drop its cached key
 and look the alias up again, and a transient `UnrecoverableKeyException` during that lookup never
-deletes the alias. Only a key the platform rejects for a permanent reason is forgotten and re-resolved;
-a momentary keystore outage can cost a retry, never the stored values.
+deletes the alias. The unrecoverable-alias recovery (delete and generate) runs only on the first key
+resolution in a process. A key the platform rejects later is forgotten and looked up again once, but
+that lookup never deletes: if it hits an unrecoverable entry — which on API 24-32 a keystore fault
+also looks like, since nothing there can name a transient failure — the call fails with
+`StorageError.Unavailable` and the next process start recovers a key that really died. A read that
+hits a transient fault reports `Unavailable`; a write reports `OperationFailed`. The key and the
+stored values are kept either way, so a momentary outage costs a retry, never the stored values.
 
 ### The key is created once per process, never once per caller
 
