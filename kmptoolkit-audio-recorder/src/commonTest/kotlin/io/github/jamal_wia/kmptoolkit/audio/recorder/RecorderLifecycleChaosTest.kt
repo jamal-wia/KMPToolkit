@@ -487,6 +487,64 @@ class RecorderLifecycleChaosTest {
         }
 
     @Test
+    fun `a silence that never lasts a whole debounce across background cycles never ends the recording but one that does always does`() =
+        runRecorderTest { fixture ->
+            val path: String = fixture.recording()
+            repeat(100) { cycle: Int ->
+                fixture.engine.emit(EngineEvent.InputSilenced(true))
+                passTime(fixture, 300.milliseconds)
+                // The app goes to the background mid-silence; nothing is captured while paused.
+                assertTrue(fixture.recorder.pause().isSuccess, "cycle $cycle")
+                passTime(fixture, 5.seconds)
+                assertIs<RecorderState.Paused>(fixture.recorder.state.value, "cycle $cycle: a silence ended a paused recording")
+                assertTrue(fixture.recorder.resume().isSuccess, "cycle $cycle")
+                passTime(fixture, 100.milliseconds)
+                fixture.engine.emit(EngineEvent.InputSilenced(false))
+                passTime(fixture, 1.seconds)
+                assertEquals(RecorderState.Recording(path), fixture.recorder.state.value, "cycle $cycle: a brief silence ended the recording")
+            }
+            fixture.engine.emit(EngineEvent.InputSilenced(true))
+            passTime(fixture, 500.milliseconds)
+            runCurrent()
+            val ended: RecorderState = fixture.recorder.state.value
+            assertIs<RecorderState.Interrupted>(ended, "a silence that lasted a whole debounce went unnoticed")
+            assertEquals(InterruptionReason.MicrophoneSilenced, ended.reason)
+        }
+
+    @Test
+    fun `a stop whose caller is cancelled while it waits for another finalization still gets its turn`() =
+        runTest(timeout = 120.seconds) {
+            withContext(Dispatchers.Default) {
+                withTimeout(100.seconds) {
+                    repeat(ROUNDS_SLOW) { round: Int ->
+                        val engine = ChaosEngine()
+                        val fs = ChaosFileSystem()
+                        val recorder: DefaultAudioRecorder = recorder(engine, fs)
+                        val path = "/data/wait-stop-$round.m4a"
+                        assertTrue(recorder.prepare(path).isSuccess, "round $round")
+                        assertTrue(recorder.start().isSuccess, "round $round")
+                        engine.stopOpen.store(false)
+                        val first: Job = launch(Dispatchers.Default) { recorder.stop() }
+                        awaitTrue("round $round: stop reached the engine") { engine.inStop.load() }
+                        val waiting: Job = launch(Dispatchers.Default) { recorder.stop() }
+                        delay(2L)
+                        waiting.cancel()
+                        waiting.join()
+                        engine.stopOpen.store(true)
+                        first.join()
+                        awaitSettled(recorder, "round $round")
+
+                        assertIs<RecorderState.Completed>(recorder.state.value, "round $round")
+                        assertEquals(1, engine.stops.load(), "round $round: the container was finalized ${engine.stops.load()} times")
+                        assertIs<RecorderError.IllegalState>(recorder.stop().errorOrNull(), "round $round: a stop after Completed")
+                        assertTrue(fs.deletions().isEmpty(), "round $round")
+                        recorder.release()
+                    }
+                }
+            }
+        }
+
+    @Test
     fun `a level collector that releases the recorder on the first sound frees the engine once`() =
         runRecorderTest { fixture ->
             fixture.recording()
