@@ -51,7 +51,7 @@ internal class AndroidDownloaderStorage(
     private val logger: Logger,
     /** Test seam: Android's `filesDir` is case-sensitive, so production never sets this. */
     caseInsensitive: Boolean = false,
-) : DownloaderStorage {
+) : DownloaderStorage, RelativePathChecking {
 
     private val baseDir: File by lazy { File(context.filesDir, config.baseDirectoryName) }
 
@@ -61,7 +61,7 @@ internal class AndroidDownloaderStorage(
 
     private val migrationFiles: LegacyTempMigrations.Files = object : LegacyTempMigrations.Files {
         override fun exists(path: String): Boolean = File(path).exists()
-        override fun rename(from: String, to: String): Boolean = File(from).renameTo(File(to))
+        override fun renameNoReplace(from: String, to: String): Boolean = io.github.jamal_wia.kmptoolkit.downloader.renameNoReplace(from, to)
         override fun delete(path: String) {
             File(path).delete()
         }
@@ -96,6 +96,9 @@ internal class AndroidDownloaderStorage(
             File(path).exists()
         }
     }
+
+    override fun relativePathViolation(unit: DownloadUnit): InvalidDownloadUnitException.Reason? =
+        (layout.inspectRelativePath(unit) as? UnitFileLayout.PathInspection.Rejected)?.reason
 
     override fun getResourcePath(unit: DownloadUnit): String {
         when (val inspection: UnitFileLayout.PathInspection = layout.inspectRelativePath(unit)) {

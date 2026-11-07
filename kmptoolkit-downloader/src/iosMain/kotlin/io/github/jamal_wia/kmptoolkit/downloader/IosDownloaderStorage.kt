@@ -97,7 +97,7 @@ internal class IosDownloaderStorage(
     private val logger: Logger,
     /** Test seam: null asks the volume, which is what production does. */
     private val caseInsensitiveOverride: Boolean? = null,
-) : DownloaderStorage {
+) : DownloaderStorage, RelativePathChecking {
 
     private val baseDir: String by lazy {
         // Application Support, not Documents: these are re-downloadable assets, and Apple
@@ -135,7 +135,8 @@ internal class IosDownloaderStorage(
 
     private val migrationFiles: LegacyTempMigrations.Files = object : LegacyTempMigrations.Files {
         override fun exists(path: String): Boolean = fileExists(path)
-        override fun rename(from: String, to: String): Boolean = platform.posix.rename(from, to) == 0
+        override fun renameNoReplace(from: String, to: String): Boolean =
+            io.github.jamal_wia.kmptoolkit.downloader.renameNoReplace(from, to)
         override fun delete(path: String) {
             remove(path)
         }
@@ -179,6 +180,9 @@ internal class IosDownloaderStorage(
             fileExists(path)
         }
     }
+
+    override fun relativePathViolation(unit: DownloadUnit): InvalidDownloadUnitException.Reason? =
+        (layout.inspectRelativePath(unit) as? UnitFileLayout.PathInspection.Rejected)?.reason
 
     override fun getResourcePath(unit: DownloadUnit): String {
         when (val inspection: UnitFileLayout.PathInspection = layout.inspectRelativePath(unit)) {

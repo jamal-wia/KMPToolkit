@@ -26,6 +26,14 @@ class UnitFileLayoutTest {
         assertEquals(insensitive.lockKey(unit("Model")), insensitive.lockKey(unit("model")))
     }
 
+    @Test
+    fun `a relativePath under tmp trash is accepted because 3_0_0 had no trash there`() {
+        for (layout: UnitFileLayout in listOf(sensitive, insensitive)) {
+            assertNull(reasonOf(layout, path = "tmp/trash/a.bin"))
+            assertNull(reasonOf(layout, path = "tmp/trash"))
+        }
+    }
+
     // 16
     @Test
     fun `a case-sensitive layout accepts a differently cased path and keeps the lock keys apart`() {

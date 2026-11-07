@@ -56,6 +56,9 @@ abstract class DownloaderStorageContractTest {
     @AfterTest
     fun deleteDirectoryAfterTest() {
         deleteTestDirectory()
+        // The migration record is process-wide and keyed by base path and id; both are reused by
+        // later tests, so a test that reuses an id would silently skip its migration without this.
+        LegacyTempMigrations.resetForTests()
     }
 
     private val storage: DownloaderStorage by lazy { newStorage() }
@@ -601,8 +604,10 @@ abstract class DownloaderStorageContractTest {
     }
 
     // -- path safety: unit ids and relativePath ----------------------------------------------------
-    // Ids that cannot be file names are stored under hashed names; see UnitFileLayout. Every test
-    // that migrates uses an id of its own, because the migration runs once per process per unit.
+    // Ids that cannot be file names are stored under hashed names; see UnitFileLayout. The migration
+    // runs once per process per unit; the @AfterTest above resets that record
+    // (LegacyTempMigrations.resetForTests), so ids may be reused across tests, though each test here
+    // still uses one of its own.
 
     // 1
     @Test
@@ -780,6 +785,23 @@ abstract class DownloaderStorageContractTest {
         assertFalse(pathExists("$base/tmp/models/v1-t11b.tmp"), "the stale legacy file is deleted")
     }
 
+    // a no-replace move is the primitive the migration's "never overwrites" rests on
+    @Test
+    fun `renameNoReplace never replaces an existing destination and moves to a free one`() {
+        val base: String = baseDirectory()
+        writeFile("$base/nr/from.bin", "legacy".encodeToByteArray())
+        writeFile("$base/nr/taken.bin", "authoritative".encodeToByteArray())
+
+        assertFalse(renameNoReplace("$base/nr/from.bin", "$base/nr/taken.bin"), "the destination exists")
+        assertEquals("authoritative", readFile("$base/nr/taken.bin")?.decodeToString(), "it must not be replaced")
+        assertEquals("legacy", readFile("$base/nr/from.bin")?.decodeToString(), "the source must stay")
+
+        assertTrue(renameNoReplace("$base/nr/from.bin", "$base/nr/free.bin"))
+        assertEquals("legacy", readFile("$base/nr/free.bin")?.decodeToString())
+        assertFalse(pathExists("$base/nr/from.bin"), "the source name is gone after a successful move")
+        assertFalse(renameNoReplace("$base/nr/missing.bin", "$base/nr/other.bin"), "a missing source fails")
+    }
+
     // 12
     @Test
     fun `concurrent first touches of the same unsafe unit converge on one migrated file`() = runTest {
@@ -858,7 +880,10 @@ abstract class DownloaderStorageContractTest {
     // 14 (guard)
     @Test
     fun `relative paths that worked in 3_0_0 are accepted unchanged and commit`() = runTest {
-        for ((index: Int, path: String) in listOf("tmp/foo.bin", "/abs/x", "a/./b", "a/../b").withIndex()) {
+        // tmp/trash/... did not exist in 3.0.0 (the trash is under tmp/kmptoolkit-internal now), so it worked there.
+        for ((index: Int, path: String) in listOf(
+            "tmp/foo.bin", "/abs/x", "a/./b", "a/../b", "tmp/trash/a.bin",
+        ).withIndex()) {
             val unit = ContractUnit("guard14-$index", relativePath = path)
             storage.beginTempFile(unit, null)
             writeTemp(storage, unit, "abc")

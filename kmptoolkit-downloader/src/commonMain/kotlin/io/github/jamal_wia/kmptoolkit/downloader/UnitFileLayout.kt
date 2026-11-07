@@ -156,15 +156,28 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
         }
         // Deeper than the legacy name of a safe id would be: the first segment below the fixed
         // directories must not be one the storage manages.
-        if (segments.size > firstUnreservedIndex + 1 && isReservedBelowTmp(fold(segments[firstUnreservedIndex]))) {
+        if (segments.size > firstUnreservedIndex + 1 && isManagedBelowTmp(fold(segments[firstUnreservedIndex]))) {
             return false
         }
         return true
     }
 
+    /**
+     * Names under `tmp/` that a [DownloadUnit.relativePath] may not use: exactly what 3.0.0 or this
+     * library creates and deletes there. `trash` is not among them: it did not exist in 3.0.0 (the
+     * trash lives under [INTERNAL_NAME] now), so a resource at `tmp/trash/...` worked and must keep
+     * working.
+     */
     private fun isReservedBelowTmp(segment: String): Boolean =
-        segment == "expect" || segment == "expect-staged" || segment == "trash" ||
+        segment == "expect" || segment == "expect-staged" ||
             segment == INTERNAL_NAME || segment.startsWith("staging-")
+
+    /**
+     * The wider set the migration refuses to move a legacy file out of: the reserved names plus
+     * `trash`, because a legacy `tmp/trash/x.tmp` could only be the 3.0.0 unit `trash/x`'s own
+     * partial and is deliberately left where it is (a conservative choice, not a necessity).
+     */
+    private fun isManagedBelowTmp(segment: String): Boolean = isReservedBelowTmp(segment) || segment == "trash"
 
     private fun reject(reason: InvalidDownloadUnitException.Reason): PathInspection =
         PathInspection.Rejected(reason)

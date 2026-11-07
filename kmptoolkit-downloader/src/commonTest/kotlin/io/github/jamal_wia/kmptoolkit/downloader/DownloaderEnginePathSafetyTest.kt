@@ -71,13 +71,14 @@ class DownloaderEnginePathSafetyTest {
     }
 
     @Test
-    fun `a storage that fails for another reason is not turned into a catalogue error`() = runTest {
-        val storage = RejectingStorage(failure = IllegalStateException("disk gone"))
+    fun `a host storage is never asked for getResourcePath by the catalogue check`() = runTest {
+        val storage = ForeignStorage(SetStorage(complete = setOf(badUnit.id)))
         val engine: DefaultDownloaderEngine = engine(CountingDownloader(), this, storage = storage)
 
-        val thrown: Throwable = assertFailsWith<Throwable> { engine.ensureAvailable(badUnit) }
+        engine.ensureAvailable(badUnit)
 
-        assertFalse(thrown.cause is InvalidDownloadUnitException, "must not be classified as a path error: $thrown")
+        assertTrue(engine.isAvailable(badUnit), "the unit commits as in 3.0.0")
+        assertEquals(0, storage.resourcePathCalls, "a storage the engine does not know must not be asked anything new")
     }
 
     private fun engine(
@@ -96,13 +97,29 @@ class DownloaderEnginePathSafetyTest {
         logger = NoopLogger,
     )
 
-    /** A storage whose [getResourcePath] fails the way the shipped ones do for a bad relativePath. */
+    /** A shipped-style storage: rejects the unit's relativePath, as the real ones do for a bad one. */
     private class RejectingStorage(
-        private val failure: Exception? = null,
         private val delegate: SetStorage = SetStorage(),
-    ) : DownloaderStorage by delegate {
+    ) : DownloaderStorage by delegate, RelativePathChecking {
+        override fun relativePathViolation(unit: DownloadUnit): InvalidDownloadUnitException.Reason =
+            InvalidDownloadUnitException.Reason.ESCAPES_BASE_DIRECTORY
+
         override fun getResourcePath(unit: DownloadUnit): String =
-            throw failure ?: InvalidDownloadUnitException(unit, InvalidDownloadUnitException.Reason.ESCAPES_BASE_DIRECTORY)
+            throw InvalidDownloadUnitException(unit, InvalidDownloadUnitException.Reason.ESCAPES_BASE_DIRECTORY)
+    }
+
+    /**
+     * A host's own storage, as a test fake often is: `getResourcePath` was only ever used by
+     * `pathOf`, so it is not implemented and throws an [Error], not an [Exception].
+     */
+    private class ForeignStorage(private val delegate: SetStorage) : DownloaderStorage by delegate {
+        var resourcePathCalls: Int = 0
+            private set
+
+        override fun getResourcePath(unit: DownloadUnit): String {
+            resourcePathCalls++
+            TODO("only pathOf used it in 3.0.0")
+        }
     }
 
     private class CountingDownloader : BackgroundResourceDownloader {
