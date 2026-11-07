@@ -608,7 +608,8 @@ internal class VlcjVideoEngine(
         private var disposed: Boolean = false
         // A concurrent set: written by loading threads, read by the Cleaner thread or the dispose()
         // caller (which only iterate it and queue claim tasks), emptied by the teardown thread.
-        // None of them is a coroutine or may suspend, so a Mutex does not fit; `remove` returning true is what makes [claim] an atomic one-winner guard (D-21).
+        // None of them is a coroutine or may suspend, so a Mutex does not fit; `remove` returning
+        // true is what makes [claim] an atomic one-winner guard (D-21).
         private val openSessions: MutableSet<NativeSession> = ConcurrentHashMap.newKeySet()
 
         /** Registers a native player created from this holder's libvlc instance. */
