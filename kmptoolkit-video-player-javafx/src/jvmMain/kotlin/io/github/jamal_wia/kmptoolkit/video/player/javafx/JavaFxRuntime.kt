@@ -29,10 +29,14 @@ internal class ToolkitJavaFxRuntime(
 
     @Volatile
     private var started: Boolean = false
+    @Volatile
     private var failure: Throwable? = null
 
     override fun ensureStarted() {
         if (started) return
+        // A remembered failure answers at once: the thread check below can rebuild the toolkit
+        // (and print its stack trace) on every call, and an unavailable runtime has no use for it.
+        failure?.let { throw JavaFxVideoPlayerException.RuntimeUnavailable(it) }
         // Before the monitor: another thread may hold it while it waits for the FX thread, which
         // would then wait for the monitor in turn. Being on the FX thread proves the toolkit runs.
         if (isFxThread()) {

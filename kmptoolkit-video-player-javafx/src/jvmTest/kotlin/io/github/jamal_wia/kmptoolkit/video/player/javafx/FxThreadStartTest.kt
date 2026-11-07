@@ -73,17 +73,22 @@ class FxThreadStartTest {
     fun aRuntimeWhoseThreadCheckBuildsNoToolkitIsUnavailableNotThrowing() {
         // Asking JavaFX which thread this is builds the toolkit; on a broken runtime that throws.
         var calls = 0
+        var threadChecks = 0
         val runtime = ToolkitJavaFxRuntime(
             startToolkit = {
                 calls++
                 throw RuntimeException("No toolkit found")
             },
-            onFxThread = { throw RuntimeException("No toolkit found") },
+            onFxThread = {
+                threadChecks++
+                throw RuntimeException("No toolkit found")
+            },
         )
 
         assertFalse(runtime.isAvailable())
         assertFalse(runtime.isAvailable())
         assertEquals(1, calls, "the failure is remembered, not rebuilt on every call")
+        assertEquals(1, threadChecks, "a remembered failure skips the thread check, which rebuilds the toolkit")
     }
 
     @Test
