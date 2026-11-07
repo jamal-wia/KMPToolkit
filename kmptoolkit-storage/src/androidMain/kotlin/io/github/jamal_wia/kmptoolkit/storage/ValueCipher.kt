@@ -73,7 +73,11 @@ internal interface SecretKeySource {
  * directly, and `androidx.security:security-crypto` has been deprecated upstream with no
  * replacement — and depends on Tink itself.
  */
-internal class KeystoreValueCipher(private val keySource: SecretKeySource) : ValueCipher {
+internal class KeystoreValueCipher(
+    private val keySource: SecretKeySource,
+    /** A seam for the transient-fault classifier; production uses the platform's own verdict. */
+    private val isTransient: (Throwable) -> Boolean = { error: Throwable -> isTransientKeystoreFailure(error) },
+) : ValueCipher {
 
     override suspend fun encrypt(plaintext: String): String {
         val cipher: Cipher = initialised { candidate: SecretKey, fresh: Cipher -> fresh.init(Cipher.ENCRYPT_MODE, candidate) }
@@ -104,12 +108,17 @@ internal class KeystoreValueCipher(private val keySource: SecretKeySource) : Val
      * the lookup is repeated once: a key replaced in the key store by another instance is picked up
      * instead of failing every use for the life of the process. Each attempt gets a new [Cipher]; one
      * whose `init` failed must not be reused.
+     *
+     * A fault the platform itself calls transient ([isTransientKeystoreFailure]) is rethrown
+     * unchanged and the key is kept: the key is fine, the key store is briefly not, and a re-lookup
+     * against a sick key store is exactly what must not happen — the caller maps it to `Unavailable`.
      */
     private suspend fun initialised(first: SecretKey? = null, init: (SecretKey, Cipher) -> Unit): Cipher {
         val key: SecretKey = first ?: keySource.key()
         try {
             return Cipher.getInstance(TRANSFORMATION).also { init(key, it) }
-        } catch (_: InvalidKeyException) {
+        } catch (e: InvalidKeyException) {
+            if (isTransient(e)) throw e
             keySource.invalidate(key)
         }
         val retry: SecretKey = keySource.key()
@@ -221,7 +230,12 @@ internal object AndroidKeyStoreAliases : AliasedKeyStore {
         val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         return try {
             (keyStore.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey
-        } catch (_: UnrecoverableKeyException) {
+        } catch (e: UnrecoverableKeyException) {
+            // A keystore fault that is not "gone" also surfaces as UnrecoverableKeyException (its
+            // cause is the KeyStoreException). When the platform calls it transient the key is
+            // still there: deleting the alias would destroy every stored value over a hiccup.
+            // Throw instead, which the caller reports as Unavailable (retry later).
+            if (isTransientKeystoreFailure(e)) throw e
             // The alias exists but its key is gone — the user changed the device lock, or the entry
             // was restored to a device that cannot use it. Every value written under it is already
             // unreadable, so drop the alias and start a new key: reads of old entries fail with

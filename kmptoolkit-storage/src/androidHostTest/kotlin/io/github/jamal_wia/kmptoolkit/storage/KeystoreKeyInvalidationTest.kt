@@ -4,6 +4,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
@@ -39,6 +40,26 @@ class KeystoreKeyInvalidationTest {
 
         assertEquals("secret", cipher.decrypt(encoded))
         assertEquals(2, store.lookups, "the dead handle was dropped and the store asked again")
+    }
+
+    @Test
+    fun `a transient keystore fault is rethrown without dropping the key or looking it up again`() = runTest {
+        val store = ScriptedKeyStore(deadKey(), TestKeys.generate())
+        val source = AndroidKeystoreKeySource("transient.alias", store)
+        var invalidations = 0
+        val counting = object : SecretKeySource {
+            override suspend fun key(): SecretKey = source.key()
+            override suspend fun invalidate(stale: SecretKey) {
+                invalidations++
+                source.invalidate(stale)
+            }
+        }
+        val cipher = KeystoreValueCipher(counting, isTransient = { true })
+
+        assertFailsWith<java.security.InvalidKeyException> { cipher.encrypt("secret") }
+
+        assertEquals(0, invalidations, "a transient fault never reports the key as dead")
+        assertEquals(1, store.lookups, "and the key store is not asked again while it is unwell")
     }
 
     @Test

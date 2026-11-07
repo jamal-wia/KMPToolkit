@@ -109,6 +109,11 @@ chain is walked because the platform usually delivers that exception wrapped in 
 not exist below it, so on API 24–32 every decrypt failure other than an unreachable key store is
 still `Undecryptable`, as before. A failure the platform does not call transient is never remapped.
 
+The same rule protects the key itself: a transient fault never makes the module drop its cached key
+and look the alias up again, and a transient `UnrecoverableKeyException` during that lookup never
+deletes the alias. Only a key the platform rejects for a permanent reason is forgotten and re-resolved;
+a momentary keystore outage can cost a retry, never the stored values.
+
 ### The key is created once per process, never once per caller
 
 The key is generated on first use, and "look the alias up, generate if it is missing" is two
