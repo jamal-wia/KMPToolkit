@@ -169,6 +169,58 @@ class LifecycleActivityTrackerStormTest {
     }
 
     @Test
+    fun `eight threads asking for the activity while the main thread hands over between activities in both orders never lose or mix up the current one`() {
+        val tracker: LifecycleActivityTracker = newTracker()
+        val expected = AtomicReference<Activity?>(null)
+        val stop = AtomicBoolean(false)
+        val violations: MutableList<String> = java.util.Collections.synchronizedList(mutableListOf())
+        val queries = AtomicInteger()
+        val workers: List<Thread> = List(8) { index ->
+            background("ask-$index") {
+                while (!stop.get()) {
+                    val before: Activity? = expected.get()
+                    val answer: Activity? = tracker.withActivity { it }
+                    val after: Activity? = expected.get()
+                    queries.incrementAndGet()
+                    if (before != null && before === after && answer !== before) {
+                        if (violations.size < 5) violations += "expected $before, got $answer"
+                    }
+                }
+            }
+        }
+
+        var current: ActivityController<Activity> = launchActivity().setup()
+        expected.set(current.get())
+        val deadline: Long = System.nanoTime() + 8_000_000_000L
+        var round = 0
+        while (round < HANDOVERS && System.nanoTime() < deadline && violations.isEmpty()) {
+            val next: ActivityController<Activity> = launchActivity().create().start()
+            expected.set(null) // a hand-over is in progress: no single answer is right
+            if (round % 2 == 0) {
+                // The usual order: the old one pauses, then the new one resumes.
+                current.pause()
+                next.resume()
+            } else {
+                // The new one resumes before the old one pauses and is destroyed.
+                next.resume()
+                current.pause().stop().destroy()
+            }
+            expected.set(next.get())
+            // Let the workers see this activity for a moment before the next hand-over.
+            val seen: Int = queries.get()
+            val settle: Long = System.nanoTime() + 2_000_000L
+            while (queries.get() - seen < 16 && System.nanoTime() < settle) Thread.onSpinWait()
+            current = next
+            round++
+        }
+        stop.set(true)
+        workers.forEach { it.join(3_000) }
+        assertTrue(workers.none { it.isAlive }, "an asking thread is stuck")
+        assertTrue(violations.isEmpty(), "withActivity lost or mixed up the current activity: $violations")
+        assertTrue(round >= 20, "only $round hand-overs ran")
+    }
+
+    @Test
     fun `an isTracked predicate that throws leaves the tracker usable for the next resume`() {
         val failing = AtomicBoolean(true)
         val tracker: LifecycleActivityTracker =
@@ -193,5 +245,6 @@ class LifecycleActivityTrackerStormTest {
 
     private companion object {
         const val MAX_DELIVERIES: Int = 2_000_000
+        const val HANDOVERS: Int = 120
     }
 }
