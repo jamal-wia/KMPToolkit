@@ -101,13 +101,15 @@ internal fun performMultipartUploadCapturing(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        // A server can reject-and-close before the chunked body finishes (size cap, proxy 4xx) — the
-        // write then throws, but a status may still be readable. Prefer the real status so a permanent
-        // rejection can be classified instead of retried forever as a transport failure.
+        // A server can answer and close before the chunked body finishes (size cap, proxy 4xx, an early 2xx
+        // or redirect) — the write then throws, but a status may still be readable. Any final status the
+        // server sent before the body ended is its answer: a rejection to classify, or an early acceptance
+        // or redirect that must not upload the file again. Prefer the real status so it can be classified
+        // instead of retried forever as a transport failure. 1xx is not final and stays a failure.
         // Not after the watchdog dropped the connection: the peer is not answering, and asking for its status
         // would wait out the whole read timeout on a socket that was closed on purpose.
         val lateStatus: Int? = connection?.takeUnless { watch?.wasDropped == true }?.let { conn ->
-            runCatching { conn.responseCode }.getOrNull()?.takeIf { it >= HTTP_BAD_REQUEST }
+            runCatching { conn.responseCode }.getOrNull()?.takeIf { it in HTTP_FIRST_FINAL_STATUS..HTTP_LAST_STATUS }
         }
         if (lateStatus != null) {
             // Best effort: the connection was torn down mid-request, so the body may be unreadable — then
@@ -126,8 +128,11 @@ internal fun performMultipartUploadCapturing(
 
 /**
  * The answer on [connection] (whose status is [status]): headers without the status line's null key, and the
- * body from `errorStream` for a 4xx/5xx — `null` when the server sent none — or `inputStream` otherwise.
- * A body that fails to read is reported as truncated rather than thrown.
+ * body from `errorStream` for a 4xx/5xx or `inputStream` otherwise — an empty body when the server sent none,
+ * and also when the headers declared one the stack did not deliver, in which case it is flagged truncated.
+ * A body that fails to read is reported as truncated rather than thrown. A status that carries no content
+ * (1xx, 204, 205, 304) is never read and never flagged: whatever length its headers name belongs to the
+ * entity it stands for, not to a body it sent.
  */
 private fun readResponse(
     connection: HttpURLConnection,
@@ -142,6 +147,9 @@ private fun readResponse(
             }
         }
     }.getOrDefault(emptyMap())
+    if (status in HTTP_INFORMATIONAL_RANGE || status in STATUSES_WITHOUT_CONTENT) {
+        return UploadResponse(status, headers, ByteArray(0), false)
+    }
     var read = ReadBody(ByteArray(0), cut = false)
     try {
         val stream: InputStream? = if (status >= HTTP_BAD_REQUEST) connection.errorStream else connection.inputStream
@@ -154,12 +162,23 @@ private fun readResponse(
             if (declared != null && connection.contentEncoding == null && read.bytes.size < declared && !read.cut) {
                 read = ReadBody(read.bytes, cut = true)
             }
+        } else if (declaresBody(connection)) {
+            // The stack kept the body from us (a 401 or 407 on a stack that dropped the connection to
+            // retry): say so, instead of reporting that the server sent nothing.
+            read = ReadBody(read.bytes, cut = true)
         }
     } catch (e: Exception) {
         // No stream to read from: the status stands, the body is unknown.
         read = ReadBody(read.bytes, cut = true)
     }
     return UploadResponse(status, headers, read.bytes, read.cut)
+}
+
+/** Whether the response's headers announce a body: a positive `Content-Length` or a chunked transfer encoding. */
+private fun declaresBody(connection: HttpURLConnection): Boolean {
+    val length: Long? = connection.getHeaderField("Content-Length")?.trim()?.toLongOrNull()
+    if (length != null) return length > 0
+    return connection.getHeaderField("Transfer-Encoding")?.contains("chunked", ignoreCase = true) == true
 }
 
 private class ReadBody(val bytes: ByteArray, val cut: Boolean)
@@ -242,6 +261,10 @@ private fun writeMultipartBody(
     writeText("--$boundary--\r\n")
 }
 
+private const val HTTP_FIRST_FINAL_STATUS: Int = 200
+private const val HTTP_LAST_STATUS: Int = 599
+private val HTTP_INFORMATIONAL_RANGE: IntRange = 100..199
+private val STATUSES_WITHOUT_CONTENT: Set<Int> = setOf(204, 205, 304)
 private const val HTTP_BAD_REQUEST: Int = 400
 private const val COPY_BUFFER_BYTES: Int = 8 * 1024
 private const val NANOS_PER_MILLI: Long = 1_000_000L

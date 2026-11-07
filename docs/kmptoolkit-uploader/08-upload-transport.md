@@ -188,7 +188,11 @@ line, and the body from `errorStream` for a status of 400 and above (no stream i
 `WorkManager`'s data. Reading the body stops once the read timeout has passed in total (at most one more
 read timeout for a read already waiting) or, between reads, when the job is cancelled, and a body that
 cannot be read completely — the connection broke, or the time ran out —
-is reported as truncated with the bytes read so far, not as a transport failure. A `WorkManager` worker has about 10 minutes and this module does not call
+is reported as truncated with the bytes read so far, not as a transport failure. A status the server sends
+before the request body is complete (an early rejection, redirect or even a `2xx`) is its answer, whatever it
+is, and reaches `classify`; only a status below 200 is not final. A status that carries no content (`1xx`,
+`204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
+A `WorkManager` worker has about 10 minutes and this module does not call
 `setForeground`, so keep the upload and the server's answer short.
 
 `cancel(itemId)` cancels that item's unique work and deletes its journaled outcome, if any — and nothing else. A job already uploading stops

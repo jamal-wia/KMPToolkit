@@ -163,7 +163,9 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
 
 - **Android.** `UploadHandlerWorker` reads the response in the same attempt, before the connection is
   dropped: `inputStream` for a status below 400, `errorStream` for 400 and above (a missing one is an
-  empty body). At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
+  empty body; flagged truncated when the headers declared one the stack did not deliver). With a
+  process-wide `java.net.Authenticator` that answers challenges, or on a plain JVM, a 401/407 body is
+  unavailable and arrives empty and flagged truncated; the status still reaches `classify`. At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
   The body stays in the process and is never put into `WorkManager`'s data. A `WorkManager` worker has
   about **10 minutes**, and the module does not call `setForeground`: a long upload, or a server that
   answers slowly, can be stopped and retried. Keep the server's answer fast (`202` and a job id).

@@ -229,4 +229,64 @@ class MultipartBodyAdversarialTest {
         assertEquals(UploadResult.Completed(200), outcome.result)
         assertEquals(200_000, assertNotNull(outcome.response).body().size)
     }
+
+    private fun answerWithoutReading(raw: String) {
+        thread(isDaemon = true) {
+            val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
+            socket.use {
+                // Answers without reading the request, then closes with the body still unread.
+                it.getOutputStream().write(raw.encodeToByteArray())
+                it.getOutputStream().flush()
+            }
+        }
+    }
+
+
+    private fun bigSourceRequest(): UploadRequest = UploadRequest(
+        url(),
+        fields = listOf(UploadField.File("f", "big.bin", "application/octet-stream", tempFile("early", 32L * 1024 * 1024).path)),
+    )
+
+
+    @Test
+    fun `a redirect sent before the body ends is the server's answer, not a transport failure`() {
+        answerWithoutReading("HTTP/1.1 301 Moved Permanently\r\nLocation: https://example.invalid/upload\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+
+        val outcome: MultipartOutcome = upload(bigSourceRequest())
+
+        assertEquals(UploadResult.Completed(301), outcome.result, "a received status must reach the handler's classify")
+    }
+
+    @Test
+    fun `a success sent before the body ends is the server's answer, not a transport failure that uploads the file again`() {
+        answerWithoutReading("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+
+        val outcome: MultipartOutcome = upload(bigSourceRequest())
+
+        assertEquals(UploadResult.Completed(200), outcome.result, "a received status must reach the handler's classify")
+    }
+
+    @Test
+    fun `a 401 that carries a challenge is the server's answer, not a transport failure`() {
+        answer("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"x\"\r\nContent-Length: 5\r\nConnection: close\r\n\r\nnope!")
+
+        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))))
+
+        assertEquals(UploadResult.Completed(401), outcome.result, "a received status must reach the handler's classify")
+        val response: UploadResponse = assertNotNull(outcome.response)
+        // Either the body or an honest flag: a stack that drops the connection to retry a 401 cannot deliver the body.
+        assertTrue(response.body().decodeToString() == "nope!" || response.isBodyTruncated, "an empty body that is not flagged says the server sent nothing")
+    }
+
+    @Test
+    fun `a 304 that names the length of the entity it did not send is not a truncated body`() {
+        answer("HTTP/1.1 304 Not Modified\r\nContent-Length: 1234\r\nConnection: close\r\n\r\n")
+
+        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))))
+
+        assertEquals(UploadResult.Completed(304), outcome.result)
+        val response: UploadResponse = assertNotNull(outcome.response)
+        assertEquals(0, response.body().size)
+        assertTrue(!response.isBodyTruncated, "a response that carries no body by definition was flagged as cut short")
+    }
 }
