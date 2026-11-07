@@ -73,10 +73,18 @@ internal object AlarmIntents {
     fun requestCode(id: String): Int = requestCode(id, slot = 0)
 
     /**
-     * Request code of one of an alarm's two `PendingIntent` slots. A replacement is armed in the slot
-     * the current alarm does not occupy, so a replacement the platform refuses has not touched the
-     * alarm that stays armed; slot `0` is the code every earlier version used, so an alarm armed
-     * before an update is found there.
+     * How many `PendingIntent` slots an id owns. One slot holds the armed alarm; the others are what
+     * a replacement can be built in without touching it, and what a retirement the platform refused
+     * leaves occupied. More than two, so a single refused retirement (a restarting system server)
+     * does not take away the free slot the next replacement needs.
+     */
+    const val SLOT_COUNT: Int = 4
+
+    /**
+     * Request code of one of an alarm's [SLOT_COUNT] `PendingIntent` slots. A replacement is armed in
+     * a slot no alarm occupies, so a replacement the platform refuses has not touched an alarm that
+     * stays armed; slot `0` is the code every earlier version used, so an alarm armed before an
+     * update is found there.
      */
     fun requestCode(id: String, slot: Int): Int = id.hashCode() + slot
 

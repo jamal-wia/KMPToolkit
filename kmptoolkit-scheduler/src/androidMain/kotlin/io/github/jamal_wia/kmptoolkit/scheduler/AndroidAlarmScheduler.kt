@@ -99,10 +99,10 @@ public fun createAlarmScheduler(
  *
  * Each alarm becomes a broadcast `PendingIntent` targeting [AlarmReceiver], distinct per
  * [ScheduledAlarm.id] through a per-id data URI, so re-scheduling one id replaces its alarm instead
- * of stacking a second one, and two ids never collapse into one. An id owns two `PendingIntent`
- * slots (two request codes): a replacement is built in the slot the armed alarm does not use and
- * the old slot is retired only once the new alarm is armed, so a replacement the platform refuses
- * leaves the armed alarm, and the extras it will deliver, exactly as they were.
+ * of stacking a second one, and two ids never collapse into one. An id owns a few `PendingIntent`
+ * slots (request codes): a replacement is built in a slot no alarm occupies and the old slots are
+ * retired only once the new alarm is armed, so a replacement the platform refuses leaves the armed
+ * alarm, and the extras it will deliver, exactly as they were.
  *
  * Exact scheduling is attempted whenever the OS allows it and degrades to an inexact alarm — never
  * to no alarm — when it does not. Both outcomes are reported through [AlarmScheduleResult]; see
@@ -139,18 +139,25 @@ internal class AndroidAlarmScheduler(
     }
 
     /**
-     * Arms [alarm] in the slot the currently armed alarm of its id does not occupy, then retires the
-     * old slot. A failure before the new alarm is armed leaves the old slot untouched (and drops the
+     * Arms [alarm] in a slot no alarm of its id occupies, then retires every other slot. A failure
+     * before the new alarm is armed leaves every occupied slot untouched (and drops the
      * `PendingIntent` this call created, which would otherwise be a leftover with no alarm).
+     *
+     * A slot that is already occupied is never written to while a free one exists: writing it would
+     * rewrite, with `FLAG_UPDATE_CURRENT`, the extras of an alarm that stays armed if the
+     * replacement is then refused. Slots stay occupied only after a refused retirement, so all of
+     * them are taken only after [AlarmIntents.SLOT_COUNT] - 1 such refusals in a row, with no
+     * successful schedule or cancel of the id in between; then the first slot is rewritten in place
+     * (documented in 04-api-reference.md), because refusing the schedule would leave the id unable
+     * to recover.
      */
     private fun arm(manager: AlarmManager, alarm: ScheduledAlarm): AlarmScheduleResult {
-        val first: PendingIntent? = resolve(alarm.id, FIRST_SLOT)
-        val second: PendingIntent? = resolve(alarm.id, SECOND_SLOT)
-        val targetSlot: Int = if (first != null && second == null) SECOND_SLOT else FIRST_SLOT
-        // Both slots occupied is the leftover of a retire that failed; the target is then rewritten
-        // in place, which is the one case a refusal cannot leave the old extras untouched.
-        val occupiedTarget: Boolean = (if (targetSlot == FIRST_SLOT) first else second) != null
-        val retired: PendingIntent? = if (targetSlot == FIRST_SLOT) second else first
+        val occupied: Map<Int, PendingIntent> = SLOTS
+            .mapNotNull { slot: Int -> resolve(alarm.id, slot)?.let { slot to it } }
+            .toMap()
+        val targetSlot: Int = SLOTS.firstOrNull { it !in occupied } ?: FIRST_SLOT
+        val occupiedTarget: Boolean = targetSlot in occupied
+        val retired: List<PendingIntent> = occupied.filterKeys { it != targetSlot }.values.toList()
         val pendingIntent: PendingIntent = PendingIntent.getBroadcast(
             context,
             AlarmIntents.requestCode(alarm.id, targetSlot),
@@ -163,10 +170,11 @@ internal class AndroidAlarmScheduler(
             if (!occupiedTarget) pendingIntent.cancel()
             throw refusal
         }
-        if (retired != null) {
+        // Each retirement on its own, so a refusal for one does not skip the others.
+        for (stale: PendingIntent in retired) {
             try {
-                manager.cancel(retired)
-                retired.cancel()
+                manager.cancel(stale)
+                stale.cancel()
             } catch (refusal: RuntimeException) {
                 // The new alarm is armed; reporting a failure for it would be a lie. The old one may
                 // fire once more, and the next schedule or cancel of the id clears it.
@@ -253,13 +261,12 @@ internal class AndroidAlarmScheduler(
         const val LOG_TAG: String = "KmpToolkitScheduler"
 
         const val FIRST_SLOT: Int = 0
-        const val SECOND_SLOT: Int = 1
-        val SLOTS: List<Int> = listOf(FIRST_SLOT, SECOND_SLOT)
+        val SLOTS: List<Int> = (0 until AlarmIntents.SLOT_COUNT).toList()
 
         /**
          * Serializes every arm and cancel in the process, across every scheduler instance.
          *
-         * Arming is several platform calls — resolving the id's two slots, creating the new slot's
+         * Arming is several platform calls — resolving the id's slots, creating the new slot's
          * `PendingIntent`, which with `FLAG_UPDATE_CURRENT` rewrites the extras it carries, handing it
          * to `AlarmManager` with a time, and retiring the old slot — and cancelling is as many. Two schedules of one id interleaving those steps arm one
          * call's time carrying the other call's content, which is neither alarm the callers asked for.

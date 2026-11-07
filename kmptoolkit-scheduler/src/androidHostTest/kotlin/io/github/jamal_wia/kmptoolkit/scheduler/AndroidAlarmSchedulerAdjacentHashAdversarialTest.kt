@@ -41,7 +41,7 @@ class AndroidAlarmSchedulerAdjacentHashAdversarialTest {
         AlarmDispatch.reset()
     }
 
-    private fun slots(id: String): Int = (0..1).count { slot: Int ->
+    private fun slots(id: String): Int = (0 until AlarmIntents.SLOT_COUNT).count { slot: Int ->
         PendingIntent.getBroadcast(
             context, AlarmIntents.requestCode(id, slot), AlarmIntents.cancelIntent(context, id, keys),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,

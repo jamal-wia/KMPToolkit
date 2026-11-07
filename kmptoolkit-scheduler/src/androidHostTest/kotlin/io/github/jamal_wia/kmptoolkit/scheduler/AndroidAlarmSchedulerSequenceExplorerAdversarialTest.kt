@@ -64,7 +64,7 @@ class AndroidAlarmSchedulerSequenceExplorerAdversarialTest {
         }
         .filter { it.id == id }
 
-    private fun slots(id: String): Int = (0..1).count { slot: Int ->
+    private fun slots(id: String): Int = (0 until AlarmIntents.SLOT_COUNT).count { slot: Int ->
         PendingIntent.getBroadcast(
             context,
             AlarmIntents.requestCode(id, slot),
@@ -110,9 +110,9 @@ class AndroidAlarmSchedulerSequenceExplorerAdversarialTest {
                     val result: AlarmScheduleResult = runBlocking { scheduler.schedule(y) }
                     ModalShadowAlarmManager.mode.set(Mode.HEALTHY)
                     assertTrue(result is AlarmScheduleResult.Failed, "$label: $result")
-                    // With both slots occupied (the leftover of a refused retirement) the target is rewritten in
-                    // place: the one case the scheduler cannot keep, reported separately as a suspect.
-                    if (slotsBefore < 2) {
+                    // With every slot occupied (the leftover of SLOT_COUNT - 1 refused retirements in a row) the
+                    // first slot is rewritten in place: the one documented case the scheduler cannot keep.
+                    if (slotsBefore < AlarmIntents.SLOT_COUNT) {
                         assertEquals(before.map { it.notification.title }, armed(id).map { it.notification.title }, "$label: a refused schedule changed what was armed")
                     }
                     assertEquals(slotsBefore, slots(id), "$label: a refused schedule changed the slots")

@@ -61,7 +61,7 @@ class AndroidAlarmSchedulerStormAdversarialTest {
         payload = mapOf("k" to "v$step"),
     )
 
-    private fun occupiedSlots(id: String): Int = (0..1).count { slot: Int ->
+    private fun occupiedSlots(id: String): Int = (0 until AlarmIntents.SLOT_COUNT).count { slot: Int ->
         PendingIntent.getBroadcast(
             context,
             AlarmIntents.requestCode(id, slot),
