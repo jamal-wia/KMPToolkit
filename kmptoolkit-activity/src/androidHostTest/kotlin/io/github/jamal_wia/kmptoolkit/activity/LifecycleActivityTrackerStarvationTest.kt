@@ -164,4 +164,34 @@ class LifecycleActivityTrackerStarvationTest {
             "${captured.count { it.get() != null }} of 4000 listeners are pinned after release and the queued replays ran",
         )
     }
+
+    private fun applicationCallbackCount(): Int {
+        val field = Application::class.java.getDeclaredField("mActivityLifecycleCallbacks")
+        field.isAccessible = true
+        val callbacks: Any = field.get(application)!!
+        return synchronized(callbacks) { (callbacks as List<*>).size }
+    }
+
+    private fun createUseAndRelease(round: Int): WeakReference<ActivityAccess> {
+        val tracker: ActivityAccess = createActivityAccess(application)
+        val handles: List<ActivitySubscription> = List(3) { tracker.addOnActivityResumedListener { } }
+        if (round % 2 == 0) handles.forEach { it.cancel() }
+        tracker.release()
+        return WeakReference(tracker)
+    }
+
+    @Test
+    fun `a thousand trackers created, used and released leave no callback on the application and are all collectable`() {
+        val screen: ActivityController<Activity> = Robolectric.buildActivity(Activity::class.java).setup()
+        controllers.add(screen)
+        val before: Int = applicationCallbackCount()
+        val dropped: List<WeakReference<ActivityAccess>> = List(1_000) { createUseAndRelease(it) }
+
+        assertEquals(before, applicationCallbackCount(), "released trackers stayed registered on the application")
+        assertTrue(
+            clearedAfterGc(dropped),
+            "${dropped.count { it.get() != null }} of 1000 released trackers are still reachable",
+        )
+        screen.pause().resume()
+    }
 }
