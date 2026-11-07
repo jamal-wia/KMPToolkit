@@ -422,21 +422,41 @@ class RecorderAdversarialTest {
     // --- Storage-low poll against pause/resume churn ---
 
     @Test
-    fun `a low volume seen only while paused never ends the recording across a hundred pause cycles`() =
+    fun `a low reading overtaken by a pause never ends the recording and a low volume after resume always does`() =
         runRecorderTest { fixture ->
-            val path: String = fixture.recording()
-            repeat(CYCLES * 2) { cycle: Int ->
+            repeat(CYCLES) { cycle: Int ->
+                val path: String = fixture.recording()
+                passTime(fixture, 1.seconds)
                 fixture.fileSystem.freeSpace = 1 * MIB
-                assertTrue(fixture.recorder.pause().isSuccess, "cycle $cycle")
-                passTime(fixture, 5.seconds)
-                fixture.fileSystem.freeSpace = 100 * MIB
-                assertTrue(fixture.recorder.resume().isSuccess, "cycle $cycle")
+                // The pause lands after the watchdog read a low value and before it submits the verdict.
+                fixture.fileSystem.onFreeSpaceQuery = {
+                    fixture.fileSystem.onFreeSpaceQuery = {}
+                    fixture.recorder.pause()
+                }
                 passTime(fixture, 3.seconds)
                 assertEquals(
-                    RecorderState.Recording(path),
+                    RecorderState.Paused(path, fixture.recorder.elapsed.value),
                     fixture.recorder.state.value,
-                    "cycle $cycle: a paused recording was ended by a low reading",
+                    "cycle $cycle: a reading taken before the pause ended the recording",
                 )
+                if (cycle % 2 == 0) {
+                    // The volume recovered while the app was in the background.
+                    fixture.fileSystem.freeSpace = 100 * MIB
+                    assertTrue(fixture.recorder.resume().isSuccess, "cycle $cycle")
+                    passTime(fixture, 3.seconds)
+                    assertEquals(RecorderState.Recording(path), fixture.recorder.state.value, "cycle $cycle: recovered volume")
+                    assertTrue(fixture.recorder.stop().isSuccess, "cycle $cycle")
+                } else {
+                    // Still low when the app comes back: the documented end, so the fence cannot be
+                    // passing by dropping every low reading.
+                    assertTrue(fixture.recorder.resume().isSuccess, "cycle $cycle")
+                    passTime(fixture, 3.seconds)
+                    runCurrent()
+                    val ended: RecorderState = fixture.recorder.state.value
+                    assertIs<RecorderState.Interrupted>(ended, "cycle $cycle: a low volume after resume went unnoticed")
+                    assertEquals(InterruptionReason.StorageLow, ended.reason, "cycle $cycle")
+                }
+                fixture.fileSystem.freeSpace = 100 * MIB
             }
         }
 
