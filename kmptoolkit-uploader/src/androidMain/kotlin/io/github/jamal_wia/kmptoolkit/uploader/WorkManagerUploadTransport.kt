@@ -176,12 +176,11 @@ public class UploaderUploadWorker(
             SettleResult.Failed(e)
         }
         // The upload already happened, so the write that records it must not be lost to a stop of this job
-        // (WorkManager stops a job whose constraints went away): it runs to completion, bounded by the
-        // engine wait, instead of being cancelled with the job. NonCancellable is the right tool for a
-        // short cleanup of a fact already known.
-        val landed: Boolean = withContext(NonCancellable) {
-            withTimeoutOrNull(engineWaitMillis) { engine.settleUnderCurrentClaim(itemId, verdict) } ?: false
-        }
+        // (WorkManager stops a job whose constraints went away): it runs to completion instead of being
+        // cancelled with the job. NonCancellable is the right tool for a short cleanup of a fact already
+        // known. Unbounded, as the engine's own upload commit is: engineWait is only the wait for an engine
+        // (above), and abandoning a slow commit would leave the row in flight and upload the file again.
+        val landed: Boolean = withContext(NonCancellable) { engine.settleUnderCurrentClaim(itemId, verdict) }
         return if (landed) Result.success() else Result.retry()
     }
 }
