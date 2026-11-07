@@ -70,6 +70,33 @@ class FxThreadStartTest {
     }
 
     @Test
+    fun aRuntimeWhoseThreadCheckBuildsNoToolkitIsUnavailableNotThrowing() {
+        // Asking JavaFX which thread this is builds the toolkit; on a broken runtime that throws.
+        var calls = 0
+        val runtime = ToolkitJavaFxRuntime(
+            startToolkit = {
+                calls++
+                throw RuntimeException("No toolkit found")
+            },
+            onFxThread = { throw RuntimeException("No toolkit found") },
+        )
+
+        assertFalse(runtime.isAvailable())
+        assertFalse(runtime.isAvailable())
+        assertEquals(1, calls, "the failure is remembered, not rebuilt on every call")
+    }
+
+    @Test
+    fun aThreadCheckThatCannotLoadNativesIsAlsoNotTheFxThread() {
+        val runtime = ToolkitJavaFxRuntime(
+            startToolkit = { throw UnsatisfiedLinkError("prism") },
+            onFxThread = { throw UnsatisfiedLinkError("prism") },
+        )
+
+        assertFalse(runtime.isAvailable())
+    }
+
+    @Test
     fun aToolkitThatExitedFailsAtOnceAndIsRememberedAsPermanent() {
         val real: (Runnable) -> Unit = FxThread.startup
         // What Platform.startup throws once Platform.exit ran; runLater would then drop every block.

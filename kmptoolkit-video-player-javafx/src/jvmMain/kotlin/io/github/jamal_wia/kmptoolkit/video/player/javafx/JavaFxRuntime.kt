@@ -35,11 +35,23 @@ internal class ToolkitJavaFxRuntime(
         if (started) return
         // Before the monitor: another thread may hold it while it waits for the FX thread, which
         // would then wait for the monitor in turn. Being on the FX thread proves the toolkit runs.
-        if (onFxThread()) {
+        if (isFxThread()) {
             started = true
             return
         }
         ensureStartedLocked()
+    }
+
+    // Asking JavaFX who the caller is can itself build the toolkit (`Toolkit.getToolkit()`), and a
+    // broken runtime fails there — "No toolkit found", a missing native library. That is not an
+    // answer to this question and must not escape: "not the FX thread" sends the caller on to the
+    // locked path, which meets the same failure inside its try and remembers it.
+    private fun isFxThread(): Boolean = try {
+        onFxThread()
+    } catch (e: Exception) {
+        false
+    } catch (e: LinkageError) {
+        false
     }
 
     // Blocking by nature: the start waits on the FX thread, and callers are plain synchronous code.
