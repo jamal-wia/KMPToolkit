@@ -511,6 +511,46 @@ class VlcjVideoEngineSessionTest {
         assertEquals(1_500L, engine.positionMs())
     }
 
+    @Test
+    fun `a seek stands as the playhead while earlier calls are still queued on the task thread`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        player.playhead = 12_000L
+        listener.reaction = { event -> if (event == "buffering=true") engine.pause() }
+        val held: CountDownLatch = holdTaskThread()
+        player.fire { buffering(20f) } // submitted from the event thread: the session has a backlog
+
+        engine.seekTo(60_000L) // only queued behind it: libvlc has not even been asked yet
+
+        assertEquals(60_000L, engine.positionMs(), "the clock still reads the old playhead")
+        held.countDown()
+        runtime.drainTasks()
+        assertEquals(60_000L, engine.positionMs())
+    }
+
+    @Test
+    fun `a clock reading taken before a seek does not replace its target`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        engine.seekTo(60_000L)
+        // libvlc 3 applies set_time asynchronously: until it has, it still reports the old time.
+        player.playhead = 12_000L
+
+        player.fire { timeChanged(12_000L) }
+
+        assertEquals(60_000L, engine.positionMs())
+    }
+
+    @Test
+    fun `a reported time near the target ends the hold and the clock takes over`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        engine.seekTo(60_000L)
+        player.playhead = 12_000L
+        player.fire { timeChanged(60_400L) } // libvlc landed on a keyframe just after the target
+
+        player.playhead = 61_000L
+
+        assertEquals(61_000L, engine.positionMs())
+    }
+
     // --- video size and frames ---------------------------------------------------------------
 
     @Test

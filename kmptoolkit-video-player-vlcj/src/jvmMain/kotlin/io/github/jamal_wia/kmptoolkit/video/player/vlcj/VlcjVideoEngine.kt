@@ -18,6 +18,7 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -181,17 +182,32 @@ internal class VlcjVideoEngine(
     override fun seekTo(positionMs: Long) {
         val target: Long = positionMs.coerceAtLeast(0L)
         withOpenSession { s ->
+            if (!s.loaded) return@withOpenSession
+            // Reported at once, and held until libvlc has applied the seek (see Session.holdsSeekTarget):
+            // whatever else of this session is still queued, or a clock reading taken before the
+            // seek, would otherwise put the old playhead back over the target.
+            s.seeksInFlight++
+            s.seekTargetMs = target
+            s.seekHoldUntilNanos = 0L
+            s.timeMs = target
             inOrder(s) {
-                if (!s.loaded) return@inOrder
-                // Before the first start, and after the end, libvlc has no running input to seek in:
-                // remember the target and apply it when playback begins. Nothing starts playing here.
-                if (!s.started || s.ended) {
-                    s.pendingSeekMs = target
-                    s.timeMs = target
-                    return@inOrder
+                try {
+                    // Before the first start, and after the end, libvlc has no running input to seek
+                    // in: remember the target and apply it when playback begins. Nothing starts
+                    // playing here.
+                    if (!s.started || s.ended) {
+                        s.pendingSeekMs = target
+                        s.timeMs = target
+                    } else {
+                        s.player?.setTime(target)
+                        s.timeMs = target
+                        // libvlc 3 applies set_time asynchronously on its input thread, so the clock
+                        // may still read the old time for a moment after the call returned.
+                        s.seekHoldUntilNanos = System.nanoTime() + SEEK_HOLD_NANOS
+                    }
+                } finally {
+                    s.seeksInFlight--
                 }
-                s.player?.setTime(target)
-                s.timeMs = target
             }
         }
     }
@@ -228,6 +244,8 @@ internal class VlcjVideoEngine(
         if (s.ended) return durationMs()
         if (s.started && !onVlcThread.get()) {
             withOpenSession { open ->
+                // The seek target stands until libvlc reports a time near it (see holdsSeekTarget).
+                if (open.holdsSeekTarget()) return@withOpenSession
                 val time: Long = open.player?.time() ?: -1L
                 if (time >= 0L) open.timeMs = time
             }
@@ -371,6 +389,24 @@ internal class VlcjVideoEngine(
         /** This session's calls submitted by [inOrder] that have not started yet. Guarded by [lock]. */
         var queued: Int = 0
 
+        /**
+         * Seeks [seekTo] has accepted whose `setTime` has not run yet, and the target of the latest.
+         * Guarded by [lock], like [seekHoldUntilNanos].
+         */
+        var seeksInFlight: Int = 0
+        var seekTargetMs: Long = 0L
+
+        /** `System.nanoTime()` until which the target is still held after the seek ran; 0 for none. */
+        var seekHoldUntilNanos: Long = 0L
+
+        /**
+         * Whether the playhead is the latest seek's target rather than a clock reading: from the
+         * call until libvlc reports a time near the target, or [SEEK_HOLD_NANOS] after `setTime`
+         * ran, whichever comes first. [lock] held.
+         */
+        fun holdsSeekTarget(): Boolean =
+            seeksInFlight > 0 || (seekHoldUntilNanos != 0L && System.nanoTime() - seekHoldUntilNanos < 0L)
+
         /** The displayed size parsing found; when known, the decoder's buffer size never replaces it. */
         @Volatile var parsedSize: VideoSize? = null
 
@@ -495,7 +531,17 @@ internal class VlcjVideoEngine(
         }
 
         override fun timeChanged(timeMs: Long) = onVlcCallback {
-            if (timeMs >= 0L && s.pendingSeekMs < 0L) s.timeMs = timeMs
+            if (timeMs < 0L || s.pendingSeekMs >= 0L) return@onVlcCallback
+            synchronized(lock) {
+                if (s.holdsSeekTarget()) {
+                    // A reading taken before the seek was applied lands after it: not the playhead.
+                    if (s.seeksInFlight > 0 || abs(timeMs - s.seekTargetMs) > SEEK_SETTLED_TOLERANCE_MS) {
+                        return@onVlcCallback
+                    }
+                    s.seekHoldUntilNanos = 0L
+                }
+                s.timeMs = timeMs
+            }
         }
 
         override fun parsed(status: VlcParseStatus) = onVlcCallback {
@@ -557,6 +603,12 @@ internal class VlcjVideoEngine(
 
     internal companion object {
         private const val FULL_CACHE_PERCENT = 100f
+
+        /** How long a seek's target is held after `setTime` ran, if libvlc reports no time near it. */
+        private const val SEEK_HOLD_NANOS = 500_000_000L
+
+        /** A reported time this close to the target (a keyframe may round it) ends the hold. */
+        private const val SEEK_SETTLED_TOLERANCE_MS = 1_000L
         private const val TEARDOWN_KEEP_ALIVE_SECONDS = 5L
         private val CLEANER: Cleaner = Cleaner.create()
 
