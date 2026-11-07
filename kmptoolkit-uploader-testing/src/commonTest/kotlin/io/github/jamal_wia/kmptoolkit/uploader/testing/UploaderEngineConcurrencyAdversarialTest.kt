@@ -21,6 +21,7 @@ import io.github.jamal_wia.kmptoolkit.uploader.createUploaderEngine
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.concurrent.atomics.fetchAndIncrement
+import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -307,10 +308,151 @@ class UploaderEngineConcurrencyAdversarialTest {
             val ids: List<String> = callers.awaitAll().filterNotNull()
             closer.await()
 
-            val executed: Set<String> = handler.executed.value.toSet()
+            // Store first, handler log second: an item executed and deleted in between is then still in the
+            // log. The other order can miss an item that left the store after the log was read.
             val stored: Set<String> = store.snapshot().map { it.payload }.toSet()
+            val executed: Set<String> = handler.executed.value.toSet()
             assertEquals(64, ids.size, "iteration $iteration: an enqueue reported no insert")
             assertEquals((0 until 64).map { "p$it" }.toSet(), executed + stored, "iteration $iteration: an enqueued item vanished")
+        }
+    }
+
+    @Test
+    fun `a hundred threads awaiting the registry all resume on one registration`() = realTest {
+        val engine: UploaderEngine = createUploaderEngine(InMemoryUploaderStore(), listOf(CountingHandler()), realScope())
+        val waiters: List<Deferred<UploaderEngine?>> = List(100) { async { UploaderEngineRegistry.await(20.seconds) } }
+        delay(50)
+
+        UploaderEngineRegistry.register(engine)
+
+        waiters.awaitAll().forEach { assertTrue(it === engine, "a waiter resumed with the wrong engine or none") }
+        engine.close()
+    }
+
+    @Test
+    fun `sixteen concurrent awaitDrained calls all see the queue empty`() = realTest {
+        val store = InMemoryUploaderStore()
+        val handler = CountingHandler()
+        val engine: UploaderEngine = createUploaderEngine(store, listOf(handler), realScope())
+        repeat(50) { engine.enqueue(handler, "p$it") }
+        engine.start()
+
+        val results: List<Boolean> = together(16) { engine.awaitDrained(15.seconds) }
+
+        assertTrue(results.all { it }, "an awaitDrained caller timed out while the queue emptied: $results")
+        assertEquals(50, handler.executed.value.size)
+        engine.close()
+    }
+
+    @Test
+    fun `an engine closed at a random moment and replaced runs no item more than once beyond the one it interrupted`() =
+        realTest(90) {
+            repeat(20) { iteration ->
+                val store = InMemoryUploaderStore()
+                val executed: MutableStateFlow<List<String>> = MutableStateFlow(emptyList())
+                val handler = object : UploaderHandler<String> {
+                    override val type: String = "adv.slow"
+                    override val retryPolicy: RetryPolicy = OneSecondPolicy
+                    override fun encodePayload(payload: String): String = payload
+                    override fun decodePayload(raw: String): String = raw
+                    override suspend fun execute(context: AttemptContext, payload: String): AttemptResult {
+                        executed.update { it + payload }
+                        kotlinx.coroutines.yield()
+                        return AttemptResult.Success
+                    }
+                }
+                val first: UploaderEngine = createUploaderEngine(store, listOf(handler), realScope())
+                repeat(300) { first.enqueue(handler, "i$it") }
+                first.start()
+                delay(Random(iteration).nextLong(0, 15))
+                first.close()
+
+                val second: UploaderEngine = createUploaderEngine(store, listOf(handler), realScope())
+                second.start()
+                assertTrue(second.awaitDrained(20.seconds), "iteration $iteration: the replacement never drained the queue")
+
+                val counts: Map<String, Int> = executed.value.groupingBy { it }.eachCount()
+                assertEquals((0 until 300).map { "i$it" }.toSet(), counts.keys, "iteration $iteration: an item never ran")
+                val repeated: List<String> = counts.filterValues { it > 1 }.keys.toList()
+                assertTrue(repeated.size <= 2, "iteration $iteration: ${repeated.size} items ran twice after one close: $repeated")
+                second.close()
+            }
+        }
+
+    @Test
+    fun `a tag wipe racing enqueues cancels the upload of every item it removed after that upload launched`() = realTest(120) {
+        repeat(15) { iteration ->
+            val store = InMemoryUploaderStore()
+            val transport = ConcurrentTransport()
+            val handler = UploadingHandler(transport)
+            val engine: UploaderEngine = createUploaderEngine(store, listOf(handler), realScope())
+            engine.start()
+
+            val start = CompletableDeferred<Unit>()
+            val callers: List<Deferred<String?>> = List(64) { async { start.await(); engine.enqueue(handler, "p$it", tag = "acct") } }
+            val wipes: Deferred<Unit> = async { start.await(); repeat(3) { delay(2); engine.cancelByTag("acct") } }
+            start.complete(Unit)
+            callers.awaitAll()
+            wipes.await()
+            engine.cancelByTag("acct")
+            delay(300)
+
+            assertEquals(emptyList(), store.snapshot().filter { it.tag == "acct" }, "iteration $iteration: items survived the wipe")
+            val events: List<String> = transport.log.all
+            for (id in events.filter { it.startsWith("launch:") }.map { it.removePrefix("launch:") }.toSet()) {
+                val lastLaunch: Int = events.indexOfLast { it == "launch:$id" }
+                assertTrue(
+                    events.drop(lastLaunch + 1).contains("cancel:$id"),
+                    "iteration $iteration: $id was launched and its row wiped, but its upload was never cancelled afterwards",
+                )
+            }
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `withdrawals racing the drain cancel every upload that launched for a removed item`() = realTest(120) {
+        repeat(15) { iteration ->
+            val store = InMemoryUploaderStore()
+            val transport = ConcurrentTransport()
+            val handler = UploadingHandler(transport)
+            val engine: UploaderEngine = createUploaderEngine(store, listOf(handler), realScope())
+            val ids: List<String> = List(64) { assertNotNull(engine.enqueue(handler, "p$it")) }
+            engine.start()
+
+            together(64) { engine.cancel(ids[it]) }
+            delay(300)
+
+            assertEquals(emptyList(), store.snapshot(), "iteration $iteration: withdrawn items remain")
+            val events: List<String> = transport.log.all
+            for (id in ids) {
+                val lastLaunch: Int = events.indexOfLast { it == "launch:$id" }
+                if (lastLaunch >= 0) {
+                    assertTrue(events.drop(lastLaunch + 1).contains("cancel:$id"), "iteration $iteration: $id launched after or without a cancel")
+                }
+            }
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `sixteen duplicate outcome reports for one upload settle it and leave the queue empty`() = realTest {
+        repeat(30) { iteration ->
+            val store = InMemoryUploaderStore()
+            val handler = UploadingHandler(ConcurrentTransport())
+            val engine: UploaderEngine = createUploaderEngine(store, listOf(handler), realScope())
+            UploaderEngineRegistry.register(engine)
+            val id: String = assertNotNull(engine.enqueue(handler, "p"))
+            engine.drain()
+
+            val results: List<Boolean> = together(16) { UploadGateway.complete(id, UploadResult.Completed(200)) }
+
+            assertTrue(results.all { it })
+            assertEquals(emptyList(), store.snapshot(), "iteration $iteration: the item stayed")
+            assertTrue(handler.delivered.value.size in 1..16)
+            assertEquals(handler.delivered.value.size, handler.settled.load(), "iteration $iteration: a delivery without its settled hook")
+            UploaderEngineRegistry.unregister(engine)
+            engine.close()
         }
     }
 }
