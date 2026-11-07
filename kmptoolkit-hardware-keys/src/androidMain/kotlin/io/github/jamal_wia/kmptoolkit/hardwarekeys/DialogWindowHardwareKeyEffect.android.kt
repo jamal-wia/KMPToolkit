@@ -16,7 +16,6 @@ import androidx.core.view.ViewCompat
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.e
-import java.util.WeakHashMap
 
 /**
  * Registration point for the app's policy on hardware key events inside Compose dialog-class
@@ -95,7 +94,7 @@ public actual fun DialogWindowHardwareKeyEffect() {
             // of the `PhoneWindow` fallback that shows the system volume panel. An
             // OnUnhandledKeyEventListener would run too late (DecorView lets PhoneWindow handle the
             // key and reports it handled), and an OnKeyListener fires only while its view has focus.
-            val installation: Installation = acquireInstallation(window, interceptor)
+            val installation: KeyInterceptingWindowCallback = acquireInstallation(window, interceptor)
             return@DisposableEffect onDispose { releaseInstallation(window, installation) }
         }
         // A focusable `Popup` has no Window and so no Window.Callback, which makes an unhandled-key
@@ -117,45 +116,36 @@ public actual fun DialogWindowHardwareKeyEffect() {
 }
 
 /**
- * One decoration of a dialog window's callback, shared by every [DialogWindowHardwareKeyEffect]
- * composed in that window: [count] of them hold it, and the last one to leave restores [original].
- */
-private class Installation(
-    val original: Window.Callback,
-    val decorated: KeyInterceptingWindowCallback,
-    var count: Int,
-)
-
-/**
- * The live decoration of each dialog window. Touched only by effect enter and dispose, which Compose
- * runs on the main thread, so it needs no lock; weak so a window nobody disposed cannot be kept alive.
- */
-private val installations: WeakHashMap<Window, Installation> = WeakHashMap()
-
-/**
  * Takes a share of [window]'s decoration, creating it for the first effect. A second effect in the
  * same window — an app-wide dialog wrapper plus a shared component that calls it too — shares it
  * rather than decorating again, which would run the policy twice per key; and because each one holds
  * a share, the decoration outlives whichever of them leaves first.
+ *
+ * The decoration is found through the window's own callback and carries its own share count, so no
+ * global registry references the window. A registry keyed by the window would be pinned by its own
+ * value: the decoration reaches the window's previous callback, which for a `Dialog` is the `Dialog`
+ * itself and holds the window, so a window whose effect was never disposed could not be collected.
+ * Touched only by effect enter and dispose, which Compose runs on the main thread.
  */
-private fun acquireInstallation(window: Window, interceptor: (KeyEvent) -> Boolean): Installation {
-    val existing: Installation? = installations[window]
-    if (existing != null && window.callback === existing.decorated) {
-        existing.count++
+internal fun acquireInstallation(
+    window: Window,
+    interceptor: (KeyEvent) -> Boolean,
+): KeyInterceptingWindowCallback {
+    val existing: KeyInterceptingWindowCallback? = window.callback as? KeyInterceptingWindowCallback
+    if (existing != null) {
+        existing.shares++
         return existing
     }
-    val original: Window.Callback = window.callback
-    val decorated = KeyInterceptingWindowCallback(original, interceptor)
+    val decorated = KeyInterceptingWindowCallback(window.callback, interceptor)
     window.callback = decorated
-    return Installation(original, decorated, count = 1).also { installations[window] = it }
+    return decorated
 }
 
-private fun releaseInstallation(window: Window, installation: Installation) {
-    if (--installation.count > 0) return
+internal fun releaseInstallation(window: Window, installation: KeyInterceptingWindowCallback) {
+    if (--installation.shares > 0) return
     // Restore only if nothing re-decorated the callback after us; clobbering another decorator would
     // silently drop its behaviour.
-    if (window.callback === installation.decorated) window.callback = installation.original
-    if (installations[window] === installation) installations.remove(window)
+    if (window.callback === installation) window.callback = installation.delegate
 }
 
 /**
@@ -169,9 +159,12 @@ private fun releaseInstallation(window: Window, installation: Installation) {
  * unnoticed until some platform version gives them behaviour.
  */
 internal class KeyInterceptingWindowCallback(
-    private val delegate: Window.Callback,
+    val delegate: Window.Callback,
     private val interceptor: (KeyEvent) -> Boolean,
 ) : Window.Callback by delegate {
+
+    /** How many effects hold this decoration; the last one to leave restores [delegate]. Main thread only. */
+    var shares: Int = 1
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean =
         interceptor(event) || delegate.dispatchKeyEvent(event)

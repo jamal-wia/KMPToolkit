@@ -26,7 +26,8 @@ package io.github.jamal_wia.kmptoolkit.systembars
  * **Callers must clear the flag when they no longer need it.** Letting the owning `LaunchedEffect`
  * or coroutine scope simply get cancelled is not enough — a scope cancellation does not itself flip
  * the flag back off. Call `setKeepScreenOn(false)` explicitly from the owner's teardown so the
- * platform flag never outlives the screen that requested it.
+ * platform flag never outlives the screen that requested it. A controller that was cleared this way
+ * holds nothing and may simply be dropped; creating one per screen or session is supported.
  */
 public interface ScreenWakeLockController {
 

@@ -226,6 +226,11 @@ controller in every normal setup and a weak reference would only hide a wiring m
 is torn down while the controller lives on, clear it — `systemBars.hostViewController = null` — or
 `release()` the controller, which clears it for you.
 
+One shape needs that clearing on every teardown: a view controller that *owns* the controller and
+also assigns itself to `hostViewController` forms a retain cycle that Kotlin/Native's garbage
+collector cannot break across the Objective-C boundary. Clear the property in the host's teardown.
+The usual shape, an app-wide controller whose host is the root view controller, has no cycle.
+
 ### No navigation bar, but there is a home indicator
 
 `navigationBarIcons` is tracked and ignored — there is no bar to style.
@@ -252,9 +257,20 @@ is already there, so you never have to think about it.
 
 ### Android
 
-Backed by `Window.FLAG_KEEP_SCREEN_ON`, applied through the same internal activity tracker
-`SystemBarsController` uses — `createScreenWakeLockController` builds its own tracker instance, so
-using both controllers registers two lightweight `ActivityLifecycleCallbacks`, not one shared one.
+Backed by `Window.FLAG_KEEP_SCREEN_ON`, applied through an activity tracker. Every `Context`-based factory of this module
+(`createScreenWakeLockController(context)` and `createSystemBarsController(context)`) shares one
+tracker per `Application`, so however many controllers you create, and however often you create and
+release them, one `ActivityLifecycleCallbacks` stays registered. A tracker you build yourself and pass
+to the `ActivityAccess` overloads is yours, as before.
+
+The controller subscribes to resume events only while there is something to re-apply: while the flag
+is wanted, and afterwards until a release that arrived with no activity resumed has reached the
+window that carried the flag. A window that is finishing or destroyed will never resume, so a release
+owed to it (an activity that finishes, pauses, and only then has its owner release the flag) is dropped at
+once instead of waiting for a resume that cannot come. A controller that was cleared with `setKeepScreenOn(false)` therefore
+holds no subscription and is ordinary garbage, so creating one per screen or per session is
+supported. One dropped while still `true` stays registered and keeps the screen awake, which is why
+callers must clear it.
 
 The controller remembers whether it last set the flag on the *specific* activity it wrote to
 (a weak reference), which is what makes rotation safe in both directions: a `true` held by the

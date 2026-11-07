@@ -382,7 +382,10 @@ public fun createScreenWakeLockController(): ScreenWakeLockController
 The Android implementation tracks the currently resumed activity, the same way
 `createSystemBarsController` does — including the choice between the two overloads, and for the same
 reason: the `Context` one keeps whichever activity resumed last awake, so a playback session's wake
-lock follows the user into an in-process file picker. Pass the same `ActivityAccess` you gave the
+lock follows the user into an in-process file picker.
+The `Context` overloads of both factories share one internal activity tracker per `Application`, so
+creating controllers repeatedly does not register further lifecycle callbacks; a wake-lock controller
+subscribes to resumes only while its flag is wanted or still owed to a window. Pass the same `ActivityAccess` you gave the
 system-bars controller and both agree on which window they mean. Either way it re-applies a held
 `true` to each newly resumed activity across configuration changes. The iOS implementation needs no such tracking — see
 [`05-platform-notes.md`](05-platform-notes.md).
