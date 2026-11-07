@@ -66,6 +66,12 @@ Activity cannot leak it.
 
 **Throws** `UploaderStorageException(OPEN, …)` if the file cannot be opened, created or migrated.
 
+A file that is not a database (corrupt, truncated) is **left untouched**: Android's default would delete
+it and open an empty queue, silently dropping every effect still owed, so this factory fails the open
+instead. Report it, then start afresh with `Context.deleteDatabase("<name>.kmptoolkit.uploader.db")`
+(`<name>` is `UploaderDatabaseConfig.name`, or the package name by default) if the app decides the
+queue is lost.
+
 ## `createUploaderStorage(config)` — iOS
 
 ```kotlin

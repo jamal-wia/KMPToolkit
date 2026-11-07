@@ -222,7 +222,8 @@ uncommitted state your own transaction has written so far.
 
 Nothing platform-specific escapes. A SQLite failure — a full disk, a corrupt file, a database that
 cannot be opened — arrives as `UploaderStorageException`, carrying the `UploaderStorageOperation` that
-was running and the platform cause.
+was running and the platform cause. A corrupt database file is never deleted for you (see
+`createUploaderStorage(context, config)` in the API reference): the open fails and the file stays as found.
 
 It is thrown rather than returned because `UploaderStore` has no result type, and swallowing a failed
 write would be worse than throwing: the engine would believe an effect is queued that is not, and
