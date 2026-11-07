@@ -63,7 +63,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * tap are two coroutines in practice, and the flow tolerates that: every transition that follows a
  * suspension publishes only if the state is still the one it started from (a compare-and-set), so a
  * stale result never overwrites a live [PermissionFlowState.Requesting] or its outcome — the newer
- * state wins and is what the call returns. The controller underneath serializes requests, so no two
+ * state wins and is what the call returns. The synchronous transitions ([reset], [rationaleDismissed],
+ * [settingsDeclined]) check and write in one atomic step too, so none of them can overwrite a
+ * `Requesting` published at the same moment. The controller underneath serializes requests, so no two
  * dialogs ever overlap. If the calling coroutine is cancelled while the dialog is up, the flow goes
  * back to [PermissionFlowState.Idle] (nothing was decided) instead of staying `Requesting` forever;
  * the next [refresh] reads what the user actually chose.
@@ -144,11 +146,7 @@ public class PermissionRequestFlow(
      * [PermissionFlowState.AwaitingRationale].
      */
     public fun rationaleDismissed(): PermissionFlowState =
-        if (mutableState.value == PermissionFlowState.AwaitingRationale) {
-            moveTo(PermissionFlowState.Denied)
-        } else {
-            mutableState.value
-        }
+        moveWhen(PermissionFlowState.Denied) { it == PermissionFlowState.AwaitingRationale }
 
     /**
      * Sends the user to the most specific system settings screen for [permission] —
@@ -171,11 +169,7 @@ public class PermissionRequestFlow(
      * [PermissionFlowState.AwaitingSettings].
      */
     public fun settingsDeclined(): PermissionFlowState =
-        if (mutableState.value == PermissionFlowState.AwaitingSettings) {
-            moveTo(PermissionFlowState.Denied)
-        } else {
-            mutableState.value
-        }
+        moveWhen(PermissionFlowState.Denied) { it == PermissionFlowState.AwaitingSettings }
 
     /**
      * Re-derives the state from what the OS says right now, without ever showing a dialog.
@@ -222,11 +216,7 @@ public class PermissionRequestFlow(
      * screen would leave the answer nowhere to land.
      */
     public fun reset(): PermissionFlowState =
-        if (mutableState.value == PermissionFlowState.Requesting) {
-            PermissionFlowState.Requesting
-        } else {
-            moveTo(PermissionFlowState.Idle)
-        }
+        moveWhen(PermissionFlowState.Idle) { it != PermissionFlowState.Requesting }
 
     /**
      * Shows the system dialog and maps the answer.
@@ -253,7 +243,10 @@ public class PermissionRequestFlow(
             mutableState.compareAndSet(PermissionFlowState.Requesting, PermissionFlowState.Idle)
             throw cancellation
         }
-        return moveTo(
+        // CAS from Requesting, like every other transition after a suspension: a state written in the
+        // meantime is the newer word and is returned instead.
+        return moveFrom(
+            PermissionFlowState.Requesting,
             when (answer) {
                 is PermissionStatus.Granted -> PermissionFlowState.Granted
                 is PermissionStatus.Limited -> PermissionFlowState.Limited
@@ -269,8 +262,16 @@ public class PermissionRequestFlow(
     private fun moveFrom(before: PermissionFlowState, next: PermissionFlowState): PermissionFlowState =
         if (mutableState.compareAndSet(before, next)) next else mutableState.value
 
-    private fun moveTo(next: PermissionFlowState): PermissionFlowState {
-        mutableState.value = next
-        return next
+    /**
+     * Atomically moves to [next] when the *current* state satisfies [allowed]; otherwise returns the
+     * state as it is. The check and the write are one compare-and-set, so a concurrent [start] that
+     * has just published `Requesting` can never be overwritten by a transition that checked earlier.
+     */
+    private inline fun moveWhen(next: PermissionFlowState, allowed: (PermissionFlowState) -> Boolean): PermissionFlowState {
+        while (true) {
+            val current: PermissionFlowState = mutableState.value
+            if (!allowed(current)) return current
+            if (mutableState.compareAndSet(current, next)) return next
+        }
     }
 }
