@@ -790,4 +790,41 @@ class UploaderStorageRestartAdversarialTest {
             assertEquals(null, open(config).store.getById(dead.id), "iteration $iteration: the delivered item is back in the queue")
         }
     }
+
+    @Test
+    fun `fifty failed opens of a corrupt file are typed and leave no database thread`() = realTest {
+        val baseline: Int = dbThreads()
+        val config: UploaderDatabaseConfig = newConfig()
+        val file = application().getDatabasePath(uploaderDatabaseFileName(config.name!!))
+        file.parentFile?.mkdirs()
+        file.writeBytes(ByteArray(4_096) { (it * 31).toByte() })
+
+        repeat(50) { attempt ->
+            val result: Result<UploaderStorage> = runCatching { createUploaderStorage(application(), config) }
+            result.getOrNull()?.also { openStorages += it }
+            assertTrue(
+                result.exceptionOrNull() is UploaderStorageException,
+                "attempt $attempt: a corrupt file must fail with UploaderStorageException, got ${result.exceptionOrNull()}",
+            )
+        }
+        withTimeout(10.seconds) { while (dbThreads() > baseline) delay(20) }
+        assertEquals(baseline, dbThreads(), "failed opens leaked database threads:\n" + threadDump())
+    }
+
+    @Test
+    fun `a failed open of a corrupt file leaves the file untouched instead of recreating an empty queue`() = realTest {
+        val config: UploaderDatabaseConfig = newConfig()
+        val file = application().getDatabasePath(uploaderDatabaseFileName(config.name!!))
+        file.parentFile?.mkdirs()
+        val garbage = ByteArray(4_096) { (it * 31).toByte() }
+        file.writeBytes(garbage)
+
+        repeat(3) {
+            val result: Result<UploaderStorage> = runCatching { createUploaderStorage(application(), config) }
+            result.getOrNull()?.also { openStorages += it }
+            assertTrue(result.exceptionOrNull() is UploaderStorageException, "got ${result.exceptionOrNull()}")
+            assertTrue(file.exists(), "the corrupt file was deleted: whatever it held is gone without the app's say")
+            assertTrue(garbage.contentEquals(file.readBytes()), "the corrupt file was rewritten")
+        }
+    }
 }
