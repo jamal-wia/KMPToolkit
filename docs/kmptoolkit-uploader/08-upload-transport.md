@@ -330,11 +330,12 @@ Its worker settles under the item's current claim, as the gateway does and for t
 job is unique per item id, so it serves every claim of the item. Like the gateway, it reaches only an
 engine made by `createUploaderEngine`, and retries the job otherwise.
 
-The outcome of an upload that happened is never lost to a fault after it. A `classify` that throws
-settles the attempt as `Failed` (it spends retry budget, so a persistent bug ends in the give-up
-policy instead of re-uploading the file every lease); a settle the store refuses makes the job report
-a retry; and the settle write is not cancelled with the job when WorkManager stops it just after the
-server answered.
+A `classify` that throws settles the attempt as `Failed` (it spends retry budget, so a persistent bug
+ends in the give-up policy instead of re-uploading the file every lease), and the settle write is not
+cancelled with the job when WorkManager stops it just after the server answered. A settle the store
+refuses, or one that does not finish within the engine wait, makes the job report a retry; because this
+classic worker keeps no journal, that retry uploads the file again. `UploadHandler` on the handler
+transport is the route that replays a journaled outcome instead of uploading again.
 
 Both Android workers run the body write under a watchdog. `HttpURLConnection` has no write timeout, so a
 peer that stops reading would otherwise pin the thread for the kernel's retransmission time (minutes) and
