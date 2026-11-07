@@ -317,7 +317,7 @@ internal class DefaultUploaderEngine(
 
             // Verdicts on one attempt, so they stand only from the attempt the engine still runs.
             is SettleResult.Park -> if (record.isCurrentFor(claim, result)) {
-                val parked: Boolean = store.park(id, result.reason, record.state, record.claim)
+                val parked: Boolean = store.park(id, boundedFailureText(result.reason), record.state, record.claim)
                 if (parked) {
                     logger.w { "Settled ${record.logName} as parked — ${result.reason}." }
                 } else {
@@ -368,7 +368,7 @@ internal class DefaultUploaderEngine(
      * follows a read, and a settle can land between the two on an executor's own coroutine.
      */
     private suspend fun parkAsRead(record: UploaderItem, reason: String?): Boolean =
-        store.park(record.id, reason, record.state, record.claim)
+        store.park(record.id, boundedFailureText(reason), record.state, record.claim)
 
     override suspend fun drain() {
         // Items whose attempt threw out of `executeItem` during this call (a store write failing after the
@@ -558,7 +558,7 @@ internal class DefaultUploaderEngine(
             throw e
         } catch (e: Throwable) {
             // Retrying cannot fix a broken payload, and deleting it would lose the user's data.
-            parkAsRead(item, "undecodable payload: ${e.message}")
+            parkAsRead(item, "undecodable payload: ${describeFailure(e)}")
             logger.e(e) { "Parked ${item.logName} — undecodable payload." }
             return
         }
@@ -729,7 +729,7 @@ internal class DefaultUploaderEngine(
         expectedClaim: Long = record.claim,
     ) {
         val attempts: Int = record.attempts + 1
-        val error: String? = cause?.let { "${it::class.simpleName}: ${it.message}" }
+        val error: String? = describeFailure(cause)
         val nextRunAt: Long = saturatingAdd(clock.nowEpochMillis(), handler.retryPolicy.backoffMillis(attempts))
         // The give-up is decided before the write and made by it, not by a second write after it: a row
         // that passed through PENDING on its way to parked or dropped could be handed off once more by
@@ -751,7 +751,7 @@ internal class DefaultUploaderEngine(
             id = record.id,
             attempts = attempts,
             nextRunAtEpochMillis = nextRunAt,
-            lastError = lastError,
+            lastError = boundedFailureText(lastError),
             expectedState = expectedState,
             expectedClaim = expectedClaim,
             disposition = disposition,
@@ -1041,7 +1041,7 @@ internal class DefaultUploaderEngine(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            parkAsRead(record, "undecodable payload on $phase: ${e.message}")
+            parkAsRead(record, "undecodable payload on $phase: ${describeFailure(e)}")
             logger.e(e) { "Parked ${record.logName} — undecodable payload on $phase." }
             return null
         }

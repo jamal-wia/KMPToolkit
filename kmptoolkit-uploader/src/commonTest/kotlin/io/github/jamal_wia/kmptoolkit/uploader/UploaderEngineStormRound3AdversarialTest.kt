@@ -118,6 +118,73 @@ class UploaderEngineStormRound3AdversarialTest {
         }
     }
 
+    // --- fixer round 3, group 2 ---
+
+    @Test
+    fun `a retry whose cause has a throwing message still spends its attempt and takes its backoff`() = runTest {
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Retry(HostileMessage()) })
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler))
+        try {
+            val id: String = assertNotNull(engine.enqueue(handler, "p"))
+
+            engine.drain()
+            clock.millis += 100L // far less than the one-second backoff
+            engine.drain()
+            engine.drain()
+
+            assertEquals(1, handler.payloads.size, "the item was attempted again inside its backoff")
+            assertEquals(1, store.find(id)?.attempts, "the failed attempt was never recorded")
+        } finally {
+            engine.close()
+        }
+    }
+
+    private class HostileMessage : RuntimeException() {
+        override val message: String
+            get() = throw IllegalStateException("message getter blew up")
+    }
+
+    @Test
+    fun `a failure message of three megabytes is stored truncated`() = runTest {
+        val message: String = "head-" + "x".repeat(3_000_000)
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Retry(IllegalStateException(message)) })
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler))
+        try {
+            val id: String = assertNotNull(engine.enqueue(handler, "p"))
+
+            engine.drain()
+
+            val stored: String = assertNotNull(store.find(id)?.lastError)
+            assertTrue(stored.length <= 4096 + 64, "the stored failure text is ${stored.length} characters long")
+            assertTrue(stored.startsWith("IllegalStateException: head-"), "the truncated text must keep the head of the message")
+        } finally {
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `truncation never leaves an unpaired surrogate`() = runTest {
+        // The text is "IllegalStateException: " + message, cut at 4096: place a pair across that boundary.
+        val prefixLength: Int = "IllegalStateException: ".length
+        val message: String = "a".repeat(4096 - prefixLength - 1) + "\uD83D\uDE00" + "b".repeat(100)
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Retry(IllegalStateException(message)) })
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler))
+        try {
+            val id: String = assertNotNull(engine.enqueue(handler, "p"))
+
+            engine.drain()
+
+            val stored: String = assertNotNull(store.find(id)?.lastError)
+            assertTrue(stored.contains("truncated"), "the text was expected to be cut")
+            stored.forEachIndexed { index, c ->
+                if (c.isHighSurrogate()) assertTrue(index + 1 < stored.length && stored[index + 1].isLowSurrogate(), "lone high surrogate at $index")
+                if (c.isLowSurrogate()) assertTrue(index > 0 && stored[index - 1].isHighSurrogate(), "lone low surrogate at $index")
+            }
+        } finally {
+            engine.close()
+        }
+    }
+
     // --- registry storm on real threads ---------------------------------------------------------------
 
     @Test

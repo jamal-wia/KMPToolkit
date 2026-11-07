@@ -190,7 +190,8 @@ public interface UploaderStore {
      * @param id the item's [UploaderItem.id]; an absent row is a no-op returning `false`.
      * @param attempts the new absolute attempt count (not a delta).
      * @param nextRunAtEpochMillis epoch millis before which the item must not be attempted again.
-     * @param lastError a short diagnostic string, or `null`.
+     * @param lastError a short diagnostic string, or `null`. At most about 4096 characters; the engine
+     *   truncates longer text before calling.
      * @param expectedState the state the caller read the item in — [UploaderItemState.IN_FLIGHT] for a
      *   settle or a failed hand-off, the drain's read for an attempt it ran itself.
      * @param expectedClaim the [UploaderItem.claim] the caller read alongside [expectedState].
@@ -262,7 +263,8 @@ public interface UploaderStore {
      * engine no longer runs. An unguarded park would take the item from the executor now holding it.
      *
      * @param id the item's [UploaderItem.id]; an absent row is a no-op returning `false`.
-     * @param lastError why it was parked, or `null`.
+     * @param lastError why it was parked, or `null`. At most about 4096 characters; the engine truncates
+     *   longer text before calling.
      * @param expectedState the state the caller read the item in.
      * @param expectedClaim the [UploaderItem.claim] the caller read alongside [expectedState].
      * @return `true` if the row was parked; `false` if it was absent or had moved.

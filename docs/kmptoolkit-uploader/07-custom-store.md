@@ -34,7 +34,7 @@ CREATE TABLE uploader_item (
     attempts        INTEGER NOT NULL,
     next_run_at     INTEGER NOT NULL,
     created_at      INTEGER NOT NULL,
-    last_error      TEXT,
+    last_error      TEXT,                       -- at most ~4096 chars: the engine truncates before it writes
     lease_until     INTEGER NOT NULL DEFAULT 0,
     claim           INTEGER NOT NULL DEFAULT 0          -- the guards' version; see below
 );

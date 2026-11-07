@@ -308,6 +308,10 @@ A data class of fourteen fields — see its KDoc for each; `claim` is the row's 
 There is deliberately no `RUNNING` state; a crash mid-execution needs no recovery pass because the
 row is still `PENDING` on the next launch.
 
+`lastError` is at most about 4096 characters: the engine truncates longer failure text (cutting on a character
+boundary and appending `… [truncated N chars]`) before it reaches a store, and reads an exception whose
+`message` getter throws safely. A custom store's `last_error` column can therefore stay plain `TEXT`.
+
 ## `ConflictPolicy`
 
 `KEEP` (default) and `REPLACE`. Both supersede a `PARKED` conflict. Ignored when `uniqueKey` is

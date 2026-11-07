@@ -349,4 +349,33 @@ class UploaderStorageStormRound3AdversarialTest {
             )
         }
     }
+
+    // --- fixer round 3 ---
+
+    @Test
+    fun `a failure whose message is three megabytes cannot poison the queue for every later read`() = realTest {
+        val storage: UploaderStorage = open()
+        val handler = BigErrorHandler(3_000_000)
+        val engine: UploaderEngine = engineOver(storage, handler)
+        assertNotNull(engine.enqueue(handler, "p"))
+        engine.drain()
+
+        val readable: Result<Int> = runCatching { storage.store.getAllActive().size }
+
+        assertTrue(readable.isSuccess, "the queue can no longer be read after one failed attempt: ${readable.exceptionOrNull()}")
+        assertEquals(1, readable.getOrNull())
+    }
+
+
+    private class BigErrorHandler(private val size: Int) : UploaderHandler<String> {
+        override val type: String = "adv.sql.bigerror"
+        override val retryPolicy: RetryPolicy = QuickPolicy
+        val executed: MutableStateFlow<Int> = MutableStateFlow(0)
+        override fun encodePayload(payload: String): String = payload
+        override fun decodePayload(raw: String): String = raw
+        override suspend fun execute(context: AttemptContext, payload: String): AttemptResult {
+            executed.update { it + 1 }
+            return if (executed.value == 1) AttemptResult.Retry(IllegalStateException("e".repeat(size))) else AttemptResult.Success
+        }
+    }
 }

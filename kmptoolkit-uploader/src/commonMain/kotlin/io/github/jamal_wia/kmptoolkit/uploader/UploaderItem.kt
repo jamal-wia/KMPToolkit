@@ -33,7 +33,9 @@ package io.github.jamal_wia.kmptoolkit.uploader
  *   the persisted backoff gate. `0` means "attemptable now".
  * @property createdAtEpochMillis when the item was enqueued. Diagnostic only: ordering comes from
  *   the store's insertion sequence, not from this field.
- * @property lastError a short diagnostic from the most recent failure or park, or `null`.
+ * @property lastError a short diagnostic from the most recent failure or park, or `null`. At most about
+ *   4096 characters: the engine truncates longer text (an exception message embedding a response body, say)
+ *   before it reaches a store, so a column of any size holds it.
  * @property leaseUntilEpochMillis epoch millis at which a detached executor's claim expires.
  *   Meaningful only in [UploaderItemState.IN_FLIGHT]; `0` otherwise.
  * @property claim the row's claim counter: `0` when inserted, advanced by exactly one by every
