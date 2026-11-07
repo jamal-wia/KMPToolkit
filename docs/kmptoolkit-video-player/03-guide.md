@@ -60,7 +60,9 @@ apart. Match on the types and codes you care about and fall through on the rest;
 platform produces are not part of this module's compatibility promise.
 
 A failure *after* loading — a stream that dies mid-video — arrives the same way, as `Error`, when the
-platform notices. Recovering means preparing again; there is no `retry()`, because the source to
+platform notices. That includes a failure the engine reports in the instant between its load
+succeeding and `prepare` publishing `Ready`: it is kept and applied in order, so the player settles on
+`Error` rather than `Ready`. Recovering means preparing again; there is no `retry()`, because the source to
 retry with (perhaps with a refreshed token) is information only you have.
 
 ## The release contract
@@ -142,7 +144,9 @@ player.bufferedPositionFlow // how far ahead the platform has data, in ms — a 
 ```
 
 - `isBufferingFlow` is reported for a **loaded** source only. Waiting for data while loading is what
-  `Preparing` already says, so it stays `false` then. It is `false` whenever the player is idle, has
+  `Preparing` already says, so it is not shown then. A stall the engine reports in the instant between
+  its load succeeding and `prepare` publishing `Ready` is the exception: it is kept and shown with
+  `Ready`. It is `false` whenever the player is idle, has
   completed, or has failed.
 - `bufferedPositionFlow` is polled together with the playhead, only while `Playing`, and snapshotted
   when a source finishes loading and on `pause()`. It is `0` when nothing is loaded; for a local file

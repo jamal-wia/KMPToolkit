@@ -93,6 +93,20 @@ internal class Media3VideoEngine(
     @Volatile
     private var listener: VideoPlaybackEngineListener? = null
 
+    /**
+     * How many [release] calls have returned whose reset has not yet run on the looper. While it is
+     * not zero the listener hears nothing: [release] takes effect for the listener the moment it
+     * returns, even though the reset itself is posted, so an event already queued on a busy looper
+     * behind the reset cannot reach a player that has let go of the source. A counter, not a flag,
+     * so a second [release] cannot be undone by the first one's reset. A [MutableStateFlow] only as
+     * an atomic cell, set from any thread by the non-suspending SPI (D-21, D-24).
+     */
+    private val pendingReleases: MutableStateFlow<Int> = MutableStateFlow(0)
+
+    /** The listener, or `null` once this engine was released or disposed: see [pendingReleases]. */
+    private val sink: VideoPlaybackEngineListener?
+        get() = if (disposed || pendingReleases.value != 0) null else listener
+
     // Written only on the looper thread; volatile so media3PlayerOrNull() off that thread sees it.
     @Volatile
     private var player: ExoPlayer? = null
@@ -147,7 +161,7 @@ internal class Media3VideoEngine(
                     current.playWhenReady = false
                     reportBuffering(false)
                     refreshSnapshot()
-                    listener?.onCompleted()
+                    sink?.onCompleted()
                     return
                 }
 
@@ -168,11 +182,11 @@ internal class Media3VideoEngine(
             loaded = false
             lastBuffering = false
             refreshSnapshot()
-            listener?.onFailed(error)
+            sink?.onFailed(error)
         }
 
         override fun onVideoSizeChanged(videoSize: Media3VideoSize) {
-            if (active) listener?.onVideoSizeChanged(videoSize.toVideoSizeOrNull())
+            if (active) sink?.onVideoSizeChanged(videoSize.toVideoSizeOrNull())
         }
 
         override fun onEvents(player: Player, events: Player.Events) {
@@ -251,11 +265,18 @@ internal class Media3VideoEngine(
     override fun bufferedPositionMs(): Long = currentSnapshot().bufferedPositionMs
 
     override fun release() {
+        // Counted before anything else and uncounted by the reset itself, so the listener is silent
+        // from the moment this returns, not from the moment the posted reset gets its turn.
+        pendingReleases.update { it + 1 }
         snapshotCell.value = SnapshotCell(Snapshot.EMPTY)
         onPlayerThread {
-            pendingLoad?.cancel()
-            pendingLoad = null
-            player?.let(::resetPlayer)
+            try {
+                pendingLoad?.cancel()
+                pendingLoad = null
+                player?.let(::resetPlayer)
+            } finally {
+                pendingReleases.update { it - 1 }
+            }
         }
     }
 
@@ -299,7 +320,7 @@ internal class Media3VideoEngine(
     private fun reportBuffering(isBuffering: Boolean) {
         if (isBuffering == lastBuffering) return
         lastBuffering = isBuffering
-        listener?.onBufferingChanged(isBuffering)
+        sink?.onBufferingChanged(isBuffering)
     }
 
     /** Looper thread only. */

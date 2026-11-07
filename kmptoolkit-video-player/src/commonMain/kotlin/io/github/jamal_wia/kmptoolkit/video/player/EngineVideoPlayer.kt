@@ -77,6 +77,16 @@ internal class EngineVideoPlayer(
      */
     private class Load(val job: CompletableJob, val finished: CompletableJob = Job())
 
+    /**
+     * What the engine reported about its source while [prepare] was still publishing it: the first
+     * failure, and the last buffering value. A platform engine finishes its load on its own thread and
+     * [prepare] resumes on the caller's a moment later, so a failure or stall of the loaded source can
+     * land in between; applying them at [prepare]'s final step, in order, keeps them from being lost
+     * (error wins over Ready, buffering is kept). Cleared with every source reset. Guarded.
+     */
+    private var preparingFailure: Throwable? = null
+    private var preparingBuffering: Boolean = false
+
     /** Set once by [release]. Guarded. */
     private var released: Boolean = false
 
@@ -133,6 +143,9 @@ internal class EngineVideoPlayer(
             val started: Boolean = gate.exclusive {
                 if (!isCurrent(load)) return@exclusive false
                 stopPositionUpdates()
+                // A source that is still loaded keeps reporting until the engine is told to drop it;
+                // free it first, so what arrives while this load runs belongs to this load.
+                if (_stateFlow.value.isPlayable) engine.release()
                 resetSourceFlows()
                 _stateFlow.value = VideoPlayerState.Preparing
                 true
@@ -185,12 +198,21 @@ internal class EngineVideoPlayer(
 
         gate.exclusive {
             if (!isCurrent(load)) return@exclusive
+            val failed: Throwable? = preparingFailure
+            if (failed != null) {
+                // The loaded source failed before it could be published: the failure wins.
+                resetSourceFlows()
+                _stateFlow.value = VideoPlayerState.Error(failed)
+                return@exclusive
+            }
+            val stalled: Boolean = preparingBuffering
             // Settings belong to the player and outlive every source; push them onto the fresh load.
             engine.setVolume(effectiveVolume)
             engine.setLooping(_repeatModeFlow.value == RepeatMode.One)
             engine.setSpeed(_playbackSpeedFlow.value)
             _bufferedPositionFlow.value = engine.bufferedPositionMs().coerceAtLeast(0L)
             _stateFlow.value = VideoPlayerState.Ready(engine.durationMs())
+            _isBufferingFlow.value = stalled
         }
     }
 
@@ -320,7 +342,13 @@ internal class EngineVideoPlayer(
     }
 
     override fun onFailed(cause: Throwable): Unit = gate.submit {
-        if (released || !_stateFlow.value.isPlayable) return@submit
+        if (released) return@submit
+        if (_stateFlow.value == VideoPlayerState.Preparing) {
+            // Between the engine's load and prepare's publishing Ready: kept for prepare's last step.
+            if (preparingFailure == null) preparingFailure = cause
+            return@submit
+        }
+        if (!_stateFlow.value.isPlayable) return@submit
         stopPositionUpdates()
         _isBufferingFlow.value = false
         _videoSizeFlow.value = null
@@ -329,9 +357,15 @@ internal class EngineVideoPlayer(
     }
 
     override fun onBufferingChanged(isBuffering: Boolean): Unit = gate.submit {
-        // Waiting for data while preparing is what Preparing already says; buffering is reported for a
-        // loaded source only, so a stale report cannot leave an idle player "buffering".
-        if (released || !_stateFlow.value.isPlayable) return@submit
+        // Buffering is reported for a loaded source only, so a stale report cannot leave an idle
+        // player "buffering". One that arrives while prepare still publishes the load is kept for
+        // its last step (the engine reports each change once).
+        if (released) return@submit
+        if (_stateFlow.value == VideoPlayerState.Preparing) {
+            preparingBuffering = isBuffering
+            return@submit
+        }
+        if (!_stateFlow.value.isPlayable) return@submit
         _isBufferingFlow.value = isBuffering
     }
 
@@ -396,6 +430,8 @@ internal class EngineVideoPlayer(
         _bufferedPositionFlow.value = 0L
         _isBufferingFlow.value = false
         _videoSizeFlow.value = null
+        preparingFailure = null
+        preparingBuffering = false
     }
 
     /** Runs the engine's load, returning its failure instead of throwing it. Cancellation still throws. */

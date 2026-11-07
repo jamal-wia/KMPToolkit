@@ -31,7 +31,7 @@ any thread.
 | `stateFlow: StateFlow<VideoPlayerState>` | `Idle` | The transport state. |
 | `playbackPositionFlow: StateFlow<Long>` | `0` | Playhead, refreshed every `positionUpdateIntervalMs` while `Playing`; set directly by seeks, `stop()` and completion (to the duration); `0` after `prepare`, `unload`, `release`. |
 | `bufferedPositionFlow: StateFlow<Long>` | `0` | Buffered-ahead position. Polled with the playhead while `Playing`, snapshotted when a load finishes and on `pause()`; `0` when nothing is loaded and after a playback failure. |
-| `isBufferingFlow: StateFlow<Boolean>` | `false` | Whether a **loaded** source is stalled waiting for data. Independent of `stateFlow` (a stalled stream is still `Playing`). `false` while preparing, when idle, on completion and on failure. |
+| `isBufferingFlow: StateFlow<Boolean>` | `false` | Whether a **loaded** source is stalled waiting for data. Independent of `stateFlow` (a stalled stream is still `Playing`). Not shown while preparing (a stall of the just-loaded source that the engine reports before `Ready` is published is kept and shown with `Ready`); `false` when idle, on completion and on failure. |
 | `videoSizeFlow: StateFlow<VideoSize?>` | `null` | Displayed picture size once the platform reports one — usually while `Preparing`. Kept on `Completed`; `null` again when a new `prepare` starts, on a failure, `unload`, `release`. |
 | `playbackSpeedFlow: StateFlow<Float>` | `1.0` | Rate in effect, clamped to the configured range. |
 | `volumeFlow: StateFlow<Float>` | `1.0` | Output volume in `0f..1f`, independent of mute. |
