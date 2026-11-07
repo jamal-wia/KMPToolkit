@@ -16,8 +16,17 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
     /** `-1` means "the platform could not tell". */
     var freeSpace: Long = Long.MAX_VALUE
 
+    /** Paths that already exist before the recorder runs, e.g. a reused explicit output path. */
+    val existingPaths: MutableSet<String> = mutableSetOf()
+
+    /** Raised from [ensureWritableDirectory], like a platform call that throws instead of answering. */
+    var ensureWritableDirectoryFailure: Throwable? = null
+
     /** Runs inside [ensureWritableDirectory], before it answers and with no recorder lock held. */
     var onEnsureWritableDirectory: () -> Unit = {}
+
+    /** Runs inside [freeSpaceBytes], before it answers and with no recorder lock held. */
+    var onFreeSpaceQuery: () -> Unit = {}
 
     val createdDirectories: MutableSet<String> = mutableSetOf()
     val deletedPaths: MutableList<String> = mutableListOf()
@@ -37,6 +46,7 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
 
     override fun ensureWritableDirectory(path: String): Boolean {
         onEnsureWritableDirectory()
+        ensureWritableDirectoryFailure?.let { throw it }
         if (path in unwritableDirectories) return false
         createdDirectories += path
         return true
@@ -44,8 +54,11 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
 
     override fun freeSpaceBytes(path: String): Long {
         freeSpaceQueries += path
+        onFreeSpaceQuery()
         return freeSpace
     }
+
+    override fun exists(path: String): Boolean = path in existingPaths
 
     override fun delete(path: String) {
         deletedPaths += path

@@ -94,6 +94,7 @@ class RecorderThreadingTest {
         override fun parentOf(path: String): String? = path.substringBeforeLast('/', "").takeIf { it.isNotEmpty() }
         override fun ensureWritableDirectory(path: String): Boolean = true
         override fun freeSpaceBytes(path: String): Long = Long.MAX_VALUE
+        override fun exists(path: String): Boolean = false
         override fun delete(path: String) {
             deletes.incrementAndFetch()
         }

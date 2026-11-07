@@ -192,6 +192,15 @@ public interface AudioRecorder {
      * [RecorderError.AlreadyReleased] rather than moving a released recorder to
      * [RecorderState.Ready].
      *
+     * An unexpected throw from a platform call made before the engine runs is reported as
+     * [RecorderError.EngineFailure] rather than escaping, and [state] never stays at
+     * [RecorderState.Preparing].
+     *
+     * A file that already exists at an explicit [outputPath] is replaced when preparation succeeds
+     * (the platform truncates it). If preparation fails or is cancelled, the partially created file
+     * is deleted only when this call created it; a file that was already there is left in place,
+     * though the platform may already have truncated it.
+     *
      * @param outputPath absolute path of the file to record into. Must be absolute and non-blank; a
      *   blank or relative path fails with [RecorderError.DirectoryNotWritable] before the filesystem
      *   is touched, because `NSURL.fileURLWithPath("")` raises an Objective-C exception that

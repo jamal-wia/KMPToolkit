@@ -58,6 +58,8 @@ internal class IosRecordingFileSystem : RecordingFileSystem {
         return freeSize.longLongValue
     }
 
+    override fun exists(path: String): Boolean = fileManager.fileExistsAtPath(path)
+
     override fun delete(path: String) {
         fileManager.removeItemAtPath(path, error = null)
     }
