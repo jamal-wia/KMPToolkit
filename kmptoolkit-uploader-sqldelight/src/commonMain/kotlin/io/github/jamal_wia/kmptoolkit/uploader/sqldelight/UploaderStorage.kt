@@ -162,7 +162,7 @@ internal class SqlDelightUploaderStorage(
 
     override fun close() {
         // A second call is a no-op first: on iOS a dead database thread's id can be reused by the caller's thread.
-        if (closed.value) return
+        if (closed.load()) return
         // Before the CAS, so a refused call does not mark the storage closed. Closing waits for the database
         // thread to run the finalizer; called from that thread — inside `inTransaction`, say — the wait would be
         // for itself, forever.
