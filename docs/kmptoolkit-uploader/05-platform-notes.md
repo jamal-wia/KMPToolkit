@@ -173,6 +173,22 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   [`08-upload-transport.md`](08-upload-transport.md#the-relaunch-hook--required)); without it the
   outcome waits for the lease and the item uploads again. **A force-quit cancels background transfers**:
   iOS does not continue an upload for an app the user swiped away.
+- **The outcome journal.** Once a handler transport has the server's answer it writes it to a small file
+  *before* the engine settles the item, and deletes the file when the settlement landed. The file holds
+  the status, the headers, the body (at most 1 MiB, as captured) and a timestamp, so **a response body
+  rests briefly on disk**. On Android it lives in `noBackupFilesDir/kmptoolkit-uploader/outcomes/<itemId>`
+  — never in a cloud backup or a device transfer. On iOS it lives in
+  `Application Support/kmptoolkit-uploader/outcomes/<itemId>`, excluded from backup, with the
+  `NSFileProtectionCompleteUntilFirstUserAuthentication` class (a background session can finish while
+  the device is locked, so a stricter class would fail exactly when the file is needed). If the process
+  dies between the answer and the settlement, the next run **replays the file instead of uploading
+  again**: the Android worker checks it before preparing the attempt, the iOS transport in a hand-off,
+  in `handleEvents` and once when it is created. A replayed response reaches `classify` and
+  `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
+  file; so does the 7-day expiry. A file of an unknown format version, or an unreadable one, is ignored
+  and deleted. Nothing is journaled for a transport failure (there is no response), a write that fails
+  leaves the behaviour of 3.0 (a re-upload after a lease expiry), and the legacy classifier transport
+  has no journal.
 - **`Set-Cookie`.** Headers repeated under one name are joined with `", "`; that cannot be undone for a
   cookie, so do not read cookies from `UploadResponse.headers`.
 - **The legacy `createWorkManagerUploadTransport`** settles through one global classifier and stays

@@ -267,6 +267,7 @@ internal class BackgroundSessionUploadTransport(
     private val identifierPrefix: String,
     private val config: BackgroundUploadConfig,
     private val logger: Logger,
+    private val journal: OutcomeJournal = iosOutcomeJournal(logger),
 ) : UploadTransport {
 
     // A failure in a settlement coroutine is logged, never allowed to terminate the process.
@@ -282,6 +283,13 @@ internal class BackgroundSessionUploadTransport(
 
     override val leaseMillis: Long = config.lease.inWholeMilliseconds
 
+    init {
+        // Outcomes a dead process journaled and nobody collected: replay them to the engine, or delete the
+        // expired ones. Once per transport, so once per process; the engine may not be up yet, which the
+        // gateway waits for.
+        scope.launch { journal.sweep { itemId, response -> UploadGateway.complete(itemId, response) } }
+    }
+
     /** The item id carried by [identifier], or `null` for a session this transport does not own. */
     fun itemIdOf(identifier: String): String? =
         identifier.takeIf { it.startsWith(identifierPrefix) }?.removePrefix(identifierPrefix)?.takeIf { it.isNotEmpty() }
@@ -291,6 +299,9 @@ internal class BackgroundSessionUploadTransport(
     }
 
     override fun launch(itemId: String, isRehandOff: Boolean, request: UploadRequest) {
+        // First of all: an outcome this item's earlier upload journaled is replayed INSTEAD of uploading — the
+        // session it ran on is gone and its events will not come again. Nothing is started, not even a session.
+        if (replayJournaled(itemId)) return
         val live: LiveUpload = claimForHandOff(itemId) ?: run {
             logger.i { "Upload hand-off joins the live session — item=$itemId" }
             return
@@ -310,6 +321,8 @@ internal class BackgroundSessionUploadTransport(
     }
 
     override fun cancel(itemId: String) {
+        // A cancelled item settles nothing, so an outcome journaled for it must not be replayed later.
+        journal.delete(itemId)
         // Under the lock, so a concurrent launch for the same item either sees the session gone or is
         // joined to the one being cancelled — never two live sessions with one identifier, which Apple
         // leaves undefined — and so startUpload cannot create a task on a session invalidated here.
@@ -354,8 +367,38 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
+    /**
+     * Replays the journaled outcome of [itemId], if a usable one exists.
+     *
+     * @return whether there was one — the caller then starts nothing. An unusable entry is deleted by the
+     *   inspection and reads as none.
+     */
+    private fun replayJournaled(itemId: String): Boolean {
+        val entry: JournalEntry = journal.inspect(itemId)
+        if (entry !is JournalEntry.Valid) return false
+        logger.i { "Upload hand-off replays the journaled outcome instead of uploading — item=$itemId" }
+        scope.launch {
+            // An engine that is not reachable keeps the entry; the lease expiry re-hands the item and lands here again.
+            journal.replayValid(itemId, entry) { id, response -> UploadGateway.complete(id, response) }
+        }
+        return true
+    }
+
     /** Drains what a dead process left behind for [itemId]; [onDone] fires once the events are drained. */
     fun handleRelaunchEvents(itemId: String, onDone: () -> Unit) {
+        // The upload already finished and was journaled by an earlier delivery: replay it; there is nothing
+        // buffered to drain, and no session to reopen.
+        val entry: JournalEntry = journal.inspect(itemId)
+        if (entry is JournalEntry.Valid) {
+            scope.launch {
+                try {
+                    journal.replayValid(itemId, entry) { id, response -> UploadGateway.complete(id, response) }
+                } finally {
+                    onDone()
+                }
+            }
+            return
+        }
         val (live: LiveUpload, created: Boolean) = obtainLive(itemId)
         if (created) logger.i { "Relaunch settlement — item=$itemId" }
         live.delegate.notifyWhenDrained {
@@ -421,6 +464,7 @@ internal class BackgroundSessionUploadTransport(
             itemId = itemId,
             scope = scope,
             logger = logger,
+            journal = journal,
             onTerminal = ::releaseAfterTerminal,
         )
         val session: NSURLSession = NSURLSession.sessionWithConfiguration(
@@ -648,6 +692,7 @@ private class UploadSessionDelegate(
     val itemId: String,
     private val scope: CoroutineScope,
     private val logger: Logger,
+    private val journal: OutcomeJournal,
     private val onTerminal: (UploadSessionDelegate) -> Unit,
 ) : NSObject(), NSURLSessionDataDelegateProtocol {
 
@@ -734,6 +779,10 @@ private class UploadSessionDelegate(
             null
         }
         val wasCancelled: Boolean = cancelled
+        // Written here, synchronously, before the session is invalidated and before any coroutine runs: the
+        // process may be suspended or killed as soon as this callback returns, and the outcome would exist
+        // nowhere else. A failed write leaves today's behaviour.
+        val journaled: Boolean = !wasCancelled && response != null && journal.record(itemId, response)
         logger.i { "Upload completed — item=$itemId, outcome=$outcome, cancelled=$wasCancelled" }
         // Before the settlement is launched, not after: the settlement can return the item to the queue,
         // and a re-hand landing at once replaces this session — terminal now — with a new one under the
@@ -744,7 +793,10 @@ private class UploadSessionDelegate(
             forwarder.join()
             val landed: Boolean = when {
                 wasCancelled -> true
-                response != null -> UploadGateway.complete(itemId, response)
+                response != null -> UploadGateway.complete(itemId, response).also { settled ->
+                    if (settled && journaled) journal.delete(itemId)
+                }
+
                 else -> UploadGateway.complete(itemId, outcome)
             }
             if (!landed) {

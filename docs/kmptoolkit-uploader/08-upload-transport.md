@@ -115,6 +115,18 @@ id as `Idempotency-Key`, `classify` on the status, `onDelivered` persisting idem
 capped by `UploadHandler.maxResponseBodyBytes` (default 64 KiB, at most 1 MiB, `0` for none); an
 over-limit body is cut and flagged, never retried. Do not parse a truncated body.
 
+### The outcome journal
+
+The built-in handler transports keep the server's answer on disk between the moment they have it and the
+moment the engine has settled it (a small file per item, in no-backup storage on Android and in a
+backup-excluded Application Support directory on iOS). If the process dies in between, the next run
+**replays that answer through `UploadGateway.complete` instead of uploading again** — the Android
+worker at the start of `doWork`, the iOS transport in a hand-off, in `handleEvents` and once at
+creation. The file is deleted when the settlement lands, on `cancel`, and after 7 days; an item the
+engine no longer knows settles nothing and its file is deleted. The response body therefore rests
+briefly on disk; see [`05-platform-notes.md`](05-platform-notes.md#the-servers-response). Your own
+transport has no journal: keep your own record if it needs one.
+
 ## Writing your own transport
 
 A transport for an `UploadHandler` implements `UploadTransport` and reports through `UploadGateway`:
@@ -174,7 +186,7 @@ cannot be read completely — the connection broke, or the time ran out —
 is reported as truncated with the bytes read so far, not as a transport failure. A `WorkManager` worker has about 10 minutes and this module does not call
 `setForeground`, so keep the upload and the server's answer short.
 
-`cancel(itemId)` cancels that item's unique work and nothing else. A job already uploading stops
+`cancel(itemId)` cancels that item's unique work and deletes its journaled outcome, if any — and nothing else. A job already uploading stops
 mid-body: the write loop checks its job before every chunk and drops the connection without sending
 the chunked body's terminator, so the server never receives a complete request. Only a cancel that
 lands after the last byte left is too late, and then the server may already have the upload.
