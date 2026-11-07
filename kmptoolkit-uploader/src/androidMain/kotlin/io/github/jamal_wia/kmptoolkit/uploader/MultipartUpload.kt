@@ -94,6 +94,7 @@ internal fun performMultipartUploadCapturing(
         out.close()
         watch?.finishWriting()
         val status: Int = connection.responseCode
+        watch?.answered()
         MultipartOutcome(
             UploadResult.Completed(status),
             if (captureResponse) readResponse(connection, status, isCancelled, readTimeoutMillis) else null,
@@ -287,6 +288,12 @@ internal class WriteWatch {
     private var lastActivityNanos: Long = System.nanoTime()
 
     @Volatile
+    private var awaitingAnswer: Boolean = false
+
+    @Volatile
+    private var awaitingSinceNanos: Long = 0L
+
+    @Volatile
     private var dropped: Boolean = false
 
     /** Whether [drop] was called: the connection was closed from outside, not by the peer. */
@@ -312,8 +319,16 @@ internal class WriteWatch {
         lastActivityNanos = System.nanoTime()
     }
 
+    /** The body is whole: from here the transfer waits for the status line and headers, under [stalledFor]'s second limit. */
     fun finishWriting() {
         writing = false
+        awaitingSinceNanos = System.nanoTime()
+        awaitingAnswer = true
+    }
+
+    /** The status line and headers arrived; the body read that follows has its own deadline. */
+    fun answered() {
+        awaitingAnswer = false
     }
 
     /** Closes the socket; the blocked write throws and the transfer reports through its ordinary failure path. */
@@ -322,13 +337,21 @@ internal class WriteWatch {
         connection.get()?.disconnect()
     }
 
+    /**
+     * Whether the transfer is stuck: the body write made no progress for [limitMillis], or — once the body is
+     * sent — the status line and headers have not arrived within twice that. The first [limitMillis] of the
+     * wait is the server's silent processing, which the per-read timeout already allows; the second is what a
+     * server that drips its headers a byte at a time (each byte resetting that timeout) can still take.
+     */
     fun stalledFor(limitMillis: Int): Boolean =
-        writing && (System.nanoTime() - lastActivityNanos) / NANOS_PER_MILLI > limitMillis
+        (writing && (System.nanoTime() - lastActivityNanos) / NANOS_PER_MILLI > limitMillis) ||
+            (awaitingAnswer && (System.nanoTime() - awaitingSinceNanos) / NANOS_PER_MILLI > 2L * limitMillis)
 }
 
 /**
  * Runs the blocking transfer in [block] under a watchdog that closes its connection when the surrounding
- * coroutine is cancelled, or when the body write makes no progress for [stallMillis]. The watchdog is a child
+ * coroutine is cancelled, when the body write makes no progress for [stallMillis], or when the server takes
+ * longer than twice that to send its status line and headers once the body is sent. The watchdog is a child
  * of this scope, so cancellation reaches it even while the transfer's own thread is blocked.
  */
 internal suspend fun <T> withWriteWatchdog(stallMillis: Int, block: suspend (WriteWatch) -> T): T = coroutineScope {

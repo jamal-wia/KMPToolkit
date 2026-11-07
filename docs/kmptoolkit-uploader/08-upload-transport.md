@@ -192,7 +192,8 @@ is reported as truncated with the bytes read so far, not as a transport failure.
 before the request body is complete (an early rejection, redirect or even a `2xx`) is its answer, whatever it
 is, and reaches `classify`; only a status below 200 is not final. A status that carries no content (`1xx`,
 `204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
-A `WorkManager` worker has about 10 minutes and this module does not call
+The status line and headers must arrive within twice the read timeout after the body is sent: a server that
+trickles them longer fails the attempt as a transport failure (no status was received). A `WorkManager` worker has about 10 minutes and this module does not call
 `setForeground`, so keep the upload and the server's answer short.
 
 `cancel(itemId)` cancels that item's unique work and deletes its journaled outcome, if any — and nothing else. A job already uploading stops
@@ -366,7 +367,8 @@ Both Android workers run the body write under a watchdog. `HttpURLConnection` ha
 peer that stops reading would otherwise pin the thread for the kernel's retransmission time (minutes) and
 make `cancel` or a WorkManager stop wait for it. The watchdog closes the connection when the job is
 cancelled, and when no chunk of the body has moved for the read timeout (counted from the moment the
-connection is up and the body starts, so the connect keeps its own connect timeout); the upload then ends as a
+connection is up and the body starts, so the connect keeps its own connect timeout), and when the status line and
+headers have not arrived within twice the read timeout after the body was sent; the upload then ends as a
 transport failure, which the retry policy handles.
 
 Its limits are the reason `UploadHandler` exists:

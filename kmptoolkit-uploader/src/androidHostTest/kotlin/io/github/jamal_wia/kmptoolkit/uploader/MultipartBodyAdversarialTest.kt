@@ -289,4 +289,35 @@ class MultipartBodyAdversarialTest {
         assertEquals(0, response.body().size)
         assertTrue(!response.isBodyTruncated, "a response that carries no body by definition was flagged as cut short")
     }
+
+    @Test
+    fun `a server that trickles its status line header by header cannot hold the transfer far past the read timeout`() {
+        val thread = thread(isDaemon = true) {
+            val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
+            socket.use {
+                it.soTimeout = 20_000
+                val input = it.getInputStream()
+                val buffer = ByteArray(8 * 1024)
+                var tail = ""
+                while (!tail.endsWith("0\r\n\r\n")) {
+                    val read: Int = runCatching { input.read(buffer) }.getOrDefault(-1)
+                    if (read < 0) break
+                    tail = (tail + String(buffer, 0, read, Charsets.ISO_8859_1)).takeLast(16)
+                }
+                val out = it.getOutputStream()
+                runCatching {
+                    out.write("HTTP/1.1 200 OK\r\n".encodeToByteArray()); out.flush()
+                    // One header byte every 200 ms: no single read ever exceeds the 1 s read timeout.
+                    repeat(40) { index -> out.write("X-Slow-$index: ".encodeToByteArray()); out.flush(); Thread.sleep(200) }
+                    out.write("\r\n".encodeToByteArray()); out.flush()
+                }
+            }
+        }
+        val startedAt: Long = System.nanoTime()
+        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))), readTimeoutMillis = 1_000)
+        val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000
+        thread.join(15_000)
+
+        assertTrue(tookMillis < 4_000, "the answer's headers trickled for $tookMillis ms against a 1000 ms read timeout (outcome ${outcome.result})")
+    }
 }
