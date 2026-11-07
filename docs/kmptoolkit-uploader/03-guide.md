@@ -107,7 +107,9 @@ override val constraintKeys: Set<String> = setOf("network", "socket_connected")
 ```
 
 All named constraints must hold. The engine also *subscribes*: a `false → true` transition triggers
-a drain, so effects fire on the transition rather than on the next heartbeat.
+a drain, so effects fire on the transition rather than on the next heartbeat. A flow that fails when
+collected ends its subscription with a logged error (never an uncaught exception); its items are still checked
+on every pass, so the transition latency becomes the heartbeat interval.
 
 A key with no registered provider is treated as satisfied and logged as an error. Failing open is
 deliberate — a typo that silently freezes a queue forever is much harder to notice than one extra

@@ -373,7 +373,9 @@ nested call joins the outer transaction. `TransactionRunner.Direct` runs the blo
 
 `val key: String`, `val satisfied: StateFlow<Boolean>`. Cheap to read, emits on every change, read
 from arbitrary threads. Seed optimistically. If reading `satisfied` throws, the engine logs it and skips
-that item for the pass (as if unsatisfied) without affecting the items behind it.
+that item for the pass (as if unsatisfied) without affecting the items behind it. If the flow fails when
+collected, the subscription ends with a logged error and never reaches the scope's uncaught-exception handler;
+its items are still checked on every pass and heartbeat (only the transition latency is lost).
 
 ### `WakeScheduler`
 

@@ -23,7 +23,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -134,11 +137,20 @@ internal class DefaultUploaderEngine(
         }
 
         constraintProviders.forEach { provider ->
-            provider.satisfied
+            // Built inside flow {} so that even a `satisfied` getter that throws is caught here, and ending in
+            // catch so a flow that fails on collect never reaches the scope's uncaught-exception handler. The
+            // subscription is only a latency optimisation: every pass reads the value (guarded) and the
+            // heartbeat keeps triggering passes, so a subscription that ended costs latency, never work.
+            flow { emitAll(provider.satisfied) }
                 .filter { it }
                 .onEach {
                     logger.d { "Constraint '${provider.key}' satisfied — triggering a drain." }
                     trigger()
+                }
+                .catch { e ->
+                    logger.e(e) {
+                        "Constraint '${provider.key}' stopped emitting; its items are still checked on every pass and heartbeat."
+                    }
                 }
                 .launchIn(engineScope)
         }

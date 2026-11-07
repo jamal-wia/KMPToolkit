@@ -240,6 +240,44 @@ class UploaderEngineStormRound3AdversarialTest {
         assertEquals(Long.MIN_VALUE, saturatingSubtract(-1L, Long.MAX_VALUE))
     }
 
+    // --- fixer round 3, group 4 ---
+
+    @Test
+    fun `a constraint provider whose flow throws on collect does not leak an uncaught exception or stop the drain`() = runTest {
+        val uncaught: MutableList<Throwable> = mutableListOf()
+        val handler = TestHandler()
+        val scope = CoroutineScope(backgroundScope.coroutineContext + CoroutineExceptionHandler { _, e -> uncaught += e })
+        val engine: UploaderEngine = createUploaderEngine(
+            store = store,
+            handlers = listOf(handler),
+            scope = scope,
+            constraintProviders = listOf(ThrowingCollectProvider()),
+            clock = clock,
+            idGenerator = SequentialIds()::next,
+        )
+        try {
+            engine.start()
+            engine.enqueue(handler, "p")
+            advanceTimeBy(1.seconds)
+
+            assertEquals(emptyList(), uncaught.map { it.message }, "the provider's failure escaped to the thread's uncaught handler")
+            assertEquals(listOf("p"), handler.payloads, "the drain stopped working")
+        } finally {
+            engine.close()
+        }
+    }
+
+    private class ThrowingCollectProvider : ConstraintProvider {
+        override val key: String = "net"
+        override val satisfied: StateFlow<Boolean> = object : StateFlow<Boolean> {
+            override val value: Boolean = true
+            override val replayCache: List<Boolean> = listOf(true)
+            override suspend fun collect(collector: FlowCollector<Boolean>): Nothing {
+                throw IllegalStateException("connectivity service died")
+            }
+        }
+    }
+
     // --- registry storm on real threads ---------------------------------------------------------------
 
     @Test
