@@ -221,6 +221,88 @@ class LifecycleActivityTrackerStormTest {
     }
 
     @Test
+    fun `a listener that releases the tracker from inside a delivery stops every later listener of that same delivery`() {
+        val tracker: LifecycleActivityTracker = newTracker()
+        val controller: ActivityController<Activity> = launchActivity()
+        val laterCalls = AtomicInteger()
+        val ownCalls = AtomicInteger()
+
+        tracker.addOnActivityResumedListener {
+            ownCalls.incrementAndGet()
+            tracker.release()
+        }
+        tracker.addOnActivityResumedListener { laterCalls.incrementAndGet() }
+        controller.setup()
+        controller.pause().resume()
+
+        assertEquals(1, ownCalls.get())
+        assertEquals(0, laterCalls.get(), "a listener ran after release() returned inside the same delivery")
+        val added: AtomicReference<ActivitySubscription?> = AtomicReference(null)
+        background("add-after-release") { added.set(tracker.addOnActivityResumedListener { laterCalls.incrementAndGet() }) }.join(5_000)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, laterCalls.get(), "a listener added after release() was called")
+        assertEquals(0, tracker.listenerCountForTest())
+    }
+
+    @Test
+    fun `eight threads that add listeners with replays queued and then a release leave no replay that reaches a listener`() {
+        val tracker: LifecycleActivityTracker = newTracker()
+        launchActivity().setup()
+        val calls = AtomicInteger()
+        val afterRelease = AtomicInteger()
+        val released = AtomicBoolean(false)
+        val adders: List<Thread> = List(8) { index ->
+            background("replay-$index") {
+                repeat(500) {
+                    tracker.addOnActivityResumedListener {
+                        calls.incrementAndGet()
+                        if (released.get()) afterRelease.incrementAndGet()
+                    }
+                }
+            }
+        }
+        adders.forEach { it.join(10_000) }
+        assertTrue(adders.none { it.isAlive }, "an adding thread is stuck")
+        tracker.release()
+        released.set(true)
+        val looper = shadowOf(Looper.getMainLooper())
+        var ran = 0
+        while (!looper.isIdle && ran < 10_000) {
+            looper.runOneTask()
+            ran++
+        }
+        assertEquals(0, afterRelease.get(), "queued replays reached listeners after release() returned")
+        assertEquals(0, tracker.listenerCountForTest())
+    }
+
+    @Test
+    fun `twenty thousand registrations cancelled from eight threads while resumes keep arriving finish in bounded time and leave none`() {
+        val tracker: LifecycleActivityTracker = newTracker()
+        val controller: ActivityController<Activity> = launchActivity()
+        val activity: Activity = controller.get()
+        controller.setup()
+        val subscriptions: List<ActivitySubscription> = List(20_000) { tracker.addOnActivityResumedListener { } }
+        val cancellers: List<Thread> = List(8) { index ->
+            background("mass-cancel-$index") {
+                var position: Int = index
+                while (position < subscriptions.size) {
+                    subscriptions[position].cancel()
+                    position += 8
+                }
+            }
+        }
+        val deadline: Long = System.nanoTime() + 15_000_000_000L
+        var deliveries = 0
+        while (cancellers.any { it.isAlive } && System.nanoTime() < deadline && deliveries < 100_000) {
+            tracker.onActivityResumed(activity)
+            deliveries++
+        }
+        cancellers.forEach { it.join(maxOf(1L, (deadline - System.nanoTime()) / 1_000_000)) }
+        assertTrue(cancellers.none { it.isAlive }, "mass cancellation did not finish in bounded time ($deliveries deliveries)")
+        assertEquals(0, tracker.listenerCountForTest())
+    }
+
+    @Test
     fun `an isTracked predicate that throws leaves the tracker usable for the next resume`() {
         val failing = AtomicBoolean(true)
         val tracker: LifecycleActivityTracker =
