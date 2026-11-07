@@ -893,10 +893,12 @@ internal class UploadSessionDelegate(
     private val onInvalidated: (UploadSessionDelegate) -> Unit = {},
 ) : NSObject(), NSURLSessionDataDelegateProtocol {
 
-    // @Volatile, not StateFlow: written from NSURLSession delegate callbacks (receivedAnyEvent on every
-    // progress event), some of them without terminalLock (receivedAnyEvent, and cancelled/terminalDelivered in
-    // failBeforeStart). The volatile is what makes every read, locked or not, see those writes; terminalLock
-    // only orders task creation against complete()/cancel(), it does not publish these fields.
+    // @Volatile, not StateFlow: these flags only ever go false -> true, so no read-modify-write needs to be
+    // atomic and a plain volatile is enough. They are written from NSURLSession delegate callbacks
+    // (receivedAnyEvent on every progress event) and, for cancelled/terminalDelivered, from several writers,
+    // some without terminalLock (receivedAnyEvent, and failBeforeStart). The volatile is what makes every
+    // read, locked or not, see those writes; terminalLock only orders task creation against complete()/cancel(),
+    // it does not publish these fields.
 
     /** Any event at all tells a re-hand's flush window not to start a fresh upload. */
     @Volatile
@@ -917,8 +919,11 @@ internal class UploadSessionDelegate(
 
     /**
      * DidFinishEvents of the current wake. A signal that lands before anyone registered is remembered, but only
-     * for its own wake: [startWake] replaces a completed one, so a later relaunch wake on the same live
-     * delegate waits for its own signal (or the settlement) instead of firing at once.
+     * until the next [startWake] replaces a completed one, so a later relaunch wake on the same live delegate
+     * waits for its own signal (or the settlement) instead of firing at once. A wake's own signal is therefore
+     * remembered only when it lands after [startWake], as it does on a session that wake opens. On a session
+     * still live from an earlier wake it can land before [startWake]; it then counts as the earlier wake's and is
+     * dropped, and that wake waits for the settlement or the 25 s safety timeout (as before this change).
      */
     private val finishedEvents: MutableStateFlow<CompletableDeferred<Unit>> = MutableStateFlow(CompletableDeferred())
 
