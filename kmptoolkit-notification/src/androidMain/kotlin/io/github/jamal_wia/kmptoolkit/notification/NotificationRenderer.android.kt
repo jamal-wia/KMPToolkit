@@ -100,6 +100,15 @@ internal open class NotificationRenderer(
         return builder.build()
     }
 
+    /**
+     * Re-creates the tap target for [id] with [extras], which rewrites the one `PendingIntent` that
+     * id's tap target is: used to put back the extras of the frame still showing after a frame that
+     * was rendered after it never reached the tray.
+     */
+    fun restoreContentIntent(id: String, extras: Map<String, String>) {
+        contentPendingIntent(id, extras)
+    }
+
     fun smallIconRes(icon: NotificationIcon): Int = when (icon) {
         NotificationIcon.Default -> android.R.drawable.ic_dialog_info
         is NotificationIcon.AndroidDrawable -> icon.resourceId

@@ -33,9 +33,12 @@ The one type shared code depends on.
   and keeps the default), and a decorator must override it. The two-argument form is the same as passing `NotificationOptions.DEFAULT`.
 - **`cancel`** — removes the notification under `id` and forgets its progress-coalescing state. A
   no-op for an id that is not showing, including one this instance never posted. Reports nothing,
-  because neither platform reports anything.
+  because neither platform reports anything. Never throws for a platform refusal (a dead binder, a
+  revoked right): on Android it is logged under the tag `KmpToolkitNotification` and the notification
+  may stay on the tray.
 - **`cancelAll`** — removes every notification the app is showing, including ones posted by a
-  previous process. Does not touch notifications scheduled for later.
+  previous process. Does not touch notifications scheduled for later. Never throws either; a
+  refusal is logged and the tray may stay as it was.
 
 **Thread-safety:** safe from any thread, including concurrently for different ids. `cancel` / `cancelAll` are ordered against a post of the same id still in flight (the cancelled notification does not come back), and any post (progress or not) overtaken by a newer one for the same id, or by a `cancel`, is dropped and reported as `Coalesced`. The ordering holds per `Notifier` instance (`createNotifier` returns a new one per call).
 
@@ -52,7 +55,12 @@ if a post returns `Failed`, retrying the same progress posts it again instead of
 This also holds when posts of one id overlap: a frame that failed never counts as shown, so an older
 frame of the same id that is still in flight is not dropped on its account (it only yields to a frame
 that actually reached the tray), and a retry is never judged redundant against a frame that was never
-displayed. Per-id bookkeeping of frames that were started and never finished is aged out, so it does
+displayed. On Android, a frame that is rendered and then refused or dropped does not change where the frame
+still on the tray opens the app: the tap target of the shown frame is written back, unless another
+frame of the id is still in flight (that one renders its own). After a process restart the shown
+frame's content is not remembered, so nothing can be written back then. A frame that gave up because a newer one overtook it (answered `Coalesced`) is never
+revived or remembered as shown if that newer frame then fails, and on iOS a frame handed to the
+notification center and refused later, in any order of refusals, leaves no baseline behind. Per-id bookkeeping of frames that were started and never finished is aged out, so it does
 not grow for the notifier's lifetime.
 
 ## Factories

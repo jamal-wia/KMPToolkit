@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.res.Resources
 import android.os.Build
+import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationManagerCompat
 import io.github.jamal_wia.kmptoolkit.permission.CommonPermission
@@ -200,23 +201,52 @@ internal class AndroidNotifier(
                     null -> notificationManager.notify(id, TAGGED_NOTIFICATION_ID, built)
                     else -> notificationManager.notify(foregroundId, built)
                 }
-                coalescer.complete(ticket)
+                // notify() returned, so the platform has accepted the frame: nothing can undo it.
+                coalescer.complete(ticket, acknowledged = true)
                 true
             }
-            if (!shown) return NotificationResult.Coalesced
+            if (!shown) {
+                // Built but never shown: its tap target must not stand in for the frame on the tray.
+                restoreTapTarget(id)
+                return NotificationResult.Coalesced
+            }
         } catch (e: Throwable) {
             // Nothing reached the tray, so the frame must not stand as the baseline: a retry of the
             // same progress has to post. A no-op if cancel/clear or a newer post got there first.
             coalescer.rollback(ticket)
+            restoreTapTarget(id)
             throw e
         }
-        if (id !in sweptLegacyIds.value) {
-            sweepLegacy(id)
+        // The frame is on the tray; a refused sweep must not turn that into a failure. An entry is
+        // recorded only for a sweep that went through, so a refused one is retried by the next post.
+        if (id !in sweptLegacyIds.value && sweepLegacy(id)) {
             sweptLegacyIds.update { swept: Set<String> ->
                 if (swept.size >= MAX_SWEPT_LEGACY_IDS) setOf(id) else swept + id
             }
         }
         return NotificationResult.Posted
+    }
+
+    /**
+     * Writes the tap target of the frame the tray is known to show back into its `PendingIntent`.
+     *
+     * A tap target is one `PendingIntent` per id that `FLAG_UPDATE_CURRENT` rewrites when a frame is
+     * rendered, which happens before the platform has accepted that frame. A frame that is then
+     * refused or dropped would leave the frame still showing opening the app with *its* extras. The
+     * coalescer hands over the shown frame's content only while no other frame of the id is in
+     * flight (that frame renders its own target, and a restore here would overwrite it), and does so
+     * under its lock, so a frame prepared meanwhile renders after this write. Unknown after a process
+     * restart, where the tray frame's content is not remembered; nothing is restored then.
+     */
+    private fun restoreTapTarget(id: String) {
+        try {
+            coalescer.withShownContent(id) { content: Any? ->
+                val extras: Map<String, String>? = (content as? CoalescingKey)?.notification?.contentExtras
+                if (extras != null) renderer.restoreContentIntent(id, extras)
+            }
+        } catch (e: RuntimeException) {
+            Log.w(LOG_TAG, "Could not restore the tap target of notification '$id'.", e)
+        }
     }
 
     /**
@@ -235,9 +265,13 @@ internal class AndroidNotifier(
         // One critical section with the decide-and-notify of an in-flight post (see postGated).
         postLock.withLock {
             coalescer.forget(id)
-            when (val foregroundId: Int? = foregroundPlatformIds[id]) {
-                null -> notificationManager.cancel(id, TAGGED_NOTIFICATION_ID)
-                else -> notificationManager.cancel(foregroundId)
+            // Never throws: see Notifier.cancel. Each platform call is guarded on its own, so a
+            // refusal of the first does not skip the second.
+            platformCall("cancel notification '$id'") {
+                when (val foregroundId: Int? = foregroundPlatformIds[id]) {
+                    null -> notificationManager.cancel(id, TAGGED_NOTIFICATION_ID)
+                    else -> notificationManager.cancel(foregroundId)
+                }
             }
             sweepLegacy(id)
             // The sweep above is the sweep the cache stands for, so the entry has nothing left to say.
@@ -252,19 +286,35 @@ internal class AndroidNotifier(
      *
      * Skipped when that `Int` is one of [foregroundPlatformIds]: there it is a live notification of
      * this version, not a leftover. A migration aid for the 3.x line only; it goes in 4.0.
+     *
+     * @return `false` when the platform refused the removal (logged, never thrown: the sweep is a
+     *   side job and must not decide the outcome of a post or a cancel); `true` otherwise.
      */
-    private fun sweepLegacy(id: String) {
+    private fun sweepLegacy(id: String): Boolean {
         val legacyId: Int = legacyPlatformNotificationId(id)
-        if (legacyId in foregroundPlatformIds.values) return
-        notificationManager.cancel(legacyId)
+        if (legacyId in foregroundPlatformIds.values) return true
+        return platformCall("sweep the legacy notification of '$id'") { notificationManager.cancel(legacyId) }
     }
 
     override fun cancelAll() {
         postLock.withLock {
             coalescer.clear()
-            notificationManager.cancelAll()
+            platformCall("cancel all notifications") { notificationManager.cancelAll() }
             sweptLegacyIds.value = emptySet()
         }
+    }
+
+    /**
+     * Runs a platform removal call. [cancel] and [cancelAll] are teardown calls, often made on logout
+     * or from a `finally`, and promise never to throw for a runtime condition (a dead binder, a
+     * revoked right): the refusal is logged and the notification may stay on the tray.
+     */
+    private inline fun platformCall(what: String, call: () -> Unit): Boolean = try {
+        call()
+        true
+    } catch (e: RuntimeException) {
+        Log.w(LOG_TAG, "The platform refused to $what; it may still be showing.", e)
+        false
     }
 
     /**
@@ -323,6 +373,8 @@ internal class AndroidNotifier(
 
     private companion object {
         const val HEX: Int = 16
+
+        const val LOG_TAG: String = "KmpToolkitNotification"
 
         /** Bound of [sweptLegacyIds]; a forgotten entry costs one idempotent binder `cancel`. */
         const val MAX_SWEPT_LEGACY_IDS: Int = 256

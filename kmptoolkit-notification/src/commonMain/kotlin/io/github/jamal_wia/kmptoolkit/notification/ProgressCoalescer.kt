@@ -106,7 +106,7 @@ internal class ProgressCoalescer(
                 // currently held may belong to a post still in flight (or one that already failed), so
                 // the ticket carries that record's own shown baseline instead.
                 val held: Post? = posted[id]
-                val baseline: Post? = if (held == null || held.shown) held else held.fallback
+                val baseline: Post? = unrefused(if (held == null || held.shown) held else held.fallback)
                 val recorded = Post(bucket = decision.bucket, content = content, at = timeSource.markNow(), fallback = baseline)
                 posted[id] = recorded
                 issue(id, previous = baseline, recorded = recorded)
@@ -118,11 +118,11 @@ internal class ProgressCoalescer(
      * Lock held. Drops the baselines of ids that went quiet without a terminal frame or a cancel (a
      * failed download, a notification the user swiped away), so they do not accumulate for the
      * notifier's lifetime. Dropping a baseline is always safe: the id's next frame simply posts, as
-     * the first one for an id does. Scans at most once per tenth of [staleAfter], and only when
-     * enough ids are tracked for it to matter.
+     * the first one for an id does. Scans at most once per tenth of [staleAfter], whatever the
+     * number of tracked ids: a single id whose frame was never settled must age out as well.
      */
     private fun pruneStale() {
-        if (maxOf(posted.size, latest.size) < PRUNE_THRESHOLD || lastPrune.elapsedNow() < staleAfter / PRUNE_SPACING) return
+        if (lastPrune.elapsedNow() < staleAfter / PRUNE_SPACING) return
         lastPrune = timeSource.markNow()
         val iterator: MutableIterator<MutableMap.MutableEntry<String, Post>> = posted.entries.iterator()
         while (iterator.hasNext()) {
@@ -171,25 +171,60 @@ internal class ProgressCoalescer(
     }
 
     /**
+     * Runs [action] with the content of the frame the tray is known to show for [id], under the
+     * coalescer's lock, or does nothing when that is unknown or another frame of the id is still in
+     * flight (that frame is about to replace what is shown, and a caller restoring state for the
+     * frame on the tray would overwrite what the newer frame prepared). A [prepare] that starts
+     * while [action] runs waits for it, so its own work comes after. [action] must not call back
+     * into the coalescer.
+     */
+    fun withShownContent(id: String, action: (content: Any?) -> Unit): Unit = lock.withLock {
+        if (inFlight[id]?.isNotEmpty() == true) return@withLock
+        val shown: Post = posted[id]?.takeIf { it.shown } ?: return@withLock
+        action(shown.content)
+    }
+
+    /**
      * Whether [ticket]'s frame is still the newest for its id and the id was not cancelled since.
      * The caller asks this right before the platform call, under the lock that [forget]'s caller
      * also holds around its own platform call, so a frame that lost the race to a cancel or to a
      * newer frame (a terminal "Done", say) is dropped instead of reappearing on top of it.
+     *
+     * **A `false` answer is final.** The caller drops the frame and never settles the ticket, so the
+     * answer also takes the ticket out of its id's in-flight list: an overtaken frame that gave up
+     * must not be promoted back to live, nor become a baseline, when the newer frame later fails.
+     * Ask it once per ticket, right before the platform call.
      */
-    fun isLive(ticket: PostTicket): Boolean = lock.withLock { latest[ticket.id]?.serial == ticket.serial }
+    fun isLive(ticket: PostTicket): Boolean = lock.withLock {
+        val live: Boolean = latest[ticket.id]?.serial == ticket.serial
+        if (!live) settle(ticket, completed = false)
+        live
+    }
 
     /**
      * Marks [ticket]'s frame as shown. A terminal frame ([prepare] cleared the id) leaves nothing
      * to protect, so the id's newest-serial entry goes too — which makes any older frame still in
      * flight read as overtaken.
+     *
+     * @param acknowledged `true` when the platform has already accepted the frame (Android's `notify`
+     *   returns only once it has), so nothing can undo it and the record sheds the baseline it kept
+     *   for a rollback. `false` when the frame was only handed over and the outcome arrives later (the
+     *   iOS notification center reports an error through a completion handler): the record then
+     *   counts as shown but keeps that baseline until [acknowledge] or [rollback] settles it, so two
+     *   refused frames whose refusals arrive in either order leave no baseline behind.
      */
-    fun complete(ticket: PostTicket): Unit = lock.withLock {
+    fun complete(ticket: PostTicket, acknowledged: Boolean = false): Unit = lock.withLock {
         settle(ticket, completed = true)
         ticket.recorded?.let { recorded: Post ->
             recorded.shown = true
-            recorded.fallback = null
+            if (acknowledged) recorded.fallback = null
         }
         if (ticket.recorded == null && latest[ticket.id]?.serial == ticket.serial) latest.remove(ticket.id)
+    }
+
+    /** The platform accepted a frame that was [complete]d before its outcome was known. */
+    fun acknowledge(ticket: PostTicket): Unit = lock.withLock {
+        ticket.recorded?.fallback = null
     }
 
     /**
@@ -203,8 +238,14 @@ internal class ProgressCoalescer(
      * [forget], a [clear], or a newer post for the id in the meantime means the record is no longer
      * this ticket's to undo, and nothing changes. A terminal frame ([prepare] cleared the id) has
      * nothing to restore.
+     *
+     * A ticket that was already [complete]d without being acknowledged (the iOS order: handed to the
+     * notification center first, refused later) may be rolled back too, in any order relative to the
+     * other refusals of its id: a refused frame is skipped when a baseline is restored.
      */
     fun rollback(ticket: PostTicket): Unit = lock.withLock {
+        // Whatever else is true, this frame is not on the tray: a later rollback must not restore it.
+        ticket.recorded?.refused = true
         settle(ticket, completed = false)
         if (latest[ticket.id]?.serial == ticket.serial) {
             val promoted: PostTicket? = inFlight[ticket.id]?.lastOrNull()
@@ -220,8 +261,18 @@ internal class ProgressCoalescer(
         }
         val recorded: Post = ticket.recorded ?: return@withLock
         if (posted[ticket.id] !== recorded) return@withLock
-        val previous: Post? = ticket.previous
+        val previous: Post? = unrefused(ticket.previous)
         if (previous == null) posted.remove(ticket.id) else posted[ticket.id] = previous
+    }
+
+    /**
+     * Lock held. [from], or the first of the baselines behind it that was not refused: a frame that
+     * was handed over optimistically and refused later is not what the tray shows.
+     */
+    private fun unrefused(from: Post?): Post? {
+        var node: Post? = from
+        while (node != null && node.refused) node = node.fallback
+        return node
     }
 
     /**
@@ -276,9 +327,6 @@ internal class ProgressCoalescer(
         const val STALE_INTERVAL_FACTOR: Int = 120
         val MIN_STALE_AFTER: Duration = 10.minutes
 
-        /** Below this many tracked ids a scan is not worth it. */
-        const val PRUNE_THRESHOLD: Int = 64
-
         /** A scan runs at most once per `staleAfter / PRUNE_SPACING`. */
         const val PRUNE_SPACING: Int = 10
     }
@@ -288,6 +336,9 @@ internal class ProgressCoalescer(
 
         /** Set once the frame reached the platform; guarded by the coalescer's lock. */
         var shown: Boolean = false
+
+        /** Set when the platform refused the frame; guarded by the coalescer's lock. */
+        var refused: Boolean = false
     }
 
     /** What [decide] concluded, kept separate from acting on it so it can also be asked about. */
