@@ -242,13 +242,22 @@ internal class IosDownloaderStorage(
         val complete = "$baseDir/${names.complete}"
         if (fileExists(complete)) return
         val partial = "$baseDir/${names.partial}"
-        check(fileExists(partial)) { "No temp file to mark complete for $unit at $partial" }
+        // Idempotent under a race: a concurrent caller that moved the partial first has already
+        // done the job, so a vanished source or a lost move with the complete file in place is a
+        // success, not a failure.
+        if (!fileExists(partial)) {
+            check(fileExists(complete)) { "No temp file to mark complete for $unit at $partial" }
+            return
+        }
         val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
             srcPath = partial,
             toPath = complete,
             error = null,
         )
-        check(moved) { "Could not mark the temp file of $unit complete" }
+        if (!moved) {
+            check(fileExists(complete)) { "Could not mark the temp file of $unit complete" }
+            return
+        }
         logger.i { "Marked the temp file of $unit complete" }
     }
 

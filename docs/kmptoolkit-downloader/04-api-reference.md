@@ -205,7 +205,8 @@ object behind `url` at resolve time. `toString` omits the URL's query and fragme
 
 `TempFileState`: `sealed interface` — `None` (no file, or an empty one), `Partial` (an unfinished
 transfer, resumed from `getTempFileSize`), `Complete` (marked by `markTempFileComplete`; the only
-state committed without a transfer). `markTempFileComplete` is atomic, idempotent once complete,
+state committed without a transfer). `markTempFileComplete` is atomic, idempotent once complete (also when
+two callers mark the same file at once: the loser of the rename returns normally),
 and throws when there is no file. `commitResource` throws when there is no complete file, and
 throws `ResourceIntegrityException(message, cause)` — after deleting the temp file — when the bytes
 fail a check; the engine answers that with one fresh download. All three resource methods that name a

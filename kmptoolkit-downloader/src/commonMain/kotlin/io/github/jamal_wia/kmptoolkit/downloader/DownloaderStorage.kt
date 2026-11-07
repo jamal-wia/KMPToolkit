@@ -122,7 +122,8 @@ public interface DownloaderStorage {
      * The [BackgroundResourceDownloader] calls this when the last byte is written and before it
      * emits [BackgroundDownloadEvent.FileReady] or commits on its own; it is the one party that saw
      * the whole response, and so the one that can check the length against `Content-Length` first.
-     * Idempotent once complete. Throws when there is no file to mark.
+     * Idempotent once complete, also when two callers mark the same file at once (the loser of the
+     * rename returns normally). Throws when there is no file to mark.
      */
     public fun markTempFileComplete(unit: DownloadUnit)
 

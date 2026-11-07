@@ -164,8 +164,17 @@ internal class AndroidDownloaderStorage(
         val complete = File(baseDir, names.complete)
         if (complete.exists()) return
         val partial = File(baseDir, names.partial)
-        check(partial.exists()) { "No temp file to mark complete for $unit at ${partial.path}" }
-        check(partial.renameTo(complete)) { "Could not mark the temp file of $unit complete" }
+        // Idempotent under a race: a concurrent caller that renamed the partial first has already
+        // done the job, so a vanished source or a lost rename with the complete file in place is a
+        // success, not a failure.
+        if (!partial.exists()) {
+            check(complete.exists()) { "No temp file to mark complete for $unit at ${partial.path}" }
+            return
+        }
+        if (!partial.renameTo(complete)) {
+            check(complete.exists()) { "Could not mark the temp file of $unit complete" }
+            return
+        }
         logger.i { "Marked the temp file of $unit complete (${complete.length()} bytes)" }
     }
 
