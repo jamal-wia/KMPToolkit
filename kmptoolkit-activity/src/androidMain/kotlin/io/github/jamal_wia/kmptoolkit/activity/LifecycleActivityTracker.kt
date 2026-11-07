@@ -9,6 +9,8 @@ import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * [ActivityAccess] backed by `Application.ActivityLifecycleCallbacks`.
@@ -30,7 +32,7 @@ internal class LifecycleActivityTracker(
 
     // java.util.concurrent on purpose: this module has no kotlinx-coroutines dependency, and its API
     // is non-suspending, fed by main-thread lifecycle callbacks and called from any thread.
-    // The other atomic / volatile fields below (listeners, released, Registration.cancelled) follow it.
+    // The other atomic / volatile fields below (listeners, released) follow it; Registration.cancelled is guarded by its lock.
     /**
      * The only reference to an activity this class holds, and it is weak. Atomic so a caller on another
      * thread clearing a stale activity cannot erase one that resumed in the meantime.
@@ -98,7 +100,9 @@ internal class LifecycleActivityTracker(
         if (!released.compareAndSet(false, true)) return
         application.unregisterActivityLifecycleCallbacks(this)
         current.set(null)
-        listeners.forEach { registration -> registration.cancelled = true }
+        // Through cancel(), not a bare flag: like cancel() it must not return while a delivery to the
+        // listener is still running on the main thread.
+        listeners.forEach { registration -> registration.markCancelled() }
         listeners.clear()
     }
 
@@ -111,13 +115,11 @@ internal class LifecycleActivityTracker(
     override fun onActivityResumed(activity: Activity) {
         if (!isTracked(activity)) return
         current.set(WeakReference(activity))
-        listeners.forEach { registration ->
-            // The loop walks a snapshot: a listener cancelled by an earlier one in this very loop is
-            // still in it, and "cancel stops the listener from being called again" must hold for it too.
-            if (registration.cancelled) return@forEach
-            registration.replayPending = false
-            registration.listener(activity)
-        }
+        // The loop walks a snapshot: a listener cancelled by an earlier one in this very loop is
+        // still in it, and "cancel stops the listener from being called again" must hold for it too.
+        // deliver() re-checks the flag under the registration's lock, so it also holds for a cancel()
+        // from another thread.
+        listeners.forEach { registration -> registration.deliver(activity) }
     }
 
     /**
@@ -164,11 +166,7 @@ internal class LifecycleActivityTracker(
 
     /** Main thread only, like every other delivery. */
     private fun replayCurrentTo(registration: Registration) {
-        registration.replayPending = false
-        if (registration.cancelled || registration !in listeners) return
-        current.get()?.get()?.let { activity ->
-            if (!activity.isFinishing && !activity.isDestroyed) registration.listener(activity)
-        }
+        registration.deliverReplay()
     }
 
     /**
@@ -184,11 +182,42 @@ internal class LifecycleActivityTracker(
         val listener: (Activity) -> Unit,
         var replayPending: Boolean,
     ) : ActivitySubscription {
-        /** Set by [cancel] and [release]; checked before every call, because a dispatch iterates a snapshot. */
-        @Volatile var cancelled: Boolean = false
+        // A low-level lock on purpose (D-21): kmptoolkit-activity has no kotlinx-coroutines dependency,
+        // and cancel() is a non-suspending public function that has to BLOCK until a delivery already
+        // running on the main thread has returned, which a Mutex cannot do without runBlocking. A
+        // ReentrantLock so a listener may cancel its own subscription from inside the call. One lock per
+        // registration, held only around the check and the call: a thread that holds one registration's
+        // lock never waits for another's, so two registrations cannot deadlock each other.
+        private val lock: ReentrantLock = ReentrantLock()
+
+        /** Set by [markCancelled] only, and only under [lock]; every delivery re-checks it under the same lock. */
+        private var cancelled: Boolean = false
+
+        /** Calls the listener unless this subscription was cancelled, with no window for a cancel() in between. */
+        fun deliver(activity: Activity) {
+            lock.withLock {
+                if (cancelled) return
+                replayPending = false
+                listener(activity)
+            }
+        }
+
+        /** The immediate replay: main thread only, skipped when cancelled, removed, or no activity is resumed. */
+        fun deliverReplay() {
+            lock.withLock {
+                replayPending = false
+                if (cancelled || this !in listeners) return
+                current.get()?.get()?.let { activity ->
+                    if (!activity.isFinishing && !activity.isDestroyed) listener(activity)
+                }
+            }
+        }
+
+        /** Waits for a delivery already running, then makes every later one a no-op. */
+        fun markCancelled(): Unit = lock.withLock { cancelled = true }
 
         override fun cancel() {
-            cancelled = true
+            markCancelled()
             listeners.remove(this)
         }
     }

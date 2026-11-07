@@ -61,6 +61,10 @@ public interface ActivityAccess {
      * Unregisters from the `Application`, drops the current activity reference, and forgets every
      * listener.
      *
+     * Like [ActivitySubscription.cancel], it is a hard stop for every listener: once it has returned,
+     * none is called again from any thread, and it waits for a call already running on the main
+     * thread.
+     *
      * A process-lifetime tracker never needs this. It exists for tests. Idempotent.
      */
     public fun release()
@@ -69,7 +73,16 @@ public interface ActivityAccess {
 /** A handle returned by [ActivityAccess.addOnActivityResumedListener]. */
 public interface ActivitySubscription {
 
-    /** Stops the listener from being called again, and releases whatever it captured. Idempotent. */
+    /**
+     * Stops the listener from being called again, and releases whatever it captured. Idempotent.
+     *
+     * The guarantee is strict and holds on every thread: once this returns, the listener is never
+     * called again, whichever thread called it and however a resume or a replay is racing it. If
+     * the listener is running on the main thread at that moment, this call waits for it to return,
+     * so do not call it from another thread while holding a lock the listener also takes. Called
+     * from inside the listener itself (or from another listener), it never waits and never
+     * deadlocks.
+     */
     public fun cancel()
 }
 
