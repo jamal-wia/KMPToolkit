@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoFrame
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
+import java.util.concurrent.atomic.AtomicReference
 import javafx.animation.AnimationTimer
 import javafx.scene.Group
 import javafx.scene.Scene
@@ -296,18 +297,35 @@ internal class FxPlayback private constructor(
             onCreated: (FxPlayback) -> Unit,
         ): FxPlayback {
             val media: Media = withContext(Dispatchers.IO) { runInterruptible { Media(uri) } }
-            val playback: FxPlayback = FxThread.call {
-                FxPlayback(media, sink, maxFrameRate).also(onCreated)
-            }
+            val created: AtomicReference<FxPlayback?> = AtomicReference(null)
             try {
                 // JavaFX can stay UNKNOWN forever — on macOS a file it cannot parse reports neither
-                // READY nor an error — so the wait is bounded.
-                withTimeoutOrNull(readyTimeoutMs) { playback.ready.await() }
-                    ?: throw JavaFxVideoPlayerException.LoadTimedOut(readyTimeoutMs)
-                return playback
+                // READY nor an error — so the wait is bounded. So is building the player: once the
+                // toolkit has exited, runLater drops the block silently and the call would never
+                // resume. A block that does run late finds its session closed and disposes itself
+                // (see JavaFxVideoEngine.Session.attach).
+                withTimeoutOrNull(readyTimeoutMs) {
+                    val playback: FxPlayback = FxThread.call {
+                        FxPlayback(media, sink, maxFrameRate).also {
+                            created.set(it)
+                            onCreated(it)
+                        }
+                    }
+                    playback.ready.await()
+                } ?: throw if (created.get() == null) {
+                    JavaFxVideoPlayerException.RuntimeUnavailable(
+                        IllegalStateException(
+                            "The JavaFX application thread ran no work within $readyTimeoutMs ms; " +
+                                "the toolkit has probably exited",
+                        ),
+                    )
+                } else {
+                    JavaFxVideoPlayerException.LoadTimedOut(readyTimeoutMs)
+                }
+                return checkNotNull(created.get())
             } catch (e: Throwable) {
                 // Cancellation included: nothing playable is left behind either way.
-                playback.dispose()
+                created.get()?.dispose()
                 throw e
             }
         }

@@ -20,6 +20,13 @@ internal object FxThread {
     private val queued: AtomicInteger = AtomicInteger(0)
 
     /**
+     * How a block is handed to the FX thread; `Platform.runLater` unless a test swaps it, to
+     * simulate a toolkit that has exited (which silently drops what it is given).
+     */
+    @Volatile
+    internal var runLater: (Runnable) -> Unit = Platform::runLater
+
+    /**
      * Starts the toolkit, or confirms an already running one accepts work.
      *
      * Implicit exit is switched off only when this call is the one that started the toolkit: with no
@@ -56,8 +63,9 @@ internal object FxThread {
      * and nothing is queued; queued behind the rest otherwise — run inline then, a `pause()` made on
      * the FX thread (an engine callback reacting to an event, say) would overtake a `start()` queued
      * from another thread a moment earlier, and the source would play on while the player above
-     * reports Paused. Dropped when the toolkit has exited (the app called `Platform.exit()`): the
-     * engine's transport calls tolerate the wrong state.
+     * reports Paused. After the toolkit has exited (the app called `Platform.exit()`) `runLater`
+     * silently drops the block rather than throwing, so it never runs: the engine's transport calls
+     * tolerate the wrong state, and nothing is playing any more either.
      */
     fun post(block: () -> Unit) {
         if (Platform.isFxApplicationThread() && queued.get() == 0) {
@@ -67,11 +75,14 @@ internal object FxThread {
         try {
             runLaterCounted(block)
         } catch (e: IllegalStateException) {
-            // Toolkit has exited; nothing is playing any more either.
+            // Only when the toolkit was never initialized; after an exit runLater drops silently.
         }
     }
 
-    /** Runs [block] on the FX thread and suspends for its result or exception. */
+    /**
+     * Runs [block] on the FX thread and suspends for its result or exception. Never resumes if the
+     * toolkit has exited, as `runLater` then drops the block: a caller bounds the wait itself.
+     */
     suspend fun <T> call(block: () -> T): T {
         val result = CompletableDeferred<T>()
         val task: () -> Unit = {
@@ -93,10 +104,12 @@ internal object FxThread {
     private fun runLaterCounted(block: () -> Unit) {
         queued.incrementAndGet()
         try {
-            Platform.runLater {
-                queued.decrementAndGet()
-                block()
-            }
+            runLater(
+                Runnable {
+                    queued.decrementAndGet()
+                    block()
+                },
+            )
         } catch (e: IllegalStateException) {
             // Never queued, so never counted.
             queued.decrementAndGet()

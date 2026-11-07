@@ -101,8 +101,10 @@ decoder writes straight into memory without a render-and-read-back step.
   never opens a window, and without that JavaFX could shut down when a window of the app's closes.
   An app that runs its own JavaFX windows keeps its own exit policy.
 - **The toolkit stays up.** `release()` frees the player, not the toolkit; it is process-wide and
-  shared with the rest of the app. If the app calls `Platform.exit()`, players stop working and
-  further transport calls are ignored.
+  shared with the rest of the app. If the app calls `Platform.exit()` (or JavaFX exits on its own
+  when the app's last JavaFX window closes and implicit exit is on), players stop working and
+  further transport calls are ignored; a `prepare` made after that fails with
+  `RuntimeUnavailable` within the ready timeout instead of waiting forever.
 - **Where work happens.** Every `MediaPlayer` call runs on the JavaFX application thread, in the
   order the calls were made from whichever threads made them (a call made on that thread runs at
   once only when nothing queued from another thread is still waiting to run); the position, duration and buffered position the core module polls are cached there, so polling never
