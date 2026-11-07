@@ -47,6 +47,10 @@ val uploader = FakeUploader { call -> if (call.uniqueKey == "already-queued") nu
 Withdrawals are recorded too: `cancelled` lists the ids passed to `cancel`, `cancelledByTag` the tags
 passed to `cancelByTag`.
 
+`FakeUploader` is safe to use from several threads: every call, read and `trigger()` is atomic, and the
+result function runs outside any lock, so it may call back into the fake. `RecordingUploadTransport` and
+the other doubles are not thread-safe.
+
 ## Testing with the real engine
 
 For anything about delivery, run the engine over `InMemoryUploaderStore`:

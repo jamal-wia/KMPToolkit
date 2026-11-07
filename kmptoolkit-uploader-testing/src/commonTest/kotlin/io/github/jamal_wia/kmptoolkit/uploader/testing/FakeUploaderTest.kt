@@ -13,7 +13,14 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.runTest
 
 /** The lightweight doubles: [FakeUploader], [RecordingWakeScheduler], [MutableConstraintProvider]. */
@@ -205,6 +212,55 @@ class FakeUploaderTest {
         createdAtEpochMillis = 0L,
         lastError = null,
     )
+
+    @Test
+    fun `an enqueueResult hook may call back into the fake without deadlocking it`() = runTest {
+        val reentered = MutableStateFlow(false)
+        lateinit var uploader: FakeUploader
+        uploader = FakeUploader(enqueueResult = {
+            // A re-entrant call from another coroutine, awaited by the hook: with the result computed inside
+            // the fake's lock this could never finish, and the hook would wait out the whole second.
+            CoroutineScope(Dispatchers.Default).launch {
+                uploader.cancel("x")
+                reentered.value = true
+            }
+            val deadline = TimeSource.Monotonic.markNow() + 2.seconds
+            while (!reentered.value && deadline.hasNotPassedNow()) {
+                // spin: the hook is not suspending
+            }
+            "id"
+        })
+
+        withContext(Dispatchers.Default) { uploader.enqueue(NoopHandler(), "p") }
+
+        assertTrue(reentered.value, "the re-entrant cancel ran while the hook was still waiting")
+        assertEquals(listOf("x"), uploader.cancelled)
+    }
+
+    @Test
+    fun `concurrent triggers are all counted`() = runTest {
+        val uploader = FakeUploader()
+
+        withContext(Dispatchers.Default) {
+            repeat(4) { launch { repeat(10_000) { uploader.trigger() } } }
+        }
+
+        assertEquals(40_000, uploader.triggerCount)
+    }
+
+    @Test
+    fun `reading the recorded calls while others enqueue never throws and ordinals stay distinct`() = runTest {
+        val uploader = FakeUploader()
+        val handler = NoopHandler()
+
+        withContext(Dispatchers.Default) {
+            val readers = launch { repeat(2_000) { check(uploader.enqueued.size >= 0 && uploader.cancelled.size >= 0) } }
+            repeat(4) { launch { repeat(500) { uploader.enqueue(handler, "p") } } }
+            readers.join()
+        }
+
+        assertEquals((1..2_000).toList(), uploader.enqueued.map { it.ordinal }.sorted())
+    }
 
     private class NoopHandler : UploaderHandler<String> {
         override val type: String = "test"
