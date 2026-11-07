@@ -31,10 +31,18 @@ import androidx.media.app.NotificationCompat as MediaNotificationCompat
  *
  * @param context the application context.
  * @param broadcastAction the action every button and dismissal broadcast carries.
+ * @param writeTapTargetOnBuild whether [build] writes the frame's tap-target extras into the id's
+ *   `PendingIntent` itself. `false` (what [AndroidNotifier] uses): [build] only obtains the
+ *   `PendingIntent` and leaves the extras it already carries alone, and the caller writes them with
+ *   [applyContentIntent] once the platform has accepted the frame, so a frame that is dropped or
+ *   refused never changes where the frame on the tray opens the app. `true` for a notification
+ *   nobody will post through a notifier ([buildForegroundNotification]): there is no accept step to
+ *   wait for, and the notification must open the app with its own extras as soon as it is posted.
  */
 internal open class NotificationRenderer(
     private val context: Context,
     private val broadcastAction: String,
+    private val writeTapTargetOnBuild: Boolean = false,
 ) {
 
     open fun build(
@@ -88,7 +96,7 @@ internal open class NotificationRenderer(
             )
         }
         notification.contentExtras?.let { extras: Map<String, String> ->
-            contentPendingIntent(id, extras)?.let(builder::setContentIntent)
+            contentPendingIntent(id, extras, update = writeTapTargetOnBuild)?.let(builder::setContentIntent)
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             // Pre-26 the sound belongs to the notification, not to a channel that does not exist —
@@ -101,12 +109,12 @@ internal open class NotificationRenderer(
     }
 
     /**
-     * Re-creates the tap target for [id] with [extras], which rewrites the one `PendingIntent` that
-     * id's tap target is: used to put back the extras of the frame still showing after a frame that
-     * was rendered after it never reached the tray.
+     * Writes [extras] into the one `PendingIntent` that is [id]'s tap target (it is the same object
+     * the frame just handed to the platform carries, so the notification on the tray opens the app
+     * with them). Called once the platform has accepted a frame, and only then.
      */
-    fun restoreContentIntent(id: String, extras: Map<String, String>) {
-        contentPendingIntent(id, extras)
+    fun applyContentIntent(id: String, extras: Map<String, String>) {
+        contentPendingIntent(id, extras, update = true)
     }
 
     fun smallIconRes(icon: NotificationIcon): Int = when (icon) {
@@ -179,15 +187,22 @@ internal open class NotificationRenderer(
      * Keyed by the notification id, so two notifications' taps never share a `PendingIntent` — and
      * with it, under `FLAG_UPDATE_CURRENT`, each other's extras. The launch intent names its
      * component, so the key can ride on it at every API level; see [distinguishBy].
+     *
+     * With [update] `false` the `PendingIntent` is obtained, not rewritten: an existing one keeps the
+     * extras of the frame it last belonged to, a missing one is created with [extras] (no frame can
+     * be on the tray under it, so nothing it carries can be wrong yet).
      */
-    private fun contentPendingIntent(id: String, extras: Map<String, String>): PendingIntent? {
+    private fun contentPendingIntent(id: String, extras: Map<String, String>, update: Boolean): PendingIntent? {
         val launch: Intent = context.packageManager
             .getLaunchIntentForPackage(context.packageName)
             ?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             ?: return null
         extras.forEach { (key: String, value: String) -> launch.putExtra(key, value) }
         val requestCode: Int = launch.distinguishBy(pendingIntentKey(KIND_CONTENT, id, null), explicit = true)
-        return PendingIntent.getActivity(context, requestCode, launch, PENDING_INTENT_FLAGS)
+        // Without FLAG_UPDATE_CURRENT an existing PendingIntent is returned as it is (extras and all)
+        // and only a missing one is created with these extras; see writeTapTargetOnBuild.
+        val flags: Int = if (update) PENDING_INTENT_FLAGS else PendingIntent.FLAG_IMMUTABLE
+        return PendingIntent.getActivity(context, requestCode, launch, flags)
     }
 
     /**

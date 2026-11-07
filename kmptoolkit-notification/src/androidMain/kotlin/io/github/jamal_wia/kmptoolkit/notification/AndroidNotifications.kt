@@ -50,7 +50,13 @@ public fun buildForegroundNotification(
     options: NotificationOptions = NotificationOptions.DEFAULT,
 ): Notification {
     val appContext: Context = context.applicationContext
-    val renderer = NotificationRenderer(appContext, config.resolveBroadcastAction(appContext.packageName))
+    val renderer = NotificationRenderer(
+        appContext,
+        config.resolveBroadcastAction(appContext.packageName),
+        // Nothing posts this notification through a notifier, so no accept step exists to write
+        // the tap target after: it has to carry its own extras from the moment it is built.
+        writeTapTargetOnBuild = true,
+    )
     val iconResId: Int = renderer.smallIconRes(notification.icon)
     require(renderer.isResolvable(iconResId)) {
         "Notification icon resource 0x${iconResId.toString(HEX_RADIX)} does not resolve; startForeground would crash on it."

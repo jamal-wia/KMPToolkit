@@ -171,20 +171,6 @@ internal class ProgressCoalescer(
     }
 
     /**
-     * Runs [action] with the content of the frame the tray is known to show for [id], under the
-     * coalescer's lock, or does nothing when that is unknown or another frame of the id is still in
-     * flight (that frame is about to replace what is shown, and a caller restoring state for the
-     * frame on the tray would overwrite what the newer frame prepared). A [prepare] that starts
-     * while [action] runs waits for it, so its own work comes after. [action] must not call back
-     * into the coalescer.
-     */
-    fun withShownContent(id: String, action: (content: Any?) -> Unit): Unit = lock.withLock {
-        if (inFlight[id]?.isNotEmpty() == true) return@withLock
-        val shown: Post = posted[id]?.takeIf { it.shown } ?: return@withLock
-        action(shown.content)
-    }
-
-    /**
      * Whether [ticket]'s frame is still the newest for its id and the id was not cancelled since.
      * The caller asks this right before the platform call, under the lock that [forget]'s caller
      * also holds around its own platform call, so a frame that lost the race to a cancel or to a
