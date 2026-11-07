@@ -78,6 +78,23 @@ class AndroidDownloaderStorageRestartChaosTest {
     }
 
     @Test
+    fun `a committed resource at the unit's own 3_0_0 partial path is refused, so a restart cannot move it`() {
+        // id has a slash, so its names are hashed; its legacy partial name is tmp/m/v1.tmp. A unit
+        // that asks to keep its resource exactly there would lose it to the first-touch migration.
+        val unit = ChaosUnit(id = "m/v1", relativePath = "tmp/m/v1.tmp")
+        val storage: DownloaderStorage = newProcess()
+        storage.beginTempFile(unit, null)
+        File(storage.getTempFilePath(unit)).apply { parentFile!!.mkdirs() }.writeBytes(ByteArray(8))
+        storage.markTempFileComplete(unit)
+
+        val failure = runCatching { runBlocking { storage.commitResource(unit) } }.exceptionOrNull()
+
+        assertTrue(failure is InvalidDownloadUnitException, "the commit was accepted: $failure")
+        assertFalse(File(root, "tmp/m/v1.tmp").exists())
+        assertFalse(storage.isResourceAvailable(unit))
+    }
+
+    @Test
     fun `a kill between link and unlink leaves both names and the next process keeps one`() {
         val unit = ChaosUnit(id = "models/v1", relativePath = "files/v1.bin")
         val bytes = ByteArray(100) { 3 }

@@ -210,6 +210,27 @@ class UnitFileLayoutTest {
         )
     }
 
+    @Test
+    fun `a relativePath equal to a hashed unit's own 3_0_0 partial or complete path is rejected`() {
+        for (layout: UnitFileLayout in listOf(sensitive, insensitive)) {
+            assertEquals(
+                InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH,
+                reasonOf(layout, path = "tmp/m/v1.tmp", id = "m/v1"),
+            )
+            assertEquals(
+                InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH,
+                reasonOf(layout, path = "tmp/./m//v1.tmp.complete", id = "m/v1"),
+            )
+            // Another unit's id: nothing of this unit's, accepted under tmp/ as any other path.
+            assertNull(reasonOf(layout, path = "tmp/m/v1.tmp", id = "other"))
+        }
+        assertEquals(
+            InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH,
+            reasonOf(insensitive, path = "TMP/M/V1.TMP", id = "m/v1"),
+        )
+        assertNull(reasonOf(sensitive, path = "TMP/M/V1.TMP", id = "m/v1"))
+    }
+
     private fun reasonOf(
         layout: UnitFileLayout,
         path: String,

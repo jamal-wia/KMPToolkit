@@ -111,9 +111,18 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
         if (segments.size == 1) return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)
         val second: String = fold(segments[1])
         if (isReservedBelowTmp(second)) return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)
+        val own: Names = namesOf(unit)
+        if (own.tempHashed) {
+            // The migration moves the unit's 3.0.0 partial and complete files to their hashed place; a
+            // committed resource at one of those paths would be moved with them after a restart.
+            val legacyPartial = "$TMP/${unit.id}.${unit.tempExtension}"
+            val candidate: String = fold(segments.joinToString("/"))
+            if (candidate == fold(legacyPartial) || candidate == fold("$legacyPartial.complete")) {
+                return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)
+            }
+        }
         if (segments.size == 2) {
             // The unit's own temp files; a hashed name is below tmp/kmptoolkit-internal, rejected above.
-            val own: Names = namesOf(unit)
             val candidate = "$TMP/$second"
             if (candidate == fold(own.partial) || candidate == fold(own.complete)) {
                 return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)

@@ -95,7 +95,7 @@ overwrites (`link(2)` of the new name, then removal of the old one, so a destina
 same moment is not replaced; when the destination already exists it wins and the old file is
 deleted), and a leftover staged record is deleted. A file system without hard links cannot do the
 move: it is logged and the old file stays. A process killed in between finishes the move next time. The move
-takes no lock. It only moves files whose old path was under `tmp/` and not below `expect`, `expect-staged`,
+takes no lock. A file there can only be moved if it is really the unit's own old temp file, so a `relativePath` equal to the unit's own 3.0.0 partial or `.complete` path (`tmp/<id>.<ext>`, with the unit's own id and extension) is rejected like its hashed temp names (`RESERVED_INTERNAL_PATH`). It only moves files whose old path was under `tmp/` and not below `expect`, `expect-staged`,
 `staging-…` or `trash`, so an old `tmp/staging-a/b.tmp`, `tmp/expect/foo.sha256` or `tmp/../x.tmp`
 left by an id with a separator stays where it is, and so does `tmp/trash/x.tmp` (in 3.0.0 only the
 unit `trash/x` could have written it; leaving it is a conservative rule, not a necessity); such orphans and old staging trees are not

@@ -143,7 +143,7 @@ with `enum class Reason { EMPTY, INVALID_CHARACTER, ESCAPES_BASE_DIRECTORY, RESE
 A `DownloaderStorage` throws it from `getResourcePath`, `commitResource` and `deleteResource` when `unit.relativePath` can never be used safely: it is empty or
 normalizes to nothing (`EMPTY`), contains NUL (`INVALID_CHARACTER`), leaves the base directory
 (`ESCAPES_BASE_DIRECTORY`), or names something the storage manages itself, such as `tmp`,
-`tmp/expect`, `tmp/staging-…` or the unit's own temp files (`RESERVED_INTERNAL_PATH`). It has no
+`tmp/expect`, `tmp/staging-…` or the unit's own temp files, hashed or 3.0.0-named (`RESERVED_INTERNAL_PATH`). It has no
 message (the library carries no user-facing text); `toString` names the unit id and the reason.
 
 `isResourceAvailable` answers `false` and `getResourceSize` answers `0` for such a unit, and the temp-side
