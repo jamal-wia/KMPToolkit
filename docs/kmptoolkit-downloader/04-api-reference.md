@@ -14,11 +14,11 @@ The interface consumers depend on.
 | `pathOf` | `fun pathOf(unit: DownloadUnit): String` | Valid only while `isAvailable(unit)` holds. |
 | `downloadState` | `fun downloadState(group: ResourceGroup): StateFlow<GroupDownloadState>` | One flow per declared group. Throws `IllegalArgumentException` for an undeclared group. |
 | `ensureAvailable` | `suspend fun ensureAvailable(group: ResourceGroup)` | Returns at once if already available; concurrent calls share one download. |
-| `cancelDownload` | `fun cancelDownload(group: ResourceGroup)` | Safe from any thread. |
-| `cancelAllDownloads` | `suspend fun cancelAllDownloads()` | Cancels every group- and unit-level download. The logout entry point. |
+| `cancelDownload` | `fun cancelDownload(group: ResourceGroup)` | Safe from any thread. Also ends a running `ensureAvailable(group)` with `DownloadCancelledException`, unless its last commit has already succeeded: then the call completes and publishes `Completed`. A per-unit `ensureAvailable` running for one of the group's units is cancelled too. |
+| `cancelAllDownloads` | `suspend fun cancelAllDownloads()` | Cancels every group- and unit-level download, and ends every running `ensureAvailable` with `DownloadCancelledException` (also one a screen launched, outside the engine's scope), except a call whose last commit has already succeeded: that one completes and publishes `Completed`. The logout entry point. |
 | `retryDownload` | `fun retryDownload(group: ResourceGroup)` | Non-suspend; skipped if the group's download is already managed. |
 | `ensureAvailable` | `suspend fun ensureAvailable(unit: DownloadUnit)` | Concurrent calls for the SAME unit share one download. |
-| `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` | Non-suspend; state write is dispatched onto the engine's own scope. |
+| `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` | Non-suspend and synchronous: the transfer is cancelled and the state is `Idle` on return. Also ends a running `ensureAvailable(unit)` with `DownloadCancelledException`, unless its commit has already succeeded: then the call completes and publishes `Completed`. |
 | `hasActiveUnitDownload` | `suspend fun hasActiveUnitDownload(): Boolean` | True while any per-unit download is `Downloading`. |
 | `unitDownloadStateFlow` | `fun unitDownloadStateFlow(unit: DownloadUnit): Flow<UnitDownloadState>` | First emission is seeded from disk (`Available` or `Idle`). |
 
@@ -46,6 +46,42 @@ fun createDownloader(
 
 Only `storage`, `backgroundDownloader`, `groups` and `stateStore` have no sensible default. Returns
 a `Downloader` ready to use immediately — there is no separate `start()`.
+
+*Since 3.1.0* there is a second overload that takes a `DownloaderConfig`, placed right after
+`stateStore` and required there, so a call written for the first overload — by position or by name —
+can never resolve to it:
+
+```kotlin
+fun createDownloader(
+    storage: DownloaderStorage,
+    backgroundDownloader: BackgroundResourceDownloader,
+    groups: List<ResourceGroup>,
+    stateStore: DownloadStateStore,
+    config: DownloaderConfig,
+    notifier: DownloadNotifier = DownloadNotifier.NoOp,
+    bundledResourcesPresent: Boolean = false,
+    dispatchers: DownloadDispatchers = DownloadDispatchers.Default,
+    logger: Logger = NoopLogger,
+): Downloader
+```
+
+The first overload behaves exactly like the second with `DownloaderConfig()`.
+
+## `DownloaderConfig` *(since 3.1.0)*
+
+```kotlin
+class DownloaderConfig(stallTimeout: Duration = DownloaderConfig.DEFAULT_STALL_TIMEOUT) {
+    val stallTimeout: Duration
+    companion object { val DEFAULT_STALL_TIMEOUT: Duration } // 5 minutes
+}
+```
+
+A plain class (not a `data class`, so a later setting cannot break a constructor or `copy` you
+compiled against) with value `equals` / `hashCode` / `toString`.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `stallTimeout` | `5.minutes` | How long the engine waits with **no event at all** from a transfer before it cancels it and handles the attempt as a `DownloadError.Timeout` failure. Every event restarts the timer — a repeated `Progress` included, which keeps a transfer the OS is legitimately holding alive without counting as progress. Must be positive, else `IllegalArgumentException`. `Duration.INFINITE` switches stall detection off and leaves it entirely to the transport; on iOS the only bound left is then `timeoutIntervalForResource` (7 days by default). |
 
 ## `DownloadUnit`
 

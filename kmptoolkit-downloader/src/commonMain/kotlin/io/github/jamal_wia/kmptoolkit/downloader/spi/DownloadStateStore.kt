@@ -13,6 +13,10 @@ package io.github.jamal_wia.kmptoolkit.downloader.spi
  * `kmptoolkit-storage`-backed one. The library owns the key names, so nothing about where or how the
  * values are stored leaks into the engine.
  *
+ * A method that throws ends the download that was using it as a
+ * [io.github.jamal_wia.kmptoolkit.downloader.DownloadFailedException] carrying the exception, except
+ * [remove], whose failure is only logged.
+ *
  * No default is offered by [io.github.jamal_wia.kmptoolkit.downloader.createDownloader]: an
  * in-memory implementation would silently defeat the one guarantee this port exists for.
  */

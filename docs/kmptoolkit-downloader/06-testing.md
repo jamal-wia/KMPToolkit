@@ -123,7 +123,8 @@ fun `a failed download is retried before giving up`() = runTest {
 }
 ```
 
-`TestDownloadDispatchers` is what makes the five-minute stall timeout a non-issue in a test — it
+`TestDownloadDispatchers` is what makes the stall timeout (five minutes unless you pass a
+`DownloaderConfig`) a non-issue in a test — it
 runs the engine's coroutines on the test scheduler, so `runTest` fast-forwards through the `delay`
 instead of waiting for it.
 

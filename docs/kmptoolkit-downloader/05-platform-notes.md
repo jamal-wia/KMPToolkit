@@ -22,7 +22,24 @@ own app's manifest / `Info.plist`, roughly:
 | Android | `android.permission.POST_NOTIFICATIONS` (API 33+) | If your foreground service posts a visible notification — most do, since Android requires one. |
 | iOS | `UIBackgroundModes` → `fetch` or a background `NSURLSessionConfiguration` | For a transfer that should continue after the app is suspended. |
 
-None of these are declared by `kmptoolkit-downloader` — see
+### Platform limits of the transfer layer
+
+- **Android 15 caps a `dataSync` foreground service at 6 hours** per 24 hours, for apps that target
+  Android 15 (API 35) or higher. The system calls the service's `onTimeout`, which must stop it
+  within seconds; a new `dataSync` service cannot start from the background afterwards. Report it
+  as an `Error`: the engine keeps the partial and an `ensureAvailable` made once the app is in the
+  foreground again resumes it. A `WorkManager` worker kept alive with `setForeground` is the same
+  foreground service and under the same limit; see 07 for the details.
+- **A background `NSURLSession` always waits for connectivity** and stays silent while it does, for
+  up to its `timeoutIntervalForResource` (7 days by default). The engine's stall timer (5 minutes,
+  armed at subscription) reads that as a stall, so the downloader re-emits the current `Progress`
+  about every 60 seconds while the system lists the task (through a flow that delivers equal
+  values, not a `StateFlow`), or the host sets `DownloaderConfig(stallTimeout = Duration.INFINITE)`. See the iOS section of
+  [`07-background-downloader.md`](07-background-downloader.md).
+- **A resume with `Range` needs a validator the library does not store.** Storage records only the
+  expected hash, no `ETag`; an `If-Range` header on Android is the downloader's own business.
+
+None of the permissions above are declared by `kmptoolkit-downloader` — see
 [`07-background-downloader.md`](07-background-downloader.md) for the implementation itself, which
 is where these live.
 
@@ -76,7 +93,7 @@ and the next commit lands beside them. A temp file your old code left is always 
 guessing from the size is exactly what this module refuses to do. Its transfer is resumed with a
 `Range` starting at the file's size; if the file was already whole, the server answers
 `416 Range Not Satisfiable`, which your `BackgroundResourceDownloader` should treat as "already
-complete" and mark it so (see [`07-background-downloader.md`](07-background-downloader.md)).
+complete" and mark it so when the reported total matches (and otherwise restart from byte zero) (see [`07-background-downloader.md`](07-background-downloader.md)).
 
 Leave the default instead and every existing user downloads everything again while the old copies
 stay on disk, unreferenced. The base directory is resolved under the same root either way —

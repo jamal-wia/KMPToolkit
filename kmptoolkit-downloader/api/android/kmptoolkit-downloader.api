@@ -192,8 +192,25 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/Downlo
 	public abstract fun unitDownloadStateFlow (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;)Lkotlinx/coroutines/flow/Flow;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderConfig {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderConfig$Companion;
+	public fun <init> ()V
+	public synthetic fun <init> (JILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (JLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getStallTimeout-UwyO8pc ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderConfig$Companion {
+	public final fun getDEFAULT_STALL_TIMEOUT-UwyO8pc ()J
+}
+
 public final class io/github/jamal_wia/kmptoolkit/downloader/DownloaderKt {
+	public static final fun createDownloader (Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage;Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundResourceDownloader;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadStateStore;Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderConfig;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier;ZLio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/downloader/Downloader;
 	public static final fun createDownloader (Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage;Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundResourceDownloader;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadStateStore;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier;ZLio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers;Lio/github/jamal_wia/kmptoolkit/logging/Logger;)Lio/github/jamal_wia/kmptoolkit/downloader/Downloader;
+	public static synthetic fun createDownloader$default (Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage;Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundResourceDownloader;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadStateStore;Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderConfig;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier;ZLio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/Downloader;
 	public static synthetic fun createDownloader$default (Lio/github/jamal_wia/kmptoolkit/downloader/DownloaderStorage;Lio/github/jamal_wia/kmptoolkit/downloader/BackgroundResourceDownloader;Ljava/util/List;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadStateStore;Lio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadNotifier;ZLio/github/jamal_wia/kmptoolkit/downloader/spi/DownloadDispatchers;Lio/github/jamal_wia/kmptoolkit/logging/Logger;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/downloader/Downloader;
 }
 

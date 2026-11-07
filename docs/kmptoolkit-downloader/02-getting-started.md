@@ -79,6 +79,20 @@ val downloader: Downloader = createDownloader(
 loudly the first time it is used rather than half-working. There is no separate `start()`: the
 returned `Downloader` is ready immediately.
 
+To tune the engine — today, how long a silent transfer is tolerated before it counts as stalled
+(5 minutes by default) — use the overload that takes a `DownloaderConfig` (since 3.1.0), which sits
+right after `stateStore`:
+
+```kotlin
+val downloader: Downloader = createDownloader(
+    storage = storage,
+    backgroundDownloader = myBackgroundResourceDownloader,
+    groups = MyResourceGroup.entries,
+    stateStore = myDownloadStateStore,
+    config = DownloaderConfig(stallTimeout = 15.minutes),
+)
+```
+
 ## 6. Ask for a resource
 
 ```kotlin
