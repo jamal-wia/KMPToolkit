@@ -6,12 +6,12 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.concurrent.atomics.AtomicReference
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
 /**
  * The blink loop both platform [Flashlight]s share, and the one place their thread-safety is
@@ -20,7 +20,7 @@ import kotlin.concurrent.atomics.ExperimentalAtomicApi
  * The platforms differ only in how the torch is switched — that is [setTorch]. Everything that can
  * go wrong between two callers lives here, once:
  *
- * - **Concurrent [start]s cannot orphan a loop.** The running job is swapped atomically, so whichever
+ * - **Concurrent [start]s cannot orphan a loop.** The running job is swapped with getAndUpdate, so whichever
  *   call lands second always sees, and cancels, the job the first one installed. With a plain field,
  *   two starts racing could both read the same old job and each install their own — leaving one loop
  *   blinking that no [stop] could reach.
@@ -39,20 +39,22 @@ import kotlin.concurrent.atomics.ExperimentalAtomicApi
  * @param scope where the jobs run. Owned by the caller; nothing here cancels it.
  * @param setTorch switches the torch. Must not throw — platform failures are swallowed by the caller.
  */
-@OptIn(ExperimentalAtomicApi::class)
 internal class TorchBlinker(
     private val scope: CoroutineScope,
     private val setTorch: (on: Boolean) -> Unit,
 ) {
 
-    /** The most recently installed job; [Phase.isLoop] tells a blink loop from a stop's switch-off. */
+    /**
+     * The most recently installed job; [isLoop] tells a blink loop from a stop's switch-off. A plain
+     * class: [current] swaps with `equals`, so identity equality keeps every install distinct.
+     */
     private class Phase(val job: Job, val isLoop: Boolean)
 
-    private val current: AtomicReference<Phase?> = AtomicReference(null)
+    private val current: MutableStateFlow<Phase?> = MutableStateFlow(null)
 
     /** Whether a blink loop is installed and has not finished. For tests; not part of any contract. */
     val isBlinking: Boolean
-        get() = current.load()?.let { phase: Phase -> phase.isLoop && phase.job.isActive } == true
+        get() = current.value?.let { phase: Phase -> phase.isLoop && phase.job.isActive } == true
 
     fun start(pattern: FlashPattern) {
         install(isLoop = true) {
@@ -90,7 +92,8 @@ internal class TorchBlinker(
             withContext(NonCancellable) { predecessor.await()?.cancelAndJoin() }
             body()
         }
-        val previous: Phase? = current.exchange(Phase(job, isLoop))
+        val phase = Phase(job, isLoop) // built outside the lambda: getAndUpdate may rerun it under contention
+        val previous: Phase? = current.getAndUpdate { phase }
         previous?.job?.cancel()
         predecessor.complete(previous?.job)
     }
