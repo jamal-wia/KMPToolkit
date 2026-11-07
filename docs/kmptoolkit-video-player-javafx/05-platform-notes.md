@@ -94,7 +94,8 @@ decoder writes straight into memory without a render-and-read-back step.
 - **Starting the toolkit.** The first `prepare` (or `isJavaFxMediaAvailable()`) calls
   `Platform.startup` if nothing has started JavaFX yet, and tolerates an app that already did. That
   can take up to 10 s, so `prepare` does it — and resolves the source against the disk — on
-  `Dispatchers.IO`, never on the thread that called it; `isJavaFxMediaAvailable()` blocks its caller.
+  `Dispatchers.IO`, never on the thread that called it; `isJavaFxMediaAvailable()` blocks its caller, except on the JavaFX application thread, where an
+  already running toolkit is confirmed at once.
   Only
   when the engine itself started the toolkit does it call `Platform.setImplicitExit(false)` — it
   never opens a window, and without that JavaFX could shut down when a window of the app's closes.

@@ -25,6 +25,11 @@ internal object FxThread {
      * Implicit exit is switched off only when this call is the one that started the toolkit: with no
      * window of its own the engine would otherwise never trigger it anyway, but an app that runs its
      * own JavaFX windows keeps whatever exit policy it chose.
+     *
+     * Called on the FX thread itself, an already running toolkit is confirmed by being there: waiting
+     * for a block queued behind the caller would block the only thread that can run it. Throws
+     * [FxThreadUnresponsiveException] when the toolkit is running but the FX thread did not answer
+     * in time — a busy thread, not a missing runtime.
      */
     fun startToolkit() {
         val started = CountDownLatch(1)
@@ -33,11 +38,15 @@ internal object FxThread {
             true
         } catch (e: IllegalStateException) {
             // "Toolkit already initialized" — the app, or an earlier player, started it.
+            // On the FX thread the toolkit is running and accepts work: nothing left to confirm.
+            if (Platform.isFxApplicationThread()) return
             Platform.runLater { started.countDown() }
             false
         }
-        check(started.await(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            "The JavaFX application thread did not respond within $START_TIMEOUT_SECONDS s"
+        if (!started.await(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw FxThreadUnresponsiveException(
+                "The JavaFX application thread did not respond within $START_TIMEOUT_SECONDS s",
+            )
         }
         if (startedHere) Platform.setImplicitExit(false)
     }
@@ -95,3 +104,9 @@ internal object FxThread {
         }
     }
 }
+
+/**
+ * The JavaFX toolkit is running but its application thread did not answer in time, as when it is
+ * busy. Unlike a missing runtime this may pass, so [SystemJavaFxRuntime] does not remember it.
+ */
+internal class FxThreadUnresponsiveException(message: String) : IllegalStateException(message)

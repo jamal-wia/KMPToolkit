@@ -1,0 +1,90 @@
+package io.github.jamal_wia.kmptoolkit.video.player.javafx
+
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import javafx.application.Platform
+import kotlin.concurrent.thread
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * Starting the toolkit from the FX thread: it must not stall for the start timeout, and a busy FX
+ * thread must not be cached as "unavailable" for the rest of the process.
+ */
+class FxThreadStartTest {
+
+    @BeforeTest
+    fun setUp() {
+        assumeJavaFxMedia()
+        FxThread.startToolkit()
+    }
+
+    @Test
+    fun startingTheToolkitOnTheFxThreadReturnsAtOnce() {
+        val outcome: Outcome = onFxThreadWithin(2L) { FxThread.startToolkit() }
+        assertNull(outcome.failure, "an FX-thread caller proves the toolkit runs; nothing to wait for")
+    }
+
+    @Test
+    fun theAvailabilityCheckOnTheFxThreadAnswersTrueAndStaysTrueForEveryThread() {
+        val runtime = ToolkitJavaFxRuntime()
+        val onFx: AtomicReference<Boolean> = AtomicReference()
+        val outcome: Outcome = onFxThreadWithin(2L) { onFx.set(runtime.isAvailable()) }
+        assertNull(outcome.failure)
+        assertEquals(true, onFx.get())
+
+        val fromBackground: AtomicReference<Boolean> = AtomicReference()
+        thread { fromBackground.set(runtime.isAvailable()) }.join(5_000L)
+        assertEquals(true, fromBackground.get())
+    }
+
+    @Test
+    fun anFxThreadThatWasOnlyBusyIsNotRememberedAsUnavailable() {
+        var calls = 0
+        val runtime = ToolkitJavaFxRuntime(startToolkit = {
+            calls++
+            if (calls == 1) throw FxThreadUnresponsiveException("busy")
+        })
+
+        assertFalse(runtime.isAvailable(), "the busy thread did not answer")
+        assertTrue(runtime.isAvailable(), "a busy thread passes: the next call tries again")
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun aPermanentFailureIsRememberedWithoutStartingAgain() {
+        var calls = 0
+        val runtime = ToolkitJavaFxRuntime(startToolkit = {
+            calls++
+            throw IllegalStateException("Platform.exit has been called")
+        })
+
+        assertFalse(runtime.isAvailable())
+        assertFalse(runtime.isAvailable())
+        assertEquals(1, calls)
+    }
+
+    private class Outcome(val failure: Throwable?)
+
+    /** Runs [block] on the FX thread and fails unless it finishes within [seconds]. */
+    private fun onFxThreadWithin(seconds: Long, block: () -> Unit): Outcome {
+        val done = CountDownLatch(1)
+        val failure: AtomicReference<Throwable?> = AtomicReference()
+        Platform.runLater {
+            try {
+                block()
+            } catch (e: Throwable) {
+                failure.set(e)
+            } finally {
+                done.countDown()
+            }
+        }
+        assertTrue(done.await(seconds, TimeUnit.SECONDS), "the block did not finish within $seconds s")
+        return Outcome(failure.get())
+    }
+}

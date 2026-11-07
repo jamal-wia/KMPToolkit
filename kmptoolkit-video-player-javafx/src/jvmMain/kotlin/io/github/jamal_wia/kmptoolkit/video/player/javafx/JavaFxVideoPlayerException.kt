@@ -22,8 +22,9 @@ public sealed class JavaFxVideoPlayerException(
 
     /**
      * The OpenJFX runtime is missing from the classpath, or the JavaFX toolkit cannot start here —
-     * typically a machine with no display. [cause] is what JavaFX reported. The failure is
-     * remembered for the life of the process.
+     * typically a machine with no display. [cause] is what JavaFX reported. A permanent failure is
+     * remembered for the life of the process; a JavaFX thread that was only too busy to answer is not,
+     * and a later load tries again.
      */
     public class RuntimeUnavailable internal constructor(
         cause: Throwable,

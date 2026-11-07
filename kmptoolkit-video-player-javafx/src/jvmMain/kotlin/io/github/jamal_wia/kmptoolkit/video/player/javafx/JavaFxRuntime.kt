@@ -12,21 +12,32 @@ internal fun interface JavaFxRuntime {
     fun ensureStarted()
 }
 
-internal object SystemJavaFxRuntime : JavaFxRuntime {
-
-    private const val MEDIA_PLAYER_CLASS: String = "javafx.scene.media.MediaPlayer"
+/**
+ * Starts the real toolkit through [startToolkit]. Only a permanent failure is remembered: a missing
+ * class or native library, a toolkit that has exited, a machine with no display. An
+ * [FxThreadUnresponsiveException] describes a busy FX thread, which may pass, so the next call tries
+ * again.
+ *
+ * @param startToolkit a test seam.
+ */
+internal class ToolkitJavaFxRuntime(
+    private val startToolkit: () -> Unit = FxThread::startToolkit,
+) : JavaFxRuntime {
 
     private var started: Boolean = false
     private var failure: Throwable? = null
 
+    // Blocking by nature: the start waits on the FX thread, and callers are plain synchronous code.
     @Synchronized
     override fun ensureStarted() {
         if (started) return
         failure?.let { throw JavaFxVideoPlayerException.RuntimeUnavailable(it) }
         try {
-            Class.forName(MEDIA_PLAYER_CLASS, false, SystemJavaFxRuntime::class.java.classLoader)
-            FxThread.startToolkit()
+            Class.forName(MEDIA_PLAYER_CLASS, false, ToolkitJavaFxRuntime::class.java.classLoader)
+            startToolkit()
             started = true
+        } catch (e: FxThreadUnresponsiveException) {
+            throw JavaFxVideoPlayerException.RuntimeUnavailable(e)
         } catch (e: Exception) {
             failure = e
             throw JavaFxVideoPlayerException.RuntimeUnavailable(e)
@@ -44,4 +55,18 @@ internal object SystemJavaFxRuntime : JavaFxRuntime {
     } catch (e: JavaFxVideoPlayerException.RuntimeUnavailable) {
         false
     }
+
+    private companion object {
+        const val MEDIA_PLAYER_CLASS: String = "javafx.scene.media.MediaPlayer"
+    }
+}
+
+/** The process-wide runtime: one remembered outcome for every engine. */
+internal object SystemJavaFxRuntime : JavaFxRuntime {
+
+    private val delegate: ToolkitJavaFxRuntime = ToolkitJavaFxRuntime()
+
+    override fun ensureStarted(): Unit = delegate.ensureStarted()
+
+    fun isAvailable(): Boolean = delegate.isAvailable()
 }

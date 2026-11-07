@@ -11,7 +11,7 @@ inject the `VideoPlayer`; your screen logic then tests against the fake on every
 What is worth testing on the JVM side is the engine choice itself — for example that the app falls
 back when `isJavaFxMediaAvailable()` is `false`. Put that decision behind your own
 `() -> Boolean` so a test can answer it either way; do not rely on the real check in unit tests, since
-its answer depends on the machine (a display, the OpenJFX jars) and is remembered for the process.
+its answer depends on the machine (a display, the OpenJFX jars) and is remembered for the process (a permanent failure only).
 
 ## How this module tests itself
 
