@@ -111,4 +111,62 @@ class UnitCommitLocksTest {
         UnitCommitLocks.withUnitLock("/base", "boom") { ran = true }
         assertTrue(ran)
     }
+
+    @Test
+    fun `tryDetachThenDispose disposes after the registry is released so other units are not stalled`() = runTest {
+        var otherUnitRan = false
+        var disposed: String? = null
+
+        val ran: Boolean = UnitCommitLocks.tryDetachThenDispose(
+            baseDirectory = "/base",
+            unitId = "slow",
+            detach = { "tree" },
+            dispose = { handle: String ->
+                // The slow delete: a cancel of a different unit must not find the registry busy.
+                otherUnitRan = UnitCommitLocks.tryWithUnitLock("/base", "other") {}
+                disposed = handle
+            },
+        )
+
+        assertTrue(ran)
+        assertEquals("tree", disposed)
+        assertTrue(otherUnitRan, "the registry must be free while the detached tree is disposed")
+    }
+
+    @Test
+    fun `tryDetachThenDispose neither detaches nor disposes under a running commit`() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val holder: Job = launch { UnitCommitLocks.withUnitLock("/base", "busy") { release.await() } }
+        runCurrent()
+        var detached = 0
+        var disposed = 0
+
+        val ran: Boolean = UnitCommitLocks.tryDetachThenDispose(
+            baseDirectory = "/base",
+            unitId = "busy",
+            detach = { detached++; "tree" },
+            dispose = { _: String -> disposed++ },
+        )
+
+        assertFalse(ran)
+        assertEquals(0, detached)
+        assertEquals(0, disposed)
+        release.complete(Unit)
+        holder.join()
+    }
+
+    @Test
+    fun `tryDetachThenDispose does not dispose when there was nothing to detach`() = runTest {
+        var disposed = 0
+
+        val ran: Boolean = UnitCommitLocks.tryDetachThenDispose<String>(
+            baseDirectory = "/base",
+            unitId = "empty",
+            detach = { null },
+            dispose = { disposed++ },
+        )
+
+        assertTrue(ran)
+        assertEquals(0, disposed)
+    }
 }

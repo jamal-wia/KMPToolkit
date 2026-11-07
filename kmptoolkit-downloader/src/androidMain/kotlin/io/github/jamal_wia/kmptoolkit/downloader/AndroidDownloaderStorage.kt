@@ -16,6 +16,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlin.random.Random
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -121,10 +122,19 @@ internal class AndroidDownloaderStorage(
         // The extraction tree of an archive commit that a process death interrupted: nothing else
         // ever enumerates tmp/, so a unit that is then dropped would keep it forever. Skipped while
         // a commit of the unit runs (it may be extracting into this very tree, or renaming it into
-        // place); the next cancel or the next commit reclaims it.
-        UnitCommitLocks.tryWithUnitLock(baseDir.absolutePath, unit.id) {
-            File(baseDir, "tmp/staging-${unit.id}").deleteRecursively()
-        }
+        // place), or while the lock registry is momentarily busy; the next cancel or the next
+        // commit reclaims it. Under the lock the tree is only renamed away; the recursive delete
+        // runs after the lock is released so it cannot stall other units.
+        UnitCommitLocks.tryDetachThenDispose(
+            baseDirectory = baseDir.absolutePath,
+            unitId = unit.id,
+            detach = {
+                val staging = File(baseDir, "tmp/staging-${unit.id}")
+                val trash = File(baseDir, "tmp/trash-${unit.id}-${Random.nextLong().toULong()}")
+                if (staging.renameTo(trash)) trash else null
+            },
+            dispose = { trash: File -> trash.deleteRecursively() },
+        )
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
         // keep its record: with the record gone, the next attempt would commit that complete file
         // unchecked.

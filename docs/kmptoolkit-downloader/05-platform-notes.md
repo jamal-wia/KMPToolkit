@@ -60,7 +60,10 @@ are serialized across every storage instance over the base directory in the proc
 mid-extraction leaves the tree behind; the next commit of that unit replaces it, and
 `deleteTempFile(unit)` (so `cancelDownload`) removes it — unless a commit of that unit is running in
 the process at that moment: the removal never waits for it (it would be deleting the tree the commit
-is extracting into), so it is skipped and the next cancel or commit reclaims the tree. A plain file
+is extracting into), so it is skipped and the next cancel or commit reclaims the tree. The same
+skip happens, very rarely and for microseconds, while another unit's commit is registering or
+leaving. The tree is only renamed to `tmp/trash-<unit.id>-<random>` under the lock and deleted after
+it is released, so a large extraction never stalls other units' commits. A plain file
 is moved into place by an atomic rename that replaces the old file, on both platforms, so a
 committed resource never goes missing while it is replaced. The lock is per process: a
 `BackgroundResourceDownloader` that commits from a separate Android process is not covered by it. The hash a transfer must have (`beginTempFile`) is a one-line file at

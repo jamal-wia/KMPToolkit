@@ -166,6 +166,11 @@ class AndroidDownloaderStorageTempFileTest {
 
         assertFalse(File(root, "tmp/staging-model").exists())
         assertTrue(other.exists(), "another unit's staging tree is not touched")
+        assertEquals(
+            emptyList<String>(),
+            File(root, "tmp").list { _, name -> name.startsWith("trash-") }!!.toList(),
+            "the detached tree must be deleted, not left as trash",
+        )
     }
 
     @Test

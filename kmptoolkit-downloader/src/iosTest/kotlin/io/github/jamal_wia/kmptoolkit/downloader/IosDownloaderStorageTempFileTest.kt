@@ -170,6 +170,9 @@ class IosDownloaderStorageTempFileTest {
 
         assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$tmpDir/staging-model"))
         assertTrue(NSFileManager.defaultManager.fileExistsAtPath(other), "another unit's staging tree is not touched")
+        val leftovers: List<*> = NSFileManager.defaultManager.contentsOfDirectoryAtPath(tmpDir, null).orEmpty()
+            .filter { (it as String).startsWith("trash-") }
+        assertTrue(leftovers.isEmpty(), "the detached tree must be deleted, not left as trash")
     }
 
     @Test
