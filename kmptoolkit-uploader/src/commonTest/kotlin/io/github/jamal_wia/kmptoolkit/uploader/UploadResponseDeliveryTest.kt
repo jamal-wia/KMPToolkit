@@ -181,6 +181,24 @@ class UploadResponseDeliveryTest {
     }
 
     @Test
+    fun `a getter that throws falls back to the default limit and never costs the upload`() = runTest {
+        val handler = ResponseHandler(limitGetter = { error("config not initialised") })
+        enqueued(handler, backgroundScope)
+
+        val landed: Boolean = UploadGateway.complete(
+            "item-1",
+            UploadResponse(200, emptyMap(), ByteArray(UploadHandler.DEFAULT_MAX_RESPONSE_BODY_BYTES + 10), false),
+            WAIT,
+        )
+
+        assertTrue(landed, "a failing getter must not read as a store failure that re-uploads")
+        val delivered: UploadResponse = assertNotNull(handler.delivered.single())
+        assertEquals(UploadHandler.DEFAULT_MAX_RESPONSE_BODY_BYTES, delivered.body().size)
+        assertTrue(delivered.isBodyTruncated)
+        assertNull(store.find("item-1"))
+    }
+
+    @Test
     fun `a body exactly at the limit is not truncated`() = runTest {
         val handler = ResponseHandler(limit = 4)
         enqueued(handler, backgroundScope)
@@ -315,6 +333,7 @@ class UploadResponseDeliveryTest {
 
     private class ResponseHandler(
         private val limit: Int = DEFAULT_MAX_RESPONSE_BODY_BYTES,
+        private val limitGetter: (() -> Int)? = null,
         private val classifier: (UploadResult, UploadResponse?) -> SettleResult = { result, _ ->
             defaultUploadClassification(result)
         },
@@ -324,7 +343,7 @@ class UploadResponseDeliveryTest {
         val classified = mutableListOf<Pair<UploadResult, UploadResponse?>>()
         val delivered = mutableListOf<UploadResponse?>()
 
-        override val maxResponseBodyBytes: Int get() = limit
+        override val maxResponseBodyBytes: Int get() = limitGetter?.invoke() ?: limit
 
         override suspend fun classify(payload: String, result: UploadResult, response: UploadResponse?): SettleResult {
             classified += result to response

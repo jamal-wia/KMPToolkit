@@ -83,7 +83,8 @@ public abstract class UploadHandler<P : Any>(
      * Defaults to [DEFAULT_MAX_RESPONSE_BODY_BYTES]; read each time a response is settled.
      *
      * The engine is the one place that enforces it: the effective limit is this value clamped to
-     * `0..1 MiB` — a negative value counts as `0` (and is logged once), a value above 1 MiB as 1 MiB.
+     * `0..1 MiB` — a negative value counts as `0` (and is logged once), a value above 1 MiB as 1 MiB, and a
+     * getter that throws counts as the default.
      * A body longer than the limit is cut to it and [UploadResponse.isBodyTruncated] is set; that never
      * causes a retry. `0` captures no body at all, but the status and headers are still delivered.
      *
@@ -193,9 +194,6 @@ public abstract class UploadHandler<P : Any>(
          */
         public const val DEFAULT_MAX_RESPONSE_BODY_BYTES: Int = 65_536
     }
-
-    /** [maxResponseBodyBytes] as the engine enforces it: clamped to `0..1 MiB`. */
-    internal fun effectiveMaxResponseBodyBytes(): Int = maxResponseBodyBytes.coerceIn(0, MAX_RESPONSE_BODY_BYTES)
 }
 
 /**

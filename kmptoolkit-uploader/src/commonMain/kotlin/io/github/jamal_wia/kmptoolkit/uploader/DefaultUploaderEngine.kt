@@ -834,13 +834,23 @@ internal class DefaultUploaderEngine(
     }
 
     /** The handler's body limit as enforced, logging a negative value once per handler type. */
-    private fun effectiveBodyLimit(record: UploaderItem, handler: UploadHandler<Any>): Int {
-        val configured: Int = handler.maxResponseBodyBytes
+    private suspend fun effectiveBodyLimit(record: UploaderItem, handler: UploadHandler<Any>): Int {
+        // The getter is feature code like classify: a throw must not make an accepted upload settle as a
+        // store failure and upload again, so it falls back to the default limit.
+        val configured: Int = try {
+            handler.maxResponseBodyBytes
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            UploadHandler.DEFAULT_MAX_RESPONSE_BODY_BYTES
+        } catch (e: Throwable) {
+            logger.e(e) { "${record.type}: maxResponseBodyBytes threw; using the default limit." }
+            UploadHandler.DEFAULT_MAX_RESPONSE_BODY_BYTES
+        }
         if (configured < 0 && record.type !in negativeLimitLogged.value) {
             negativeLimitLogged.update { it + record.type }
             logger.w { "${record.type}: maxResponseBodyBytes is $configured; treated as 0 (no body captured)." }
         }
-        return handler.effectiveMaxResponseBodyBytes()
+        return configured.coerceIn(0, MAX_RESPONSE_BODY_BYTES)
     }
 
     private val negativeLimitLogged: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
