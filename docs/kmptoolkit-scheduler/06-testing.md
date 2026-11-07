@@ -102,7 +102,8 @@ For reference when judging whether a behavior is already guaranteed:
 
 - **`iosTest`** — the 64-pending-request pre-check of the iOS scheduler against a fake notification
   center: below the cap, a new request at the cap refused, re-scheduling a pending id at the cap
-  accepted, and a cancel freeing room.
+  accepted, a cancel freeing room, and concurrent requests (also across scheduler instances) at 63
+  pending admitting exactly one.
 
 The real `UNUserNotificationCenter` calls themselves are not unit-tested: they need a real app
 bundle and an authorization state, and everything around them that can be wrong on its own — the

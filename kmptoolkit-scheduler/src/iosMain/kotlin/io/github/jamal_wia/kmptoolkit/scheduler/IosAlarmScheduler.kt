@@ -1,6 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.scheduler
 
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import platform.Foundation.NSDate
 import platform.Foundation.NSError
 import platform.Foundation.timeIntervalSince1970
@@ -56,28 +58,32 @@ internal class IosAlarmScheduler(
         // iOS keeps only the soonest-firing 64 pending requests and silently discards the rest,
         // reporting no error from `add`. Refuse up front instead of claiming `Exact` for a request
         // that may never fire. A request that replaces an already-pending identifier does not grow
-        // the pending set, so it is not counted. The check and the add are not atomic: a concurrent
-        // schedule can still slip past the cap.
-        val otherPending: Int = center.pendingIdentifiers().count { it != alarm.id }
-        if (otherPending >= PENDING_REQUEST_CAP) {
-            return AlarmScheduleResult.Failed(
-                AlarmFailure.PlatformError(
-                    "iOS keeps at most $PENDING_REQUEST_CAP pending local notifications per app; " +
-                        "cancel one before scheduling another",
-                ),
-            )
-        }
+        // the pending set, so it is not counted. The check and the add run under a process-wide
+        // lock (createAlarmScheduler returns a new instance per call), so concurrent schedule calls
+        // cannot all read the same count; requests added by code outside this library are still
+        // not serialised with it.
+        return scheduleLock.withLock {
+            val otherPending: Int = center.pendingIdentifiers().count { it != alarm.id }
+            if (otherPending >= PENDING_REQUEST_CAP) {
+                return@withLock AlarmScheduleResult.Failed(
+                    AlarmFailure.PlatformError(
+                        "iOS keeps at most $PENDING_REQUEST_CAP pending local notifications per " +
+                            "app; cancel one before scheduling another",
+                    ),
+                )
+            }
 
-        val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
-            identifier = alarm.id,
-            content = contentFor(alarm),
-            trigger = triggerFor(alarm.fireAtEpochMillis),
-        )
-        val error: NSError? = center.add(request)
-        return if (error == null) {
-            AlarmScheduleResult.Exact
-        } else {
-            AlarmScheduleResult.Failed(AlarmFailure.PlatformError(error.localizedDescription))
+            val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
+                identifier = alarm.id,
+                content = contentFor(alarm),
+                trigger = triggerFor(alarm.fireAtEpochMillis),
+            )
+            val error: NSError? = center.add(request)
+            if (error == null) {
+                AlarmScheduleResult.Exact
+            } else {
+                AlarmScheduleResult.Failed(AlarmFailure.PlatformError(error.localizedDescription))
+            }
         }
     }
 
@@ -121,6 +127,9 @@ internal class IosAlarmScheduler(
     private fun toSound(soundFileName: String?): UNNotificationSound =
         soundFileName?.let { UNNotificationSound.soundNamed(it) } ?: UNNotificationSound.defaultSound
 }
+
+/** Serialises the cap check with the add across every scheduler instance in the process. */
+private val scheduleLock: Mutex = Mutex()
 
 /** The most pending local notifications iOS keeps per app; anything beyond is silently discarded. */
 internal const val PENDING_REQUEST_CAP: Int = 64

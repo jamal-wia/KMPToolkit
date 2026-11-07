@@ -1,6 +1,10 @@
 package io.github.jamal_wia.kmptoolkit.scheduler
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import platform.Foundation.NSError
 import platform.UserNotifications.UNNotificationRequest
 import kotlin.test.Test
@@ -18,6 +22,7 @@ class IosPendingCapTest {
     private class FakeCenter(
         initialPending: List<String>,
         private val denied: Boolean = false,
+        private val slowAdd: Boolean = false,
     ) : NotificationCenterPort {
         val pending: MutableList<String> = initialPending.toMutableList()
         var addCalls: Int = 0
@@ -26,6 +31,7 @@ class IosPendingCapTest {
         override suspend fun pendingIdentifiers(): List<String> = pending.toList()
         override suspend fun add(request: UNNotificationRequest): NSError? {
             addCalls++
+            if (slowAdd) repeat(5) { yield() }
             // Adding an identifier already pending replaces it, like the real center.
             if (request.identifier !in pending) pending += request.identifier
             return null
@@ -96,5 +102,27 @@ class IosPendingCapTest {
         val result: AlarmScheduleResult = scheduler(center).schedule(alarm("new"))
         val failed = assertIs<AlarmScheduleResult.Failed>(result)
         assertTrue(failed.reason is AlarmFailure.NotificationPermissionDenied)
+    }
+
+    @Test
+    fun `concurrent new requests at 63 pending admit exactly one`() = runBlocking {
+        val center = FakeCenter(ids(63), slowAdd = true)
+        val scheduler = scheduler(center)
+        val results: List<AlarmScheduleResult> = coroutineScope {
+            listOf("x", "y").map { id -> async { scheduler.schedule(alarm(id)) } }.awaitAll()
+        }
+        assertEquals(1, results.count { it == AlarmScheduleResult.Exact })
+        assertEquals(1, results.count { it is AlarmScheduleResult.Failed })
+        assertEquals(64, center.pending.size)
+    }
+
+    @Test
+    fun `the cap holds across scheduler instances`() = runBlocking {
+        val center = FakeCenter(ids(63), slowAdd = true)
+        val results: List<AlarmScheduleResult> = coroutineScope {
+            listOf("x", "y").map { id -> async { scheduler(center).schedule(alarm(id)) } }.awaitAll()
+        }
+        assertEquals(1, results.count { it == AlarmScheduleResult.Exact })
+        assertEquals(64, center.pending.size)
     }
 }

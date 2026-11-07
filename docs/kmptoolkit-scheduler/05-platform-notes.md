@@ -136,8 +136,11 @@ Practical consequences:
   Because the OS never says so, `IosAlarmScheduler` checks before adding: it reads the pending
   requests and, if 64 *other* identifiers are already pending, returns
   `Failed(PlatformError(...))` without adding. Re-scheduling an identifier that is already pending
-  replaces it and is not counted, so it still succeeds at the cap. The check and the add are not
-  atomic, so concurrent `schedule` calls can still overshoot. Schedule a rolling window rather than
+  replaces it and is not counted, so it still succeeds at the cap. The count covers every pending local
+  notification of the app, including ones created by your own code or another library, not only this
+  scheduler's. The check and the add run under a process-wide lock, so concurrent `schedule` calls
+  through this library cannot overshoot; notifications added by code outside it are not serialised
+  with it and can still push the total past 64. Schedule a rolling window rather than
   a year of reminders.
 
   Verification status: the pre-check is verified by unit tests against a fake notification center
