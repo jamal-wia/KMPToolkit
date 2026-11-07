@@ -160,7 +160,7 @@ internal class Media3VideoEngine(
         }
 
         override fun onEvents(player: Player, events: Player.Events) {
-            refreshSnapshot()
+            refreshSnapshotUnlessQueued()
         }
     }
 
@@ -299,6 +299,16 @@ internal class Media3VideoEngine(
     }
 
     /**
+     * [refreshSnapshot], unless calls are still queued: the player then describes the moment before
+     * them, and would put its pre-seek playhead (or its still-playing state) over what [seekTo] and
+     * [pause] already published. The refresh that follows the last queued call's own events
+     * replaces this one. Looper thread only.
+     */
+    private fun refreshSnapshotUnlessQueued() {
+        if (queued.get() == 0) refreshSnapshot()
+    }
+
+    /**
      * The freshest snapshot this thread can get: exact on the looper thread, else cached plus a
      * refresh. Exact means nothing is still queued: until queued calls have run, the player describes
      * the moment before them, and the snapshot — which [pause] and [seekTo] update as they are called
@@ -310,7 +320,7 @@ internal class Media3VideoEngine(
         } else if (refreshPosted.compareAndSet(false, true)) {
             handler.post {
                 refreshPosted.set(false)
-                refreshSnapshot()
+                refreshSnapshotUnlessQueued()
             }
         }
         return snapshot
