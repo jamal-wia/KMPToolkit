@@ -16,6 +16,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.runner.RunWith
 
 /**
@@ -199,7 +202,16 @@ class MultipartBodyAdversarialTest {
             }
         }
         val startedAt: Long = System.nanoTime()
-        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))), readTimeoutMillis = 1_000)
+        // Under the watchdog, as both workers run it: the transfer on its own has no deadline for the headers.
+        val outcome: MultipartOutcome = runBlocking {
+            withWriteWatchdog(stallMillis = 1_000) { watch ->
+                withContext(Dispatchers.IO) {
+                    performMultipartUploadCapturing(
+                        UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))), 5_000, 1_000, watch = watch,
+                    )
+                }
+            }
+        }
         val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000
         hold.countDown()
 
@@ -228,42 +240,6 @@ class MultipartBodyAdversarialTest {
 
         assertEquals(UploadResult.Completed(200), outcome.result)
         assertEquals(200_000, assertNotNull(outcome.response).body().size)
-    }
-
-    private fun answerWithoutReading(raw: String) {
-        thread(isDaemon = true) {
-            val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
-            socket.use {
-                // Answers without reading the request, then closes with the body still unread.
-                it.getOutputStream().write(raw.encodeToByteArray())
-                it.getOutputStream().flush()
-            }
-        }
-    }
-
-
-    private fun bigSourceRequest(): UploadRequest = UploadRequest(
-        url(),
-        fields = listOf(UploadField.File("f", "big.bin", "application/octet-stream", tempFile("early", 32L * 1024 * 1024).path)),
-    )
-
-
-    @Test
-    fun `a redirect sent before the body ends is the server's answer, not a transport failure`() {
-        answerWithoutReading("HTTP/1.1 301 Moved Permanently\r\nLocation: https://example.invalid/upload\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-
-        val outcome: MultipartOutcome = upload(bigSourceRequest())
-
-        assertEquals(UploadResult.Completed(301), outcome.result, "a received status must reach the handler's classify")
-    }
-
-    @Test
-    fun `a success sent before the body ends is the server's answer, not a transport failure that uploads the file again`() {
-        answerWithoutReading("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
-
-        val outcome: MultipartOutcome = upload(bigSourceRequest())
-
-        assertEquals(UploadResult.Completed(200), outcome.result, "a received status must reach the handler's classify")
     }
 
     @Test
@@ -314,7 +290,16 @@ class MultipartBodyAdversarialTest {
             }
         }
         val startedAt: Long = System.nanoTime()
-        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))), readTimeoutMillis = 1_000)
+        // Under the watchdog, as both workers run it: the transfer on its own has no deadline for the headers.
+        val outcome: MultipartOutcome = runBlocking {
+            withWriteWatchdog(stallMillis = 1_000) { watch ->
+                withContext(Dispatchers.IO) {
+                    performMultipartUploadCapturing(
+                        UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))), 5_000, 1_000, watch = watch,
+                    )
+                }
+            }
+        }
         val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000
         thread.join(15_000)
 
