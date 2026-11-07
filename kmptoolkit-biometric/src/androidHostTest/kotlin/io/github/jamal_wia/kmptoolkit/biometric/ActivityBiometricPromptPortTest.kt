@@ -19,16 +19,9 @@ import org.robolectric.Shadows.shadowOf
 import android.os.Looper
 
 /**
- * The "there is nobody to show a prompt to" half of the real port.
- *
- * Both branches produce the same `null` — and therefore [BiometricResult.NoPromptHost] — but for
- * different reasons, and both are reachable in a shipped app: the first every time something
- * authenticates from the background, the second whenever a consumer's activity does not extend
- * `FragmentActivity`, which the compiler cannot warn them about because the type never appears in
- * this module's public API.
- *
- * The success path is not testable here: showing the prompt means inflating a fragment that talks
- * to a biometric service Robolectric does not emulate.
+ * The real port without a real prompt: the "nobody to show a prompt to" answers (both produce
+ * [BiometricResult.NoPromptHost]), and the prompt handle's state machine and the show wiring, driven
+ * through the factory and start seams because Robolectric has no biometric service to show a prompt.
  */
 @RunWith(AndroidJUnit4::class)
 class ActivityBiometricPromptPortTest {
@@ -448,6 +441,4 @@ class ActivityBiometricPromptPortTest {
 
         assertEquals(1, seams.stop.calls)
     }
-
-    private val noopCallback = object : BiometricPrompt.AuthenticationCallback() {}
 }

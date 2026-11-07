@@ -51,7 +51,8 @@ internal interface PromptHandle {
  * cannot be shown from the background — that is what the `null` return means, and it is checked
  * before anything is posted so the caller learns immediately. And every `BiometricPrompt` call must
  * happen on the main thread, so the work is posted there while [show] itself stays callable from
- * any thread; [PromptHandle.cancel] is posted the same way and drops a show that has not run yet.
+ * any thread. [PromptHandle.cancel] may come from any thread too: it ends the handle at once, so a show
+ * that has not run yet is dropped, and it posts only the dismissal of a prompt that is already up.
  *
  * The activity is reached through [ActivityAccess] and never stored: the reference lives only for
  * the duration of the posted block. The handle returned to the caller holds no activity at all, only the
