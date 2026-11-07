@@ -32,6 +32,10 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -97,8 +101,12 @@ class UploaderStorageRestartAdversarialTest {
         override fun backoffMillis(attempts: Int): Long = 1_000L
     }
 
-    private class UploadingHandler(transport: UploadTransport) : UploadHandler<String>(transport) {
+    private class UploadingHandler(
+        transport: UploadTransport,
+        private val channel: String? = null,
+    ) : UploadHandler<String>(transport) {
         override val type: String = "adv.upload"
+        override fun orderingKey(payload: String): String? = channel
         override val retryPolicy: RetryPolicy = OneSecondPolicy
         val delivered: MutableStateFlow<List<String>> = MutableStateFlow(emptyList())
         val settled: MutableStateFlow<Int> = MutableStateFlow(0)
@@ -174,23 +182,29 @@ class UploaderStorageRestartAdversarialTest {
         .filter { (t, _) -> t.name.startsWith("kmptoolkit-") || t.name.startsWith("DefaultDispatcher") || t.name == "main" }
         .joinToString("\n") { (t, frames) -> "${t.name}:\n" + frames.take(12).joinToString("\n") { "    at $it" } }
 
-    /** Engine A hands an item off and dies; returns what B needs to take over. */
-    private class DeadProcess(val id: String, val claim: Long, val clock: MutableUploaderClock)
+    /** Engine A hands items off and dies; what B needs to take over. */
+    private class DeadProcess(val ids: List<String>, val claim: Long, val clock: MutableUploaderClock) {
+        val id: String get() = ids.first()
+    }
 
-    private suspend fun processDiesWithItemInFlight(config: UploaderDatabaseConfig): DeadProcess {
+    private suspend fun processDiesWithItemInFlight(
+        config: UploaderDatabaseConfig,
+        items: Int = 1,
+        channel: String? = null,
+        uniqueKey: String? = null,
+    ): DeadProcess {
         val clock = MutableUploaderClock(1_000L)
         val storageA: UploaderStorage = open(config)
         val transportA = SafeTransport()
         val jobA = Job()
-        val handlerA = UploadingHandler(transportA)
+        val handlerA = UploadingHandler(transportA, channel)
         val engineA: UploaderEngine = engineOver(storageA, handlerA, jobA, clock)
-        val id: String = assertNotNull(engineA.enqueue(handlerA, "p"))
+        val ids: List<String> = List(items) { assertNotNull(engineA.enqueue(handlerA, "p$it", uniqueKey = uniqueKey)) }
         engineA.drain()
-        assertEquals(listOf("launch:$id:false"), transportA.events.value, "A must hand the item off once")
-        val claim: Long = assertNotNull(storageA.store.getById(id)).claim
+        assertEquals(listOf("launch:${ids.first()}:false"), transportA.events.value, "A must hand off only the head, once")
+        val claim: Long = assertNotNull(storageA.store.getById(ids.first())).claim
         jobA.cancel() // the process is gone: no close(), no unregister; storageA stays open
-        clock.advanceBy(SafeTransport.LEASE + 1)
-        return DeadProcess(id, claim, clock)
+        return DeadProcess(ids, claim, clock)
     }
 
     // --- process death ---------------------------------------------------------------------------
@@ -199,6 +213,7 @@ class UploaderStorageRestartAdversarialTest {
     fun `an item in flight when the process dies is re-handed exactly once by the next engine and settles once`() = realTest {
         val config: UploaderDatabaseConfig = newConfig()
         val dead: DeadProcess = processDiesWithItemInFlight(config)
+        dead.clock.advanceBy(SafeTransport.LEASE + 1) // the lease the dead process held has expired
 
         val storageB: UploaderStorage = open(config)
         val transportB = SafeTransport()
@@ -220,7 +235,7 @@ class UploaderStorageRestartAdversarialTest {
 
         assertTrue(UploadGateway.complete(dead.id, UploadResult.Completed(200)))
         assertTrue(engineB.awaitDrained(10.seconds), "queue not empty after the outcome")
-        assertEquals(listOf("p"), handlerB.delivered.value)
+        assertEquals(listOf("p0"), handlerB.delivered.value)
         assertEquals(1, handlerB.settled.value)
         assertEquals(emptyList(), storageB.store.getAllActive())
     }
@@ -229,6 +244,7 @@ class UploaderStorageRestartAdversarialTest {
     fun `a stale failure or park from the dead process executor never clobbers the new engine's claim`() = realTest {
         val config: UploaderDatabaseConfig = newConfig()
         val dead: DeadProcess = processDiesWithItemInFlight(config)
+        dead.clock.advanceBy(SafeTransport.LEASE + 1) // the lease the dead process held has expired
         val storageB: UploaderStorage = open(config)
         val transportB = SafeTransport()
         val handlerB = UploadingHandler(transportB)
@@ -249,13 +265,14 @@ class UploaderStorageRestartAdversarialTest {
 
         assertTrue(UploadGateway.complete(dead.id, UploadResult.Completed(200)))
         assertTrue(engineB.awaitDrained(10.seconds))
-        assertEquals(listOf("p"), handlerB.delivered.value, "the new engine's own outcome must win")
+        assertEquals(listOf("p0"), handlerB.delivered.value, "the new engine's own outcome must win")
     }
 
     @Test
     fun `a stale delivery report from the dead process executor still stands`() = realTest {
         val config: UploaderDatabaseConfig = newConfig()
         val dead: DeadProcess = processDiesWithItemInFlight(config)
+        dead.clock.advanceBy(SafeTransport.LEASE + 1) // the lease the dead process held has expired
         val storageB: UploaderStorage = open(config)
         val transportB = SafeTransport()
         val engineB: UploaderEngine = engineOver(storageB, UploadingHandler(transportB), Job(), dead.clock)
@@ -457,5 +474,274 @@ class UploaderStorageRestartAdversarialTest {
         }
         withTimeout(10.seconds) { while (dbThreads() > baseline) delay(20) }
         assertEquals(baseline, dbThreads(), "database threads after 50 cycles:\n" + threadDump())
+    }
+
+    // --- more restart and re-entrancy attacks ----------------------------------------------------
+
+    @Test
+    fun `an in-flight head keeps blocking its ordering channel across a restart`() = realTest {
+        val config: UploaderDatabaseConfig = newConfig()
+        val dead: DeadProcess = processDiesWithItemInFlight(config, items = 3, channel = "c")
+        dead.clock.nowMillis = 1_000L // the lease is still live in the new process
+        val transportB = SafeTransport()
+        val handlerB = UploadingHandler(transportB, "c")
+        val engineB: UploaderEngine = engineOver(open(config), handlerB, Job(), dead.clock)
+        UploaderEngineRegistry.register(engineB)
+        engineB.start()
+        delay(300)
+        assertEquals(emptyList(), transportB.events.value, "a tail item ran while its channel head was in flight")
+
+        dead.clock.advanceBy(SafeTransport.LEASE + 1)
+        engineB.trigger()
+        awaitCondition { transportB.events.value.isNotEmpty() }
+        delay(300)
+        assertEquals(listOf("launch:${dead.ids[0]}:true"), transportB.events.value, "only the head may be re-handed")
+
+        assertTrue(UploadGateway.complete(dead.ids[0], UploadResult.Completed(200)))
+        awaitCondition { transportB.events.value.size >= 2 }
+        delay(200)
+        assertEquals("launch:${dead.ids[1]}:false", transportB.events.value[1])
+        assertEquals(2, transportB.events.value.size, "the third item ran before the second settled")
+    }
+
+    @Test
+    fun `after a restart KEEP honours the dead process's in-flight key and REPLACE cancels its upload`() = realTest {
+        val config: UploaderDatabaseConfig = newConfig()
+        val dead: DeadProcess = processDiesWithItemInFlight(config, uniqueKey = "k")
+        dead.clock.nowMillis = 1_000L
+        val transportB = SafeTransport()
+        val handlerB = UploadingHandler(transportB)
+        val storageB: UploaderStorage = open(config)
+        val engineB: UploaderEngine = engineOver(storageB, handlerB, Job(), dead.clock)
+
+        assertEquals(null, engineB.enqueue(handlerB, "dup", uniqueKey = "k"), "KEEP must not duplicate an in-flight key")
+        assertEquals(1, storageB.store.getAllActive().size)
+
+        val replacement: String = assertNotNull(engineB.enqueue(handlerB, "new", uniqueKey = "k", conflictPolicy = ConflictPolicy.REPLACE))
+        assertTrue("cancel:${dead.id}" in transportB.events.value, "the dead process's upload was not cancelled: ${transportB.events.value}")
+        assertEquals(listOf(replacement), storageB.store.getAllActive().map { it.id })
+    }
+
+    @Test
+    fun `an observer sees all sixty-four concurrent enqueues and observer churn leaves the storage usable`() = realTest {
+        val storage: UploaderStorage = createInMemoryUploaderStorage().also { openStorages += it }
+        val handler = UploadingHandler(SafeTransport())
+        val engine: UploaderEngine = engineOver(storage, handler, Job(), MutableUploaderClock())
+        val last: MutableStateFlow<Int> = MutableStateFlow(-1)
+        val collector: Job = launch { engine.observe(handler.type).collect { last.value = it.size } }
+
+        together(64) { engine.enqueue(handler, "p$it") }
+        try {
+            withTimeout(10.seconds) { while (last.value != 64) delay(5) }
+        } catch (e: Throwable) {
+            throw AssertionError("the observer stopped at ${last.value} of 64 items", e)
+        }
+        collector.cancel()
+
+        repeat(200) { withTimeout(5.seconds) { engine.observe(handler.type).first() } }
+        assertNotNull(withTimeout(5.seconds) { engine.enqueue(handler, "after") })
+    }
+
+    @Test
+    fun `handlers that enqueue follow-ups from inside an attempt over SQLite finish the whole chain`() = realTest {
+        val config: UploaderDatabaseConfig = newConfig()
+        val storage: UploaderStorage = open(config)
+        val executed: MutableStateFlow<List<String>> = MutableStateFlow(emptyList())
+        lateinit var engine: UploaderEngine
+        lateinit var handler: UploaderHandler<String>
+        handler = object : UploaderHandler<String> {
+            override val type: String = "adv.chain"
+            override val retryPolicy: RetryPolicy = OneSecondPolicy
+            override fun encodePayload(payload: String): String = payload
+            override fun decodePayload(raw: String): String = raw
+            override suspend fun execute(context: AttemptContext, payload: String): AttemptResult {
+                executed.update { it + payload }
+                val remaining: Int = payload.removePrefix("n").toInt()
+                if (remaining > 0) {
+                    val next = "n${remaining - 1}"
+                    if (remaining % 2 == 0) {
+                        storage.transactionRunner.inTransaction { engine.enqueue(handler, next) }
+                    } else {
+                        engine.enqueue(handler, next)
+                    }
+                }
+                return AttemptResult.Success
+            }
+        }
+        engine = engineOver(storage, handler, Job(), MutableUploaderClock())
+        engine.enqueue(handler, "n12")
+        engine.start()
+
+        awaitCondition { executed.value.size == 13 }
+        assertEquals((12 downTo 0).map { "n$it" }, executed.value)
+        assertTrue(engine.awaitDrained(10.seconds))
+    }
+
+    @Test
+    fun `sixteen concurrent transactions commit or roll back as units`() = realTest {
+        val storage: UploaderStorage = createInMemoryUploaderStorage().also { openStorages += it }
+        val handler = UploadingHandler(SafeTransport())
+        val engine: UploaderEngine = engineOver(storage, handler, Job(), MutableUploaderClock())
+
+        val results: List<Result<Unit>> = together(16) { i ->
+            runCatching {
+                storage.transactionRunner.inTransaction {
+                    engine.enqueue(handler, "a$i")
+                    engine.enqueue(handler, "b$i")
+                    if (i % 4 == 0) throw IllegalStateException("rollback $i")
+                }
+            }
+        }
+
+        val stored: Set<String> = storage.store.getAllActive().map { it.payload }.toSet()
+        for (i in 0 until 16) {
+            val failed: Boolean = i % 4 == 0
+            assertEquals(failed, results[i].isFailure, "transaction $i outcome")
+            assertEquals(!failed, "a$i" in stored, "a$i committed state")
+            assertEquals(!failed, "b$i" in stored, "b$i committed state")
+        }
+    }
+
+    @Test
+    fun `a cancelled transaction rolls back and releases the database thread for a queued writer`() = realTest {
+        val storage: UploaderStorage = createInMemoryUploaderStorage().also { openStorages += it }
+        val tx: Job = launch {
+            storage.transactionRunner.inTransaction {
+                storage.store.insertKeep(anItem("t1"))
+                awaitCancellation()
+            }
+        }
+        delay(150)
+        val waiter: Deferred<Boolean> = async { storage.store.insertKeep(anItem("t2")) }
+        delay(150)
+
+        tx.cancelAndJoin()
+
+        assertTrue(withTimeout(5.seconds) { waiter.await() }, "the queued writer never got the database thread back:\n" + threadDump())
+        assertEquals(listOf("t2"), storage.store.getAllActive().map { it.id }, "the cancelled transaction left its write behind")
+    }
+
+    @Test
+    fun `fifty storages created and closed over one driver never close the driver and never leak a thread`() = realTest {
+        val baseline: Int = dbThreads()
+        val driver = createDriver(uploaderDatabaseSchema, name = null)
+        try {
+            repeat(50) { cycle ->
+                val storage: UploaderStorage = createUploaderStorage(driver)
+                assertEquals(cycle, storage.store.getAllActive().size, "cycle $cycle: the earlier rows must still be there")
+                storage.store.insertKeep(anItem("d$cycle"))
+                storage.close()
+            }
+            val last: UploaderStorage = createUploaderStorage(driver)
+            assertEquals(50, last.store.getAllActive().size, "the driver was closed or reset by an earlier storage's close")
+            last.close()
+        } finally {
+            driver.close()
+        }
+        withTimeout(10.seconds) { while (dbThreads() > baseline) delay(20) }
+        assertEquals(baseline, dbThreads(), "database threads leaked:\n" + threadDump())
+    }
+
+    @Test
+    fun `an engine left running over a closed storage does not spin on the failing store`() = realTest {
+        val storage: UploaderStorage = open(newConfig())
+        val reads: MutableStateFlow<Int> = MutableStateFlow(0)
+        val counting = object : io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore by storage.store {
+            override suspend fun getAllActive(): List<UploaderItem> {
+                reads.update { it + 1 }
+                return storage.store.getAllActive()
+            }
+        }
+        val handler = UploadingHandler(SafeTransport())
+        val engine: UploaderEngine = createUploaderEngine(
+            store = counting,
+            handlers = listOf(handler),
+            scope = CoroutineScope(Dispatchers.Default + Job()),
+            transactionRunner = storage.transactionRunner,
+        ).also { openEngines += it }
+        engine.start()
+        delay(200)
+        storage.close()
+        val atClose: Int = reads.value
+
+        runCatching { engine.enqueue(handler, "after-close") }
+        repeat(20) { engine.trigger() }
+        delay(1_000)
+
+        assertTrue(reads.value - atClose < 100, "the engine read the closed store ${reads.value - atClose} times in one second")
+    }
+
+    private fun channelHandler(executed: MutableStateFlow<List<String>>, failFirst: Set<String> = emptySet()): UploaderHandler<String> =
+        object : UploaderHandler<String> {
+            private val failed: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+            override val type: String = "adv.channel"
+            override val retryPolicy: RetryPolicy = OneSecondPolicy
+            override fun encodePayload(payload: String): String = payload
+            override fun decodePayload(raw: String): String = raw
+            override fun orderingKey(payload: String): String? = "c"
+            override suspend fun execute(context: AttemptContext, payload: String): AttemptResult {
+                executed.update { it + payload }
+                if (payload in failFirst && payload !in failed.value) {
+                    failed.update { it + payload }
+                    return AttemptResult.Retry(IllegalStateException("first time"))
+                }
+                kotlinx.coroutines.yield()
+                return AttemptResult.Success
+            }
+        }
+
+    @Test
+    fun `order within a channel survives engines closed or abandoned at random moments`() = realTest(90) {
+        val config: UploaderDatabaseConfig = newConfig()
+        val executed: MutableStateFlow<List<String>> = MutableStateFlow(emptyList())
+        val handler: UploaderHandler<String> = channelHandler(executed)
+        val clock = MutableUploaderClock(1_000L)
+        val seeder: UploaderEngine = engineOver(open(config), handler, Job(), clock)
+        repeat(100) { seeder.enqueue(handler, "i${it.toString().padStart(3, '0')}") }
+
+        repeat(8) { round ->
+            val job = Job()
+            val engine: UploaderEngine = engineOver(open(config), handler, job, clock)
+            engine.start()
+            delay(Random(round).nextLong(0, 25))
+            if (round % 2 == 0) engine.close() else job.cancel() // orderly teardown, then an abandoned one
+        }
+        val last: UploaderEngine = engineOver(open(config), handler, Job(), clock)
+        last.start()
+        assertTrue(last.awaitDrained(30.seconds), "the final engine never drained the queue")
+
+        val log: List<String> = executed.value.fold(emptyList()) { acc, next -> if (acc.lastOrNull() == next) acc else acc + next }
+        assertEquals((0 until 100).map { "i${it.toString().padStart(3, '0')}" }, log, "items ran out of order or were skipped across restarts")
+    }
+
+    @Test
+    fun `a persisted backoff gate on a channel head keeps its tail waiting across restarts`() = realTest {
+        val config: UploaderDatabaseConfig = newConfig()
+        val executed: MutableStateFlow<List<String>> = MutableStateFlow(emptyList())
+        val handler: UploaderHandler<String> = channelHandler(executed, failFirst = setOf("p0"))
+        val clock = MutableUploaderClock(1_000L)
+        val one: UploaderEngine = engineOver(open(config), handler, Job(), clock)
+        one.enqueue(handler, "p0")
+        one.enqueue(handler, "p1")
+        one.drain()
+        assertEquals(listOf("p0"), executed.value)
+
+        clock.nowMillis = 1_500L
+        engineOver(open(config), handler, Job(), clock).drain()
+        assertEquals(listOf("p0"), executed.value, "the tail ran, or the head ran, before its persisted gate")
+
+        clock.nowMillis = 2_500L
+        engineOver(open(config), handler, Job(), clock).drain()
+        assertEquals(listOf("p0", "p0", "p1"), executed.value)
+    }
+
+    @Test
+    fun `closing a storage from inside its own transaction fails fast and leaves the storage usable`() = realTest {
+        val storage: UploaderStorage = open(newConfig())
+
+        val result: Result<Unit> = runCatching { storage.transactionRunner.inTransaction { storage.close() } }
+
+        assertTrue(result.exceptionOrNull() is IllegalStateException, "expected a fast IllegalStateException, got ${result.exceptionOrNull()}")
+        assertTrue(storage.store.insertKeep(anItem("still-usable")))
     }
 }
