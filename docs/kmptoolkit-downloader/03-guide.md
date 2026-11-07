@@ -49,7 +49,7 @@ left alone; the per-unit path is a separate, simpler machine for a runtime catal
 |---|---|---|
 | Concurrency | one download per group, groups in parallel | several units in parallel |
 | State | `downloadState(group)` — one per declared group | `unitDownloadStateFlow(unit)` — one per unit, created lazily |
-| Retry | progress-based loop + persisted stall counter, up to 2 stalls without progress | **none** — one stall surfaces as `Error`; these are small files a user can just re-tap |
+| Retry | loop with capped backoff + persisted failure counter, up to 3 failed attempts in a row (progress past the earlier high-water mark restarts the run); `NotFound` / `Unauthorized` never retried | **none** — one stall surfaces as `Error`; these are small files a user can just re-tap |
 | Failure | throws + publishes | throws + publishes (identical contract) |
 | Bundled bypass | honoured | **ignored** — a runtime unit is never bundled |
 | Notifier | called throughout | **never called** — the per-unit path talks to nobody but its own state flow |
@@ -151,13 +151,21 @@ When exactly to call `beginTempFile` is a decision table in
 
 The group path's policy, as a table because it is not obvious:
 
-| Terminal event | Made progress this attempt? | Engine does |
+| Terminal event | Advanced past the high-water mark this attempt? | Engine does |
 |---|---|---|
 | `FileReady` | — | mark the temp file complete (if the downloader did not), commit, verify, clear stall count, done |
 | `Cancelled` | — | clear stall count, delete temp file, `Idle`, throw `DownloadCancelledException` |
-| `Error` | yes | **retry unconditionally**, stall count reset |
-| `Error` | no, count ≤ 2 | increment, re-enqueue |
-| `Error` | no, count > 2 | clear stall count (the next `ensureAvailable` gets a fresh budget), delete temp file, `Error` state + notification, throw `DownloadFailedException` |
+| `Error` classified `NotFound` or `Unauthorized` | either | never retried: clear the failure count, `Error` state + notification, throw `DownloadFailedException` |
+| `Error`, any other | yes | restart the run: failure count = 1, wait, re-enqueue |
+| `Error`, any other | no, count ≤ 2 | increment, wait, re-enqueue |
+| `Error`, any other | no, count > 2 | clear the failure count (the next `ensureAvailable` gets a fresh budget), delete temp file, `Error` state + notification, throw `DownloadFailedException` |
+
+**Progress means moving forward.** The engine remembers the highest fraction any attempt of one
+`ensureAvailable` has reported (the high-water mark). Only a `Progress` beyond it counts: a transfer
+that restarts and re-reports where it already was, or reports `0`, has not moved. A repeated
+`Progress` still proves the transfer is alive — it restarts the stall timer — but it is not
+progress, so a downloader that repeats one value and then fails is stopped after three attempts.
+Before every re-enqueue the engine waits 2 s, doubling per failure of the call up to 30 s.
 
 A commit whose bytes fail a check — a `sha256` or recorded-hash mismatch, a database that does not
 open or does not hold the rows it declares — deletes the temp file and downloads **once more**. A second failure is
@@ -171,7 +179,7 @@ Three things make it work:
 - **Stall detection is an inactivity timeout, not a wall clock.** A slow-but-progressing large
   transfer never trips it; a dead connection does. A stall re-enters the table above as an `Error`
   with no progress.
-- **The stall counter is persisted** through `DownloadStateStore` — worthless if it reset with the
+- **The failure counter is persisted** through `DownloadStateStore` — worthless if it reset with the
   process, since a crash loop would otherwise retry forever.
 - **Error classification is one keyword-matching function** turning your
   `BackgroundResourceDownloader`'s raw platform strings into a `DownloadError`. It has to be

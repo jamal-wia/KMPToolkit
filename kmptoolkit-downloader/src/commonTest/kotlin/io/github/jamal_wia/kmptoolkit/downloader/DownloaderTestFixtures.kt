@@ -5,6 +5,9 @@ import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadNotifier
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 
@@ -144,5 +147,40 @@ internal class SetStorage(
     override fun getResourceSize(unit: DownloadUnit): Long = 0L
     override fun deleteResource(unit: DownloadUnit) {
         availableIds.remove(unit.id)
+    }
+}
+
+/**
+ * A [BackgroundResourceDownloader] whose every attempt is scripted. An attempt is one subscription
+ * to [observeProgress] (the engine subscribes once per attempt, before or after the enqueue), so the
+ * script is indexed by subscriptions, never by enqueues. [enqueueTimes] records the virtual time of
+ * each enqueue through [clock]; more than [maxEnqueues] enqueues fail loudly, so a retry loop that
+ * should have stopped ends the test instead of hanging it.
+ */
+internal class ScriptedAttemptsDownloader(
+    private val clock: () -> Long = { 0L },
+    private val maxEnqueues: Int = 20,
+    private val inProgress: Boolean = false,
+    private val script: suspend FlowCollector<BackgroundDownloadEvent>.(attempt: Int, unit: DownloadUnit) -> Unit,
+) : BackgroundResourceDownloader {
+    val enqueueTimes: MutableList<Long> = mutableListOf()
+    val cancelledUnits: MutableList<String> = mutableListOf()
+    var subscriptions: Int = 0
+        private set
+    val enqueueCount: Int get() = enqueueTimes.size
+
+    override fun enqueueDownload(unit: DownloadUnit) {
+        enqueueTimes += clock()
+        check(enqueueTimes.size <= maxEnqueues) { "retry loop: more than $maxEnqueues enqueues" }
+    }
+
+    override fun isDownloadInProgress(unit: DownloadUnit): Boolean = inProgress
+    override fun cancelDownload(unit: DownloadUnit) {
+        cancelledUnits += unit.id
+    }
+
+    override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+        val attempt: Int = subscriptions++
+        script(attempt, unit)
     }
 }

@@ -9,6 +9,7 @@ import io.github.jamal_wia.kmptoolkit.logging.i
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
@@ -331,10 +332,14 @@ internal class DefaultDownloaderEngine(
 
     /**
      * Transfers a single [unit] until its temp file is complete, with automatic retry on error:
-     * - Always retries if the previous attempt made progress
-     *   (received at least one [BackgroundDownloadEvent.Progress]).
-     * - Retries up to [MAX_STALL_RETRIES] additional times without progress as a fallback.
-     * - Stall counter persists via [DownloadStateStore] to survive process death.
+     * - Never retries [DownloadError.NotFound] or [DownloadError.Unauthorized]: the same request
+     *   would get the same answer, so the failure is reported at once.
+     * - Retries any other failure up to [MAX_STALL_RETRIES] times in a row. An attempt that
+     *   advanced past the furthest fraction any earlier attempt of this call reported (the
+     *   high-water mark) starts that count afresh; a repeated or lower [BackgroundDownloadEvent.Progress]
+     *   is not progress, however many arrive.
+     * - Waits an exponentially growing, capped time before every re-enqueue ([retryBackoff]).
+     * - The failure count persists via [DownloadStateStore] to survive process death.
      */
     private suspend fun downloadUnitWithRetry(
         group: ResourceGroup,
@@ -355,6 +360,8 @@ internal class DefaultDownloaderEngine(
             backgroundDownloader.enqueueDownload(unit)
         }
 
+        val progressMark = ProgressMark()
+        var failedAttempts = 0
         while (true) {
             val result: DownloadAttemptResult = awaitBackgroundDownloadCompletion(
                 group = group,
@@ -362,6 +369,7 @@ internal class DefaultDownloaderEngine(
                 unit = unit,
                 progressBase = progressBase,
                 progressScale = progressScale,
+                progressMark = progressMark,
             )
 
             val eventName: String? = result.terminalEvent::class.simpleName
@@ -389,15 +397,20 @@ internal class DefaultDownloaderEngine(
                 is BackgroundDownloadEvent.Error -> {
                     val errorMessage: String = result.terminalEvent.message
                     logger.e { "Error for $unit: $errorMessage" }
-                    if (shouldRetry(unit = unit, madeProgress = result.madeProgress)) {
-                        logger.i { "Retrying download for $unit (error: $errorMessage)" }
+                    val downloadError: DownloadError =
+                        if (result.stalled) DownloadError.Timeout else errorMessage.toDownloadError()
+                    if (downloadError.isWorthRetrying() &&
+                        shouldRetry(unit = unit, madeProgress = result.madeProgress)
+                    ) {
+                        failedAttempts++
+                        val backoff: Duration = retryBackoff(failedAttempts)
+                        logger.i { "Retrying download for $unit in $backoff (error: $errorMessage)" }
+                        delay(backoff)
                         backgroundDownloader.enqueueDownload(unit)
                         continue
                     }
                     clearStallCount(unit)
                     logger.e { "Download failed for $unit: $errorMessage" }
-                    val downloadError: DownloadError =
-                        if (result.stalled) DownloadError.Timeout else errorMessage.toDownloadError()
                     groupState.value = GroupDownloadState.Error(error = downloadError)
                     notifier.showError(group = group, error = downloadError)
                     safeDeleteTempFile(unit)
@@ -405,6 +418,15 @@ internal class DefaultDownloaderEngine(
                 }
             }
         }
+    }
+
+    /**
+     * The furthest unit-level fraction any attempt of one [downloadUnitWithRetry] call has
+     * reported. Only a [BackgroundDownloadEvent.Progress] beyond it counts as progress — a transfer
+     * that restarts and re-reports where it already was has not moved.
+     */
+    private class ProgressMark {
+        var highWater: Float = 0f
     }
 
     private data class DownloadAttemptResult(
@@ -425,8 +447,9 @@ internal class DefaultDownloaderEngine(
      * - A slow-but-progressing download (receiving Progress events) will never stall-timeout.
      * - Primary network/transport timeouts are handled by the [BackgroundResourceDownloader].
      *
-     * Returns a [DownloadAttemptResult] containing the terminal event and whether any progress
-     * was observed during this attempt — used by [downloadUnitWithRetry] to decide on retry.
+     * Returns a [DownloadAttemptResult] containing the terminal event and whether this attempt
+     * advanced [progressMark] — used by [downloadUnitWithRetry] to decide on retry. Every event,
+     * a repeated [BackgroundDownloadEvent.Progress] included, restarts the stall timer above.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun awaitBackgroundDownloadCompletion(
@@ -435,6 +458,7 @@ internal class DefaultDownloaderEngine(
         unit: DownloadUnit,
         progressBase: Float,
         progressScale: Float,
+        progressMark: ProgressMark,
     ): DownloadAttemptResult {
         var madeProgress = false
         var stalled = false
@@ -443,7 +467,10 @@ internal class DefaultDownloaderEngine(
             backgroundDownloader.observeProgress(unit)
                 .onEach { event: BackgroundDownloadEvent ->
                     if (event is BackgroundDownloadEvent.Progress) {
-                        madeProgress = true
+                        if (event.fraction > progressMark.highWater) {
+                            progressMark.highWater = event.fraction
+                            madeProgress = true
+                        }
                         val scaledProgress: Float = progressBase + event.fraction * progressScale
                         // Guard: never report progress lower than the current value.
                         // On retry, the new attempt starts at fraction=0 before real
@@ -493,18 +520,37 @@ internal class DefaultDownloaderEngine(
     }
 
     /**
-     * Returns `true` if the download should be retried.
-     * - Always retries when [madeProgress] is `true` (stall counter is reset).
-     * - Without progress, retries up to [MAX_STALL_RETRIES] times as a fallback.
+     * Counts this failed attempt and returns `true` while the run of failures is within
+     * [MAX_STALL_RETRIES] retries. An attempt that advanced the high-water mark
+     * ([madeProgress]) restarts the run, so it counts as the first failure of a new one — a
+     * transfer that really moves forward is allowed to keep going, one that only repeats itself is
+     * stopped after three attempts.
      */
     private fun shouldRetry(unit: DownloadUnit, madeProgress: Boolean): Boolean {
-        if (madeProgress) {
-            clearStallCount(unit)
-            return true
+        if (madeProgress) clearStallCount(unit)
+        val failures: Int = incrementStallCount(unit)
+        logger.i {
+            "Failed attempt for $unit (progress=$madeProgress, failures in a row $failures, " +
+                "retries allowed $MAX_STALL_RETRIES)"
         }
-        val stallCount: Int = incrementStallCount(unit)
-        logger.i { "No progress for $unit (stall $stallCount/$MAX_STALL_RETRIES)" }
-        return stallCount <= MAX_STALL_RETRIES
+        return failures <= MAX_STALL_RETRIES
+    }
+
+    /** What retrying cannot fix: the same request would get the same answer. */
+    private fun DownloadError.isWorthRetrying(): Boolean =
+        this != DownloadError.NotFound && this != DownloadError.Unauthorized
+
+    /**
+     * How long to wait before the [failedAttempts]-th re-enqueue of one call: [RETRY_BACKOFF_BASE]
+     * doubled for every failure so far, capped at [RETRY_BACKOFF_CAP]. Counts every failure of the
+     * call, progress or not, so a server that keeps failing a little further along is not hammered.
+     */
+    private fun retryBackoff(failedAttempts: Int): Duration {
+        var backoff: Duration = RETRY_BACKOFF_BASE
+        repeat(failedAttempts - 1) {
+            backoff = (backoff * 2).coerceAtMost(RETRY_BACKOFF_CAP)
+        }
+        return backoff
     }
 
     /**
@@ -892,8 +938,14 @@ internal class DefaultDownloaderEngine(
          */
         private val STALL_TIMEOUT: Duration = 5.minutes
 
-        /** Max retries without any progress before giving up. */
+        /** Max retries in a row of a failing transfer (three attempts) before giving up. */
         private const val MAX_STALL_RETRIES = 2
+
+        /** The wait before the first retry; doubles for each further failure of one call. */
+        private val RETRY_BACKOFF_BASE: Duration = 2.seconds
+
+        /** The longest wait before a retry. */
+        private val RETRY_BACKOFF_CAP: Duration = 30.seconds
 
         /**
          * Fresh downloads after bytes fail their integrity check, before [DownloadError.Corrupted].
