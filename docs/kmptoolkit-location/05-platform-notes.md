@@ -26,7 +26,10 @@ every call site, logs a warning to the `Logger` you passed (nothing, by default)
 `null` / emits `null` instead of letting the exception escape. `observeLocation()` registers the GPS and
 network providers one after the other; if a later registration fails (a `SecurityException`, or any
 other exception, which reaches the collector), the listener of the provider already registered is
-removed before the flow ends, so a failed collection leaves nothing registered with `LocationManager`.
+removed before the flow ends, so a failed collection leaves nothing registered with `LocationManager`. If that removal itself
+throws (a dead system server), it never changes the outcome: on the `SecurityException` path the flow
+still emits `null`, and on the other path the original exception is rethrown with the removal failure
+attached as suppressed.
 
 ### iOS — you must request authorization yourself
 

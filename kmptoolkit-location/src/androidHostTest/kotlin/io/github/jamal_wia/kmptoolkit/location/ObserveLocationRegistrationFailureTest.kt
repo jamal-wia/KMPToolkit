@@ -29,7 +29,10 @@ class ObserveLocationRegistrationFailureTest {
     private val application: Application = ApplicationProvider.getApplicationContext()
 
     /** Throws [failure] on the network registration; tracks which listeners are registered. */
-    private class FailingSecondSource(private val failure: Throwable) : LocationUpdatesSource {
+    private class FailingSecondSource(
+        private val failure: Throwable,
+        private val removalFailure: Throwable? = null,
+    ) : LocationUpdatesSource {
         override val allProviders: List<String> = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
         val registered: MutableSet<LocationListener> = mutableSetOf()
         override fun isProviderEnabled(provider: String): Boolean = true
@@ -46,6 +49,7 @@ class ObserveLocationRegistrationFailureTest {
 
         override fun removeUpdates(listener: LocationListener) {
             registered -= listener
+            if (removalFailure != null) throw removalFailure
         }
     }
 
@@ -72,6 +76,33 @@ class ObserveLocationRegistrationFailureTest {
         assertFailsWith<IllegalStateException> { provider(source).observeLocation().first { false } }
 
         assertTrue(source.registered.isEmpty(), "listener still registered: ${source.registered.size}")
+        }
+    }
+
+    @Test
+    fun `a failing removal on the permission path still emits null instead of throwing`() = runBlocking {
+        withTimeout(5_000) {
+            val source = FailingSecondSource(SecurityException("network denied"), removalFailure = IllegalStateException("dead"))
+
+            val values: List<GeoCoordinates?> = provider(source).observeLocation().toList()
+
+            assertEquals(listOf(null, null), values)
+        }
+    }
+
+    @Test
+    fun `a failing removal on the other path keeps the original failure and suppresses the removal's`() = runBlocking {
+        withTimeout(5_000) {
+            val removal = IllegalArgumentException("dead listener")
+            val original = IllegalStateException("original")
+            val source = FailingSecondSource(original, removalFailure = removal)
+
+            val thrown: IllegalStateException =
+                assertFailsWith<IllegalStateException> { provider(source).observeLocation().first { false } }
+
+            assertEquals("original", thrown.message)
+            // Coroutines may rethrow a stack-trace-recovered copy, so look at the original itself.
+            assertTrue(original.suppressed.any { suppressed -> suppressed === removal })
         }
     }
 }
