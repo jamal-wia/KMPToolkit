@@ -103,6 +103,9 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
 - **Directory creation** uses `File.mkdirs()` and then checks `isDirectory && canWrite()`. A
   `SecurityException` from a path outside the sandbox is exactly the "not writable" answer, so it is
   reported as `DirectoryNotWritable`, not thrown.
+- **iOS directory and file checks.** A `directoryPath` that is a regular file, not a directory, is reported as
+  `DirectoryNotWritable` too. A failed `prepareToRecord()` deletes nothing inside the engine: the recorder removes
+  the file only when this attempt created it and still owns the path.
 - **Scoped storage.** The default output is app-private (`Context.getFilesDir()`), which needs no
   storage permission. Pointing `RecordingStorage.directoryPath` at shared storage is your call, and
   brings that platform's permission rules with it.

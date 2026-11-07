@@ -227,11 +227,14 @@ recorder (the new recorder's own recording replaces it). The claim ends when the
 when the recorder is prepared again or released, so the registry holds at most one entry per live
 recorder. It lives only inside one process; a path shared between processes, or reused by something
 other than a recorder of this library, is not protected. Generated paths are unique and never meet
-this case.
+this case. Two spellings of one path count as the same path: repeated separators, `.` and `..`
+segments and letter case are ignored. A file reached through a symbolic or hard link under a different
+path is not recognised as the same.
 
 Cancellable at every point, including while the directory and free-space checks are still pending:
 on cancellation the native recorder is released, the file is deleted, `state` returns to `Idle`, and
-`CancellationException` propagates.
+`CancellationException` propagates. A worker context that refuses the work (an executor that was
+shut down) is reported as `EngineFailure(PREPARE, cause)`, not as a cancellation of the caller.
 
 Preparing from `Ready` deletes the previously prepared file that was never recorded into. Preparing
 from `Completed` leaves the finished file alone.
@@ -494,7 +497,7 @@ public data class RecordingStorage(
 )
 ```
 
-- `directoryPath` — absolute directory. `null` means `<app-private files>/<directoryName>`.
+- `directoryPath` — absolute directory; a blank or relative path is rejected in `init`. `null` means `<app-private files>/<directoryName>`.
 - `directoryName` — subdirectory under the app-private base. `null` means the consumer's own
   application id / bundle identifier. Ignored when `directoryPath` is set.
 - `fileNamePrefix` — leading part of a generated name (`<prefix>_<epochMillis>_<token>.<ext>`). Must not be

@@ -148,7 +148,7 @@ public data class RecordingStorage(
         require(!fileNamePrefix.contains('/') && !fileNamePrefix.contains('\\')) {
             "fileNamePrefix must not contain a path separator, was '$fileNamePrefix'"
         }
-        require(directoryPath == null || directoryPath.isNotBlank()) {
+        require(directoryPath == null || (directoryPath.isNotBlank() && directoryPath.startsWith('/'))) {
             "directoryPath must be null or a non-blank absolute path"
         }
         require(directoryName == null || directoryName.isNotBlank()) {

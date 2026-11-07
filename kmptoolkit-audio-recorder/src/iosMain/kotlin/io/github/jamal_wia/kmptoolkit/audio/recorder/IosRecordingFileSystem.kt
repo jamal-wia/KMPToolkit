@@ -1,6 +1,11 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import kotlinx.cinterop.BooleanVar
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.value
 import platform.Foundation.NSBundle
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
@@ -48,7 +53,13 @@ internal class IosRecordingFileSystem : RecordingFileSystem {
                 error = null,
             )
         }
-        return fileManager.fileExistsAtPath(path) && fileManager.isWritableFileAtPath(path)
+        // A regular file at the path exists and may be writable, yet it is not a directory to record into.
+        return isDirectory(path) && fileManager.isWritableFileAtPath(path)
+    }
+
+    private fun isDirectory(path: String): Boolean = memScoped {
+        val flag: BooleanVar = alloc<BooleanVar>()
+        fileManager.fileExistsAtPath(path, isDirectory = flag.ptr) && flag.value
     }
 
     override fun freeSpaceBytes(path: String): Long {

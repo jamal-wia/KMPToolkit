@@ -16,6 +16,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -241,6 +243,11 @@ internal class DefaultAudioRecorder(
                 }
             }
         } catch (cancellation: CancellationException) {
+            // A CancellationException while the caller is still active can only be the worker context
+            // refusing the hop (a closed executor), the same case runFinalization calls hopLost.
+            if (currentCoroutineContext().isActive) {
+                return failPrepare(RecorderError.EngineFailure(RecorderOperation.PREPARE, cancellation))
+            }
             // Nothing is open yet, so there is nothing to undo — but Preparing must not outlive the
             // call: every operation, prepare included, is illegal from it, so a recorder left there
             // could never be used again.
@@ -266,13 +273,27 @@ internal class DefaultAudioRecorder(
             prepareFailure = runOnWorker { engine.prepare(path, config, storage.maxFileSizeBytes) }
         } catch (cancellation: CancellationException) {
             // Leave nothing half-open behind: the caller's coroutine is going away, and a native
-            // recorder holding the microphone plus a zero-byte file would outlive it.
-            gate.exclusive {
+            // recorder holding the microphone plus a zero-byte file would outlive it. The block may even
+            // have finished on the worker before the resume was refused, so this runs either way.
+            //
+            // A CancellationException while the caller is still active can only be the worker context
+            // refusing the hop (a closed executor), the same case runFinalization calls hopLost: that
+            // is a failure to report, not a cancellation to rethrow.
+            val callerCancelled: Boolean = !currentCoroutineContext().isActive
+            val refused: RecorderResult.Failure? = gate.exclusive {
                 undoPreparation(path, storage.pathExisted, claim)
-                // Released is terminal: a release() that landed meanwhile keeps its state.
-                if (!released) _state.value = RecorderState.Idle
+                when {
+                    callerCancelled -> {
+                        // Released is terminal: a release() that landed meanwhile keeps its state.
+                        if (!released) _state.value = RecorderState.Idle
+                        null
+                    }
+                    released -> releasedFailure(RecorderOperation.PREPARE)
+                    else -> fail(RecorderError.EngineFailure(RecorderOperation.PREPARE, cancellation))
+                }
             }
-            throw cancellation
+            if (refused == null) throw cancellation
+            return refused
         }
 
         return gate.exclusive {

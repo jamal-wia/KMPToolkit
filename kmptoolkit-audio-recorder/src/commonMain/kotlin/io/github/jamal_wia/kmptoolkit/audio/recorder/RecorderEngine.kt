@@ -61,7 +61,8 @@ internal interface RecorderEngine {
 
     /**
      * Opens the microphone and [outputPath] with [config]'s encoder settings, leaving the native
-     * recorder ready to capture. Blocking, and already called on the worker context; suspending
+     * recorder ready to capture. An engine never deletes the output file: on failure it releases what
+     * it opened and throws, and the caller decides about the file. Blocking, and already called on the worker context; suspending
      * only so a test double can hold the call open.
      *
      * @param maxFileSizeBytes an upper bound on the output file size the platform should enforce

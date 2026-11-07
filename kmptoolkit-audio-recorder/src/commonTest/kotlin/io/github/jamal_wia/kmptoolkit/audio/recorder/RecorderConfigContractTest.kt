@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -13,6 +14,16 @@ import kotlinx.coroutines.test.advanceTimeBy
  * the ends of the float range.
  */
 class RecorderConfigContractTest {
+
+    @Test
+    fun `a relative directory path is rejected where it is written`() {
+        assertFailsWith<IllegalArgumentException> { RecordingStorage(directoryPath = "relative/dir") }
+    }
+
+    @Test
+    fun `an absolute directory path is still accepted`() {
+        assertEquals("/abs/dir", RecordingStorage(directoryPath = "/abs/dir").directoryPath)
+    }
 
     @Test
     fun `the level mapping stays inside zero to one for every legal floor and any reading`() {

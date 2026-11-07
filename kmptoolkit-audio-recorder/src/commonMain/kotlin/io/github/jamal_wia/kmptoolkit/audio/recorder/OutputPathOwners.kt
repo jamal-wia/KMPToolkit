@@ -44,17 +44,42 @@ internal object OutputPathOwners {
     private val slots: MutableStateFlow<Map<String, Slot>> = MutableStateFlow(emptyMap())
 
     /**
+     * The registry key of [path]: the path with repeated separators and `.` segments dropped, `..`
+     * resolved lexically (dropped at the root), and letters folded to lower case.
+     *
+     * The key decides only whether a deletion may run, never which file is deleted: the path handed to
+     * the file system stays exactly as the caller wrote it. Two different files that share a key cost at
+     * most one skipped deletion (a stray file), while two spellings of one file that got different keys
+     * would let a released recorder delete the next one's recording, so the normalisation leans towards
+     * matching more. Folding case is why: iOS and Android's shared storage are case-insensitive, and
+     * on a case-sensitive volume it only over-matches. Not covered: symbolic and hard links, and
+     * Unicode normalisation differences (a real path lookup would need the file to exist).
+     */
+    fun ownershipKey(path: String): String {
+        val segments: MutableList<String> = mutableListOf()
+        for (segment: String in path.split('/')) {
+            when (segment) {
+                "", "." -> Unit
+                ".." -> if (segments.isNotEmpty()) segments.removeAt(segments.lastIndex)
+                else -> segments += segment
+            }
+        }
+        return "/" + segments.joinToString("/").lowercase()
+    }
+
+    /**
      * Registers [claim] as the owner of [path], taking it over from any earlier claim, after waiting
      * out a delete that is running on the path right now.
      */
     suspend fun claim(path: String, claim: OutputPathClaim) {
+        val key: String = ownershipKey(path)
         while (true) {
             val current: Map<String, Slot> = slots.value
-            if (current[path]?.deleting == true) {
-                slots.first { map: Map<String, Slot> -> map[path]?.deleting != true }
+            if (current[key]?.deleting == true) {
+                slots.first { map: Map<String, Slot> -> map[key]?.deleting != true }
                 continue
             }
-            if (slots.compareAndSet(current, current + (path to Slot(claim, deleting = false)))) return
+            if (slots.compareAndSet(current, current + (key to Slot(claim, deleting = false)))) return
         }
     }
 
@@ -64,16 +89,17 @@ internal object OutputPathOwners {
      * call (it is `RecordingFileSystem.delete`).
      */
     fun deleteIfOwner(path: String, claim: OutputPathClaim, delete: () -> Unit): Boolean {
+        val key: String = ownershipKey(path)
         while (true) {
             val current: Map<String, Slot> = slots.value
-            val slot: Slot = current[path] ?: return false
+            val slot: Slot = current[key] ?: return false
             if (slot.claim !== claim || slot.deleting) return false
             val marker = Slot(claim, deleting = true)
-            if (!slots.compareAndSet(current, current + (path to marker))) continue
+            if (!slots.compareAndSet(current, current + (key to marker))) continue
             try {
                 delete()
             } finally {
-                slots.update { map: Map<String, Slot> -> if (map[path] === marker) map - path else map }
+                slots.update { map: Map<String, Slot> -> if (map[key] === marker) map - key else map }
             }
             return true
         }
