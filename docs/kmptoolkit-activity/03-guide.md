@@ -91,6 +91,12 @@ thread. The immediate replay to a new listener also runs on the main thread. It 
 you subscribe there. When you subscribe from a background thread it is posted to the main thread,
 so a listener never needs its own thread hop.
 
+`ActivitySubscription.cancel()` may be called from any thread and is a hard stop: once it returns,
+the listener is never called again, and if the listener is running on the main thread right then,
+`cancel()` waits for it to finish. Cancelling from inside a listener is always safe. Only avoid
+cancelling from another thread while holding a lock the listener also takes. `release()` behaves the
+same for all listeners.
+
 ## Opening system screens
 
 `kmptoolkit-biometric` (enrolment), `kmptoolkit-location` (location settings) and
