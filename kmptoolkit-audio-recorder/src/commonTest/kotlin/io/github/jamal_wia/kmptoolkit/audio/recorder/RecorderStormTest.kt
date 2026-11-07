@@ -354,6 +354,91 @@ class RecorderStormTest {
     }
 
     @Test
+    fun `a prepare cancelled or released at a random instant leaves either a Ready recorder or no handle and no file`() = storm {
+        repeat(ROUNDS * 5) { round: Int ->
+            val seed: Long = 86_028_121L * round + 9L
+            val own = Random(seed)
+            val fs = StormFs()
+            val engine = StormEngine(onPrepared = { fs.create(it) }, busyMicros = 300L)
+            val recorder: DefaultAudioRecorder = recorder(engine, fs)
+            val path = "/data/instant-$round.m4a"
+            val released: Boolean = round % 2 == 1
+            val call = async(Dispatchers.Default) { recorder.prepare(path) }
+            jitter(own)
+            if (released) recorder.release() else call.cancel()
+            val outcome: Result<RecorderResult<String>> = runCatching { call.await() }
+            val prepared: Boolean = outcome.getOrNull()?.isSuccess == true
+            awaitTrue("seed $seed: finalization settles") { !recorder.isFinalizing }
+            if (released) {
+                // Whatever the instant, a released recorder holds no handle and leaves no file.
+                awaitTrue("seed $seed: handle freed") { !engine.open.load() }
+                assertFalse(fs.has(path), "seed $seed: released, yet the file is still there (prepared=$prepared)")
+                assertEquals(RecorderState.Released, recorder.state.value, "seed $seed")
+            } else if (prepared) {
+                assertIs<RecorderState.Ready>(recorder.state.value, "seed $seed")
+                assertTrue(engine.open.load() && fs.has(path), "seed $seed: Ready without handle or file")
+            } else {
+                assertEquals(RecorderState.Idle, recorder.state.value, "seed $seed: ${outcome}")
+                assertFalse(engine.open.load(), "seed $seed: a cancelled prepare left the handle open")
+                assertFalse(fs.has(path), "seed $seed: a cancelled prepare left its file; deletions ${fs.deletions()}")
+                // Usable again.
+                assertTrue(recorder.prepare("/data/instant-$round-again.m4a").isSuccess, "seed $seed: unusable after the cancel")
+            }
+            recorder.release()
+            awaitTrue("seed $seed: handle freed at the end") { !engine.open.load() }
+        }
+    }
+
+    @Test
+    fun `a stop or cancel whose caller is cancelled or released at a random instant still settles completely`() = storm {
+        repeat(ROUNDS * 5) { round: Int ->
+            val seed: Long = 49_979_687L * round + 5L
+            val own = Random(seed)
+            val fs = StormFs()
+            val engine = StormEngine(onPrepared = { fs.create(it) }, busyMicros = 300L)
+            val recorder: DefaultAudioRecorder = recorder(engine, fs)
+            val path = "/data/settle-$round.m4a"
+            assertTrue(recorder.prepare(path).isSuccess, "seed $seed")
+            assertTrue(recorder.start().isSuccess, "seed $seed")
+            // 0 = stop, caller cancelled; 1 = cancel, caller cancelled; 2 = stop, recorder released.
+            val kind: Int = round % 3
+            val call = async(Dispatchers.Default) {
+                if (kind == 1) recorder.cancel() else recorder.stop()
+            }
+            jitter(own)
+            if (kind == 2) recorder.release() else call.cancel()
+            runCatching { call.await() }
+            awaitTrue("seed $seed: finalization settles") { !recorder.isFinalizing }
+            val state: RecorderState = recorder.state.value
+            when (kind) {
+                0 -> {
+                    assertTrue(fs.has(path), "seed $seed: a stopped recording must be kept")
+                    if (state is RecorderState.Completed) {
+                        awaitTrue("seed $seed: handle freed") { !engine.open.load() }
+                    } else {
+                        // The caller was cancelled before its body ever ran: nothing happened at all.
+                        assertIs<RecorderState.Recording>(state, "seed $seed")
+                    }
+                }
+                1 -> if (state == RecorderState.Idle) {
+                    awaitTrue("seed $seed: handle freed") { !engine.open.load() }
+                    assertFalse(fs.has(path), "seed $seed: a cancelled recording must be deleted")
+                } else {
+                    assertIs<RecorderState.Recording>(state, "seed $seed")
+                }
+                else -> {
+                    assertEquals(RecorderState.Released, state, "seed $seed")
+                    awaitTrue("seed $seed: handle freed after release") { !engine.open.load() }
+                    assertTrue(fs.has(path), "seed $seed: release must keep a recorded file; deletions ${fs.deletions()}")
+                }
+            }
+            recorder.release()
+            awaitTrue("seed $seed: handle freed at the end") { !engine.open.load() }
+            assertEquals(0, engine.overlaps.load(), "seed $seed: overlapping engine calls")
+        }
+    }
+
+    @Test
     fun `engine events and level collectors on other threads never overlap the engine or outlive release`() = storm {
         eventStorm(callers = 1)
     }
@@ -455,6 +540,10 @@ class RecorderStormTest {
                 }
             }.joinAll()
             reactor?.cancelAndJoin()
+            // The platform goes quiet before the recovery check: a system event arriving during it
+            // would legitimately end the recording the check is trying to make.
+            done.store(true)
+            (eventThreads + collectors).joinAll()
             withContext(caller) {
                 // Not wedged: whatever state the storm left, the recorder can still record.
                 awaitTrue("seed $seed: finalization settles at the end") { !recorder.isFinalizing }
@@ -464,8 +553,6 @@ class RecorderStormTest {
                 }
                 recordAndFinish(recorder, "/data/storm-$round-final.m4a", "seed $seed: after the storm")
             }
-            done.store(true)
-            (eventThreads + collectors).joinAll()
             assertEquals(0, engine.overlaps.load(), "seed $seed: the engine was driven from two threads at once")
             assertEquals(0, engine.callsWithoutHandle.load(), "seed $seed: engine driven with no handle")
 
