@@ -7,8 +7,7 @@ import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.update
 
 /**
  * An [Uploader] that records what was enqueued instead of persisting or delivering anything.
@@ -46,40 +45,41 @@ public class FakeUploader(
         val conflictPolicy: ConflictPolicy,
     )
 
-    private val mutex = Mutex()
-
-    private val recorded: MutableList<Enqueued> = mutableListOf()
+    // Every piece of state is a StateFlow changed with update {}: the fake is used from engine and IO threads
+    // as well as the test's own, and readers must never see a half-applied write. No lock is held while the
+    // consumer's `enqueueResult` runs, so that hook may call back into the fake.
+    private val recorded: MutableStateFlow<List<Enqueued>> = MutableStateFlow(emptyList())
 
     private val observed: MutableStateFlow<List<UploaderItem>> = MutableStateFlow(emptyList())
 
-    private var triggers: Int = 0
+    private val triggers: MutableStateFlow<Int> = MutableStateFlow(0)
 
-    private val cancelledIds: MutableList<String> = mutableListOf()
+    private val cancelledIds: MutableStateFlow<List<String>> = MutableStateFlow(emptyList())
 
-    private val cancelledTags: MutableList<String> = mutableListOf()
+    private val cancelledTags: MutableStateFlow<List<String>> = MutableStateFlow(emptyList())
 
     /** Every [enqueue] call so far, in order. */
-    public val enqueued: List<Enqueued> get() = recorded.toList()
+    public val enqueued: List<Enqueued> get() = recorded.value
 
     /** How many times [trigger] was called. */
-    public val triggerCount: Int get() = triggers
+    public val triggerCount: Int get() = triggers.value
 
     /**
      * Every id passed to [cancel], in order, including ids this fake never returned.
      *
      * @since 2.0.0
      */
-    public val cancelled: List<String> get() = cancelledIds.toList()
+    public val cancelled: List<String> get() = cancelledIds.value
 
     /**
      * Every tag passed to [cancelByTag], in order.
      *
      * @since 2.0.0
      */
-    public val cancelledByTag: List<String> get() = cancelledTags.toList()
+    public val cancelledByTag: List<String> get() = cancelledTags.value
 
     /** The single most recent [enqueue] call, or `null` if there has not been one. */
-    public fun lastEnqueued(): Enqueued? = recorded.lastOrNull()
+    public fun lastEnqueued(): Enqueued? = recorded.value.lastOrNull()
 
     /**
      * Sets what [observe] emits, for every type.
@@ -97,12 +97,10 @@ public class FakeUploader(
 
     /** Forgets every recorded call and resets the trigger count. */
     public suspend fun reset() {
-        mutex.withLock {
-            recorded.clear()
-            cancelledIds.clear()
-            cancelledTags.clear()
-            triggers = 0
-        }
+        recorded.value = emptyList()
+        cancelledIds.value = emptyList()
+        cancelledTags.value = emptyList()
+        triggers.value = 0
         observed.value = emptyList()
     }
 
@@ -112,31 +110,38 @@ public class FakeUploader(
         uniqueKey: String?,
         tag: String?,
         conflictPolicy: ConflictPolicy,
-    ): String? = mutex.withLock {
-        val call = Enqueued(
-            ordinal = recorded.size + 1,
-            handler = handler,
-            payload = payload,
-            uniqueKey = uniqueKey,
-            tag = tag,
-            conflictPolicy = conflictPolicy,
-        )
-        recorded += call
-        enqueueResult(call)
+    ): String? {
+        var call: Enqueued? = null
+        // The ordinal is taken inside the update, so concurrent calls get distinct, gapless numbers; a CAS
+        // retry rebuilds the call, and only the one that landed is kept in `call`.
+        recorded.update { calls ->
+            val next = Enqueued(
+                ordinal = calls.size + 1,
+                handler = handler,
+                payload = payload,
+                uniqueKey = uniqueKey,
+                tag = tag,
+                conflictPolicy = conflictPolicy,
+            )
+            call = next
+            calls + next
+        }
+        // After the write, outside any lock: a hook that calls back into this fake cannot deadlock it.
+        return enqueueResult(checkNotNull(call))
     }
 
     override fun observe(type: String): Flow<List<UploaderItem>> =
         observed.map { items -> items.filter { it.type == type } }
 
-    override suspend fun cancel(id: String): Unit = mutex.withLock {
-        cancelledIds += id
+    override suspend fun cancel(id: String) {
+        cancelledIds.update { it + id }
     }
 
-    override suspend fun cancelByTag(tag: String): Unit = mutex.withLock {
-        cancelledTags += tag
+    override suspend fun cancelByTag(tag: String) {
+        cancelledTags.update { it + tag }
     }
 
     override fun trigger() {
-        triggers++
+        triggers.update { it + 1 }
     }
 }

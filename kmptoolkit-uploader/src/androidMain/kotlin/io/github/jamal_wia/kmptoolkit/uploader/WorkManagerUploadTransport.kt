@@ -14,8 +14,12 @@ import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -140,16 +144,36 @@ public class UploaderUploadWorker(
 
         // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO, polling
         // its own job so a cancelled job stops the body instead of finishing it unseen.
-        val outcome: UploadResult = withContext(Dispatchers.IO) {
-            val transfer: Job = coroutineContext.job
-            performMultipartUpload(
-                request = request,
-                connectTimeoutMillis = connectTimeoutMillis,
-                readTimeoutMillis = readTimeoutMillis,
-                isCancelled = { !transfer.isActive },
-            )
+        val outcome: UploadResult = withWriteWatchdog(readTimeoutMillis) { watch ->
+            withContext(Dispatchers.IO) {
+                val transfer: Job = coroutineContext.job
+                performMultipartUpload(
+                    request = request,
+                    connectTimeoutMillis = connectTimeoutMillis,
+                    readTimeoutMillis = readTimeoutMillis,
+                    isCancelled = { !transfer.isActive },
+                    watch = watch,
+                )
+            }
         }
-        engine.settleUnderCurrentClaim(itemId, classify(outcome))
-        return Result.success()
+        // classify is the app's code: a throw is a failed attempt of this item, never a lost outcome — an
+        // exception out of doWork would leave the row in flight, and the whole file would upload again once
+        // the lease runs out, for as long as classify keeps throwing for that answer.
+        val verdict: SettleResult = try {
+            classify(outcome)
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            SettleResult.Failed(e)
+        } catch (e: Throwable) {
+            SettleResult.Failed(e)
+        }
+        // The upload already happened, so the write that records it must not be lost to a stop of this job
+        // (WorkManager stops a job whose constraints went away): it runs to completion, bounded by the
+        // engine wait, instead of being cancelled with the job. NonCancellable is the right tool for a
+        // short cleanup of a fact already known.
+        val landed: Boolean = withContext(NonCancellable) {
+            withTimeoutOrNull(engineWaitMillis) { engine.settleUnderCurrentClaim(itemId, verdict) } ?: false
+        }
+        return if (landed) Result.success() else Result.retry()
     }
 }

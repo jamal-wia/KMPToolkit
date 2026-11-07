@@ -13,6 +13,11 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -920,5 +925,42 @@ internal class SqlDelightUploaderStoreChecks {
         const val CLOSE_RACE_ROUNDS: Int = 20
 
         const val WRITES_PER_CLOSE_RACE: Int = 50
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // close() on the database thread
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * `close()` waits for the database thread to run its finalizer, so called from that thread — inside
+     * `inTransaction` — it would wait for itself forever. It must refuse, and the refused call must not
+     * mark the storage closed.
+     */
+    suspend fun closeInsideATransactionFailsFastAndLeavesTheStorageOpen() {
+        val storage: UploaderStorage = createInMemoryUploaderStorage()
+        // A scope of its own, not a child of this test: a close that waits for itself blocks the database
+        // thread, and a blocked thread ignores cancellation, so a child scope would keep the test hanging
+        // instead of letting the timeout below fail it. The attempt is awaited, which is cancellable.
+        val attempts = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var deadlocked = false
+        try {
+            val attempt: Deferred<Result<Unit>> = attempts.async {
+                runCatching { storage.transactionRunner.inTransaction { storage.close() } }
+            }
+            val outcome: Result<Unit> = try {
+                // Real time: under runTest's virtual clock the timeout would never fire.
+                withContext(Dispatchers.Default) { withTimeout(5_000L) { attempt.await() } }
+            } catch (timeout: TimeoutCancellationException) {
+                deadlocked = true
+                throw AssertionError("close() inside a transaction did not return within 5 s: it waits for itself", timeout)
+            }
+            assertTrue(outcome.exceptionOrNull() is IllegalStateException, "close() inside a transaction must throw: $outcome")
+            storage.store.insertKeep(anItem("a"))
+            assertEquals(listOf("a"), storage.store.getAllActive().map { it.id })
+        } finally {
+            attempts.cancel()
+            // A deadlocked database thread would hang this close too.
+            if (!deadlocked) storage.close()
+        }
     }
 }

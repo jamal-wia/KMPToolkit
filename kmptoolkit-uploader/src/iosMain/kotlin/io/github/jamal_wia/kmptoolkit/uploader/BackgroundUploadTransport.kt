@@ -6,6 +6,7 @@ import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.concurrent.AtomicInt
+import kotlin.concurrent.AtomicReference
 import kotlin.concurrent.Volatile
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
@@ -20,6 +21,7 @@ import kotlinx.cinterop.convert
 import kotlinx.cinterop.plus
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -268,6 +270,11 @@ internal class BackgroundSessionUploadTransport(
     private val config: BackgroundUploadConfig,
     private val logger: Logger,
     private val journal: OutcomeJournal = iosOutcomeJournal(logger),
+    private val sessionFactory: UploadSessionFactory = NsUrlUploadSessionFactory(config),
+    /** How long a hand-off waits for the previous session of the same identifier to report itself invalid. */
+    private val invalidationWait: Duration = DEFAULT_INVALIDATION_WAIT,
+    /** Called after a hand-off wrote its body and before it takes the lock to create the task. Test seam. */
+    private val onBodyWritten: (String) -> Unit = {},
 ) : UploadTransport {
 
     // A failure in a settlement coroutine is logged, never allowed to terminate the process.
@@ -280,6 +287,20 @@ internal class BackgroundSessionUploadTransport(
     /** One live session per item in this process; the delegate removes its own entry when it completes. */
     private val liveLock = NSLock()
     private val liveUploads: MutableMap<String, LiveUpload> = mutableMapOf()
+
+    /**
+     * The latest session created per item whose invalidation has not been reported yet (removed by
+     * `didBecomeInvalidWithError`). `invalidateAndCancel` only REQUESTS invalidation; two live background
+     * sessions with one identifier are undefined, so a hand-off creating the next session waits for this one.
+     */
+    private val invalidating: MutableMap<String, UploadSessionDelegate> = mutableMapOf()
+
+    /**
+     * Hand-offs deferred behind an invalidating predecessor, per item, each as an identity token. A [cancel] clears
+     * the item's entry, so a deferred hand-off that wakes afterwards finds its token gone and starts nothing.
+     * Read and written under [liveLock] only.
+     */
+    private val pendingHandOffs: MutableMap<String, MutableList<Any>> = mutableMapOf()
 
     override val leaseMillis: Long = config.lease.inWholeMilliseconds
 
@@ -302,12 +323,37 @@ internal class BackgroundSessionUploadTransport(
         // First of all: an outcome this item's earlier upload journaled is replayed INSTEAD of uploading — the
         // session it ran on is gone and its events will not come again. Nothing is started, not even a session.
         if (replayJournaled(itemId, isRehandOff)) return
-        val live: LiveUpload = claimForHandOff(itemId) ?: run {
-            logger.i { "Upload hand-off joins the live session — item=$itemId" }
-            return
+        handOff(itemId, isRehandOff, request)
+    }
+
+    private fun handOff(itemId: String, isRehandOff: Boolean, request: UploadRequest, deferredToken: Any? = null) {
+        val live: LiveUpload = when (val claim: HandOffClaim = claimForHandOff(itemId, deferredToken)) {
+            HandOffClaim.Joined -> {
+                logger.i { "Upload hand-off joins the live session — item=$itemId" }
+                return
+            }
+
+            HandOffClaim.Withdrawn -> {
+                logger.i { "A deferred hand-off was cancelled before it started — item=$itemId" }
+                return
+            }
+
+            is HandOffClaim.AwaitPredecessor -> {
+                // Bounded: the invalidation callback could in theory never come.
+                scope.launch {
+                    val invalidated: Unit? = withTimeoutOrNull(invalidationWait) { claim.predecessor.invalidated.await() }
+                    if (invalidated == null) {
+                        logger.w { "The previous session was not reported invalid in time; continuing — item=$itemId" }
+                        forgetInvalidating(itemId, claim.predecessor)
+                    }
+                    handOff(itemId, isRehandOff, request, claim.token)
+                }
+                return
+            }
+
+            is HandOffClaim.Claimed -> claim.live
         }
-        live.session.getTasksWithCompletionHandler { dataTasks, uploadTasks, downloadTasks ->
-            val running: Int = (dataTasks?.size ?: 0) + (uploadTasks?.size ?: 0) + (downloadTasks?.size ?: 0)
+        live.session.getTaskCount { running ->
             when {
                 running > 0 -> logger.i { "Rejoined a running upload — item=$itemId" }
                 isRehandOff -> scope.launch {
@@ -329,12 +375,20 @@ internal class BackgroundSessionUploadTransport(
         val orphan: LiveUpload?
         liveLock.lock()
         try {
+            // Withdraws every hand-off still waiting for a predecessor's invalidation.
+            pendingHandOffs.remove(itemId)
             val live: LiveUpload? = liveUploads.remove(itemId)
             if (live != null) {
                 // Cancelled tasks still report completion; marked first, they settle nothing and spend no
                 // retry budget.
                 live.delegate.cancelled = true
                 live.session.invalidateAndCancel()
+                removeTemporaryBody(itemId)
+                orphan = null
+            } else if (invalidating.containsKey(itemId)) {
+                // The slot is empty because this process's own session for the item is still invalidating
+                // (invalidateAndCancel already cancelled its tasks): no earlier-process task can sit under the
+                // identifier, so no orphan session is opened beside the one being invalidated.
                 removeTemporaryBody(itemId)
                 orphan = null
             } else {
@@ -350,11 +404,7 @@ internal class BackgroundSessionUploadTransport(
             logger.i { "Cancelled the upload — item=$itemId" }
             return
         }
-        orphan.session.getTasksWithCompletionHandler { dataTasks, uploadTasks, downloadTasks ->
-            val tasks: List<NSURLSessionTask> = listOfNotNull(dataTasks, uploadTasks, downloadTasks)
-                .flatten()
-                .filterIsInstance<NSURLSessionTask>()
-            tasks.forEach { task -> task.cancel() }
+        orphan.session.cancelTasks { cancelledCount ->
             liveLock.lock()
             try {
                 orphan.session.invalidateAndCancel()
@@ -363,7 +413,7 @@ internal class BackgroundSessionUploadTransport(
             } finally {
                 liveLock.unlock()
             }
-            logger.i { "Cancelled ${tasks.size} upload task(s) left by an earlier process — item=$itemId" }
+            logger.i { "Cancelled $cancelledCount upload task(s) left by an earlier process — item=$itemId" }
         }
     }
 
@@ -435,19 +485,55 @@ internal class BackgroundSessionUploadTransport(
      *   [releaseIfIdle] no longer invalidates it from under the hand-off, and checks its tasks exactly as
      *   it would a session of its own — rejoining one still running, or starting afresh.
      */
-    private fun claimForHandOff(itemId: String): LiveUpload? {
+    private fun claimForHandOff(itemId: String, deferredToken: Any?): HandOffClaim {
         liveLock.lock()
         try {
+            if (deferredToken != null) {
+                // A cancel since this hand-off was deferred removed its token.
+                val pending: MutableList<Any>? = pendingHandOffs[itemId]
+                if (pending == null || !pending.remove(deferredToken)) return HandOffClaim.Withdrawn
+                if (pending.isEmpty()) pendingHandOffs.remove(itemId)
+            }
             val existing: LiveUpload? = liveUploads[itemId]
             if (existing != null && !existing.delegate.terminalDelivered) {
-                if (existing.handedOff) return null
+                if (existing.handedOff) return HandOffClaim.Joined
                 existing.handedOff = true
-                return existing
+                return HandOffClaim.Claimed(existing)
+            }
+            // A replacement session must not open before its predecessor reported itself invalid.
+            invalidating[itemId]?.let { predecessor ->
+                val token = Any()
+                pendingHandOffs.getOrPut(itemId) { mutableListOf() }.add(token)
+                return HandOffClaim.AwaitPredecessor(predecessor, token)
             }
             val live: LiveUpload = createLive(itemId)
             live.handedOff = true
             liveUploads[itemId] = live
-            return live
+            return HandOffClaim.Claimed(live)
+        } finally {
+            liveLock.unlock()
+        }
+    }
+
+    /** What [claimForHandOff] decided under the lock. */
+    private sealed interface HandOffClaim {
+        /** An earlier hand-off's session is live: nothing to start. */
+        data object Joined : HandOffClaim
+
+        /** The hand-off owns [live]. */
+        class Claimed(val live: LiveUpload) : HandOffClaim
+
+        /** The slot is free, but [predecessor]'s invalidation is still pending: wait, then claim again. */
+        class AwaitPredecessor(val predecessor: UploadSessionDelegate, val token: Any) : HandOffClaim
+
+        /** A [cancel] arrived while this hand-off was deferred: start nothing. */
+        data object Withdrawn : HandOffClaim
+    }
+
+    private fun forgetInvalidating(itemId: String, delegate: UploadSessionDelegate) {
+        liveLock.lock()
+        try {
+            if (invalidating[itemId] === delegate) invalidating.remove(itemId)
         } finally {
             liveLock.unlock()
         }
@@ -468,20 +554,17 @@ internal class BackgroundSessionUploadTransport(
 
     /** A new background session for [itemId]. The caller holds [liveLock] and records it. */
     private fun createLive(itemId: String): LiveUpload {
-        val configuration: NSURLSessionConfiguration = buildSessionConfiguration(identifierPrefix + itemId, config)
         val delegate = UploadSessionDelegate(
             itemId = itemId,
             scope = scope,
             logger = logger,
             journal = journal,
+            terminalLock = liveLock,
             onTerminal = ::releaseAfterTerminal,
+            onInvalidated = { invalidated -> forgetInvalidating(invalidated.itemId, invalidated) },
         )
-        val session: NSURLSession = NSURLSession.sessionWithConfiguration(
-            configuration = configuration,
-            delegate = delegate,
-            delegateQueue = null,
-        )
-        return LiveUpload(session, delegate)
+        invalidating[itemId] = delegate
+        return LiveUpload(sessionFactory.create(identifierPrefix + itemId, delegate), delegate)
     }
 
     /**
@@ -506,15 +589,14 @@ internal class BackgroundSessionUploadTransport(
      */
     private fun releaseIfIdle(itemId: String, live: LiveUpload) {
         if (live.delegate.terminalDelivered) return
-        live.session.getTasksWithCompletionHandler { dataTasks, uploadTasks, downloadTasks ->
-            val running: Int = (dataTasks?.size ?: 0) + (uploadTasks?.size ?: 0) + (downloadTasks?.size ?: 0)
-            if (running > 0 || live.delegate.terminalDelivered || live.delegate.receivedAnyEvent) return@getTasksWithCompletionHandler
+        live.session.getTaskCount { running ->
+            if (running > 0 || live.delegate.terminalDelivered || live.delegate.receivedAnyEvent) return@getTaskCount
             liveLock.lock()
             try {
                 // A hand-off that claimed the session after the task check above is about to start its
                 // upload on it; invalidating now would strand that hand-off. Decided under the lock the
                 // claim takes, so exactly one of the two wins.
-                if (live.handedOff || liveUploads[itemId] !== live) return@getTasksWithCompletionHandler
+                if (live.handedOff || liveUploads[itemId] !== live) return@getTaskCount
                 liveUploads.remove(itemId)
                 // Inside the lock, so a hand-off that finds the slot empty creates its session — with the
                 // same identifier — only after this one is invalidated.
@@ -542,6 +624,7 @@ internal class BackgroundSessionUploadTransport(
         urlRequest.setHTTPMethod(request.method)
         request.headers.forEach { (name, value) -> urlRequest.setValue(value, forHTTPHeaderField = name) }
         urlRequest.setValue("multipart/form-data; boundary=$boundary", forHTTPHeaderField = "Content-Type")
+        onBodyWritten(itemId)
         // Checked and created under the lock that cancel holds while invalidating: a task created on an
         // invalidated session raises an Objective-C exception.
         liveLock.lock()
@@ -551,8 +634,17 @@ internal class BackgroundSessionUploadTransport(
                 removeTemporaryBody(itemId)
                 return
             }
+            // The session reports: the previous process's task finished (its terminal event invalidated this
+            // session, so a task created now would raise) or is delivering events. Either way that task owns
+            // the outcome; starting a second upload would at best repeat it. Decided here, atomically with the
+            // creation, rather than a flush window ago.
+            if (live.delegate.terminalDelivered || live.delegate.receivedAnyEvent) {
+                logger.i { "A buffered event arrived while the body was written; no task started — item=$itemId" }
+                removeTemporaryBody(itemId)
+                return
+            }
             logger.i { "Starting upload — item=$itemId" }
-            live.session.uploadTaskWithRequest(urlRequest, fromFile = NSURL.fileURLWithPath(bodyPath)).resume()
+            live.session.startUploadTask(urlRequest, bodyPath)
         } finally {
             liveLock.unlock()
         }
@@ -575,7 +667,7 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
-    private class LiveUpload(val session: NSURLSession, val delegate: UploadSessionDelegate) {
+    private class LiveUpload(val session: UploadSession, val delegate: UploadSessionDelegate) {
 
         /**
          * Whether a hand-off in this process owns this session — created it, or took over the one a
@@ -586,6 +678,7 @@ internal class BackgroundSessionUploadTransport(
 
     private companion object {
         val RELAUNCH_IDLE_CHECK: Duration = 30.seconds
+        val DEFAULT_INVALIDATION_WAIT: Duration = 2.seconds
     }
 }
 
@@ -692,17 +785,76 @@ private const val FALLBACK_BUNDLE_ID: String = "io.github.jamal_wia.kmptoolkit.u
 // Top-level: the delegate subclasses NSObject, and Kotlin/Native forbids a companion with fields there.
 private const val STATUS_UNKNOWN: Long = -1L
 
+/** The slice of `NSURLSession` the transport uses; [NsUrlUploadSession] is the real one, tests script a fake. */
+internal interface UploadSession {
+    /** Reports how many tasks the session has, on the session's own queue. */
+    fun getTaskCount(callback: (Int) -> Unit)
+
+    /** Cancels every task the session has and reports how many there were. */
+    fun cancelTasks(callback: (Int) -> Unit)
+
+    /** Creates AND resumes an upload task for [bodyPath]; the real session raises on an invalidated one. */
+    fun startUploadTask(request: NSMutableURLRequest, bodyPath: String)
+
+    fun invalidateAndCancel()
+
+    fun finishTasksAndInvalidate()
+}
+
+/** Opens the session of [identifier] that reports to [delegate]. */
+internal fun interface UploadSessionFactory {
+    fun create(identifier: String, delegate: UploadSessionDelegate): UploadSession
+}
+
+internal class NsUrlUploadSessionFactory(private val config: BackgroundUploadConfig) : UploadSessionFactory {
+    override fun create(identifier: String, delegate: UploadSessionDelegate): UploadSession = NsUrlUploadSession(
+        NSURLSession.sessionWithConfiguration(
+            configuration = buildSessionConfiguration(identifier, config),
+            delegate = delegate,
+            delegateQueue = null,
+        ),
+    )
+}
+
+internal class NsUrlUploadSession(private val session: NSURLSession) : UploadSession {
+    override fun getTaskCount(callback: (Int) -> Unit) {
+        session.getTasksWithCompletionHandler { dataTasks, uploadTasks, downloadTasks ->
+            callback((dataTasks?.size ?: 0) + (uploadTasks?.size ?: 0) + (downloadTasks?.size ?: 0))
+        }
+    }
+
+    override fun cancelTasks(callback: (Int) -> Unit) {
+        session.getTasksWithCompletionHandler { dataTasks, uploadTasks, downloadTasks ->
+            val tasks: List<NSURLSessionTask> = listOfNotNull(dataTasks, uploadTasks, downloadTasks)
+                .flatten()
+                .filterIsInstance<NSURLSessionTask>()
+            tasks.forEach { task -> task.cancel() }
+            callback(tasks.size)
+        }
+    }
+
+    override fun startUploadTask(request: NSMutableURLRequest, bodyPath: String) {
+        session.uploadTaskWithRequest(request, fromFile = NSURL.fileURLWithPath(bodyPath)).resume()
+    }
+
+    override fun invalidateAndCancel() = session.invalidateAndCancel()
+
+    override fun finishTasksAndInvalidate() = session.finishTasksAndInvalidate()
+}
+
 /**
  * Reports one item's raw outcome through [UploadGateway], in whatever process iOS delivers
  * `didCompleteWithError` — the terminal callback, which also carries transport errors and empty
  * responses. All policy runs in the engine.
  */
-private class UploadSessionDelegate(
+internal class UploadSessionDelegate(
     val itemId: String,
     private val scope: CoroutineScope,
     private val logger: Logger,
     private val journal: OutcomeJournal,
+    private val terminalLock: NSLock,
     private val onTerminal: (UploadSessionDelegate) -> Unit,
+    private val onInvalidated: (UploadSessionDelegate) -> Unit = {},
 ) : NSObject(), NSURLSessionDataDelegateProtocol {
 
     /** Any event at all tells a re-hand's flush window not to start a fresh upload. */
@@ -720,8 +872,8 @@ private class UploadSessionDelegate(
     @Volatile
     private var terminalHandled: Boolean = false
 
-    @Volatile
-    private var onAllEventsDelivered: (() -> Unit)? = null
+    /** The drained callback; taken with a compare-and-set, so however many callers race, it runs once. */
+    private val onAllEventsDelivered: AtomicReference<(() -> Unit)?> = AtomicReference(null)
 
     /**
      * Progress goes through one conflated channel and one forwarder, so fractions reach the handler in order
@@ -734,16 +886,33 @@ private class UploadSessionDelegate(
         fractions.trySend(fraction)
     }
 
+    /** Completed when the session reports itself invalid (`didBecomeInvalidWithError`). */
+    val invalidated: CompletableDeferred<Unit> = CompletableDeferred()
+
+    override fun URLSession(session: NSURLSession, didBecomeInvalidWithError: NSError?) {
+        reportInvalidated()
+    }
+
+    /** What `didBecomeInvalidWithError` does; separate so a test double of the session can report it. */
+    fun reportInvalidated() {
+        onInvalidated(this)
+        invalidated.complete(Unit)
+    }
+
     /** Chains [callback] to "the buffered events are drained"; fires at once if they already are. */
     fun notifyWhenDrained(callback: () -> Unit) {
-        onAllEventsDelivered = callback
+        onAllEventsDelivered.value = callback
         if (terminalHandled) fireDrained()
     }
 
     private fun fireDrained() {
-        val callback: (() -> Unit)? = onAllEventsDelivered
-        onAllEventsDelivered = null
-        callback?.invoke()
+        while (true) {
+            val callback: (() -> Unit) = onAllEventsDelivered.value ?: return
+            if (onAllEventsDelivered.compareAndSet(callback, null)) {
+                callback()
+                return
+            }
+        }
     }
 
     /** The response body so far, kept up to the engine's ceiling plus one byte; handed over once, at completion. */
@@ -771,19 +940,40 @@ private class UploadSessionDelegate(
     }
 
     override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
-        receivedAnyEvent = true
-        terminalDelivered = true
         val httpResponse: NSHTTPURLResponse? = task.response as? NSHTTPURLResponse
-        val statusCode: Long = httpResponse?.statusCode ?: STATUS_UNKNOWN
+        complete(
+            statusCode = httpResponse?.statusCode ?: STATUS_UNKNOWN,
+            headerFields = httpResponse?.allHeaderFields,
+            errorDescription = didCompleteWithError?.localizedDescription,
+            invalidate = session::invalidateAndCancel,
+        )
+    }
+
+    /**
+     * The terminal event, however the session delivered it: [statusCode] is [STATUS_UNKNOWN] without an HTTP
+     * response, [errorDescription] is set for a transport error, and [invalidate] invalidates the session.
+     */
+    fun complete(statusCode: Long, headerFields: Map<Any?, *>?, errorDescription: String?, invalidate: () -> Unit) {
+        // Under the lock startUpload creates its task under: a hand-off that has not created its task yet sees
+        // the terminal state and starts nothing, so no task is ever created on the session invalidated below —
+        // which raises an Objective-C exception Kotlin/Native cannot catch. A hand-off that already created
+        // its task is unaffected.
+        terminalLock.lock()
+        try {
+            receivedAnyEvent = true
+            terminalDelivered = true
+        } finally {
+            terminalLock.unlock()
+        }
         val outcome: UploadResult = when {
-            didCompleteWithError != null -> UploadResult.TransportFailure(didCompleteWithError.localizedDescription)
+            errorDescription != null -> UploadResult.TransportFailure(errorDescription)
             statusCode == STATUS_UNKNOWN -> UploadResult.TransportFailure("no HTTP response")
             else -> UploadResult.Completed(statusCode.toInt())
         }
         // Built here, before the session is invalidated below: the server's answer exists only for an
         // outcome that is a completed response, and the body is converted from the accumulated bytes once.
-        val response: UploadResponse? = if (outcome is UploadResult.Completed && httpResponse != null) {
-            uploadResponseOf(outcome.statusCode, httpResponse.allHeaderFields, responseBody)
+        val response: UploadResponse? = if (outcome is UploadResult.Completed) {
+            uploadResponseOf(outcome.statusCode, headerFields, responseBody)
         } else {
             null
         }
@@ -796,7 +986,7 @@ private class UploadSessionDelegate(
         // Before the settlement is launched, not after: the settlement can return the item to the queue,
         // and a re-hand landing at once replaces this session — terminal now — with a new one under the
         // same identifier, which must not overlap a session that is not yet invalidated.
-        session.invalidateAndCancel()
+        invalidate()
         scope.launch {
             fractions.close()
             forwarder.join()

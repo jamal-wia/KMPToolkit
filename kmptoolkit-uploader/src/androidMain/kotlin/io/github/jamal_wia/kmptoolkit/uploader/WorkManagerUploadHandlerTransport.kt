@@ -204,21 +204,25 @@ public open class UploadHandlerWorker(
         val forwarder: Job = launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
         try {
             // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO.
-            withContext(Dispatchers.IO) {
-                val transfer: Job = coroutineContext.job
-                performMultipartUploadCapturing(
-                    request = request,
-                    connectTimeoutMillis = inputData.getInt(
-                        CONNECT_TIMEOUT_MILLIS_KEY,
-                        UploadTransportConfig.DEFAULT_CONNECT_TIMEOUT_MILLIS,
-                    ),
-                    readTimeoutMillis = inputData.getInt(
-                        READ_TIMEOUT_MILLIS_KEY,
-                        UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS,
-                    ),
-                    onWholePercent = { fraction -> fractions.trySend(fraction) },
-                    isCancelled = { !transfer.isActive },
-                )
+            val readTimeoutMillis: Int = inputData.getInt(
+                READ_TIMEOUT_MILLIS_KEY,
+                UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS,
+            )
+            withWriteWatchdog(readTimeoutMillis) { watch ->
+                withContext(Dispatchers.IO) {
+                    val transfer: Job = coroutineContext.job
+                    performMultipartUploadCapturing(
+                        request = request,
+                        connectTimeoutMillis = inputData.getInt(
+                            CONNECT_TIMEOUT_MILLIS_KEY,
+                            UploadTransportConfig.DEFAULT_CONNECT_TIMEOUT_MILLIS,
+                        ),
+                        readTimeoutMillis = readTimeoutMillis,
+                        onWholePercent = { fraction -> fractions.trySend(fraction) },
+                        isCancelled = { !transfer.isActive },
+                        watch = watch,
+                    )
+                }
             }
         } finally {
             fractions.close()

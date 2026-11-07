@@ -72,7 +72,8 @@ What the engine does with it:
 2. **Run.** When the platform actually starts the upload, the transport asks
    `UploadGateway.prepareAttempt(itemId)`, which calls `prepareUpload` **again**. That is where a
    token is fresh, and where a re-run of an item that settled meanwhile finds nothing owed and uploads
-   nothing. A preparation that throws here leaves the item in flight; the lease recovers it.
+   nothing. A preparation that throws here counts as a failed attempt under the handler's retry policy, exactly as a
+   failing preparation in the drain does: it spends retry budget, so a persistent failure ends in the give-up policy.
 3. **Progress.** Each whole percent goes to `onUploadProgress` through `UploadGateway.progress`.
    Best effort, never after the item has settled.
 4. **Settle.** What the transport saw goes to `UploadGateway.complete` — with the server's
@@ -229,6 +230,13 @@ when the task completes) and builds the response from the final `NSHTTPURLRespon
 is invalidated; only headers whose names and values are strings are kept. **A force-quit cancels
 background transfers** — iOS does not continue an upload for an app the user swiped away.
 
+A session is replaced only once its predecessor has reported itself invalid: invalidating a session
+only requests it, and two live background sessions with one identifier are undefined. A hand-off that
+finds the previous session of its item still invalidating waits for `didBecomeInvalidWithError` (at
+most two seconds) before it opens the next one, so a retry right after a failed attempt starts a
+moment late rather than on an overlapping session. A `cancel` during that wait withdraws the deferred
+hand-off, so the item is not uploaded afterwards, and opens no second session beside the invalidating one.
+
 A background session takes the whole request when the task is created, so on iOS the request is the
 one `prepareUpload` returned at hand-off, not one prepared when the transfer starts, and
 `nsurlsessiond` keeps its headers until the transfer ends. Size an `Authorization` token's lifetime —
@@ -321,6 +329,20 @@ override suspend fun execute(context: AttemptContext, payload: AvatarUpload): At
 Its worker settles under the item's current claim, as the gateway does and for the same reason: the
 job is unique per item id, so it serves every claim of the item. Like the gateway, it reaches only an
 engine made by `createUploaderEngine`, and retries the job otherwise.
+
+A `classify` that throws settles the attempt as `Failed` (it spends retry budget, so a persistent bug
+ends in the give-up policy instead of re-uploading the file every lease), and the settle write is not
+cancelled with the job when WorkManager stops it just after the server answered. A settle the store
+refuses, or one that does not finish within the engine wait, makes the job report a retry; because this
+classic worker keeps no journal, that retry uploads the file again. `UploadHandler` on the handler
+transport is the route that replays a journaled outcome instead of uploading again.
+
+Both Android workers run the body write under a watchdog. `HttpURLConnection` has no write timeout, so a
+peer that stops reading would otherwise pin the thread for the kernel's retransmission time (minutes) and
+make `cancel` or a WorkManager stop wait for it. The watchdog closes the connection when the job is
+cancelled, and when no chunk of the body has moved for the read timeout (counted from the moment the
+connection is up and the body starts, so the connect keeps its own connect timeout); the upload then ends as a
+transport failure, which the retry policy handles.
 
 Its limits are the reason `UploadHandler` exists:
 

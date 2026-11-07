@@ -7,7 +7,11 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Performs [request] once as a streamed multipart upload and reports the raw outcome. Shared by both
@@ -28,6 +32,7 @@ internal fun performMultipartUpload(
     readTimeoutMillis: Int,
     onWholePercent: (fraction: Float) -> Unit = {},
     isCancelled: () -> Boolean = { false },
+    watch: WriteWatch? = null,
 ): UploadResult = performMultipartUploadCapturing(
     request = request,
     connectTimeoutMillis = connectTimeoutMillis,
@@ -35,6 +40,7 @@ internal fun performMultipartUpload(
     onWholePercent = onWholePercent,
     isCancelled = isCancelled,
     captureResponse = false,
+    watch = watch,
 ).result
 
 /** The raw outcome of one multipart upload and, when it was asked for and the server answered, the answer. */
@@ -56,6 +62,7 @@ internal fun performMultipartUploadCapturing(
     onWholePercent: (fraction: Float) -> Unit = {},
     isCancelled: () -> Boolean = { false },
     captureResponse: Boolean = true,
+    watch: WriteWatch? = null,
 ): MultipartOutcome {
     // Pre-flight the file parts so a vanished source reads as a transport failure the handler can react
     // to, instead of an exception mid-stream.
@@ -77,12 +84,15 @@ internal fun performMultipartUploadCapturing(
             request.headers.forEach { (name, value) -> setRequestProperty(name, value) }
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         }
-        val out: OutputStream = connection.outputStream
-        writeMultipartBody(out, boundary, request, onWholePercent, isCancelled)
+        watch?.begin(connection)
+        val out: OutputStream = connection.outputStream // connects; not counted as body inactivity
+        watch?.startWriting()
+        writeMultipartBody(out, boundary, request, onWholePercent, isCancelled, watch)
         // Closed only once the body is whole. Closing a chunked stream sends its final chunk, so closing
         // it on a cancellation or a failed write would hand the server a complete, truncated request;
         // the disconnect below drops the connection instead.
         out.close()
+        watch?.finishWriting()
         val status: Int = connection.responseCode
         MultipartOutcome(
             UploadResult.Completed(status),
@@ -94,7 +104,9 @@ internal fun performMultipartUploadCapturing(
         // A server can reject-and-close before the chunked body finishes (size cap, proxy 4xx) — the
         // write then throws, but a status may still be readable. Prefer the real status so a permanent
         // rejection can be classified instead of retried forever as a transport failure.
-        val lateStatus: Int? = connection?.let { conn ->
+        // Not after the watchdog dropped the connection: the peer is not answering, and asking for its status
+        // would wait out the whole read timeout on a socket that was closed on purpose.
+        val lateStatus: Int? = connection?.takeUnless { watch?.wasDropped == true }?.let { conn ->
             runCatching { conn.responseCode }.getOrNull()?.takeIf { it >= HTTP_BAD_REQUEST }
         }
         if (lateStatus != null) {
@@ -188,6 +200,7 @@ private fun writeMultipartBody(
     request: UploadRequest,
     onWholePercent: (fraction: Float) -> Unit,
     isCancelled: () -> Boolean,
+    watch: WriteWatch?,
 ) {
     fun ensureNotCancelled() {
         if (isCancelled()) throw CancellationException("Upload cancelled mid-body.")
@@ -218,6 +231,7 @@ private fun writeMultipartBody(
                         if (read < 0) break
                         ensureNotCancelled()
                         out.write(buffer, 0, read)
+                        watch?.touch()
                         progress.add(read.toLong())
                     }
                 }
@@ -231,3 +245,85 @@ private fun writeMultipartBody(
 private const val HTTP_BAD_REQUEST: Int = 400
 private const val COPY_BUFFER_BYTES: Int = 8 * 1024
 private const val NANOS_PER_MILLI: Long = 1_000_000L
+
+/**
+ * What a transfer shares with its watchdog: the open connection and when the body last moved. `HttpURLConnection`
+ * has no write timeout and the body write is blocking, so a peer that stops reading — or a path that silently
+ * died — pins the thread for as long as the kernel keeps retransmitting, and a cancelled coroutine around it
+ * cannot interrupt it. The only way out is to close the socket from another thread, which [drop] does.
+ */
+internal class WriteWatch {
+    private val connection: AtomicReference<HttpURLConnection?> = AtomicReference(null)
+
+    @Volatile
+    private var writing: Boolean = false
+
+    @Volatile
+    private var lastActivityNanos: Long = System.nanoTime()
+
+    @Volatile
+    private var dropped: Boolean = false
+
+    /** Whether [drop] was called: the connection was closed from outside, not by the peer. */
+    val wasDropped: Boolean get() = dropped
+
+    /**
+     * Publishes [opened] so a [drop] reaches it, and so a cancel during the connect is not lost. Does NOT start
+     * the stall clock: the connect (TCP + TLS) runs under the connect timeout, not the body-inactivity limit.
+     */
+    fun begin(opened: HttpURLConnection) {
+        connection.set(opened)
+        // A drop that landed before the connection was published (a cancel during connect) still applies.
+        if (dropped) opened.disconnect()
+    }
+
+    /** The connection is up and the body write starts: from here on, silence counts as a stall. */
+    fun startWriting() {
+        lastActivityNanos = System.nanoTime()
+        writing = true
+    }
+
+    fun touch() {
+        lastActivityNanos = System.nanoTime()
+    }
+
+    fun finishWriting() {
+        writing = false
+    }
+
+    /** Closes the socket; the blocked write throws and the transfer reports through its ordinary failure path. */
+    fun drop() {
+        dropped = true
+        connection.get()?.disconnect()
+    }
+
+    fun stalledFor(limitMillis: Int): Boolean =
+        writing && (System.nanoTime() - lastActivityNanos) / NANOS_PER_MILLI > limitMillis
+}
+
+/**
+ * Runs the blocking transfer in [block] under a watchdog that closes its connection when the surrounding
+ * coroutine is cancelled, or when the body write makes no progress for [stallMillis]. The watchdog is a child
+ * of this scope, so cancellation reaches it even while the transfer's own thread is blocked.
+ */
+internal suspend fun <T> withWriteWatchdog(stallMillis: Int, block: suspend (WriteWatch) -> T): T = coroutineScope {
+    val watch = WriteWatch()
+    val watchdog = launch {
+        try {
+            while (true) {
+                delay(WATCHDOG_POLL_MILLIS)
+                if (watch.stalledFor(stallMillis)) break
+            }
+        } finally {
+            // Reached on a stall, and on cancellation of the job — the case a blocked write cannot see.
+            watch.drop()
+        }
+    }
+    try {
+        block(watch)
+    } finally {
+        watchdog.cancel()
+    }
+}
+
+private const val WATCHDOG_POLL_MILLIS: Long = 250L

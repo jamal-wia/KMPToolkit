@@ -161,7 +161,7 @@ class UploadHandlerTest {
     }
 
     @Test
-    fun `a preparation that throws at run time leaves the item in flight for the lease`() = runTest {
+    fun `a preparation that throws at run time spends an attempt like the drain's own failed preparation`() = runTest {
         var fail = false
         val handler = TestUploadHandler(transport, prepare = {
             if (fail) error("token service down") else UploadPreparation.Proceed(request("t"))
@@ -173,7 +173,34 @@ class UploadHandlerTest {
         fail = true
 
         assertEquals(UploadAttempt.NothingOwed, UploadGateway.prepareAttempt("item-1", WAIT))
-        assertEquals(UploaderItemState.IN_FLIGHT, store.find("item-1")?.state)
+        val item: UploaderItem = assertNotNull(store.find("item-1"))
+        assertEquals(UploaderItemState.PENDING, item.state, "back in the queue under the retry policy, not idle for a whole lease")
+        assertEquals(1, item.attempts, "the failure spent retry budget, so a persistent one reaches the give-up policy")
+    }
+
+    @Test
+    fun `a failed run-time preparation of a superseded claim spends nothing`() = runTest {
+        var fail = false
+        lateinit var live: UploaderEngine
+        val handler = TestUploadHandler(transport, prepare = { context ->
+            if (fail) {
+                // A settle lands while the worker's preparation runs: the row is parked, then the preparation throws.
+                live.settle("item-1", context.claim, SettleResult.Park("stuck"))
+                error("token service down")
+            } else {
+                UploadPreparation.Proceed(request("t"))
+            }
+        })
+        live = startEngine(handler, backgroundScope)
+        live.enqueue(handler, "payload")
+        live.drain()
+        fail = true
+
+        UploadGateway.prepareAttempt("item-1", WAIT)
+
+        val item: UploaderItem = assertNotNull(store.find("item-1"))
+        assertEquals(UploaderItemState.PARKED, item.state, "the park stands; the stale failure did not overwrite it")
+        assertEquals(0, item.attempts)
     }
 
     @Test

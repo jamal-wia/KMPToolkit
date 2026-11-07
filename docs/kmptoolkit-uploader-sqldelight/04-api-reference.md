@@ -27,7 +27,7 @@ made inside it, with nothing reporting the mismatch.
 |---|---|
 | `store` | Implements `UploaderStore` in full — every invariant in its KDoc, verified by `UploaderStoreContract` against a real database on Android and iOS. Every write is committed before the call returns. Safe to call from any coroutine on any thread; calls are serialized internally. |
 | `transactionRunner` | A real SQL transaction, reentrant: a nested `inTransaction` joins the outer one. Atomic across everything written through **this** database. Rolls back and propagates unchanged on a throw or a cancellation. |
-| `close()` | Releases the database thread, and the connection if this storage opened one. Idempotent. Never closes a driver you supplied. Using the storage afterwards is a bug. |
+| `close()` | Releases the database thread, and the connection if this storage opened one. Idempotent. Never closes a driver you supplied. Using the storage afterwards is a bug; close the engine first. Throws `IllegalStateException` when called on the database thread (inside `inTransaction`). |
 
 **Lifetime.** One instance per queue, per process, for the life of the process. Not per screen — the
 queue outlives the UI, which is the point of it.
