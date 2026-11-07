@@ -3,8 +3,6 @@ package io.github.jamal_wia.kmptoolkit.audio.player
 import io.github.jamal_wia.kmptoolkit.core.StateMachineLock
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import kotlin.concurrent.Volatile
-import kotlin.concurrent.atomics.AtomicReference
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableJob
@@ -19,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,7 +79,7 @@ public fun createAudioPlayer(
  * be playing forever. Transport calls wait for the lock; engine callbacks and poll ticks never wait —
  * they are handed to the thread holding it. Everything marked "guarded" is touched only under it.
  */
-@OptIn(ExperimentalAtomicApi::class, ToolkitInternalApi::class)
+@OptIn(ToolkitInternalApi::class)
 private class EngineAudioPlayer(
     private val engine: PlaybackEngine,
     private val config: AudioPlayerConfig,
@@ -96,11 +95,12 @@ private class EngineAudioPlayer(
     /** The polling coroutine while playing. Guarded. */
     private var positionJob: Job? = null
 
-    /** The load in flight, or the last one to finish. Swapped atomically by [prepare], [unload], [release]. */
-    private val currentLoad: AtomicReference<Load?> = AtomicReference(null)
+    /** The load in flight, or the last one to finish. Swapped with getAndUpdate by [prepare], [unload], [release]. */
+    private val currentLoad: MutableStateFlow<Load?> = MutableStateFlow(null)
 
     /**
-     * One [prepare] call.
+     * One [prepare] call. Deliberately not a data class: [currentLoad] swaps and compares with `equals`,
+     * and identity equality is what makes "this very load" mean that.
      *
      * @property job parents the engine work, so cancelling it cancels exactly this load.
      * @property finished completes when the call, and every load before it, has fully unwound.
@@ -121,6 +121,7 @@ private class EngineAudioPlayer(
     private val _playbackPositionFlow: MutableStateFlow<Long> = MutableStateFlow(0L)
     override val playbackPositionFlow: StateFlow<Long> = _playbackPositionFlow.asStateFlow()
 
+    // Written under the gate; volatile so the public getter, read on any thread without the lock, sees the latest value.
     @Volatile
     override var playbackSpeed: Float = NORMAL_PLAYBACK_SPEED
         private set
@@ -137,7 +138,7 @@ private class EngineAudioPlayer(
         // A child of the caller's job, so the caller's cancellation still reaches the engine, and a
         // handle of our own, so a later prepare/unload/release can cancel just this load.
         val load = Load(Job(parent = currentCoroutineContext()[Job]))
-        val previous: Load? = currentLoad.exchange(load)
+        val previous: Load? = currentLoad.getAndUpdate { load }
         try {
             previous?.let {
                 previous.job.cancel()
@@ -161,7 +162,7 @@ private class EngineAudioPlayer(
                 return
             }
         } catch (cancellation: CancellationException) {
-            if (currentLoad.load() !== load) {
+            if (currentLoad.value !== load) {
                 // Superseded. Whatever replaced this load owns the engine and the state now; touching
                 // either here would tear down the newer load. The engine's own cancellation path has
                 // already discarded what this one got to.
@@ -178,7 +179,7 @@ private class EngineAudioPlayer(
             // until its finally, so a prepare arriving meanwhile waits for all of it.
             withContext(NonCancellable) { previous?.finished?.join() }
             gate.exclusive {
-                if (currentLoad.load() === load) {
+                if (currentLoad.value === load) {
                     engine.release()
                     if (!released) _stateFlow.value = PlayerState.Idle
                 }
@@ -373,7 +374,7 @@ private class EngineAudioPlayer(
      */
     private fun abandonLoad() {
         val placeholder = Load(Job().apply { cancel() })
-        val abandoned: Load? = currentLoad.exchange(placeholder)
+        val abandoned: Load? = currentLoad.getAndUpdate { placeholder }
         abandoned?.job?.cancel()
         val freeEngine: () -> Unit = {
             engine.release()
@@ -389,7 +390,7 @@ private class EngineAudioPlayer(
         }
     }
 
-    private fun isCurrent(load: Load): Boolean = !released && currentLoad.load() === load
+    private fun isCurrent(load: Load): Boolean = !released && currentLoad.value === load
 
     /** Lock held. (Re)starts polling; each tick is submitted, so it is serialized like a callback. */
     private fun startPositionUpdates() {
