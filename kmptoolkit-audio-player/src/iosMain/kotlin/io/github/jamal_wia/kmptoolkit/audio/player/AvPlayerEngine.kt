@@ -1,6 +1,5 @@
 package io.github.jamal_wia.kmptoolkit.audio.player
 
-import kotlin.concurrent.atomics.incrementAndFetch
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
