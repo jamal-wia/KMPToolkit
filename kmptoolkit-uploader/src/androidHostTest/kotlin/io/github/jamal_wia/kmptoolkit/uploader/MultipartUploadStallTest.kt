@@ -12,7 +12,12 @@ import kotlin.test.Test
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -38,8 +43,15 @@ class MultipartUploadStallTest {
     private val accepted = AtomicBoolean(false)
     private val held = mutableListOf<Socket>()
 
+    // The upload runs in a scope of its own, never a child of runBlocking: a blocked native write ignores
+    // cancellation, and a child of runBlocking would keep a failing test hanging until the kernel gives up
+    // instead of letting its withTimeout fail it. The test awaits with a timeout; the stuck thread is freed
+    // by closing the sockets in cleanUp.
+    private val uploads = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     @AfterTest
     fun cleanUp() {
+        uploads.cancel()
         held.forEach { runCatching { it.close() } }
         server.close()
         source.delete()
@@ -62,7 +74,7 @@ class MultipartUploadStallTest {
     @Test
     fun `cancelling the job ends a write blocked on a peer that never reads`() = runBlocking<Unit> {
         acceptAndNeverRead()
-        val job = launch(Dispatchers.Default) {
+        val job = uploads.launch {
             withWriteWatchdog(stallMillis = 60_000) { watch ->
                 withContext(Dispatchers.IO) {
                     performMultipartUpload(request(), 5_000, 60_000, watch = watch)
@@ -82,13 +94,14 @@ class MultipartUploadStallTest {
     fun `a write that makes no progress for the stall limit is dropped as a transport failure`() = runBlocking<Unit> {
         acceptAndNeverRead()
 
-        val result: UploadResult = withTimeout(15_000) {
+        val upload: Deferred<UploadResult> = uploads.async {
             withWriteWatchdog(stallMillis = 1_000) { watch ->
                 withContext(Dispatchers.IO) {
                     performMultipartUpload(request(), 5_000, 60_000, watch = watch)
                 }
             }
         }
+        val result: UploadResult = withTimeout(15_000) { upload.await() }
 
         assertIs<UploadResult.TransportFailure>(result)
     }
