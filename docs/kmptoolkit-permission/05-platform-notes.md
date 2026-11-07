@@ -135,6 +135,9 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
   sensors below API 33 is `BodySensors` — reads and writes that entry's flags, so the two can never
   disagree.
 - A role reuses the two keys: `asked` after its first refusal, `rationale` after its second.
+  A role dialog interrupted by its activity finishing with it up records nothing: the default host
+  tells an interruption from the user backing out. A host of your own has only a result code, so what it
+  reports as `RESULT_CANCELED` counts as a refusal.
 - Special accesses and device admins store nothing.
 
 The flags are not a secret and need no encryption; a plain `createKeyValueStorage(context)` is the

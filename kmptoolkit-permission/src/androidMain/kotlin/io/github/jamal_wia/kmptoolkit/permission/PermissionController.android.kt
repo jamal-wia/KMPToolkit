@@ -45,6 +45,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
+/**
+ * What [AndroidPermissionController.launchForResult] delivers for a request the library's own host ended
+ * as interrupted. Never a result code a system screen produces (those are `RESULT_OK`, `RESULT_CANCELED`
+ * and small positive custom codes).
+ */
+private const val INTERRUPTED: Int = Int.MIN_VALUE
+
 /** The value written under a [rationaleSeenKey]. Its presence is the flag; the text is for a human reading a dump. */
 private const val FLAG_SET: String = "true"
 
@@ -572,6 +579,10 @@ internal class AndroidPermissionController(
         if (!current.mayShowDialog()) return current
         val intent: Intent = resultGrants.requestIntent(role) ?: return current
         val resultCode: Int = launchForResult(intent, role) ?: return current
+        if (resultCode == INTERRUPTED) {
+            logger.d { "The dialog for $role was interrupted; nothing recorded" }
+            return roleStatus(role)
+        }
         if (resultGrants.isHeld(role) != true) {
             logger.d { "$role was not granted (result $resultCode)" }
             if (readFlag(askedKey(keyPrefix, role)) == null) {
@@ -620,7 +631,14 @@ internal class AndroidPermissionController(
     /** Starts [intent] through the host for a result; the result code, or `null` when nothing was shown. */
     private suspend fun launchForResult(intent: Intent, permission: Permission): Int? =
         launchOnHost("The system screen for $permission") { deliver ->
-            host.launchForResult(intent) { resultCode -> deliver(resultCode) }
+            // The library's own host can tell an interrupted request from the user backing out; any other
+            // host only has a result code, so what it reports as RESULT_CANCELED counts as a refusal.
+            val own: ActivityResultPermissionRequestHost? = host as? ActivityResultPermissionRequestHost
+            if (own != null) {
+                own.launchForResultOrInterrupted(intent) { resultCode -> deliver(resultCode ?: INTERRUPTED) }
+            } else {
+                host.launchForResult(intent) { resultCode -> deliver(resultCode) }
+            }
         }
 
     /**

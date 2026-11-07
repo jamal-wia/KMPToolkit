@@ -78,7 +78,7 @@ public class ActivityResultPermissionRequestHost(
             input = androidPermissions.toTypedArray(),
             onResult = onResult,
             // What `settle` reads as "interrupted, record nothing".
-            abandoned = emptyMap(),
+            onAbandoned = { onResult(emptyMap()) },
         )
 
     override fun launchForResult(intent: Intent, onResult: (resultCode: Int) -> Unit): Boolean =
@@ -87,7 +87,21 @@ public class ActivityResultPermissionRequestHost(
             contract = ActivityResultContracts.StartActivityForResult(),
             input = intent,
             onResult = { result: ActivityResult -> onResult(result.resultCode) },
-            abandoned = ActivityResult(Activity.RESULT_CANCELED, null),
+            onAbandoned = { onResult(Activity.RESULT_CANCELED) },
+        )
+
+    /**
+     * [launchForResult] for the controller: a request that is interrupted (its activity finished with the
+     * screen up) reports `null` instead of `RESULT_CANCELED`, which a user backing out also produces, so
+     * an interruption is never recorded as a refusal. Same request slot as [launchForResult].
+     */
+    internal fun launchForResultOrInterrupted(intent: Intent, onResult: (resultCode: Int?) -> Unit): Boolean =
+        start(
+            kind = "result",
+            contract = ActivityResultContracts.StartActivityForResult(),
+            input = intent,
+            onResult = { result: ActivityResult -> onResult(result.resultCode) },
+            onAbandoned = { onResult(null) },
         )
 
     private fun <I, O> start(
@@ -95,7 +109,7 @@ public class ActivityResultPermissionRequestHost(
         contract: ActivityResultContract<I, O>,
         input: I,
         onResult: (O) -> Unit,
-        abandoned: O,
+        onAbandoned: () -> Unit,
     ): Boolean {
         if (pending != null) {
             logger.w { "A permission request is already showing; not launching another" }
@@ -105,7 +119,7 @@ public class ActivityResultPermissionRequestHost(
             logger.w { "No resumed ComponentActivity to show the permission request from" }
             return false
         }
-        val request = PendingRequest("$keyPrefix.$kind", contract, onResult, abandoned)
+        val request = PendingRequest("$keyPrefix.$kind", contract, onResult, onAbandoned)
         pending = request
         val launched: Boolean = try {
             // null: the registry handed a parked answer to the new registration and the request is over
@@ -142,7 +156,7 @@ public class ActivityResultPermissionRequestHost(
         private val key: String,
         private val contract: ActivityResultContract<I, O>,
         private val onResult: (O) -> Unit,
-        private val abandoned: O,
+        private val onAbandoned: () -> Unit,
     ) {
         var resumes: ActivitySubscription? = null
         private val attachments: MutableList<Attachment> = mutableListOf()
@@ -189,7 +203,7 @@ public class ActivityResultPermissionRequestHost(
             val leaving: Activity? = origin?.activity
             if (leaving != null && leaving !== activity && leaving.isFinishing && !leaving.isChangingConfigurations) {
                 finish()
-                onResult(abandoned)
+                onAbandoned()
                 return
             }
             attach(activity)
@@ -247,7 +261,7 @@ public class ActivityResultPermissionRequestHost(
                 detach(attachment)
             } else if (activity.isFinishing && !activity.isChangingConfigurations) {
                 finish()
-                onResult(abandoned)
+                onAbandoned()
             } else {
                 lostOriginClass = activity.javaClass
                 lostOriginTaskId = activity.taskId
