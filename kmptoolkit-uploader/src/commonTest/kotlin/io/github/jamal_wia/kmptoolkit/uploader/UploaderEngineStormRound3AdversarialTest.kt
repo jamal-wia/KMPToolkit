@@ -185,6 +185,61 @@ class UploaderEngineStormRound3AdversarialTest {
         }
     }
 
+    // --- fixer round 3, group 3 ---
+
+    @Test
+    fun `a backoff gate is recognised as a clock anomaly when the clock reads the lowest Long`() = runTest {
+        val handler = TestHandler()
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler))
+        try {
+            val id: String = assertNotNull(engine.enqueue(handler, "p"))
+            val row: UploaderItem = assertNotNull(store.find(id))
+            // A gate written by a sane clock, read by an insane one: it is astronomically far ahead.
+            val gated: UploaderItem = row.copy(nextRunAtEpochMillis = 1_700_000_000_000L)
+            store.deleteById(id)
+            store.insertKeep(gated)
+            clock.millis = Long.MIN_VALUE
+
+            engine.drain()
+
+            assertEquals(1, handler.payloads.size, "a gate 9.2e18 ms ahead was honoured instead of read as a clock jump")
+        } finally {
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `two handler types whose type and ordering key concatenate alike do not share an ordering channel`() = runTest {
+        // "chat" + "#" + "room#1" and "chat#room" + "#" + "1" are the same string.
+        val stuck = TestHandler(
+            type = "chat",
+            ordering = { "room#1" },
+            onExecute = { _, _ -> AttemptResult.Retry(IllegalStateException("server down")) },
+        )
+        val independent = TestHandler(type = "chat#room", ordering = { "1" })
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(stuck, independent))
+        try {
+            engine.enqueue(stuck, "first")
+            engine.enqueue(independent, "second")
+
+            engine.drain()
+
+            assertEquals(listOf("second"), independent.payloads, "a failing item of another handler type held this one back")
+        } finally {
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `saturatingSubtract holds the result at both ends of the Long range`() {
+        assertEquals(2L, saturatingSubtract(5L, 3L))
+        assertEquals(Long.MAX_VALUE, saturatingSubtract(Long.MAX_VALUE, -1L))
+        assertEquals(Long.MAX_VALUE, saturatingSubtract(0L, Long.MIN_VALUE))
+        assertEquals(Long.MIN_VALUE, saturatingSubtract(Long.MIN_VALUE, 1L))
+        assertEquals(Long.MIN_VALUE, saturatingSubtract(Long.MIN_VALUE, Long.MAX_VALUE))
+        assertEquals(Long.MIN_VALUE, saturatingSubtract(-1L, Long.MAX_VALUE))
+    }
+
     // --- registry storm on real threads ---------------------------------------------------------------
 
     @Test

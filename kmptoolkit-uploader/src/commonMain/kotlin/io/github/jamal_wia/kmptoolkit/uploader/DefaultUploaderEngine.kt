@@ -474,14 +474,14 @@ internal class DefaultUploaderEngine(
      *
      * [active] is already oldest-first, so the first occurrence of a key is that channel's head.
      * Channels are scoped per handler type — two handlers returning the same raw key must not share
-     * one channel, or one type's backoff would stall the other's queue. The `#` separator cannot
-     * appear ambiguously because the type is compared as a whole prefix.
+     * one channel, or one type's backoff would stall the other's queue. A channel is the (type, key)
+     * pair, so no string of either can make two channels collide.
      */
     private fun channelHeads(active: List<UploaderItem>): List<UploaderItem> {
-        val seenKeys: MutableSet<String> = mutableSetOf()
+        val seenKeys: MutableSet<Pair<String, String>> = mutableSetOf()
         return active.filter { item ->
             val key: String = item.orderingKey ?: return@filter true
-            seenKeys.add("${item.type}#$key")
+            seenKeys.add(item.type to key)
         }
     }
 
@@ -500,10 +500,11 @@ internal class DefaultUploaderEngine(
         handler: UploaderHandler<*>,
     ): Boolean {
         val reachable: Long = saturatingMultiply(handler.retryPolicy.maxDelayMillis, config.clockAnomalyFactor.toLong())
-        val anomaly: Boolean = gateEpochMillis - nowMillis > reachable
+        val ahead: Long = saturatingSubtract(gateEpochMillis, nowMillis)
+        val anomaly: Boolean = ahead > reachable
         if (anomaly) {
             logger.w {
-                "Backoff gate ${gateEpochMillis - nowMillis}ms ahead exceeds the policy's " +
+                "Backoff gate ${ahead}ms ahead exceeds the policy's " +
                     "reachable maximum (${reachable}ms) — treating it as a wall-clock jump and " +
                     "running now."
             }
@@ -521,10 +522,11 @@ internal class DefaultUploaderEngine(
      */
     private fun isClockAnomalyLease(leaseUntilEpochMillis: Long, nowMillis: Long): Boolean {
         val reachable: Long = saturatingMultiply(MAX_LEASE_MILLIS, config.clockAnomalyFactor.toLong())
-        val anomaly: Boolean = leaseUntilEpochMillis - nowMillis > reachable
+        val ahead: Long = saturatingSubtract(leaseUntilEpochMillis, nowMillis)
+        val anomaly: Boolean = ahead > reachable
         if (anomaly) {
             logger.w {
-                "Lease ${leaseUntilEpochMillis - nowMillis}ms ahead exceeds the longest lease the engine " +
+                "Lease ${ahead}ms ahead exceeds the longest lease the engine " +
                     "writes (${MAX_LEASE_MILLIS}ms) — treating it as a wall-clock jump and re-handing the item."
             }
         }
@@ -774,7 +776,7 @@ internal class DefaultUploaderEngine(
             alarmJob = null
             return
         }
-        val delayMillis: Long = (atEpochMillis - clock.nowEpochMillis())
+        val delayMillis: Long = saturatingSubtract(atEpochMillis, clock.nowEpochMillis())
             .coerceAtLeast(config.minAlarmDelay.inWholeMilliseconds)
         alarmJob = engineScope.launch {
             delay(delayMillis)
@@ -1094,6 +1096,13 @@ internal fun saturatingAdd(a: Long, b: Long): Long {
     val sum: Long = a + b
     // Overflow happened exactly when both operands share a sign the sum does not.
     return if (((a xor sum) and (b xor sum)) < 0) (if (a < 0) Long.MIN_VALUE else Long.MAX_VALUE) else sum
+}
+
+/** `a - b`, held at the `Long` range instead of wrapping: a gate far ahead of a very negative clock stays far ahead. */
+internal fun saturatingSubtract(a: Long, b: Long): Long {
+    val difference: Long = a - b
+    // Overflow happened exactly when the operands differ in sign and the result's sign is not a's.
+    return if (((a xor b) and (a xor difference)) < 0) (if (a < 0) Long.MIN_VALUE else Long.MAX_VALUE) else difference
 }
 
 /** `a * b` for non-negative operands, held at `Long.MAX_VALUE` instead of wrapping. */
