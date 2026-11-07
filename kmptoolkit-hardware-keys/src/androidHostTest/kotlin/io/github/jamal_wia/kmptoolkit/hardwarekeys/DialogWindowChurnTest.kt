@@ -22,6 +22,7 @@ import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.lang.ref.WeakReference
 
 /**
  * Three dialogs, with and without the effect, opened and closed in every order; a dismissed window
@@ -104,6 +105,65 @@ class DialogWindowChurnTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun `a policy decorator left under another decorator stops acting once its effect has left composition`() = runComposeUiTest {
+        var calls = 0
+        DialogWindowHardwareKeyPolicy.install { _ ->
+            calls++
+            true
+        }
+        var withEffect by mutableStateOf(true)
+        var window: Window? = null
+        setContent {
+            Dialog(onDismissRequest = {}) {
+                window = thisWindow()
+                if (withEffect) DialogWindowHardwareKeyEffect()
+            }
+        }
+        waitForIdle()
+        val shown: Window = assertNotNull(window)
+        // some other component decorates the dialog window after us
+        shown.callback = ThirdParty(shown.callback)
+
+        withEffect = false
+        waitForIdle()
+
+        val before: Int = calls
+        shown.callback.dispatchKeyEvent(volume())
+        assertEquals(before, calls, "the policy still consumes keys although its effect left composition")
+    }
+
+    @Test
+    fun `an effect re-entering under another decorator does not stack a second policy layer`() = runComposeUiTest {
+        var calls = 0
+        DialogWindowHardwareKeyPolicy.install { _ ->
+            calls++
+            false
+        }
+        var withEffect by mutableStateOf(true)
+        var window: Window? = null
+        setContent {
+            Dialog(onDismissRequest = {}) {
+                window = thisWindow()
+                if (withEffect) DialogWindowHardwareKeyEffect()
+            }
+        }
+        waitForIdle()
+        val shown: Window = assertNotNull(window)
+        shown.callback = ThirdParty(shown.callback)
+        repeat(3) {
+            withEffect = false
+            waitForIdle()
+            withEffect = true
+            waitForIdle()
+        }
+
+        val before: Int = calls
+        shown.callback.dispatchKeyEvent(volume())
+        assertEquals(before + 1, calls, "the policy ran ${calls - before} times for one key")
+        assertNull(null)
     }
 
 }

@@ -84,4 +84,8 @@ enforces.
 The effect wraps the window's existing `Window.Callback` and forwards everything it does not consume.
 On leaving composition it restores the original callback **only if its own wrapper is still the one
 installed**. If some other code replaced the callback after the effect ran, that replacement is left
-alone rather than overwritten, so the other decorator keeps working.
+alone rather than overwritten, so the other decorator keeps working. The effect's wrapper then stays in
+the chain, but inert: with its effect gone it forwards every key to what it wraps and no longer consults
+the policy, so a key is not consumed after the effect left composition. An effect entering the same
+window again under that decorator stacks a fresh wrapper over it and the policy still runs once per key;
+the inert wrapper below costs one forwarded call.

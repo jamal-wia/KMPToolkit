@@ -144,7 +144,11 @@ internal fun acquireInstallation(
 internal fun releaseInstallation(window: Window, installation: KeyInterceptingWindowCallback) {
     if (--installation.shares > 0) return
     // Restore only if nothing re-decorated the callback after us; clobbering another decorator would
-    // silently drop its behaviour.
+    // silently drop its behaviour. When something did, the decoration stays in the chain with no share
+    // left, and is inert: it forwards every key to its delegate without consulting the policy, so the
+    // policy stops acting with the effect that installed it. An effect entering again under that
+    // foreign decorator stacks a new decoration on top; the inert one below costs one forwarded call
+    // per key, never a second run of the policy.
     if (window.callback === installation) window.callback = installation.delegate
 }
 
@@ -163,11 +167,15 @@ internal class KeyInterceptingWindowCallback(
     private val interceptor: (KeyEvent) -> Boolean,
 ) : Window.Callback by delegate {
 
-    /** How many effects hold this decoration; the last one to leave restores [delegate]. Main thread only. */
+    /**
+     * How many effects hold this decoration; the last one to leave restores [delegate], or, when
+     * another decorator sits on top and the callback cannot be restored, leaves this decoration inert
+     * (zero shares). Main thread only.
+     */
     var shares: Int = 1
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean =
-        interceptor(event) || delegate.dispatchKeyEvent(event)
+        (shares > 0 && interceptor(event)) || delegate.dispatchKeyEvent(event)
 
     override fun onProvideKeyboardShortcuts(
         data: MutableList<KeyboardShortcutGroup>?,
