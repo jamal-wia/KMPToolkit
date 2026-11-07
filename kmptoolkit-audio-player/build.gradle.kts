@@ -1,6 +1,8 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
+    // Robolectric for androidHostTest only: lets the Android engine be driven on the host JVM.
+    id("kmptoolkit.androidtest")
 }
 
 kmptoolkitPublish {
