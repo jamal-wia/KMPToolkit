@@ -10,7 +10,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.runner.RunWith
 
 /**
@@ -161,6 +166,24 @@ class AndroidDownloaderStorageTempFileTest {
 
         assertFalse(File(root, "tmp/staging-model").exists())
         assertTrue(other.exists(), "another unit's staging tree is not touched")
+    }
+
+    @Test
+    fun `deleting the temp file leaves the staging tree alone while a commit of the unit runs`() = runTest {
+        val unit = TestUnit(id = "model")
+        val staging = File(root, "tmp/staging-model/nested").apply { mkdirs() }
+        val gate = CompletableDeferred<Unit>()
+        val commit: Job = launch(Dispatchers.Unconfined) {
+            UnitCommitLocks.withUnitLock(root.absolutePath, "model") { gate.await() }
+        }
+
+        storage.deleteTempFile(unit)
+
+        assertTrue(staging.exists(), "an extraction in progress must survive a cancel")
+        gate.complete(Unit)
+        withTimeout(5_000) { commit.join() }
+        storage.deleteTempFile(unit)
+        assertFalse(File(root, "tmp/staging-model").exists(), "reclaimed once no commit runs")
     }
 
     private fun writePartial(unit: DownloadUnit, bytes: ByteArray) {

@@ -199,7 +199,7 @@ set and differ, or when reading `unit.sha256` throws, and with `IllegalStateExce
 temp file or the record cannot be replaced. On iOS call it before every task, including one resumed
 from `resumeData` (with the hash saved beside it). `commitResource` hashes the complete file once and checks every stated expectation;
 `deleteTempFile` removes the data first and the record last, and keeps the record (logging a
-warning, never throwing) when a data file could not be deleted. It is not enforced that a downloader
+warning, never throwing) when a data file could not be deleted; the shipped storages also remove the unit's archive extraction staging, unless a commit of the unit is running (then it is left for the next call). It is not enforced that a downloader
 calls `beginTempFile` (a recordless partial still resumes); see
 [`07-background-downloader.md`](07-background-downloader.md) for when to call it.
 

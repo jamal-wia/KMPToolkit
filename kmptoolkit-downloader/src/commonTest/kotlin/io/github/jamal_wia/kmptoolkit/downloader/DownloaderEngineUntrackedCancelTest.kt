@@ -10,6 +10,11 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.withTimeout
 
 /**
  * A cancel of a unit the engine never tracked must release what the platform and the disk may hold
@@ -72,15 +77,49 @@ class DownloaderEngineUntrackedCancelTest {
     }
 
     @Test
-    fun `a unit cancelled untracked can still be requested afterwards`() = runTest {
-        val storage = SetStorage()
-        val port = CountingPort()
-        val engine: DefaultDownloaderEngine = engine(storage, port)
+    fun `a unit cancelled untracked can still be requested and committed afterwards`() = runTest {
+        val storage = SetStorage(complete = setOf("later"))
+        val engine: DefaultDownloaderEngine = engine(storage, CountingPort())
         val unit = TestUnit(id = "later", group = group)
 
         engine.cancelDownload(unit)
+        // The cancel deleted the unit's temp data (it is the contract of a cancel); put it back, as
+        // a download that then finishes would.
+        storage.setTempState(unit, TempFileState.Complete)
+        withTimeout(5_000) { engine.ensureAvailable(unit) }
 
-        assertTrue(!engine.hasActiveUnitDownload())
-        assertEquals(UnitDownloadState.Idle, engine.unitDownloadStateFlow(unit).first())
+        assertEquals(1, storage.commitCount)
+        assertTrue(storage.isResourceAvailable(unit))
+    }
+
+    @Test
+    fun `a request that starts committing during an untracked cancel keeps its temp file`() = runTest {
+        val commitGate = CompletableDeferred<Unit>()
+        val inner = SetStorage(complete = setOf("raced"))
+        val storage: DownloaderStorage = object : DownloaderStorage by inner {
+            override suspend fun commitResource(unit: DownloadUnit) {
+                commitGate.await()
+                inner.commitResource(unit)
+            }
+        }
+        val unit = TestUnit(id = "raced", group = group)
+        lateinit var engine: DefaultDownloaderEngine
+        var request: Deferred<Unit>? = null
+        // The platform cancel is the one call of cancelDownload(unit) that runs between its first
+        // look at the engine's state and its delete: a request that starts here is exactly the
+        // other-thread race (the eager dispatcher runs it up to the commit gate).
+        val port = object : BackgroundResourceDownloader by CountingPort() {
+            override fun cancelDownload(unit: DownloadUnit) {
+                request = async(UnconfinedTestDispatcher(testScheduler)) { engine.ensureAvailable(unit) }
+            }
+        }
+        engine = engine(storage, port)
+
+        engine.cancelDownload(unit)
+
+        assertTrue(request != null)
+        assertEquals(emptyList(), inner.deletedTempFiles, "a commit is in flight; the cancel must not delete under it")
+        commitGate.complete(Unit)
+        runCatching { withTimeout(5_000) { request?.await() } }
     }
 }

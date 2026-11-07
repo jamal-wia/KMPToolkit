@@ -2,7 +2,12 @@ package io.github.jamal_wia.kmptoolkit.downloader
 
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
@@ -165,6 +170,26 @@ class IosDownloaderStorageTempFileTest {
 
         assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$tmpDir/staging-model"))
         assertTrue(NSFileManager.defaultManager.fileExistsAtPath(other), "another unit's staging tree is not touched")
+    }
+
+    @Test
+    fun deletingTheTempFileLeavesTheStagingTreeAloneWhileACommitOfTheUnitRuns() = runTest {
+        val unit = TestUnit(id = "model")
+        val baseDir: String = storage.getTempFilePath(unit).substringBeforeLast("/tmp/")
+        val staging = "$baseDir/tmp/staging-model/nested"
+        NSFileManager.defaultManager.createDirectoryAtPath(staging, true, null, null)
+        val gate = CompletableDeferred<Unit>()
+        val commit: Job = launch(Dispatchers.Unconfined) {
+            UnitCommitLocks.withUnitLock(baseDir, "model") { gate.await() }
+        }
+
+        storage.deleteTempFile(unit)
+
+        assertTrue(NSFileManager.defaultManager.fileExistsAtPath(staging), "an extraction in progress must survive a cancel")
+        gate.complete(Unit)
+        withTimeout(5_000) { commit.join() }
+        storage.deleteTempFile(unit)
+        assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$baseDir/tmp/staging-model"), "reclaimed once no commit runs")
     }
 
     private fun writePartial(unit: DownloadUnit, text: String) {

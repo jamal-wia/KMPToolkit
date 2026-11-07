@@ -1329,10 +1329,16 @@ internal class DefaultDownloaderEngine(
         try {
             cancelTransfer(unit)
             clearStallCount(unit)
-            if (ownsUnit) safeDeleteTempFile(unit)
+            // With no mutex there was nothing to lock, so a request on another thread may have
+            // started tracking the unit since the snapshot above; deleting now would run unguarded
+            // against its commit. Leave the files to the tracked path below.
+            val startedMeanwhile: Boolean =
+                mutex == null && (unitEntries.value[unit.id] != null || unitMutexes.value[unit.id] != null)
+            if (ownsUnit && !startedMeanwhile) safeDeleteTempFile(unit)
         } finally {
             if (mutex != null && ownsUnit) mutex.unlock()
         }
+        if (mutex == null) unitEntries.value[unit.id]?.let { late: UnitEntry -> cancelUnitNow(late) }
     }
 
     private fun cancelUnitNow(entry: UnitEntry) {

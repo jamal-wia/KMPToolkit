@@ -71,4 +71,44 @@ class UnitCommitLocksTest {
         UnitCommitLocks.withUnitLock("/base", "t") { ran = true }
         assertTrue(ran)
     }
+
+    @Test
+    fun `tryWithUnitLock skips a unit a commit holds and runs once it is free`() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val holder: Job = launch { UnitCommitLocks.withUnitLock("/base", "try") { release.await() } }
+        runCurrent()
+        var ran = 0
+
+        val whileHeld: Boolean = UnitCommitLocks.tryWithUnitLock("/base", "try") { ran++ }
+
+        assertFalse(whileHeld)
+        assertEquals(0, ran, "the action must not run under a running commit")
+        release.complete(Unit)
+        holder.join()
+        assertTrue(UnitCommitLocks.tryWithUnitLock("/base", "try") { ran++ })
+        assertEquals(1, ran)
+    }
+
+    @Test
+    fun `tryWithUnitLock excludes a commit while it runs and leaves nothing behind`() = runTest {
+        var started = false
+        var committed: Job? = null
+        UnitCommitLocks.tryWithUnitLock("/base", "excl") {
+            committed = launch { UnitCommitLocks.withUnitLock("/base", "excl") { started = true } }
+            runCurrent()
+            assertFalse(started, "a commit must wait for the action")
+        }
+        committed!!.join()
+        assertTrue(started)
+        assertTrue(UnitCommitLocks.tryWithUnitLock("/base", "excl") {})
+    }
+
+    @Test
+    fun `tryWithUnitLock releases the registry when the action throws`() = runTest {
+        runCatching { UnitCommitLocks.tryWithUnitLock("/base", "boom") { error("x") } }
+
+        var ran = false
+        UnitCommitLocks.withUnitLock("/base", "boom") { ran = true }
+        assertTrue(ran)
+    }
 }

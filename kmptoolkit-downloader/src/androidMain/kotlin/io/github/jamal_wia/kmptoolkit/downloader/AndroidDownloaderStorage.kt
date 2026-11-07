@@ -119,8 +119,12 @@ internal class AndroidDownloaderStorage(
         // temp file at all and is overwritten by the next beginTempFile.
         deleteTempData(unit)
         // The extraction tree of an archive commit that a process death interrupted: nothing else
-        // ever enumerates tmp/, so a unit that is then dropped would keep it forever.
-        File(baseDir, "tmp/staging-${unit.id}").deleteRecursively()
+        // ever enumerates tmp/, so a unit that is then dropped would keep it forever. Skipped while
+        // a commit of the unit runs (it may be extracting into this very tree, or renaming it into
+        // place); the next cancel or the next commit reclaims it.
+        UnitCommitLocks.tryWithUnitLock(baseDir.absolutePath, unit.id) {
+            File(baseDir, "tmp/staging-${unit.id}").deleteRecursively()
+        }
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
         // keep its record: with the record gone, the next attempt would commit that complete file
         // unchecked.

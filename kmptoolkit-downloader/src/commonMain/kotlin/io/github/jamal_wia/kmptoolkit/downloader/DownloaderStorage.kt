@@ -122,6 +122,12 @@ public interface DownloaderStorage {
      * next [beginTempFile] overwrites it), and when a data file could not be deleted: the record is
      * then kept, so the surviving file is still checked, and a warning is logged. For error and
      * cancel; safe when absent, and never throws for a file it could not delete.
+     *
+     * The shipped storages also remove the extraction staging an interrupted archive commit of
+     * [unit] left behind, unless a commit of [unit] is running in this process (the removal never
+     * waits for it; the next call or the next commit reclaims the staging). A custom storage that
+     * extracts archives through a staging area should do the same, or an interrupted extraction of
+     * a unit that is then dropped stays on disk.
      */
     public fun deleteTempFile(unit: DownloadUnit)
 

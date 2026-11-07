@@ -58,7 +58,9 @@ its extraction under `<base>/tmp/staging-<unit.id>/` — per unit, so two archiv
 same time never collide, and two commits of the same unit never share it, since commits of one unit
 are serialized across every storage instance over the base directory in the process. A process kill
 mid-extraction leaves the tree behind; the next commit of that unit replaces it, and
-`deleteTempFile(unit)` (so `cancelDownload`) removes it. A plain file
+`deleteTempFile(unit)` (so `cancelDownload`) removes it — unless a commit of that unit is running in
+the process at that moment: the removal never waits for it (it would be deleting the tree the commit
+is extracting into), so it is skipped and the next cancel or commit reclaims the tree. A plain file
 is moved into place by an atomic rename that replaces the old file, on both platforms, so a
 committed resource never goes missing while it is replaced. The lock is per process: a
 `BackgroundResourceDownloader` that commits from a separate Android process is not covered by it. The hash a transfer must have (`beginTempFile`) is a one-line file at

@@ -54,4 +54,27 @@ internal object UnitCommitLocks {
             }
         }
     }
+
+    /**
+     * Runs [action] only when no commit of [unitId] under [baseDirectory] holds or awaits the unit,
+     * and returns whether it ran. Never suspends and never waits, so a caller that cannot suspend
+     * ([DownloaderStorage.deleteTempFile]) and that may itself hold another lock cannot deadlock
+     * against a commit: a busy unit is skipped, and whatever [action] would have reclaimed is
+     * reclaimed by the next call or the next commit.
+     *
+     * A commit registers its entry under [registryLock], so holding the registry for the whole of
+     * [action] keeps every commit of every unit from starting until it returns: the unit is
+     * excluded without registering an entry of its own (which could not be removed again without
+     * suspending). [action] must therefore be short and must not suspend.
+     */
+    fun tryWithUnitLock(baseDirectory: String, unitId: String, action: () -> Unit): Boolean {
+        if (!registryLock.tryLock()) return false
+        try {
+            if ((baseDirectory to unitId) in entries) return false
+            action()
+            return true
+        } finally {
+            registryLock.unlock()
+        }
+    }
 }
