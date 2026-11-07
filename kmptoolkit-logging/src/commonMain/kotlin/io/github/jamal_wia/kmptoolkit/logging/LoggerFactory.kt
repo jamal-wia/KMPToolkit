@@ -27,7 +27,8 @@ public interface LoggerFactory {
  * - **The message lambda is evaluated at most once per event**, even with several sinks, and never
  *   when the event is filtered out.
  * - **A sink that throws cannot break the caller.** The throwable is swallowed and the remaining
- *   sinks still receive the event. A logging call is not part of the behavior a caller is trying to
+ *   sinks still receive the event. (A `CancellationException` is the exception: it is rethrown, but
+ *   only after every sink has been offered the event.) A logging call is not part of the behavior a caller is trying to
  *   execute, so a broken log destination must not turn into a crash in unrelated code — and there
  *   is nowhere to report the failure to that is not itself a sink.
  * - **An exception from the message lambda is *not* swallowed** and propagates to the caller. That
@@ -65,6 +66,9 @@ private class TagLogger(
     override fun log(level: LogLevel, throwable: Throwable?, message: () -> String) {
         if (!isLoggable(level)) return
         val text: String = message()
+        // The first cancellation a sink raised: rethrown once every sink has had the event, so a
+        // cancelling sink costs the sinks after it nothing.
+        var cancellation: CancellationException? = null
         sinks.forEach { sink ->
             @Suppress("TooGenericExceptionCaught", "SwallowedException")
             try {
@@ -74,7 +78,7 @@ private class TagLogger(
                 // coroutine must not have that cancellation eaten here, or logging would silently
                 // break the caller's structured concurrency — the exact opposite of the guarantee
                 // this catch exists to provide.
-                throw e
+                if (cancellation == null) cancellation = e
             } catch (_: Exception) {
                 // Deliberate: see createLoggerFactory's KDoc. A failing destination must not
                 // propagate into the caller, and must not cost the other sinks their event.
@@ -84,5 +88,6 @@ private class TagLogger(
                 // swallowing it would turn a loud, findable bug into an invisible one.
             }
         }
+        cancellation?.let { throw it }
     }
 }
