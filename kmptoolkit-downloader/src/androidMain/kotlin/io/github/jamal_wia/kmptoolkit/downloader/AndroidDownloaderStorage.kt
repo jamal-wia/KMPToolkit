@@ -145,13 +145,12 @@ internal class AndroidDownloaderStorage(
 
     override fun tempFileState(unit: DownloadUnit): TempFileState {
         val names: UnitFileLayout.Names = names(unit)
+        // The partial file is read BEFORE the complete one: marking complete renames partial into
+        // complete, so a partial that was absent at the first read was already complete at the
+        // second. The other order can miss both files while one rename lands between the reads.
+        val partialLength: Long = File(baseDir, names.partial).length() // 0 when absent
         if (File(baseDir, names.complete).exists()) return TempFileState.Complete
-        val partial = File(baseDir, names.partial)
-        return if (partial.exists() && partial.length() > 0) {
-            TempFileState.Partial
-        } else {
-            TempFileState.None
-        }
+        return if (partialLength > 0) TempFileState.Partial else TempFileState.None
     }
 
     override fun getTempFileSize(unit: DownloadUnit): Long {

@@ -230,9 +230,13 @@ internal class IosDownloaderStorage(
 
     override fun tempFileState(unit: DownloadUnit): TempFileState {
         val names: UnitFileLayout.Names = names(unit)
+        // The partial file is read BEFORE the complete one: marking complete moves partial into
+        // complete, so a partial that was absent at the first read was already complete at the
+        // second. The other order can miss both files while one move lands between the reads.
+        val partialSize: Long = sizeOf("$baseDir/${names.partial}")
         return when {
             fileExists("$baseDir/${names.complete}") -> TempFileState.Complete
-            sizeOf("$baseDir/${names.partial}") > 0L -> TempFileState.Partial
+            partialSize > 0L -> TempFileState.Partial
             else -> TempFileState.None
         }
     }
