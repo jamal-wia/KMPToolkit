@@ -108,7 +108,8 @@ decoder writes straight into memory without a render-and-read-back step.
   shared with the rest of the app. If the app calls `Platform.exit()` (or JavaFX exits on its own
   when the app's last JavaFX window closes and implicit exit is on), players stop working and
   further transport calls are ignored; a `prepare` made after that fails with
-  `RuntimeUnavailable` within the ready timeout instead of waiting forever.
+  `RuntimeUnavailable` at once instead of waiting (only an exit that races the load itself waits out
+  the ready timeout).
 - **Where work happens.** Every `MediaPlayer` call runs on the JavaFX application thread, in the
   order the calls were made from whichever threads made them (a call made on that thread runs at
   once only when nothing queued from another thread is still waiting to run); the position, duration and buffered position the core module polls are cached there, so polling never

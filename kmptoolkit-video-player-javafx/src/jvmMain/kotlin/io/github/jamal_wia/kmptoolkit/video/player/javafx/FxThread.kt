@@ -71,6 +71,18 @@ internal object FxThread {
         if (startedHere) Platform.setImplicitExit(false)
     }
 
+    /**
+     * Whether the toolkit has exited. Only for a toolkit already seen running: `Platform.startup` then
+     * throws at once without side effects, with the exit message after Platform.exit. Called before the
+     * toolkit was ever initialised it would start it.
+     */
+    fun hasExited(): Boolean = try {
+        startup(Runnable { })
+        false
+    } catch (e: IllegalStateException) {
+        e.message == TOOLKIT_EXITED_MESSAGE
+    }
+
     /** Whether the caller is the FX application thread; false where JavaFX cannot even load. */
     fun isCurrent(): Boolean = try {
         Platform.isFxApplicationThread()

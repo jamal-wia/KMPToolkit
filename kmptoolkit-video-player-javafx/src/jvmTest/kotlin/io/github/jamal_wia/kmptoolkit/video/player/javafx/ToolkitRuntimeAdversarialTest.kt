@@ -8,6 +8,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.createVideoPlayer
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javafx.application.Platform
@@ -44,6 +45,21 @@ class ToolkitRuntimeAdversarialTest {
         assertEquals(15, answers.count { it.get() == true }, "everyone but the busy starter sees it running")
         assertTrue(runtime.isAvailable())
         assertEquals(2, starts.get())
+    }
+
+    @Test
+    fun `a running toolkit that exits is reported unavailable on the next call without another start`() {
+        val starts = AtomicInteger()
+        val exited = AtomicBoolean(false)
+        val runtime = ToolkitJavaFxRuntime(
+            startToolkit = { starts.incrementAndGet() },
+            onFxThread = { false },
+            hasExited = { exited.get() },
+        )
+        assertTrue(runtime.isAvailable())
+        exited.set(true)
+        assertEquals(false, runtime.isAvailable())
+        assertEquals(1, starts.get())
     }
 
     @Test

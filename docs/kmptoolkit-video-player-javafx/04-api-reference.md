@@ -41,8 +41,8 @@ could be started.
 
 - **Side effect:** starts the toolkit when it is not running yet, exactly as the first `prepare`
   would. It does not create a player or open a source.
-- **Remembered:** a success, or a permanent failure (missing runtime, no display), holds for the
-  life of the process. A JavaFX thread too busy to answer within 10 s is not remembered; the next
+- **Remembered:** a success holds until the toolkit exits (after `Platform.exit()` the answer is
+  `false`); a permanent failure (missing runtime, no display) holds for the life of the process. A JavaFX thread too busy to answer within 10 s is not remembered; the next
   call tries again.
 - **Not a format check:** `true` does not mean every source decodes on this OS.
 - Blocks the calling thread for as long as the toolkit takes to start (typically well under a

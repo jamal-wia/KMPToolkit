@@ -343,7 +343,9 @@ internal class FxPlayback private constructor(
                 // READY nor an error — so the wait is bounded. So is building the player: once the
                 // toolkit has exited, runLater drops the block silently and the call would never
                 // resume. A block that does run late finds its session closed and disposes itself
-                // (see JavaFxVideoEngine.Session.attach).
+                // (see JavaFxVideoEngine.Session.attach). An exit seen before this point fails the load
+                // at once (ToolkitJavaFxRuntime re-checks it on every call); only an exit that races
+                // the load itself, between that probe and this call, waits out the timeout.
                 withTimeoutOrNull(readyTimeoutMs) {
                     val playback: FxPlayback = FxThread.call {
                         FxPlayback(media, sink, maxFrameRate).also {
