@@ -13,7 +13,8 @@ import kotlin.time.Duration.Companion.seconds
  * [UploadHandler.classify] and hooks run inside the engine.
  *
  * Every call reaches the engine registered in [UploaderEngineRegistry]. An engine not built by
- * `createUploaderEngine` cannot be reached this way and reads as unavailable.
+ * `createUploaderEngine` cannot be reached this way and reads as unavailable: a decorator around the engine,
+ * registered in its place, serves wake jobs only, so register the engine itself when you use an [UploadHandler].
  *
  * The built-in transports use this for you. Call it yourself only when writing a transport of your
  * own for an [UploadHandler] — a test transport over a mock HTTP client, for instance.

@@ -26,6 +26,14 @@ Scenarios in roughly increasing order of subtlety.
 
 Three states, and only two ways out of the queue: a confirmed delivery, or a decision.
 
+Delivery is at-least-once: a process that dies between a successful send and the deletion of the row sends again
+on the next launch. Within one process an effect whose handler succeeded but whose row could not be deleted is
+never run again; the engine retries only the delete, with a growing backoff. An attempt that fails outside its
+handler (a store write failing, say) backs off the same way instead of repeating at the alarm floor.
+
+A payload is small: it is stored as text in the queue's row, and the SQLDelight store refuses a row over 1 MiB. Queue a
+reference to large data (a file path, a record id) rather than the data itself.
+
 ## Deduplicating an effect
 
 A unique key makes an effect idempotent at the *queue* level, before it ever reaches the network.
@@ -107,7 +115,9 @@ override val constraintKeys: Set<String> = setOf("network", "socket_connected")
 ```
 
 All named constraints must hold. The engine also *subscribes*: a `false → true` transition triggers
-a drain, so effects fire on the transition rather than on the next heartbeat.
+a drain, so effects fire on the transition rather than on the next heartbeat. A flow that fails when
+collected ends its subscription with a logged error (never an uncaught exception); its items are still checked
+on every pass, so the transition latency becomes the heartbeat interval.
 
 A key with no registered provider is treated as satisfied and logged as an error. Failing open is
 deliberate — a typo that silently freezes a queue forever is much harder to notice than one extra
@@ -127,6 +137,11 @@ id?.let { uploader.cancel(it) }
 `cancel` removes the item in any state and, for an `UploadHandler`'s item, cancels that one upload on
 its transport. Other items are untouched, including other handlers' uploads on the same transport. It
 runs no handler hook, so clean up after it yourself — the source file, a "sending" badge.
+
+After `cancel`, `cancelByTag` or a `REPLACE` returns, no attempt of a removed item begins, even one the drain had
+already read from the queue, and an attempt the engine is already running for it is cancelled: it spends no
+attempt and records nothing. The call does not wait for that attempt, and a handler that ignores cancellation may
+still finish its effect.
 
 What it cannot do is recall bytes the server already has: an upload whose body was fully sent may
 have been accepted. Read a withdrawal as "will not be sent from now on". Send `AttemptContext.id` as
@@ -342,6 +357,9 @@ uploader.awaitDrained(60.seconds)        // suspend until the queue is empty, fo
 
 `trigger()` is for "the user pulled to refresh" or "a push told us to sync". You do not need it
 after an enqueue.
+
+A drain pass that fails as a whole (a locked database, say) retries itself: after `minAlarmDelay`, then with a
+delay that doubles on every consecutive failure, at most `heartbeatInterval`. A pass that succeeds resets it.
 
 `drain()` exists too, but calling it on a started engine breaks single-flight. It is for tests and
 diagnostics.

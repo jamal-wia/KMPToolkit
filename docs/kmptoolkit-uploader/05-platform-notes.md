@@ -78,6 +78,10 @@ in one app. Give a second queue its own `uniqueWorkName`.
 reflectively by WorkManager, outside your object graph; without `UploaderEngineRegistry.register` it
 finds nothing and returns `Result.retry()` forever.
 
+Register the engine `createUploaderEngine` returned, not a wrapper around it: a decorator registered in its place
+serves wake jobs (`awaitDrained`), but upload transports and `UploadGateway` reach only the library's own engine and
+report it unavailable, so an `UploadHandler`'s uploads would retry and re-hand forever.
+
 **Reliability.** Good. WorkManager persists across reboots and runs in Doze maintenance windows. It
 is not instant, and it is not meant to be.
 
@@ -222,8 +226,8 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   arithmetic saturates at `Long.MAX_VALUE`, so a `RetryPolicy.maxDelayMillis` of `Long.MAX_VALUE`
   ("no ceiling") works. A forwards jump merely runs some items early, which is harmless.
 - **A logger that throws does not stop the engine.** The engine calls the `Logger` from its drain
-  coroutine and from `enqueue`; an exception the logger throws (anything but cancellation) is
-  swallowed and costs only that log line. The same holds for every logger the module takes: the Android and
+  coroutine and from `enqueue`; anything the logger throws, a `CancellationException` included (logging never
+  suspends, so it is never the caller's cancellation), is swallowed and costs only that log line. The same holds for every logger the module takes: the Android and
   iOS transports, the wake schedulers and the outcome journal ignore a logger that throws, so a hand-off,
   a wake or a replay is never stopped by a log line.
 - **Ids** are `java.util.UUID` on Android and `NSUUID` on iOS, both canonical UUID strings. Override

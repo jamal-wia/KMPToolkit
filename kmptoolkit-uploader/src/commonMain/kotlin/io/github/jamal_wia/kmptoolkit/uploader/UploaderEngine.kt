@@ -21,13 +21,15 @@ import kotlinx.coroutines.CoroutineScope
  * Construct with [createUploaderEngine], call [start] once, and call [close] when the owning scope
  * goes away. Between those, the engine runs one drain coroutine that wakes on: startup (to pick up
  * whatever the previous process left behind), every enqueue, every `false → true` transition of a
- * [ConstraintProvider], every backoff gate coming due, every [trigger], and a heartbeat backstop.
+ * [ConstraintProvider], every backoff gate coming due, every [trigger], a failed pass retrying itself after a
+ * growing delay (from [UploaderConfig.minAlarmDelay], at most the heartbeat interval), and a heartbeat backstop.
  *
  * ## Guarantees
  *
  * - **At-least-once delivery.** An item is deleted only after its handler confirms success. The
  *   process can die between a successful send and that deletion, so handlers must tolerate a
- *   repeat — see [UploaderHandler].
+ *   repeat — see [UploaderHandler]. An effect whose handler succeeded but whose row could not be deleted is not
+ *   run again by the same process: the delete is retried with backoff. After a process death it may run again.
  * - **Single-flight.** Exactly one drain runs at a time. Triggers are conflated.
  * - **FIFO within an ordering channel**, scoped per handler type. See [UploaderHandler.orderingKey]
  *   for what that does and does not promise across channels.
@@ -158,7 +160,8 @@ public interface UploaderEngine : Uploader {
  * ```
  *
  * @param store where items are persisted. The one thing this module cannot supply for you — see
- *   [UploaderStore] and `docs/kmptoolkit-uploader/07-custom-store.md`.
+ *   [UploaderStore] and `docs/kmptoolkit-uploader/07-custom-store.md`. An engine owns every row of its store, and
+ *   parks a row whose type it has no handler for: two engines need two stores (or two tables), never one shared queue.
  * @param handlers one per effect type. Their [UploaderHandler.type]s must be distinct.
  * @param scope the scope the drain coroutine, the heartbeat and the backoff alarms run in.
  *   Cancelling it stops the engine as surely as [UploaderEngine.close] does; the scope's dispatcher
@@ -174,11 +177,13 @@ public interface UploaderEngine : Uploader {
  * @param config timing knobs; see [UploaderConfig].
  * @param logger where the engine reports what it did. Defaults to [NoopLogger]. Every delivery,
  *   retry, park and drop is logged — pass a real logger and you can reconstruct the life of any
- *   item from the log. A logger that throws (an uninitialised crash-reporting sink, say) never stops the
- *   engine: the engine swallows the exception and carries on, losing only that log line.
+ *   item from the log. A logger that throws anything, a `CancellationException` included (an uninitialised
+ *   crash-reporting sink, say), never stops the engine: the engine swallows it and carries on, losing only
+ *   that log line.
  * @param clock the wall clock backing backoff gates and leases. Substitute it in tests.
  * @param idGenerator produces each item's id. The default is a random UUID; override it if your
- *   server requires a particular idempotency-key shape.
+ *   server requires a particular idempotency-key shape. It must return a new unique id on every call; never
+ *   derive it from the domain object (use `uniqueKey` for that), or a REPLACE would reuse the superseded id.
  * @return a constructed, **not yet started** engine. Call [UploaderEngine.start].
  * @throws IllegalArgumentException if two handlers share a [UploaderHandler.type], or two constraint
  *   providers share a [ConstraintProvider.key]. Both are wiring bugs whose symptom would otherwise

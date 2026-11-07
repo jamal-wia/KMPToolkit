@@ -9,6 +9,9 @@ anything else. If you use SQLDelight, `kmptoolkit-uploader-sqldelight` already d
 
 ## The division of labour
 
+One store, one engine: an engine owns every row of its store (a row whose type it has no handler for is parked as
+"no handler registered"), so two engines need two stores or two tables, never one shared queue.
+
 The engine owns **all policy**: which item runs next, how backoff is computed, when to give up, when
 a lease has expired, what ordering means. The store owns **none** of it.
 
@@ -34,7 +37,7 @@ CREATE TABLE uploader_item (
     attempts        INTEGER NOT NULL,
     next_run_at     INTEGER NOT NULL,
     created_at      INTEGER NOT NULL,
-    last_error      TEXT,
+    last_error      TEXT,                       -- at most ~4096 chars: the engine truncates before it writes
     lease_until     INTEGER NOT NULL DEFAULT 0,
     claim           INTEGER NOT NULL DEFAULT 0          -- the guards' version; see below
 );
@@ -225,7 +228,8 @@ now holding it.
 | `clearAll` | Removes everything. A debug/test hatch |
 
 The payload and the tag are **opaque**. A store stores and returns them unchanged and never parses,
-validates, or acts on either.
+validates, or acts on either. They are **text**, and SQLite stores text as UTF-8: a store may replace an unpaired
+surrogate with U+FFFD, so a handler encodes binary data (as Base64, say) rather than relying on it surviving.
 
 ## Prove it
 

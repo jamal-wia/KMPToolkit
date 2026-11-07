@@ -13,17 +13,24 @@ import io.github.jamal_wia.kmptoolkit.uploader.spi.WakeScheduler
 import kotlin.time.Duration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -44,6 +51,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * - **Backoff lives in the rows, not in memory.** A failed attempt persists its attempt count and
  *   its next-run gate; the drain skips gated rows and arms a one-shot alarm for the soonest one.
  *   The drain never sleeps while holding the queue, and a retry budget survives process death.
+ * - **Attempts run in a child coroutine.** The drain runs each attempt in a child of its own, so a withdrawal
+ *   ([cancel], [cancelByTag], a REPLACE) can cancel the running attempt of the item it removes.
  * - **Its own child scope.** Everything is launched in [engineScope], a child of the caller's
  *   scope, so [close] can stop the engine without cancelling a scope it does not own — while
  *   cancelling the caller's scope still stops the engine.
@@ -115,30 +124,47 @@ internal class DefaultUploaderEngine(
         if (!started.compareAndSet(expect = false, update = true)) return
 
         engineScope.launch {
+            // Local to this one coroutine, so it needs no synchronisation.
+            var consecutiveFailures = 0
             while (true) {
                 triggerChannel.receive()
                 // The engine's whole liveness rests on this one coroutine, so nothing may kill it.
                 // A transient store failure, or a CancellationException leaked by a handler's own
                 // withTimeout, would otherwise stall the queue forever while the heartbeat keeps
                 // feeding a channel nobody reads. Real cancellation still propagates via
-                // ensureActive().
+                // ensureActive(). A pass that fails re-arms itself with a growing delay, so a locked
+                // database is retried in milliseconds rather than at the next heartbeat.
                 try {
                     drain()
+                    consecutiveFailures = 0
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
-                    logger.e(e) { "Drain aborted by a leaked cancellation; retrying on next trigger." }
+                    logger.e(e) { "Drain aborted by a leaked cancellation; retrying shortly." }
+                    consecutiveFailures++
+                    scheduleAlarm(saturatingAdd(clock.nowEpochMillis(), failedPassRetryMillis(consecutiveFailures)))
                 } catch (e: Throwable) {
-                    logger.e(e) { "Drain failed; queue intact, retrying on next trigger." }
+                    logger.e(e) { "Drain failed; queue intact, retrying shortly." }
+                    consecutiveFailures++
+                    scheduleAlarm(saturatingAdd(clock.nowEpochMillis(), failedPassRetryMillis(consecutiveFailures)))
                 }
             }
         }
 
         constraintProviders.forEach { provider ->
-            provider.satisfied
+            // Built inside flow {} so that even a `satisfied` getter that throws is caught here, and ending in
+            // catch so a flow that fails on collect never reaches the scope's uncaught-exception handler. The
+            // subscription is only a latency optimisation: every pass reads the value (guarded) and the
+            // heartbeat keeps triggering passes, so a subscription that ended costs latency, never work.
+            flow { emitAll(provider.satisfied) }
                 .filter { it }
                 .onEach {
                     logger.d { "Constraint '${provider.key}' satisfied — triggering a drain." }
                     trigger()
+                }
+                .catch { e ->
+                    logger.e(e) {
+                        "Constraint '${provider.key}' stopped emitting; its items are still checked on every pass and heartbeat."
+                    }
                 }
                 .launchIn(engineScope)
         }
@@ -208,6 +234,8 @@ internal class DefaultUploaderEngine(
             wakeScheduler.scheduleWake()
         }
         // A parked item has no upload to cancel; only an upload handler's items have one at all.
+        // Whatever the handler kind, an attempt the engine is running for the superseded item is stopped.
+        superseded?.let { old -> stopAttempt(old.id) }
         superseded?.takeIf { handler is UploadHandler<*> && it.state != UploaderItemState.PARKED }
             ?.let { old -> cancelUpload(old, reason = "superseded by ${record.logName}") }
         if (inserted) {
@@ -228,6 +256,7 @@ internal class DefaultUploaderEngine(
         }
         // Row first: a transport job that starts after this finds nothing owed.
         store.deleteById(id)
+        stopAttempt(id)
         cancelUpload(record, reason = "withdrawn")
         trigger() // an emptied queue lets the drain disarm the wake
     }
@@ -236,7 +265,9 @@ internal class DefaultUploaderEngine(
         // The rows come back from the wipe itself rather than from a read made first: an item enqueued
         // and handed off between such a read and the delete would lose its row while its upload ran on —
         // after a logout wipe, under the next account. Parked items have no upload to cancel.
-        val owed: List<UploaderItem> = store.deleteByTag(tag).filter { it.state != UploaderItemState.PARKED }
+        val removed: List<UploaderItem> = store.deleteByTag(tag)
+        removed.forEach { record -> stopAttempt(record.id) }
+        val owed: List<UploaderItem> = removed.filter { it.state != UploaderItemState.PARKED }
         owed.forEach { record -> cancelUpload(record, reason = "withdrawn by tag") }
         logger.i { "Withdrew every item tagged '$tag' (${owed.size} active)." }
         trigger()
@@ -317,7 +348,7 @@ internal class DefaultUploaderEngine(
 
             // Verdicts on one attempt, so they stand only from the attempt the engine still runs.
             is SettleResult.Park -> if (record.isCurrentFor(claim, result)) {
-                val parked: Boolean = store.park(id, result.reason, record.state, record.claim)
+                val parked: Boolean = store.park(id, boundedFailureText(result.reason), record.state, record.claim)
                 if (parked) {
                     logger.w { "Settled ${record.logName} as parked — ${result.reason}." }
                 } else {
@@ -368,18 +399,15 @@ internal class DefaultUploaderEngine(
      * follows a read, and a settle can land between the two on an executor's own coroutine.
      */
     private suspend fun parkAsRead(record: UploaderItem, reason: String?): Boolean =
-        store.park(record.id, reason, record.state, record.claim)
+        store.park(record.id, boundedFailureText(reason), record.state, record.claim)
 
     override suspend fun drain() {
-        // Items whose attempt threw out of `executeItem` during this call (a store write failing after the
-        // effect ran, a consumer policy throwing). A later sweep of the same call must not run the same
-        // effect again in a tight loop; an alarm retries them instead.
-        val failedThisCall: MutableSet<String> = mutableSetOf()
         while (true) {
             // A store whose calls never suspend gives cancellation no other place to be seen: without this a
             // close() (or a cancelled scope) from inside a handler would not stop the pass.
             currentCoroutineContext().ensureActive()
             val active: List<UploaderItem> = store.getAllActive()
+            pruneOutsideFailures(active)
             if (active.isEmpty()) {
                 cancelAlarm()
                 wakeScheduler.cancelWake() // nothing owed — disarm the platform wake
@@ -440,21 +468,44 @@ internal class DefaultUploaderEngine(
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, item.nextRunAtEpochMillis)
                     continue
                 }
-                if (item.id in failedThisCall) {
-                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, saturatingAdd(nowMillis, config.minAlarmDelay.inWholeMilliseconds))
+                // An attempt that failed outside its handler (a store write failing after the effect ran, a
+                // consumer policy throwing) waits out a growing backoff kept in memory, across passes: the
+                // same effect must not be run again at the alarm floor, pass after pass.
+                val outside: OutsideFailure? = outsideFailures.value[item.id]
+                if (outside != null && !outside.isDue(nowMillis)) {
+                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, outside.notBeforeMillis)
+                    continue
+                }
+                if (outside != null && outside.deliveredUnconfirmed) {
+                    // The effect succeeded in this process and only its confirming delete failed: repeating the
+                    // effect would send it twice, so only the delete is retried.
+                    try {
+                        store.deleteById(item.id)
+                        outsideFailures.update { it - item.id }
+                        logger.i { "Confirmed the delivery of ${item.logName} after its delete failed earlier." }
+                    } catch (e: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        logger.e(e) { "Confirming the delivery of ${item.logName} leaked a cancellation; retrying later." }
+                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
+                    } catch (e: Throwable) {
+                        logger.e(e) { "Confirming the delivery of ${item.logName} failed again; retrying later." }
+                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
+                    }
+                    executedAny = true
                     continue
                 }
                 // One item's failure must not abort the pass: the items behind it would not run, no alarm
                 // would be armed for their gates, and the same row would be first again on the next trigger.
                 try {
-                    executeItem(item, handler)
+                    attemptUnlessMoved(item) { executeItem(item, handler) }
+                    outsideFailures.update { it - item.id }
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
                     logger.e(e) { "Attempt of ${item.logName} leaked a cancellation; retrying later." }
-                    failedThisCall += item.id
+                    bumpOutsideFailure(item.id)
                 } catch (e: Throwable) {
                     logger.e(e) { "Attempt of ${item.logName} failed outside its handler; retrying later." }
-                    failedThisCall += item.id
+                    bumpOutsideFailure(item.id)
                 }
                 executedAny = true
             }
@@ -474,14 +525,14 @@ internal class DefaultUploaderEngine(
      *
      * [active] is already oldest-first, so the first occurrence of a key is that channel's head.
      * Channels are scoped per handler type — two handlers returning the same raw key must not share
-     * one channel, or one type's backoff would stall the other's queue. The `#` separator cannot
-     * appear ambiguously because the type is compared as a whole prefix.
+     * one channel, or one type's backoff would stall the other's queue. A channel is the (type, key)
+     * pair, so no string of either can make two channels collide.
      */
     private fun channelHeads(active: List<UploaderItem>): List<UploaderItem> {
-        val seenKeys: MutableSet<String> = mutableSetOf()
+        val seenKeys: MutableSet<Pair<String, String>> = mutableSetOf()
         return active.filter { item ->
             val key: String = item.orderingKey ?: return@filter true
-            seenKeys.add("${item.type}#$key")
+            seenKeys.add(item.type to key)
         }
     }
 
@@ -500,10 +551,11 @@ internal class DefaultUploaderEngine(
         handler: UploaderHandler<*>,
     ): Boolean {
         val reachable: Long = saturatingMultiply(handler.retryPolicy.maxDelayMillis, config.clockAnomalyFactor.toLong())
-        val anomaly: Boolean = gateEpochMillis - nowMillis > reachable
+        val ahead: Long = saturatingSubtract(gateEpochMillis, nowMillis)
+        val anomaly: Boolean = ahead > reachable
         if (anomaly) {
             logger.w {
-                "Backoff gate ${gateEpochMillis - nowMillis}ms ahead exceeds the policy's " +
+                "Backoff gate ${ahead}ms ahead exceeds the policy's " +
                     "reachable maximum (${reachable}ms) — treating it as a wall-clock jump and " +
                     "running now."
             }
@@ -521,10 +573,11 @@ internal class DefaultUploaderEngine(
      */
     private fun isClockAnomalyLease(leaseUntilEpochMillis: Long, nowMillis: Long): Boolean {
         val reachable: Long = saturatingMultiply(MAX_LEASE_MILLIS, config.clockAnomalyFactor.toLong())
-        val anomaly: Boolean = leaseUntilEpochMillis - nowMillis > reachable
+        val ahead: Long = saturatingSubtract(leaseUntilEpochMillis, nowMillis)
+        val anomaly: Boolean = ahead > reachable
         if (anomaly) {
             logger.w {
-                "Lease ${leaseUntilEpochMillis - nowMillis}ms ahead exceeds the longest lease the engine " +
+                "Lease ${ahead}ms ahead exceeds the longest lease the engine " +
                     "writes (${MAX_LEASE_MILLIS}ms) — treating it as a wall-clock jump and re-handing the item."
             }
         }
@@ -558,7 +611,7 @@ internal class DefaultUploaderEngine(
             throw e
         } catch (e: Throwable) {
             // Retrying cannot fix a broken payload, and deleting it would lose the user's data.
-            parkAsRead(item, "undecodable payload: ${e.message}")
+            parkAsRead(item, "undecodable payload: ${describeFailure(e)}")
             logger.e(e) { "Parked ${item.logName} — undecodable payload." }
             return
         }
@@ -578,6 +631,8 @@ internal class DefaultUploaderEngine(
             handOffUpload(item, typedHandler as UploadHandler<Any>, context, payload)
             return
         }
+        // A withdrawal that landed after the attempt was admitted must stop it before any handler code runs.
+        currentCoroutineContext().ensureActive()
         val outcome: AttemptResult = try {
             typedHandler.execute(context, payload)
         } catch (e: CancellationException) {
@@ -599,7 +654,7 @@ internal class DefaultUploaderEngine(
     ) {
         when (outcome) {
             is AttemptResult.Success -> {
-                store.deleteById(item.id)
+                deleteAfterEffect(item.id)
                 logger.i { "Delivered ${item.logName} after ${item.attempts} failed attempts." }
             }
 
@@ -624,7 +679,7 @@ internal class DefaultUploaderEngine(
             }
 
             is AttemptResult.Drop -> {
-                store.deleteById(item.id)
+                deleteAfterEffect(item.id)
                 logger.i { "Dropped ${item.logName} — ${outcome.reason}." }
             }
 
@@ -652,6 +707,7 @@ internal class DefaultUploaderEngine(
         context: AttemptContext,
         payload: Any,
     ) {
+        currentCoroutineContext().ensureActive()
         val preparation: UploadPreparation = try {
             handler.prepareUpload(context, payload)
         } catch (e: CancellationException) {
@@ -729,7 +785,7 @@ internal class DefaultUploaderEngine(
         expectedClaim: Long = record.claim,
     ) {
         val attempts: Int = record.attempts + 1
-        val error: String? = cause?.let { "${it::class.simpleName}: ${it.message}" }
+        val error: String? = describeFailure(cause)
         val nextRunAt: Long = saturatingAdd(clock.nowEpochMillis(), handler.retryPolicy.backoffMillis(attempts))
         // The give-up is decided before the write and made by it, not by a second write after it: a row
         // that passed through PENDING on its way to parked or dropped could be handed off once more by
@@ -751,7 +807,7 @@ internal class DefaultUploaderEngine(
             id = record.id,
             attempts = attempts,
             nextRunAtEpochMillis = nextRunAt,
-            lastError = lastError,
+            lastError = boundedFailureText(lastError),
             expectedState = expectedState,
             expectedClaim = expectedClaim,
             disposition = disposition,
@@ -767,6 +823,136 @@ internal class DefaultUploaderEngine(
         }
     }
 
+    /** An attempt the drain is running for one item, and whether a withdrawal has stopped it. */
+    private class RunningAttempt(val job: Job) {
+        val withdrawn: MutableStateFlow<Boolean> = MutableStateFlow(false)
+    }
+
+    /** The attempts the drain is running right now, by item id: the handshake with [stopAttempt]. */
+    private val runningAttempts: MutableStateFlow<Map<String, RunningAttempt>> = MutableStateFlow(emptyMap())
+
+    /**
+     * Stops the attempt the engine is running for [id], if any: marks it withdrawn and cancels it, without
+     * waiting for it. Called after the store call that removed the row, so that either the attempt registered
+     * before this call and is cancelled by it, or it registers afterwards and its re-read of the row finds the
+     * row gone ([attemptUnlessMoved]). Neither side takes a lock: both steps are atomic on their own.
+     */
+    private fun stopAttempt(id: String) {
+        runningAttempts.value[id]?.let { running ->
+            running.withdrawn.value = true
+            running.job.cancel()
+        }
+    }
+
+    /**
+     * Runs [block], the attempt for [item], unless the item moved since the pass read it, and cancels it when a
+     * withdrawal removes the item while it runs. The attempt registers first and re-reads its row second; a
+     * withdrawal removes the row first and looks for a registered attempt second, so one of the two always sees
+     * the other and no attempt of a removed item begins after the withdrawal returned. A withdrawn attempt
+     * records nothing: its row is gone, or a transaction that rolled the withdrawal back restored it unspent.
+     */
+    private suspend fun attemptUnlessMoved(item: UploaderItem, block: suspend () -> Unit) {
+        coroutineScope {
+            val attempt: Deferred<Unit> = async(start = CoroutineStart.LAZY) { block() }
+            val entry = RunningAttempt(attempt)
+            runningAttempts.update { it + (item.id to entry) }
+            try {
+                if (store.getById(item.id) != item) {
+                    logger.i { "Attempt of ${item.logName} skipped — the item moved since this pass read it." }
+                    return@coroutineScope
+                }
+                try {
+                    attempt.await()
+                } catch (e: CancellationException) {
+                    // close() or a cancelled scope still propagates from here.
+                    currentCoroutineContext().ensureActive()
+                    if (entry.withdrawn.value) {
+                        logger.i { "Attempt of ${item.logName} stopped — the item was withdrawn." }
+                        return@coroutineScope
+                    }
+                    throw e // a leaked cancellation: the drain's catch handles it as before
+                }
+            } finally {
+                runningAttempts.update { map -> if (map[item.id] === entry) map - item.id else map }
+                // A lazy child that never started would keep this scope waiting for it.
+                attempt.cancel()
+            }
+        }
+    }
+
+    /**
+     * What the engine remembers, in memory only, about an item whose attempt failed outside its handler.
+     * [notBeforeMillis] is the earliest wall-clock time of the next try; [deliveredUnconfirmed] means the
+     * handler already succeeded (or dropped the item) and only the confirming delete failed.
+     */
+    private data class OutsideFailure(val count: Int, val notBeforeMillis: Long, val deliveredUnconfirmed: Boolean) {
+        /**
+         * Due when its time has come, or when it lies further ahead than the heartbeat (a clock stepped
+         * backwards must not freeze the item for the whole jump).
+         */
+        fun isDue(nowMillis: Long, heartbeatMillis: Long): Boolean {
+            val ahead: Long = saturatingSubtract(notBeforeMillis, nowMillis)
+            return ahead <= 0 || ahead > heartbeatMillis
+        }
+    }
+
+    private val outsideFailures: MutableStateFlow<Map<String, OutsideFailure>> = MutableStateFlow(emptyMap())
+
+    private fun OutsideFailure.isDue(nowMillis: Long): Boolean =
+        isDue(nowMillis, config.heartbeatInterval.inWholeMilliseconds)
+
+    /** Forgets the entries of items that left the queue, so the map is bounded by the queue itself. */
+    private fun pruneOutsideFailures(active: List<UploaderItem>) {
+        if (outsideFailures.value.isEmpty()) return
+        val ids: Set<String> = active.mapTo(HashSet()) { it.id }
+        outsideFailures.update { map -> map.filterKeys { it in ids } }
+    }
+
+    /** Records one more failure outside the handler for [id] and returns the time of its next try. */
+    private fun bumpOutsideFailure(id: String): Long {
+        val now: Long = clock.nowEpochMillis()
+        var notBefore = 0L
+        outsideFailures.update { map ->
+            val old: OutsideFailure? = map[id]
+            val count: Int = (old?.count ?: 0) + 1
+            notBefore = saturatingAdd(now, failedPassRetryMillis(count))
+            map + (id to OutsideFailure(count, notBefore, old?.deliveredUnconfirmed ?: false))
+        }
+        return notBefore
+    }
+
+    /**
+     * Deletes the row of an item whose handler has finished with it (delivered, or dropped). A delete that
+     * fails is remembered as such: the effect already ran in this process, so the drain retries only the
+     * delete and never the handler.
+     */
+    private suspend fun deleteAfterEffect(id: String) {
+        try {
+            store.deleteById(id)
+        } catch (e: Throwable) {
+            outsideFailures.update { map ->
+                map + (id to (map[id]?.copy(deliveredUnconfirmed = true) ?: OutsideFailure(0, 0L, true)))
+            }
+            throw e
+        }
+    }
+
+    /**
+     * How long to wait before retrying after [failures] consecutive failed passes (`>= 1`): [UploaderConfig.minAlarmDelay]
+     * doubling with each one, at most [UploaderConfig.heartbeatInterval]. Saturating, so a long failure streak
+     * cannot overflow.
+     */
+    private fun failedPassRetryMillis(failures: Int): Long {
+        val ceiling: Long = config.heartbeatInterval.inWholeMilliseconds.coerceAtLeast(1L)
+        var delayMillis: Long = config.minAlarmDelay.inWholeMilliseconds.coerceAtLeast(1L)
+        var step = 1
+        while (step < failures && delayMillis < ceiling) {
+            delayMillis = saturatingMultiply(delayMillis, 2L)
+            step++
+        }
+        return minOf(delayMillis, ceiling)
+    }
+
     /** Arms — or re-arms — the one-shot alarm that re-triggers the drain at the soonest gate. */
     private fun scheduleAlarm(atEpochMillis: Long?) {
         alarmJob?.cancel()
@@ -774,7 +960,7 @@ internal class DefaultUploaderEngine(
             alarmJob = null
             return
         }
-        val delayMillis: Long = (atEpochMillis - clock.nowEpochMillis())
+        val delayMillis: Long = saturatingSubtract(atEpochMillis, clock.nowEpochMillis())
             .coerceAtLeast(config.minAlarmDelay.inWholeMilliseconds)
         alarmJob = engineScope.launch {
             delay(delayMillis)
@@ -1041,7 +1227,7 @@ internal class DefaultUploaderEngine(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            parkAsRead(record, "undecodable payload on $phase: ${e.message}")
+            parkAsRead(record, "undecodable payload on $phase: ${describeFailure(e)}")
             logger.e(e) { "Parked ${record.logName} — undecodable payload on $phase." }
             return null
         }
@@ -1094,6 +1280,13 @@ internal fun saturatingAdd(a: Long, b: Long): Long {
     val sum: Long = a + b
     // Overflow happened exactly when both operands share a sign the sum does not.
     return if (((a xor sum) and (b xor sum)) < 0) (if (a < 0) Long.MIN_VALUE else Long.MAX_VALUE) else sum
+}
+
+/** `a - b`, held at the `Long` range instead of wrapping: a gate far ahead of a very negative clock stays far ahead. */
+internal fun saturatingSubtract(a: Long, b: Long): Long {
+    val difference: Long = a - b
+    // Overflow happened exactly when the operands differ in sign and the result's sign is not a's.
+    return if (((a xor b) and (a xor difference)) < 0) (if (a < 0) Long.MIN_VALUE else Long.MAX_VALUE) else difference
 }
 
 /** `a * b` for non-negative operands, held at `Long.MAX_VALUE` instead of wrapping. */

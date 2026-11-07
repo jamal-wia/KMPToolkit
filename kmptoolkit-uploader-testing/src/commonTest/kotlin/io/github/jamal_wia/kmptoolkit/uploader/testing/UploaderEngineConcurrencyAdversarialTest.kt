@@ -475,7 +475,7 @@ class UploaderEngineConcurrencyAdversarialTest {
     }
 
     @Test
-    fun `a failing delete after a delivered effect repeats it once after the alarm and never spins`() = realTest {
+    fun `a failing delete after a delivered effect is retried without repeating the effect and never spins`() = realTest {
         val inner = InMemoryUploaderStore()
         val failures = AtomicInt(0)
         val store = object : io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore by inner {
@@ -493,7 +493,7 @@ class UploaderEngineConcurrencyAdversarialTest {
         assertTrue(handler.executed.value.size <= 2, "the effect ran ${handler.executed.value.size} times in 30 ms: a tight loop")
         withTimeout(10.seconds) { while (inner.snapshot().isNotEmpty()) delay(10) }
 
-        assertEquals(2, handler.executed.value.size, "the effect should repeat exactly once after the failed delete")
+        assertEquals(1, handler.executed.value.size, "a delivered effect was executed again after its delete failed")
         engine.close()
     }
 }

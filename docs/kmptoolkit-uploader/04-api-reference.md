@@ -63,6 +63,9 @@ fun createUploaderEngine(
 ): UploaderEngine
 ```
 
+`idGenerator` must return a new unique id on every call; never derive it from the domain object (use `uniqueKey`
+for that).
+
 Returns a constructed but **not started** engine. Throws `IllegalArgumentException` if two handlers
 share a `type` or two providers share a `key` — both are wiring bugs whose symptom would otherwise
 be delayed, silent data loss.
@@ -308,6 +311,10 @@ A data class of fourteen fields — see its KDoc for each; `claim` is the row's 
 There is deliberately no `RUNNING` state; a crash mid-execution needs no recovery pass because the
 row is still `PENDING` on the next launch.
 
+`lastError` is at most about 4096 characters: the engine truncates longer failure text (cutting on a character
+boundary and appending `… [truncated N chars]`) before it reaches a store, and reads an exception whose
+`message` getter throws safely. A custom store's `last_error` column can therefore stay plain `TEXT`.
+
 ## `ConflictPolicy`
 
 `KEEP` (default) and `REPLACE`. Both supersede a `PARKED` conflict. Ignored when `uniqueKey` is
@@ -369,7 +376,9 @@ nested call joins the outer transaction. `TransactionRunner.Direct` runs the blo
 
 `val key: String`, `val satisfied: StateFlow<Boolean>`. Cheap to read, emits on every change, read
 from arbitrary threads. Seed optimistically. If reading `satisfied` throws, the engine logs it and skips
-that item for the pass (as if unsatisfied) without affecting the items behind it.
+that item for the pass (as if unsatisfied) without affecting the items behind it. If the flow fails when
+collected, the subscription ends with a logged error and never reaches the scope's uncaught-exception handler;
+its items are still checked on every pass and heartbeat (only the transition latency is lost).
 
 ### `WakeScheduler`
 

@@ -65,6 +65,12 @@ public interface Uploader {
      * that starts afterwards finds nothing owed, and a hand-off racing this call sees the row gone
      * right after it launches and cancels its own upload.
      *
+     * **No attempt begins after this returns, and a running one is cancelled.** An item the drain had
+     * already read before the call is not attempted afterwards (not even its `decodePayload`, `execute` or
+     * `prepareUpload`). An attempt the engine is already running for it is cancelled, spends no attempt and
+     * records nothing; this call does not wait for it, and a handler that ignores cancellation may still
+     * finish its effect.
+     *
      * **Best effort for the bytes.** An upload whose body already reached the server may have been
      * accepted; nothing can recall it. Use [AttemptContext.id] as an idempotency key, and treat a
      * withdrawal as "will not be sent from now on", not as "was never sent".
@@ -76,6 +82,11 @@ public interface Uploader {
      * Nothing is settled and no handler hook runs: the caller decided the item's fate, and is the
      * place to clean up after it — a source file, a "sending" badge.
      *
+     * **Side effects are not transactional.** Cancelling a running upload or attempt happens at once and is not
+     * rolled back. When this call runs inside a consumer's transaction that later rolls back, the row is
+     * restored and stays queued; its upload resumes no later than when its lease expires, and a cancelled plain
+     * attempt, which recorded nothing, simply runs on the next pass.
+     *
      * @param id the id [enqueue] returned. An unknown id — already delivered, dropped, or never
      *   queued — is a no-op.
      * @since 2.0.0
@@ -85,7 +96,9 @@ public interface Uploader {
     /**
      * [cancel] for every item whose [UploaderItem.tag] equals [tag], in any state — the logout wipe:
      * effects queued under one account must neither replay nor keep uploading under its credentials
-     * once it has signed out.
+     * once it has signed out. Each item is withdrawn as by [cancel], including the guarantee that no attempt
+     * begins afterwards and a running one is cancelled. As for [cancel], those side effects are not rolled
+     * back when an enclosing transaction rolls back.
      *
      * @param tag the exact tag to match; items with another tag or none are untouched.
      * @since 2.0.0

@@ -25,9 +25,9 @@ made inside it, with nothing reporting the mismatch.
 
 | Member | Contract |
 |---|---|
-| `store` | Implements `UploaderStore` in full — every invariant in its KDoc, verified by `UploaderStoreContract` against a real database on Android and iOS. Every write is committed before the call returns. Safe to call from any coroutine on any thread; calls are serialized internally. |
+| `store` | Implements `UploaderStore` in full — every invariant in its KDoc, verified by `UploaderStoreContract` against a real database on Android and iOS. Every write is committed before the call returns. Safe to call from any coroutine on any thread; calls are serialized internally. A row's text (payload, ids, keys, tag, last error together) is limited to 1 MiB of UTF-8; an insert over it is refused with `UploaderStorageException` (see the guide). |
 | `transactionRunner` | A real SQL transaction, reentrant: a nested `inTransaction` joins the outer one. Atomic across everything written through **this** database. Rolls back and propagates unchanged on a throw or a cancellation. |
-| `close()` | Releases the database thread, and the connection if this storage opened one. Idempotent. The thread is released even if closing the driver throws; the failure is rethrown. Never closes a driver you supplied. Using the storage afterwards is a bug; close the engine first. Throws `IllegalStateException` when called on the database thread (inside `inTransaction`). |
+| `close()` | Releases the database thread, and the connection if this storage opened one. Idempotent. The thread is released even if closing the driver throws; the failure is rethrown. Never closes a driver you supplied. Using the storage afterwards is a bug and fails as `UploaderStorageException` (cause `IllegalStateException`), never as a `CancellationException`; close the engine first. Throws `IllegalStateException` when called on the database thread (inside `inTransaction`). |
 
 **Lifetime.** One instance per queue, per process, for the life of the process. Not per screen — the
 queue outlives the UI, which is the point of it.
