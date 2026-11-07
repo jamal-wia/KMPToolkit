@@ -7,6 +7,7 @@ import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.concurrent.atomics.decrementAndFetch
 import kotlin.concurrent.atomics.incrementAndFetch
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -87,8 +88,14 @@ class AudioPlayerAdversarialTest {
                     runCurrent()
                     assertIs<PlayerState.Ready>(player.stateFlow.value, "cycle $cycle")
                     player.play()
+                    val readsAfterPlay: Int = wrapped.positionReads
                     advanceTimeBy(250L)
                     runCurrent()
+                    // Without this, "no reads after release" would also hold for a poll that never ran.
+                    assertTrue(
+                        wrapped.positionReads >= readsAfterPlay + 2,
+                        "cycle $cycle: the poll did not run while playing (reads $readsAfterPlay -> ${wrapped.positionReads})",
+                    )
                 }
                 player.release()
                 runCurrent()
@@ -260,13 +267,19 @@ class AudioPlayerAdversarialTest {
                     player.prepare(source)
                     player.play()
 
+                    val churnReady = AtomicInt(0)
+                    val churnGo = AtomicBoolean(false)
                     val workers: List<Job> = List(2) { worker: Int ->
                         launch(Dispatchers.Default) {
+                            churnReady.incrementAndFetch()
+                            while (!churnGo.load()) yield()
                             repeat(CHURN_CALLS_PER_THREAD) { step: Int ->
                                 if ((step + worker) % 2 == 0) player.pause() else player.play()
                             }
                         }
                     }
+                    while (churnReady.load() < 2) yield()
+                    churnGo.store(true)
                     try {
                         withTimeout(20.seconds) { workers.joinAll() }
                     } catch (timeout: CancellationException) {
@@ -308,42 +321,79 @@ class AudioPlayerAdversarialTest {
     // --- Late engine callbacks ---
 
     @Test
-    fun `engine callbacks from another thread after release or unload are dropped`() =
+    fun `engine callbacks in flight while the player unloads or releases never leave Completed or Error behind`() =
         runTest(timeout = 120.seconds) {
             withContext(Dispatchers.Default) {
-                repeat(LATE_ITERATIONS) { iteration: Int ->
-                    val engine = AtomicEngine()
-                    val player: AudioPlayer = createAudioPlayer(
-                        engine = engine,
-                        config = AudioPlayerConfig(positionUpdateIntervalMs = 1L),
-                        coroutineContext = Dispatchers.Default,
-                    )
-                    player.prepare(source)
-                    player.play()
-                    // The platform's listener reference as it stood before the player let go of it.
-                    val stale: PlaybackEngineListener = requireNotNull(engine.currentListener())
+                withTimeout(100.seconds) {
+                    repeat(LATE_ITERATIONS) { iteration: Int ->
+                        val seed: Int = LATE_SEED + iteration
+                        val random = Random(seed)
+                        for (release in listOf(false, true)) {
+                            val engine = AtomicEngine()
+                            val player: AudioPlayer = createAudioPlayer(
+                                engine = engine,
+                                config = AudioPlayerConfig(positionUpdateIntervalMs = 1L),
+                                coroutineContext = Dispatchers.Default,
+                            )
+                            player.prepare(source)
+                            player.play()
+                            // The platform's listener reference as it stood before the player let go of it.
+                            val stale: PlaybackEngineListener = requireNotNull(engine.currentListener())
+                            val ready = AtomicInt(0)
+                            val go = AtomicBoolean(false)
+                            val callbackFirst: Int = random.nextInt(0, 3)
+                            val unloadFirst: Int = random.nextInt(0, 3)
+                            val failFirst: Boolean = random.nextBoolean()
+                            val callbacks: Job = launch(Dispatchers.Default) {
+                                ready.incrementAndFetch()
+                                while (!go.load()) yield()
+                                repeat(callbackFirst) { yield() }
+                                if (failFirst) {
+                                    stale.onFailed(IllegalStateException("late $seed"))
+                                    stale.onCompleted()
+                                } else {
+                                    stale.onCompleted()
+                                    stale.onFailed(IllegalStateException("late $seed"))
+                                }
+                            }
+                            val ending: Job = launch(Dispatchers.Default) {
+                                ready.incrementAndFetch()
+                                while (!go.load()) yield()
+                                repeat(unloadFirst) { yield() }
+                                if (release) player.release() else player.unload()
+                            }
+                            while (ready.load() < 2) yield()
+                            go.store(true)
+                            withTimeout(10.seconds) { listOf(callbacks, ending).joinAll() }
 
-                    player.unload()
-                    launch(Dispatchers.Default) {
-                        stale.onCompleted()
-                        stale.onFailed(IllegalStateException("late $iteration"))
-                    }.join()
-                    assertEquals(PlayerState.Idle, player.stateFlow.value, "iteration $iteration: after unload")
-                    assertEquals(0L, player.playbackPositionFlow.value, "iteration $iteration: after unload")
+                            // Taking the lock drains every callback that was handed to a thread still holding it.
+                            player.seekTo(0L)
+                            val label = "seed $seed ${if (release) "release" else "unload"}"
+                            assertEquals(PlayerState.Idle, player.stateFlow.value, "$label: state")
+                            assertEquals(0L, player.playbackPositionFlow.value, "$label: position")
 
-                    // The next source is not touched by what the previous one left in flight.
-                    withTimeout(5.seconds) { player.prepare(other) }
-                    assertIs<PlayerState.Ready>(player.stateFlow.value, "iteration $iteration: next source")
-
-                    player.release()
-                    launch(Dispatchers.Default) {
-                        stale.onCompleted()
-                        stale.onFailed(IllegalStateException("later $iteration"))
-                        engine.currentListener()?.onCompleted()
-                    }.join()
-                    delay(1L)
-                    assertEquals(PlayerState.Idle, player.stateFlow.value, "iteration $iteration: after release")
-                    assertEquals(0, engine.overlappingCalls.load(), "iteration $iteration: overlapping calls")
+                            if (!release) {
+                                // The next source is not touched by what the previous one left in flight.
+                                launch(Dispatchers.Default) {
+                                    stale.onCompleted()
+                                    stale.onFailed(IllegalStateException("after unload $seed"))
+                                }.join()
+                                player.seekTo(0L)
+                                assertEquals(PlayerState.Idle, player.stateFlow.value, "$label: after the unload")
+                                withTimeout(5.seconds) { player.prepare(other) }
+                                assertIs<PlayerState.Ready>(player.stateFlow.value, "$label: next source")
+                                player.release()
+                            }
+                            launch(Dispatchers.Default) {
+                                stale.onCompleted()
+                                stale.onFailed(IllegalStateException("after release $seed"))
+                                engine.currentListener()?.onCompleted()
+                            }.join()
+                            player.seekTo(0L)
+                            assertEquals(PlayerState.Idle, player.stateFlow.value, "$label: after release")
+                            assertEquals(0, engine.overlappingCalls.load(), "$label: overlapping calls")
+                        }
+                    }
                 }
             }
         }
@@ -439,5 +489,6 @@ class AudioPlayerAdversarialTest {
         const val REENTRANT_ITERATIONS: Int = 100
         const val CHURN_CALLS_PER_THREAD: Int = 500
         const val LATE_ITERATIONS: Int = 100
+        const val LATE_SEED: Int = 0x1A7E
     }
 }
