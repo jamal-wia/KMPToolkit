@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -777,8 +778,8 @@ internal class DefaultUploaderEngine(
      * @return `false` when a store failure kept the outcome from landing; the executor keeps it and
      *   retries.
      */
-    suspend fun settleUpload(id: String, result: UploadResult): Boolean = try {
-        settleUploadOutcome(id, result)
+    suspend fun settleUpload(id: String, result: UploadResult, response: UploadResponse? = null): Boolean = try {
+        settleUploadOutcome(id, result, response)
         true
     } catch (e: CancellationException) {
         throw e
@@ -799,18 +800,22 @@ internal class DefaultUploaderEngine(
         settle(id, record.claim, result)
     }
 
-    private suspend fun settleUploadOutcome(id: String, result: UploadResult) {
+    private suspend fun settleUploadOutcome(id: String, rawResult: UploadResult, rawResponse: UploadResponse?) {
         val record: UploaderItem? = store.getById(id)
         if (record == null) {
-            logger.i { "Upload settle($result) for unknown id=$id — no-op." }
+            logger.i { "Upload settle($rawResult) for unknown id=$id — no-op." }
             return
         }
         val (handler: UploadHandler<Any>, payload: Any) = uploadHandlerAndPayload(record, "upload settle")
             ?: return
+        // The one place the body limit is enforced; with a response, the result is built from it so the
+        // two cannot disagree.
+        val response: UploadResponse? = rawResponse?.enforced(effectiveBodyLimit(record, handler))
+        val result: UploadResult = if (response != null) UploadResult.Completed(response.statusCode) else rawResult
         // classify is feature code: a leaked cancellation or a throw becomes a Failed settlement,
         // never a lost outcome.
         val settleResult: SettleResult = try {
-            handler.classify(payload, result)
+            handler.classify(payload, result, response)
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
             SettleResult.Failed(e)
@@ -820,13 +825,35 @@ internal class DefaultUploaderEngine(
         if (settleResult is SettleResult.Delivered) {
             // Before the row settles, isolated: the upload already landed, and a local failure must
             // not make it upload again.
-            runIsolated(record, "onDelivered") { handler.onDelivered(payload) }
+            runIsolated(record, "onDelivered") { handler.onDelivered(payload, response) }
         }
         // Under the item's current claim: an upload transport keys its platform job by item id, so every
         // claim of the item is served by this same job, and its report is about the attempt now held.
         settle(id, record.claim, settleResult)
         runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
     }
+
+    /** The handler's body limit as enforced, logging a negative value once per handler type. */
+    private suspend fun effectiveBodyLimit(record: UploaderItem, handler: UploadHandler<Any>): Int {
+        // The getter is feature code like classify: a throw must not make an accepted upload settle as a
+        // store failure and upload again, so it falls back to the default limit.
+        val configured: Int = try {
+            handler.maxResponseBodyBytes
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            UploadHandler.DEFAULT_MAX_RESPONSE_BODY_BYTES
+        } catch (e: Throwable) {
+            logger.e(e) { "${record.type}: maxResponseBodyBytes threw; using the default limit." }
+            UploadHandler.DEFAULT_MAX_RESPONSE_BODY_BYTES
+        }
+        if (configured < 0 && record.type !in negativeLimitLogged.value) {
+            negativeLimitLogged.update { it + record.type }
+            logger.w { "${record.type}: maxResponseBodyBytes is $configured; treated as 0 (no body captured)." }
+        }
+        return configured.coerceIn(0, MAX_RESPONSE_BODY_BYTES)
+    }
+
+    private val negativeLimitLogged: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     /**
      * The upload handler for [record] and its decoded payload, or `null` after parking a row that has

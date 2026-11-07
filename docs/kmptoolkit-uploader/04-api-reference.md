@@ -142,11 +142,18 @@ cancelled their uploads too.
 ```kotlin
 public abstract class UploadHandler<P : Any>(transport: UploadTransport) : UploaderHandler<P> {
     public abstract suspend fun prepareUpload(context: AttemptContext, payload: P): UploadPreparation
-    public abstract suspend fun classify(payload: P, result: UploadResult): SettleResult
+    public open val maxResponseBodyBytes: Int                      // since 3.1.0; default DEFAULT_MAX_RESPONSE_BODY_BYTES
+    public open suspend fun classify(payload: P, result: UploadResult, response: UploadResponse?): SettleResult // since 3.1.0
+    public open suspend fun classify(payload: P, result: UploadResult): SettleResult // open since 3.1.0; was abstract
     public open suspend fun onUploadProgress(payload: P, fraction: Float)
+    public open suspend fun onDelivered(payload: P, response: UploadResponse?) // since 3.1.0
     public open suspend fun onDelivered(payload: P)
     public open suspend fun onSettled(payload: P, attempts: Int, result: SettleResult)
     final override suspend fun execute(context: AttemptContext, payload: P): AttemptResult
+
+    public companion object {
+        public const val DEFAULT_MAX_RESPONSE_BODY_BYTES: Int = 65_536 // since 3.1.0
+    }
 }
 
 public sealed interface UploadPreparation {
@@ -159,10 +166,17 @@ public sealed interface UploadPreparation {
 | Member | Called | A throw means |
 |---|---|---|
 | `prepareUpload` | at hand-off, and again when the transport runs the attempt (`wasDetached = true`) | hand-off: a retry; run time: the item stays in flight for the lease |
-| `classify` | with the raw outcome | `SettleResult.Failed` |
+| `classify(payload, result, response)` | with the raw outcome and the server's response, for every outcome; the default calls the two-argument `classify` | `SettleResult.Failed` |
+| `classify(payload, result)` | by the default three-argument `classify`; the default is `defaultUploadClassification(result)` | `SettleResult.Failed` |
 | `onUploadProgress` | per whole percent, while in flight | logged, ignored |
-| `onDelivered` | for `Delivered`, before the row is removed | logged, ignored |
+| `onDelivered(payload, response)` | for `Delivered`, before the row is removed; the default calls the one-argument `onDelivered` | logged, ignored — the response is then lost |
+| `onDelivered(payload)` | by the default two-argument `onDelivered` | logged, ignored |
 | `onSettled` | after the item settled; `attempts` as at hand-off | logged, ignored |
+
+`maxResponseBodyBytes` is the most body bytes the handler wants. The engine clamps it to `0..1 MiB` (a
+negative value is `0`, logged once), cuts a longer body to it and sets `UploadResponse.isBodyTruncated`;
+`0` keeps status and headers and no body. Handlers written for 3.0 are unchanged: the new hooks call
+the old ones by default.
 
 `execute`: `Proceed` → `transport.launch(id, wasDetached, request)` and `Detached(transport.leaseMillis)`
 (a non-positive lease parks); `Drop`/`Park` → the same `AttemptResult`.
@@ -175,6 +189,7 @@ public object UploadGateway {
     public suspend fun prepareAttempt(itemId: String, engineWait: Duration = DEFAULT_ENGINE_WAIT): UploadAttempt
     public suspend fun progress(itemId: String, fraction: Float)
     public suspend fun complete(itemId: String, result: UploadResult, engineWait: Duration = DEFAULT_ENGINE_WAIT): Boolean
+    public suspend fun complete(itemId: String, response: UploadResponse, engineWait: Duration = DEFAULT_ENGINE_WAIT): Boolean // since 3.1.0
 }
 
 public sealed interface UploadAttempt {
@@ -186,8 +201,40 @@ public sealed interface UploadAttempt {
 
 How a transport for `UploadHandler` items reaches the engine registered in `UploaderEngineRegistry`.
 `prepareAttempt` is `NothingOwed` for an item gone, not in flight, dropped or parked by its handler, or
-whose preparation threw. `complete` returns `false` only when no engine registered within the wait.
-`progress` is best effort and never waits.
+whose preparation threw. `complete` returns `false` only when no engine registered within the wait, or
+its store failed; an unknown or already settled id is a no-op that returns `true`. `complete(itemId,
+response)` (since 3.1.0) reports what the server answered — the engine builds
+`UploadResult.Completed(response.statusCode)` from it — while `complete(itemId, result)` is the
+status-only form, for a `TransportFailure` or a transport that cannot read the body. `progress` is best
+effort and never waits.
+
+## `UploadResponse` (since 3.1.0)
+
+```kotlin
+public class UploadResponse(
+    public val statusCode: Int,
+    headers: Map<String, String>,
+    body: ByteArray,
+    public val isBodyTruncated: Boolean,
+) {
+    public val headers: Map<String, String>        // lowercase names, read-only
+    public fun body(): ByteArray                   // a fresh copy, never null
+    public fun header(name: String): String?       // case-insensitive
+}
+```
+
+A plain class, not a data class: it holds a `ByteArray` and can grow without an ABI break. Equality is by
+content. `toString` prints only counts — `UploadResponse(statusCode=201, headers=3, body=812 B,
+truncated=false)` — never headers or body, which may hold tokens or personal data.
+
+- The constructor copies the body once and `body()` copies on every read.
+- Headers whose names differ only in case are merged, values joined with `", "`. That is lossy for
+  `Set-Cookie`; do not read cookies from here. The engine keeps at most 64 K characters of header names and values.
+- A response with no body, or a `204`, has an empty `body()`.
+- `isBodyTruncated` is `true` when at least one received body byte is missing from `body()` — over the
+  handler's `maxResponseBodyBytes` (limit `0` with any body counts), or a body a transport could not
+  read completely — the connection broke or the read timed out — in which case `body()` may be shorter
+  than the limit, even empty. It never causes a retry.
 
 ## `UploadRequest` / `UploadField`
 
@@ -227,8 +274,9 @@ public fun defaultUploadClassification(result: UploadResult): SettleResult
 | `Completed(other)` | `SettleResult.Failed(null)` |
 | `TransportFailure` | `SettleResult.Failed(null)` |
 
-A default, not a policy this module can claim to know for your API — pass your own `classify` to
-`createWorkManagerUploadTransport` when a status should map differently.
+A default, not a policy this module can claim to know for your API — override `UploadHandler.classify`,
+or pass your own `classify` to `createWorkManagerUploadTransport`, when a status should map differently.
+`UploadResult` carries only the status; the server's headers and body travel in `UploadResponse`.
 
 ## `RetryPolicy`
 
@@ -333,7 +381,7 @@ default.
 | `UploadTransportConfig(uniqueWorkNamePrefix = null, workTag = null, requiresNetwork = true, leaseMillis = 15.minutes, workBackoff = 30.seconds, engineWait = 5.seconds, connectTimeoutMillis = 30_000, readTimeoutMillis = 60_000)` | `uniqueWorkNamePrefix` defaults to `<applicationId>.uploader.upload.` |
 | `UploaderUploadWorker` | Constructed reflectively by WorkManager; needs no manifest entry |
 | `createWorkManagerUploadHandlerTransport(context, config, logger)` | Since 1.5.0. For `UploadHandler` items; the job stores only the item id |
-| `UploadHandlerWorker` | Since 1.5.0. Open, with `protected open fun readItemId(inputData)` for taking over an earlier worker's jobs; input keys in its companion |
+| `UploadHandlerWorker` | Since 1.5.0. Reads the server's response since 3.1.0. Open, with `protected open fun readItemId(inputData)` for taking over an earlier worker's jobs; input keys in its companion |
 
 ## iOS
 
@@ -343,7 +391,7 @@ default.
 | `BackgroundTaskWakeConfig(taskIdentifier = null, requiresNetworkConnectivity = true, requiresExternalPower = false, engineWait = 5.seconds, drainBudget = 25.seconds)` | `taskIdentifier` defaults to `<bundleId>.uploader.drain` |
 | `BackgroundTaskWakeScheduler.taskIdentifier` | The resolved string — must be in `Info.plist` |
 | `BackgroundTaskWakeScheduler.handleWake(onDone)` | Call from your Swift `BGTaskScheduler` handler; `onDone` runs even if the drain throws |
-| `createBackgroundUploadTransport(config, logger)` | Since 1.5.0. Background `NSURLSession` per item, for `UploadHandler` items |
+| `createBackgroundUploadTransport(config, logger)` | Since 1.5.0. Background `NSURLSession` per item, for `UploadHandler` items; reads the server's response since 3.1.0 |
 | `BackgroundUploadConfig(sessionIdentifierPrefix = null, lease = 60.minutes, rehandFlushWindow = 3.seconds)` | `sessionIdentifierPrefix` defaults to `<bundleId>.uploader.upload.` |
 | `BackgroundUploadRelaunch.handleEvents(identifier, completion)` | Call from `handleEventsForBackgroundURLSession` |
 
@@ -358,6 +406,6 @@ default.
 | `RecordingWakeScheduler` | Counts arming and disarming |
 | `MutableConstraintProvider` | A constraint you flip by hand |
 | `MutableUploaderClock` | A wall clock you move by hand, including backwards |
-| `RecordingUploadTransport` | Since 1.5.0. Records hand-offs for an `UploadHandler`; settle through `UploadGateway` |
+| `RecordingUploadTransport` | Since 1.5.0. Records hand-offs for an `UploadHandler`; settle through `UploadGateway` — `complete(itemId, UploadResponse)` hands the handler a server answer (since 3.1.0) |
 
 See [`06-testing.md`](06-testing.md).

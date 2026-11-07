@@ -142,11 +142,19 @@ public open class UploadHandlerWorker(
             is UploadAttempt.Ready -> attempt.request
         }
 
-        val outcome: UploadResult = uploadReportingProgress(itemId, request)
-        // An outcome that did not reach the engine must not be lost: re-run. The re-run prepares first,
-        // so an item that settled meanwhile uploads nothing — but one still in flight uploads again,
-        // which is why the handler's onDelivered must tolerate a repeat.
-        return if (UploadGateway.complete(itemId, outcome, engineWait)) Result.success() else Result.retry()
+        val outcome: MultipartOutcome = uploadReportingProgress(itemId, request)
+        // The server's answer, when there was one, goes to the handler with the status. An outcome that
+        // did not reach the engine must not be lost: re-run. The re-run prepares first, so an item that
+        // settled meanwhile uploads nothing — but one still in flight uploads again, which is why the
+        // handler's onDelivered must tolerate a repeat. The body stays in this process: it is never put
+        // into WorkManager's data.
+        val response: UploadResponse? = outcome.response
+        val landed: Boolean = if (response != null) {
+            UploadGateway.complete(itemId, response, engineWait)
+        } else {
+            UploadGateway.complete(itemId, outcome.result, engineWait)
+        }
+        return if (landed) Result.success() else Result.retry()
     }
 
     /** The item this job uploads. Override only to read an input key an earlier worker of yours used. */
@@ -158,14 +166,14 @@ public open class UploadHandlerWorker(
      * transfer; the forwarder is joined before returning, so every progress signal lands before the
      * settle.
      */
-    private suspend fun uploadReportingProgress(itemId: String, request: UploadRequest): UploadResult = coroutineScope {
+    private suspend fun uploadReportingProgress(itemId: String, request: UploadRequest): MultipartOutcome = coroutineScope {
         val fractions: Channel<Float> = Channel(Channel.CONFLATED)
         val forwarder: Job = launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
         try {
             // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO.
             withContext(Dispatchers.IO) {
                 val transfer: Job = coroutineContext.job
-                performMultipartUpload(
+                performMultipartUploadCapturing(
                     request = request,
                     connectTimeoutMillis = inputData.getInt(
                         CONNECT_TIMEOUT_MILLIS_KEY,

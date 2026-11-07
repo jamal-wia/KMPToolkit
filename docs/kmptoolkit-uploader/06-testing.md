@@ -213,6 +213,26 @@ fun `a 401 refreshes the token and retries`() = runTest {
 }
 ```
 
+To test code that reads the server's answer — the job id in `onDelivered`, a validation error in
+`classify` — complete the launch with an `UploadResponse` instead of a bare status:
+
+```kotlin
+val response = UploadResponse(
+    statusCode = 202,
+    headers = mapOf("Location" to "/jobs/42"),
+    body = """{"jobId":"42"}""".encodeToByteArray(),
+    isBodyTruncated = false,
+)
+UploadGateway.complete(itemId, response)
+
+assertEquals("42", avatars.jobIdOf(avatar.id))
+```
+
+`complete(itemId, UploadResult.Completed(202))` still works but leaves the handler's `response`
+`null`; `complete(itemId, UploadResult.TransportFailure("offline"))` is the case where the server never
+answered. The engine applies the handler's `maxResponseBodyBytes` to the body you pass, so a test can
+also check what the handler does with a truncated one. An unknown id is a no-op.
+
 `RecordingUploadTransport.cancels` lists the ids the engine cancelled, so a test of a withdrawal or a
 `REPLACE` can assert that only the intended upload was stopped.
 
@@ -229,4 +249,5 @@ by tag and by `REPLACE` (including one racing a hand-off, and two handlers shari
 cancellation, transient store failures, and the start/close lifecycle. `androidHostTest` pins the
 merged-manifest permission set and the derived WorkManager work name, cancels one item's job while
 another's stays queued, and runs a real socket to check that a cancelled transfer never sends a
-complete body.
+complete body and that the response — status, headers, the error stream's body, the 1 MiB ceiling —
+is read.

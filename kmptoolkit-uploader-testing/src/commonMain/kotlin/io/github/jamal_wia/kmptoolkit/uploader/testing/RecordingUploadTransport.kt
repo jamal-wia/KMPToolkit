@@ -19,8 +19,17 @@ import io.github.jamal_wia.kmptoolkit.uploader.UploadTransport
  * engine.drain()
  * assertEquals(1, transport.launches.size)
  *
- * UploadGateway.complete(transport.launches.single().itemId, UploadResult.Completed(201))
+ * // The server answered: hand the handler status, headers and body — classify and onDelivered see them.
+ * val response = UploadResponse(201, mapOf("Location" to "/avatars/7"), """{"id":7}""".encodeToByteArray(), false)
+ * UploadGateway.complete(transport.launches.single().itemId, response)
+ *
+ * // The server never answered: a status-only outcome, the handler's response is null.
+ * UploadGateway.complete(itemId, UploadResult.TransportFailure("offline"))
  * ```
+ *
+ * `complete(itemId, UploadResult.Completed(201))` still works, but delivers no response to the handler
+ * (it is `null` in `classify` and `onDelivered`); use the `UploadResponse` overload to test code that
+ * reads the server's answer.
  *
  * **Not thread-safe**, like the other doubles here.
  *

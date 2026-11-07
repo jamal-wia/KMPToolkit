@@ -15,6 +15,7 @@ There are two ways to use it, and for new code the first is the one to pick.
 | Progress | whole percents to the handler | none |
 | A failed hand-off | retried under the handler's policy | logged and swallowed; the lease recovers it |
 | Hooks | `onDelivered`, `onSettled`, `onUploadProgress` | none |
+| Server's response (status, headers, body) | yes, since 3.1.0 | status only |
 
 Both are exactly `AttemptResult.Detached` plus a settlement underneath — the contract in
 [`03-guide.md`](03-guide.md#detached-delivery-for-work-that-outlives-an-attempt). Neither adds a
@@ -41,7 +42,7 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
         )
     }
 
-    override suspend fun classify(payload: AvatarUpload, result: UploadResult): SettleResult =
+    override suspend fun classify(payload: AvatarUpload, result: UploadResult, response: UploadResponse?): SettleResult =
         when {
             result is UploadResult.Completed && result.statusCode == 401 -> {
                 auth.refresh()
@@ -50,7 +51,10 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
             else -> defaultUploadClassification(result)
         }
 
-    override suspend fun onDelivered(payload: AvatarUpload) = profiles.markAvatarUploaded(payload.userId)
+    override suspend fun onDelivered(payload: AvatarUpload, response: UploadResponse?) {
+        // response is the server's answer: here a 202 with the job id in a Location header.
+        profiles.markAvatarUploaded(payload.userId, jobId = response?.header("location"))
+    }
 
     override suspend fun onSettled(payload: AvatarUpload, attempts: Int, result: SettleResult) {
         if (result is SettleResult.Delivered) File(payload.path).delete()
@@ -71,10 +75,26 @@ What the engine does with it:
    nothing. A preparation that throws here leaves the item in flight; the lease recovers it.
 3. **Progress.** Each whole percent goes to `onUploadProgress` through `UploadGateway.progress`.
    Best effort, never after the item has settled.
-4. **Settle.** The raw `UploadResult` goes to `UploadGateway.complete`: `classify` decides, `onDelivered`
-   runs *before* the row is removed for a delivery, the item settles, then `onSettled` runs. A thrown
-   `classify` settles as `Failed`; a thrown hook is logged and changes nothing — the upload already
-   happened.
+4. **Settle.** What the transport saw goes to `UploadGateway.complete` — with the server's
+   `UploadResponse` when it answered, with a bare `UploadResult.TransportFailure` when it did not.
+   The engine then:
+   1. builds the `UploadResult` from the response (`Completed(response.statusCode)`), so the two cannot
+      disagree, and trims the body to the handler's `maxResponseBodyBytes` — the one place the limit is
+      enforced, setting `isBodyTruncated`;
+   2. calls the three-argument `classify(payload, result, response)`, which by default calls the
+      two-argument `classify`, which by default is `defaultUploadClassification`;
+   3. for a delivery, calls `onDelivered(payload, response)` *before* the row is removed — by default
+      the one-argument `onDelivered`;
+   4. settles the item, then calls `onSettled`.
+
+   A thrown `classify` settles as `Failed`; a thrown hook is logged and changes nothing — the upload
+   already happened, so a failing `onDelivered` also loses the response.
+
+   | Hook | `response` |
+   |---|---|
+   | `classify(payload, result, response)` | the answer for every status; `null` for a `TransportFailure`, or for a transport that used the status-only `complete` |
+   | `onDelivered(payload, response)` | the answer; `null` only for a status-only `complete` |
+   | `onSettled` | not passed; keep what you need from `onDelivered` |
 
    The gateway carries no claim, and needs none: it settles under the item's **current** claim.
    `launch` is idempotent per item id — one unique WorkManager job, one background `NSURLSession` task
@@ -85,6 +105,49 @@ What the engine does with it:
 
 `UploadGateway` reaches the engine through `UploaderEngineRegistry`, so **register the engine** after
 creating it. An engine that is not `createUploaderEngine`'s reads as unavailable.
+
+### Reading the response
+
+`UploadResponse` carries the status, the headers (lowercase names), a copy of the start of the body and
+`isBodyTruncated`; see [`04-api-reference.md`](04-api-reference.md#uploadresponse-since-310) and the
+recipe in [`03-guide.md`](03-guide.md#reading-what-the-server-answered) — `202` plus a job id, the item
+id as `Idempotency-Key`, `classify` on the status, `onDelivered` persisting idempotently. The body is
+capped by `UploadHandler.maxResponseBodyBytes` (default 64 KiB, at most 1 MiB, `0` for none); an
+over-limit body is cut and flagged, never retried. Do not parse a truncated body.
+
+## Writing your own transport
+
+A transport for an `UploadHandler` implements `UploadTransport` and reports through `UploadGateway`:
+
+```kotlin
+class MyTransport(private val http: HttpClient) : UploadTransport {
+    override val leaseMillis: Long = 15 * 60_000L
+    override fun launch(itemId: String, request: UploadRequest) { /* start or rejoin, idempotent per itemId */ }
+    override fun cancel(itemId: String) { /* stop that item's transfer, if running */ }
+
+    private suspend fun finish(itemId: String, reply: HttpReply?) {
+        if (reply == null) {
+            UploadGateway.complete(itemId, UploadResult.TransportFailure("no connection"))
+        } else {
+            UploadGateway.complete(
+                itemId,
+                UploadResponse(reply.status, reply.headers, reply.bodyPrefix(), isBodyTruncated = reply.hasMore),
+            )
+        }
+    }
+}
+```
+
+- Read at most 1 MiB of the body (set `isBodyTruncated` when you stop with more to read); the engine
+  applies the handler's smaller limit itself, so a transport need not know it.
+- Report a server answer with `complete(itemId, response)`; report "the server never answered" with
+  `complete(itemId, UploadResult.TransportFailure(...))`. The status-only `complete(itemId,
+  UploadResult.Completed(code))` still works and gives the handler a `null` response.
+- A body you could not read completely does not make the answer a transport failure: report the status
+  with `isBodyTruncated = true`, or an accepted upload would be sent again.
+- `complete` returns `false` when no engine is registered or its store failed: keep the outcome and
+  report it again. An unknown or already settled id is a no-op that returns `true`.
+- Keep `launch` idempotent per item id; the gateway settles under the item's current claim.
 
 ## Android: `createWorkManagerUploadHandlerTransport`
 
@@ -99,8 +162,17 @@ One WorkManager job per item, unique-keyed by item id with `ExistingWorkPolicy.K
 the job is alive joins it, and after a dead job it re-enqueues. The job's input data is the item id
 plus timeouts — nothing of the request, so no token at rest in WorkManager's database and no 10 KB
 `Data` limit to fit under. `UploadHandlerWorker` prepares through the gateway, streams the multipart
-body from disk over `HttpURLConnection`, and settles. It returns `Result.retry()` when no engine is
+body from disk over `HttpURLConnection`, reads the response, and settles. It returns `Result.retry()` when no engine is
 registered to prepare or settle, so an outcome is never dropped, and `Result.success()` otherwise.
+
+The response is read in the same attempt, before the connection is dropped: headers without the status
+line, and the body from `errorStream` for a status of 400 and above (no stream is an empty body) or
+`inputStream` below it, at most 1 MiB. The body stays in the process — it is never put into
+`WorkManager`'s data. Reading the body stops once the read timeout has passed in total (at most one more
+read timeout for a read already waiting) or, between reads, when the job is cancelled, and a body that
+cannot be read completely — the connection broke, or the time ran out —
+is reported as truncated with the bytes read so far, not as a transport failure. A `WorkManager` worker has about 10 minutes and this module does not call
+`setForeground`, so keep the upload and the server's answer short.
 
 `cancel(itemId)` cancels that item's unique work and nothing else. A job already uploading stops
 mid-body: the write loop checks its job before every chunk and drops the connection without sending
@@ -137,6 +209,11 @@ One background `NSURLSession` per item, its identifier the prefix plus the item 
 `nsurlsessiond` keeps uploading after the app is suspended or killed. The multipart body is written to
 a temporary file — background uploads must come from a file — streamed from the source files in
 chunks, so a large recording is never held in memory, and removed when the upload completes.
+
+The delegate accumulates the response body as the session delivers it (at most 1 MiB, converted once
+when the task completes) and builds the response from the final `NSHTTPURLResponse` before the session
+is invalidated; only headers whose names and values are strings are kept. **A force-quit cancels
+background transfers** — iOS does not continue an upload for an app the user swiped away.
 
 A background session takes the whole request when the task is created, so on iOS the request is the
 one `prepareUpload` returned at hand-off, not one prepared when the transfer starts, and
@@ -180,7 +257,8 @@ func application(_ application: UIApplication,
 this launch path too — recreates the session, receives the buffered completion and settles the item.
 The completion handler is called exactly once: when the events are drained, or after 25 s, because
 iOS penalises an app that never calls it. Without this hook the outcome of an upload that finished
-while the app was dead waits for the lease to expire and the item is uploaded again.
+while the app was dead waits for the lease to expire and the item is uploaded again — and the response
+body, which iOS delivers to the delegate only after the relaunch, never reaches your handler.
 
 **Pin the prefix** if an earlier version of your app started background sessions under another one:
 the identifier outlives the process, and a relaunch for a session nobody recognises loses its
@@ -217,6 +295,8 @@ Its limits are the reason `UploadHandler` exists:
 - **A failed enqueue is logged and swallowed**: the item is still claimed in flight and waits for the
   15-minute lease.
 - **No progress, no hooks, Android only.**
+- **Status only.** Its worker never reads the response body or headers: the global `classify` sees an
+  `UploadResult` and nothing else. Use `UploadHandler` to read the server's answer.
 - **The engine cannot cancel its uploads.** A plain handler does not expose its transport, so
   `Uploader.cancel` removes the row but leaves the job running. Call `transport.cancel(id)` yourself.
   It stops the job mid-body, as the handler transport's does.

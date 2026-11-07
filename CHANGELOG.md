@@ -9,6 +9,37 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+## [3.1.0]
+
+### Added
+
+- `kmptoolkit-uploader`: an `UploadHandler` now receives what the server answered. The new
+  `UploadResponse` (status code, headers with lowercase names, the start of the body, and
+  `isBodyTruncated`) reaches the handler in `classify(payload, result, response)` and
+  `onDelivered(payload, response)` for every answer — a 2xx, but also a 4xx or 5xx, whose body usually
+  says why. `response` is `null` only when the server never answered.
+  - `UploadHandler.maxResponseBodyBytes` (default `DEFAULT_MAX_RESPONSE_BODY_BYTES`, 64 KiB) caps the
+    body. The engine enforces it: the value is clamped to 0..1 MiB, a body over it is cut and flagged
+    with `isBodyTruncated`, and a limit of 0 delivers headers and status without a body. Truncation
+    never causes a retry.
+  - `UploadGateway.complete(itemId, response, engineWait)` lets a custom transport, and
+    `kmptoolkit-uploader-testing`, report the full answer; the status-only `complete(itemId, result)`
+    stays for a transport failure.
+  - Both built-in handler transports read the response: Android from `HttpURLConnection` (the error
+    stream for a 4xx/5xx), iOS from the background session's delegate. The body is never put into
+    `WorkManager`'s data. An iOS body that arrives while the app is dead reaches the handler only when
+    `BackgroundUploadRelaunch.handleEvents` is wired.
+  - See `docs/kmptoolkit-uploader/03-guide.md` for the recommended recipe: the server answers `202`
+    with a job id, and the client sends the item id as an `Idempotency-Key`.
+
+### Changed
+
+- `kmptoolkit-uploader`: `UploadHandler.classify(payload, result)` is no longer abstract. It is now
+  `open` and defaults to `defaultUploadClassification(result)`, so a new handler need not implement
+  it; handlers written for 3.0 keep overriding it unchanged. This is the one intentional modifier
+  change in the ABI dump, and it is binary and source compatible. The legacy
+  `createWorkManagerUploadTransport` (global classifier) stays status-only.
+
 ## [3.0.0]
 
 ### Breaking
