@@ -3,8 +3,8 @@
 package io.github.jamal_wia.kmptoolkit.permission
 
 import kotlin.coroutines.resume
-import kotlin.concurrent.Volatile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import platform.CoreBluetooth.CBCentralManager
@@ -283,9 +283,9 @@ internal object LocationAuthorization {
      * once per install and reports nothing when it declines, so this is the only way to tell "may still
      * be asked" from "settings only". Kept in memory: after a restart one more request finds out again.
      */
-    @Volatile
-    var alwaysUpgradeAsked: Boolean = false
-        private set
+    val alwaysUpgradeAsked: Boolean get() = upgradeAsked.value
+
+    private val upgradeAsked: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
     // Read on the calling thread: hopping to the main queue would deadlock a caller that blocks it.
     fun current(): CLAuthorizationStatus = CLLocationManager().authorizationStatus
@@ -328,7 +328,7 @@ internal object LocationAuthorization {
                 startRequest(before, onChange) { manager -> manager.requestAlwaysAuthorization() }
             },
             fallback = ::current,
-        ).also { if (before == kCLAuthorizationStatusAuthorizedWhenInUse) alwaysUpgradeAsked = true }
+        ).also { if (before == kCLAuthorizationStatusAuthorizedWhenInUse) upgradeAsked.value = true }
     }
 
     /**

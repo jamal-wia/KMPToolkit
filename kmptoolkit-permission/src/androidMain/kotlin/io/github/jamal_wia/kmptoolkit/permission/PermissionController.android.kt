@@ -25,19 +25,19 @@ import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.w
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -309,7 +309,11 @@ internal class AndroidPermissionController(
     private val requestMutex: Mutex = Mutex()
 
     /** Permissions already reported as undeclared, so a status observed on every resume warns once. */
-    private val reportedUndeclared: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val reportedUndeclared: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+
+    /** `true` the first time [key] is reported. */
+    private fun MutableStateFlow<Set<String>>.markReported(key: String): Boolean =
+        key !in getAndUpdate { reported -> if (key in reported) reported else reported + key }
 
     /** Read, and warned about, on first use — so a status observed on every resume warns once. */
     private val scanDisavowsLocation: Boolean by lazy {
@@ -582,35 +586,29 @@ internal class AndroidPermissionController(
      * listener; the screen stays where it is, and the next [check] or [observe] sees what the user did.
      */
     private suspend fun openAndAwaitReturn(request: SystemScreenRequest, permission: Permission): Boolean {
-        val subscription: AtomicReference<ActivitySubscription?> = AtomicReference(null)
+        val returned: CompletableDeferred<Boolean> = CompletableDeferred()
+        // Handed from the main-thread subscribe to whichever thread finishes the wait; taken once.
+        val subscription: MutableStateFlow<ActivitySubscription?> = MutableStateFlow(null)
         try {
-            return suspendCancellableCoroutine { continuation ->
-                continuation.invokeOnCancellation { subscription.getAndSet(null)?.cancel() }
-                // Subscribe and open on the main thread. Off main a listener added while an activity is
-                // resumed gets its immediate call posted, not run: it could land after `armed` is set
-                // but before the old activity's pause, and end the wait while Settings is on screen.
-                // On main that call is synchronous and has been ignored before the screen is opened.
-                onMainThread {
-                    if (!continuation.isActive) return@onMainThread
-                    val armed = AtomicBoolean(false)
-                    val added: ActivitySubscription = addResumedListener {
-                        if (armed.get() && continuation.isActive) continuation.resume(true)
-                    }
-                    subscription.set(added)
-                    // Cancelled while subscribing: invokeOnCancellation may have run before the set.
-                    if (!continuation.isActive) {
-                        subscription.getAndSet(null)?.cancel()
-                        return@onMainThread
-                    }
-                    if (openScreen(request, permission)) {
-                        armed.set(true)
-                    } else if (continuation.isActive) {
-                        continuation.resume(false)
-                    }
+            // Subscribe and open on the main thread. Off main a listener added while an activity is
+            // resumed gets its immediate call posted, not run: it could land after `armed` is set
+            // but before the old activity's pause, and end the wait while Settings is on screen.
+            // On main that call is synchronous and has been ignored before the screen is opened.
+            onMainThread {
+                if (!returned.isActive) return@onMainThread
+                var armed = false // main thread only: the listener (ActivityAccess contract) and the set below
+                subscription.value = addResumedListener { if (armed) returned.complete(true) }
+                // Finished while subscribing: the finally block may already have taken the (still empty) cell.
+                if (!returned.isActive) {
+                    subscription.getAndUpdate { null }?.cancel()
+                    return@onMainThread
                 }
+                if (openScreen(request, permission)) armed = true else returned.complete(false)
             }
+            return returned.await()
         } finally {
-            subscription.getAndSet(null)?.cancel()
+            returned.cancel()
+            subscription.getAndUpdate { null }?.cancel()
         }
     }
 
@@ -643,29 +641,30 @@ internal class AndroidPermissionController(
      * Runs [launch] on the main thread — an `ActivityResultLauncher` must be started there, and the
      * caller's coroutine may be anywhere — and suspends for the value it delivers.
      *
+     * The result is a single-assignment [CompletableDeferred]: the first value to arrive wins and any
+     * later one is dropped.
+     *
      * @return the delivered value, or `null` when the host could not show anything. A host that both
-     *   reports failure and delivers breaks its contract; the continuation is resumed exactly once
-     *   regardless.
+     *   reports failure and delivers breaks its contract; whichever of the two arrives first is the
+     *   result, the other is ignored.
      */
-    private suspend fun <T : Any> launchOnHost(what: String, launch: (deliver: (T) -> Unit) -> Boolean): T? =
-        suspendCancellableCoroutine { continuation ->
-            val delivered = AtomicBoolean(false)
-            val deliver: (T?) -> Unit = { value ->
-                if (delivered.compareAndSet(false, true) && continuation.isActive) continuation.resume(value)
-            }
+    private suspend fun <T : Any> launchOnHost(what: String, launch: (deliver: (T) -> Unit) -> Boolean): T? {
+        val result: CompletableDeferred<T?> = CompletableDeferred()
+        try {
             onMainThread {
                 // Cancelled before this ran (off main it is posted): do not put up a dialog nobody waits for.
-                if (!continuation.isActive) return@onMainThread
-                val launched: Boolean = runCatching { launch { value -> deliver(value) } }.getOrElse { cause ->
+                if (!result.isActive) return@onMainThread
+                val launched: Boolean = runCatching { launch { value -> result.complete(value) } }.getOrElse { cause ->
                     logger.w(cause) { "The permission request host threw while launching" }
                     false
                 }
-                if (!launched && !delivered.get()) {
-                    logger.w { "$what could not be shown" }
-                    deliver(null)
-                }
+                if (!launched && result.complete(null)) logger.w { "$what could not be shown" }
             }
+            return result.await()
+        } finally {
+            result.cancel() // a late delivery, or a still-queued launch, now sees a finished request
         }
+    }
 
     private fun onMainThread(block: () -> Unit) {
         val main: Looper = Looper.getMainLooper()
@@ -702,7 +701,7 @@ internal class AndroidPermissionController(
     private fun declared(permission: Permission, androidPermissions: List<String>): List<String> {
         val declared: Set<String> = declaredPermissions() ?: return androidPermissions
         val present: List<String> = androidPermissions.filter { it in declared }
-        if (present.isEmpty() && reportedUndeclared.add(permission.id)) {
+        if (present.isEmpty() && reportedUndeclared.markReported(permission.id)) {
             logger.w { "$permission reads Unavailable: declare ${androidPermissions.joinToString(" or ")} in the manifest" }
         }
         return present

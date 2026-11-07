@@ -28,6 +28,9 @@ internal class LifecycleActivityTracker(
     private val isTracked: (Activity) -> Boolean = { true },
 ) : ActivityAccess, Application.ActivityLifecycleCallbacks {
 
+    // java.util.concurrent on purpose: this module has no kotlinx-coroutines dependency, and its API
+    // is non-suspending, fed by main-thread lifecycle callbacks and called from any thread.
+    // The other atomic / volatile fields below (listeners, released, Registration.cancelled) follow it.
     /**
      * The only reference to an activity this class holds, and it is weak. Atomic so a caller on another
      * thread clearing a stale activity cannot erase one that resumed in the meantime.
@@ -174,11 +177,12 @@ internal class LifecycleActivityTracker(
      *
      * @param replayPending whether a posted immediate replay is still owed. Set at construction —
      *   before the registration is visible to [onActivityResumed] — so a resume delivered in between
-     *   can clear it without a later write putting it back; read and cleared on the main thread.
+     *   can clear it without a later write putting it back. Main thread only after construction; the
+     *   constructor value is published by the listeners add and the Handler post.
      */
     private inner class Registration(
         val listener: (Activity) -> Unit,
-        @Volatile var replayPending: Boolean,
+        var replayPending: Boolean,
     ) : ActivitySubscription {
         /** Set by [cancel] and [release]; checked before every call, because a dispatch iterates a snapshot. */
         @Volatile var cancelled: Boolean = false

@@ -14,7 +14,8 @@ import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
-import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 
 /**
  * The library's own [PermissionRequestHost]: it shows each dialog from the `ComponentActivity`
@@ -57,7 +58,7 @@ public class ActivityResultPermissionRequestHost(
 ) : PermissionRequestHost {
 
     /** Unique per host, so two hosts in one app never answer each other's requests. */
-    private val keyPrefix: String = "io.github.jamal_wia.kmptoolkit.permission.host#${instances.incrementAndGet()}"
+    private val keyPrefix: String = "io.github.jamal_wia.kmptoolkit.permission.host#${instances.updateAndGet { it + 1 }}"
 
     private var pending: PendingRequest<*, *>? = null
 
@@ -198,6 +199,10 @@ public class ActivityResultPermissionRequestHost(
     }
 
     private companion object {
-        val instances: AtomicInteger = AtomicInteger(0)
+        /**
+         * Numbered, never random: the registry hands a pending result back by key after recreation, so hosts
+         * built in the same order must get the same keys. `updateAndGet` keeps the constructor non-suspending.
+         */
+        val instances: MutableStateFlow<Int> = MutableStateFlow(0)
     }
 }

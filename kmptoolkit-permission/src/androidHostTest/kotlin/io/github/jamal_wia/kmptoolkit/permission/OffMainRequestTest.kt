@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
@@ -90,5 +91,28 @@ class OffMainRequestTest {
         looper.idle()
 
         assertEquals(0, host.launchCount, "a dialog was shown for a request nobody waits for")
+    }
+
+    @Test
+    fun `a settings request cancelled before it is posted subscribes to nothing and opens nothing`() = runBlocking {
+        shadowOf(application.packageManager).setCanRequestPackageInstalls(false)
+        val listeners = ResumeListeners()
+        var opened = 0
+        val controller: AndroidPermissionController = testController(
+            context = application,
+            storage = InMemoryKeyValueStorage(),
+            sdkInt = android.os.Build.VERSION.SDK_INT,
+            resumeListeners = listeners,
+            launchScreen = { opened++; true },
+        )
+
+        val request: Deferred<PermissionStatus> =
+            async(Dispatchers.Default) { controller.request(AndroidPermission.InstallPackages) }
+        awaitPosted()
+        withTimeout(5_000) { request.cancelAndJoin() }
+        looper.idle()
+
+        assertEquals(0, opened, "a settings screen was opened for a request nobody waits for")
+        assertEquals(0, listeners.count, "a resume listener was left subscribed")
     }
 }

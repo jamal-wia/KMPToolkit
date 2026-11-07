@@ -3,15 +3,16 @@ package io.github.jamal_wia.kmptoolkit.permission
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
-import kotlin.concurrent.AtomicReference
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -84,7 +85,7 @@ internal class IosPermissionController(
     private val requestMutex: Mutex = Mutex()
 
     /** Purpose strings already reported missing, so a status observed on every activation warns once. */
-    private val reportedMissing: AtomicReference<Set<String>> = AtomicReference(emptySet())
+    private val reportedMissing: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     override suspend fun check(permission: Permission): PermissionStatus {
         val missing: String = missingUsageDescription(permission) ?: return PermissionStatus.Unavailable
@@ -163,13 +164,8 @@ internal class IosPermissionController(
     }
 
     /** Adds [key] to [reportedMissing]; `true` when it was not there yet. */
-    private fun markReported(key: String): Boolean {
-        while (true) {
-            val reported: Set<String> = reportedMissing.value
-            if (key in reported) return false
-            if (reportedMissing.compareAndSet(reported, reported + key)) return true
-        }
-    }
+    private fun markReported(key: String): Boolean =
+        key !in reportedMissing.getAndUpdate { reported -> if (key in reported) reported else reported + key }
 
     /** The purpose strings a request for [permission] needs; `null` for a type this controller does not know. */
     private fun usageDescriptionKeys(permission: Permission): List<String>? = when (permission) {
