@@ -143,4 +143,29 @@ class UploaderDrainWorkerAdversarialTest {
         assertEquals(listOf("blocked", "after"), handler.payloads)
     }
 
+    @Test
+    fun `an engine whose owning scope was cancelled is not waited on for the whole drain budget`() {
+        val store = TestUploaderStore()
+        val handler = TestHandler()
+        val parent = Job()
+        val engine = engineOver(store, handler, parent)
+        engine.start()
+        UploaderEngineRegistry.register(engine)
+        Thread.sleep(200)
+        parent.cancel() // the owner is gone; nothing will ever drain through this engine again
+        Thread.sleep(200)
+        runBlocking { engine.enqueue(handler, "stranded") } // still persists: the store is independent
+        Thread.sleep(200)
+        assertEquals(1, store.items.size)
+
+        val started: Long = System.nanoTime()
+        val result = worker(engineWaitMillis = 300, drainBudgetMillis = 6_000).runToEnd()
+        val elapsedMillis: Long = (System.nanoTime() - started) / 1_000_000
+
+        assertEquals(ListenableWorker.Result.retry(), result)
+        assertTrue(
+            elapsedMillis < 3_000,
+            "the worker sat ${elapsedMillis}ms on an engine that cannot drain (drain budget 6000ms) instead of treating it as absent",
+        )
+    }
 }

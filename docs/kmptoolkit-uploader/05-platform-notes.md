@@ -211,7 +211,16 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
 - **Clocks.** Backoff gates and leases are absolute epoch millis, because they must survive process
   death. The engine detects a backwards wall-clock jump (see `UploaderConfig.clockAnomalyFactor`) and
   runs an item whose gate is unreachably far in the future rather than freezing it — and everything
-  behind it in its ordering channel — for the duration of the jump. A forwards jump merely runs some
-  items early, which is harmless.
+  behind it in its ordering channel — for the duration of the jump. Leases get the same guard: the
+  engine never writes a lease longer than 24 hours (a longer `Detached` lease or
+  `UploadTransport.leaseMillis` is shortened to that), so a lease further ahead than
+  `clockAnomalyFactor` times 24 hours was written before a backwards jump, is treated as expired and
+  the item is re-handed — the hand-off is idempotent by contract. A backwards jump smaller than that
+  bound still holds a lease for the jump, at most two days with the default factor. Backoff and lease
+  arithmetic saturates at `Long.MAX_VALUE`, so a `RetryPolicy.maxDelayMillis` of `Long.MAX_VALUE`
+  ("no ceiling") works. A forwards jump merely runs some items early, which is harmless.
+- **A logger that throws does not stop the engine.** The engine calls the `Logger` from its drain
+  coroutine and from `enqueue`; an exception the logger throws (anything but cancellation) is
+  swallowed and costs only that log line.
 - **Ids** are `java.util.UUID` on Android and `NSUUID` on iOS, both canonical UUID strings. Override
   `idGenerator` if your server wants a different idempotency-key shape.
