@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 import android.os.Build
+import android.annotation.TargetApi
 import android.security.KeyStoreException
 
 /**
@@ -29,6 +30,7 @@ internal fun isTransientKeystoreFailure(
  * The only place that names `KeyStoreException`, kept apart so a device below API 33 never has to
  * resolve a class its platform does not have.
  */
+@TargetApi(Build.VERSION_CODES.TIRAMISU)
 private object TransientKeystoreFailureApi33 {
 
     fun inChain(error: Throwable): Boolean {
