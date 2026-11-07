@@ -25,6 +25,8 @@ package io.github.jamal_wia.kmptoolkit.audio.player
  * - **[load] must honor cancellation** and leave nothing loaded when it is cancelled. The player
  *   never runs two loads on one engine at once — a newer load waits for the cancelled one to finish
  *   unwinding — but it relies on the cancelled one actually unwinding.
+ * - **Report an error during loading by throwing from [load]**, and one right after `load` returned
+ *   through [PlaybackEngineListener.onFailed]; the player turns either into [PlayerState.Error].
  * - **Never call the listener after [release]** — the player detaches it first, but an engine that
  *   posts callbacks from a platform queue must also drop anything already in flight.
  * - **[start], [pause], [seekTo] and [setSpeed] must tolerate being called in the wrong state.**
@@ -96,6 +98,10 @@ public interface PlaybackEngineListener {
 
     /**
      * Playback failed after loading succeeded.
+     *
+     * Also honoured when it arrives after [PlaybackEngine.load] has returned but before the player has
+     * published [PlayerState.Ready]: the player then ends in [PlayerState.Error], never in `Ready`. An
+     * engine must not call it while `load` is still running — a load failure is thrown from `load`.
      *
      * @param cause the platform error, surfaced unchanged as [PlayerState.Error].
      */

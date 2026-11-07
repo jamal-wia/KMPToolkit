@@ -29,7 +29,8 @@ import kotlin.coroutines.CoroutineContext
  * @param coroutineContext context for the position-polling coroutine. The default is
  *   [Dispatchers.Main], so that `AVPlayer` — which documents no thread safety and which this engine
  *   creates on the main thread — is read from the same thread that drives it; call the transport
- *   functions from the main thread too. A [kotlinx.coroutines.Job] in it
+ *   functions from the main thread too. Position updates now need a free main thread (a running
+ *   main run loop); pass `Dispatchers.Default` to restore the 3.0 behavior. A [kotlinx.coroutines.Job] in it
  *   is ignored: the player runs under a job of its own, so releasing it never cancels a job that
  *   belongs to the caller.
  * @return a player in [PlayerState.Idle].

@@ -188,7 +188,7 @@ public interface AudioRecorder {
      * propagates; [state] is left at [RecorderState.Idle], never [RecorderState.Preparing].
      *
      * [release] may equally land while this call is suspended. The preparation then undoes itself
-     * — freeing the handle it had just created and deleting the file — and returns
+     * — freeing the handle it had just created and deleting the file it created — and returns
      * [RecorderError.AlreadyReleased] rather than moving a released recorder to
      * [RecorderState.Ready].
      *
@@ -305,7 +305,9 @@ public interface AudioRecorder {
      * When a finalization is in flight (a [stop], a [cancel] or a system event closing the file off
      * the lock), `release` returns at once and leaves the native recorder to that finalization,
      * which frees it when it completes; its outcome is not published over
-     * [RecorderState.Released]. The microphone is then free a moment after `release` returns.
+     * [RecorderState.Released]. The microphone is then free a moment after `release` returns. The same
+     * holds for a [prepare] in flight: `release` does not touch the native recorder, and the
+     * preparation's own tail (on the caller's coroutine) frees it once it runs.
      *
      * Idempotent, never fails, and never throws. See the class-level "Ownership and release" note
      * for who is expected to call it.

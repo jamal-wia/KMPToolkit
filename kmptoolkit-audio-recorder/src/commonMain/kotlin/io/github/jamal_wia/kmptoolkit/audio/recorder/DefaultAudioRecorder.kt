@@ -981,7 +981,13 @@ internal class DefaultAudioRecorder(
     private fun sampleLevel(epoch: Long, publish: Boolean) {
         gate.submit {
             if (epoch != meterEpoch) return@submit
-            val dbfs: Float? = engine.peakDbfs()
+            // Defence in depth: the engine contract says peakDbfs never throws, but a throw inside a
+            // submitted action would surface from an unrelated call, so it counts as "no answer".
+            val dbfs: Float? = try {
+                engine.peakDbfs()
+            } catch (@Suppress("TooGenericExceptionCaught", "SwallowedException") failure: Exception) {
+                null
+            }
             // Re-checked: an engine that reports from inside the call can have ended the metering.
             if (publish && dbfs != null && epoch == meterEpoch) {
                 val value: Float = normalizedLevel(dbfs, config.levelFloorDbfs)

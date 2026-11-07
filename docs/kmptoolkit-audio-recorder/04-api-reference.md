@@ -281,7 +281,10 @@ first if you want it deleted. Releasing from `Ready` is the one exception: that 
 recorded into and nothing could ever clean it up afterwards, so it is deleted.
 
 Safe to call while a `prepare()` is still in flight — the preparation undoes itself when it
-finishes, rather than resurrecting a released recorder.
+finishes (freeing the handle and deleting the file it created), rather than resurrecting a released
+recorder. As with a finalization, `release()` then does not touch the native recorder: the
+preparation's tail, on its caller's coroutine, frees it, so the microphone is free a moment after
+`release()` returns.
 
 When a finalization is in flight (a `stop()`, a `cancel()` or a system event is closing the file off
 the lock), `release()` returns at once and does not touch the native recorder: the finalization owns
