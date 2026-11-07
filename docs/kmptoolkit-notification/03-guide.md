@@ -108,6 +108,18 @@ body that repeats the percentage (as in the example above) is posted at most eve
 `minProgressInterval`, not on every step. Keep posting as progress arrives: the next frame after the
 interval carries the latest text.
 
+**A source that stalls shows its last posted frame.** Frames suppressed by the bucket or the rate limit
+are dropped, not retried later: the notifier has no timer of its own. If a source posts 10%, then
+20-40% inside `minProgressInterval`, and then goes silent, the bar stays at 10% for the whole stall.
+A source that can pause should re-post its current progress after `minProgressInterval`. A terminal or
+100% frame is never suppressed, so a finished run always ends correctly.
+
+**Cancel and concurrent posts.** `cancel(id)` and `cancelAll()` are ordered against a post of the same id
+that is still in flight: a notification that was being built when you cancelled does not appear
+afterwards, and a progress frame that a newer frame (typically the terminal "Done") has overtaken is
+dropped (`Coalesced`) rather than shown on top of it. Posts for one id should still come from one
+coroutine at a time; that ordering is up to the caller.
+
 **Do not build your own throttle on top.** A caller that only posts every 5% just gets a coarser bar;
 the module is already bounding the rate.
 

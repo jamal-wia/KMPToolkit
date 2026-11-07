@@ -37,7 +37,7 @@ The one type shared code depends on.
 - **`cancelAll`** — removes every notification the app is showing, including ones posted by a
   previous process. Does not touch notifications scheduled for later.
 
-**Thread-safety:** safe from any thread, including concurrently for different ids.
+**Thread-safety:** safe from any thread, including concurrently for different ids. `cancel` / `cancelAll` are ordered against a post of the same id still in flight (the cancelled notification does not come back), and a progress frame overtaken by a newer one for the same id is dropped and reported as `Coalesced`.
 
 **Ordering:** the checks run permission → app-level toggle → channel → icon → coalescing, so the
 result names the first reason the user would not have seen the notification. A coalesced post never
