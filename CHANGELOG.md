@@ -41,9 +41,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   re-uploads; see `docs/kmptoolkit-uploader/08-upload-transport.md`. The three-parameter constructor
   stays as a deprecated overload (warning level, no default arguments), so binaries built against 3.0
   keep working and Swift code calling
-  `BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compiles. In Kotlin, `BackgroundUploadConfig()` and any call that leaves a parameter out
-  resolve to the new constructor; only a call passing all three old arguments positionally lands on the
-  deprecated one, with a warning.
+  `BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compiles. In Kotlin,
+  `BackgroundUploadConfig()` and any call that leaves a parameter out resolve to the new constructor;
+  only a call passing all three old arguments positionally lands on the deprecated one, with a
+  warning.
 - `kmptoolkit-downloader`: `DownloaderConfig` with `stallTimeout` (default
   `DownloaderConfig.DEFAULT_STALL_TIMEOUT`, 5 minutes; `Duration.INFINITE` turns stall detection off)
   and a `createDownloader` overload that takes it, placed right after `stateStore`. The existing
