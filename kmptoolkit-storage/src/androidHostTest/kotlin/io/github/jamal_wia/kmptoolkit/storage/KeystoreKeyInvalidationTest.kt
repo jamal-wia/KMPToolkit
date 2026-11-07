@@ -93,6 +93,39 @@ class KeystoreKeyInvalidationTest {
         assertEquals(0, store.generated, "and never replaces the key")
     }
 
+    /** An alias whose entry is unrecoverable until it is deleted; like the platform, it refuses a deletion that is not allowed. */
+    private class UnrecoverableUntilDeleted : AliasedKeyStore {
+        val mayDeleteCalls: MutableList<Boolean> = mutableListOf()
+        var deletions: Int = 0
+        var generated: Int = 0
+
+        override fun existingKey(alias: String, mayDelete: Boolean): SecretKey? {
+            mayDeleteCalls += mayDelete
+            if (deletions > 0) return null
+            if (!mayDelete) throw java.security.UnrecoverableKeyException("entry cannot be recovered")
+            deletions++
+            return null
+        }
+
+        override fun generateKey(alias: String): SecretKey {
+            generated++
+            return TestKeys.generate()
+        }
+    }
+
+    @Test
+    fun `the first resolution in the process still deletes and regenerates an unrecoverable alias`() = runTest {
+        val store = UnrecoverableUntilDeleted()
+        val cipher = KeystoreValueCipher(AndroidKeystoreKeySource("first.recovery.alias", store))
+
+        val encoded: String = cipher.encrypt("secret")
+
+        assertEquals("secret", cipher.decrypt(encoded))
+        assertEquals(listOf(true), store.mayDeleteCalls, "the first resolution is the one allowed to delete")
+        assertEquals(1, store.deletions, "the unrecoverable alias was deleted")
+        assertEquals(1, store.generated, "and a new key was generated in its place")
+    }
+
     @Test
     fun `a second instance over the alias shares the key, and a stale report never drops a newer key`() = runTest {
         val store = ScriptedKeyStore(TestKeys.generate())
