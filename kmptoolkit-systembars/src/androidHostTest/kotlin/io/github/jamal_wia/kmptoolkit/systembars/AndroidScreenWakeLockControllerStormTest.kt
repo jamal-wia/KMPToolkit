@@ -118,6 +118,15 @@ class AndroidScreenWakeLockControllerStormTest {
 
             assertEquals(last, current.get().hasKeepScreenOnFlag(), "round $round: the current window does not carry the last request ($last)")
             if (!last) {
+                // A release is owed to an earlier window until it is on screen again (it is paused, so
+                // the flag cannot act meanwhile): bring each back, as the user would, then nothing may
+                // still carry the flag.
+                controllers.filter { it !== current }.forEach { earlier ->
+                    current.pause()
+                    earlier.restart().start().resume()
+                    drain(cap = FINAL_DRAIN_CAP)
+                    earlier.pause().stop()
+                }
                 val leaked: List<Activity> = controllers.map { it.get() }.filter { it.hasKeepScreenOnFlag() }
                 assertTrue(leaked.isEmpty(), "round $round: windows still carry the flag after a release: ${leaked.size}")
             }
