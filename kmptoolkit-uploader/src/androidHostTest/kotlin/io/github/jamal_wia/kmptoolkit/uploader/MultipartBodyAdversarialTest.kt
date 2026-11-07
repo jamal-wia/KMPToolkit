@@ -340,4 +340,17 @@ class MultipartBodyAdversarialTest {
         assertTrue(!body.contains("\r\nX-Injected: 1"), "a field name must not start a header line of its own")
         assertTrue(!body.contains("\r\nX-Injected-Too: 1"), "a file name must not start a header line of its own")
     }
+
+    @Test
+    fun `a directory named as the source is refused before the server is contacted`() {
+        answer(ok)
+        val dir: File = File(context.cacheDir, "mp-dir-${System.nanoTime()}").apply { mkdirs() }
+        cleanup += dir
+
+        val outcome: MultipartOutcome =
+            upload(UploadRequest(url(), fields = listOf(UploadField.File("f", "f.bin", "application/octet-stream", dir.path))))
+
+        assertIs<UploadResult.TransportFailure>(outcome.result)
+        assertEquals(0, hits.get(), "an unreadable source is a pre-flight failure; no connection is opened for it")
+    }
 }

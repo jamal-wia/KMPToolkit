@@ -67,7 +67,7 @@ internal fun performMultipartUploadCapturing(
     // Pre-flight the file parts so a vanished source reads as a transport failure the handler can react
     // to, instead of an exception mid-stream.
     request.fields.filterIsInstance<UploadField.File>().forEach { part ->
-        if (!File(part.path).canRead()) {
+        if (!File(part.path).let { it.isFile && it.canRead() }) {
             return MultipartOutcome(UploadResult.TransportFailure("source file missing/unreadable: ${part.path}"), null)
         }
     }
