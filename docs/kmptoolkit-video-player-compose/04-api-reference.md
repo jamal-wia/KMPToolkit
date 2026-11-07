@@ -77,8 +77,8 @@ public fun rememberVideoPlayer(
 |---|---|
 | Creation | Once, on first composition, through `LocalVideoPlayerFactory.current` or else the platform factory. `config` and the factory are read then and never again. |
 | Source | Each `source` (by `equals`) is prepared in a coroutine of the composition; a newer one cancels an older prepare still in flight. `null` calls `unload()`. |
-| `autoPlay` | `play()` after a prepare returns, unless that prepare was superseded. Read when the prepare returns, so changing it applies to the next source. |
-| Release | `release()` when the call leaves the composition. Do not release it yourself or use it afterwards. |
+| `autoPlay` | `play()` after a prepare returns, unless that prepare was superseded. Read when the prepare returns, so changing it applies to the next source. `VideoPlayer(source = …)` with `pauseOnBackground` also skips it while the host lifecycle is below `STARTED`. |
+| Release | `release()` when the call leaves the composition, or when a composition that created the player is discarded before it was shown (e.g. a dropped lazy-list prefetch). Do not release it yourself or use it afterwards. |
 | Failure | A failed load is the player's `Error` state; nothing is thrown. |
 | Missing engine | `IllegalStateException` on desktop without a provided factory, with a message naming `LocalVideoPlayerFactory` and the engine artifacts. |
 
