@@ -60,8 +60,8 @@ public fun createScreenWakeLockController(activityAccess: ActivityAccess): Scree
  *    the next resume, the window would keep the flag for the rest of its life.
  *
  * Hence: the resume callback acts only when this controller either wants the flag on, or previously
- * put it on a window and has not managed to take it off yet — and in the second case only for that
- * same window, since a different one never carried this controller's flag.
+ * put it on a window and has not managed to take it off yet — and in the second case only for such a
+ * window, since a different one never carried this controller's flag.
  *
  * Applying runs on the main thread, because callers may wire [setKeepScreenOn] off a state flow
  * whose collection dispatcher this interface does not constrain, while the activity tracker
@@ -87,12 +87,14 @@ internal class AndroidScreenWakeLockController(
     // What this controller has applied. Main thread only.
     private var enabled: Boolean = false
 
-    // The window this controller last turned the flag ON for and has not turned it off again — see
-    // the class KDoc. Weak, because it must outlive nothing, and null for a controller that has
-    // never written the flag, which is what keeps the resume callback off another owner's flag. Main
-    // thread only, like [enabled] and [subscription]: every access runs from applyRequested or the
-    // resume listener, both delivered on the main thread, so no volatile is needed.
-    private var pushedTo: WeakReference<Activity>? = null
+    // Every window this controller turned the flag ON for and has not turned it off again — see
+    // the class KDoc. More than one while the hold is on: an activity of the app can come on top of
+    // another, and the hold puts the flag on each, so a release has to take it off each. Weak, because
+    // it must outlive nothing, and empty for a controller that has never written the flag, which is
+    // what keeps the resume callback off another owner's flag. Main thread only, like [enabled] and
+    // [subscription]: every access runs from applyRequested or the resume listener, both delivered on
+    // the main thread, so no volatile is needed.
+    private val pushedTo: MutableList<WeakReference<Activity>> = mutableListOf()
 
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
 
@@ -117,6 +119,8 @@ internal class AndroidScreenWakeLockController(
         // No activity means the screen is already going away. The write is not lost: pushedTo
         // still names the window carrying the flag, so its next resume applies this release.
         activityAccess.withActivity { activity -> applyFlag(activity, keepOn = target) }
+        // A release also reaches every earlier window still carrying the flag, not just the current one.
+        if (!target) pushedTo.toList().forEach { reference -> reference.get()?.let { applyFlag(it, keepOn = false) } }
         unsubscribeWhenIdle()
     }
 
@@ -126,7 +130,7 @@ internal class AndroidScreenWakeLockController(
         subscription = activityAccess.addOnActivityResumedListener { activity ->
             when {
                 enabled -> applyFlag(activity, keepOn = true)
-                pushedTo?.get() === activity -> applyFlag(activity, keepOn = false)
+                pushedTo.any { it.get() === activity } -> applyFlag(activity, keepOn = false)
             }
             unsubscribeWhenIdle()
         }
@@ -140,11 +144,12 @@ internal class AndroidScreenWakeLockController(
      */
     private fun unsubscribeWhenIdle() {
         if (enabled) return
-        val owed: Activity? = pushedTo?.get()
-        if (owed != null) {
-            if (!owed.isFinishing && !owed.isDestroyed) return
-            pushedTo = null
+        // Windows that are gone, finishing or destroyed owe nothing: they drop out of the list.
+        pushedTo.removeAll { reference ->
+            val owed: Activity? = reference.get()
+            owed == null || owed.isFinishing || owed.isDestroyed
         }
+        if (pushedTo.isNotEmpty()) return
         subscription?.cancel()
         subscription = null
     }
@@ -155,7 +160,8 @@ internal class AndroidScreenWakeLockController(
         } else {
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
-        pushedTo = if (keepOn) WeakReference(activity) else null
+        pushedTo.removeAll { it.get() == null || it.get() === activity }
+        if (keepOn) pushedTo.add(WeakReference(activity))
     }
 
     private inline fun onMainThread(crossinline block: () -> Unit) {
