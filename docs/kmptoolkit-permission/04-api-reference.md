@@ -268,7 +268,7 @@ never an exception.
 `openSettings()` returns `false` both when the flow is not in `AwaitingSettings` (nothing is opened)
 and when the controller could not open a screen. It calls `controller.openSettings(permission)`.
 
-**Concurrent drivers.** Drive one flow from one coroutine where you can. A `refresh()` on resume racing a `start()` on tap is tolerated: each transition after a suspension publishes only if the state is still the one it started from, so a stale result never overwrites a live `Requesting` or its outcome (the newer state is returned). The synchronous transitions (`reset()`, `rationaleDismissed()`, `settingsDeclined()`) check and write in one atomic step, so a `start()` or `rationaleAcknowledged()` landing at the same moment can never be overwritten, and no second request goes in flight. It holds no platform resource.
+**Concurrent drivers.** Drive one flow from one coroutine where you can. A `refresh()` on resume racing a `start()` on tap is tolerated: each transition after a suspension publishes only if nothing was published since it started (it compares the identity of the last publish, not the state value), so a stale result never overwrites a live `Requesting`, its outcome, or the state a start-and-cancel round trip returned to (the newer state is returned). The synchronous transitions (`reset()`, `rationaleDismissed()`, `settingsDeclined()`) check and write in one atomic step, so a `start()` or `rationaleAcknowledged()` landing at the same moment can never be overwritten, and no second request goes in flight. It holds no platform resource.
 
 ## `PermissionFlowState`
 
