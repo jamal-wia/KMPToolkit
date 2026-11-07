@@ -102,15 +102,13 @@ internal fun performMultipartUploadCapturing(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        // A server can answer and close before the chunked body finishes (size cap, proxy 4xx, an early 2xx
-        // or redirect) — the write then throws, but a status may still be readable. Any final status the
-        // server sent before the body ended is its answer: a rejection to classify, or an early acceptance
-        // or redirect that must not upload the file again. Prefer the real status so it can be classified
-        // instead of retried forever as a transport failure. 1xx is not final and stays a failure.
+        // A server can reject-and-close before the chunked body finishes (size cap, proxy 4xx) — the
+        // write then throws, but a status may still be readable. Prefer the real status so a permanent
+        // rejection can be classified instead of retried forever as a transport failure.
         // Not after the watchdog dropped the connection: the peer is not answering, and asking for its status
         // would wait out the whole read timeout on a socket that was closed on purpose.
         val lateStatus: Int? = connection?.takeUnless { watch?.wasDropped == true }?.let { conn ->
-            runCatching { conn.responseCode }.getOrNull()?.takeIf { it in HTTP_FIRST_FINAL_STATUS..HTTP_LAST_STATUS }
+            runCatching { conn.responseCode }.getOrNull()?.takeIf { it >= HTTP_BAD_REQUEST }
         }
         if (lateStatus != null) {
             // Best effort: the connection was torn down mid-request, so the body may be unreadable — then
@@ -265,8 +263,6 @@ private fun writeMultipartBody(
     writeText("--$boundary--\r\n")
 }
 
-private const val HTTP_FIRST_FINAL_STATUS: Int = 200
-private const val HTTP_LAST_STATUS: Int = 599
 private val HTTP_INFORMATIONAL_RANGE: IntRange = 100..199
 private val STATUSES_WITHOUT_CONTENT: Set<Int> = setOf(204, 205, 304)
 private const val HTTP_BAD_REQUEST: Int = 400
