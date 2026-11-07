@@ -98,7 +98,10 @@ public fun createAppLanguageHolder(
 
 Common to both platforms — no `Context` needed. Calls `applyGlobally(initialLanguage)` before
 returning. `onLanguageChanged` is not called for `initialLanguage` itself, only for a later
-`setLanguage` that actually changes something. `applyGlobally` defaults to the real
+`setLanguage` that actually changes something. It runs under the holder's lock, like in
+[`setLanguage`](#applanguageholder): it must not block waiting for another thread that may itself
+call `setLanguage`, and slow or main-bound persistence should be handed off asynchronously.
+`applyGlobally` defaults to the real
 [`applyLanguageGlobally`](#applylanguageglobally-and-getsystemlanguagecode); override it only in a
 test that wants a holder without touching the real platform locale — production code should leave
 the default.
