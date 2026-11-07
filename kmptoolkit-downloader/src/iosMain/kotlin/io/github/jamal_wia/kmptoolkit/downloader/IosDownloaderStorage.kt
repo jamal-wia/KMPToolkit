@@ -193,6 +193,9 @@ internal class IosDownloaderStorage(
         // Data first, record last: a crash in between leaves an orphan record, which reads as no
         // temp file at all and is overwritten by the next beginTempFile.
         deleteTempData(unit)
+        // The extraction tree of an archive commit that a process death interrupted: nothing else
+        // ever enumerates tmp/, so a unit that is then dropped would keep it forever.
+        NSFileManager.defaultManager.removeItemAtPath("$baseDir/tmp/staging-${unit.id}", error = null)
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
         // keep its record: with the record gone, the next attempt would commit that complete file
         // unchecked.

@@ -102,6 +102,12 @@ public interface Downloader {
      * returns, so an [ensureAvailable] made right after it starts a new transfer. A call that is
      * running (or queued) for the unit ends with [DownloadCancelledException], unless its commit has
      * already succeeded: then it completes and publishes [UnitDownloadState.Completed].
+     *
+     * Also the way to release a unit the host no longer wants: it deletes the unit's partial temp
+     * data (and an interrupted archive extraction), which nothing else sweeps. A unit the engine has
+     * never tracked is cancelled and cleaned up the same way, without the engine starting to track
+     * it. The engine keeps a small state flow and lock for every unit id it tracks, for its whole
+     * lifetime, so ids must come from a stable catalogue (see [DownloadUnit.id]).
      */
     public fun cancelDownload(unit: DownloadUnit)
 

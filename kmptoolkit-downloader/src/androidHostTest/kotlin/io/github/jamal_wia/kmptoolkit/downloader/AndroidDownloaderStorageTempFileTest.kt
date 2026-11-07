@@ -148,6 +148,21 @@ class AndroidDownloaderStorageTempFileTest {
         assertEquals(TempFileState.None, storage.tempFileState(unit))
     }
 
+    @Test
+    fun `deleting the temp file also removes the staging tree an interrupted extraction left`() {
+        val unit = TestUnit(id = "model")
+        writePartial(unit, ByteArray(10))
+        storage.markTempFileComplete(unit)
+        val staging = File(root, "tmp/staging-model/nested").apply { mkdirs() }
+        File(staging, "marker").writeText("half-extracted")
+        val other = File(root, "tmp/staging-other").apply { mkdirs() }
+
+        storage.deleteTempFile(unit)
+
+        assertFalse(File(root, "tmp/staging-model").exists())
+        assertTrue(other.exists(), "another unit's staging tree is not touched")
+    }
+
     private fun writePartial(unit: DownloadUnit, bytes: ByteArray) {
         File(storage.getTempFilePath(unit)).apply { parentFile!!.mkdirs() }.writeBytes(bytes)
     }

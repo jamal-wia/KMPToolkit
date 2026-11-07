@@ -1316,7 +1316,23 @@ internal class DefaultDownloaderEngine(
      * made right after it starts clean instead of racing a cancel that is still on its way.
      */
     override fun cancelDownload(unit: DownloadUnit) {
-        cancelUnitNow(unitEntry(unit))
+        val entry: UnitEntry? = unitEntries.value[unit.id]
+        if (entry != null) {
+            cancelUnitNow(entry)
+            return
+        }
+        // Never tracked, so no call is running for it (a running call always has an entry) and
+        // there is no state to reset. Release what the platform and the disk may hold, without
+        // creating an entry or a mutex that would then live as long as the engine.
+        val mutex: Mutex? = unitMutexes.value[unit.id]
+        val ownsUnit: Boolean = mutex?.tryLock() ?: true
+        try {
+            cancelTransfer(unit)
+            clearStallCount(unit)
+            if (ownsUnit) safeDeleteTempFile(unit)
+        } finally {
+            if (mutex != null && ownsUnit) mutex.unlock()
+        }
     }
 
     private fun cancelUnitNow(entry: UnitEntry) {

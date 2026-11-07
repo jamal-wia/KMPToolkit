@@ -150,6 +150,23 @@ class IosDownloaderStorageTempFileTest {
         assertEquals(TempFileState.None, storage.tempFileState(unit))
     }
 
+    @Test
+    fun deletingTheTempFileAlsoRemovesTheStagingTreeAnInterruptedExtractionLeft() {
+        val unit = TestUnit(id = "model")
+        writePartial(unit, "0123456789")
+        storage.markTempFileComplete(unit)
+        val tmpDir: String = storage.getTempFilePath(unit).substringBeforeLast('/')
+        val staging = "$tmpDir/staging-model/nested"
+        val other = "$tmpDir/staging-other"
+        NSFileManager.defaultManager.createDirectoryAtPath(staging, true, null, null)
+        NSFileManager.defaultManager.createDirectoryAtPath(other, true, null, null)
+
+        storage.deleteTempFile(unit)
+
+        assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$tmpDir/staging-model"))
+        assertTrue(NSFileManager.defaultManager.fileExistsAtPath(other), "another unit's staging tree is not touched")
+    }
+
     private fun writePartial(unit: DownloadUnit, text: String) {
         val path: String = storage.getTempFilePath(unit)
         NSFileManager.defaultManager.createDirectoryAtPath(

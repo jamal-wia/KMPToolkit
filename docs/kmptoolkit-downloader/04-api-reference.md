@@ -18,7 +18,7 @@ The interface consumers depend on.
 | `cancelAllDownloads` | `suspend fun cancelAllDownloads()` | Cancels every group- and unit-level download, and ends every running `ensureAvailable` with `DownloadCancelledException` (also one a screen launched, outside the engine's scope), except a call whose last commit has already succeeded: that one completes and publishes `Completed`. The logout entry point. |
 | `retryDownload` | `fun retryDownload(group: ResourceGroup)` | Non-suspend; skipped if the group's download is already managed. |
 | `ensureAvailable` | `suspend fun ensureAvailable(unit: DownloadUnit)` | Concurrent calls for the SAME unit share one download. |
-| `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` | Non-suspend and synchronous: the transfer is cancelled and the state is `Idle` on return. Also ends a running `ensureAvailable(unit)` with `DownloadCancelledException`, unless its commit has already succeeded: then the call completes and publishes `Completed`. |
+| `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` | Non-suspend and synchronous: the transfer is cancelled and the state is `Idle` on return. Also ends a running `ensureAvailable(unit)` with `DownloadCancelledException`, unless its commit has already succeeded: then the call completes and publishes `Completed`. Also deletes the unit's partial temp data and a leftover archive staging tree, and does so for a unit the engine never tracked without starting to track it. |
 | `hasActiveUnitDownload` | `suspend fun hasActiveUnitDownload(): Boolean` | True while any per-unit download is `Downloading`. |
 | `unitDownloadStateFlow` | `fun unitDownloadStateFlow(unit: DownloadUnit): Flow<UnitDownloadState>` | First emission is seeded from disk (`Available` or `Idle`). |
 
