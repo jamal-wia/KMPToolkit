@@ -76,8 +76,9 @@ If the CI workflow is unavailable, publish locally from a machine with the one-t
 ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
 ```
 
-`--no-configuration-cache` matches the CI workflow — the vanniktech publishing tasks are not
-configuration-cache compatible as of plugin version `0.37.0`.
+`--no-configuration-cache` matches the CI workflow. The vanniktech publishing plugin has supported
+the configuration cache since version `0.34`, but the release run keeps the flag so a publish never
+reuses a cached configuration.
 
 ## Troubleshooting
 
