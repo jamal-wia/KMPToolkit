@@ -230,6 +230,12 @@ when the task completes) and builds the response from the final `NSHTTPURLRespon
 is invalidated; only headers whose names and values are strings are kept. **A force-quit cancels
 background transfers** — iOS does not continue an upload for an app the user swiped away.
 
+A session is replaced only once its predecessor has reported itself invalid: invalidating a session
+only requests it, and two live background sessions with one identifier are undefined. A hand-off that
+finds the previous session of its item still invalidating waits for `didBecomeInvalidWithError` (at
+most two seconds) before it opens the next one, so a retry right after a failed attempt starts a
+moment late rather than on an overlapping session.
+
 A background session takes the whole request when the task is created, so on iOS the request is the
 one `prepareUpload` returned at hand-off, not one prepared when the transfer starts, and
 `nsurlsessiond` keeps its headers until the transfer ends. Size an `Authorization` token's lifetime —
