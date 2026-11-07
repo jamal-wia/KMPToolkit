@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import platform.Foundation.NSBundle
@@ -482,7 +483,7 @@ internal class BackgroundSessionUploadTransport(
             }
             return
         }
-        val (live: LiveUpload, created: Boolean) = obtainLive(itemId)
+        val (live: LiveUpload, created: Boolean) = obtainLive(itemId, newWake = true)
         if (created) logger.i { "Relaunch settlement — item=$itemId" }
         live.delegate.notifyWhenDrained {
             onDone()
@@ -563,11 +564,18 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
-    /** The live session for [itemId], created under the lock if absent; and whether this call created it. */
-    private fun obtainLive(itemId: String): Pair<LiveUpload, Boolean> {
+    /**
+     * The live session for [itemId], created under the lock if absent; and whether this call created it.
+     * [newWake] starts a new drained signal on an existing session, inside the same lock.
+     */
+    private fun obtainLive(itemId: String, newWake: Boolean = false): Pair<LiveUpload, Boolean> {
         liveLock.lock()
         try {
-            liveUploads[itemId]?.let { existing -> return existing to false }
+            liveUploads[itemId]?.let { existing ->
+                // A relaunch wake on a session that is still live: its events are not the earlier wake's.
+                if (newWake) existing.delegate.startWake()
+                return existing to false
+            }
             val live: LiveUpload = createLive(itemId)
             liveUploads[itemId] = live
             return live to true
@@ -885,8 +893,10 @@ internal class UploadSessionDelegate(
     private val onInvalidated: (UploadSessionDelegate) -> Unit = {},
 ) : NSObject(), NSURLSessionDataDelegateProtocol {
 
-    // @Volatile, not StateFlow: written on the NSURLSession delegate queue (receivedAnyEvent on every progress
-    // event); decisions read them under terminalLock, the volatile only serves the lock-free early-outs.
+    // @Volatile, not StateFlow: written from NSURLSession delegate callbacks (receivedAnyEvent on every
+    // progress event), some of them without terminalLock (receivedAnyEvent, and cancelled/terminalDelivered in
+    // failBeforeStart). The volatile is what makes every read, locked or not, see those writes; terminalLock
+    // only orders task creation against complete()/cancel(), it does not publish these fields.
 
     /** Any event at all tells a re-hand's flush window not to start a fresh upload. */
     @Volatile
@@ -901,10 +911,16 @@ internal class UploadSessionDelegate(
     var terminalDelivered: Boolean = false
 
     /**
-     * Completed when the buffered events are drained: DidFinishEvents, or the terminal event settled. A signal
-     * that lands before anyone registered is remembered, and every registered callback runs exactly once.
+     * Completed once the terminal event is settled. Permanent: a delegate that settled is never reused.
      */
-    private val drained: CompletableDeferred<Unit> = CompletableDeferred()
+    private val settled: CompletableDeferred<Unit> = CompletableDeferred()
+
+    /**
+     * DidFinishEvents of the current wake. A signal that lands before anyone registered is remembered, but only
+     * for its own wake: [startWake] replaces a completed one, so a later relaunch wake on the same live
+     * delegate waits for its own signal (or the settlement) instead of firing at once.
+     */
+    private val finishedEvents: MutableStateFlow<CompletableDeferred<Unit>> = MutableStateFlow(CompletableDeferred())
 
     /**
      * Progress goes through one conflated channel and one forwarder, so fractions reach the handler in order
@@ -943,10 +959,21 @@ internal class UploadSessionDelegate(
         invalidated.complete(Unit)
     }
 
-    /** Chains [callback] to "the buffered events are drained"; fires at once if they already are. */
+    /** Begins a new relaunch wake: a DidFinishEvents remembered from an earlier wake no longer counts. */
+    fun startWake() {
+        finishedEvents.update { current -> if (current.isCompleted) CompletableDeferred() else current }
+    }
+
+    /**
+     * Chains [callback] to "the buffered events of this wake are drained" (DidFinishEvents of the current wake,
+     * or the terminal event settled); fires at once if they already are. Runs exactly once however many
+     * signals arrive.
+     */
     fun notifyWhenDrained(callback: () -> Unit) {
         // Runs synchronously on the completing thread, or at once on this thread if already drained.
-        drained.invokeOnCompletion { callback() }
+        val once = OnceGuard(callback)
+        settled.invokeOnCompletion { once.fire() }
+        finishedEvents.value.invokeOnCompletion { once.fire() }
     }
 
     /** The response body so far, kept up to the engine's ceiling plus one byte; handed over once, at completion. */
@@ -970,7 +997,7 @@ internal class UploadSessionDelegate(
     }
 
     override fun URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession) {
-        drained.complete(Unit)
+        finishedEvents.value.complete(Unit)
     }
 
     override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
@@ -1045,7 +1072,7 @@ internal class UploadSessionDelegate(
             onTerminal(this@UploadSessionDelegate)
             // The terminal event was the buffered work: once it is settled, the OS completion handler need
             // not wait for the safety timeout — DidFinishEvents may never come after invalidation.
-            drained.complete(Unit)
+            settled.complete(Unit)
         }
     }
 }
