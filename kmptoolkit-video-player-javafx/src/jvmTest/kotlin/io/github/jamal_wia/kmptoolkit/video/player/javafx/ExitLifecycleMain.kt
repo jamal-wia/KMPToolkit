@@ -28,6 +28,7 @@ internal object ExitLifecycleMain {
                 "playing" -> playing()
                 "during-load" -> duringLoad()
                 "implicit" -> implicit()
+                "implicit-immediate" -> implicitImmediate()
                 "callback" -> callback()
                 else -> error("unknown scenario")
             }
@@ -148,6 +149,24 @@ internal object ExitLifecycleMain {
         engine.release()
         println("RESULT callsMs=${ms(begun)}")
         println("RESULT availableAfter=${isJavaFxMediaAvailable()}")
+        val reloadBegun: Long = System.nanoTime()
+        println("RESULT reload=${load(engine)}")
+        println("RESULT reloadMs=${ms(reloadBegun)}")
+    }
+
+    /** The window closes and the very next load is made, with no pause for the toolkit to finish going down. */
+    private fun implicitImmediate() {
+        val engine = JavaFxVideoEngine(readyTimeoutMs = 4_000L)
+        println("RESULT firstLoad=${load(engine)}")
+        val closed = CountDownLatch(1)
+        Platform.runLater {
+            val stage = javafx.stage.Stage()
+            stage.scene = javafx.scene.Scene(javafx.scene.Group(), 50.0, 50.0)
+            stage.show()
+            stage.close()
+            closed.countDown()
+        }
+        closed.await(10L, TimeUnit.SECONDS)
         val reloadBegun: Long = System.nanoTime()
         println("RESULT reload=${load(engine)}")
         println("RESULT reloadMs=${ms(reloadBegun)}")
