@@ -98,111 +98,190 @@ class ActivityBiometricPromptPortTest {
         assertEquals(emptyList(), offending)
     }
 
-    @Test
-    fun `a released handle lets go of the system prompt`() {
-        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
-        val handle = ActivityPromptHandle()
-        handle.attach(BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), noopCallback))
-        assertTrue(handle.holdsPromptForTest())
-
-        handle.release()
-
-        assertFalse(handle.holdsPromptForTest())
+    /** Counts the dismissals the handle asks for and where they ran. */
+    private class FakeStop {
+        var calls: Int = 0
+        var allOnMain: Boolean = true
+        val stop: (BiometricPrompt) -> Unit = {
+            calls++
+            if (Looper.myLooper() != Looper.getMainLooper()) allOnMain = false
+        }
     }
 
-    @Test
-    fun `a prompt attached after release is not kept`() {
-        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
-        val handle = ActivityPromptHandle()
-        handle.release()
-
-        handle.attach(BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), noopCallback))
-
-        assertFalse(handle.holdsPromptForTest())
-    }
-
-    @Test
-    fun `cancel before attach is remembered and cancel after release is harmless`() {
-        val handle = ActivityPromptHandle()
-        handle.cancel()
-        assertTrue(handle.isCancelled)
-
-        handle.release()
-        handle.cancel()
-    }
-
-    @Test
-    fun `the first delivered outcome releases the prompt and a second is dropped`() {
-        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
-        val handle = ActivityPromptHandle()
-        handle.attach(BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), noopCallback))
+    private class HandleFixture(val activity: FragmentActivity) {
         val outcomes = mutableListOf<BiometricResult>()
-        val deliver: (BiometricResult) -> Unit = deliverOnceAndRelease(handle) { outcomes += it }
+        val stop = FakeStop()
+        val handle = ActivityPromptHandle({ outcomes += it }, stop.stop)
+        fun newPrompt(): BiometricPrompt =
+            BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), object : BiometricPrompt.AuthenticationCallback() {})
+    }
 
-        deliver(BiometricResult.Authenticated)
-        deliver(BiometricResult.Rejected)
+    private fun fixture(): HandleFixture =
+        HandleFixture(Robolectric.buildActivity(FragmentActivity::class.java).setup().get())
 
-        assertEquals(listOf<BiometricResult>(BiometricResult.Authenticated), outcomes)
-        assertFalse(handle.holdsPromptForTest())
+    @Test
+    fun `a cancel before attach refuses the prompt and holds nothing`() {
+        val f = fixture()
+
+        f.handle.cancel()
+
+        assertFalse(f.handle.attach(f.newPrompt()))
+        assertFalse(f.handle.holdsPromptForTest())
+        assertFalse(f.handle.holdsSinkForTest())
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, f.stop.calls)
     }
 
     @Test
-    fun `a rejection keeps the prompt for the dismissal that follows it and cancel then releases it`() {
-        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
-        val handle = ActivityPromptHandle()
-        handle.attach(BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), noopCallback))
-        val deliver: (BiometricResult) -> Unit = deliverOnceAndRelease(handle) { }
+    fun `a cancel from another thread before attach refuses the prompt`() {
+        val f = fixture()
 
-        deliver(BiometricResult.Rejected)
-        assertTrue(handle.holdsPromptForTest())
+        onBackground { f.handle.cancel() }
 
-        handle.cancel()
-        assertFalse(handle.holdsPromptForTest())
+        assertFalse(f.handle.attach(f.newPrompt()))
+        assertFalse(f.handle.holdsPromptForTest())
+        assertFalse(f.handle.holdsSinkForTest())
     }
 
     @Test
-    fun `a cancel from another thread before the prompt is attached still dismisses it once attached`() {
-        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
-        val handle = ActivityPromptHandle()
-        // The caller is cancelled on a background thread while the show block has not attached yet.
-        Thread { handle.cancel() }.also { it.start(); it.join(5_000) }
-        // The show block then attaches on main, and the posted cancel runs after it.
-        handle.attach(BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), noopCallback))
-        assertTrue(handle.holdsPromptForTest())
+    fun `a cancel after attach dismisses on main exactly once however often it is repeated`() {
+        val f = fixture()
+        assertTrue(f.handle.attach(f.newPrompt()))
 
+        onBackground { f.handle.cancel() }
+        assertEquals(0, f.stop.calls, "the dismissal is posted to main, not run on the cancelling thread")
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, f.stop.calls)
+        assertTrue(f.stop.allOnMain)
+
+        f.handle.cancel()
+        onBackground { f.handle.cancel() }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, f.stop.calls)
+        assertFalse(f.handle.holdsPromptForTest())
+        assertFalse(f.handle.holdsSinkForTest())
+    }
+
+    @Test
+    fun `a second attach does not replace the first prompt`() {
+        val f = fixture()
+        assertTrue(f.handle.attach(f.newPrompt()))
+
+        assertFalse(f.handle.attach(f.newPrompt()))
+    }
+
+    @Test
+    fun `the first outcome is delivered once and drops the prompt and the callback`() {
+        val f = fixture()
+        f.handle.attach(f.newPrompt())
+
+        f.handle.deliver(BiometricResult.Authenticated)
+        f.handle.deliver(BiometricResult.Rejected)
+
+        assertEquals(listOf<BiometricResult>(BiometricResult.Authenticated), f.outcomes)
+        assertFalse(f.handle.holdsPromptForTest())
+        assertFalse(f.handle.holdsSinkForTest())
+    }
+
+    @Test
+    fun `a rejection keeps the prompt but not the callback until the dismissal that follows`() {
+        val f = fixture()
+        f.handle.attach(f.newPrompt())
+
+        f.handle.deliver(BiometricResult.Rejected)
+        assertTrue(f.handle.holdsPromptForTest())
+        assertFalse(f.handle.holdsSinkForTest())
+
+        f.handle.cancel()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(f.handle.holdsPromptForTest())
+        assertEquals(1, f.stop.calls)
+        // The ERROR_CANCELED that the dismissal produces is dropped, not reported as the user cancelling.
+        f.handle.deliver(BiometricResult.Unavailable(BiometricUnavailability.NOT_ENROLLED))
+        assertEquals(listOf<BiometricResult>(BiometricResult.Rejected), f.outcomes)
+    }
+
+    @Test
+    fun `an outcome after cancel is dropped`() {
+        val f = fixture()
+        f.handle.attach(f.newPrompt())
+
+        f.handle.cancel()
+        f.handle.deliver(BiometricResult.Authenticated)
+
+        assertEquals(emptyList(), f.outcomes)
+    }
+
+    @Test
+    fun `an outcome that wins over a cancel is delivered once and the cancel dismisses nothing`() {
+        val f = fixture()
+        f.handle.attach(f.newPrompt())
+
+        f.handle.deliver(BiometricResult.Authenticated)
+        onBackground { f.handle.cancel() }
         shadowOf(Looper.getMainLooper()).idle()
 
-        assertFalse(handle.holdsPromptForTest())
+        assertEquals(listOf<BiometricResult>(BiometricResult.Authenticated), f.outcomes)
+        assertEquals(0, f.stop.calls)
     }
 
     @Test
-    fun `the callback of the caller is not reachable from the delivery lambda after an outcome`() {
-        val handle = ActivityPromptHandle()
-        val callerCallback: (BiometricResult) -> Unit = { }
-        val deliver: (BiometricResult) -> Unit = deliverOnceAndRelease(handle, callerCallback)
-        assertTrue(reaches(deliver, callerCallback))
+    fun `an outcome before attach is delivered once and refuses the prompt`() {
+        val f = fixture()
 
-        deliver(BiometricResult.Authenticated)
+        f.handle.deliver(BiometricResult.Failed())
+        f.handle.deliver(BiometricResult.Authenticated)
 
-        assertFalse(reaches(deliver, callerCallback))
+        assertEquals(listOf<BiometricResult>(BiometricResult.Failed()), f.outcomes)
+        assertFalse(f.handle.attach(f.newPrompt()))
     }
 
-    /** Whether [target] is held by [from]'s captured variables (the lambda's fields and Kotlin refs). */
+    @Test
+    fun `the prompt handle has no continuation field`() {
+        // The behavioural tests above prove what is released; this guards the shape: the handle's
+        // only state is the phase flow, never a continuation of the caller.
+        val offending: List<String> = ActivityPromptHandle::class.java.declaredFields
+            .filter { kotlin.coroutines.Continuation::class.java.isAssignableFrom(it.type) }
+            .map { it.name }
+
+        assertEquals(emptyList(), offending)
+    }
+
+    @Test
+    fun `the caller callback is not reachable from the framework callback after an outcome`() {
+        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val seams = CountingSeams()
+        val callerCallback: (BiometricResult) -> Unit = { }
+        portWith(activity, seams).show(promptText, true, callerCallback)
+        val framework: BiometricPrompt.AuthenticationCallback = checkNotNull(seams.callback)
+        // The walker must see the callback while it is still held, or "not reachable" proves nothing.
+        assertTrue(reaches(framework, callerCallback))
+
+        framework.onAuthenticationError(BiometricPrompt.ERROR_LOCKOUT, "locked out")
+
+        assertFalse(reaches(framework, callerCallback))
+    }
+
+    /** Whether [target] is reachable from [from] through instance fields of non-framework objects. */
     private fun reaches(from: Any, target: Any): Boolean {
-        var current: Any? = from
-        val seen = mutableSetOf<Any>()
+        val seen: MutableSet<Any> = java.util.Collections.newSetFromMap(java.util.IdentityHashMap())
         val queue = ArrayDeque<Any>().apply { add(from) }
         while (queue.isNotEmpty()) {
-            current = queue.removeFirst()
+            val current: Any = queue.removeFirst()
             if (!seen.add(current)) continue
-            for (field in current.javaClass.declaredFields) {
-                if (java.lang.reflect.Modifier.isStatic(field.modifiers)) continue
-                field.isAccessible = true
-                val value: Any = field.get(current) ?: continue
-                if (value === target) return true
-                if (value.javaClass.name.startsWith("kotlin.jvm.internal.Ref") ||
-                    value.javaClass.name.contains("Lambda") || value is Function<*>
-                ) queue.add(value)
+            var type: Class<*>? = current.javaClass
+            while (type != null && !type.name.startsWith("java.lang.Object")) {
+                for (field in type.declaredFields) {
+                    if (java.lang.reflect.Modifier.isStatic(field.modifiers) || field.type.isPrimitive) continue
+                    field.isAccessible = true
+                    val value: Any = field.get(current) ?: continue
+                    if (value === target) return true
+                    val name: String = value.javaClass.name
+                    if (!name.startsWith("java.") && !name.startsWith("android") && !name.startsWith("kotlin.Pair")) {
+                        queue.add(value)
+                    }
+                }
+                type = type.superclass
             }
         }
         return false
@@ -250,6 +329,124 @@ class ActivityBiometricPromptPortTest {
 
         assertEquals(listOf<BiometricResult>(BiometricResult.Failed()), outcomes)
         assertFalse(handle.holdsPromptForTest())
+    }
+
+    // --- cancellation racing the show block (invariant: a cancel during the show start never leaves a sheet) ---
+
+    /** A port whose factory and start seams only count, so no real prompt is built or started. */
+    private class CountingSeams {
+        var created: Int = 0
+        var started: Int = 0
+        var onCreate: () -> Unit = { }
+        var callback: BiometricPrompt.AuthenticationCallback? = null
+        val stop = FakeStop()
+    }
+
+    private fun portWith(activity: FragmentActivity, seams: CountingSeams): ActivityBiometricPromptPort =
+        ActivityBiometricPromptPort(
+            FakeActivityAccess(activity),
+            BiometricGateConfig(),
+            promptFactory = { a, executor, cb ->
+                seams.created++
+                seams.callback = cb
+                seams.onCreate()
+                BiometricPrompt(a, executor, cb)
+            },
+            startPrompt = { _, _ -> seams.started++ },
+            stopPrompt = seams.stop.stop,
+        )
+
+    /** Runs [block] on a background thread and waits for it, bounded so a hang fails fast. */
+    private fun <T> onBackground(block: () -> T): T {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            return executor.submit<T>(block).get(5, java.util.concurrent.TimeUnit.SECONDS)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `a show posted from another thread and cancelled before it runs never builds a prompt`() {
+        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val seams = CountingSeams()
+        val outcomes = mutableListOf<BiometricResult>()
+        val handle: PromptHandle = onBackground {
+            checkNotNull(portWith(activity, seams).show(promptText, true) { outcomes += it })
+        }
+
+        handle.cancel()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(0, seams.created)
+        assertEquals(0, seams.started)
+        assertEquals(emptyList(), outcomes)
+    }
+
+    @Test
+    fun `a cancel landing while the prompt is being built prevents authenticate`() {
+        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val seams = CountingSeams()
+        val handle: PromptHandle = onBackground { checkNotNull(portWith(activity, seams).show(promptText, true) { }) }
+        // The caller is cancelled in the window between the show block's pre-check and its attach.
+        seams.onCreate = { handle.cancel() }
+
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(1, seams.created)
+        assertEquals(0, seams.started, "the sheet must not be started once cancelled")
+        assertEquals(0, seams.stop.calls, "nothing was shown, so nothing is dismissed")
+    }
+
+    @Test
+    fun `a cancel from another thread after the block ran dismisses the sheet once on main and drops the outcome`() {
+        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val seams = CountingSeams()
+        val outcomes = mutableListOf<BiometricResult>()
+        val handle: PromptHandle = onBackground {
+            checkNotNull(portWith(activity, seams).show(promptText, true) { outcomes += it })
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, seams.started)
+
+        onBackground { handle.cancel() }
+        assertEquals(0, seams.stop.calls)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, seams.stop.calls)
+        assertTrue(seams.stop.allOnMain)
+        // The dismissal's own callback arrives after cancel: PromptHandle.cancel promises no outcome.
+        checkNotNull(seams.callback).onAuthenticationError(BiometricPrompt.ERROR_CANCELED, "cancelled")
+
+        assertEquals(emptyList(), outcomes)
+    }
+
+    @Test
+    fun `an outcome that arrives after cancel is dropped`() {
+        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val seams = CountingSeams()
+        val outcomes = mutableListOf<BiometricResult>()
+        val handle: PromptHandle = checkNotNull(portWith(activity, seams).show(promptText, true) { outcomes += it })
+
+        handle.cancel()
+        checkNotNull(seams.callback).onAuthenticationError(BiometricPrompt.ERROR_LOCKOUT, "locked out")
+
+        assertEquals(emptyList(), outcomes)
+    }
+
+    @Test
+    fun `cancel is idempotent in every phase`() {
+        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val seams = CountingSeams()
+        val handle: PromptHandle = checkNotNull(portWith(activity, seams).show(promptText, true) { })
+
+        handle.cancel()
+        handle.cancel()
+        onBackground { handle.cancel() }
+        shadowOf(Looper.getMainLooper()).idle()
+        handle.cancel()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(1, seams.stop.calls)
     }
 
     private val noopCallback = object : BiometricPrompt.AuthenticationCallback() {}

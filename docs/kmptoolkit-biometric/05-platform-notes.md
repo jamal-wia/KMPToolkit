@@ -84,11 +84,15 @@ answers `NoPromptHost` until the activity pauses and resumes again.
 A gate built without an `activityAccess` registers a lifecycle callback with the `Application` of its
 own, for the life of the process; build the gate once (or share one tracker) rather than per screen.
 
-The gate keeps no activity of its own. While a prompt is up it holds the system `BiometricPrompt` so
-that cancelling the calling coroutine can dismiss it, and lets go of it as soon as the outcome has
-been delivered, and likewise drops its reference to your coroutine's callback. androidx may keep the
-prompt and its callback for longer; the module guarantees only that it is not what keeps them reachable
-once the prompt is over, so a prompt that was showing during a rotation is not pinned by the gate.
+The gate keeps no activity of its own. While a prompt is up it holds the system `BiometricPrompt` (so
+that cancelling the calling coroutine can dismiss it) and your coroutine's pending result, and it drops
+both as soon as an outcome has been delivered or the call is cancelled. androidx may keep the prompt and
+its callback for longer; the module guarantees only that it is not what keeps them reachable once the
+prompt is over, so a prompt that was showing during a rotation is not pinned by the gate.
+
+Cancelling `authenticate` is safe from any thread, at any moment: a cancellation that arrives before the
+sheet has been started stops it from appearing, and one that arrives later dismisses it, with no result
+delivered. The prompt itself is always driven on the main thread.
 
 ### Authenticator strength
 
