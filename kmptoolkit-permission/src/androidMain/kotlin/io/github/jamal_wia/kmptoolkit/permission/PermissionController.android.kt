@@ -52,6 +52,17 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 private const val INTERRUPTED: Int = Int.MIN_VALUE
 
+/**
+ * The entries with a dialog of their own that [AndroidPermissionController.coveredBy] can share a learned
+ * refusal with: the catalog's, which is all anyone can know of ahead of time.
+ */
+private val MIRRORABLE_ENTRIES: List<Permission> = CommonPermission.entries + listOf(
+    AndroidPermission.NearbyWifiDevices,
+    AndroidPermission.LocalNetwork,
+    AndroidPermission.BodySensors,
+    AndroidPermission.BodySensorsBackground,
+)
+
 /** The value written under a [rationaleSeenKey]. Its presence is the flag; the text is for a human reading a dump. */
 private const val FLAG_SET: String = "true"
 
@@ -543,6 +554,7 @@ internal class AndroidPermissionController(
                 // Recorded only now, after the dialog actually resolved. Recording it before launching
                 // would turn a dialog that never appeared into a permanent denial the user never made.
                 markAsked(permission)
+                mirrorAsked(permission, strings, answers)
                 // The answer arrives just before the activity is resumed again, and a continuation that
                 // runs in that gap finds no activity to ask for the rationale. Waiting for the resume
                 // turns "cannot tell" back into an answer in all but a backgrounded app.
@@ -801,11 +813,16 @@ internal class AndroidPermissionController(
     private fun PermissionStatus.mayShowDialog(): Boolean =
         this is PermissionStatus.NotDetermined || this is PermissionStatus.Denied || this is PermissionStatus.Limited
 
+    /** The strings of [androidPermissions] the manifest declares, without reporting; all of them when it cannot be read. */
+    private fun declaredQuietly(androidPermissions: List<String>): List<String> {
+        val declared: Set<String> = declaredPermissions() ?: return androidPermissions
+        return androidPermissions.filter { it in declared }
+    }
+
     /** The strings of [androidPermissions] the manifest declares; all of them when it cannot be read. */
     private fun declared(permission: Permission, androidPermissions: List<String>): List<String> {
-        val declared: Set<String> = declaredPermissions() ?: return androidPermissions
-        val present: List<String> = androidPermissions.filter { it in declared }
-        if (present.isEmpty() && reportedUndeclared.markReported(permission.id)) {
+        val present: List<String> = declaredQuietly(androidPermissions)
+        if (present.isEmpty() && declaredPermissions() != null && reportedUndeclared.markReported(permission.id)) {
             logger.w { "$permission reads Unavailable: declare ${androidPermissions.joinToString(" or ")} in the manifest" }
         }
         return present
@@ -852,6 +869,7 @@ internal class AndroidPermissionController(
         return when (rationaleFor(androidPermissions)) {
             true -> {
                 markFlag(rationaleSeenKey(keyPrefix, permission))
+                mirrorRationaleSeen(permission, androidPermissions)
                 PermissionStatus.Denied(explainFirst = true)
             }
 
@@ -865,6 +883,38 @@ internal class AndroidPermissionController(
             }
 
             null -> if (asked) PermissionStatus.Denied(explainFirst = false) else PermissionStatus.NotDetermined
+        }
+    }
+
+    /**
+     * The other catalog entries that ask Android for nothing but strings [strings] already holds (and for
+     * at least one the manifest declares), with the declared strings each asks for. Several entries can
+     * stand for one Android permission without being the same entry (`PhotoLibrary` and `AudioLibrary`
+     * below API 33, `Calendar` and `CalendarWriteOnly`); the platform's "will not show again" is per
+     * string, so what is learned through one is learned for these too. Entries that stand for another
+     * (`SameAs`) already share flags and are left out; so is anything the catalog does not list (a
+     * `Runtime(name)` keeps its own flags). Reads nothing and reports nothing.
+     */
+    private fun coveredBy(permission: Permission, strings: List<String>): List<Pair<Permission, List<String>>> =
+        MIRRORABLE_ENTRIES.mapNotNull { entry: Permission ->
+            if (entry == permission || entry.statusSource() != entry || entry.isScanWithoutDisavowal()) return@mapNotNull null
+            val rule: RuntimeRule.Dialog = ruleOf(entry) as? RuntimeRule.Dialog ?: return@mapNotNull null
+            val entryStrings: List<String> = declaredQuietly(rule.androidPermissions)
+            if (entryStrings.isNotEmpty() && strings.containsAll(entryStrings)) entry to entryStrings else null
+        }
+
+    /** After a refusal of [permission] through [strings]: the same refusal, as the other entries read it. */
+    private suspend fun mirrorAsked(permission: Permission, strings: List<String>, answers: Map<String, Boolean>) {
+        for ((entry: Permission, entryStrings: List<String>) in coveredBy(permission, strings)) {
+            val rule: RuntimeRule.Dialog = ruleOf(entry) as RuntimeRule.Dialog
+            if (rule.grantOf(answers.filterKeys { it in entryStrings }) == Grant.None) markAsked(entry)
+        }
+    }
+
+    /** After the platform asked for a rationale for [permission]'s [strings]: the other entries that ask for the same also saw it. */
+    private suspend fun mirrorRationaleSeen(permission: Permission, strings: List<String>) {
+        for ((entry: Permission, entryStrings: List<String>) in coveredBy(permission, strings)) {
+            if (rationaleFor(entryStrings) == true) markFlag(rationaleSeenKey(keyPrefix, entry))
         }
     }
 
