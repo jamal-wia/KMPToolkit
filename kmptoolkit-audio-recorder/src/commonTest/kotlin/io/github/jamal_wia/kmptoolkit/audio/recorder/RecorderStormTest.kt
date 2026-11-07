@@ -292,6 +292,78 @@ class RecorderStormTest {
         }
     }
 
+    // --- deletion sites the fence does not cover ---
+
+    @Test
+    fun `a released recorders finalizing cancel never deletes a file the next recorder now owns`() = storm {
+        val fs = StormFs()
+        val path = "/data/cancel-tail.m4a"
+        val engineA = StormEngine(onPrepared = { fs.create(it) })
+        val recorderA: DefaultAudioRecorder = recorder(engineA, fs)
+        assertTrue(recorderA.prepare(path).isSuccess)
+        assertTrue(recorderA.start().isSuccess)
+        engineA.stopOpen.store(false)
+        val cancelling: Job = launch(Dispatchers.Default) { recorderA.cancel() }
+        awaitTrue("A inside engine.stop") { engineA.inStop.load() }
+        // The screen goes away while its discarded take is still being finalized.
+        recorderA.release()
+
+        val engineB = StormEngine(onPrepared = { fs.create(it) })
+        val recorderB: DefaultAudioRecorder = recorder(engineB, fs)
+        recordAndFinish(recorderB, path, "B")
+        assertTrue(fs.has(path))
+
+        engineA.stopOpen.store(true)
+        withTimeout(10.seconds) { cancelling.join() }
+        awaitTrue("A finalizer done") { !recorderA.isFinalizing }
+        assertTrue(fs.has(path), "the released recorder's cancel tail deleted the next recorder's recording; deletions ${fs.deletions()}")
+        recorderB.release()
+    }
+
+    @Test
+    fun `a released recorders system-event cleanup never deletes a file the next recorder now owns`() = storm {
+        val fs = StormFs()
+        val path = "/data/event-tail.m4a"
+        val engineA = StormEngine(onPrepared = { fs.create(it) })
+        val recorderA: DefaultAudioRecorder = recorder(engineA, fs)
+        assertTrue(recorderA.prepare(path).isSuccess)
+        engineA.releaseOpen.store(false)
+        // The system ends a recorder that was only prepared: its empty file is cleaned up off the lock.
+        engineA.currentListener()!!.invoke(EngineEvent.Interrupted(InterruptionReason.StorageLow))
+        awaitTrue("A cleanup inside engine.release") { engineA.inRelease.load() }
+        recorderA.release()
+
+        val engineB = StormEngine(onPrepared = { fs.create(it) })
+        val recorderB: DefaultAudioRecorder = recorder(engineB, fs)
+        recordAndFinish(recorderB, path, "B")
+        assertTrue(fs.has(path))
+
+        engineA.releaseOpen.store(true)
+        awaitTrue("A cleanup done") { !recorderA.isFinalizing }
+        assertTrue(fs.has(path), "the released recorder's cleanup deleted the next recorder's recording; deletions ${fs.deletions()}")
+        recorderB.release()
+    }
+
+    @Test
+    fun `releasing a recorder that is only prepared never deletes the file a newer recorder took over`() = storm {
+        val fs = StormFs()
+        val path = "/data/screen-swap.m4a"
+        val engineA = StormEngine(onPrepared = { fs.create(it) })
+        val recorderA: DefaultAudioRecorder = recorder(engineA, fs)
+        assertTrue(recorderA.prepare(path).isSuccess)
+
+        // The next screen is created before the old one is destroyed and records to the same path.
+        val engineB = StormEngine(onPrepared = { fs.create(it) })
+        val recorderB: DefaultAudioRecorder = recorder(engineB, fs)
+        recordAndFinish(recorderB, path, "B")
+
+        recorderA.release()
+        assertTrue(fs.has(path), "releasing the old Ready recorder deleted the newer recorder's recording; deletions ${fs.deletions()}")
+        recorderB.release()
+    }
+
+    // --- many callers on real threads ---
+
     // --- many callers on real threads ---
 
     @Test

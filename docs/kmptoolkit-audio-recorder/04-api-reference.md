@@ -212,17 +212,22 @@ filesystem error) is reported as `EngineFailure(PREPARE, cause)` too; `state` ne
 truncates it). When preparation fails or is cancelled, a file that was already there is not deleted by
 the library — only a file this call created is — though the platform may already have truncated it.
 
-**Handing an explicit path from one recorder to the next.** A recorder released while its `prepare()`
-is still opening the file finishes later and deletes the file it created. If a newer recorder has
-taken the same explicit `outputPath` in the meantime, the late tail leaves the file alone: each
-`prepare()` claims its path in an in-process registry before it looks at the file, a later claim on
-the same path takes it over, and a tail deletes only while its claim is still the current one. So a
-released recorder can never delete the newer recorder's recording. The cost, in the narrow case
-where the old attempt's engine had already created a zero-byte file when the new recorder started,
-is that this file is not cleaned up by the old tail (the new recorder's own recording replaces it).
-The registry lives only inside one process and only for the duration of a `prepare()` call; a path
-shared between processes, or reused by something other than a recorder of this library, is not
-protected. Generated paths are unique and never meet this case.
+**Handing an explicit path from one recorder to the next.** A recorder never deletes a file it no
+longer owns. Each `prepare()` claims its path in an in-process registry before it looks at the file,
+and a later claim on the same path (the next screen's recorder) takes it over. A successful
+`prepare()` keeps its claim for the whole session, and every deletion of the session's file goes
+through it: the late tail of a `prepare()` that was released while opening the file, the file removal
+of a `cancel()` whose finalization is still running when the recorder is released, the cleanup after
+the system ends a prepared recording, `release()` or a new `prepare()` on a recorder that is only
+prepared, and a failed `start()`. If a newer recorder has taken the same explicit `outputPath` in the
+meantime, the older recorder leaves the file alone, so a released recorder can never delete the newer
+recorder's recording. The cost, in the narrow case where the old attempt's engine had already created
+a zero-byte file when the new recorder started, is that this file is not cleaned up by the old
+recorder (the new recorder's own recording replaces it). The claim ends when the file is deleted or
+when the recorder is prepared again or released, so the registry holds at most one entry per live
+recorder. It lives only inside one process; a path shared between processes, or reused by something
+other than a recorder of this library, is not protected. Generated paths are unique and never meet
+this case.
 
 Cancellable at every point, including while the directory and free-space checks are still pending:
 on cancellation the native recorder is released, the file is deleted, `state` returns to `Idle`, and

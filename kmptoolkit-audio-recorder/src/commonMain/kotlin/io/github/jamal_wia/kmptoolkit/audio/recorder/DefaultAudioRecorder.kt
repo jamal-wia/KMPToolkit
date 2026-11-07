@@ -154,6 +154,14 @@ internal class DefaultAudioRecorder(
      */
     private var finalizing: Finalization? = null
 
+    /**
+     * The claim this recorder keeps on its session's output path from a successful `prepare()` until
+     * the session's file is deleted or the next `prepare()` / `release()` lets go (see
+     * [OutputPathOwners]). Every deletion of a session file goes through it, so a recorder never
+     * deletes a file a newer recorder has since taken over on the same explicit path. Lock held.
+     */
+    private var sessionClaim: OutputPathClaim? = null
+
     private var tickerJob: Job? = null
     private var tickerEpoch: Long = 0
     private var meterJob: Job? = null
@@ -183,7 +191,9 @@ internal class DefaultAudioRecorder(
         try {
             return prepareClaiming(outputPath, claim)
         } finally {
-            OutputPathOwners.release(claim)
+            // A successful prepare handed the claim to the session (sessionClaim); any other way
+            // out drops it.
+            if (gate.exclusive { sessionClaim !== claim }) OutputPathOwners.release(claim)
         }
     }
 
@@ -283,6 +293,7 @@ internal class DefaultAudioRecorder(
             // Listeners go on only now: nothing the engine reports while preparing can end a
             // recording that does not exist yet.
             engine.setEventListener(listenerFor(token))
+            sessionClaim = claim
             _state.value = RecorderState.Ready(path)
             RecorderResult.Success(path)
         }
@@ -308,6 +319,7 @@ internal class DefaultAudioRecorder(
         // up. A Completed or Interrupted file belongs to the caller and is deliberately left alone,
         // as is the one a failed stop or a lost recording left behind.
         discardPreparedButUnusedFile(current)
+        dropSessionClaim()
         engine.release()
         resetTiming()
         lastSpaceCheck.value = null
@@ -333,7 +345,8 @@ internal class DefaultAudioRecorder(
             engine.start()
         } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
             engine.release()
-            fileSystem.delete(current.outputPath)
+            deleteOwned(current.outputPath, sessionClaim)
+            dropSessionClaim()
             return@exclusive fail(RecorderError.EngineFailure(RecorderOperation.START, failure))
         }
 
@@ -481,9 +494,11 @@ internal class DefaultAudioRecorder(
                 plan.finalization,
                 releasesEngine = plan.holdsEngine,
                 slow = { if (plan.engineActive) stopEngineQuietly() },
-                afterRelease = { fileSystem.delete(plan.path) },
+                afterRelease = { deleteOwned(plan.path, plan.finalization.claim) },
             ) { _: Throwable? ->
                 resetTiming()
+                // The file is gone, so the path is nobody's: a later recorder starts from scratch.
+                dropSessionClaim()
                 if (!released) _state.value = RecorderState.Idle
             }
         }
@@ -548,6 +563,7 @@ internal class DefaultAudioRecorder(
                 // holds nothing and can never be cleaned up later, because prepare() — the only
                 // thing that discards it — can no longer run on a released recorder.
                 discardPreparedButUnusedFile(current)
+                dropSessionClaim()
             }
             resetTiming()
             _state.value = RecorderState.Released
@@ -635,9 +651,10 @@ internal class DefaultAudioRecorder(
                         finalization,
                         releasesEngine = true,
                         slow = {},
-                        afterRelease = { fileSystem.delete(finalization.path) },
+                        afterRelease = { deleteOwned(finalization.path, finalization.claim) },
                     ) { _: Throwable? ->
                         resetTiming()
+                        dropSessionClaim()
                         if (!released) {
                             _state.value = RecorderState.Failed(RecorderError.RecordingLost(reason))
                         }
@@ -686,7 +703,7 @@ internal class DefaultAudioRecorder(
             }
         }
         engine.setEventListener(null)
-        val finalization = Finalization(path, _elapsed.value)
+        val finalization = Finalization(path, _elapsed.value, sessionClaim)
         finalizing = finalization
         return finalization
     }
@@ -694,12 +711,16 @@ internal class DefaultAudioRecorder(
     /** Publishes the end of a finalization. Lock held. */
     private fun endFinalize(finalization: Finalization) {
         finalizing = null
+        // A released recorder has no later prepare() or release() to let go of its claim.
+        if (released) dropSessionClaim()
         finalization.done.complete(Unit)
     }
 
     private class Finalization(
         val path: String,
         val duration: Duration,
+        /** The session's path claim at the moment it was taken over; deletions are fenced by it. */
+        val claim: OutputPathClaim?,
     ) {
         val done: CompletableDeferred<Unit> = CompletableDeferred()
     }
@@ -820,7 +841,21 @@ internal class DefaultAudioRecorder(
     }
 
     private fun discardPreparedButUnusedFile(current: RecorderState) {
-        if (current is RecorderState.Ready) fileSystem.delete(current.outputPath)
+        if (current is RecorderState.Ready) deleteOwned(current.outputPath, sessionClaim)
+    }
+
+    /**
+     * Deletes a session file only while [claim] still owns its path: a newer recorder that took the
+     * same explicit path over owns whatever is there now. No claim means nothing to delete.
+     */
+    private fun deleteOwned(path: String, claim: OutputPathClaim?) {
+        if (claim != null) OutputPathOwners.deleteIfOwner(path, claim) { fileSystem.delete(path) }
+    }
+
+    /** Lets go of the session's path claim. Lock held. */
+    private fun dropSessionClaim() {
+        sessionClaim?.let { claim: OutputPathClaim -> OutputPathOwners.release(claim) }
+        sessionClaim = null
     }
 
     private fun checkFreeSpace(directory: String, existed: Boolean): StorageCheck {

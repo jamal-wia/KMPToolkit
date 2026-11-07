@@ -24,8 +24,12 @@ internal class OutputPathClaim
  * only while its claim is still the current one. An attempt that never finishes its tail never
  * blocks the next one, because a claim is taken over rather than waited for.
  *
- * A claim lives only as long as the `prepare()` call that took it ([release] in its `finally`), so
- * the registry never grows with the number of recordings.
+ * A claim lives as long as the `prepare()` call that took it, or, when that call succeeds, as long as
+ * the recorder's session keeps the file ([release] when the file is deleted or the recorder is
+ * prepared again or released). Every later deletion of the session's file (cancel, system end of a
+ * prepared recording, release of a prepared recorder, a failed start) goes through [deleteIfOwner]
+ * too. The registry therefore never holds more entries than there are live recorders and in-flight
+ * prepares, never one per recording.
  *
  * The state is a [MutableStateFlow] holding an immutable map (no lock, no atomic). The one step
  * that has to be atomic with the ownership check is the delete itself: [deleteIfOwner] first swaps
