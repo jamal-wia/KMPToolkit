@@ -90,6 +90,9 @@ class ActivityResultPermissionRequestHostAdversarialTest {
         alsoGrantInPlatform: Boolean = granted,
     ) {
         if (alsoGrantInPlatform) shadowOf(application).grantPermissions(camera)
+        // The platform clears the "a request is up" flag BEFORE it calls onRequestPermissionsResult, so a
+        // dialog launched from inside the answer (a queued request starting) is a fresh request.
+        endPlatformRequest(activity)
         val result: Int = if (granted) PackageManager.PERMISSION_GRANTED else PackageManager.PERMISSION_DENIED
         @Suppress("DEPRECATION") // What the platform calls; ComponentActivity routes it to its registry.
         activity.onRequestPermissionsResult(
@@ -178,18 +181,18 @@ class ActivityResultPermissionRequestHostAdversarialTest {
             val staleRequest: ShadowActivity.PermissionsRequest = lastRequest(screen.get())
             first.cancelAndJoin()
 
-            // Documented: the dialog is still on screen, so a launch in that window is refused and the
-            // status comes back unchanged rather than invented.
-            assertEquals(PermissionStatus.NotDetermined, controller.request(CommonPermission.Camera))
-            assertEquals(2, host.launchCalls)
+            // The dialog is still on screen. A request queued behind the cancelled one waits for it
+            // (it is neither refused nor answered unchanged), launching nothing meanwhile.
+            val next = async { controller.request(CommonPermission.Camera) }
+            assertFalse(next.isCompleted)
+            assertEquals(1, host.launchCalls)
             assertEquals(1, host.shown)
 
             // The user answers the dialog nobody waits for: the answer is dropped, it decides nothing.
             answer(screen.get(), staleRequest, granted = false)
             assertEquals(PermissionStatus.NotDetermined, controller.check(CommonPermission.Camera))
 
-            // The host takes the next request, and that request is answered by its own dialog only.
-            val next = async { controller.request(CommonPermission.Camera) }
+            // The host is free: the queued request is answered by its own dialog only.
             assertFalse(next.isCompleted, "the stale answer resolved the new request: ${logs()} / ${if (next.isCompleted) next.getCompleted() else null} / shown ${host.shown} calls ${host.launchCalls}")
             assertEquals(2, host.shown, "the host stayed unusable after the stale answer")
             answer(screen.get(), lastRequest(screen.get()), granted = true)
@@ -207,11 +210,16 @@ class ActivityResultPermissionRequestHostAdversarialTest {
             val caller = launch { controller.request(CommonPermission.Camera) }
             caller.cancelAndJoin()
 
-            assertEquals(PermissionStatus.NotDetermined, controller.request(CommonPermission.Camera))
+            // Queued behind the stale dialog: it waits (neither refused nor answered unchanged).
+            val queued = async { controller.request(CommonPermission.Camera) }
+            assertFalse(queued.isCompleted)
             assertEquals(1, host.shown)
 
             first.get().finish()
             first.pause().stop().destroy()
+            // The finished activity abandoned the stale dialog, which frees the host; with no activity
+            // resumed yet the queued request's launch has nowhere to go and is refused.
+            assertEquals(PermissionStatus.NotDetermined, queued.await())
             val second: ActivityController<ComponentActivity> = resumedActivity()
             val next = async { controller.request(CommonPermission.Camera) }
 
