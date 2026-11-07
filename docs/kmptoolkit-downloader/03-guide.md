@@ -270,7 +270,9 @@ implementation has somewhere standard to turn a unit's `apiPath` into something 
 unit it no longer wants: it deletes the partial temp file, the expected-hash record and, for an
 archive unit, an extraction tree (`tmp/staging-<unit.id>/`) that a process kill left half-done (not
 touched while a commit of that unit is running, and, very rarely, while another unit's commit is
-registering; the next cancel or commit of the unit removes it).
+registering; the next cancel or commit of the unit removes it). The same call also sweeps
+`tmp/trash/`, where a detached tree waits for its delete, so a delete that a kill cut short is
+finished by the next cancel of any unit.
 Nothing else enumerates the temp area, and keeping a partial after a transient failure is the resume
 contract, so a unit that is dropped from your catalogue keeps its partial until you call
 `cancelDownload(unit)` for it. Do that when a catalogue revision removes ids.

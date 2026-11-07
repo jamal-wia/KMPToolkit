@@ -168,9 +168,25 @@ class AndroidDownloaderStorageTempFileTest {
         assertTrue(other.exists(), "another unit's staging tree is not touched")
         assertEquals(
             emptyList<String>(),
-            File(root, "tmp").list { _, name -> name.startsWith("trash-") }!!.toList(),
+            File(root, "tmp/trash").list()?.toList().orEmpty(),
             "the detached tree must be deleted, not left as trash",
         )
+    }
+
+    @Test
+    fun `deleting a temp file sweeps a trash tree a killed process left, whatever unit it belonged to`() {
+        val leftover = File(root, "tmp/trash/gone-123/nested").apply { mkdirs() }
+        File(leftover, "file").writeText("half-deleted")
+        val other = File(root, "tmp/staging-other").apply { mkdirs() }
+        // A unit whose id merely starts with "trash-" owns a temp file that must survive the sweep.
+        val lookalike = TestUnit(id = "trash-model")
+        writePartial(lookalike, ByteArray(10))
+
+        storage.deleteTempFile(TestUnit(id = "unrelated"))
+
+        assertFalse(File(root, "tmp/trash/gone-123").exists(), "the leftover trash tree is reclaimed")
+        assertTrue(other.exists(), "another unit's staging tree is not touched")
+        assertTrue(File(storage.getTempFilePath(lookalike)).exists(), "a unit id starting with trash- is not trash")
     }
 
     @Test

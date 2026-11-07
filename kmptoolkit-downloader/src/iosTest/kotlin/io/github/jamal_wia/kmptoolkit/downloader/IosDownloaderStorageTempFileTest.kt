@@ -170,9 +170,27 @@ class IosDownloaderStorageTempFileTest {
 
         assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$tmpDir/staging-model"))
         assertTrue(NSFileManager.defaultManager.fileExistsAtPath(other), "another unit's staging tree is not touched")
-        val leftovers: List<*> = NSFileManager.defaultManager.contentsOfDirectoryAtPath(tmpDir, null).orEmpty()
-            .filter { (it as String).startsWith("trash-") }
+        val leftovers: List<*> = NSFileManager.defaultManager.contentsOfDirectoryAtPath("$tmpDir/trash", null).orEmpty()
         assertTrue(leftovers.isEmpty(), "the detached tree must be deleted, not left as trash")
+    }
+
+    @Test
+    fun deletingATempFileSweepsATrashTreeAKilledProcessLeftWhateverUnitItBelongedTo() {
+        val tmpDir: String = storage.getTempFilePath(TestUnit(id = "unrelated")).substringBeforeLast('/')
+        val leftover = "$tmpDir/trash/gone-123/nested"
+        NSFileManager.defaultManager.createDirectoryAtPath(leftover, true, null, null)
+        writePartialAt("$leftover/file", "half-deleted")
+        val other = "$tmpDir/staging-other"
+        NSFileManager.defaultManager.createDirectoryAtPath(other, true, null, null)
+        // A unit whose id merely starts with "trash-" owns a temp file that must survive the sweep.
+        val lookalike = TestUnit(id = "trash-model")
+        writePartial(lookalike, "0123456789")
+
+        storage.deleteTempFile(TestUnit(id = "unrelated"))
+
+        assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$tmpDir/trash/gone-123"), "the leftover trash tree is reclaimed")
+        assertTrue(NSFileManager.defaultManager.fileExistsAtPath(other), "another unit's staging tree is not touched")
+        assertTrue(NSFileManager.defaultManager.fileExistsAtPath(storage.getTempFilePath(lookalike)), "a unit id starting with trash- is not trash")
     }
 
     @Test
@@ -195,8 +213,9 @@ class IosDownloaderStorageTempFileTest {
         assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$baseDir/tmp/staging-model"), "reclaimed once no commit runs")
     }
 
-    private fun writePartial(unit: DownloadUnit, text: String) {
-        val path: String = storage.getTempFilePath(unit)
+    private fun writePartial(unit: DownloadUnit, text: String) = writePartialAt(storage.getTempFilePath(unit), text)
+
+    private fun writePartialAt(path: String, text: String) {
         NSFileManager.defaultManager.createDirectoryAtPath(
             path = path.substringBeforeLast('/'),
             withIntermediateDirectories = true,

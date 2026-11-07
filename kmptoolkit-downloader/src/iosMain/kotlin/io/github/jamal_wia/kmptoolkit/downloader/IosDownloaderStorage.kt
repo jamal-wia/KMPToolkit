@@ -204,11 +204,13 @@ internal class IosDownloaderStorage(
             baseDirectory = baseDir,
             unitId = unit.id,
             detach = {
-                val trash = "$baseDir/tmp/trash-${unit.id}-${Random.nextLong().toULong()}"
+                val trash = "$baseDir/tmp/trash/${unit.id}-${Random.nextLong().toULong()}"
+                createParentDirectory(trash)
                 if (rename("$baseDir/tmp/staging-${unit.id}", trash) == 0) trash else null
             },
             dispose = { trash: String -> NSFileManager.defaultManager.removeItemAtPath(trash, error = null) },
         )
+        sweepTrash()
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
         // keep its record: with the record gone, the next attempt would commit that complete file
         // unchecked.
@@ -218,6 +220,19 @@ internal class IosDownloaderStorage(
         }
         remove(expectationPath(unit))
         remove(stagedExpectationPath(unit))
+    }
+
+    /**
+     * Deletes whatever `tmp/trash/` still holds: a detached extraction tree whose delete a process
+     * kill or an I/O error cut short. No commit ever uses a path under it, so it needs no lock, and
+     * a sweep racing another thread's delete of the same tree is harmless. A dedicated directory,
+     * not a name prefix in `tmp/`, so that a unit whose id starts with `trash-` keeps its temp file.
+     */
+    private fun sweepTrash() {
+        val trashDir = "$baseDir/tmp/trash"
+        NSFileManager.defaultManager.contentsOfDirectoryAtPath(trashDir, error = null).orEmpty().forEach { name ->
+            NSFileManager.defaultManager.removeItemAtPath("$trashDir/$name", error = null)
+        }
     }
 
     private fun deleteTempData(unit: DownloadUnit) {
