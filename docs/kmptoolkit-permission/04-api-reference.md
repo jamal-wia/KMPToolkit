@@ -244,6 +244,7 @@ reached, identical to `state.value` once it returns.
 | `Requesting` | request permanently denied | `AwaitingSettings` |
 | `Requesting` | request restricted or unavailable | `Unavailable` |
 | `Requesting` | request denied or unanswered | `Denied` |
+| `Requesting` | the calling coroutine is cancelled | `Idle` (nothing was decided; `refresh()` reads the real choice) |
 | `AwaitingRationale` | `rationaleAcknowledged()` | `Requesting`, then the request outcome |
 | `AwaitingRationale` | `rationaleDismissed()` | `Denied` |
 | `AwaitingSettings` | `openSettings()` | `AwaitingSettings` (the app is backgrounded) |
@@ -257,7 +258,7 @@ never an exception.
 `openSettings()` returns `false` both when the flow is not in `AwaitingSettings` (nothing is opened)
 and when the controller could not open a screen. It calls `controller.openSettings(permission)`.
 
-**Not thread-safe.** Drive one flow from one coroutine. It holds no platform resource.
+**Concurrent drivers.** Drive one flow from one coroutine where you can. A `refresh()` on resume racing a `start()` on tap is tolerated: each transition after a suspension publishes only if the state is still the one it started from, so a stale result never overwrites a live `Requesting` or its outcome (the newer state is returned). It holds no platform resource.
 
 ## `PermissionFlowState`
 
