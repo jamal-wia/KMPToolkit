@@ -160,6 +160,10 @@ LaunchedEffect(url) {
 `Idle`, not `Error`: nothing failed, the caller simply left. Reserving `Error` for real failures is
 what lets a UI show a retry button on `Error` without also showing one after every navigation.
 
+Rapid switching is safe too: the engine only ever runs one load at a time, even when a middle
+`prepare` is cancelled while a newer one and the first are still waiting on each other — a load
+starts only after every load before it has fully unwound.
+
 ## Seeking and scrubbing
 
 Positions are milliseconds and are always clamped — `seekTo(-1)` goes to `0`, `seekTo(Long.MAX_VALUE)`

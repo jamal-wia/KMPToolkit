@@ -40,6 +40,10 @@ internal class RecordingPlaybackEngine(
     var maxConcurrentLoads: Int = 0
         private set
 
+    /** Times [release] ran while a load was still running on the engine; the player promises zero. */
+    var releasesDuringLoad: Int = 0
+        private set
+
     val loadedSources: MutableList<AudioSource> = mutableListOf()
     val seekTargets: MutableList<Long> = mutableListOf()
     var started: Int = 0
@@ -94,6 +98,7 @@ internal class RecordingPlaybackEngine(
 
     override fun release() {
         releaseCount++
+        if (activeLoads > 0) releasesDuringLoad++
         position = 0L
     }
 

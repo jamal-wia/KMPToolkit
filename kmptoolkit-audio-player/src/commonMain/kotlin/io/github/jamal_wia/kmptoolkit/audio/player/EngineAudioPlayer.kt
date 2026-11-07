@@ -103,7 +103,8 @@ private class EngineAudioPlayer(
      * One [prepare] call.
      *
      * @property job parents the engine work, so cancelling it cancels exactly this load.
-     * @property finished completes when the call has fully unwound. Waiting on [job] would not do: a
+     * @property finished completes when the call, and every load before it, has fully unwound.
+     *   Waiting on [job] would not do: a
      *   load cancelled while still waiting for its own predecessor has no children yet, so its job
      *   completes at once — and a third prepare waiting on it would start while the first is still
      *   running on the engine.
@@ -185,7 +186,17 @@ private class EngineAudioPlayer(
             throw cancellation
         } finally {
             load.job.complete()
-            load.finished.complete()
+            // Transitive: "this load and every load before it has unwound". A superseded load whose
+            // caller is cancelled while it still waits for its predecessor rethrows without joining
+            // it; completing `finished` right here would release a newer load (or abandonLoad's
+            // engine.release) while that predecessor is still running on the engine. Chaining the
+            // completion keeps the cancelled caller free and the ordering intact.
+            val predecessor: Job? = previous?.finished
+            if (predecessor == null || predecessor.isCompleted) {
+                load.finished.complete()
+            } else {
+                predecessor.invokeOnCompletion { load.finished.complete() }
+            }
         }
 
         gate.exclusive {
