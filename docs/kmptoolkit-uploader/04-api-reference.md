@@ -392,7 +392,7 @@ default.
 | `BackgroundTaskWakeScheduler.taskIdentifier` | The resolved string — must be in `Info.plist` |
 | `BackgroundTaskWakeScheduler.handleWake(onDone)` | Call from your Swift `BGTaskScheduler` handler; `onDone` runs even if the drain throws |
 | `createBackgroundUploadTransport(config, logger)` | Since 1.5.0. Background `NSURLSession` per item, for `UploadHandler` items; reads the server's response since 3.1.0 |
-| `BackgroundUploadConfig(sessionIdentifierPrefix = null, lease = 60.minutes, rehandFlushWindow = 3.seconds, requestTimeout = 60.seconds, resourceTimeout = 7.days)` | `sessionIdentifierPrefix` defaults to `<bundleId>.uploader.upload.`. `requestTimeout` (idle timeout) and `resourceTimeout` (whole transfer, retries included) since 3.1.0 — the system defaults, both must be positive; see [timeouts](08-upload-transport.md#timeouts) |
+| `BackgroundUploadConfig(sessionIdentifierPrefix = null, lease = 60.minutes, rehandFlushWindow = 3.seconds, requestTimeout = 60.seconds, resourceTimeout = 7.days)` | `sessionIdentifierPrefix` defaults to `<bundleId>.uploader.upload.`. `requestTimeout` (idle timeout) and `resourceTimeout` (whole transfer, retries included) since 3.1.0 — the system defaults, both must be positive and finite; see [timeouts](08-upload-transport.md#timeouts) |
 | `BackgroundUploadRelaunch.handleEvents(identifier, completion)` | Call from `handleEventsForBackgroundURLSession` |
 
 ## `kmptoolkit-uploader-testing`

@@ -240,7 +240,7 @@ or the lease — for that.
 
 `BackgroundUploadConfig(requestTimeout = 60.seconds, resourceTimeout = 7.days)` sets the session's
 `timeoutIntervalForRequest` and `timeoutIntervalForResource`. The defaults are the system's own values,
-so behaviour is unchanged unless you set them; both must be positive.
+so behaviour is unchanged unless you set them; both must be positive and finite.
 
 - **`requestTimeout` is an idle timeout.** Apple's documentation describes it as how long a task waits
   for additional data to arrive before giving up, with the timer reset whenever new data arrives. It is

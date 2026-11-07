@@ -57,7 +57,7 @@ class BackgroundUploadTransportTest {
         assertEquals(7.days, config.resourceTimeout)
 
         val configuration = buildSessionConfiguration("p.item", config)
-        val system = platform.Foundation.NSURLSessionConfiguration.defaultSessionConfiguration
+        val system = platform.Foundation.NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier("p.baseline")
         assertEquals(system.timeoutIntervalForRequest, configuration.timeoutIntervalForRequest)
         assertEquals(system.timeoutIntervalForResource, configuration.timeoutIntervalForResource)
     }
@@ -73,11 +73,13 @@ class BackgroundUploadTransportTest {
     }
 
     @Test
-    fun `the config rejects non-positive timeouts`() {
+    fun `the config rejects non-positive and infinite timeouts`() {
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(requestTimeout = Duration.ZERO) }
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(requestTimeout = (-1).seconds) }
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(resourceTimeout = Duration.ZERO) }
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(resourceTimeout = (-1).hours) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(requestTimeout = Duration.INFINITE) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(resourceTimeout = Duration.INFINITE) }
     }
 
     @Test

@@ -512,8 +512,8 @@ final class io.github.jamal_wia.kmptoolkit.uploader/BackgroundTaskWakeScheduler 
 }
 
 final class io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig { // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig|null[0]
+    constructor <init>(kotlin/String? = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ...) // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.<init>|<init>(kotlin.String?;kotlin.time.Duration;kotlin.time.Duration){}[0]
     constructor <init>(kotlin/String? = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ...) // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.<init>|<init>(kotlin.String?;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration){}[0]
-    constructor <init>(kotlin/String?, kotlin.time/Duration, kotlin.time/Duration) // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.<init>|<init>(kotlin.String?;kotlin.time.Duration;kotlin.time.Duration){}[0]
 
     final val lease // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.lease|{}lease[0]
         final fun <get-lease>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.lease.<get-lease>|<get-lease>(){}[0]

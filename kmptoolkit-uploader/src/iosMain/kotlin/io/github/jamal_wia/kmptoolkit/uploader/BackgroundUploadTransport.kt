@@ -76,10 +76,10 @@ import platform.posix.memcpy
  * @param requestTimeout the session's `timeoutIntervalForRequest`: an **idle** timeout — how long the
  *   transfer may go without sending or receiving a single byte, not a bound on the whole upload. The
  *   default, 60 seconds, is the system's own. A background session does not fail on this timeout; iOS
- *   silently retries until [resourceTimeout] runs out. Must be positive.
+ *   silently retries until [resourceTimeout] runs out. Must be positive and finite.
  * @param resourceTimeout the session's `timeoutIntervalForResource`: how long the whole transfer, retries
  *   after an idle timeout included, may take before iOS fails it. The default, 7 days, is the system's
- *   own. It therefore bounds how long an upload may be re-sent; keep [lease] below it. Must be positive.
+ *   own. It therefore bounds how long an upload may be re-sent; keep [lease] below it. Must be positive and finite.
  * @since 1.5.0 ([requestTimeout] and [resourceTimeout] since 3.1.0)
  */
 public class BackgroundUploadConfig(
@@ -92,9 +92,9 @@ public class BackgroundUploadConfig(
     /** The constructor before [requestTimeout] and [resourceTimeout] existed; kept for binary compatibility. */
     @Deprecated("Superseded by the constructor with requestTimeout and resourceTimeout.", level = DeprecationLevel.HIDDEN)
     public constructor(
-        sessionIdentifierPrefix: String?,
-        lease: Duration,
-        rehandFlushWindow: Duration,
+        sessionIdentifierPrefix: String? = null,
+        lease: Duration = 60.minutes,
+        rehandFlushWindow: Duration = 3.seconds,
     ) : this(sessionIdentifierPrefix, lease, rehandFlushWindow, DEFAULT_REQUEST_TIMEOUT, DEFAULT_RESOURCE_TIMEOUT)
 
     init {
@@ -103,8 +103,12 @@ public class BackgroundUploadConfig(
         }
         require(lease.isPositive()) { "lease must be positive, was $lease." }
         require(!rehandFlushWindow.isNegative()) { "rehandFlushWindow must not be negative, was $rehandFlushWindow." }
-        require(requestTimeout.isPositive()) { "requestTimeout must be positive, was $requestTimeout." }
-        require(resourceTimeout.isPositive()) { "resourceTimeout must be positive, was $resourceTimeout." }
+        require(requestTimeout.isPositive() && requestTimeout.isFinite()) {
+            "requestTimeout must be positive and finite, was $requestTimeout."
+        }
+        require(resourceTimeout.isPositive() && resourceTimeout.isFinite()) {
+            "resourceTimeout must be positive and finite, was $resourceTimeout."
+        }
     }
 
     override fun equals(other: Any?): Boolean =
