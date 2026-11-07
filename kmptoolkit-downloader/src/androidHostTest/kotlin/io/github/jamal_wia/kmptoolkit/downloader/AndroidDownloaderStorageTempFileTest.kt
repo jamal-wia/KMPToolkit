@@ -20,6 +20,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.runner.RunWith
 
@@ -235,7 +236,8 @@ class AndroidDownloaderStorageTempFileTest {
         } finally {
             release.countDown()
         }
-        withTimeout(5_000) { commit.await() }
+        // Real time: the commit runs on another thread, and runTest's virtual clock would skip ahead.
+        withContext(Dispatchers.Default) { withTimeout(5_000) { commit.await() } }
     }
 
     private class HoldingUnit(

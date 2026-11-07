@@ -12,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import platform.posix.usleep
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSData
@@ -246,7 +247,8 @@ class IosDownloaderStorageTempFileTest {
         } finally {
             release.value = 1
         }
-        withTimeout(5_000) { commit.await() }
+        // Real time: the commit runs on another thread, and runTest's virtual clock would skip ahead.
+        withContext(Dispatchers.Default) { withTimeout(5_000) { commit.await() } }
     }
 
     /** Waits on the calling thread (never the main queue's work) for at most about five seconds. */
