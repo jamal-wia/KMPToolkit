@@ -141,7 +141,7 @@ Android-only; iOS never returns `Inexact`.
 |---|---|
 | `NotificationPermissionDenied` | iOS notification authorization is denied, so a scheduled notification would be discarded. Nothing was armed. |
 | `SchedulerUnavailable` | The platform scheduling service could not be obtained (`ALARM_SERVICE` returned nothing). Not expected on a healthy device. |
-| `PlatformError(message: String?)` | The platform rejected the request for another reason — e.g. iOS's cap of roughly 64 pending local notifications, or Android's 500 concurrent alarms per app. `message` is the platform's own untranslated diagnostic, for logs only. |
+| `PlatformError(message: String?)` | The platform rejected the request for another reason — e.g. iOS's cap of 64 pending local notifications (checked before adding, because iOS itself drops the excess silently), or Android's 500 concurrent alarms per app. `message` is the platform's own untranslated diagnostic, for logs only. |
 
 ## `AlarmHandler`
 

@@ -100,6 +100,10 @@ For reference when judging whether a behavior is already guaranteed:
   the derived and configured intent scheme, the intent round trip, and receiver dispatch for a
   matching type, an unknown type, an unregistered process, and an unrelated intent.
 
-The iOS `UNUserNotificationCenter` calls themselves are not unit-tested: they need a real app
+- **`iosTest`** — the 64-pending-request pre-check of the iOS scheduler against a fake notification
+  center: below the cap, a new request at the cap refused, re-scheduling a pending id at the cap
+  accepted, and a cancel freeing room.
+
+The real `UNUserNotificationCenter` calls themselves are not unit-tested: they need a real app
 bundle and an authorization state, and everything around them that can be wrong on its own — the
 trigger arithmetic, the identifiers, the result mapping shape — is covered in common code.

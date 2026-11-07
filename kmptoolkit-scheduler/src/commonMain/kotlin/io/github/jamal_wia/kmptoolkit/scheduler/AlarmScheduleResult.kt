@@ -72,7 +72,7 @@ public sealed interface AlarmFailure {
 
     /**
      * The platform rejected the request for some other reason — for example iOS's cap of roughly
-     * 64 pending local notifications per app.
+     * 64 pending local notifications per app, which iOS would otherwise drop silently.
      *
      * @param message the platform's own diagnostic text, if it supplied one. For logs and bug
      *   reports; it is not localized and must never be shown to a user.
