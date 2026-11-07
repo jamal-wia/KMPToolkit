@@ -167,12 +167,54 @@ public class DownloadFailedException(
  *   retry, stall, commit and notification hand-off is logged — pass a real logger and you can
  *   reconstruct the life of any download from the log.
  * @return a [Downloader], ready to use immediately — there is no separate `start()`.
+ * @see DownloaderConfig the overload that takes one, to tune the engine; this one uses its defaults.
  */
 public fun createDownloader(
     storage: DownloaderStorage,
     backgroundDownloader: BackgroundResourceDownloader,
     groups: List<ResourceGroup>,
     stateStore: DownloadStateStore,
+    notifier: DownloadNotifier = DownloadNotifier.NoOp,
+    bundledResourcesPresent: Boolean = false,
+    dispatchers: DownloadDispatchers = DownloadDispatchers.Default,
+    logger: Logger = NoopLogger,
+): Downloader = createDownloader(
+    storage = storage,
+    backgroundDownloader = backgroundDownloader,
+    groups = groups,
+    stateStore = stateStore,
+    config = DownloaderConfig(),
+    notifier = notifier,
+    bundledResourcesPresent = bundledResourcesPresent,
+    dispatchers = dispatchers,
+    logger = logger,
+)
+
+/**
+ * Creates a downloader engine tuned by [config]. Identical to the overload without it in every
+ * other respect — see there for what the parameters mean.
+ *
+ * ```kotlin
+ * val downloader: Downloader = createDownloader(
+ *     storage = createDownloaderStorage(context),
+ *     backgroundDownloader = myBackgroundResourceDownloader,
+ *     groups = MyResourceGroup.entries,
+ *     stateStore = myDownloadStateStore,
+ *     config = DownloaderConfig(stallTimeout = 15.minutes),
+ * )
+ * ```
+ *
+ * @param config the engine's settings. Required here — a separate overload rather than a new
+ *   defaulted parameter, so no existing call can resolve to this one and the existing overload's
+ *   signature is unchanged.
+ * @since 3.1.0
+ */
+public fun createDownloader(
+    storage: DownloaderStorage,
+    backgroundDownloader: BackgroundResourceDownloader,
+    groups: List<ResourceGroup>,
+    stateStore: DownloadStateStore,
+    config: DownloaderConfig,
     notifier: DownloadNotifier = DownloadNotifier.NoOp,
     bundledResourcesPresent: Boolean = false,
     dispatchers: DownloadDispatchers = DownloadDispatchers.Default,
@@ -186,4 +228,5 @@ public fun createDownloader(
     groups = groups,
     dispatchers = dispatchers,
     logger = logger,
+    config = config,
 )

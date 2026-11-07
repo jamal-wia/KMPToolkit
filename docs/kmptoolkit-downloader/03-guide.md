@@ -22,7 +22,7 @@ ensureAvailable ─▶ [already available?] ─── yes ──▶ return at on
                               ├─ Error     ─▶ temp file Complete? ─ yes ─▶ commit
                               │                 └─ no ─▶ retry? ─▶ re-enqueue │ give up
                               ├─ Cancelled ─▶ Idle, temp deleted
-                              └─ (silence)  ─▶ 5-minute stall ─▶ treated as Error
+                              └─ (silence)  ─▶ stall timeout (5 min) ─▶ treated as Error
 ```
 
 The engine subscribes to a transfer's events **before** it enqueues the transfer, so an event your
@@ -195,7 +195,8 @@ policy.
 Three things make it work:
 
 - **Stall detection is an inactivity timeout, not a wall clock.** A slow-but-progressing large
-  transfer never trips it; a dead connection does. A stall re-enters the table above as an `Error`
+  transfer never trips it; a dead connection does. The timeout is 5 minutes unless you pass a
+  `DownloaderConfig(stallTimeout = …)` to `createDownloader` (`Duration.INFINITE` turns it off). A stall re-enters the table above as an `Error`
   with no progress.
 - **The failure counter is persisted** through `DownloadStateStore` — worthless if it reset with the
   process, since a crash loop would otherwise retry forever.

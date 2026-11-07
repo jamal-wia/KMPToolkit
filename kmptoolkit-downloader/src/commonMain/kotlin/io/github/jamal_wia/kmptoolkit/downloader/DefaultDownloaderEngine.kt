@@ -8,7 +8,6 @@ import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -61,6 +60,7 @@ private class DownloadResourceStallException : RuntimeException("Download stalle
  * @param bundledResourcesPresent when true, every group reports available and nothing group-level
  *   downloads — for builds that ship those assets inside the package instead of fetching them.
  *   Deliberately not consulted by the per-unit surface: a runtime-catalogue unit is never bundled.
+ * @param config the engine's tunables; today the stall timeout ([DownloaderConfig.stallTimeout]).
  */
 internal class DefaultDownloaderEngine(
     private val storage: DownloaderStorage,
@@ -71,6 +71,7 @@ internal class DefaultDownloaderEngine(
     private val groups: List<ResourceGroup>,
     dispatchers: DownloadDispatchers,
     private val logger: Logger,
+    private val config: DownloaderConfig = DownloaderConfig(),
 ) : Downloader {
 
     // App-scoped: drives a notification-shade Retry's ensureAvailable so the group state reflects it
@@ -539,7 +540,7 @@ internal class DefaultDownloaderEngine(
      * Uses **inactivity timeout** (stall detection) instead of a fixed wall-clock timeout:
      * - [transformLatest] restarts the inner block on each new event, cancelling the previous
      *   [delay]. A repeated [BackgroundDownloadEvent.Progress] restarts it like any other event.
-     * - If no event arrives within [STALL_TIMEOUT], the delay completes and throws
+     * - If no event arrives within [DownloaderConfig.stallTimeout], the delay completes and throws
      *   [DownloadResourceStallException]; the transfer is cancelled and the attempt ends as a stall.
      * - A slow-but-progressing download (receiving Progress events) will never stall-timeout.
      * - Primary network/transport timeouts are handled by the [BackgroundResourceDownloader].
@@ -576,7 +577,7 @@ internal class DefaultDownloaderEngine(
                     .transformLatest { event: BackgroundDownloadEvent ->
                         emit(event)
                         // Resets on each upstream emission; fires only if no new event arrives.
-                        delay(STALL_TIMEOUT)
+                        delay(config.stallTimeout)
                         throw DownloadResourceStallException()
                     }
                     .filterIsInstance<BackgroundDownloadEvent.Terminal>()
@@ -1123,15 +1124,6 @@ internal class DefaultDownloaderEngine(
     private fun stallCountKey(unit: DownloadUnit): String = "download_stall_count_${unit.id}"
 
     private companion object {
-        /**
-         * If no [BackgroundDownloadEvent] arrives within this duration,
-         * the download is considered stalled. Resets on every event.
-         *
-         * 5 minutes is generous — even at 1 KB/s with 8 KB chunks,
-         * a Progress event arrives every ~8 seconds.
-         */
-        private val STALL_TIMEOUT: Duration = 5.minutes
-
         /** Max retries in a row of a failing transfer (three attempts) before giving up. */
         private const val MAX_STALL_RETRIES = 2
 
