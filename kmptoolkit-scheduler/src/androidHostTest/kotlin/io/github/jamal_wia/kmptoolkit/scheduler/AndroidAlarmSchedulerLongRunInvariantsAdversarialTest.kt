@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Long random runs (40 operations, four ids, five platform moods including an exact alarm revoked mid-call
  * followed by a refused inexact one) against the four-slot scheme. Invariants that must hold at every step:
  * a healthy schedule leaves exactly its own alarm and one slot, a healthy cancel leaves nothing, an id never
- * holds more alarms than slots, a refused call changes nothing for a not-saturated id, and no call touches
+ * holds more alarms than slots, a refused call changes nothing (and a schedule of an id with every slot occupied answers Failed and changes nothing), and no call touches
  * another id.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -94,11 +94,9 @@ open class AndroidAlarmSchedulerLongRunInvariantsAdversarialTest {
                         log.append("S($id,$mode,${result::class.simpleName}) ")
                         val now: List<String> = titles(id)
                         if (result is AlarmScheduleResult.Failed) {
-                            assertTrue(title !in now || slotsBefore >= AlarmIntents.SLOT_COUNT, "seed $seed: Failed but armed. $log")
-                            if (slotsBefore < AlarmIntents.SLOT_COUNT) {
-                                assertEquals(titlesBefore, now, "seed $seed: a refused schedule changed the alarms. $log")
-                                assertEquals(slotsBefore, slots(id), "seed $seed: a refused schedule changed the slots. $log")
-                            }
+                            assertTrue(title !in now, "seed $seed: Failed but armed. $log")
+                            assertEquals(titlesBefore, now, "seed $seed: a refused schedule changed the alarms. $log")
+                            assertEquals(slotsBefore, slots(id), "seed $seed: a refused schedule changed the slots. $log")
                         } else {
                             assertEquals(1, now.count { it == title }, "seed $seed: the new alarm is not armed exactly once. $log")
                             if (mode == Mode.HEALTHY) {
