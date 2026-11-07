@@ -100,6 +100,15 @@ recovers as far as it can — an alias whose key has become unrecoverable is dro
 generated, so *new* writes work again instead of the store being bricked for the life of the install
 — but the old values are not recoverable by anyone.
 
+A decrypt that fails for a *transient* keystore reason is the exception: when anything in the
+failure's cause chain is an `android.security.KeyStoreException` whose `isTransientFailure()` is
+`true` (a keystore daemon restarting, a provider briefly busy), the read returns
+`StorageError.Unavailable` — retry later, nothing is lost — instead of `Undecryptable`. The cause
+chain is walked because the platform usually delivers that exception wrapped in an
+`InvalidKeyException` or a `ProviderException`. **This is API 33+ only**: `isTransientFailure()` does
+not exist below it, so on API 24–32 every decrypt failure other than an unreachable key store is
+still `Undecryptable`, as before. A failure the platform does not call transient is never remapped.
+
 ### The key is created once per process, never once per caller
 
 The key is generated on first use, and "look the alias up, generate if it is missing" is two

@@ -21,6 +21,10 @@ public sealed interface StorageError {
      * On Android this is a Keystore provider that refuses to load or to generate a key; on iOS a
      * Keychain that is not available yet, which happens when code runs before the device's first
      * unlock after boot. Retrying later can succeed — nothing here says the data is gone.
+     *
+     * On Android 13+ (API 33) it is also what a read reports when decrypting failed with an
+     * `android.security.KeyStoreException` that the platform itself calls transient (found anywhere
+     * in the cause chain); the entry is intact and the same read can succeed a moment later.
      */
     public data class Unavailable(public val cause: Throwable? = null) : StorageError
 
