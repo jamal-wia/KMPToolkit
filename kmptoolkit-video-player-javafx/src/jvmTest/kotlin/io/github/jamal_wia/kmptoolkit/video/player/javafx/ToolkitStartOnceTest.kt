@@ -88,8 +88,10 @@ class ToolkitStartOnceTest {
             assertTrue(entered.await(5L, TimeUnit.SECONDS))
             // The FX thread answers while the other thread still holds the start open.
             val fxAnswer: AtomicReference<Boolean> = AtomicReference()
-            val fxCaller = thread { fxAnswer.set(runtime.isAvailable()) }
+            // Publish the identity before the thread can run, or its thread check could miss it.
+            val fxCaller = thread(start = false) { fxAnswer.set(runtime.isAvailable()) }
             fx.set(fxCaller)
+            fxCaller.start()
             fxCaller.join(5_000L)
             assertEquals(true, fxAnswer.get())
         } finally {
