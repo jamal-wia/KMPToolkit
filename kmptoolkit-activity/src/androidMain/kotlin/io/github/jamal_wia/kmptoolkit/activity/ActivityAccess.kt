@@ -63,7 +63,9 @@ public interface ActivityAccess {
      *
      * Like [ActivitySubscription.cancel], it is a hard stop for every listener: once it has returned,
      * none is called again from any thread, and it waits for a call already running on the main
-     * thread.
+     * thread. That holds for every caller: a concurrent second `release()`, or one made from inside a
+     * listener, also does not return before the listeners are stopped, and a listener added while
+     * `release()` runs is never called.
      *
      * A process-lifetime tracker never needs this. It exists for tests. Idempotent.
      */
@@ -74,7 +76,7 @@ public interface ActivityAccess {
 public interface ActivitySubscription {
 
     /**
-     * Stops the listener from being called again, and releases whatever it captured. Idempotent.
+     * Stops the listener from being called again, and releases whatever it captured, even while the caller still holds this handle. Idempotent.
      *
      * The guarantee is strict and holds on every thread: once this returns, the listener is never
      * called again, whichever thread called it and however a resume or a replay is racing it. If
