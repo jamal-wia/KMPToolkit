@@ -73,8 +73,8 @@ content.
 | Member | Contract |
 |---|---|
 | `schedule` | Arms `alarm`, replacing any pending alarm with the same `id`. A fire time in the past is legal — Android fires it immediately, iOS clamps the trigger to one second out. Never throws for a permission or platform refusal; those come back in the result — including Android's cap of 500 concurrent alarms per app, reported as `Failed(PlatformError)`. |
-| `cancel` | Cancels `id`. Cancelling an id that is not armed is a no-op, not an error — neither platform can tell those apart. |
-| `cancelAll` | Cancels exactly the ids passed, in order. An empty collection is a no-op. It is **not** "cancel everything". |
+| `cancel` | Cancels `id`. Cancelling an id that is not armed is a no-op, not an error — neither platform can tell those apart. Never throws for a platform refusal: on Android a `SecurityException` or `IllegalStateException` from `AlarmManager` is caught and logged, and the alarm may stay armed (the call returns nothing, so the failure is not reported). |
+| `cancelAll` | Cancels exactly the ids passed, in order. An empty collection is a no-op. It is **not** "cancel everything". Like `cancel`, it never throws for a platform refusal, and a refusal on one id does not stop the ids after it. |
 
 ## `ScheduledAlarm`
 

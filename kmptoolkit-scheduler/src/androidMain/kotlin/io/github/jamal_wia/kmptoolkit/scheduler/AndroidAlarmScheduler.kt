@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -158,19 +159,34 @@ internal class AndroidAlarmScheduler(
     override suspend fun cancel(id: String) {
         val manager: AlarmManager = alarmManager ?: return
         platformCalls.withLock {
-            // FLAG_NO_CREATE resolves the PendingIntent armed earlier — matched on component and data
-            // URI, extras ignored — without creating one if there is none.
-            val existing: PendingIntent? = PendingIntent.getBroadcast(
-                context,
-                AlarmIntents.requestCode(id),
-                AlarmIntents.cancelIntent(context, id, keys),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
-            )
-            if (existing != null) {
-                manager.cancel(existing)
-                existing.cancel()
+            try {
+                // FLAG_NO_CREATE resolves the PendingIntent armed earlier — matched on component and data
+                // URI, extras ignored — without creating one if there is none.
+                val existing: PendingIntent? = PendingIntent.getBroadcast(
+                    context,
+                    AlarmIntents.requestCode(id),
+                    AlarmIntents.cancelIntent(context, id, keys),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
+                )
+                if (existing != null) {
+                    manager.cancel(existing)
+                    existing.cancel()
+                }
+            } catch (refusal: IllegalStateException) {
+                logCancelFailure(id, refusal)
+            } catch (refusal: SecurityException) {
+                logCancelFailure(id, refusal)
             }
         }
+    }
+
+    /**
+     * `cancel` never throws: it is a teardown call, often made on logout or from a `finally`, and
+     * AlarmManager offers no recoverable failure there. The refusal is logged and the alarm may stay
+     * armed — the caller cannot learn that, because `cancel` returns nothing.
+     */
+    private fun logCancelFailure(id: String, failure: RuntimeException) {
+        Log.w(LOG_TAG, "The platform refused to cancel alarm '$id'; it may still be armed.", failure)
     }
 
     override suspend fun cancelAll(ids: Collection<String>) {
@@ -190,6 +206,8 @@ internal class AndroidAlarmScheduler(
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S || manager.canScheduleExactAlarms()
 
     private companion object {
+
+        const val LOG_TAG: String = "KmpToolkitScheduler"
 
         /**
          * Serializes every arm and cancel in the process, across every scheduler instance.
