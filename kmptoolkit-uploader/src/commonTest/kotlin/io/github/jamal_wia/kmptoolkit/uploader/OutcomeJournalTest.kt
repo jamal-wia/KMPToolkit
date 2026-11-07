@@ -13,6 +13,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -293,7 +294,7 @@ class OutcomeJournalTest {
     }
 
     @Test
-    fun `restricting an entry cuts a longer body and leaves a shorter one`() {
+    fun `restricting an entry cuts a longer body and leaves a shorter one`() = runTest {
         journal.record("a", response(body = "0123456789"))
         journal.record("b", response(body = "01"))
 
@@ -303,6 +304,31 @@ class OutcomeJournalTest {
 
         assertEquals("012", assertIs<JournalEntry.Valid>(journal.inspect("a")).response.body().decodeToString())
         assertEquals("01", assertIs<JournalEntry.Valid>(journal.inspect("b")).response.body().decodeToString())
+    }
+
+    @Test
+    fun `restricting waits for a replayer holding the item so it cannot bring back a handled entry`() = runTest {
+        journal.record("a", response(body = "0123456789"))
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val holding = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val replayer = launch {
+            OutcomeReplayLocks.withItem("a") {
+                holding.complete(Unit)
+                release.await()
+                journal.delete("a") // the replayer settles the entry and deletes it
+            }
+        }
+        holding.await()
+
+        val restricting = launch { journal.restrictBody("a", 3) }
+        testScheduler.advanceUntilIdle()
+        assertTrue(restricting.isActive, "the cut waits for the replayer instead of reading the entry beside it")
+
+        release.complete(Unit)
+        replayer.join()
+        restricting.join()
+
+        assertEquals(JournalEntry.Absent, journal.inspect("a"), "the handled entry stays gone")
     }
 
     @Test
