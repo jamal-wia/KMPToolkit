@@ -38,6 +38,18 @@ abstract class DownloaderStorageContractTest {
     /** Writes [bytes] to [path], creating missing parent directories. */
     protected abstract fun writeFile(path: String, bytes: ByteArray)
 
+    /** Sets the modification time of the file at [path] to about an hour ago, before any marker a storage writes. */
+    protected abstract fun backdate(path: String)
+
+    /**
+     * A file the way 3.0.0 left it: older than the first use of the base directory by this version,
+     * which is the only kind of legacy temp file the migration moves.
+     */
+    protected fun writeLegacyFile(path: String, bytes: ByteArray) {
+        writeFile(path, bytes)
+        backdate(path)
+    }
+
     /** The bytes of the regular file at [path], or null when there is none. */
     protected abstract fun readFile(path: String): ByteArray?
 
@@ -715,7 +727,9 @@ abstract class DownloaderStorageContractTest {
         storage.markTempFileComplete(unit)
         assertTrue(pathExists("$base/tmp/model-1.tmp.complete"))
         assertFalse(pathExists("$base/tmp/model-1.tmp"))
-        assertFalse(pathExists("$base/tmp/kmptoolkit-internal"), "a plain id never touches the hashed subtree")
+        // The one thing under the internal directory is the layout marker; no hashed name, record or staging dir.
+        assertTrue(pathExists("$base/${UnitFileLayout.LEGACY_LAYOUT_MARKER}"), "the layout marker is written on first use")
+        assertFalse(pathExists("$base/tmp/kmptoolkit-internal/trash"), "a plain id never touches the hashed subtree")
     }
 
     // 9
@@ -727,8 +741,8 @@ abstract class DownloaderStorageContractTest {
             Triple("models/v1-t9-bad", OTHER, false),
         )) {
             val unit = ContractUnit(id, relativePath = "resources/p9-${id.substringAfterLast('-')}.bin")
-            writeFile("$base/tmp/$id.tmp", "abc".encodeToByteArray())
-            writeFile("$base/tmp/expect/$id.sha256", "sha256:${recorded.hex}\n".encodeToByteArray())
+            writeLegacyFile("$base/tmp/$id.tmp", "abc".encodeToByteArray())
+            writeLegacyFile("$base/tmp/expect/$id.sha256", "sha256:${recorded.hex}\n".encodeToByteArray())
 
             assertEquals(TempFileState.Partial, storage.tempFileState(unit), id)
             assertEquals(3L, storage.getTempFileSize(unit), id)
@@ -749,8 +763,8 @@ abstract class DownloaderStorageContractTest {
     @Test
     fun `migration never touches another unit's staging tree or record`() {
         val base: String = baseDirectory()
-        writeFile("$base/tmp/staging-a/b.tmp", "xyz".encodeToByteArray())
-        writeFile("$base/tmp/expect/foo.sha256", "sha256:${OTHER.hex}\n".encodeToByteArray())
+        writeLegacyFile("$base/tmp/staging-a/b.tmp", "xyz".encodeToByteArray())
+        writeLegacyFile("$base/tmp/expect/foo.sha256", "sha256:${OTHER.hex}\n".encodeToByteArray())
         val inStaging = ContractUnit("staging-a/b", relativePath = "resources/p10a.bin")
         val namedLikeARecord = ContractUnit("expect/foo", tempExtension = "sha256", relativePath = "resources/p10b.bin")
 
@@ -771,8 +785,8 @@ abstract class DownloaderStorageContractTest {
 
         val resumed = ContractUnit("models/v1-t11", relativePath = "resources/p11a.bin")
         val resumedNames: UnitFileLayout.Names = layout.namesOf(resumed)
-        writeFile("$base/${resumedNames.record}", "sha256:${ABC.hex}\n".encodeToByteArray())
-        writeFile("$base/tmp/models/v1-t11.tmp", "abc".encodeToByteArray())
+        writeLegacyFile("$base/${resumedNames.record}", "sha256:${ABC.hex}\n".encodeToByteArray())
+        writeLegacyFile("$base/tmp/models/v1-t11.tmp", "abc".encodeToByteArray())
         assertEquals(3L, storage.getTempFileSize(resumed))
         assertFalse(pathExists("$base/tmp/models/v1-t11.tmp"))
         finish(storage, resumed)
@@ -780,7 +794,7 @@ abstract class DownloaderStorageContractTest {
 
         val both = ContractUnit("models/v1-t11b", relativePath = "resources/p11b.bin")
         writeFile("$base/${layout.namesOf(both).partial}", "new!".encodeToByteArray())
-        writeFile("$base/tmp/models/v1-t11b.tmp", "old".encodeToByteArray())
+        writeLegacyFile("$base/tmp/models/v1-t11b.tmp", "old".encodeToByteArray())
         assertEquals(4L, storage.getTempFileSize(both), "the destination is authoritative")
         assertFalse(pathExists("$base/tmp/models/v1-t11b.tmp"), "the stale legacy file is deleted")
     }
@@ -807,7 +821,7 @@ abstract class DownloaderStorageContractTest {
     fun `concurrent first touches of the same unsafe unit converge on one migrated file`() = runTest {
         val base: String = baseDirectory()
         val unit = ContractUnit("models/v1-t12", relativePath = "resources/p12.bin")
-        writeFile("$base/tmp/models/v1-t12.tmp", "hello".encodeToByteArray())
+        writeLegacyFile("$base/tmp/models/v1-t12.tmp", "hello".encodeToByteArray())
 
         val sizes: List<Long> = withContext(Dispatchers.Default) {
             withTimeout(10.seconds) {

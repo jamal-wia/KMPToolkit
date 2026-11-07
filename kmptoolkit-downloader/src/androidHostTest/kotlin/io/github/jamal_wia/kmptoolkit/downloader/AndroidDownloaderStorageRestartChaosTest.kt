@@ -3,6 +3,8 @@ package io.github.jamal_wia.kmptoolkit.downloader
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
+import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import java.io.File
 import java.nio.file.Files
@@ -64,11 +66,20 @@ class AndroidDownloaderStorageRestartChaosTest {
         override fun toString(): String = "ChaosUnit($id)"
     }
 
+    /**
+     * A file the way 3.0.0 left it: older than this version's first use of the base directory, which
+     * is the only kind of legacy temp file the migration moves.
+     */
     private fun legacyFile(relative: String, bytes: ByteArray): File =
         File(root, relative).apply {
             parentFile!!.mkdirs()
             writeBytes(bytes)
+            backdate(this)
         }
+
+    private fun backdate(file: File) {
+        check(file.setLastModified(System.currentTimeMillis() - 3_600_000L)) { "could not backdate $file" }
+    }
 
     private fun transferAndCommit(storage: DownloaderStorage, unit: DownloadUnit, bytes: ByteArray) {
         storage.beginTempFile(unit, null)
@@ -95,6 +106,123 @@ class AndroidDownloaderStorageRestartChaosTest {
     }
 
     @Test
+    fun `another unit's committed resource at a hashed unit's 3_0_0 partial path survives its first touch`() {
+        // A fresh base: no 3.0.0 file can exist, so nothing at a legacy-looking path is a legacy file.
+        val other = ChaosUnit(id = "other", relativePath = "tmp/m/v1.tmp")
+        val hashed = ChaosUnit(id = "m/v1", relativePath = "files/m-v1.bin")
+        val bytes = ByteArray(32) { 7 }
+        transferAndCommit(newProcess(), other, bytes)
+
+        val second: DownloaderStorage = newProcess()
+        second.getTempFileSize(hashed)
+
+        assertTrue(second.isResourceAvailable(other), "another unit's resource was swallowed by a migration")
+        assertContentEquals(bytes, File(root, "tmp/m/v1.tmp").readBytes())
+        assertEquals(TempFileState.None, second.tempFileState(hashed))
+    }
+
+    @Test
+    fun `the same on an upgraded base keeps the resource and still migrates a real 3_0_0 partial`() {
+        // The base holds a 3.0.0 partial from before the update (x/y, hashed id, backdated).
+        val old = ByteArray(40) { 4 }
+        legacyFile("tmp/x/y.tmp", old)
+        val other = ChaosUnit(id = "other", relativePath = "tmp/m/v1.tmp")
+        val hashed = ChaosUnit(id = "m/v1", relativePath = "files/m-v1.bin")
+        val migrated = ChaosUnit(id = "x/y", relativePath = "files/x-y.bin")
+        val bytes = ByteArray(32) { 7 }
+        transferAndCommit(newProcess(), other, bytes)
+
+        val second: DownloaderStorage = newProcess()
+        second.getTempFileSize(hashed)
+
+        assertTrue(second.isResourceAvailable(other), "another unit's resource was swallowed by a migration")
+        assertContentEquals(bytes, File(root, "tmp/m/v1.tmp").readBytes())
+        assertEquals(TempFileState.None, second.tempFileState(hashed))
+        assertEquals(TempFileState.Partial, second.tempFileState(migrated), "the real 3.0.0 partial still resumes")
+        assertContentEquals(old, File(second.getTempFilePath(migrated)).readBytes())
+        assertFalse(File(root, "tmp/x/y.tmp").exists())
+    }
+
+    @Test
+    fun `a legacy-shaped file on a fresh base is never moved, even one with an old modification time`() {
+        // The first use marks the base fresh (no tmp entries yet); a file that shows up afterwards is not 3.0.0's.
+        val plain = ChaosUnit(id = "plain", relativePath = "files/plain.bin")
+        newProcess().tempFileState(plain)
+        val hashed = ChaosUnit(id = "models/late", relativePath = "files/late.bin")
+        val late: File = legacyFile("tmp/models/late.tmp", ByteArray(9))
+
+        val storage: DownloaderStorage = newProcess()
+
+        assertEquals(TempFileState.None, storage.tempFileState(hashed))
+        assertTrue(late.exists(), "a file created after the marker was moved")
+        assertEquals("fresh", File(root, UnitFileLayout.LEGACY_LAYOUT_MARKER).readText())
+    }
+
+    @Test
+    fun `a marker that cannot be written migrates nothing, throws nothing and warns once`() {
+        val unit = ChaosUnit(id = "models/nomarker", relativePath = "files/nm.bin")
+        val legacy: File = legacyFile("tmp/models/nomarker.tmp", ByteArray(6))
+        // tmp/kmptoolkit-internal is a regular file, so no marker (or hashed name) can be created below it.
+        File(root, UnitFileLayout.INTERNAL_DIRECTORY).writeText("not a directory")
+        val counter = WarningCounter()
+        LegacyTempMigrations.resetForTests()
+        val storage: DownloaderStorage = AndroidDownloaderStorage(context, config, counter)
+
+        repeat(3) { assertEquals(TempFileState.None, storage.tempFileState(unit)) }
+
+        assertTrue(legacy.exists(), "the legacy file was moved without a readable marker")
+        assertEquals(1, counter.markerWarnings, "one warning about the marker")
+    }
+
+    private class WarningCounter : Logger {
+        override val tag: String = "test"
+        var markerWarnings: Int = 0
+
+        override fun isLoggable(level: LogLevel): Boolean = true
+
+        override fun log(level: LogLevel, throwable: Throwable?, message: () -> String) {
+            val text: String = message()
+            if (level == LogLevel.WARN && "layout marker" in text) markerWarnings++
+        }
+    }
+
+    @Test
+    fun `eight threads in two storages on a brand-new base write one marker with one value`() {
+        val unit = ChaosUnit(id = "models/race", relativePath = "files/race.bin")
+        val a = AndroidDownloaderStorage(context, config, NoopLogger)
+        val b = AndroidDownloaderStorage(context, config, NoopLogger)
+        val pool = Executors.newFixedThreadPool(8)
+        val gate = CountDownLatch(1)
+        val done = CountDownLatch(8)
+        val errors = AtomicReference<Throwable?>(null)
+        try {
+            repeat(8) { index: Int ->
+                pool.execute {
+                    try {
+                        gate.await()
+                        val storage: DownloaderStorage = if (index % 2 == 0) a else b
+                        storage.tempFileState(unit)
+                    } catch (t: Throwable) {
+                        errors.compareAndSet(null, t)
+                    } finally {
+                        done.countDown()
+                    }
+                }
+            }
+            gate.countDown()
+            assertTrue(done.await(20, TimeUnit.SECONDS))
+        } finally {
+            pool.shutdownNow()
+        }
+
+        assertEquals(null, errors.get())
+        assertEquals("fresh", File(root, UnitFileLayout.LEGACY_LAYOUT_MARKER).readText())
+        val leftovers: List<String> = File(root, UnitFileLayout.INTERNAL_DIRECTORY).list().orEmpty()
+            .filter { it.startsWith("legacy-layout") }
+        assertEquals(listOf("legacy-layout"), leftovers, "a temporary marker file was left behind")
+    }
+
+    @Test
     fun `a kill between link and unlink leaves both names and the next process keeps one`() {
         val unit = ChaosUnit(id = "models/v1", relativePath = "files/v1.bin")
         val bytes = ByteArray(100) { 3 }
@@ -106,6 +234,7 @@ class AndroidDownloaderStorageRestartChaosTest {
         destination.delete()
         legacy.parentFile!!.mkdirs()
         if (!legacy.exists()) legacy.writeBytes(bytes)
+        backdate(legacy)
         Files.createLink(destination.toPath(), legacy.toPath())
         assertTrue(legacy.exists() && destination.exists())
 

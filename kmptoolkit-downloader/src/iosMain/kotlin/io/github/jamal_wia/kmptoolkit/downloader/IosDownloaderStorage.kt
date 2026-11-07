@@ -29,7 +29,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import platform.Foundation.NSApplicationSupportDirectory
+import platform.Foundation.NSDate
 import platform.Foundation.NSDirectoryEnumerator
+import platform.Foundation.NSFileModificationDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileProtectionKey
 import platform.Foundation.NSFileProtectionNone
@@ -45,6 +47,7 @@ import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.Foundation.NSURLVolumeSupportsCaseSensitiveNamesKey
+import platform.Foundation.timeIntervalSince1970
 import platform.Foundation.NSUserDomainMask
 import platform.posix.FILE
 import platform.posix.SEEK_CUR
@@ -144,6 +147,30 @@ internal class IosDownloaderStorage(
         override fun createParentDirectory(path: String) {
             this@IosDownloaderStorage.createParentDirectory(path)
         }
+
+        override fun lastModifiedMillis(path: String): Long? {
+            val attributes: Map<Any?, *>? = NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null)
+            val modified: NSDate = attributes?.get(NSFileModificationDate) as? NSDate ?: return null
+            return (modified.timeIntervalSince1970 * 1000.0).toLong().takeIf { it > 0L }
+        }
+
+        override fun hasEntriesOtherThan(directory: String, name: String): Boolean =
+            NSFileManager.defaultManager.contentsOfDirectoryAtPath(directory, error = null).orEmpty().any { it != name }
+
+        override fun readText(path: String): String? =
+            NSString.stringWithContentsOfFile(path = path, encoding = NSUTF8StringEncoding, error = null)
+
+        override fun writeNew(path: String, text: String): Boolean {
+            val temporary = "$path.${Random.nextLong().toULong()}.tmp"
+            return try {
+                writeAndSync(temporary, text.encodeToByteArray())
+                io.github.jamal_wia.kmptoolkit.downloader.renameNoReplace(temporary, path)
+            } catch (e: IllegalStateException) {
+                false
+            } finally {
+                remove(temporary)
+            }
+        }
     }
 
     private fun volumeIsCaseSensitive(path: String): Boolean {
@@ -161,9 +188,11 @@ internal class IosDownloaderStorage(
      * moved to them (once per process), so every method sees the files wherever they are.
      */
     private fun names(unit: DownloadUnit): UnitFileLayout.Names {
+        // Before any name is returned, so before this version writes anything under tmp/ of the base.
+        val cutoff: LegacyTempMigrations.Cutoff = LegacyTempMigrations.ensureLayout(baseDir, migrationFiles, logger)
         val names: UnitFileLayout.Names = layout.namesOf(unit)
         if (names.anyHashed) {
-            LegacyTempMigrations.migrateOnce(baseDir, unit, layout, names, migrationFiles, logger)
+            LegacyTempMigrations.migrateOnce(baseDir, unit, layout, names, migrationFiles, logger, cutoff)
         }
         return names
     }

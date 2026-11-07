@@ -33,7 +33,12 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
     }
 
     /** One step of moving a 3.0.0 file to its hashed place; [destination] null means delete [legacy]. */
-    class MigrationStep(val legacy: String, val destination: String?)
+    class MigrationStep(
+        val legacy: String,
+        val destination: String?,
+        /** A partial or complete data file: only moved when it predates the layout marker. */
+        val tempData: Boolean = false,
+    )
 
     /** What [inspectRelativePath] decided. */
     sealed interface PathInspection {
@@ -150,8 +155,8 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
             if (isMigratable(staged, firstUnreservedIndex = 2)) steps.add(MigrationStep(staged, null))
         }
         if (names.tempHashed && isMigratable(legacyPartial, firstUnreservedIndex = 1)) {
-            steps.add(MigrationStep("$legacyPartial.complete", names.complete))
-            steps.add(MigrationStep(legacyPartial, names.partial))
+            steps.add(MigrationStep("$legacyPartial.complete", names.complete, tempData = true))
+            steps.add(MigrationStep(legacyPartial, names.partial, tempData = true))
         }
         return steps
     }
@@ -199,6 +204,15 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
 
         /** The one directory under `tmp/` that only this library writes: hashed names and the trash. */
         const val INTERNAL_DIRECTORY: String = "$TMP/$INTERNAL_NAME"
+
+        /**
+         * One-time per-base marker, `fresh` or `upgraded`, written before 3.1.0's first write under
+         * `tmp/`; its modification time is the moment after which no file can be a 3.0.0 temp file.
+         */
+        const val LEGACY_LAYOUT_MARKER: String = "$INTERNAL_DIRECTORY/legacy-layout"
+
+        /** The directory below `tmp/` whose entries the marker decision ignores. */
+        const val INTERNAL_DIRECTORY_NAME: String = INTERNAL_NAME
 
         /** Detached extraction trees waiting to be deleted. */
         const val TRASH_DIRECTORY: String = "$INTERNAL_DIRECTORY/trash"

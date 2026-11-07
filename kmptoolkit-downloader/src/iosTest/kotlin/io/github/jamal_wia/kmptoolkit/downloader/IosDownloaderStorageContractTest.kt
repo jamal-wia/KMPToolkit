@@ -7,10 +7,13 @@ import kotlinx.cinterop.usePinned
 import kotlin.test.BeforeTest
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSData
+import platform.Foundation.NSDate
+import platform.Foundation.NSFileModificationDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask
 import platform.Foundation.dataWithContentsOfFile
+import platform.Foundation.dateWithTimeIntervalSinceNow
 import platform.posix.fclose
 import platform.posix.fopen
 import platform.posix.fwrite
@@ -47,6 +50,16 @@ class IosDownloaderStorageContractTest : DownloaderStorageContractTest() {
         } finally {
             fclose(file)
         }
+    }
+
+    override fun backdate(path: String) {
+        val anHourAgo: NSDate = NSDate.dateWithTimeIntervalSinceNow(-3600.0)
+        val changed: Boolean = NSFileManager.defaultManager.setAttributes(
+            attributes = mapOf(NSFileModificationDate to anHourAgo),
+            ofItemAtPath = path,
+            error = null,
+        )
+        check(changed) { "could not backdate $path" }
     }
 
     override fun readFile(path: String): ByteArray? {
