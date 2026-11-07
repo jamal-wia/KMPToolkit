@@ -44,6 +44,9 @@ could be started.
 - **Remembered:** a success holds until the toolkit exits (after `Platform.exit()` the answer is
   `false`); a permanent failure (missing runtime, no display) holds for the life of the process. A JavaFX thread too busy to answer within 10 s is not remembered; the next
   call tries again.
+  Callers that were waiting meanwhile each try again in turn, so while the thread stays
+  unresponsive, N concurrent first calls can take up to N x 10 s; the bound is per attempt, not per
+  caller.
 - **Not a format check:** `true` does not mean every source decodes on this OS.
 - Blocks the calling thread for as long as the toolkit takes to start (typically well under a
   second, bounded at 10 s), so the first call belongs off the UI thread. On the JavaFX application

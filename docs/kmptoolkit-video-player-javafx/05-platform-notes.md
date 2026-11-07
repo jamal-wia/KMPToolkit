@@ -104,6 +104,9 @@ decoder writes straight into memory without a render-and-read-back step.
   when the engine itself started the toolkit does it call `Platform.setImplicitExit(false)` — it
   never opens a window, and without that JavaFX could shut down when a window of the app's closes.
   An app that runs its own JavaFX windows keeps its own exit policy.
+  Callers that were waiting meanwhile each try again in turn, so while the thread stays
+  unresponsive, N concurrent first calls can take up to N x 10 s; the bound is per attempt, not per
+  caller.
 - **The toolkit stays up.** `release()` frees the player, not the toolkit; it is process-wide and
   shared with the rest of the app. If the app calls `Platform.exit()` (or JavaFX exits on its own
   when the app's last JavaFX window closes and implicit exit is on), players stop working and
