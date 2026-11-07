@@ -143,6 +143,10 @@ decoder writes straight into memory without a render-and-read-back step.
 - **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine
   pauses it there, so a seek from `Completed` stays `Paused` — in the state and in JavaFX — until
   `play()`.
+- **Open files after release.** JavaFX gives a `Media` no way to be closed: the file or connection
+  it opened stays open after `release()` until the garbage collector reclaims it. Under the usual
+  descriptor limits this matters only for an app that loads thousands of sources between two
+  collections.
 - **Playback speed.** On macOS, `MediaPlayer.play()` starts the native player at normal speed
   whatever rate JavaFX holds, so a speed set while paused would be lost; the engine applies the rate
   again after every `play()`.
