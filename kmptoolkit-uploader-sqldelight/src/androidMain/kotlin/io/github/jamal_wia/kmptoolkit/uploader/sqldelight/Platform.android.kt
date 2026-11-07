@@ -33,12 +33,13 @@ import kotlinx.coroutines.runBlocking
  * @param config which file to open. The default names it after the app's own package — see
  *   [UploaderDatabaseConfig].
  * @return a storage that owns its driver and closes it in [UploaderStorage.close].
- * A file that is not a database (corruption, a truncated write) is **never deleted or recreated**:
- * the open fails with [UploaderStorageException] and the file stays exactly as found. Android's
- * default behavior would silently delete it and start an empty queue, dropping every effect still
- * owed. The app decides — typically by reporting it, then `Context.deleteDatabase` with the file name
- * `"<name>.kmptoolkit.uploader.db"` (`<name>` being [UploaderDatabaseConfig.name], or the package
- * name by default) to start afresh.
+ * A file that is not a database (corruption, a truncated write) is by default **never deleted or
+ * recreated**: the open fails with [UploaderStorageException] and the file stays exactly as found.
+ * Android's own behavior would silently delete it and start an empty queue, dropping every effect
+ * still owed. The app decides — typically by reporting it, then `Context.deleteDatabase` with the file
+ * name `"<name>.kmptoolkit.uploader.db"` (`<name>` being [UploaderDatabaseConfig.name], or the package
+ * name by default) to start afresh — or opts in to the old behavior with
+ * [UploaderDatabaseConfig.recreateOnCorruption], which deletes the file and opens an empty queue.
  *
  * @throws UploaderStorageException if the file cannot be opened, created or migrated.
  */
@@ -54,7 +55,12 @@ public fun createUploaderStorage(
                 schema = KmpToolkitUploaderDatabase.Schema,
                 context = applicationContext,
                 name = uploaderDatabaseFileName(name),
-                callback = NonDestructiveCallback(),
+                callback = if (config.recreateOnCorruption) {
+                    // The framework's own handling: it deletes the corrupt file and opens a new one.
+                    AndroidSqliteDriver.Callback(KmpToolkitUploaderDatabase.Schema)
+                } else {
+                    NonDestructiveCallback()
+                },
             ),
         )
     }

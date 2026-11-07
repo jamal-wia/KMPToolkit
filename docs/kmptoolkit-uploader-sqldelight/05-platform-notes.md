@@ -46,6 +46,22 @@ effects in it, on a device that may have different credentials. If that matters 
 `data_extraction_rules.xml` exclusion for the file, or wipe the queue on first launch after a
 restore. This module cannot decide that for you.
 
+## Corrupt database file
+
+The default contract is the same on both platforms: a file that is not a usable database fails
+`createUploaderStorage` with `UploaderStorageException(OPEN)` and is left byte for byte as found.
+`UploaderDatabaseConfig(recreateOnCorruption = true)` replaces it with an empty queue on both.
+
+| | Android | iOS |
+|---|---|---|
+| Default | Android's own handler would delete the file and recreate it, so the factory installs a callback that throws instead | `NativeSqliteDriver` never deletes a file; the first statement fails and the factory reports it |
+| `recreateOnCorruption = true` | The framework's own handler deletes the file and reopens | The factory deletes the file with SQLiter's `DatabaseFileContext` and opens again, but only when the failure message says the file is not a database or is malformed |
+
+One difference remains: Android decides what counts as corruption (the framework raises
+`SQLiteDatabaseCorruptException`), while on iOS the factory recognises SQLite's "file is not a
+database" and "malformed" messages. A corruption SQLite reports in other words is treated as an
+ordinary `OPEN` failure on iOS and the file is kept.
+
 ## Driver differences
 
 | | Android (`AndroidSqliteDriver`) | iOS (`NativeSqliteDriver`) |
