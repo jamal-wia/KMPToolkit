@@ -253,8 +253,13 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
             ),
         )
 
-    override suspend fun classify(payload: AvatarUpload, result: UploadResult): SettleResult =
-        defaultUploadClassification(result)
+    // classify is optional: without an override defaultUploadClassification(result) decides.
+
+    override suspend fun onDelivered(payload: AvatarUpload, response: UploadResponse?) {
+        // The server answered 202 with a job id. Idempotent: this may run twice for one item.
+        val jobId: String? = response?.header("location") ?: response?.let { parseJobId(it.body()) }
+        if (jobId != null) avatars.saveJobId(payload.id, jobId)
+    }
 }
 ```
 
@@ -265,6 +270,68 @@ hand-off. Register the engine in `UploaderEngineRegistry`: the transport settles
 which finds the engine there. See [`08-upload-transport.md`](08-upload-transport.md) for the full
 contract, the hooks, the iOS relaunch hook your app delegate must forward, and the older
 classifier-based Android transport.
+
+### Reading what the server answered
+
+Since 3.1.0 an `UploadHandler` sees the server's answer. `classify(payload, result, response)` and
+`onDelivered(payload, response)` receive an `UploadResponse`: `statusCode`, `headers` (lowercase names,
+`header(name)` is case-insensitive), `body()` — a copy of the first bytes of the body, never `null`,
+empty for a `204` — and `isBodyTruncated`. `response` is `null` only when the server never answered
+(`UploadResult.TransportFailure`). Whenever it is not `null`, `result` is
+`UploadResult.Completed(response.statusCode)`.
+
+**The recommended recipe: `202` plus a job id.** Keep the upload request short and the server's work
+asynchronous:
+
+1. The client sends the file with an `Idempotency-Key` header equal to `AttemptContext.id` (the item
+   id — stable across every retry of the item).
+2. The server stores the file, answers `202 Accepted` at once and puts a job id in the body or in a
+   `Location` header. A repeated request with the same key returns the same job.
+3. `classify` decides on the **status** and nothing else for the common cases;
+   `onDelivered` reads the job id and persists it, keyed by the payload's own id, then your app polls
+   or is pushed the result.
+
+```kotlin
+override suspend fun classify(payload: AvatarUpload, result: UploadResult, response: UploadResponse?): SettleResult =
+    when {
+        response?.statusCode == 422 -> SettleResult.Drop("rejected: ${errorField(response)}")
+        else -> defaultUploadClassification(result)
+    }
+
+private fun errorField(response: UploadResponse): String =
+    runCatching { json.decodeFromString<ApiError>(response.body().decodeToString()).field }
+        .getOrDefault("unknown") // a malformed body is a missing detail, never an exception
+
+override suspend fun onDelivered(payload: AvatarUpload, response: UploadResponse?) {
+    val jobId: String = response?.header("location")?.substringAfterLast('/') ?: return
+    avatars.saveJobId(avatarId = payload.id, jobId = jobId) // an upsert: it may run twice
+}
+```
+
+Rules that keep this safe:
+
+- **`classify` must not throw because a body is malformed.** A throw settles the item as `Failed`, and a
+  delivered upload would then be sent again. Decide on the status; read the body defensively, as extra
+  detail.
+- **Parse and persist in `onDelivered`, idempotently.** It runs before the row is removed, and it may
+  run twice (a settle that did not land is retried). Key the write by something of the payload. An
+  exception there is logged and does not stop the settlement — so the response is **lost**. Keep that
+  code simple, and let it fail rarely.
+- **`isBodyTruncated` on a 2xx.** The body is cut at `maxResponseBodyBytes` (default 64 KiB, at most
+  1 MiB, `0` for none). Never parse a truncated prefix: raise the limit, or decide in `classify` from
+  the status and a header (`Location`) that is not cut. Truncation never causes a retry.
+- **Do not do long synchronous work in the upload response.** A server that holds the connection while
+  it processes a file ties the answer to a read timeout, a 10-minute Android worker limit and an iOS
+  daemon that may be killed with the app; `202` and a job id avoid all three.
+- **`Set-Cookie` cannot be read from `headers`.** Values of a header repeated under one name are joined
+  with `", "`, which is lossy for cookies.
+- **Platform limits:** an iOS force-quit cancels background transfers; an Android upload runs in a
+  `WorkManager` worker, which has about 10 minutes; a body that reached iOS while the app was dead
+  arrives only if `BackgroundUploadRelaunch.handleEvents` is wired. The legacy
+  `createWorkManagerUploadTransport` is status-only. See [`05-platform-notes.md`](05-platform-notes.md).
+
+A handler written for 3.0 — overriding the two-argument `classify` and the one-argument `onDelivered` —
+keeps working unchanged: the new hooks call them by default.
 
 ## Draining on demand
 

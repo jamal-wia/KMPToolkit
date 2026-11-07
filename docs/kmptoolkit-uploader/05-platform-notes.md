@@ -149,6 +149,28 @@ while the app is dead waits for its lease and is sent again: forward
 [`08-upload-transport.md`](08-upload-transport.md#the-relaunch-hook--required). Background sessions
 need no `Info.plist` entry and no background mode.
 
+## The server's response
+
+Since 3.1.0 the handler transports hand an `UploadHandler` the response — status, headers and the start
+of the body — in `classify` and `onDelivered`. What differs by platform:
+
+- **Android.** `UploadHandlerWorker` reads the response in the same attempt, before the connection is
+  dropped: `inputStream` for a status below 400, `errorStream` for 400 and above (a missing one is an
+  empty body). At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
+  The body stays in the process and is never put into `WorkManager`'s data. A `WorkManager` worker has
+  about **10 minutes**, and the module does not call `setForeground`: a long upload, or a server that
+  answers slowly, can be stopped and retried. Keep the server's answer fast (`202` and a job id).
+- **iOS.** The session delegate accumulates the body while the session delivers it, and builds the
+  response when the task completes. A body that arrived while the app was dead is delivered only if
+  `BackgroundUploadRelaunch.handleEvents` is wired (see
+  [`08-upload-transport.md`](08-upload-transport.md#the-relaunch-hook--required)); without it the
+  outcome waits for the lease and the item uploads again. **A force-quit cancels background transfers**:
+  iOS does not continue an upload for an app the user swiped away.
+- **`Set-Cookie`.** Headers repeated under one name are joined with `", "`; that cannot be undone for a
+  cookie, so do not read cookies from `UploadResponse.headers`.
+- **The legacy `createWorkManagerUploadTransport`** settles through one global classifier and stays
+  status-only: it never reads a body.
+
 ## Both platforms
 
 - **The wake layer is optional.** Without it, the engine's promise is "delivered while the app runs,
