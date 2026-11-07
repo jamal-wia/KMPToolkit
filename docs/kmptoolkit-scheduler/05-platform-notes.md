@@ -68,6 +68,12 @@ thing from a permission:
   when someone forgets it: no compile error, no exception, `schedule` still reports success, and
   the alarm simply never arrives. That is the worst possible failure mode for a scheduling library.
 
+The receiver is built by the system with no arguments, so the handlers reach it through one
+process-wide registration: the `handlerProvider` (or the handler list) of the **latest**
+`createAlarmScheduler` call, kept for the life of the process. It holds only what you pass, so a
+provider that captures an `Activity` or another UI object pins it until the process dies; capture
+application-scoped objects only.
+
 If you need the alarm broadcast to go somewhere else entirely, do not use the module's receiver:
 schedule nothing through it, declare your own receiver, and use `handlerFor` for the dispatch rule.
 

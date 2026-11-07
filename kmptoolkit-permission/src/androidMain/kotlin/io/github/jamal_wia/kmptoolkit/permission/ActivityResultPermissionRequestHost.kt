@@ -34,8 +34,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * - **One request at a time.** A launch while another is pending returns `false` and shows nothing.
  *   The controller serializes its own requests, so this only refuses a second controller sharing the
  *   host — or a host-level bug.
- * - **Holds no activity.** It asks [activityAccess] for the resumed one at each launch and keeps only
- *   the registration, which belongs to that activity's registry.
+ * - **Holds an activity only while its dialog is showing.** It asks [activityAccess] for the resumed
+ *   one at each launch and keeps that activity with the registration (which belongs to its registry)
+ *   until the dialog's answer arrives or the request is abandoned as above; nothing is kept between
+ *   requests.
+ * - **A cancelled caller does not withdraw a dialog.** A system dialog already on screen cannot be
+ *   taken back, so the request stays pending until the user answers (or the activity is finished) and
+ *   the answer is then dropped. A launch in that window returns `false`, as for any pending request.
  *
  * A launch returns `false` when no activity is resumed, or the resumed one is not a
  * `ComponentActivity` — every `AppCompatActivity` and Compose `ComponentActivity` is one.

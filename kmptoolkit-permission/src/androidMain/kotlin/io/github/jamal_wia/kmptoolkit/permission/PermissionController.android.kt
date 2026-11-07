@@ -75,6 +75,8 @@ private const val LEGACY_ASKED: String = "true"
  *   open from. The default tracks activities itself; it must then be created in
  *   `Application.onCreate`, because a tracker created after the first activity resumed does not know
  *   that activity until it resumes again. Pass your app's own access to narrow it to your activities.
+ *   Each call without one registers a lifecycle callback with the `Application` that lives as long as
+ *   the process, so build the controller once, and pass one shared access if you build more than one.
  * - **[host]** shows the system dialog and the screens that answer with a result. The default,
  *   [ActivityResultPermissionRequestHost] on [activityAccess], needs no wiring and survives an activity
  *   recreated while a dialog is up; pass your own [PermissionRequestHost] if your app already owns that

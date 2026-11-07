@@ -73,8 +73,13 @@ public fun createAlarmScheduler(
  * **Call this from `Application.onCreate`**, exactly as the list overload: an alarm that fires into a
  * process where no scheduler has been created yet is dropped, provider or not.
  *
+ * The provider is held for the life of the process (the alarm receiver is built by the system with no
+ * arguments, so it has nowhere else to find it), and the latest scheduler created wins. It must not
+ * capture an `Activity` or any other UI object.
+ *
  * @param context any context; the application context is taken from it.
- * @param handlerProvider returns the handlers to choose from, one per [ScheduledAlarm.type].
+ * @param handlerProvider returns the handlers to choose from, one per [ScheduledAlarm.type]; lives for
+ *   the whole process, so it must not capture UI objects.
  * @param config identifiers this module writes into intents; see [AlarmSchedulerConfig].
  */
 public fun createAlarmScheduler(
