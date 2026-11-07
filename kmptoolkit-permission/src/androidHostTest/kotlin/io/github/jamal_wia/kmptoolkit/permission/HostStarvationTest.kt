@@ -12,6 +12,7 @@ import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import java.lang.ref.WeakReference
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.junit.runner.RunWith
@@ -144,5 +145,38 @@ class HostStarvationTest {
             clearedAfterGc(listOf(activityFinishedAfterAnsweredRequest(host))),
             "the host or the tracker still holds the activity after its request ended",
         )
+    }
+
+    private fun rotate(screen: ActivityController<ComponentActivity>): WeakReference<Activity> {
+        val old: Activity = screen.get()
+        screen.recreate()
+        return WeakReference(old)
+    }
+
+    @Test
+    fun `control - twenty rotations with no request leave every old instance collectable`() {
+        val screen: ActivityController<ComponentActivity> = resumedActivity()
+        val old: List<WeakReference<Activity>> = List(20) { rotate(screen) }
+
+        assertTrue(clearedAfterGc(old), "${old.count { it.get() != null }} of 20 old instances retained: the test's GC is unreliable")
+    }
+
+    @Test
+    fun `twenty rotations with a request pending leave every old instance collectable and the answer still lands`() {
+        shadowOf(application).denyPermissions(camera)
+        val screen: ActivityController<ComponentActivity> = resumedActivity()
+        val host = ActivityResultPermissionRequestHost(access)
+        val answers: MutableList<Map<String, Boolean>> = mutableListOf()
+        assertTrue(host.launch(listOf(camera)) { answers += it })
+        val request: ShadowActivity.PermissionsRequest = assertNotNull(shadowOf(screen.get()).lastRequestedPermission)
+
+        val old: List<WeakReference<Activity>> = List(20) { rotate(screen) }
+
+        assertTrue(
+            clearedAfterGc(old),
+            "${old.count { it.get() != null }} of 20 old instances are still pinned by the host with its request pending",
+        )
+        answerGranted(screen.get(), request)
+        assertEquals(1, answers.size, "the answer did not reach the request after the rotations")
     }
 }
