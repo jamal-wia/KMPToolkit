@@ -19,9 +19,11 @@ import platform.Foundation.NSBundle
 /**
  * [PlaybackEngine.load] must leave nothing playable behind when it throws or is cancelled, as the
  * Android engine does: a failed load used to keep its AVPlayer, item and end-of-item observer until
- * the next load, unload or release. Only the cancelled path is driven here: an item's `status` is
- * delivered through the main run loop, which a test runner does not pump, so a real failed item never
- * reports `Failed` in a test; the failure path goes through the same `catch` as the cancel.
+ * the next load, unload or release.
+ *
+ * Only the cancelled path is driven here, with `Dispatchers.Main` swapped for `Default` so no main
+ * run loop is needed. The failed-item path, which needs the real main queue, is
+ * [AvPlayerEngineFailedLoadTest]; both go through the same `catch` in `load`.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AvPlayerEngineLoadTest {
