@@ -145,8 +145,10 @@ class AndroidDownloaderEngineAdversarialTest {
         return buffer.toByteArray()
     }
 
+    /** The files below [directory], without the one-time layout marker, which is not a temp file or record. */
     private fun filesUnder(directory: File): List<String> =
-        directory.walkTopDown().filter { it.isFile }.map { it.relativeTo(directory).path }.sorted().toList()
+        directory.walkTopDown().filter { it.isFile && it.name != "legacy-layout" }
+            .map { it.relativeTo(directory).path }.sorted().toList()
 
     // -- A kill during extraction ----------------------------------------------------------------
 
