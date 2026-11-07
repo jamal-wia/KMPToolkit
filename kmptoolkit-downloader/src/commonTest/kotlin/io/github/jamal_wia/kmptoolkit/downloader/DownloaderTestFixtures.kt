@@ -107,7 +107,7 @@ internal class SetStorage(
     available: Set<String> = emptySet(),
     partial: Set<String> = emptySet(),
     complete: Set<String> = emptySet(),
-    private val commitFailure: Exception? = null,
+    var commitFailure: Exception? = null,
 ) : DownloaderStorage {
     private val availableIds: MutableSet<String> = available.toMutableSet()
     private val tempStates: MutableMap<String, TempFileState> = mutableMapOf<String, TempFileState>().apply {

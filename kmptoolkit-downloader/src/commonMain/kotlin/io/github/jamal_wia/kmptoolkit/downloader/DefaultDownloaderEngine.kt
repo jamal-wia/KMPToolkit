@@ -556,7 +556,8 @@ internal class DefaultDownloaderEngine(
     /**
      * Commits [unit] and, once the whole group is on disk, publishes completion. Returns false when
      * the bytes failed their integrity check and another download is allowed ([lastAttempt] false);
-     * the temp file is already deleted then. Every other failure is published and thrown.
+     * the temp file is already deleted then. Every other failure is published and thrown, and leaves
+     * the temp file in place (see [failGroupCommit]).
      */
     private suspend fun commitUnitAndNotify(
         group: ResourceGroup,
@@ -626,6 +627,13 @@ internal class DefaultDownloaderEngine(
         }
     }
 
+    /**
+     * Publishes and throws a commit failure. Deletes nothing: an integrity failure has already
+     * deleted its bytes by the time it gets here, and every other failure ([DownloadError.Storage]:
+     * a full disk, an unwritable path, an archive that would not extract) is not the bytes' fault —
+     * the complete download stays so the next `ensureAvailable` commits it without a transfer once
+     * the cause is fixed.
+     */
     private suspend fun failGroupCommit(
         group: ResourceGroup,
         groupState: MutableStateFlow<GroupDownloadState>,
@@ -635,7 +643,6 @@ internal class DefaultDownloaderEngine(
     ): Nothing {
         groupState.value = GroupDownloadState.Error(error = downloadError)
         notifier.showError(group = group, error = downloadError)
-        safeDeleteTempFile(unit)
         throw DownloadFailedException(unit = unit, error = downloadError, cause = cause)
     }
 
@@ -917,6 +924,7 @@ internal class DefaultDownloaderEngine(
         }
     }
 
+    /** The per-unit twin of [failGroupCommit], with the same rule about the temp file. */
     private fun failUnitCommit(
         unit: DownloadUnit,
         stateFlow: MutableStateFlow<UnitDownloadState>,
@@ -924,7 +932,6 @@ internal class DefaultDownloaderEngine(
         cause: Exception,
     ): Nothing {
         stateFlow.value = UnitDownloadState.Error(downloadError)
-        safeDeleteTempFile(unit)
         throw DownloadFailedException(unit = unit, error = downloadError, cause = cause)
     }
 

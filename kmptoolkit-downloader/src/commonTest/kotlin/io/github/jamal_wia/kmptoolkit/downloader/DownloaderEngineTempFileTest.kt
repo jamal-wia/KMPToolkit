@@ -182,4 +182,51 @@ class DownloaderEngineTempFileTest {
         assertTrue(storage.isResourceAvailable(model))
         assertTrue(storage.deletedTempFiles.isEmpty())
     }
+
+    // -- A commit that fails for a reason that is not the bytes' fault ------------------------
+
+    private fun completingDownloader(storage: SetStorage): ScriptedAttemptsDownloader =
+        ScriptedAttemptsDownloader { _, unit ->
+            storage.setTempState(unit, TempFileState.Complete)
+            emit(BackgroundDownloadEvent.FileReady(unit))
+        }
+
+    @Test
+    fun `group - a Storage commit failure keeps the complete download and the retry commits it without a transfer`() = runTest {
+        val storage = SetStorage(commitFailure = IllegalStateException("No space left on device"))
+        val downloader = completingDownloader(storage)
+        val engine: DefaultDownloaderEngine = engine(downloader, storage)
+
+        val thrown: DownloadFailedException = assertFailsWith { engine.ensureAvailable(group) }
+
+        assertTrue(thrown.error is DownloadError.Storage, "was ${thrown.error}")
+        assertTrue(storage.deletedTempFiles.isEmpty(), "the finished archive must not be deleted")
+        assertEquals(TempFileState.Complete, storage.tempFileState(model))
+
+        storage.commitFailure = null
+        engine.ensureAvailable(group)
+
+        assertTrue(storage.isResourceAvailable(model))
+        assertEquals(1, downloader.enqueueCount, "the retry must not download again")
+        assertEquals(GroupDownloadState.Completed, engine.downloadState(group).value)
+    }
+
+    @Test
+    fun `unit - a Storage commit failure keeps the complete download and the retry commits it without a transfer`() = runTest {
+        val storage = SetStorage(commitFailure = IllegalStateException("No space left on device"))
+        val downloader = completingDownloader(storage)
+        val engine: DefaultDownloaderEngine = engine(downloader, storage)
+
+        val thrown: DownloadFailedException = assertFailsWith { engine.ensureAvailable(model) }
+
+        assertTrue(thrown.error is DownloadError.Storage, "was ${thrown.error}")
+        assertTrue(storage.deletedTempFiles.isEmpty(), "the finished archive must not be deleted")
+        assertEquals(TempFileState.Complete, storage.tempFileState(model))
+
+        storage.commitFailure = null
+        engine.ensureAvailable(model)
+
+        assertTrue(storage.isResourceAvailable(model))
+        assertEquals(1, downloader.enqueueCount, "the retry must not download again")
+    }
 }

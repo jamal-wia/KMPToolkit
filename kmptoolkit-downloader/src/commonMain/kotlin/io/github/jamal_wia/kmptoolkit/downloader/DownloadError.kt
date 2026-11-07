@@ -29,7 +29,8 @@ public sealed class DownloadError {
     /**
      * The bytes arrived but could not be finalized: no room on disk, an unwritable path, or a ZIP
      * that would not extract. Distinct from a transport failure because retrying the download is
-     * not obviously the fix.
+     * not obviously the fix: the complete download is kept, and the next `ensureAvailable` commits
+     * it without a transfer once the cause is fixed.
      */
     public data class Storage(public val message: String? = null) : DownloadError()
 

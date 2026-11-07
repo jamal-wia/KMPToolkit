@@ -180,8 +180,10 @@ A commit whose bytes fail a check — a `sha256` or recorded-hash mismatch, a da
 open or does not hold the rows it declares — deletes the temp file and downloads **once more**. A second failure is
 `DownloadError.Corrupted`: persisting across two fresh downloads, it is the server's bytes or the
 host's stated hash that is wrong, and no number of retries fixes either. Any other commit failure
-(a full disk, an unwritable path) is `DownloadError.Storage` at once — downloading again is not the
-fix. Both surfaces share this policy.
+(a full disk, an unwritable path, an archive that will not extract) is `DownloadError.Storage` at
+once — downloading again is not the fix, so the complete temp file is **kept**: once the user has
+freed space, the next `ensureAvailable` commits it without a transfer. Both surfaces share this
+policy.
 
 Three things make it work:
 
