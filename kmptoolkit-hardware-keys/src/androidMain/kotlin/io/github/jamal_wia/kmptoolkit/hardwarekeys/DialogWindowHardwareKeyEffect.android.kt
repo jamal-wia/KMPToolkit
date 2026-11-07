@@ -16,6 +16,7 @@ import androidx.core.view.ViewCompat
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.e
+import java.util.WeakHashMap
 
 /**
  * Registration point for the app's policy on hardware key events inside Compose dialog-class
@@ -90,23 +91,12 @@ public actual fun DialogWindowHardwareKeyEffect() {
             return@DisposableEffect onDispose { }
         }
         if (window != null) {
-            if (window.callback is KeyInterceptingWindowCallback) {
-                // Another effect in this window — an app-wide dialog wrapper plus a shared component that
-                // calls it too — already intercepts. A second wrapper would run the policy twice per key.
-                return@DisposableEffect onDispose { }
-            }
             // A window with a `Window.Callback` must be intercepted there: it is the only point ahead
             // of the `PhoneWindow` fallback that shows the system volume panel. An
             // OnUnhandledKeyEventListener would run too late (DecorView lets PhoneWindow handle the
             // key and reports it handled), and an OnKeyListener fires only while its view has focus.
-            val original: Window.Callback = window.callback
-            val decorated = KeyInterceptingWindowCallback(original, interceptor)
-            window.callback = decorated
-            return@DisposableEffect onDispose {
-                // Restore only if nothing re-decorated the callback after us; clobbering another
-                // decorator would silently drop its behaviour.
-                if (window.callback === decorated) window.callback = original
-            }
+            val installation: Installation = acquireInstallation(window, interceptor)
+            return@DisposableEffect onDispose { releaseInstallation(window, installation) }
         }
         // A focusable `Popup` has no Window and so no Window.Callback, which makes an unhandled-key
         // listener the right hook: `ViewRootImpl` offers unhandled keys to it precisely for windows
@@ -124,6 +114,48 @@ public actual fun DialogWindowHardwareKeyEffect() {
         ViewCompat.addOnUnhandledKeyEventListener(view, listener)
         onDispose { ViewCompat.removeOnUnhandledKeyEventListener(view, listener) }
     }
+}
+
+/**
+ * One decoration of a dialog window's callback, shared by every [DialogWindowHardwareKeyEffect]
+ * composed in that window: [count] of them hold it, and the last one to leave restores [original].
+ */
+private class Installation(
+    val original: Window.Callback,
+    val decorated: KeyInterceptingWindowCallback,
+    var count: Int,
+)
+
+/**
+ * The live decoration of each dialog window. Touched only by effect enter and dispose, which Compose
+ * runs on the main thread, so it needs no lock; weak so a window nobody disposed cannot be kept alive.
+ */
+private val installations: WeakHashMap<Window, Installation> = WeakHashMap()
+
+/**
+ * Takes a share of [window]'s decoration, creating it for the first effect. A second effect in the
+ * same window — an app-wide dialog wrapper plus a shared component that calls it too — shares it
+ * rather than decorating again, which would run the policy twice per key; and because each one holds
+ * a share, the decoration outlives whichever of them leaves first.
+ */
+private fun acquireInstallation(window: Window, interceptor: (KeyEvent) -> Boolean): Installation {
+    val existing: Installation? = installations[window]
+    if (existing != null && window.callback === existing.decorated) {
+        existing.count++
+        return existing
+    }
+    val original: Window.Callback = window.callback
+    val decorated = KeyInterceptingWindowCallback(original, interceptor)
+    window.callback = decorated
+    return Installation(original, decorated, count = 1).also { installations[window] = it }
+}
+
+private fun releaseInstallation(window: Window, installation: Installation) {
+    if (--installation.count > 0) return
+    // Restore only if nothing re-decorated the callback after us; clobbering another decorator would
+    // silently drop its behaviour.
+    if (window.callback === installation.decorated) window.callback = installation.original
+    if (installations[window] === installation) installations.remove(window)
 }
 
 /**
