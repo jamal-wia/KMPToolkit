@@ -71,6 +71,11 @@ internal class LifecycleActivityTracker(
      * caller's thread would hand a window-touching listener the activity off the main thread, which
      * is exactly what the interface promises never happens.
      *
+     * A listener that throws during the synchronous replay is not left subscribed: the exception
+     * propagates out of this call and the registration is cancelled, because the caller never gets a
+     * handle to cancel it with. (A posted replay that throws crashes on the main looper like any
+     * throwing resume delivery.)
+     *
      * A posted replay is skipped if the subscription is cancelled first, if the activity is no longer
      * resumed by the time it runs, or if a real resume has already reached the listener in between —
      * that delivery already said everything the replay would have.
@@ -92,7 +97,13 @@ internal class LifecycleActivityTracker(
             return NoopSubscription
         }
         if (onMainThread) {
-            replayCurrentTo(registration)
+            try {
+                replayCurrentTo(registration)
+            } catch (failure: Throwable) {
+                // Nothing the caller cannot cancel may stay subscribed: it never receives the handle.
+                registration.cancel()
+                throw failure
+            }
         } else {
             mainHandler.post { if (registration.replayPending) replayCurrentTo(registration) }
         }
