@@ -36,6 +36,11 @@ public interface UploaderStorage : AutoCloseable {
      *
      * Every write is committed before the call returns. Reads and writes are serialized on one
      * thread, so the store is safe to call from any coroutine on any thread.
+     *
+     * **A row's text is limited to 1 MiB** (UTF-8 bytes of the payload, ids, keys, tag and last error
+     * together). An insert over the limit is refused with an [UploaderStorageException]: a row that large cannot
+     * be read back on Android (its `CursorWindow` holds about 2 MiB), and since the queue is read as a whole it
+     * would make every item unreadable. Keep a large payload elsewhere, in a file, and queue a reference to it.
      */
     public val store: UploaderStore
 
@@ -63,8 +68,9 @@ public interface UploaderStorage : AutoCloseable {
      * you supplied never closes that driver — it is not this module's to close, and the database it
      * belongs to is probably still in use.
      *
-     * Using the storage afterwards is a bug, and the failure it produces comes from the released
-     * thread rather than from this module — it is not a documented shape to branch on. Close a
+     * Using the storage afterwards is a bug, and it fails as an [UploaderStorageException] whose cause is an
+     * [IllegalStateException] — never as a `CancellationException`, which a caller's coroutine would take for
+     * its own cancellation and end silently. Close a
      * storage only when the queue itself is finished with, not on every screen teardown: the queue
      * outlives the UI by design.
      */

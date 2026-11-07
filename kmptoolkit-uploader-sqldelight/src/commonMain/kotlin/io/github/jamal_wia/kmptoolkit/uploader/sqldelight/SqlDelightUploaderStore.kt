@@ -36,8 +36,9 @@ internal class SqlDelightUploaderStore(
 
     private val queries: UploaderItemQueries get() = database.uploaderItemQueries
 
-    override suspend fun insertKeep(record: UploaderItem): Boolean = onDatabaseThread(confinement) {
+    override suspend fun insertKeep(record: UploaderItem): Boolean = onDatabaseThread(confinement, UploaderStorageOperation.INSERT_KEEP) {
         mapFailures(UploaderStorageOperation.INSERT_KEEP) {
+            record.requireWithinRowLimit()
             // The lookup and the insert have to be one atomic step: between them, another writer
             // could take the identity, and the KEEP decision would then be made against a row that
             // no longer describes the queue.
@@ -74,8 +75,9 @@ internal class SqlDelightUploaderStore(
         }
     }
 
-    override suspend fun insertReplace(record: UploaderItem): UploaderItem? = onDatabaseThread(confinement) {
+    override suspend fun insertReplace(record: UploaderItem): UploaderItem? = onDatabaseThread(confinement, UploaderStorageOperation.INSERT_REPLACE) {
         mapFailures(UploaderStorageOperation.INSERT_REPLACE) {
+            record.requireWithinRowLimit()
             val key: String? = record.uniqueKey
             if (key == null) {
                 // Nothing to supersede — a keyless item conflicts with nothing — so this is a plain
@@ -101,13 +103,13 @@ internal class SqlDelightUploaderStore(
         }
     }
 
-    override suspend fun getAllActive(): List<UploaderItem> = onDatabaseThread(confinement) {
+    override suspend fun getAllActive(): List<UploaderItem> = onDatabaseThread(confinement, UploaderStorageOperation.GET_ALL_ACTIVE) {
         mapFailures(UploaderStorageOperation.GET_ALL_ACTIVE) {
             queries.selectAllActive().executeAsList().map { row -> row.toUploaderItem() }
         }
     }
 
-    override suspend fun getById(id: String): UploaderItem? = onDatabaseThread(confinement) {
+    override suspend fun getById(id: String): UploaderItem? = onDatabaseThread(confinement, UploaderStorageOperation.GET_BY_ID) {
         mapFailures(UploaderStorageOperation.GET_BY_ID) {
             queries.selectById(id).executeAsOneOrNull()?.toUploaderItem()
         }
@@ -121,7 +123,7 @@ internal class SqlDelightUploaderStore(
         expectedState: UploaderItemState,
         expectedClaim: Long,
         disposition: FailureDisposition,
-    ): Boolean = onDatabaseThread(confinement) {
+    ): Boolean = onDatabaseThread(confinement, UploaderStorageOperation.RECORD_FAILURE) {
         mapFailures(UploaderStorageOperation.RECORD_FAILURE) {
             // One statement carrying the guard in its WHERE clause, not a read followed by a write:
             // a read-then-write loses exactly the race the guard exists to win, because the state
@@ -162,7 +164,7 @@ internal class SqlDelightUploaderStore(
         leaseUntilEpochMillis: Long,
         expectedState: UploaderItemState,
         expectedClaim: Long,
-    ): Boolean = onDatabaseThread(confinement) {
+    ): Boolean = onDatabaseThread(confinement, UploaderStorageOperation.MARK_IN_FLIGHT) {
         mapFailures(UploaderStorageOperation.MARK_IN_FLIGHT) {
             // The same shape as recordFailure: the guard lives in the WHERE clause and the
             // affected-row count is the answer, so the claim is one atomic step.
@@ -180,7 +182,7 @@ internal class SqlDelightUploaderStore(
         lastError: String?,
         expectedState: UploaderItemState,
         expectedClaim: Long,
-    ): Boolean = onDatabaseThread(confinement) {
+    ): Boolean = onDatabaseThread(confinement, UploaderStorageOperation.PARK) {
         mapFailures(UploaderStorageOperation.PARK) {
             // Guarded like markInFlight: the WHERE clause is the guard, the affected-row count the answer.
             queries.park(
@@ -192,13 +194,13 @@ internal class SqlDelightUploaderStore(
         }
     }
 
-    override suspend fun deleteById(id: String): Unit = onDatabaseThread(confinement) {
+    override suspend fun deleteById(id: String): Unit = onDatabaseThread(confinement, UploaderStorageOperation.DELETE_BY_ID) {
         mapFailures(UploaderStorageOperation.DELETE_BY_ID) {
             queries.deleteById(id)
         }
     }
 
-    override suspend fun deleteByTag(tag: String): List<UploaderItem> = onDatabaseThread(confinement) {
+    override suspend fun deleteByTag(tag: String): List<UploaderItem> = onDatabaseThread(confinement, UploaderStorageOperation.DELETE_BY_TAG) {
         mapFailures(UploaderStorageOperation.DELETE_BY_TAG) {
             // A read and a delete in one transaction, so the rows handed back are exactly the rows
             // removed: an enqueue landing between two separate statements would be deleted without
@@ -221,7 +223,7 @@ internal class SqlDelightUploaderStore(
             // half-applied transaction — but only this one recognizes that it may already be there.
             // A plain dispatch would deadlock when the flow is collected from inside a transaction,
             // because the thread it dispatches to is the thread that transaction is occupying.
-            .map { query -> onDatabaseThread(confinement) { query.executeAsList() } }
+            .map { query -> onDatabaseThread(confinement, UploaderStorageOperation.OBSERVE_BY_TYPE) { query.executeAsList() } }
             .map { rows -> rows.map { row -> row.toUploaderItem() } }
             .catch { cause ->
                 throw when {
@@ -233,7 +235,7 @@ internal class SqlDelightUploaderStore(
                 }
             }
 
-    override suspend fun clearAll(): Unit = onDatabaseThread(confinement) {
+    override suspend fun clearAll(): Unit = onDatabaseThread(confinement, UploaderStorageOperation.CLEAR_ALL) {
         mapFailures(UploaderStorageOperation.CLEAR_ALL) {
             queries.deleteAll()
         }

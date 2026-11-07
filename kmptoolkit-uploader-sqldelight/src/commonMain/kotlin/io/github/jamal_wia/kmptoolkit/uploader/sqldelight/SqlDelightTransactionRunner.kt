@@ -66,7 +66,11 @@ internal class SqlDelightTransactionRunner(
                 return block()
             }
         }
-        return withContext(confinement.dispatcher + confinement.marker) {
+        return confinement.failingAsClosed(UploaderStorageOperation.TRANSACTION) { inConfinedTransaction(block) }
+    }
+
+    private suspend fun <R> inConfinedTransaction(block: suspend () -> R): R =
+        withContext(confinement.dispatcher + confinement.marker) {
             // The context the bridged block runs under: the marker (so nested store calls know they
             // are already confined) and the Job (so cancelling the caller cancels the block), but
             // no interceptor — that is what makes the bridge use an event loop on this very thread
@@ -91,7 +95,6 @@ internal class SqlDelightTransactionRunner(
                 throw UploaderStorageException(UploaderStorageOperation.TRANSACTION, machinery)
             }
         }
-    }
 }
 
 /**

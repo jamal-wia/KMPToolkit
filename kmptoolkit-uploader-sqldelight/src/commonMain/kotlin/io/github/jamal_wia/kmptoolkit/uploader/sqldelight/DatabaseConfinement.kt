@@ -3,8 +3,12 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CloseableCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -68,12 +72,13 @@ internal class DatabaseThreadMarker(
  */
 internal suspend inline fun <R> onDatabaseThread(
     confinement: DatabaseConfinement,
+    operation: UploaderStorageOperation,
     crossinline block: () -> R,
 ): R = if (confinement.isReentrant(coroutineContext)) {
     confinement.requireConfined()
     block()
 } else {
-    withContext(confinement.dispatcher + confinement.marker) { block() }
+    confinement.failingAsClosed(operation) { withContext(confinement.dispatcher + confinement.marker) { block() } }
 }
 
 /**
@@ -104,6 +109,34 @@ internal class DatabaseConfinement(val dispatcher: CloseableCoroutineDispatcher)
     val threadId: Long = runBlockingOnCurrentThread(EmptyCoroutineContext) {
         withContext(dispatcher) { currentThreadId() }
     }
+
+    private val closed: MutableStateFlow<Boolean> = MutableStateFlow(false)
+
+    /** Whether [closeAfterDraining] has begun: statements already queued still run, later callers fail fast. */
+    val isClosed: Boolean get() = closed.value
+
+    /**
+     * Runs [call], turning what a closed storage does to its caller into an [UploaderStorageException] whose
+     * cause is an [IllegalStateException].
+     *
+     * A dispatcher that has been closed rejects its task by *cancelling the inner coroutine*, which reaches the
+     * caller as a [CancellationException] it would take for its own cancellation (a `viewModelScope.launch`
+     * ending silently). Using a closed storage is a bug, but it must be a visible one. A real cancellation of
+     * the caller still propagates, checked first.
+     */
+    suspend fun <R> failingAsClosed(operation: UploaderStorageOperation, call: suspend () -> R): R {
+        if (isClosed) throw closedFailure(operation)
+        try {
+            return call()
+        } catch (cancellation: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            if (isClosed) throw closedFailure(operation)
+            throw cancellation
+        }
+    }
+
+    private fun closedFailure(operation: UploaderStorageOperation): UploaderStorageException =
+        UploaderStorageException(operation, IllegalStateException("uploader storage is closed"))
 
     /** Whether [context] says the caller is already doing confined work for this confinement. */
     fun isReentrant(context: CoroutineContext): Boolean =
@@ -142,6 +175,8 @@ internal class DatabaseConfinement(val dispatcher: CloseableCoroutineDispatcher)
      * statement submitted before this call.
      */
     fun closeAfterDraining(finalizer: () -> Unit) {
+        // First, so a caller arriving from now on fails fast; the statements queued before this still run (FIFO).
+        closed.value = true
         try {
             runBlockingOnCurrentThread(EmptyCoroutineContext) {
                 withContext(dispatcher) { finalizer() }

@@ -31,6 +31,9 @@ on the next launch. Within one process an effect whose handler succeeded but who
 never run again; the engine retries only the delete, with a growing backoff. An attempt that fails outside its
 handler (a store write failing, say) backs off the same way instead of repeating at the alarm floor.
 
+A payload is small: it is stored as text in the queue's row, and the SQLDelight store refuses a row over 1 MiB. Queue a
+reference to large data (a file path, a record id) rather than the data itself.
+
 ## Deduplicating an effect
 
 A unique key makes an effect idempotent at the *queue* level, before it ever reaches the network.

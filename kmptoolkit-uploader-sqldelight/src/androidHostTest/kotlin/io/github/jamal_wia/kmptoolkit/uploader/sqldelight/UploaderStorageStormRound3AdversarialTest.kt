@@ -378,4 +378,79 @@ class UploaderStorageStormRound3AdversarialTest {
             return if (executed.value == 1) AttemptResult.Retry(IllegalStateException("e".repeat(size))) else AttemptResult.Success
         }
     }
+
+    // --- fixer round 3, group 7 ---
+
+    @Test
+    fun `one oversized payload does not make the whole queue unreadable for every other item`() = realTest {
+        val storage: UploaderStorage = open()
+        val handler = PlainHandler()
+        val engine: UploaderEngine = engineOver(storage, handler)
+        val outcome: Result<String?> = runCatching { engine.enqueue(handler, "x".repeat(3_000_000)) }
+        // Either answer is honest: refuse at the door, or accept and keep the queue usable.
+        val refused: Boolean = outcome.isFailure
+        engine.enqueue(handler, "normal")
+
+        val readable: Result<Int> = runCatching { storage.store.getAllActive().size }
+        engine.start()
+        runCatching { engine.awaitDrained(5.seconds) }
+
+        assertTrue(
+            refused || ("normal" in handler.executed.value),
+            "an accepted 3 MB payload made the queue unreadable (${readable.exceptionOrNull()?.cause?.message}); " +
+                "the normal item never ran and cannot even be withdrawn",
+        )
+    }
+
+    @Test
+    fun `an enqueue on a closed storage fails with an error the caller can tell from its own cancellation`() = realTest {
+        val storage: UploaderStorage = open()
+        val handler = PlainHandler()
+        val engine: UploaderEngine = engineOver(storage, handler)
+        storage.close()
+
+        val failure: Throwable? = runCatching { engine.enqueue(handler, "late") }.exceptionOrNull()
+
+        assertTrue(failure != null, "an enqueue over a closed storage reported success")
+        assertTrue(
+            failure !is kotlinx.coroutines.CancellationException,
+            "the caller was not cancelled, but its enqueue ended in $failure, which a coroutine treats as its own cancellation",
+        )
+    }
+
+    @Test
+    fun `a payload just under the row limit is accepted and read back`() = realTest {
+        val storage: UploaderStorage = open()
+        val handler = PlainHandler()
+        val engine: UploaderEngine = engineOver(storage, handler)
+        val payload: String = "x".repeat(900_000)
+
+        assertNotNull(engine.enqueue(handler, payload))
+
+        val rows = storage.store.getAllActive()
+        assertEquals(1, rows.size)
+        assertEquals(payload, rows.single().payload)
+    }
+
+    @Test
+    fun `an enqueue racing close never fails as a cancellation`() = realTest {
+        repeat(20) { iteration ->
+            val storage: UploaderStorage = open()
+            val handler = PlainHandler()
+            val engine: UploaderEngine = engineOver(storage, handler)
+            val start = CompletableDeferred<Unit>()
+            val enqueues: List<Deferred<Throwable?>> = List(4) {
+                async { start.await(); runCatching { engine.enqueue(handler, "p") }.exceptionOrNull() }
+            }
+            val closer: Deferred<Unit> = async { start.await(); storage.close() }
+            start.complete(Unit)
+            closer.await()
+            enqueues.awaitAll().filterNotNull().forEach { failure ->
+                assertTrue(
+                    failure is UploaderStorageException,
+                    "iteration $iteration: an enqueue racing close failed as $failure, not as UploaderStorageException",
+                )
+            }
+        }
+    }
 }
