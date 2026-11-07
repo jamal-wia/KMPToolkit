@@ -70,8 +70,8 @@ public interface AudioPlayer : AutoCloseable {
 
     /**
      * The playback rate in effect, already clamped to
-     * [AudioPlayerConfig.minPlaybackSpeed]`..`[AudioPlayerConfig.maxPlaybackSpeed]. `1.0` until
-     * [setPlaybackSpeed] is called; survives [prepare] so a chosen rate carries over to the next
+     * [AudioPlayerConfig.minPlaybackSpeed]`..`[AudioPlayerConfig.maxPlaybackSpeed]. `1.0` (clamped into
+     * the range) until [setPlaybackSpeed] is called; survives [prepare] so a chosen rate carries over to the next
      * source.
      */
     public val playbackSpeed: Float

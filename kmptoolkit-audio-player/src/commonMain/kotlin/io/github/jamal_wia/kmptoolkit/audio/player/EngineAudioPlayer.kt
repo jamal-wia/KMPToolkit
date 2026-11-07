@@ -124,7 +124,7 @@ private class EngineAudioPlayer(
     // Written under the gate; volatile so the public getter, read on any thread without the lock,
     // sees the latest value.
     @Volatile
-    override var playbackSpeed: Float = NORMAL_PLAYBACK_SPEED
+    override var playbackSpeed: Float = NORMAL_PLAYBACK_SPEED.coerceIn(config.minPlaybackSpeed, config.maxPlaybackSpeed)
         private set
 
     init {
@@ -223,7 +223,10 @@ private class EngineAudioPlayer(
         stopPositionUpdates()
         val position: Long = engine.positionMs()
         _playbackPositionFlow.value = position
-        _stateFlow.value = PlayerState.Paused(duration = current.duration, currentPosition = position)
+        _stateFlow.value = PlayerState.Paused(
+            duration = freshDuration(current.duration),
+            currentPosition = position,
+        )
     }
 
     override fun stop(): Unit = gate.exclusive {
@@ -360,8 +363,8 @@ private class EngineAudioPlayer(
         _playbackPositionFlow.value = target
 
         _stateFlow.value = when (current) {
-            is PlayerState.Playing -> current.copy(currentPosition = target)
-            is PlayerState.Paused -> current.copy(currentPosition = target)
+            is PlayerState.Playing -> current.copy(duration = freshDuration(current.duration, duration), currentPosition = target)
+            is PlayerState.Paused -> current.copy(duration = freshDuration(current.duration, duration), currentPosition = target)
             // Once the playhead has moved off the end, "completed" is no longer a true description
             // of the player — Paused is, and it is the state play() resumes from correctly.
             is PlayerState.Completed -> PlayerState.Paused(current.duration, target)
@@ -431,9 +434,20 @@ private class EngineAudioPlayer(
         val position: Long = engine.positionMs()
         // Compare-and-set as well as the lock: the tick must only ever refine the Playing state it
         // read, never replace a state another transition wrote.
-        if (!_stateFlow.compareAndSet(current, current.copy(currentPosition = position))) return
+        val refreshed: PlayerState.Playing =
+            current.copy(duration = freshDuration(current.duration), currentPosition = position)
+        if (!_stateFlow.compareAndSet(current, refreshed)) return
         _playbackPositionFlow.value = position
     }
+
+    /**
+     * Lock held. The length to publish: a positive platform value wins, because a length reported after
+     * playback started replaces the `0` of "not known yet"; `0` never overwrites a length already known,
+     * so a live stream that flaps back to `0` does not reset a progress bar. [reported] is a reading the
+     * caller already took.
+     */
+    private fun freshDuration(known: Long, reported: Long = engine.durationMs()): Long =
+        if (reported > 0L) reported else known
 
     /** Lock held. */
     private fun stopPositionUpdates() {

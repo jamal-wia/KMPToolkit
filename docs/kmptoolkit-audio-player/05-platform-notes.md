@@ -76,7 +76,7 @@ same way with a generation counter.
 
 **Playback speed** is applied via `PlaybackParams`, available since API 23. The module's `minSdk` is
 24, so there is no fallback path. The rate is pushed only while playing: assigning `playbackParams`
-to a paused `MediaPlayer` starts playback on several API levels.
+to a paused `MediaPlayer` starts playback on several API levels. A rate inside the configured range that the device's `PlaybackParams` refuses is ignored (playback keeps its previous rate) and `playbackSpeed` still reports the requested value.
 
 **Audio focus is not requested.** Playing while another app plays music results in both being
 audible. Request focus with `AudioManager` in the app if you need ducking or pausing — it is a

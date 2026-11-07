@@ -109,7 +109,14 @@ internal class MediaPlayerEngine(
         // Only while playing: assigning playbackParams to a paused MediaPlayer starts playback on
         // several API levels, which would turn "choose a speed" into "start playing".
         withPlayer { player ->
-            if (player.isPlaying) player.playbackParams = player.playbackParams.setSpeed(speed)
+            if (player.isPlaying) {
+                try {
+                    player.playbackParams = player.playbackParams.setSpeed(speed)
+                } catch (_: IllegalArgumentException) {
+                    // The device refuses this rate. Playback goes on at the previous one: a crash, or a
+                    // player state out of step with audio that is already playing, would be worse.
+                }
+            }
         }
     }
 

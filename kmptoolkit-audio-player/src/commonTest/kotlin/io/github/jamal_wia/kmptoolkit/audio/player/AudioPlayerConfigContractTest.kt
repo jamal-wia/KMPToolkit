@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.audio.player
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /**
@@ -9,6 +10,25 @@ import kotlin.test.assertFailsWith
  * rate at all.
  */
 class AudioPlayerConfigContractTest {
+
+    @Test
+    fun `an infinite maximum speed is rejected where it is written`() {
+        assertFailsWith<IllegalArgumentException> {
+            AudioPlayerConfig(maxPlaybackSpeed = Float.POSITIVE_INFINITY)
+        }
+    }
+
+    @Test
+    fun `an infinite minimum speed is rejected where it is written`() {
+        assertFailsWith<IllegalArgumentException> {
+            AudioPlayerConfig(minPlaybackSpeed = Float.POSITIVE_INFINITY, maxPlaybackSpeed = Float.POSITIVE_INFINITY)
+        }
+    }
+
+    @Test
+    fun `the largest finite maximum speed is still accepted`() {
+        assertEquals(Float.MAX_VALUE, AudioPlayerConfig(maxPlaybackSpeed = Float.MAX_VALUE).maxPlaybackSpeed)
+    }
 
     @Test
     fun `a NaN maximum speed is rejected`() {

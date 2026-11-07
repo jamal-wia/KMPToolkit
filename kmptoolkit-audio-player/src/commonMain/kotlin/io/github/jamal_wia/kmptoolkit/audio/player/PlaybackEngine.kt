@@ -68,7 +68,8 @@ public interface PlaybackEngine {
     public fun seekTo(positionMs: Long)
 
     /**
-     * Sets the output rate. The caller has already clamped [speed] to the configured range.
+     * Sets the output rate. The caller has already clamped [speed] to the configured range. Must not
+     * throw: a rate the platform refuses is ignored and playback keeps its previous rate.
      *
      * @param speed rate multiplier.
      */

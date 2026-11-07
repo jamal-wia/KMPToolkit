@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
@@ -71,6 +72,75 @@ class AudioPlayerEdgeInputTest {
             player.play()
 
             assertEquals(0L, engine.position, "the playhead sits at the end and play() resumed from there: ${engine.seekTargets}")
+        }
+    }
+
+    @Test
+    fun `the duration of a playing state follows a length the platform reports late`() = runTest {
+        val engine = RecordingPlaybackEngine(duration = 0L)
+        withPlayer(engine) { player ->
+            player.prepare(source)
+            player.play()
+            engine.duration = 20_000L
+            engine.position = 5_000L
+
+            advanceTimeBy(250L)
+            runCurrent()
+
+            val state = player.stateFlow.value
+            assertTrue(state is PlayerState.Playing && state.duration == 20_000L, "state was $state")
+        }
+    }
+
+    @Test
+    fun `a length once known is not reset to zero by a platform that stops reporting it`() = runTest {
+        val engine = RecordingPlaybackEngine(duration = 0L)
+        withPlayer(engine) { player ->
+            player.prepare(source)
+            player.play()
+            engine.duration = 20_000L
+            advanceTimeBy(250L)
+            runCurrent()
+            engine.duration = 0L
+            advanceTimeBy(250L)
+            runCurrent()
+
+            val state = player.stateFlow.value
+            assertTrue(state is PlayerState.Playing && state.duration == 20_000L, "state was $state")
+        }
+    }
+
+    @Test
+    fun `pausing after a late length reports it`() = runTest {
+        val engine = RecordingPlaybackEngine(duration = 0L)
+        withPlayer(engine) { player ->
+            player.prepare(source)
+            player.play()
+            engine.duration = 20_000L
+            engine.position = 5_000L
+
+            player.pause()
+
+            assertEquals(PlayerState.Paused(20_000L, 5_000L), player.stateFlow.value)
+        }
+    }
+
+    @Test
+    fun `a minimum speed above normal is the speed the first play applies`() = runTest {
+        val engine = RecordingPlaybackEngine(duration = 10_000L)
+        val player: AudioPlayer = createAudioPlayer(
+            engine,
+            AudioPlayerConfig(minPlaybackSpeed = 1.5f, maxPlaybackSpeed = 2f),
+            StandardTestDispatcher(testScheduler),
+        )
+        try {
+            player.prepare(source)
+            player.play()
+
+            assertEquals(1.5f, player.playbackSpeed)
+            assertEquals(1.5f, engine.appliedSpeed)
+        } finally {
+            player.release()
         }
     }
 }

@@ -9,7 +9,7 @@ package io.github.jamal_wia.kmptoolkit.audio.player
  *
  * Positions and durations are milliseconds throughout. A duration of `0` means the platform has not
  * reported one yet (live streams, or a source whose header has not been parsed); it is not an error
- * on its own.
+ * on its own. A length the platform reports later replaces it at the next position update, pause or seek.
  */
 public sealed interface PlayerState {
 

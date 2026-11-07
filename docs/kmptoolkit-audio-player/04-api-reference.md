@@ -22,7 +22,7 @@ The headless player. Obtain one from a platform factory; never implement it your
 |---|---|
 | `val stateFlow: StateFlow<PlayerState>` | Current state. Starts at `Idle`, never completes. Safe to collect from any thread. |
 | `val playbackPositionFlow: StateFlow<Long>` | Playhead in ms, refreshed every `positionUpdateIntervalMs` while playing, `0` otherwise. |
-| `val playbackSpeed: Float` | Rate in effect, already clamped to the configured range. `1.0` until `setPlaybackSpeed`. Survives `prepare`. |
+| `val playbackSpeed: Float` | Rate in effect, already clamped to the configured range. `1.0` (clamped into the range) until `setPlaybackSpeed`. Survives `prepare`. |
 
 ### `suspend fun prepare(source: AudioSource)`
 
@@ -82,7 +82,7 @@ public sealed interface PlayerState
 | `Idle` | — | Nothing loaded. Initial state, and the state after `release()`. |
 | `Preparing` | — | Loading or buffering. No duration yet. |
 | `Ready` | `duration` | Loaded, never started (or stopped back to the start). |
-| `Playing` | `duration`, `currentPosition` | Advancing; position refreshed each poll. |
+| `Playing` | `duration`, `currentPosition` | Advancing; position refreshed each poll, and a length the platform reports late replaces a `0` duration at the next poll, pause or seek (a length once known is never reset to `0`). |
 | `Paused` | `duration`, `currentPosition` | Suspended at `currentPosition`. |
 | `Completed` | `duration` | Played to the end; the source stays loaded. |
 | `Error` | `cause: Throwable` | Load or playback failed. **No display string** — the cause is the platform's own exception. |
@@ -128,8 +128,8 @@ public data class AudioPlayerConfig(
 Validated in `init`; each rule throws `IllegalArgumentException`:
 
 - `positionUpdateIntervalMs > 0`
-- `minPlaybackSpeed > 0`
-- `maxPlaybackSpeed >= minPlaybackSpeed`
+- `minPlaybackSpeed` finite and `> 0`
+- `maxPlaybackSpeed` finite and `>= minPlaybackSpeed`
 
 The defaults are exposed as `AudioPlayerConfig.DEFAULT_POSITION_UPDATE_INTERVAL_MS`,
 `DEFAULT_MIN_PLAYBACK_SPEED` and `DEFAULT_MAX_PLAYBACK_SPEED`.
