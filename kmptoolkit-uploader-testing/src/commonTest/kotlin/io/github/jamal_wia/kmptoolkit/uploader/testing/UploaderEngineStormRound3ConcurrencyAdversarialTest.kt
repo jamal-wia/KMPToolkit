@@ -471,4 +471,29 @@ class UploaderEngineStormRound3ConcurrencyAdversarialTest {
         assertEquals(16 * 40, fake.cancelled.size)
         assertEquals(16 * 29, fake.cancelledByTag.size)
     }
+
+    // --- fixer round 3, group 8 ---
+
+    @Test
+    fun `the mutable clock loses no millisecond when sixteen threads advance it at once`() = realTest {
+        val clock = MutableUploaderClock(0L)
+        val start = CompletableDeferred<Unit>()
+        val workers: List<Deferred<Unit>> = List(16) { async { start.await(); repeat(50_000) { clock.advanceBy(1L) } } }
+        start.complete(Unit)
+        workers.awaitAll()
+
+        assertEquals(800_000L, clock.nowMillis)
+    }
+
+    @Test
+    fun `the recording wake scheduler loses no call when sixteen threads schedule at once`() = realTest {
+        val scheduler = RecordingWakeScheduler()
+        val start = CompletableDeferred<Unit>()
+        val workers: List<Deferred<Unit>> = List(16) { async { start.await(); repeat(10_000) { scheduler.scheduleWake() } } }
+        start.complete(Unit)
+        workers.awaitAll()
+
+        assertEquals(160_000, scheduler.scheduleCount)
+        assertEquals(true, scheduler.isArmed)
+    }
 }

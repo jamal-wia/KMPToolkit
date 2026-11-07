@@ -48,8 +48,9 @@ Withdrawals are recorded too: `cancelled` lists the ids passed to `cancel`, `can
 passed to `cancelByTag`.
 
 `FakeUploader` is safe to use from several threads: every call, read and `trigger()` is atomic, and the
-result function runs outside any lock, so it may call back into the fake. `RecordingUploadTransport` and
-the other doubles are not thread-safe.
+result function runs outside any lock, so it may call back into the fake. `MutableUploaderClock` and
+`RecordingWakeScheduler` are thread-safe too (the engine calls both from the caller's thread and from its drain at once);
+`RecordingUploadTransport` is not.
 
 ## Testing with the real engine
 

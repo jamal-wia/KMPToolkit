@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.uploader.spi.ConstraintProvider
 import io.github.jamal_wia.kmptoolkit.uploader.spi.WakeScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * A [ConstraintProvider] you flip by hand, for testing that effects wait for a precondition and
@@ -45,36 +46,51 @@ public class MutableConstraintProvider(
  *
  * The engine arms a wake whenever work is owed and disarms it when the queue empties, so
  * [isArmed] is a compact way to assert "the app would be woken to finish this".
+ *
+ * Safe to use from any thread: the engine calls it from the caller's thread (in `enqueue`) and from its drain at
+ * once, and no call or count is lost.
  */
 public class RecordingWakeScheduler : WakeScheduler {
 
+    private data class Calls(val scheduleCount: Int = 0, val cancelCount: Int = 0, val isArmed: Boolean = false)
+
+    private val calls: MutableStateFlow<Calls> = MutableStateFlow(Calls())
+
+    // The properties stay `var ... private set` so the published ABI is unchanged; the setters write through the
+    // same atomic state as everything else.
+
     /** How many times [scheduleWake] was called. Expect one per enqueue, plus one per gated pass. */
-    public var scheduleCount: Int = 0
-        private set
+    public var scheduleCount: Int
+        get() = calls.value.scheduleCount
+        private set(value) {
+            calls.update { it.copy(scheduleCount = value) }
+        }
 
     /** How many times [cancelWake] was called. */
-    public var cancelCount: Int = 0
-        private set
+    public var cancelCount: Int
+        get() = calls.value.cancelCount
+        private set(value) {
+            calls.update { it.copy(cancelCount = value) }
+        }
 
     /** Whether the most recent call was a schedule — i.e. whether a wake would be pending now. */
-    public var isArmed: Boolean = false
-        private set
+    public var isArmed: Boolean
+        get() = calls.value.isArmed
+        private set(value) {
+            calls.update { it.copy(isArmed = value) }
+        }
 
     override fun scheduleWake() {
-        scheduleCount++
-        isArmed = true
+        calls.update { it.copy(scheduleCount = it.scheduleCount + 1, isArmed = true) }
     }
 
     override fun cancelWake() {
-        cancelCount++
-        isArmed = false
+        calls.update { it.copy(cancelCount = it.cancelCount + 1, isArmed = false) }
     }
 
     /** Resets every counter and the armed flag. */
     public fun reset() {
-        scheduleCount = 0
-        cancelCount = 0
-        isArmed = false
+        calls.value = Calls()
     }
 }
 
@@ -86,14 +102,23 @@ public class RecordingWakeScheduler : WakeScheduler {
  * observes, while this moves the wall clock the engine writes into gates and leases. They are two
  * different clocks and a test of lease expiry generally needs both.
  *
+ * Safe to use from any thread: the engine reads the clock from the caller's thread (in `enqueue`) and from its
+ * drain at once, and [advanceBy] never loses an update.
+ *
  * @param initial the starting epoch-millis reading.
  */
 public class MutableUploaderClock(initial: Long = 0L) : UploaderClock {
 
-    /** The current reading. Assign to it to jump anywhere, including backwards. */
-    public var nowMillis: Long = initial
+    private val state: MutableStateFlow<Long> = MutableStateFlow(initial)
 
-    override fun nowEpochMillis(): Long = nowMillis
+    /** The current reading. Assign to it to jump anywhere, including backwards. */
+    public var nowMillis: Long
+        get() = state.value
+        set(value) {
+            state.value = value
+        }
+
+    override fun nowEpochMillis(): Long = state.value
 
     /**
      * Moves the clock forward.
@@ -101,6 +126,6 @@ public class MutableUploaderClock(initial: Long = 0L) : UploaderClock {
      * @param millis how far to advance; may be negative to simulate a wall-clock jump backwards.
      */
     public fun advanceBy(millis: Long) {
-        nowMillis += millis
+        state.update { it + millis }
     }
 }
