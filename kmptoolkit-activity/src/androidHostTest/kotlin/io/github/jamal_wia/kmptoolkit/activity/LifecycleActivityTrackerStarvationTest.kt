@@ -135,4 +135,33 @@ class LifecycleActivityTrackerStarvationTest {
         )
         assertEquals(1, tracker.listenerCountForTest())
     }
+
+    @Test
+    fun `eight threads adding listeners with replays queued, then a release, leave none pinned and none counted`() {
+        val tracker: LifecycleActivityTracker = newTracker()
+        val activity: ActivityController<Activity> = Robolectric.buildActivity(Activity::class.java).setup()
+        controllers.add(activity)
+        val captured: java.util.concurrent.ConcurrentLinkedQueue<WeakReference<Payload>> = java.util.concurrent.ConcurrentLinkedQueue()
+        val workers: List<Thread> = List(8) {
+            thread(isDaemon = true) {
+                repeat(500) {
+                    val payload = Payload()
+                    tracker.addOnActivityResumedListener { payload.hashCode() }
+                    captured += WeakReference(payload)
+                }
+            }
+        }
+        workers.forEach { it.join(20_000) }
+        assertTrue(workers.none { it.isAlive }, "an adding thread did not finish")
+        assertEquals(4_000, tracker.listenerCountForTest())
+
+        tracker.release()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        assertEquals(0, tracker.listenerCountForTest())
+        assertTrue(
+            clearedAfterGc(captured.toList()),
+            "${captured.count { it.get() != null }} of 4000 listeners are pinned after release and the queued replays ran",
+        )
+    }
 }

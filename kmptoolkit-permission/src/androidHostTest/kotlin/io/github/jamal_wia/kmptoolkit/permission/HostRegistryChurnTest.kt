@@ -80,6 +80,7 @@ class HostRegistryChurnTest {
             Robolectric.buildActivity(ComponentActivity::class.java).also { activities += it }.setup()
         val registry: ActivityResultRegistry = screen.get().activityResultRegistry
         val before: Map<String, Int> = registryState(registry)
+        val observersBefore: Int = screen.get().lifecycle.let { (it as androidx.lifecycle.LifecycleRegistry).observerCount }
         assertTrue(before.isNotEmpty(), "the registry's fields were not found: the test cannot measure anything")
         var answered = 0
         val host = ActivityResultPermissionRequestHost(access)
@@ -104,6 +105,11 @@ class HostRegistryChurnTest {
         }
 
         assertEquals(200, answered, "some answers were lost")
+        assertEquals(
+            observersBefore,
+            (screen.get().lifecycle as androidx.lifecycle.LifecycleRegistry).observerCount,
+            "finished requests left lifecycle observers on the activity",
+        )
         val after: Map<String, Int> = registryState(registry)
         // A key and its request code stay registered once (androidx keeps them while a result is being delivered);
         // one host has two keys, and a request must not add to them.
