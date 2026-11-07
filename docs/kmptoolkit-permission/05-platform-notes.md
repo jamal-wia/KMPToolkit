@@ -262,6 +262,17 @@ a configuration change and delivers the answer when something registers for it t
 answered while the activity was being recreated still reaches the waiting request. Process death
 ends the request: nothing in the new process is waiting, and nothing was recorded.
 
+The host holds the activity whose registry the dialog uses only while that dialog is showing; nothing
+is kept between requests. A request ends when the user answers, when that activity is finished
+(destroyed, or another activity resumes over it), or at process death. A caller that is cancelled
+while the dialog is up does **not** withdraw it: the system dialog cannot be taken back, so the
+request stays pending until the user answers, the answer is then discarded, and a launch in that
+window returns `false` like any launch while one is pending.
+
+Each `createPermissionController` call without an `activityAccess` registers its own activity
+tracker, a lifecycle callback on the `Application` that lives as long as the process. Build the
+controller once, or pass one shared `ActivityAccess` to every factory that takes one.
+
 ### `minSdk`
 
 24, matching the rest of the toolkit.

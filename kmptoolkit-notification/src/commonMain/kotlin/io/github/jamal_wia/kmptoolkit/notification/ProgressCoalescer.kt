@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.notification
 
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
@@ -61,6 +62,10 @@ internal class ProgressCoalescer(
     private val latest: MutableMap<String, Long> = mutableMapOf()
     private var nextSerial: Long = 0L
 
+    /** How old a baseline must be before [pruneStale] drops it; far above any sensible rate limit. */
+    private val staleAfter: Duration = maxOf(minInterval * STALE_INTERVAL_FACTOR, MIN_STALE_AFTER)
+    private var lastPrune: TimeMark = timeSource.markNow()
+
     /**
      * Decides whether the notification for [id] carrying [progress] should reach the platform, and
      * **records the decision atomically** as the baseline for the next call.
@@ -81,6 +86,7 @@ internal class ProgressCoalescer(
         progress: NotificationProgress?,
         content: Any? = null,
     ): PostTicket? = lock.withLock {
+        pruneStale()
         when (val decision: Decision = decide(id, progress, content)) {
             Decision.Suppress -> null
             Decision.Reset -> {
@@ -95,6 +101,32 @@ internal class ProgressCoalescer(
             }
         }
     }
+
+    /**
+     * Lock held. Drops the baselines of ids that went quiet without a terminal frame or a cancel (a
+     * failed download, a notification the user swiped away), so they do not accumulate for the
+     * notifier's lifetime. Dropping a baseline is always safe: the id's next frame simply posts, as
+     * the first one for an id does. Scans at most once per tenth of [staleAfter], and only when
+     * enough ids are tracked for it to matter.
+     */
+    private fun pruneStale() {
+        if (posted.size < PRUNE_THRESHOLD || lastPrune.elapsedNow() < staleAfter / PRUNE_SPACING) return
+        lastPrune = timeSource.markNow()
+        val iterator: MutableIterator<MutableMap.MutableEntry<String, Post>> = posted.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry: MutableMap.MutableEntry<String, Post> = iterator.next()
+            if (entry.value.at.elapsedNow() > staleAfter) {
+                latest.remove(entry.key)
+                iterator.remove()
+            }
+        }
+    }
+
+    /** Test seam: how many ids the baseline map holds. */
+    internal fun postedCountForTest(): Int = lock.withLock { posted.size }
+
+    /** Test seam: how many ids the newest-serial map holds. */
+    internal fun latestCountForTest(): Int = lock.withLock { latest.size }
 
     /** Lock held. Numbers a new ticket for [id] and makes it the id's newest. */
     private fun issue(id: String): Long {
@@ -125,8 +157,12 @@ internal class ProgressCoalescer(
      * if the id still holds exactly what that ticket recorded. A [forget], a [clear], or a newer
      * post for the id in the meantime means the record is no longer this ticket's to undo, and
      * nothing changes. A terminal frame ([prepare] cleared the id) has nothing to restore.
+     *
+     * Either way the id's newest-serial entry goes if it is still this ticket's: a frame that never
+     * reached the platform will never be [complete]d, so nothing else would clear it.
      */
     fun rollback(ticket: PostTicket): Unit = lock.withLock {
+        if (latest[ticket.id] == ticket.serial) latest.remove(ticket.id)
         val recorded: Post = ticket.recorded ?: return@withLock
         if (posted[ticket.id] !== recorded) return@withLock
         val previous: Post? = ticket.previous
@@ -176,6 +212,18 @@ internal class ProgressCoalescer(
         internal val recorded: Post?,
         internal val serial: Long,
     )
+
+    private companion object {
+        /** [staleAfter] is this many `minInterval`s, but never less than [MIN_STALE_AFTER]. */
+        const val STALE_INTERVAL_FACTOR: Int = 120
+        val MIN_STALE_AFTER: Duration = 10.minutes
+
+        /** Below this many tracked ids a scan is not worth it. */
+        const val PRUNE_THRESHOLD: Int = 64
+
+        /** A scan runs at most once per `staleAfter / PRUNE_SPACING`. */
+        const val PRUNE_SPACING: Int = 10
+    }
 
     /** One recorded post. A plain class: [rollback] compares records by identity. */
     internal class Post(val bucket: Int, val content: Any?, val at: TimeMark)

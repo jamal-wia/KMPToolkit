@@ -112,6 +112,11 @@ internal class AndroidNotifier(
     /**
      * Ids whose 2.x notification this instance has already swept away; see [sweepLegacy]. Updated
      * with `update`, because [post] runs concurrently from any thread.
+     *
+     * A cache, not a ledger: it only saves one redundant binder `cancel` per post, so forgetting an
+     * entry is harmless. [cancel] and [cancelAll] drop entries, and the set restarts from the
+     * newest id once it reaches [MAX_SWEPT_LEGACY_IDS], so an app that posts under a fresh id per
+     * message does not grow it, or copy it, without bound.
      */
     private val sweptLegacyIds: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
@@ -207,7 +212,9 @@ internal class AndroidNotifier(
         }
         if (id !in sweptLegacyIds.value) {
             sweepLegacy(id)
-            sweptLegacyIds.update { swept: Set<String> -> swept + id }
+            sweptLegacyIds.update { swept: Set<String> ->
+                if (swept.size >= MAX_SWEPT_LEGACY_IDS) setOf(id) else swept + id
+            }
         }
         return NotificationResult.Posted
     }
@@ -233,6 +240,8 @@ internal class AndroidNotifier(
                 else -> notificationManager.cancel(foregroundId)
             }
             sweepLegacy(id)
+            // The sweep above is the sweep the cache stands for, so the entry has nothing left to say.
+            sweptLegacyIds.update { swept: Set<String> -> swept - id }
         }
     }
 
@@ -254,6 +263,7 @@ internal class AndroidNotifier(
         postLock.withLock {
             coalescer.clear()
             notificationManager.cancelAll()
+            sweptLegacyIds.value = emptySet()
         }
     }
 
@@ -308,8 +318,14 @@ internal class AndroidNotifier(
     /** What a post shows apart from its progress, compared by the coalescer. */
     private data class CoalescingKey(val notification: LocalNotification, val options: NotificationOptions)
 
+    /** Test seam: how many ids [sweptLegacyIds] currently remembers. */
+    internal fun sweptLegacyCountForTest(): Int = sweptLegacyIds.value.size
+
     private companion object {
         const val HEX: Int = 16
+
+        /** Bound of [sweptLegacyIds]; a forgotten entry costs one idempotent binder `cancel`. */
+        const val MAX_SWEPT_LEGACY_IDS: Int = 256
 
         /**
          * The `Int` half of every tagged notification's `(tag, id)` key. The tag — the caller's id —
