@@ -39,12 +39,14 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   and infinite values are rejected. The request timeout is an idle timeout, and a background session
   retries silently after it until the resource timeout runs out, so `resourceTimeout` bounds
   re-uploads; see `docs/kmptoolkit-uploader/08-upload-transport.md`. The three-parameter constructor
-  stays as a deprecated overload (warning level, no default arguments), so binaries built against 3.0
-  keep working and Swift code calling
+  stays as a deprecated overload (warning level, no default arguments), so Swift code calling
   `BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compiles. In Kotlin,
-  `BackgroundUploadConfig()` and any call that leaves a parameter out resolve to the new constructor;
-  only a call passing all three old arguments positionally lands on the deprecated one, with a
-  warning.
+  `BackgroundUploadConfig()` and any call that leaves a parameter out or names a timeout resolve to the
+  new constructor; only a call that supplies exactly the three old arguments (positionally or by name)
+  and no timeout lands on the deprecated one, with a warning. Compatibility note: that constructor had
+  default arguments in 3.0.0, so a library compiled against 3.0.0 that calls it with arguments omitted
+  (for example `BackgroundUploadConfig()`) must be recompiled against 3.1.0; source code, Swift code and
+  apps are unaffected.
 - `kmptoolkit-downloader`: `DownloaderConfig` with `stallTimeout` (default
   `DownloaderConfig.DEFAULT_STALL_TIMEOUT`, 5 minutes; `Duration.INFINITE` turns stall detection off)
   and a `createDownloader` overload that takes it, placed right after `stateStore`. The existing
