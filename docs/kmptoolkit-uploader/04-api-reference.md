@@ -258,7 +258,9 @@ public sealed interface UploadField {
 
 Declarative description of one multipart upload. `UploadField.File` streams from `path` at upload
 time — the request never carries file bytes, which is also what keeps it well under WorkManager's
-`Data` cap on Android.
+`Data` cap on Android. Field and file names are sent percent-escaped for `"`, CR and LF (`%22`, `%0D`, `%0A`)
+as browsers do, and CR and LF are removed from a file's `contentType`, on both platforms; text values are
+body content and go out untouched.
 
 ## `UploadResult` / `defaultUploadClassification`
 

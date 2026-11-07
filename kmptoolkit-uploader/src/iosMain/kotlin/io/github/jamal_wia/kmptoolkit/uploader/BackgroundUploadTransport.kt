@@ -752,13 +752,14 @@ private fun writeMultipartParts(output: NSOutputStream, boundary: String, fields
         if (!output.writeText("--$boundary\r\n")) return writeFailure
         when (field) {
             is UploadField.Text -> {
-                val part = "Content-Disposition: form-data; name=\"${field.name}\"\r\n\r\n${field.value}"
+                val part = "Content-Disposition: form-data; name=\"${multipartQuotedValue(field.name)}\"\r\n\r\n${field.value}"
                 if (!output.writeText(part)) return writeFailure
             }
 
             is UploadField.File -> {
-                val header = "Content-Disposition: form-data; name=\"${field.name}\"; filename=\"${field.fileName}\"\r\n" +
-                    "Content-Type: ${field.contentType}\r\n\r\n"
+                val header = "Content-Disposition: form-data; name=\"${multipartQuotedValue(field.name)}\"; " +
+                    "filename=\"${multipartQuotedValue(field.fileName)}\"\r\n" +
+                    "Content-Type: ${multipartHeaderValue(field.contentType)}\r\n\r\n"
                 if (!output.writeText(header)) return writeFailure
                 val input: NSInputStream = NSInputStream.inputStreamWithFileAtPath(field.path)
                     ?: return "source file missing/unreadable: ${field.path}"

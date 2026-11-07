@@ -320,4 +320,24 @@ class MultipartBodyAdversarialTest {
 
         assertTrue(tookMillis < 4_000, "the answer's headers trickled for $tookMillis ms against a 1000 ms read timeout (outcome ${outcome.result})")
     }
+
+    @Test
+    fun `field names and file names carrying quotes or line breaks cannot add headers or parts to the body`() {
+        answer(ok)
+        val file: File = tempFile("odd", 16)
+        val outcome: MultipartOutcome = upload(
+            UploadRequest(
+                url(),
+                fields = listOf(
+                    UploadField.Text("a\"; x=\"y\r\nX-Injected: 1", "v"),
+                    UploadField.File("f", "evil\"\r\nX-Injected-Too: 1\r\n\r\nsmuggled", "text/plain", file.path),
+                ),
+            ),
+        )
+
+        assertEquals(UploadResult.Completed(201), outcome.result)
+        val body: String = seen.get()
+        assertTrue(!body.contains("\r\nX-Injected: 1"), "a field name must not start a header line of its own")
+        assertTrue(!body.contains("\r\nX-Injected-Too: 1"), "a file name must not start a header line of its own")
+    }
 }

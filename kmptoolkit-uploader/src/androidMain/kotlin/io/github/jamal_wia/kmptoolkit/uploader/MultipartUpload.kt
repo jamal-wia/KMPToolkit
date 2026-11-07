@@ -237,13 +237,16 @@ private fun writeMultipartBody(
         writeText("--$boundary\r\n")
         when (field) {
             is UploadField.Text -> {
-                writeText("Content-Disposition: form-data; name=\"${field.name}\"\r\n\r\n")
+                writeText("Content-Disposition: form-data; name=\"${multipartQuotedValue(field.name)}\"\r\n\r\n")
                 writeText(field.value)
             }
 
             is UploadField.File -> {
-                writeText("Content-Disposition: form-data; name=\"${field.name}\"; filename=\"${field.fileName}\"\r\n")
-                writeText("Content-Type: ${field.contentType}\r\n\r\n")
+                writeText(
+                    "Content-Disposition: form-data; name=\"${multipartQuotedValue(field.name)}\"; " +
+                        "filename=\"${multipartQuotedValue(field.fileName)}\"\r\n",
+                )
+                writeText("Content-Type: ${multipartHeaderValue(field.contentType)}\r\n\r\n")
                 File(field.path).inputStream().use { input ->
                     val buffer = ByteArray(COPY_BUFFER_BYTES)
                     while (true) {

@@ -24,12 +24,17 @@ public data class UploadRequest(
 /** One multipart form field. */
 public sealed interface UploadField {
 
-    /** A plain text field. */
+    /**
+     * A plain text field. The [name] is sent between quotes with `"`, CR and LF percent-escaped (`%22`, `%0D`,
+     * `%0A`) as browsers do; the [value] is body content and goes out as it is.
+     */
     public data class Text(val name: String, val value: String) : UploadField
 
     /**
      * A file part streamed from [path] at upload time — the request references the file, the
-     * transport reads it. The file must stay on disk until the item settles.
+     * transport reads it. The file must stay on disk until the item settles. [name] and [fileName] are sent
+     * percent-escaped for `"`, CR and LF as browsers do, and CR and LF are removed from [contentType], so none
+     * of them can end its header or add a header or a part to the request.
      */
     public data class File(
         val name: String,
