@@ -119,8 +119,8 @@ internal class AndroidScreenWakeLockController(
         // No activity means the screen is already going away. The write is not lost: pushedTo
         // still names the window carrying the flag, so its next resume applies this release.
         activityAccess.withActivity { activity -> applyFlag(activity, keepOn = target) }
-        // A release also reaches every earlier window still carrying the flag, not just the current one.
-        if (!target) pushedTo.toList().forEach { reference -> reference.get()?.let { applyFlag(it, keepOn = false) } }
+        // An earlier window still carrying the flag stays in pushedTo, owed its release like a paused
+        // one: the subscription lives until each such window has resumed (or is gone).
         unsubscribeWhenIdle()
     }
 
