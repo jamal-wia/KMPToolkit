@@ -205,7 +205,13 @@ public interface PermissionController {
   screen no app handles — it arrives as a status or as `false`, and is logged.
 - **Cancellation.** Cancelling the coroutine that called `request` abandons the *result*, not the
   system UI: the user's answer still reaches the OS, nothing is recorded for an unanswered dialog, and
-  the next `check` sees what happened.
+  the next `check` sees what happened. A dialog still waiting to be posted to the main thread when
+  the caller is cancelled (Android, caller off the main thread) is not shown at all.
+- **Callers on any thread.** On Android a request for a special access subscribes to the activity's
+  resume and opens the Settings screen on the main thread, so a caller on `Dispatchers.Default` or `IO`
+  returns only once the user is back, never early because of a late resume notification. `observe`
+  subscribes to request results before it first reads the status, so a request that resolves in between
+  is not missed.
 
 ## `PermissionRequestFlow`
 

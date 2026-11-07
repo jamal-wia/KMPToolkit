@@ -27,9 +27,11 @@ import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -355,7 +357,11 @@ internal class AndroidPermissionController(
         return callbackFlow {
             trySend(Unit)
             val subscription: ActivitySubscription = addResumedListener { trySend(Unit) }
-            launch { requestsResolved.collect { resolved -> if (resolved == source) send(Unit) } }
+            // UNDISPATCHED: subscribed before the first status read starts, so a request resolving in
+            // between is not emitted to nobody (the flow has no replay).
+            launch(start = CoroutineStart.UNDISPATCHED) {
+                requestsResolved.collect { resolved -> if (resolved == source) send(Unit) }
+            }
             awaitClose { subscription.cancel() }
         }
             .conflate()
@@ -573,21 +579,35 @@ internal class AndroidPermissionController(
      * listener; the screen stays where it is, and the next [check] or [observe] sees what the user did.
      */
     private suspend fun openAndAwaitReturn(request: SystemScreenRequest, permission: Permission): Boolean {
-        var subscription: ActivitySubscription? = null
+        val subscription: AtomicReference<ActivitySubscription?> = AtomicReference(null)
         try {
             return suspendCancellableCoroutine { continuation ->
-                val armed = AtomicBoolean(false)
-                subscription = addResumedListener {
-                    if (armed.get() && continuation.isActive) continuation.resume(true)
-                }
-                if (openScreen(request, permission)) {
-                    armed.set(true)
-                } else if (continuation.isActive) {
-                    continuation.resume(false)
+                continuation.invokeOnCancellation { subscription.getAndSet(null)?.cancel() }
+                // Subscribe and open on the main thread. Off main a listener added while an activity is
+                // resumed gets its immediate call posted, not run: it could land after `armed` is set
+                // but before the old activity's pause, and end the wait while Settings is on screen.
+                // On main that call is synchronous and has been ignored before the screen is opened.
+                onMainThread {
+                    if (!continuation.isActive) return@onMainThread
+                    val armed = AtomicBoolean(false)
+                    val added: ActivitySubscription = addResumedListener {
+                        if (armed.get() && continuation.isActive) continuation.resume(true)
+                    }
+                    subscription.set(added)
+                    // Cancelled while subscribing: invokeOnCancellation may have run before the set.
+                    if (!continuation.isActive) {
+                        subscription.getAndSet(null)?.cancel()
+                        return@onMainThread
+                    }
+                    if (openScreen(request, permission)) {
+                        armed.set(true)
+                    } else if (continuation.isActive) {
+                        continuation.resume(false)
+                    }
                 }
             }
         } finally {
-            subscription?.cancel()
+            subscription.getAndSet(null)?.cancel()
         }
     }
 
@@ -631,6 +651,8 @@ internal class AndroidPermissionController(
                 if (delivered.compareAndSet(false, true) && continuation.isActive) continuation.resume(value)
             }
             onMainThread {
+                // Cancelled before this ran (off main it is posted): do not put up a dialog nobody waits for.
+                if (!continuation.isActive) return@onMainThread
                 val launched: Boolean = runCatching { launch { value -> deliver(value) } }.getOrElse { cause ->
                     logger.w(cause) { "The permission request host threw while launching" }
                     false

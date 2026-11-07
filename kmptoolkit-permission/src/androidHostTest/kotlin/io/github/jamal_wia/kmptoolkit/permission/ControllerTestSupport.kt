@@ -18,13 +18,13 @@ import org.robolectric.Shadows.shadowOf
  * still registered. [resumedNow] makes a newly added listener fire at once, as a real access does
  * while an activity is resumed.
  */
-class ResumeListeners(var resumedNow: Boolean = false) {
+open class ResumeListeners(var resumedNow: Boolean = false) {
 
     private val listeners: MutableList<() -> Unit> = mutableListOf()
 
     val count: Int get() = listeners.size
 
-    fun add(listener: () -> Unit): ActivitySubscription {
+    open fun add(listener: () -> Unit): ActivitySubscription {
         listeners += listener
         if (resumedNow) listener()
         return object : ActivitySubscription {
