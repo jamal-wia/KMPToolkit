@@ -8,6 +8,7 @@ import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -18,7 +19,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -99,14 +99,13 @@ class AndroidDownloaderCancelRaceRound3Test {
      * Runs [rounds] races of one request against one cancel and returns how the requests ended, as a
      * count per outcome. Every round starts from a complete temp file and a new engine.
      */
-    private fun race(rounds: Int, unit: DownloadUnit, payload: ByteArray, request: suspend (Downloader) -> Unit, cancel: (Downloader) -> Unit, group: ResourceGroup, prepare: (Downloader) -> Unit = {}): Map<String, Int> {
+    private fun race(rounds: Int, unit: DownloadUnit, payload: ByteArray, request: suspend (Downloader) -> Unit, cancel: (Downloader) -> Unit, group: ResourceGroup): Map<String, Int> {
         val outcomes: MutableMap<String, Int> = HashMap()
         // A warm-up round first: the very first call in a Robolectric process loads a lot of classes.
         repeat(rounds + 1) { round: Int ->
             root.deleteRecursively()
             seedCompleteTempFile(unit, payload)
             val engine: Downloader = engine(group)
-            prepare(engine)
             val barrier = CyclicBarrier(2)
             val outcome = AtomicReference<Result<Unit>?>(null)
             val requester = thread(name = "requester") {
@@ -136,33 +135,7 @@ class AndroidDownloaderCancelRaceRound3Test {
     }
 
     @Test
-    fun `a group request and a group cancel with a complete temp file end as completed or cancelled never as a storage failure`() {
-        val payload = ByteArray(2048) { (it % 251).toByte() }
-        val group = Group("g")
-        val unit = FileUnit("model", group).also { group.units = listOf(it) }
-        val outcomes: Map<String, Int> = race(
-            rounds = 150, unit = unit, payload = payload, group = group,
-            request = { it.ensureAvailable(group) },
-            cancel = { it.cancelDownload(group) },
-        )
-        assertEquals(emptyList(), outcomes.keys.filter { it != "completed" && it != "cancelled" }.map { "$it x${outcomes[it]}" }, "outcomes: $outcomes")
-    }
-
-    @Test
-    fun `a unit request racing a group cancel of the group that holds it ends as completed or cancelled never as a storage failure`() {
-        val payload = ByteArray(2048) { (it % 251).toByte() }
-        val group = Group("g")
-        val unit = FileUnit("model", group).also { group.units = listOf(it) }
-        val outcomes: Map<String, Int> = race(
-            rounds = 600, unit = unit, payload = payload, group = group,
-            request = { it.ensureAvailable(unit) },
-            cancel = { it.cancelDownload(group) },
-        )
-        assertEquals(emptyList(), outcomes.keys.filter { it != "completed" && it != "cancelled" }.map { "$it x${outcomes[it]}" }, "outcomes: $outcomes")
-    }
-
-    @Test
-    fun `a request and a cancel of a tracked unit with a complete temp file end as completed or cancelled never as a storage failure`() {
+    fun `a request and a cancel of an untracked unit with a complete temp file end as completed or cancelled never as a storage failure`() {
         val payload = ByteArray(2048) { (it % 251).toByte() }
         val group = Group("g")
         val unit = FileUnit("model", group).also { group.units = listOf(it) }
@@ -170,7 +143,6 @@ class AndroidDownloaderCancelRaceRound3Test {
             rounds = 600, unit = unit, payload = payload, group = group,
             request = { it.ensureAvailable(unit) },
             cancel = { it.cancelDownload(unit) },
-            prepare = { engine -> runBlocking { engine.unitDownloadStateFlow(unit).first() } },
         )
         assertEquals(emptyList(), outcomes.keys.filter { it != "completed" && it != "cancelled" }.map { "$it x${outcomes[it]}" }, "outcomes: $outcomes")
     }

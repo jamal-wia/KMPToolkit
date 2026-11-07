@@ -109,8 +109,8 @@ public interface Downloader {
      *
      * Also the way to release a unit the host no longer wants: it deletes the unit's partial temp
      * data (and an interrupted archive extraction), which nothing else sweeps. A unit the engine has
-     * never tracked is cancelled and cleaned up the same way, without the engine starting to track
-     * it. The engine keeps a small state flow and lock for every unit id it tracks, for its whole
+     * never tracked is cancelled and cleaned up the same way, without the engine creating a state flow
+     * for it (it keeps only the unit's lock object). The engine keeps a small state flow and lock for every unit id it tracks, for its whole
      * lifetime, so ids must come from a stable catalogue (see [DownloadUnit.id]).
      */
     public fun cancelDownload(unit: DownloadUnit)

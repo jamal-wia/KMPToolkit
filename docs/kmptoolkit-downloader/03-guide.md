@@ -307,8 +307,8 @@ Three distinct operations:
   on the port: after its `cancelDownload`, `isDownloadInProgress` must be `false` and the cancelled
   transfer's `Cancelled` must not be replayed to the next subscriber.)
   A cancel of a unit this engine has never tracked (never requested, never observed) still cancels
-  the platform transfer, clears the stall count and deletes the unit's temp data, but starts no
-  tracking for it.
+  the platform transfer, clears the stall count and deletes the unit's temp data, but creates no
+  state flow for it (only the unit's lock object is kept).
 - **`cancelAllDownloads()`** — the **logout** entry point: cancels every group-level and per-unit
   download the engine tracks (each as above, so every running `ensureAvailable` ends with
   `DownloadCancelledException`), then the engine's own coroutines (a notification-shade Retry).

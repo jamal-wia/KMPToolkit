@@ -1347,24 +1347,22 @@ internal class DefaultDownloaderEngine(
             cancelUnitNow(entry)
             return
         }
-        // Never tracked, so no call is running for it (a running call always has an entry) and
-        // there is no state to reset. Release what the platform and the disk may hold, without
-        // creating an entry or a mutex that would then live as long as the engine.
-        val mutex: Mutex? = unitMutexes.value[unit.id]
-        val ownsUnit: Boolean = mutex?.tryLock() ?: true
+        // Never tracked, so there is no state to reset. Release what the platform and the disk may
+        // hold, without creating an entry (a state flow that would then live as long as the engine);
+        // only the unit's lock object is created, so the delete below is guarded exactly like the
+        // tracked path's. A request on another thread creates its entry BEFORE it locks the unit:
+        // either it holds the lock now (tryLock fails, nothing is deleted under its commit, and the
+        // late cancel below bumps its epoch), or it waits behind this delete and starts clean.
+        val mutex: Mutex = unitMutex(unit)
+        val ownsUnit: Boolean = mutex.tryLock()
         try {
             cancelTransfer(unit)
             clearStallCount(unit)
-            // With no mutex there was nothing to lock, so a request on another thread may have
-            // started tracking the unit since the snapshot above; deleting now would run unguarded
-            // against its commit. Leave the files to the tracked path below.
-            val startedMeanwhile: Boolean =
-                mutex == null && (unitEntries.value[unit.id] != null || unitMutexes.value[unit.id] != null)
-            if (ownsUnit && !startedMeanwhile) safeDeleteTempFile(unit)
+            if (ownsUnit) safeDeleteTempFile(unit)
         } finally {
-            if (mutex != null && ownsUnit) mutex.unlock()
+            if (ownsUnit) mutex.unlock()
         }
-        if (mutex == null) unitEntries.value[unit.id]?.let { late: UnitEntry -> cancelUnitNow(late) }
+        unitEntries.value[unit.id]?.let { late: UnitEntry -> cancelUnitNow(late) }
     }
 
     private fun cancelUnitNow(entry: UnitEntry) {
