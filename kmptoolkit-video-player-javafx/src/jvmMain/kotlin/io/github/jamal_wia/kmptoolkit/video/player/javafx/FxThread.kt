@@ -24,10 +24,12 @@ internal object FxThread {
      * How a block is handed to the FX thread; `Platform.runLater` unless a test swaps it, to
      * simulate a toolkit that has exited (which silently drops what it is given).
      */
+    // Volatile: a test swaps it on its own thread while engines read it on theirs.
     @Volatile
     internal var runLater: (Runnable) -> Unit = { Platform.runLater(it) }
 
     /** `Platform.startup`; a seam so a test can simulate a toolkit that has exited. */
+    // Volatile: a test swaps it on its own thread while engines read it on theirs.
     @Volatile
     internal var startup: (Runnable) -> Unit = { Platform.startup(it) }
 
@@ -44,6 +46,8 @@ internal object FxThread {
      * in time — a busy thread, not a missing runtime.
      */
     fun startToolkit() {
+        // A latch, not a CompletableDeferred: this is reached from the non-suspending isAvailable() and
+        // must block its caller (never the FX thread, see the early return) (D-21).
         val started = CountDownLatch(1)
         val startedHere: Boolean = try {
             startup(Runnable { started.countDown() })

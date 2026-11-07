@@ -86,6 +86,8 @@ internal class Media3VideoEngine(
     private val queued: AtomicInteger = AtomicInteger(0)
     private val playerDispatcher: CoroutineDispatcher = HandlerDispatcher(::post)
 
+    // Volatile: set through the non-suspending SPI from any thread, read in ExoPlayer callbacks on the
+    // looper (D-21).
     @Volatile
     private var listener: VideoPlaybackEngineListener? = null
 
@@ -93,6 +95,7 @@ internal class Media3VideoEngine(
     @Volatile
     private var player: ExoPlayer? = null
 
+    // Volatile: dispose() is non-suspending and called off the looper; obtainPlayer() reads it there.
     @Volatile
     private var disposed: Boolean = false
 
@@ -107,8 +110,13 @@ internal class Media3VideoEngine(
     private var lastBuffering: Boolean = false
 
     /** Timing answers for other threads. Replaced whole, never mutated, so a reader sees one moment. */
+    // Volatile cell rather than a coroutine tool: the SPI getters are synchronous and answer from any
+    // thread without waiting for the looper (D-21).
     @Volatile
     private var snapshot: Snapshot = Snapshot.EMPTY
+
+    // At most one refresh posted at a time, set from whichever thread polls; a non-suspending CAS is
+    // all it needs.
     private val refreshPosted: AtomicBoolean = AtomicBoolean(false)
 
     private val playerListener: Player.Listener = object : Player.Listener {
@@ -199,14 +207,18 @@ internal class Media3VideoEngine(
     override fun pause() {
         // Freeze the extrapolated playhead now, so the position read right after this call — from
         // whatever thread — is where playback stopped rather than where it would have got to.
-        val frozen: Snapshot = snapshot
-        snapshot = frozen.copy(positionMs = frozen.extrapolatedPosition(), atRealtimeMs = now(), advancing = false)
-        onPlayerThread { player?.pause() }
+        onPlayerThread(
+            publish = {
+                val frozen: Snapshot = snapshot
+                snapshot = frozen.copy(positionMs = frozen.extrapolatedPosition(), atRealtimeMs = now(), advancing = false)
+            },
+        ) { player?.pause() }
     }
 
     override fun seekTo(positionMs: Long) {
-        snapshot = snapshot.copy(positionMs = positionMs, atRealtimeMs = now())
-        onPlayerThread { player?.seekTo(positionMs) }
+        onPlayerThread(
+            publish = { snapshot = snapshot.copy(positionMs = positionMs, atRealtimeMs = now()) },
+        ) { player?.seekTo(positionMs) }
     }
 
     override fun setSpeed(speed: Float) {
@@ -326,12 +338,22 @@ internal class Media3VideoEngine(
         return snapshot
     }
 
-    /** Runs [block] on the looper thread after every call made before it — see the class KDoc. */
-    private inline fun onPlayerThread(crossinline block: () -> Unit) {
+    /**
+     * Runs [block] on the looper thread after every call made before it — see the class KDoc.
+     *
+     * [publish] updates the [snapshot] for this call. It runs after the call is counted in [queued]
+     * and before it is posted: a looper refresh that sees the new snapshot then also sees `queued > 0`
+     * and is suppressed, whereas publishing first left a gap in which a refresh could put the
+     * pre-call playhead back over it.
+     */
+    private inline fun onPlayerThread(crossinline publish: () -> Unit = {}, crossinline block: () -> Unit) {
         if (Looper.myLooper() === looper && queued.get() == 0) {
+            publish()
             guarded(block)
         } else {
-            post { guarded(block) }
+            queued.incrementAndGet()
+            publish()
+            enqueueCounted { guarded(block) }
         }
     }
 
@@ -342,6 +364,11 @@ internal class Media3VideoEngine(
      */
     private fun post(task: Runnable) {
         queued.incrementAndGet()
+        enqueueCounted(task)
+    }
+
+    /** Posts [task] for a call already counted in [queued]. */
+    private fun enqueueCounted(task: Runnable) {
         handler.post {
             queued.decrementAndGet()
             task.run()

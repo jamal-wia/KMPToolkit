@@ -335,6 +335,8 @@ internal class FxPlayback private constructor(
             onCreated: (FxPlayback) -> Unit,
         ): FxPlayback {
             val media: Media = withContext(Dispatchers.IO) { runInterruptible { Media(uri) } }
+            // An atomic: the FX block may still run after the wait timed out or was cancelled,
+            // concurrently with the read below (D-21).
             val created: AtomicReference<FxPlayback?> = AtomicReference(null)
             try {
                 // JavaFX can stay UNKNOWN forever — on macOS a file it cannot parse reports neither
