@@ -329,6 +329,12 @@ policy instead of re-uploading the file every lease); a settle the store refuses
 a retry; and the settle write is not cancelled with the job when WorkManager stops it just after the
 server answered.
 
+Both Android workers run the body write under a watchdog. `HttpURLConnection` has no write timeout, so a
+peer that stops reading would otherwise pin the thread for the kernel's retransmission time (minutes) and
+make `cancel` or a WorkManager stop wait for it. The watchdog closes the connection when the job is
+cancelled, and when no chunk of the body has moved for the read timeout; the upload then ends as a
+transport failure, which the retry policy handles.
+
 Its limits are the reason `UploadHandler` exists:
 
 - **The whole request is stored in WorkManager's `Data`** — URL, headers and field values, encoded by
