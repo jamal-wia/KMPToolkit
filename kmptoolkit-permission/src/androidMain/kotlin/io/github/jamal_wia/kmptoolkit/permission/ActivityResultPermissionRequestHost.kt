@@ -27,7 +27,8 @@ import java.util.concurrent.atomic.AtomicInteger
  *   recreation, and this host registers for the answer again on the next activity that resumes, so the
  *   answer still reaches the waiting request. (Not across process death: nothing in the new process
  *   is waiting.)
- * - **It gives up when the activity is finished** (not recreated) while the dialog is up: nothing can
+ * - **It gives up when the activity is finished** (not recreated) while the dialog is up — whether it
+ *   is destroyed first or another activity resumes before it is: nothing can
  *   answer then, so the request ends as interrupted — an empty answer, `RESULT_CANCELED` — and the
  *   host takes the next one.
  * - **One request at a time.** A launch while another is pending returns `false` and shows nothing.
@@ -105,7 +106,7 @@ public class ActivityResultPermissionRequestHost(
         // A request answered synchronously (every permission already granted) is finished already.
         if (pending === request) {
             request.resumes = activityAccess.addOnActivityResumedListener { resumed ->
-                if (pending === request && resumed is ComponentActivity) request.attach(resumed)
+                if (pending === request && resumed is ComponentActivity) request.onResumed(resumed)
             }
         }
         return true
@@ -125,6 +126,23 @@ public class ActivityResultPermissionRequestHost(
         private var attachedTo: Activity? = null
         private var destroyWatch: LifecycleEventObserver? = null
         private var launcher: ActivityResultLauncher<I>? = null
+
+        /**
+         * Another activity resumed. Android resumes the next screen before it stops and destroys the
+         * one that finished, so by the time this runs the activity the dialog belonged to is already
+         * finishing and its destroy event would find [watchDestroy] removed by the move: its answer
+         * can never be delivered, so give up here. A configuration change is not this case — the old
+         * instance is not finishing.
+         */
+        fun onResumed(activity: ComponentActivity) {
+            val leaving: Activity? = attachedTo
+            if (leaving != null && leaving !== activity && leaving.isFinishing && !leaving.isChangingConfigurations) {
+                finish()
+                onResult(abandoned)
+                return
+            }
+            attach(activity)
+        }
 
         fun attach(activity: ComponentActivity): ActivityResultLauncher<I> {
             launcher?.takeIf { attachedTo === activity }?.let { return it }
