@@ -37,6 +37,8 @@ import platform.Foundation.NSFileManager
 import platform.Foundation.NSHTTPURLResponse
 import platform.Foundation.NSInputStream
 import platform.Foundation.NSLock
+import platform.Foundation.NSMakeRange
+import platform.Foundation.NSMutableData
 import platform.Foundation.NSMutableURLRequest
 import platform.Foundation.NSOutputStream
 import platform.Foundation.NSTemporaryDirectory
@@ -47,11 +49,14 @@ import platform.Foundation.NSURLSessionDataDelegateProtocol
 import platform.Foundation.NSURLSessionDataTask
 import platform.Foundation.NSURLSessionTask
 import platform.Foundation.NSUUID
+import platform.Foundation.appendData
 import platform.Foundation.inputStreamWithFileAtPath
 import platform.Foundation.outputStreamToFileAtPath
 import platform.Foundation.setHTTPMethod
 import platform.Foundation.setValue
+import platform.Foundation.subdataWithRange
 import platform.darwin.NSObject
+import platform.posix.memcpy
 
 /**
  * How [createBackgroundUploadTransport] names and paces its background sessions.
@@ -655,8 +660,12 @@ private class UploadSessionDelegate(
         callback?.invoke()
     }
 
+    /** The response body so far, kept up to the engine's ceiling plus one byte; handed over once, at completion. */
+    private val responseBody = ResponseBodyBuffer()
+
     override fun URLSession(session: NSURLSession, dataTask: NSURLSessionDataTask, didReceiveData: NSData) {
-        receivedAnyEvent = true // the body is unused; the status arrives with completion
+        receivedAnyEvent = true
+        responseBody.append(didReceiveData)
     }
 
     override fun URLSession(
@@ -678,11 +687,19 @@ private class UploadSessionDelegate(
     override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
         receivedAnyEvent = true
         terminalDelivered = true
-        val statusCode: Long = (task.response as? NSHTTPURLResponse)?.statusCode ?: STATUS_UNKNOWN
+        val httpResponse: NSHTTPURLResponse? = task.response as? NSHTTPURLResponse
+        val statusCode: Long = httpResponse?.statusCode ?: STATUS_UNKNOWN
         val outcome: UploadResult = when {
             didCompleteWithError != null -> UploadResult.TransportFailure(didCompleteWithError.localizedDescription)
             statusCode == STATUS_UNKNOWN -> UploadResult.TransportFailure("no HTTP response")
             else -> UploadResult.Completed(statusCode.toInt())
+        }
+        // Built here, before the session is invalidated below: the server's answer exists only for an
+        // outcome that is a completed response, and the body is converted from the accumulated bytes once.
+        val response: UploadResponse? = if (outcome is UploadResult.Completed && httpResponse != null) {
+            uploadResponseOf(outcome.statusCode, httpResponse.allHeaderFields, responseBody)
+        } else {
+            null
         }
         val wasCancelled: Boolean = cancelled
         logger.i { "Upload completed — item=$itemId, outcome=$outcome, cancelled=$wasCancelled" }
@@ -693,7 +710,12 @@ private class UploadSessionDelegate(
         scope.launch {
             fractions.close()
             forwarder.join()
-            if (!wasCancelled && !UploadGateway.complete(itemId, outcome)) {
+            val landed: Boolean = when {
+                wasCancelled -> true
+                response != null -> UploadGateway.complete(itemId, response)
+                else -> UploadGateway.complete(itemId, outcome)
+            }
+            if (!landed) {
                 // The row stays in flight and the lease expiry re-hands it.
                 logger.w { "Upload outcome did not reach an engine — item=$itemId" }
             }
@@ -704,6 +726,50 @@ private class UploadSessionDelegate(
             fireDrained()
         }
     }
+}
+
+/**
+ * Accumulates a response body as the session delivers it, keeping at most [ceiling] plus one byte — one
+ * more than the engine ever keeps, so a longer body is known to be longer without holding all of it. The
+ * delegate's queue is serial, so it needs no lock.
+ */
+internal class ResponseBodyBuffer(private val ceiling: Int = MAX_RESPONSE_BODY_BYTES) {
+
+    private val data = NSMutableData()
+
+    @OptIn(ExperimentalForeignApi::class)
+    fun append(chunk: NSData) {
+        val room: Long = ceiling.toLong() + 1L - data.length.toLong()
+        if (room <= 0L) return
+        if (chunk.length.toLong() <= room) {
+            data.appendData(chunk)
+        } else {
+            data.appendData(chunk.subdataWithRange(NSMakeRange(0u, room.convert())))
+        }
+    }
+
+    /** What was kept: the body up to the ceiling, and whether more than that arrived. */
+    @OptIn(ExperimentalForeignApi::class)
+    fun toBodyAndCut(): Pair<ByteArray, Boolean> {
+        val size: Int = data.length.toInt()
+        if (size == 0) return ByteArray(0) to false
+        val all = ByteArray(size)
+        all.usePinned { pinned -> memcpy(pinned.addressOf(0), data.bytes, data.length) }
+        return if (size > ceiling) all.copyOf(ceiling) to true else all to false
+    }
+}
+
+/**
+ * The [UploadResponse] for a completed answer: [headerFields] — `NSHTTPURLResponse.allHeaderFields`, whose
+ * keys and values are `Any` — reduced to the entries that are strings on both sides, and the [body] kept.
+ */
+internal fun uploadResponseOf(statusCode: Int, headerFields: Map<Any?, *>?, body: ResponseBodyBuffer): UploadResponse {
+    val headers: MutableMap<String, String> = LinkedHashMap()
+    headerFields?.forEach { (name, value) ->
+        if (name is String && value is String) headers[name] = value
+    }
+    val (bytes: ByteArray, cut: Boolean) = body.toBodyAndCut()
+    return UploadResponse(statusCode, headers, bytes, cut)
 }
 
 /** Progress is quantized against a fixed basis, so byte totals above Int range stay exact. */
