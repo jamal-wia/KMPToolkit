@@ -208,10 +208,20 @@ internal class AndroidLocationProvider(
                 )
             }
         } catch (security: SecurityException) {
+            // A later provider's registration may have failed after an earlier one succeeded, and
+            // awaitClose below is never installed on this path: without this the manager keeps the
+            // first provider's listener (and, through it, this dead channel) for the whole process.
+            // Removing a listener that is not registered is a no-op.
+            service.removeUpdates(listener)
             logger.w(security) { "Location permission missing in observeLocation" }
             trySend(null)
             close()
             return@callbackFlow
+        } catch (failure: Throwable) {
+            // Same undo for any other failure (an OEM IllegalArgumentException, a dead system
+            // server); the failure itself still propagates to the collector.
+            service.removeUpdates(listener)
+            throw failure
         }
 
         awaitClose { service.removeUpdates(listener) }
