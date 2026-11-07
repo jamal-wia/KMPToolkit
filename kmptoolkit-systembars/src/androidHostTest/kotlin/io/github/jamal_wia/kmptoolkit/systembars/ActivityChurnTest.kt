@@ -176,4 +176,123 @@ class ActivityChurnTest {
         assertEquals(0, counting.live)
         assertTrue(collected(reference), "a released controller is still reachable")
     }
+
+    @Test
+    fun `a wake lock cleared while its window was paused and destroyed releases its subscription at the next resume`() {
+        val counting = CountingAccess(access)
+        val screen: ActivityController<Activity> = newActivity().also { it.resume() }
+        val controller: ScreenWakeLockController = createScreenWakeLockController(counting)
+        // created after the resume, so the tracker replays the resumed activity and the hold lands
+        controller.setKeepScreenOn(true)
+        idle()
+        screen.pause()
+        controller.setKeepScreenOn(false)
+        idle()
+        // The system destroys the stopped window without finishing it and nothing resumes for now.
+        // The platform gives no destroy signal to wake the controller, so it is released by the next
+        // resume of any window (bounded and self-healing: it holds a weak reference to the dead window).
+        screen.stop().destroy()
+        idle()
+        newActivity().resume()
+        idle()
+        assertEquals(0, counting.live, "the next resume of any window did not release the cleared controller")
+    }
+
+    @Test
+    fun `a wake lock held by a newer screen is not cleared by an older screen finishing late`() {
+        val screen: ActivityController<Activity> = newActivity().also { it.resume() }
+        val old: ScreenWakeLockController = createScreenWakeLockController(access)
+        old.setKeepScreenOn(true)
+        idle()
+        val newer: ScreenWakeLockController = createScreenWakeLockController(access)
+        newer.setKeepScreenOn(true)
+        idle()
+
+        old.setKeepScreenOn(false)
+        idle()
+
+        assertTrue(screen.get().keepsOn(), "the older screen's release cleared the flag the newer screen still holds")
+    }
+
+    @Test
+    fun `the newer screen releasing first keeps the flag while the older still holds it`() {
+        val screen: ActivityController<Activity> = newActivity().also { it.resume() }
+        val old: ScreenWakeLockController = createScreenWakeLockController(access)
+        old.setKeepScreenOn(true)
+        idle()
+        val newer: ScreenWakeLockController = createScreenWakeLockController(access)
+        newer.setKeepScreenOn(true)
+        idle()
+
+        newer.setKeepScreenOn(false)
+        idle()
+        assertTrue(screen.get().keepsOn(), "the newer screen's release cleared the flag the older screen still holds")
+
+        old.setKeepScreenOn(false)
+        idle()
+        assertFalse(screen.get().keepsOn(), "the flag survived the release of both holders")
+    }
+
+    @Test
+    fun `both overlapping controllers released in either order leave no flag no subscription and are collectable`() {
+        listOf(true, false).forEach { oldFirst ->
+            val counting = CountingAccess(access)
+            val screen: ActivityController<Activity> = newActivity().also { it.resume() }
+            var old: ScreenWakeLockController? = createScreenWakeLockController(counting)
+            var newer: ScreenWakeLockController? = createScreenWakeLockController(counting)
+            old!!.setKeepScreenOn(true)
+            idle()
+            newer!!.setKeepScreenOn(true)
+            idle()
+
+            if (oldFirst) {
+                old.setKeepScreenOn(false)
+                newer.setKeepScreenOn(false)
+            } else {
+                newer.setKeepScreenOn(false)
+                old.setKeepScreenOn(false)
+            }
+            idle()
+
+            assertFalse(screen.get().keepsOn(), "flag left on (oldFirst=$oldFirst)")
+            assertEquals(0, counting.live, "a subscription is left (oldFirst=$oldFirst)")
+            val oldRef = WeakReference<Any>(old)
+            val newerRef = WeakReference<Any>(newer)
+            old = null
+            newer = null
+            assertTrue(collected(oldRef), "the older controller is retained (oldFirst=$oldFirst)")
+            assertTrue(collected(newerRef), "the newer controller is retained (oldFirst=$oldFirst)")
+        }
+    }
+
+    @Test
+    fun `a release owed to a paused window is still delivered when another controller holds a different window`() {
+        val first: ActivityController<Activity> = newActivity().also { it.resume() }
+        val old: ScreenWakeLockController = createScreenWakeLockController(access)
+        old.setKeepScreenOn(true)
+        idle()
+        first.pause()
+        val second: ActivityController<Activity> = newActivity().also { it.resume() }
+        idle()
+        val newer: ScreenWakeLockController = createScreenWakeLockController(access)
+        newer.setKeepScreenOn(true)
+        idle()
+
+        // the older controller releases: the second window is still held by the newer one, the first
+        // window is paused and owed its release
+        old.setKeepScreenOn(false)
+        idle()
+        assertTrue(second.get().keepsOn(), "the second window lost the flag the newer controller holds")
+
+        // the newer controller lets go while the second window is still the resumed one
+        newer.setKeepScreenOn(false)
+        idle()
+        assertFalse(second.get().keepsOn(), "the second window kept the flag after every holder released it")
+
+        // the first window comes back: nobody holds anything, the owed release clears it
+        second.pause()
+        first.resume()
+        idle()
+        assertFalse(first.get().keepsOn(), "the owed release was never delivered to the first window")
+    }
 }

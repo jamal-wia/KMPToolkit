@@ -98,7 +98,8 @@ cancelling from another thread while holding a lock the listener also takes. `re
 same for all listeners, for every caller: a second `release()` racing the first, or made from inside a
 listener, does not return before the listeners are stopped, and a listener added while `release()`
 runs is never called. Cancelling also drops the listener itself, so a handle you keep does not pin
-what it captured.
+what it captured. Release an access only after everything built on it is torn down: a controller over
+a released access can no longer reach any window, so a window flag it set stays on that window.
 
 ## Opening system screens
 

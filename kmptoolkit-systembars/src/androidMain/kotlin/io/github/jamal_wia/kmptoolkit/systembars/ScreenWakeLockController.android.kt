@@ -34,6 +34,10 @@ public fun createScreenWakeLockController(context: Context): ScreenWakeLockContr
  * picker hosted in this process. Narrow it with
  * `createActivityAccess(application) { it is MainActivity }`, or share one instance with the
  * system-bars controller so both agree on which window they mean.
+ *
+ * The access must outlive the controller: clear the controller (`setKeepScreenOn(false)`) before you
+ * `release()` the access. A controller over a released access can no longer reach any window, so a
+ * flag it set stays on that window.
  */
 public fun createScreenWakeLockController(activityAccess: ActivityAccess): ScreenWakeLockController =
     AndroidScreenWakeLockController(activityAccess)
@@ -58,6 +62,10 @@ public fun createScreenWakeLockController(activityAccess: ActivityAccess): Scree
  *    reference on pause, before an owner's teardown may run — so a release that arrives with the
  *    screen already going away finds no activity to write to. Without re-applying that release on
  *    the next resume, the window would keep the flag for the rest of its life.
+ *
+ * Several controllers count as one owner of the flag per window: a release clears it only when no
+ * other live controller still holds that window ([KeepScreenOnHolders]), so per-screen controllers
+ * whose lifetimes overlap (a navigation transition) do not undo each other.
  *
  * Hence: the resume callback acts only when this controller either wants the flag on, or previously
  * put it on a window and has not managed to take it off yet — and in the second case only for such a
@@ -115,6 +123,7 @@ internal class AndroidScreenWakeLockController(
         val target: Boolean = requested
         if (enabled == target) return
         enabled = target
+        if (target) KeepScreenOnHolders.register(this) else KeepScreenOnHolders.unregister(this)
         if (target) subscribeToResumes()
         // No activity means the screen is already going away. The write is not lost: pushedTo
         // still names the window carrying the flag, so its next resume applies this release.
@@ -154,10 +163,16 @@ internal class AndroidScreenWakeLockController(
         subscription = null
     }
 
+    /** Main thread only. Whether this controller currently holds the flag and has put it on [activity]. */
+    internal fun keepsOn(activity: Activity): Boolean = enabled && pushedTo.any { it.get() === activity }
+
     private fun applyFlag(activity: Activity, keepOn: Boolean) {
         if (keepOn) {
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        } else {
+        } else if (!KeepScreenOnHolders.heldByAnother(activity, except = this)) {
+            // Several controllers are one owner of the flag per window: it is taken off only when no
+            // other live controller still holds that window. The other one owns the window now and
+            // clears it on its own release, so it is no longer owed by this controller either way.
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         pushedTo.removeAll { it.get() == null || it.get() === activity }
@@ -166,5 +181,36 @@ internal class AndroidScreenWakeLockController(
 
     private inline fun onMainThread(crossinline block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) block() else mainHandler.post { block() }
+    }
+}
+
+/**
+ * The controllers that currently hold the flag, so that one controller's release does not clear a
+ * window another one still holds. Main thread only, by confinement and without any lock: every caller
+ * runs from `applyRequested` or from the resume listener, both delivered on the main thread (D-21:
+ * thread confinement, not a low-level primitive). Weak references, so the registry never becomes a
+ * retention path for a controller its owner dropped.
+ */
+internal object KeepScreenOnHolders {
+
+    private val holders: MutableList<WeakReference<AndroidScreenWakeLockController>> = mutableListOf()
+
+    fun register(controller: AndroidScreenWakeLockController) {
+        prune()
+        if (holders.none { it.get() === controller }) holders.add(WeakReference(controller))
+    }
+
+    fun unregister(controller: AndroidScreenWakeLockController) {
+        holders.removeAll { reference -> reference.get().let { it == null || it === controller } }
+    }
+
+    /** True when a live controller other than [except] holds the flag and has put it on [activity]. */
+    fun heldByAnother(activity: Activity, except: AndroidScreenWakeLockController): Boolean {
+        prune()
+        return holders.any { reference -> reference.get().let { it != null && it !== except && it.keepsOn(activity) } }
+    }
+
+    private fun prune() {
+        holders.removeAll { it.get() == null }
     }
 }
