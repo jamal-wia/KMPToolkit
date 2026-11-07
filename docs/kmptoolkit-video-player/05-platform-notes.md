@@ -167,7 +167,11 @@ and pass no headers — a source with no headers creates the asset with no optio
 shared `AVAudioSession` to `AVAudioSessionCategoryPlayback` with mode `AVAudioSessionModeMoviePlayback`
 and activates it — without that, a video's sound is muted by the ringer switch. The setting is
 process-wide; pass `managesAudioSession = false` when the app owns the session (for example because
-it also records, or mixes with other audio). Interruptions (a call, Siri, a route change) are not
+it also records, or mixes with other audio). The session is left active after `release()`: it is
+shared by every player and by `kmptoolkit-audio-player`, so no single player can tell when it is
+safe to deactivate. An app that wants other apps' audio to resume deactivates it itself
+(`setActive(false, withOptions: .notifyOthersOnDeactivation)`) when it knows no player is running,
+or passes `managesAudioSession = false`. Interruptions (a call, Siri, a route change) are not
 observed: the player neither pauses nor reports them. The `audio` background mode is not needed —
 background playback is out of scope for this module.
 

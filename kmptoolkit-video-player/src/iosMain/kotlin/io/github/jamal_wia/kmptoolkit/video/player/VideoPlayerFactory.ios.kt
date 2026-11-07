@@ -11,7 +11,9 @@ import platform.Foundation.NSBundle
  *
  * @param assetBundle / [assetSubdirectories] where [VideoSource.Asset] is looked up: the bundle root
  *   first, then each subdirectory in order (Compose Multiplatform apps pass `listOf("compose-resources")`).
- * @param managesAudioSession whether to switch the shared `AVAudioSession` to the playback category.
+ * @param managesAudioSession whether to switch the shared `AVAudioSession` to the playback category
+ *   and activate it on load. The session is process-wide and is left active after `release()`; an app
+ *   that wants other apps' audio to resume deactivates it itself once no player is running.
  * @param coroutineContext hosts the position-polling coroutine. A [kotlinx.coroutines.Job] in it is
  *   ignored: the player runs under a job of its own, so releasing it never cancels a job that belongs
  *   to the caller.
