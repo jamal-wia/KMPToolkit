@@ -172,14 +172,25 @@ internal class DefaultUploaderEngine(
         // ever being cancelled. One handed off before the replacement lands is cancelled here; one whose
         // hand-off is still launching cancels itself, finding its row gone right after the launch.
         var superseded: UploaderItem? = null
-        val inserted: Boolean = transactionRunner.inTransaction {
-            when (conflictPolicy) {
-                ConflictPolicy.KEEP -> store.insertKeep(record)
-                ConflictPolicy.REPLACE -> {
-                    superseded = store.insertReplace(record)
-                    true
+        val inserted: Boolean = try {
+            transactionRunner.inTransaction {
+                when (conflictPolicy) {
+                    ConflictPolicy.KEEP -> store.insertKeep(record)
+                    ConflictPolicy.REPLACE -> {
+                        superseded = store.insertReplace(record)
+                        true
+                    }
                 }
             }
+        } finally {
+            // Persist-first for the wake too: even if the process dies before the drain runs, the
+            // platform wake is already armed for the debt that was just persisted. This sits in a finally
+            // because a caller cancelled (or a store failing) after the row committed but before the call
+            // returned cannot tell whether the row landed, and a committed row with no armed wake and no
+            // trigger would wait for some unrelated one. Arming for a row that did not land is harmless:
+            // the next drain pass finds the queue empty and disarms. Neither call suspends or throws.
+            trigger()
+            wakeScheduler.scheduleWake()
         }
         // A parked item has no upload to cancel; only an upload handler's items have one at all.
         superseded?.takeIf { handler is UploadHandler<*> && it.state != UploaderItemState.PARKED }
@@ -189,10 +200,6 @@ internal class DefaultUploaderEngine(
         } else {
             logger.d { "Enqueue of ${record.logName} kept the already-queued item." }
         }
-        trigger()
-        // Persist-first for the wake too: even if the process dies before the drain runs, the
-        // platform wake is already armed for the debt that was just persisted.
-        wakeScheduler.scheduleWake()
         return record.id.takeIf { inserted }
     }
 
@@ -241,15 +248,36 @@ internal class DefaultUploaderEngine(
 
     override suspend fun awaitDrained(timeout: Duration): Boolean {
         trigger()
+        // An already empty queue is drained whatever budget is left: a zero (or spent) timeout must not
+        // turn "nothing owed" into "not drained" just because the timed block below never gets to run.
+        if (isQueueEmpty()) return true
         // Bounded by coroutine time rather than by the clock, so a test driving virtual time gets
         // the same behavior as production without also having to advance a fake wall clock.
         val drained: Boolean? = withTimeoutOrNull(timeout) {
-            while (store.getAllActive().isNotEmpty()) {
+            do {
                 delay(config.drainPollInterval)
-            }
+            } while (!isQueueEmpty())
             true
         }
         return drained == true
+    }
+
+    /**
+     * Whether the store reports nothing owed. A failing read answers `false` ("not known to be empty")
+     * instead of throwing: the caller is typically a platform wake job, where an exception ends the whole
+     * job over what is usually a momentary lock, while the drain loop itself already survives the same
+     * failure. A persistent failure therefore ends in the caller's timeout, which reports "not drained".
+     * Real cancellation, including the timeout's own, still propagates.
+     */
+    private suspend fun isQueueEmpty(): Boolean = try {
+        store.getAllActive().isEmpty()
+    } catch (e: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        logger.e(e) { "Queue read leaked a cancellation; treating the queue as not drained." }
+        false
+    } catch (e: Throwable) {
+        logger.e(e) { "Queue read failed; treating the queue as not drained." }
+        false
     }
 
     override suspend fun settle(id: String, claim: Long, result: SettleResult) {
@@ -371,7 +399,20 @@ internal class DefaultUploaderEngine(
                 }
                 // An expired lease falls through: the item is attemptable again and the handler
                 // runs afresh, its hand-off idempotent by contract.
-                if (!constraintsSatisfied(handler)) continue
+                // A provider that throws on read must not abort the pass for every item behind it: the
+                // item is skipped like an unsatisfied one (never attempted on an unreadable constraint),
+                // and the next trigger or heartbeat asks again.
+                val constraintsMet: Boolean = try {
+                    constraintsSatisfied(handler)
+                } catch (e: CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                    logger.e(e) { "Reading a constraint of ${item.logName} leaked a cancellation; skipping it this pass." }
+                    false
+                } catch (e: Throwable) {
+                    logger.e(e) { "Reading a constraint of ${item.logName} failed; skipping it this pass." }
+                    false
+                }
+                if (!constraintsMet) continue
                 if (item.nextRunAtEpochMillis > nowMillis &&
                     !isClockAnomalyGate(item.nextRunAtEpochMillis, nowMillis, handler)
                 ) {
@@ -971,6 +1012,10 @@ internal class DefaultUploaderEngine(
             logger.e(e) { "$hook failed for ${record.logName}." }
         }
     }
+
+    /** Whether [close] has run. Read by [UploaderEngineRegistry] so a closed engine is never handed out. */
+    internal val isClosed: Boolean
+        get() = closed.value
 
     override fun close() {
         if (!closed.compareAndSet(expect = false, update = true)) return

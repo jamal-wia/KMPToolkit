@@ -114,6 +114,10 @@ public interface UploaderEngine : Uploader {
      * a wake job timing out on one is exactly the re-check that recovers a lease whose executor
      * died.
      *
+     * An already empty queue is drained whatever the timeout, even [Duration.ZERO]. A failing store read
+     * does not throw into the wake job: it counts as "not drained" and is re-read at the next poll, so a
+     * persistent failure ends in `false` at the timeout.
+     *
      * @param timeout how long to wait. The engine polls at
      *   [UploaderConfig.drainPollInterval].
      * @return `true` if the queue emptied within the timeout.

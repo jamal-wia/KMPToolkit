@@ -61,12 +61,22 @@ public object UploaderEngineRegistry {
     /**
      * Puts [engine] in the slot, replacing whatever was there.
      *
+     * An engine that is already closed is ignored — the slot, and any live engine in it, stay as they
+     * are — and one closed while this call runs is removed again before it can be found, so
+     * registration racing a teardown never leaves a closed engine in the slot.
+     *
      * @param engine the engine platform entry points should find. Register it after [UploaderEngine.start],
      *   so that anyone who finds it finds a running one.
      */
     public fun register(engine: UploaderEngine) {
+        if (engine.isClosedEngine()) return
         slot.value = engine
+        // [close] marks the engine closed before it unregisters. If it ran between the check above and
+        // the store, its unregister found nothing to remove, so the slot is cleared here instead.
+        if (engine.isClosedEngine()) unregister(engine)
     }
+
+    private fun UploaderEngine.isClosedEngine(): Boolean = this is DefaultUploaderEngine && isClosed
 
     /**
      * Empties the slot if [engine] is what it holds, and does nothing otherwise.

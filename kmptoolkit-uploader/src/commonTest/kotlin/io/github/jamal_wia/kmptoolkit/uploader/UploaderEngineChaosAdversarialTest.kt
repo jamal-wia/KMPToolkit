@@ -215,4 +215,72 @@ class UploaderEngineChaosAdversarialTest {
         runCurrent()
         assertEquals(0, parent.children.count())
     }
+
+    @Test
+    fun `awaitDrained survives one transient store failure instead of throwing into the wake job`() = runTest {
+        val store = TestUploaderStore()
+        val engine: UploaderEngine = testEngine(store, listOf(TestHandler()), backgroundScope)
+        store.failNextGetAllActive = IllegalStateException("database is locked")
+
+        val result: Result<Boolean> = runCatching { engine.awaitDrained(10.seconds) }
+
+        assertTrue(
+            result.getOrNull() == true,
+            "awaitDrained threw ${result.exceptionOrNull()} on a single transient read failure with an empty queue",
+        )
+    }
+
+    @Test
+    fun `awaitDrained reports false at the timeout when the store keeps failing and does not throw`() = runTest {
+        val store = object : io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore by TestUploaderStore() {
+            override suspend fun getAllActive(): List<UploaderItem> = throw IllegalStateException("database is locked")
+        }
+        val engine: UploaderEngine = testEngine(store, listOf(TestHandler()), backgroundScope)
+
+        val result: Result<Boolean> = runCatching { engine.awaitDrained(3.seconds) }
+
+        assertEquals(false, result.getOrNull(), "a persistently failing store means not drained, got $result")
+    }
+
+    @Test
+    fun `awaitDrained with a zero timeout on an empty queue reports it drained`() = runTest {
+        val engine: UploaderEngine = testEngine(TestUploaderStore(), listOf(TestHandler()), backgroundScope)
+
+        assertTrue(engine.awaitDrained(kotlin.time.Duration.ZERO), "an empty queue is drained whatever the remaining budget")
+    }
+
+    @Test
+    fun `awaitDrained with a zero timeout on a non-empty queue reports it not drained`() = runTest {
+        val store = TestUploaderStore()
+        val handler = TestHandler()
+        val engine: UploaderEngine = testEngine(store, listOf(handler), backgroundScope)
+        engine.enqueue(handler, "owed")
+
+        assertEquals(false, engine.awaitDrained(kotlin.time.Duration.ZERO))
+    }
+
+    @Test
+    fun `a faulty constraint provider does not starve the items of unrelated handlers`() = runTest {
+        val store = TestUploaderStore()
+        val faulty = object : io.github.jamal_wia.kmptoolkit.uploader.spi.ConstraintProvider {
+            override val key: String = "faulty"
+            override val satisfied: kotlinx.coroutines.flow.StateFlow<Boolean> = object : kotlinx.coroutines.flow.StateFlow<Boolean> {
+                override val value: Boolean get() = throw IllegalStateException("provider is broken")
+                override val replayCache: List<Boolean> get() = emptyList()
+                override suspend fun collect(collector: kotlinx.coroutines.flow.FlowCollector<Boolean>): Nothing =
+                    kotlinx.coroutines.awaitCancellation()
+            }
+        }
+        val gated = TestHandler(type = "gated", constraintKeys = setOf("faulty"))
+        val plain = TestHandler(type = "plain")
+        val engine: UploaderEngine = testEngine(store, listOf(gated, plain), backgroundScope, constraintProviders = listOf(faulty))
+        engine.enqueue(gated, "first") // enqueued first, so the drain reaches it first
+        engine.enqueue(plain, "second")
+        engine.start()
+        runCurrent()
+
+        assertEquals(listOf("second"), plain.payloads, "an unrelated handler's item starved behind a throwing provider")
+        assertEquals(emptyList(), gated.payloads, "an item whose constraint cannot be read is not attempted")
+        assertEquals(1, store.items.size, "the gated item stays queued, nothing is deleted silently")
+    }
 }

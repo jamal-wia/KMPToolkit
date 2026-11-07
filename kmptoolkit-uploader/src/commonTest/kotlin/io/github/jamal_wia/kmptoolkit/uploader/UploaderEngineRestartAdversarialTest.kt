@@ -297,4 +297,86 @@ class UploaderEngineRestartAdversarialTest {
         assertTrue(live.isCompleted)
         assertSame(engine, live.await())
     }
+
+    /** A store whose writes commit and then park their caller, as a cancelled `withContext` return does. */
+    private class ParkingAfterCommitStore(
+        private val delegate: io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore,
+        private val gate: CompletableDeferred<Unit>,
+    ) : io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore by delegate {
+        override suspend fun insertKeep(record: UploaderItem): Boolean {
+            val inserted: Boolean = delegate.insertKeep(record)
+            gate.await()
+            return inserted
+        }
+    }
+
+    @Test
+    fun `a caller cancelled after its row committed leaves an item that the platform wake still covers and a drain delivers`() =
+        runTest {
+            val inner = TestUploaderStore()
+            val gate = CompletableDeferred<Unit>()
+            val wake = TestWakeScheduler()
+            val handler = TestHandler()
+            val engine: UploaderEngine =
+                testEngine(ParkingAfterCommitStore(inner, gate), listOf(handler), backgroundScope, wakeScheduler = wake)
+
+            val caller: Job = launch { engine.enqueue(handler, "x") }
+            runCurrent()
+            assertEquals(1, inner.items.size, "the row is committed while the caller is parked")
+            caller.cancelAndJoin()
+
+            // Either the enqueue left nothing behind, or what it persisted is covered by a platform wake:
+            // a process killed now must still be revived to deliver the committed row.
+            assertTrue(
+                inner.items.isEmpty() || wake.armed,
+                "a committed row (${inner.items.size}) exists but the platform wake was never armed for it",
+            )
+
+            engine.start()
+            runCurrent()
+            assertEquals(listOf("x"), handler.payloads, "the committed row is delivered by the next drain")
+            assertEquals(emptyList(), inner.items)
+            assertFalse(wake.armed, "the wake is disarmed once the queue is empty")
+        }
+
+    @Test
+    fun `a caller cancelled after its row committed still triggers the running drain`() = runTest {
+        val inner = TestUploaderStore()
+        val gate = CompletableDeferred<Unit>()
+        val handler = TestHandler()
+        val engine: UploaderEngine =
+            testEngine(ParkingAfterCommitStore(inner, gate), listOf(handler), backgroundScope)
+        engine.start()
+        runCurrent()
+
+        val caller: Job = launch { engine.enqueue(handler, "x") }
+        runCurrent()
+        caller.cancelAndJoin()
+        runCurrent()
+
+        assertEquals(listOf("x"), handler.payloads, "the committed row waited for a later trigger instead of draining now")
+    }
+
+    @Test
+    fun `registering an engine that was already closed never hands it out`() = runTest {
+        val engine: UploaderEngine = testEngine(TestUploaderStore(), listOf(TestHandler()), backgroundScope)
+        engine.close()
+
+        UploaderEngineRegistry.register(engine) // a bootstrap thread racing the teardown thread
+
+        assertNull(UploaderEngineRegistry.current, "a closed engine is never handed out, whatever order register and close ran in")
+        assertNull(UploaderEngineRegistry.await(1.seconds))
+    }
+
+    @Test
+    fun `registering an engine that was already closed leaves a previously registered live engine in place`() = runTest {
+        val live: UploaderEngine = testEngine(TestUploaderStore(), listOf(TestHandler()), backgroundScope)
+        UploaderEngineRegistry.register(live)
+        val closed: UploaderEngine = testEngine(TestUploaderStore(), listOf(TestHandler()), backgroundScope)
+        closed.close()
+
+        UploaderEngineRegistry.register(closed)
+
+        assertSame(live, UploaderEngineRegistry.current, "registering a closed engine must neither be handed out nor evict the live one")
+    }
 }
