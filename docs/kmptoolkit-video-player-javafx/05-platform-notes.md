@@ -66,6 +66,10 @@ renders it with `Node.snapshot` into a reused `WritableImage` and copies the pix
 `IntArray`. That is one scene-graph render, one GPU→CPU readback and one full-frame copy per
 displayed frame, on the JavaFX application thread — on top of the decode JavaFX does anyway.
 
+The pulse runs only while there is a picture to copy: it stops for audio-only sources (no picture,
+so no per-frame cost at all) and once a paused picture has settled, and starts again on `start()`, a
+seek, or a picture that appears later.
+
 The array is new for every frame on purpose: the consumer holds the latest frame and draws it on its
 own schedule, so an array handed back to the engine could be overwritten mid-draw and tear. The cost
 is one short-lived allocation per displayed frame (`width × height × 4` bytes — about 3.7 MB at 720p,

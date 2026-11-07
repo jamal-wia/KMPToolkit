@@ -87,6 +87,9 @@ internal class FxPlayback private constructor(
     private var failed: Boolean = false
     private var disposed: Boolean = false
 
+    /** Whether [pulse] runs. FX-thread confined, like everything here. */
+    private var pulsing: Boolean = false
+
     private val pulse: AnimationTimer = object : AnimationTimer() {
         override fun handle(now: Long) = onPulse(now)
     }
@@ -97,7 +100,7 @@ internal class FxPlayback private constructor(
             reportSize()
             // The first picture is decoded around READY, not necessarily before it: the pulse keeps
             // trying until a snapshot is opaque (see awaitingPicture).
-            pulse.start()
+            startPulse()
             ready.complete(Unit)
         }
         player.setOnError { fail(player.error ?: media.error) }
@@ -136,6 +139,7 @@ internal class FxPlayback private constructor(
             atEnd = false
             player.seek(player.startTime)
         }
+        startPulse()
         player.play()
         reapplyRate()
     }
@@ -168,17 +172,23 @@ internal class FxPlayback private constructor(
     }
 
     /** What JavaFX currently holds, read on the FX thread — for tests; settings have no getter. */
-    class Inspection(val volume: Double, val rate: Double, val cycleCount: Int, val status: String)
+    class Inspection(
+        val volume: Double,
+        val rate: Double,
+        val cycleCount: Int,
+        val status: String,
+        val pulsing: Boolean,
+    )
 
     suspend fun inspect(): Inspection = FxThread.call {
-        Inspection(player.volume, player.rate, player.cycleCount, player.status.toString())
+        Inspection(player.volume, player.rate, player.cycleCount, player.status.toString(), pulsing)
     }
 
     /** Stops the pulse and frees the native player. Idempotent; any thread. */
     fun dispose(): Unit = FxThread.post {
         if (disposed) return@post
         disposed = true
-        pulse.stop()
+        stopPulse()
         ready.cancel()
         view.mediaPlayer = null
         player.dispose()
@@ -234,17 +244,41 @@ internal class FxPlayback private constructor(
         if (size == reportedSize) return
         reportedSize = size
         sink.onVideoSize(size)
+        // A picture that appears later (the size was 0×0 until now) needs the pulse again.
+        if (size != null) startPulse()
     }
 
     /** Keeps copying for a while although not playing: the picture changes after a seek. */
     private fun refreshPicture() {
         refreshUntilNanos = System.nanoTime() + REFRESH_WINDOW_NANOS
+        startPulse()
+    }
+
+    private fun startPulse() {
+        if (disposed || pulsing) return
+        pulsing = true
+        pulse.start()
+    }
+
+    private fun stopPulse() {
+        if (!pulsing) return
+        pulsing = false
+        pulse.stop()
     }
 
     private fun onPulse(now: Long) {
         if (disposed) return
+        if (media.width <= 0 || media.height <= 0) {
+            // Audio only: there is no picture to copy, now or until reportSize sees one.
+            stopPulse()
+            return
+        }
         val playing: Boolean = player.status == MediaPlayer.Status.PLAYING && !atEnd
-        if (!playing && !awaitingPicture && now > refreshUntilNanos) return
+        if (!playing && !awaitingPicture && now > refreshUntilNanos) {
+            // Nothing left to copy; start(), seekTo() and a changed picture start it again.
+            stopPulse()
+            return
+        }
         // Pulses arrive at the display rate with jitter; without the slack a 30 fps cap on a 60 Hz
         // pulse regularly waits a third pulse and delivers ~24 fps.
         if (now - lastSnapshotNanos < minFrameIntervalNanos - PULSE_SLACK_NANOS) return
