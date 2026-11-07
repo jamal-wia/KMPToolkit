@@ -38,6 +38,11 @@ the platform before the first collector, and `SharingStarted.WhileSubscribed()` 
 when the last one goes away — see [`05-platform-notes.md`](05-platform-notes.md) for exactly what
 "registered" means on each platform.
 
+`observeLocation()` is for a visible app. On iOS it stops delivering while the app is suspended —
+silently, with no `null` — because this module does not enable background location updates; see
+[`05-platform-notes.md`](05-platform-notes.md) before building a feature that must keep tracking
+with the screen locked.
+
 ## Checking whether location is even on
 
 `getCurrentLocation()` returning `null` is ambiguous by itself: missing permission, service off, or

@@ -35,6 +35,24 @@ before you expect a fix. This module never calls either method.
 delegate's `didFailWithError` instead of `didUpdateLocations`. `IosLocationProvider` treats that the
 same as any other CoreLocation failure: log the error and resolve to `null` / emit `null`.
 
+### iOS — updates stop while the app is suspended
+
+`observeLocation()` is a foreground feature. On iOS, once the app is suspended CoreLocation stops
+delivering to it, and the flow simply goes quiet: it does not emit `null`, complete, or signal the
+gap in any other way. Holding "always" authorization (`CommonPermission.LocationBackground`) does
+not change that on its own.
+
+Background updates need two things this library does not provide:
+
+- the app's own `location` background mode (`UIBackgroundModes` in `Info.plist`), and
+- `allowsBackgroundLocationUpdates = true` on the `CLLocationManager` that receives the updates.
+
+`IosLocationProvider` owns a private manager and never sets that property, and the app cannot reach
+it. Do not try to enable it from your own code without the background mode declared: CoreLocation
+raises an exception and the app crashes. An app that must track while locked (a run tracker, say)
+needs its own location pipeline; this module does not cover that case. Android likewise throttles
+fixes delivered to a background app to a few per hour.
+
 ### Relationship to `kmptoolkit-permission`
 
 This module never asks for location permission; `kmptoolkit-permission` does, from shared code:
