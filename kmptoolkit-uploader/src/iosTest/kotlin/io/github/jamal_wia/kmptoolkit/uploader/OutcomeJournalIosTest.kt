@@ -20,9 +20,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import platform.Foundation.NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileProtectionCompleteUntilFirstUserAuthentication
 import platform.Foundation.NSFileProtectionKey
+import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
@@ -122,9 +124,25 @@ class OutcomeJournalIosTest {
         // The simulator implements no data protection and reports no class at all (null); a device reports the
         // class the file was written with. Either way no other class may appear.
         val reported: Any? = attributes?.get(NSFileProtectionKey)
+        val onSimulator: Boolean = NSProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] != null
         assertTrue(
-            reported == null || reported == NSFileProtectionCompleteUntilFirstUserAuthentication,
+            if (onSimulator) reported == null || reported == NSFileProtectionCompleteUntilFirstUserAuthentication
+            else reported == NSFileProtectionCompleteUntilFirstUserAuthentication,
             "unexpected protection class: $reported",
+        )
+    }
+
+    @Test
+    fun `the storage asks for the first-unlock class on every entry and on the directory`() {
+        // The simulator reports no class, so what the code asks for is checked directly: removing the option
+        // from the write or the attribute from the directory turns this red, which no device default can hide.
+        assertTrue(
+            IosOutcomeStorage.WRITE_OPTIONS and NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication != 0uL,
+            "entries are written with the first-unlock protection option",
+        )
+        assertEquals(
+            NSFileProtectionCompleteUntilFirstUserAuthentication,
+            IosOutcomeStorage.DIRECTORY_ATTRIBUTES[NSFileProtectionKey],
         )
     }
 
