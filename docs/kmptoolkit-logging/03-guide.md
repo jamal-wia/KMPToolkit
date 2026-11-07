@@ -155,6 +155,10 @@ turn into a crash somewhere unrelated. If a sink throws:
   as `NoSuchMethodError`). A `CancellationException` is rethrown after every sink has been offered the
   event, and any other `Error` (`StackOverflowError`, `OutOfMemoryError`) reaches the caller at once;
 - the sinks after it in the list still receive the event;
+- a sink's `InterruptedException` (a blocking write woken by the caller's interrupt) is contained like
+  any exception, but the interrupt flag that throw cleared is set again on the caller's thread once every
+  sink has had the event (JVM and Android), so a worker or blocking section that logs still sees its
+  interrupt;
 - the caller returns normally.
 
 There is deliberately no "report the failure somewhere" behavior, because everywhere it could be
