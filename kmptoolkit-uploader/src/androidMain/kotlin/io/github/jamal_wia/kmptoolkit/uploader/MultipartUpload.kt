@@ -67,7 +67,7 @@ internal fun performMultipartUploadCapturing(
     // Pre-flight the file parts so a vanished source reads as a transport failure the handler can react
     // to, instead of an exception mid-stream.
     request.fields.filterIsInstance<UploadField.File>().forEach { part ->
-        if (!File(part.path).canRead()) {
+        if (!File(part.path).let { it.isFile && it.canRead() }) {
             return MultipartOutcome(UploadResult.TransportFailure("source file missing/unreadable: ${part.path}"), null)
         }
     }
@@ -94,6 +94,7 @@ internal fun performMultipartUploadCapturing(
         out.close()
         watch?.finishWriting()
         val status: Int = connection.responseCode
+        watch?.answered()
         MultipartOutcome(
             UploadResult.Completed(status),
             if (captureResponse) readResponse(connection, status, isCancelled, readTimeoutMillis) else null,
@@ -126,8 +127,11 @@ internal fun performMultipartUploadCapturing(
 
 /**
  * The answer on [connection] (whose status is [status]): headers without the status line's null key, and the
- * body from `errorStream` for a 4xx/5xx — `null` when the server sent none — or `inputStream` otherwise.
- * A body that fails to read is reported as truncated rather than thrown.
+ * body from `errorStream` for a 4xx/5xx or `inputStream` otherwise — an empty body when the server sent none,
+ * and also when the headers declared one the stack did not deliver, in which case it is flagged truncated.
+ * A body that fails to read is reported as truncated rather than thrown. A status that carries no content
+ * (1xx, 204, 205, 304) is never read and never flagged: whatever length its headers name belongs to the
+ * entity it stands for, not to a body it sent.
  */
 private fun readResponse(
     connection: HttpURLConnection,
@@ -142,6 +146,9 @@ private fun readResponse(
             }
         }
     }.getOrDefault(emptyMap())
+    if (status in HTTP_INFORMATIONAL_RANGE || status in STATUSES_WITHOUT_CONTENT) {
+        return UploadResponse(status, headers, ByteArray(0), false)
+    }
     var read = ReadBody(ByteArray(0), cut = false)
     try {
         val stream: InputStream? = if (status >= HTTP_BAD_REQUEST) connection.errorStream else connection.inputStream
@@ -154,12 +161,23 @@ private fun readResponse(
             if (declared != null && connection.contentEncoding == null && read.bytes.size < declared && !read.cut) {
                 read = ReadBody(read.bytes, cut = true)
             }
+        } else if (declaresBody(connection)) {
+            // The stack kept the body from us (a 401 or 407 on a stack that dropped the connection to
+            // retry): say so, instead of reporting that the server sent nothing.
+            read = ReadBody(read.bytes, cut = true)
         }
     } catch (e: Exception) {
         // No stream to read from: the status stands, the body is unknown.
         read = ReadBody(read.bytes, cut = true)
     }
     return UploadResponse(status, headers, read.bytes, read.cut)
+}
+
+/** Whether the response's headers announce a body: a positive `Content-Length` or a chunked transfer encoding. */
+private fun declaresBody(connection: HttpURLConnection): Boolean {
+    val length: Long? = connection.getHeaderField("Content-Length")?.trim()?.toLongOrNull()
+    if (length != null) return length > 0
+    return connection.getHeaderField("Transfer-Encoding")?.contains("chunked", ignoreCase = true) == true
 }
 
 private class ReadBody(val bytes: ByteArray, val cut: Boolean)
@@ -217,13 +235,16 @@ private fun writeMultipartBody(
         writeText("--$boundary\r\n")
         when (field) {
             is UploadField.Text -> {
-                writeText("Content-Disposition: form-data; name=\"${field.name}\"\r\n\r\n")
+                writeText("Content-Disposition: form-data; name=\"${multipartQuotedValue(field.name)}\"\r\n\r\n")
                 writeText(field.value)
             }
 
             is UploadField.File -> {
-                writeText("Content-Disposition: form-data; name=\"${field.name}\"; filename=\"${field.fileName}\"\r\n")
-                writeText("Content-Type: ${field.contentType}\r\n\r\n")
+                writeText(
+                    "Content-Disposition: form-data; name=\"${multipartQuotedValue(field.name)}\"; " +
+                        "filename=\"${multipartQuotedValue(field.fileName)}\"\r\n",
+                )
+                writeText("Content-Type: ${multipartHeaderValue(field.contentType)}\r\n\r\n")
                 File(field.path).inputStream().use { input ->
                     val buffer = ByteArray(COPY_BUFFER_BYTES)
                     while (true) {
@@ -242,6 +263,8 @@ private fun writeMultipartBody(
     writeText("--$boundary--\r\n")
 }
 
+private val HTTP_INFORMATIONAL_RANGE: IntRange = 100..199
+private val STATUSES_WITHOUT_CONTENT: Set<Int> = setOf(204, 205, 304)
 private const val HTTP_BAD_REQUEST: Int = 400
 private const val COPY_BUFFER_BYTES: Int = 8 * 1024
 private const val NANOS_PER_MILLI: Long = 1_000_000L
@@ -262,6 +285,12 @@ internal class WriteWatch {
 
     @Volatile
     private var lastActivityNanos: Long = System.nanoTime()
+
+    @Volatile
+    private var awaitingAnswer: Boolean = false
+
+    @Volatile
+    private var awaitingSinceNanos: Long = 0L
 
     @Volatile
     private var dropped: Boolean = false
@@ -289,8 +318,16 @@ internal class WriteWatch {
         lastActivityNanos = System.nanoTime()
     }
 
+    /** The body is whole: from here the transfer waits for the status line and headers, under [stalledFor]'s second limit. */
     fun finishWriting() {
         writing = false
+        awaitingSinceNanos = System.nanoTime()
+        awaitingAnswer = true
+    }
+
+    /** The status line and headers arrived; the body read that follows has its own deadline. */
+    fun answered() {
+        awaitingAnswer = false
     }
 
     /** Closes the socket; the blocked write throws and the transfer reports through its ordinary failure path. */
@@ -299,13 +336,21 @@ internal class WriteWatch {
         connection.get()?.disconnect()
     }
 
+    /**
+     * Whether the transfer is stuck: the body write made no progress for [limitMillis], or — once the body is
+     * sent — the status line and headers have not arrived within twice that. The first [limitMillis] of the
+     * wait is the server's silent processing, which the per-read timeout already allows; the second is what a
+     * server that drips its headers a byte at a time (each byte resetting that timeout) can still take.
+     */
     fun stalledFor(limitMillis: Int): Boolean =
-        writing && (System.nanoTime() - lastActivityNanos) / NANOS_PER_MILLI > limitMillis
+        (writing && (System.nanoTime() - lastActivityNanos) / NANOS_PER_MILLI > limitMillis) ||
+            (awaitingAnswer && (System.nanoTime() - awaitingSinceNanos) / NANOS_PER_MILLI > 2L * limitMillis)
 }
 
 /**
  * Runs the blocking transfer in [block] under a watchdog that closes its connection when the surrounding
- * coroutine is cancelled, or when the body write makes no progress for [stallMillis]. The watchdog is a child
+ * coroutine is cancelled, when the body write makes no progress for [stallMillis], or when the server takes
+ * longer than twice that to send its status line and headers once the body is sent. The watchdog is a child
  * of this scope, so cancellation reaches it even while the transfer's own thread is blocked.
  */
 internal suspend fun <T> withWriteWatchdog(stallMillis: Int, block: suspend (WriteWatch) -> T): T = coroutineScope {

@@ -75,7 +75,8 @@ What the engine does with it:
    nothing. A preparation that throws here counts as a failed attempt under the handler's retry policy, exactly as a
    failing preparation in the drain does: it spends retry budget, so a persistent failure ends in the give-up policy.
 3. **Progress.** Each whole percent goes to `onUploadProgress` through `UploadGateway.progress`.
-   Best effort, never after the item has settled.
+   Best effort, never after the item has settled. On Android the answer is journaled as soon as the transfer
+   returns; a progress hook still running 2 s after that is cancelled so it cannot hold up the settlement.
 4. **Settle.** What the transport saw goes to `UploadGateway.complete` — with the server's
    `UploadResponse` when it answered, with a bare `UploadResult.TransportFailure` when it did not.
    The engine then:
@@ -125,8 +126,9 @@ backup-excluded Application Support directory on iOS). If the process dies in be
 worker at the start of `doWork`, the iOS transport in a hand-off, in `handleEvents` and once at
 creation (on iOS only a re-hand is owed a replay). The file holds the body only up to the handler's
 `maxResponseBodyBytes` (on iOS, after a brief window in which the whole captured body is on disk; see
-[`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted just before the engine commits the settlement, on `cancel`, and after 7 days; an item the
-engine no longer knows settles nothing and its file is deleted. The response body therefore rests
+[`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted just before the engine commits the settlement, on `cancel`, and after 7 days; if the commit
+fails (a store error) the file is written back, and a stop of the job cannot separate the delete from the
+commit. An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
 briefly on disk; see [`05-platform-notes.md`](05-platform-notes.md#the-servers-response). Your own
 transport has no journal: keep your own record if it needs one.
 
@@ -186,7 +188,10 @@ line, and the body from `errorStream` for a status of 400 and above (no stream i
 `WorkManager`'s data. Reading the body stops once the read timeout has passed in total (at most one more
 read timeout for a read already waiting) or, between reads, when the job is cancelled, and a body that
 cannot be read completely — the connection broke, or the time ran out —
-is reported as truncated with the bytes read so far, not as a transport failure. A `WorkManager` worker has about 10 minutes and this module does not call
+is reported as truncated with the bytes read so far, not as a transport failure. A status that carries no content (`1xx`,
+`204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
+The status line and headers must arrive within twice the read timeout after the body is sent: a server that
+trickles them longer fails the attempt as a transport failure (no status was received). A `WorkManager` worker has about 10 minutes and this module does not call
 `setForeground`, so keep the upload and the server's answer short.
 
 `cancel(itemId)` cancels that item's unique work and deletes its journaled outcome, if any — and nothing else. A job already uploading stops
@@ -360,7 +365,8 @@ Both Android workers run the body write under a watchdog. `HttpURLConnection` ha
 peer that stops reading would otherwise pin the thread for the kernel's retransmission time (minutes) and
 make `cancel` or a WorkManager stop wait for it. The watchdog closes the connection when the job is
 cancelled, and when no chunk of the body has moved for the read timeout (counted from the moment the
-connection is up and the body starts, so the connect keeps its own connect timeout); the upload then ends as a
+connection is up and the body starts, so the connect keeps its own connect timeout), and when the status line and
+headers have not arrived within twice the read timeout after the body was sent; the upload then ends as a
 transport failure, which the retry policy handles.
 
 Its limits are the reason `UploadHandler` exists:

@@ -18,6 +18,7 @@ import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -27,6 +28,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Creates the Android [UploadTransport] for an [UploadHandler]: one `WorkManager` job per item, whose
@@ -54,6 +56,8 @@ import kotlinx.coroutines.withContext
  * @param config names, timeouts and lease — the same [UploadTransportConfig] as the classifier-based
  *   transport. Pin [UploadTransportConfig.uniqueWorkNamePrefix] and [UploadTransportConfig.workTag] if
  *   jobs enqueued by an earlier version of your app must keep matching.
+ * @param logger where hand-offs and failures are reported. A logger that throws is ignored; it never stops a
+ *   hand-off or a job.
  * @since 1.5.0
  */
 public fun createWorkManagerUploadHandlerTransport(
@@ -65,9 +69,12 @@ public fun createWorkManagerUploadHandlerTransport(
 internal class WorkManagerUploadHandlerTransport(
     private val context: Context,
     private val config: UploadTransportConfig,
-    private val logger: Logger,
+    logger: Logger,
     private val journal: OutcomeJournal = androidOutcomeJournal(context, logger),
 ) : UploadTransport {
+
+    /** A logger that throws is ignored: it never stops a hand-off or the sweep. */
+    private val logger: Logger = logger.nonThrowing()
 
     override val leaseMillis: Long = config.leaseMillis
 
@@ -77,7 +84,7 @@ internal class WorkManagerUploadHandlerTransport(
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching {
                 journal.sweep(gatewaySettle(config.engineWait))
-            }.onFailure { failure -> logger.w(failure) { "The upload outcome journal sweep failed." } }
+            }.onFailure { failure -> this@WorkManagerUploadHandlerTransport.logger.w(failure) { "The upload outcome journal sweep failed." } }
         }
     }
 
@@ -169,7 +176,13 @@ public open class UploadHandlerWorker(
         // more of the body than the handler asked for.
         val bodyLimit: Int = UploadGateway.responseBodyLimit(itemId, engineWait) ?: MAX_RESPONSE_BODY_BYTES
 
-        val outcome: MultipartOutcome = uploadReportingProgress(itemId, request)
+        // The answer is journaled the moment the transfer returns, before anything waits on the progress
+        // forwarder: a slow hook may lose progress, never the answer.
+        var journaled = false
+        val outcome: MultipartOutcome = uploadReportingProgress(itemId, request) { answered ->
+            val answer: UploadResponse? = answered.response
+            if (answer != null) journaled = journal.record(itemId, answer, bodyLimit)
+        }
         // The server's answer, when there was one, goes to the handler with the status. An outcome that
         // did not reach the engine must not be lost: re-run. It is written to disk first, so a re-run in a
         // new process replays it instead of uploading again; without the journal (a write that failed) the
@@ -178,7 +191,6 @@ public open class UploadHandlerWorker(
         // this process and the journal: it is never put into WorkManager's data.
         val response: UploadResponse? = outcome.response
         val landed: Boolean = if (response != null) {
-            val journaled: Boolean = journal.record(itemId, response, bodyLimit)
             if (journaled) {
                 journal.settleRecorded(itemId, response, gatewaySettle(engineWait))
             } else {
@@ -196,10 +208,16 @@ public open class UploadHandlerWorker(
     /**
      * Uploads while forwarding whole-percent progress. The blocking write loop only drops fractions into
      * a conflated channel and a companion coroutine forwards them, so reporting never stalls the
-     * transfer; the forwarder is joined before returning, so every progress signal lands before the
-     * settle.
+     * transfer. [onAnswer] runs as soon as the transfer returns, before the forwarder is awaited, so the
+     * caller can put the answer on disk first. The forwarder is then given [PROGRESS_FLUSH_TIMEOUT] to drain,
+     * so progress signals land before the settle unless the hook takes longer than that: the rest is
+     * dropped and the hook is cancelled, because a progress hook must never hold up the settlement.
      */
-    private suspend fun uploadReportingProgress(itemId: String, request: UploadRequest): MultipartOutcome = coroutineScope {
+    private suspend fun uploadReportingProgress(
+        itemId: String,
+        request: UploadRequest,
+        onAnswer: (MultipartOutcome) -> Unit,
+    ): MultipartOutcome = coroutineScope {
         val fractions: Channel<Float> = Channel(Channel.CONFLATED)
         val forwarder: Job = launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
         try {
@@ -208,7 +226,7 @@ public open class UploadHandlerWorker(
                 READ_TIMEOUT_MILLIS_KEY,
                 UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS,
             )
-            withWriteWatchdog(readTimeoutMillis) { watch ->
+            val transferred: MultipartOutcome = withWriteWatchdog(readTimeoutMillis) { watch ->
                 withContext(Dispatchers.IO) {
                     val transfer: Job = coroutineContext.job
                     performMultipartUploadCapturing(
@@ -224,9 +242,13 @@ public open class UploadHandlerWorker(
                     )
                 }
             }
+            onAnswer(transferred)
+            transferred
         } finally {
             fractions.close()
-            forwarder.join()
+            // Bounded: a hook still running after the flush window loses the remaining progress, and the
+            // cancelled forwarder is not joined again here (the enclosing scope waits for it on its way out).
+            if (withTimeoutOrNull(PROGRESS_FLUSH_TIMEOUT) { forwarder.join() } == null) forwarder.cancel()
         }
     }
 
@@ -246,3 +268,6 @@ public open class UploadHandlerWorker(
         public const val READ_TIMEOUT_MILLIS_KEY: String = "kmptoolkit_uploader_read_timeout_millis"
     }
 }
+
+/** How long the worker waits for [UploadHandler.onUploadProgress] to drain after the transfer ended. */
+private val PROGRESS_FLUSH_TIMEOUT: kotlin.time.Duration = 2.seconds

@@ -172,7 +172,7 @@ public sealed interface UploadPreparation {
 | `prepareUpload` | at hand-off, and again when the transport runs the attempt (`wasDetached = true`) | hand-off: a retry; run time: the item stays in flight for the lease |
 | `classify(payload, result, response)` | with the raw outcome and the server's response, for every outcome; the default calls the two-argument `classify` | `SettleResult.Failed` |
 | `classify(payload, result)` | by the default three-argument `classify`; the default is `defaultUploadClassification(result)` | `SettleResult.Failed` |
-| `onUploadProgress` | per whole percent, while in flight | logged, ignored |
+| `onUploadProgress` | per whole percent, while in flight; must not block: on Android a hook still running 2 s after the transfer ended is cancelled | logged, ignored |
 | `onDelivered(payload, response)` | for `Delivered`, before the row is removed; the default calls the one-argument `onDelivered` | logged, ignored — the response is then lost |
 | `onDelivered(payload)` | by the default two-argument `onDelivered` | logged, ignored |
 | `onSettled` | after the item settled; `attempts` as at hand-off | logged, ignored |
@@ -258,7 +258,9 @@ public sealed interface UploadField {
 
 Declarative description of one multipart upload. `UploadField.File` streams from `path` at upload
 time — the request never carries file bytes, which is also what keeps it well under WorkManager's
-`Data` cap on Android.
+`Data` cap on Android. Field and file names are sent percent-escaped for `"`, CR and LF (`%22`, `%0D`, `%0A`)
+as browsers do, and CR and LF are removed from a file's `contentType`, on both platforms; text values are
+body content and go out untouched.
 
 ## `UploadResult` / `defaultUploadClassification`
 

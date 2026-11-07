@@ -163,7 +163,9 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
 
 - **Android.** `UploadHandlerWorker` reads the response in the same attempt, before the connection is
   dropped: `inputStream` for a status below 400, `errorStream` for 400 and above (a missing one is an
-  empty body). At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
+  empty body; flagged truncated when the headers declared one the stack did not deliver). With a
+  process-wide `java.net.Authenticator` that answers challenges, or on a plain JVM, a 401/407 body is
+  unavailable and arrives empty and flagged truncated; the status still reaches `classify`. At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
   The body stays in the process and is never put into `WorkManager`'s data. A `WorkManager` worker has
   about **10 minutes**, and the module does not call `setForeground`: a long upload, or a server that
   answers slowly, can be stopped and retried. Keep the server's answer fast (`202` and a job id).
@@ -187,7 +189,7 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   again**: the Android worker checks it before preparing the attempt, the iOS transport in a re-hand
   (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
   created. The file is deleted just before the engine commits the settlement, so a retry that is
-  re-handed at once never meets it, and one replay per item runs at a time in a process. A replayed response reaches `classify` and
+  re-handed at once never meets it; if the commit fails it is written back, so the answer is not lost, and one replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
   file; so does the 7-day expiry. A file of an unknown format version, or an unreadable one, is ignored
   and deleted. Nothing is journaled for a transport failure (there is no response), a write that fails
@@ -221,6 +223,8 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   ("no ceiling") works. A forwards jump merely runs some items early, which is harmless.
 - **A logger that throws does not stop the engine.** The engine calls the `Logger` from its drain
   coroutine and from `enqueue`; an exception the logger throws (anything but cancellation) is
-  swallowed and costs only that log line.
+  swallowed and costs only that log line. The same holds for every logger the module takes: the Android and
+  iOS transports, the wake schedulers and the outcome journal ignore a logger that throws, so a hand-off,
+  a wake or a replay is never stopped by a log line.
 - **Ids** are `java.util.UUID` on Android and `NSUUID` on iOS, both canonical UUID strings. Override
   `idGenerator` if your server wants a different idempotency-key shape.

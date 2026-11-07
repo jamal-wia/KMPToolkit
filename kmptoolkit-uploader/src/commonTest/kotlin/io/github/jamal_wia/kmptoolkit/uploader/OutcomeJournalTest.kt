@@ -164,7 +164,8 @@ class OutcomeJournalTest {
     fun `a read or delete that throws is swallowed`() {
         journal.record("item-1", response())
         storage.throwOnRead = true
-        assertEquals(JournalEntry.Absent, journal.inspect("item-1"))
+        // Not Absent: nothing is known about the entry, and a caller holding the answer must not read it as handled.
+        assertEquals(JournalEntry.Unreadable, journal.inspect("item-1"))
 
         storage.throwOnDelete = true
         journal.delete("item-1")
