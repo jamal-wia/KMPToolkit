@@ -346,6 +346,18 @@ class AndroidAlarmSchedulerAdversarialTest {
         assertEquals(emptyList(), wrong.take(5), "total=${total.get()}")
     }
 
+    @Test
+    fun `six hundred schedule and cancelAll cycles over recreated schedulers leave the alarm manager empty`() {
+        repeat(6) { cycle: Int ->
+            val scheduler: AlarmScheduler = createAlarmScheduler(context)
+            val ids: List<String> = List(100) { "c$cycle-$it" }
+            ids.forEach { id: String -> runBlocking { scheduler.schedule(alarm(id = id)) } }
+            assertEquals(100, shadowAlarmManager.scheduledAlarms.size, "cycle $cycle")
+            runBlocking { createAlarmScheduler(context).cancelAll(ids + ids) }
+            assertEquals(0, shadowAlarmManager.scheduledAlarms.size, "cycle $cycle left alarms behind")
+        }
+    }
+
     private companion object {
         const val WAIT_SECONDS: Long = 5L
         const val SETTLE_MILLIS: Long = 300L
