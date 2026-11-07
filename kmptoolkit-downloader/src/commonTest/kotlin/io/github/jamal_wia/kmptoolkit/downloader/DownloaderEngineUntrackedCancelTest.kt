@@ -10,7 +10,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -92,34 +92,38 @@ class DownloaderEngineUntrackedCancelTest {
         assertTrue(storage.isResourceAvailable(unit))
     }
 
+    // Requirement change (advisor, adversarial/B/round-3-advice.md, B3-01): the untracked cancel now
+    // takes the unit's lock before it deletes. A request that starts meanwhile waits behind the
+    // delete and is then cancelled by the cancel's own epoch bump; it must never fail on a temp
+    // file the cancel removed under its commit.
     @Test
-    fun `a request that starts committing during an untracked cancel keeps its temp file`() = runTest {
-        val commitGate = CompletableDeferred<Unit>()
+    fun `a request that starts during an untracked cancel waits for its delete and ends cancelled`() = runTest {
         val inner = SetStorage(complete = setOf("raced"))
-        val storage: DownloaderStorage = object : DownloaderStorage by inner {
-            override suspend fun commitResource(unit: DownloadUnit) {
-                commitGate.await()
-                inner.commitResource(unit)
-            }
-        }
         val unit = TestUnit(id = "raced", group = group)
         lateinit var engine: DefaultDownloaderEngine
-        var request: Deferred<Unit>? = null
-        // The platform cancel is the one call of cancelDownload(unit) that runs between its first
-        // look at the engine's state and its delete: a request that starts here is exactly the
-        // other-thread race (the eager dispatcher runs it up to the commit gate).
+        var request: Deferred<Result<Unit>>? = null
+        // The platform cancel runs between the cancel's lock and its delete: a request that starts
+        // here is exactly the other-thread race (the eager dispatcher runs it up to the lock).
         val port = object : BackgroundResourceDownloader by CountingPort() {
             override fun cancelDownload(unit: DownloadUnit) {
-                request = async(UnconfinedTestDispatcher(testScheduler)) { engine.ensureAvailable(unit) }
+                // Only the first platform cancel starts the request; the request's own cleanup
+                // cancels the transfer again.
+                if (request != null) return
+                request = async(UnconfinedTestDispatcher(testScheduler)) { runCatching { engine.ensureAvailable(unit) } }
             }
+
+            override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> =
+                MutableSharedFlow()
         }
-        engine = engine(storage, port)
+        engine = engine(inner, port)
 
         engine.cancelDownload(unit)
 
         assertTrue(request != null)
-        assertEquals(emptyList(), inner.deletedTempFiles, "a commit is in flight; the cancel must not delete under it")
-        commitGate.complete(Unit)
-        runCatching { withTimeout(5_000) { request?.await() } }
+        assertTrue(inner.deletedTempFiles.isNotEmpty(), "the cancel deletes the temp file under its own lock")
+        assertTrue(
+            withTimeout(5_000) { request?.await() }?.exceptionOrNull() is DownloadCancelledException,
+            "the request must end cancelled",
+        )
     }
 }
