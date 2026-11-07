@@ -10,6 +10,7 @@ import kotlinx.coroutines.CompletableDeferred
 internal object FxThread {
 
     private const val START_TIMEOUT_SECONDS: Long = 10L
+    private const val TOOLKIT_EXITED_MESSAGE: String = "Platform.exit has been called"
 
     /**
      * How many blocks [post] and [call] have queued with `Platform.runLater` that have not started yet,
@@ -20,26 +21,57 @@ internal object FxThread {
     private val queued: AtomicInteger = AtomicInteger(0)
 
     /**
+     * How a block is handed to the FX thread; `Platform.runLater` unless a test swaps it, to
+     * simulate a toolkit that has exited (which silently drops what it is given).
+     */
+    @Volatile
+    internal var runLater: (Runnable) -> Unit = { Platform.runLater(it) }
+
+    /** `Platform.startup`; a seam so a test can simulate a toolkit that has exited. */
+    @Volatile
+    internal var startup: (Runnable) -> Unit = { Platform.startup(it) }
+
+    /**
      * Starts the toolkit, or confirms an already running one accepts work.
      *
      * Implicit exit is switched off only when this call is the one that started the toolkit: with no
      * window of its own the engine would otherwise never trigger it anyway, but an app that runs its
      * own JavaFX windows keeps whatever exit policy it chose.
+     *
+     * Called on the FX thread itself, an already running toolkit is confirmed by being there: waiting
+     * for a block queued behind the caller would block the only thread that can run it. Throws
+     * [FxThreadUnresponsiveException] when the toolkit is running but the FX thread did not answer
+     * in time — a busy thread, not a missing runtime.
      */
     fun startToolkit() {
         val started = CountDownLatch(1)
         val startedHere: Boolean = try {
-            Platform.startup { started.countDown() }
+            startup(Runnable { started.countDown() })
             true
         } catch (e: IllegalStateException) {
             // "Toolkit already initialized" — the app, or an earlier player, started it.
+            // After Platform.exit startup throws this too, and runLater would drop the block: wait for
+            // nothing, and let the runtime remember it as the permanent failure it is. The message is
+            // the only signal OpenJFX gives.
+            if (e.message == TOOLKIT_EXITED_MESSAGE) throw e
+            // On the FX thread the toolkit is running and accepts work: nothing left to confirm.
+            if (Platform.isFxApplicationThread()) return
             Platform.runLater { started.countDown() }
             false
         }
-        check(started.await(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            "The JavaFX application thread did not respond within $START_TIMEOUT_SECONDS s"
+        if (!started.await(START_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw FxThreadUnresponsiveException(
+                "The JavaFX application thread did not respond within $START_TIMEOUT_SECONDS s",
+            )
         }
         if (startedHere) Platform.setImplicitExit(false)
+    }
+
+    /** Whether the caller is the FX application thread; false where JavaFX cannot even load. */
+    fun isCurrent(): Boolean = try {
+        Platform.isFxApplicationThread()
+    } catch (e: LinkageError) {
+        false
     }
 
     /**
@@ -47,8 +79,9 @@ internal object FxThread {
      * and nothing is queued; queued behind the rest otherwise — run inline then, a `pause()` made on
      * the FX thread (an engine callback reacting to an event, say) would overtake a `start()` queued
      * from another thread a moment earlier, and the source would play on while the player above
-     * reports Paused. Dropped when the toolkit has exited (the app called `Platform.exit()`): the
-     * engine's transport calls tolerate the wrong state.
+     * reports Paused. After the toolkit has exited (the app called `Platform.exit()`) `runLater`
+     * silently drops the block rather than throwing, so it never runs: the engine's transport calls
+     * tolerate the wrong state, and nothing is playing any more either.
      */
     fun post(block: () -> Unit) {
         if (Platform.isFxApplicationThread() && queued.get() == 0) {
@@ -58,11 +91,14 @@ internal object FxThread {
         try {
             runLaterCounted(block)
         } catch (e: IllegalStateException) {
-            // Toolkit has exited; nothing is playing any more either.
+            // Only when the toolkit was never initialized; after an exit runLater drops silently.
         }
     }
 
-    /** Runs [block] on the FX thread and suspends for its result or exception. */
+    /**
+     * Runs [block] on the FX thread and suspends for its result or exception. Never resumes if the
+     * toolkit has exited, as `runLater` then drops the block: a caller bounds the wait itself.
+     */
     suspend fun <T> call(block: () -> T): T {
         val result = CompletableDeferred<T>()
         val task: () -> Unit = {
@@ -84,10 +120,12 @@ internal object FxThread {
     private fun runLaterCounted(block: () -> Unit) {
         queued.incrementAndGet()
         try {
-            Platform.runLater {
-                queued.decrementAndGet()
-                block()
-            }
+            runLater(
+                Runnable {
+                    queued.decrementAndGet()
+                    block()
+                },
+            )
         } catch (e: IllegalStateException) {
             // Never queued, so never counted.
             queued.decrementAndGet()
@@ -95,3 +133,9 @@ internal object FxThread {
         }
     }
 }
+
+/**
+ * The JavaFX toolkit is running but its application thread did not answer in time, as when it is
+ * busy. Unlike a missing runtime this may pass, so [SystemJavaFxRuntime] does not remember it.
+ */
+internal class FxThreadUnresponsiveException(message: String) : IllegalStateException(message)

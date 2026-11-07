@@ -91,7 +91,10 @@ The player polls the duration, playhead and buffered position from its own corou
 (`Dispatchers.Default` by default), which ExoPlayer would reject. The engine answers those from a
 snapshot it refreshes on the main thread on every player event and on every poll, extrapolating the
 playhead between refreshes from the snapshot's clock and speed — so the polled position is current to
-within one main-thread hop, not one poll interval.
+within one main-thread hop, not one poll interval. While calls made from another thread are still
+queued, refreshes are skipped: the ExoPlayer then still describes the moment before them, and would
+put the pre-seek playhead (or the still-playing state) back over a seek or pause the caller has
+already seen.
 
 ### One ExoPlayer per player
 
@@ -209,7 +212,10 @@ which does not fit a player that swaps its source on every `prepare`.
 **Seeking** is frame-accurate (zero tolerance before and after). That is what a seek bar and a
 "watched 95 %" check want; on a long remote stream it can take slightly longer than a keyframe seek.
 `AVPlayer` completes a seek asynchronously, so until it has, `playbackPositionFlow` and the state
-report the seek target rather than `AVPlayer`'s not-yet-updated `currentTime()`.
+report the seek target rather than `AVPlayer`'s not-yet-updated `currentTime()`. The target is
+released by the completion of that very seek: AVFoundation completes a seek a newer one interrupted
+while the newer one is still running, and that completion — even for the same target, as when two
+backward seeks both clamp to 0 — leaves the newer target in force.
 
 **Playback speed** is assigned to `AVPlayer.rate` right after `play()` and immediately while playing;
 setting a speed while paused does not start playback.

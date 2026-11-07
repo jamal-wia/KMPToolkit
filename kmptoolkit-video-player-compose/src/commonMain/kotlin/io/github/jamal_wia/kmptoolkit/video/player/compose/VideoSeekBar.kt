@@ -43,7 +43,8 @@ import kotlin.math.roundToLong
  *
  * **It does not fight position updates.** While dragging, [positionMs] updates are ignored. After
  * a seek the handle stays at the target until [positionMs] next changes, so it does not jump back
- * to the old position while the player is still seeking.
+ * to the old position while the player is still seeking — or until the bar stops being active, as
+ * a seek the player rejected would otherwise hold it forever.
  *
  * Laid out left to right in LTR and mirrored in RTL. Disabled — drawn, but not draggable — while
  * [durationMs] is not positive (nothing loaded, or a live stream) or [enabled] is `false`.
@@ -77,9 +78,11 @@ public fun VideoSeekBar(
     val latestPosition: State<Long> = rememberUpdatedState(positionMs)
     val rtl: Boolean = LocalLayoutDirection.current == LayoutDirection.Rtl
 
-    LaunchedEffect(positionMs) {
+    LaunchedEffect(positionMs, active) {
         val pending: PendingSeek? = state.pendingSeek
-        if (pending != null && positionMs != pending.positionAtSeekMs) state.pendingSeek = null
+        // A bar that stopped being active (the player left its playable states) had its seek dropped
+        // or never started: no position update is coming to release the handle, so release it now.
+        if (pending != null && (!active || positionMs != pending.positionAtSeekMs)) state.pendingSeek = null
     }
 
     fun commit(fraction: Float) {

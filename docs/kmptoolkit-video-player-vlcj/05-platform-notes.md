@@ -102,6 +102,13 @@ against what the calls before it left. So a `pause()` made right after such a re
 over it, and a seek made as output starts is never undone by the seek that was pending until then.
 Volume and speed are applied from their latest values whenever they are applied.
 
+A seek's target is the playhead the engine reports from the moment `seekTo` is called, not only once
+libvlc has applied it: libvlc 3 applies `set_time` asynchronously, so its clock (and a `timeChanged`
+reading already on its way) can still show the old time for a moment, and calls queued before the
+seek have not reached it yet. The engine holds the target until libvlc reports a time within one
+second of it, or for 500 ms after the `setTime` call, whichever comes first. A `seekForward()` made
+right after a seek therefore steps from the target, and the progress bar does not jump back.
+
 ## Rendering
 
 The engine asks VLC for 32-bit RGB frames of the decoded picture size and copies each one into an

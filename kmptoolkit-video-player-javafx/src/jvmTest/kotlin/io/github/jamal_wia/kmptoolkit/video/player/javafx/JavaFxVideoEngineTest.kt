@@ -17,6 +17,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -361,6 +362,51 @@ class JavaFxVideoEngineTest {
     }
 
     @Test
+    fun theFramePulseStopsForAudioOnlyMediaAndWhileAPictureIsSettled() {
+        load(VideoSource.Asset("silence-8khz-1s.wav"))
+        awaitTrue(message = { "an audio-only source never needs the pulse: ${inspect().describe()}" }) {
+            !inspect().pulsing
+        }
+        engine.start()
+        Thread.sleep(300L)
+        assertFalse(inspect().pulsing, "playing audio has no picture to copy either")
+    }
+
+    @Test
+    fun theFramePulseStopsOncePausedOnAPictureAndRestartsOnPlayAndSeek() {
+        load()
+        awaitFrame()
+        awaitTrue(message = { "a settled picture needs no pulse: ${inspect().describe()}" }) {
+            !inspect().pulsing
+        }
+
+        engine.seekTo(1_000L)
+        awaitTrue(message = { "a seek must copy the new picture: ${inspect().describe()}" }) {
+            inspect().pulsing
+        }
+        awaitTrue(message = { "and settle again: ${inspect().describe()}" }) { !inspect().pulsing }
+
+        engine.start()
+        awaitTrue(message = { "playing needs the pulse: ${inspect().describe()}" }) { inspect().pulsing }
+    }
+
+    @Test
+    fun playingAgainAfterThePulseSettledKeepsProducingFrames() {
+        load()
+        awaitFrame()
+        awaitTrue(message = { "settled: ${inspect().describe()}" }) { !inspect().pulsing }
+        val settled: VideoFrame? = engine.frames.value
+
+        engine.start()
+
+        awaitTrue(message = { "no new frame after play(): ${inspect().describe()}" }) {
+            engine.frames.value.let { it != null && it !== settled }
+        }
+        Thread.sleep(1_000L)
+        assertTrue(inspect().pulsing || inspect().status != "PLAYING", "pulse must run while playing")
+    }
+
+    @Test
     fun releaseIsIdempotentAndClearsEverything() {
         load()
         engine.start()
@@ -492,7 +538,7 @@ class JavaFxVideoEngineTest {
         assertNotNull(runBlocking { engine.inspectPlayback() }, "nothing loaded")
 
     private fun FxPlayback.Inspection.describe(): String =
-        "volume=$volume rate=$rate cycleCount=$cycleCount status=$status"
+        "volume=$volume rate=$rate cycleCount=$cycleCount status=$status pulsing=$pulsing"
 
     private fun VideoFrame.describe(): String = "${width}x$height"
 

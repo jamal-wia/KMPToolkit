@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.video.player
 
 import android.content.Context
+import android.os.Looper
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -17,6 +18,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.Media3TestSupport.runSuspendi
 import kotlinx.coroutines.Job
 import org.junit.After
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowLooper
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -242,6 +244,20 @@ class Media3VideoEngineTest {
         }
 
         assertEquals(3_000L, position)
+    }
+
+    @Test
+    fun `a position refresh posted before a seek from another thread does not undo it`() {
+        loadOrThrow()
+        ShadowLooper.idleMainLooper()
+        offLooper {
+            engine.positionMs() // posts a refresh behind nothing, from the polling thread
+            engine.seekTo(3_000L) // publishes its target and queues the seek behind that refresh
+        }
+
+        shadowOf(Looper.getMainLooper()).runOneTask() // the refresh, with the seek still queued
+
+        assertEquals(3_000L, offLooper { engine.positionMs() })
     }
 
     @Test

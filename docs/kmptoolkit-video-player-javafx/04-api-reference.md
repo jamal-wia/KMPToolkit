@@ -41,10 +41,13 @@ could be started.
 
 - **Side effect:** starts the toolkit when it is not running yet, exactly as the first `prepare`
   would. It does not create a player or open a source.
-- **Remembered:** the first answer (success or failure) holds for the life of the process.
+- **Remembered:** a success, or a permanent failure (missing runtime, no display), holds for the
+  life of the process. A JavaFX thread too busy to answer within 10 s is not remembered; the next
+  call tries again.
 - **Not a format check:** `true` does not mean every source decodes on this OS.
 - Blocks the calling thread for as long as the toolkit takes to start (typically well under a
-  second, bounded at 10 s), so the first call belongs off the UI thread. Thread-safe.
+  second, bounded at 10 s), so the first call belongs off the UI thread. On the JavaFX application
+  thread itself it returns at once. Thread-safe.
 
 ## `JavaFxVideoPlayerException`
 
@@ -67,7 +70,9 @@ public class RuntimeUnavailable : JavaFxVideoPlayerException
 
 The OpenJFX runtime is not on the classpath, or the JavaFX toolkit cannot start here (typically: no
 display). `cause` is what JavaFX reported — a `ClassNotFoundException`, an `UnsatisfiedLinkError`, an
-`UnsupportedOperationException("Unable to open DISPLAY")`, … Permanent for the process.
+`UnsupportedOperationException("Unable to open DISPLAY")`, … Permanent for the process, except when
+the JavaFX thread was only too busy to answer (a later load tries again). Also reported by a load
+when the toolkit has exited, so no work reaches the JavaFX thread any more.
 
 ### `LoadTimedOut`
 

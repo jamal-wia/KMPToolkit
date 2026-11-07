@@ -111,13 +111,13 @@ internal class AvPlayerVideoEngine(
         val bufferedPositionMs: AtomicLong = AtomicLong(0L)
 
         /**
-         * The target of a seek AVPlayer has not finished yet, or [NO_PENDING_SEEK]. `seekToTime`
-         * completes asynchronously and `currentTime()` keeps answering the old position until it
-         * does, so while this is set the position reported is the target — otherwise a refresh in
-         * that window (a `start()` right after a rewind, a monitor tick) would report the old
-         * position and undo the seek as far as every getter is concerned.
+         * The target of a seek AVPlayer has not finished yet. `seekToTime` completes asynchronously
+         * and `currentTime()` keeps answering the old position until it does, so while a seek is
+         * pending the position reported is the target — otherwise a refresh in that window (a
+         * `start()` right after a rewind, a monitor tick) would report the old position and undo the
+         * seek as far as every getter is concerned.
          */
-        val pendingSeekMs: AtomicLong = AtomicLong(NO_PENDING_SEEK)
+        val pendingSeek: PendingSeekSlot = PendingSeekSlot()
 
         // Main thread only.
         val observers: MutableList<NSObjectProtocol> = mutableListOf()
@@ -233,29 +233,29 @@ internal class AvPlayerVideoEngine(
     override fun seekTo(positionMs: Long) {
         val current: Session = session.load() ?: return
         // Answer the polled getter with the target at once: the seek itself completes later.
-        current.pendingSeekMs.store(positionMs)
+        val seek: PendingSeekSlot.Token = current.pendingSeek.begin(positionMs)
         current.positionMs.store(positionMs)
         onMain {
             if (session.load() !== current) return@onMain
-            seekPlayer(current, positionMs)
+            seekPlayer(current, seek)
         }
     }
 
     /**
-     * Seeks [player] to [positionMs] for [current], which must already have that target in
-     * [Session.pendingSeekMs]. Main thread.
+     * Seeks [player] to [seek]'s target for [current], which must already hold [seek] as its pending
+     * seek. Main thread.
      *
      * Zero tolerance: a seek bar and a "watched 95%" check both want the frame asked for, not the
      * nearest keyframe seconds away. The pending target is cleared when this seek completes —
-     * finished or interrupted — unless a newer seek to another position replaced it meanwhile.
+     * finished or interrupted — unless a newer seek replaced it meanwhile, whatever its target.
      */
-    private fun seekPlayer(current: Session, positionMs: Long) {
+    private fun seekPlayer(current: Session, seek: PendingSeekSlot.Token) {
         player.seekToTime(
-            time = CMTimeMakeWithSeconds(positionMs / MILLIS_PER_SECOND, CM_TIME_TIMESCALE),
+            time = CMTimeMakeWithSeconds(seek.targetMs / MILLIS_PER_SECOND, CM_TIME_TIMESCALE),
             toleranceBefore = kCMTimeZero.readValue(),
             toleranceAfter = kCMTimeZero.readValue(),
         ) { _: Boolean ->
-            current.pendingSeekMs.compareAndSet(positionMs, NO_PENDING_SEEK)
+            current.pendingSeek.complete(seek)
         }
     }
 
@@ -311,8 +311,7 @@ internal class AvPlayerVideoEngine(
         if (session.load() !== current) return
         val item: AVPlayerItem = current.item
 
-        val pendingSeek: Long = current.pendingSeekMs.load()
-        val positionMs: Long = if (pendingSeek != NO_PENDING_SEEK) pendingSeek else item.currentTime().toMillis()
+        val positionMs: Long = current.pendingSeek.targetMs ?: item.currentTime().toMillis()
         current.durationMs.store(item.duration.toMillis())
         current.positionMs.store(positionMs)
         current.bufferedPositionMs.store(bufferedEndMs(item.loadedRangesMs(), positionMs))
@@ -356,9 +355,9 @@ internal class AvPlayerVideoEngine(
     private fun onPlayedToEnd(current: Session) {
         if (session.load() !== current) return
         if (looping) {
-            current.pendingSeekMs.store(0L)
+            val seek: PendingSeekSlot.Token = current.pendingSeek.begin(0L)
             current.positionMs.store(0L)
-            seekPlayer(current, 0L)
+            seekPlayer(current, seek)
             val avPlayer: AVPlayer = player
             avPlayer.play()
             avPlayer.rate = speed
@@ -466,9 +465,6 @@ internal class AvPlayerVideoEngine(
 
     private companion object {
         const val MILLIS_PER_SECOND: Double = 1000.0
-
-        /** [Session.pendingSeekMs] when no seek is in flight; no real position is negative. */
-        const val NO_PENDING_SEEK: Long = -1L
 
         /** `CMTime` timescale of 1/1000 s, i.e. millisecond resolution. */
         const val CM_TIME_TIMESCALE: Int = 1000

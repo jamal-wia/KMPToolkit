@@ -248,7 +248,9 @@ the matching `VideoControlsLabels` field (`null` → role only).
   The handle then returns to `positionMs`; nothing stays frozen at the finger's last position.
 - Tap: `onSeek(tapped position)`.
 - While dragging, `positionMs` changes are ignored. After a seek, the handle stays at the target
-  until `positionMs` next changes.
+  until `positionMs` next changes, or the bar stops being active (`enabled` turns `false` or
+  `durationMs` drops to `0`) — a seek the player rejected, because it left its playable states as
+  the seek committed, never moves `positionMs`.
 - Accessibility: `ProgressBarRangeInfo(fraction, 0f..1f)` and a `SetProgress` action that seeks.
 - Disabled (no gestures, no `SetProgress`, `disabled()` semantics) while `durationMs <= 0` or
   `!enabled`.
