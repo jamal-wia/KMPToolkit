@@ -54,14 +54,16 @@ internal class ProgressCoalescer(
     private val posted: MutableMap<String, Post> = mutableMapOf()
 
     /**
-     * Decides whether the notification for [id] carrying [progress] should reach the platform,
-     * **without recording anything**.
+     * Decides whether the notification for [id] carrying [progress] should reach the platform, and
+     * **records the decision atomically** as the baseline for the next call.
      *
-     * Returns `null` when the frame is redundant. Otherwise it returns a [PostTicket]; the caller
-     * posts and, **only once the platform accepted the post**, hands the ticket to [commit]. A
-     * frame that was never shown must not become the baseline: if it did, a retry of the very same
-     * progress after a failed post would be judged redundant and swallowed, though nothing on
-     * screen ever showed it.
+     * Returns `null` when the frame is redundant. Otherwise it returns a [PostTicket]: post, and if
+     * the post **fails** (an exception, or the platform rejecting it) hand the ticket to
+     * [rollback], so a retry of the very same progress is posted rather than judged redundant
+     * against a frame that was never shown. Call it exactly once per attempted post.
+     *
+     * Recording at decision time keeps the rate limit and the cancel semantics atomic: two
+     * concurrent posts cannot both pass, and [forget] / [clear] erase the record whenever they run.
      *
      * @param content everything about the post other than [progress], compared by equality. A change
      *   in it bypasses the bucket but not the rate limit. `null` compares equal to `null`.
@@ -73,42 +75,34 @@ internal class ProgressCoalescer(
     ): PostTicket? = lock.withLock {
         when (val decision: Decision = decide(id, progress, content)) {
             Decision.Suppress -> null
-            Decision.Reset -> PostTicket(id, bucket = null, content = content)
-            is Decision.Record -> PostTicket(id, bucket = decision.bucket, content = content)
+            Decision.Reset -> {
+                posted.remove(id)
+                PostTicket(id, previous = null, recorded = null)
+            }
+
+            is Decision.Record -> {
+                val recorded = Post(bucket = decision.bucket, content = content, at = timeSource.markNow())
+                val previous: Post? = posted.put(id, recorded)
+                PostTicket(id, previous = previous, recorded = recorded)
+            }
         }
     }
 
     /**
-     * Records [ticket]'s frame as the new baseline for its id. Call it after the platform accepted
-     * the post, and never for a post that failed. A terminal frame ([prepare] answered it with no
-     * bucket) clears the id's state instead, so the next run starts fresh.
+     * Undoes [ticket]'s record because its post failed: restores what the id held before, but only
+     * if the id still holds exactly what that ticket recorded. A [forget], a [clear], or a newer
+     * post for the id in the meantime means the record is no longer this ticket's to undo, and
+     * nothing changes. A terminal frame ([prepare] cleared the id) has nothing to restore.
      */
-    fun commit(ticket: PostTicket): Unit = lock.withLock {
-        val bucket: Int? = ticket.bucket
-        if (bucket == null) {
-            posted.remove(ticket.id)
-        } else {
-            posted[ticket.id] = Post(bucket = bucket, content = ticket.content, at = timeSource.markNow())
-        }
+    fun rollback(ticket: PostTicket): Unit = lock.withLock {
+        val recorded: Post = ticket.recorded ?: return@withLock
+        if (posted[ticket.id] !== recorded) return@withLock
+        val previous: Post? = ticket.previous
+        if (previous == null) posted.remove(ticket.id) else posted[ticket.id] = previous
     }
 
     /**
-     * [prepare] and [commit] in one step, for a caller with nothing that can fail between deciding
-     * and posting. A caller that posts to a platform must use the two calls and commit only on
-     * success.
-     */
-    fun shouldPost(
-        id: String,
-        progress: NotificationProgress?,
-        content: Any? = null,
-    ): Boolean {
-        val ticket: PostTicket = prepare(id, progress, content) ?: return false
-        commit(ticket)
-        return true
-    }
-
-    /**
-     * The same question as [prepare], asked without producing a ticket.
+     * The same question as [prepare], asked without recording anything.
      *
      * It exists so a caller can find out that a frame is redundant *before* paying for work that
      * only matters to a frame that will actually be shown — while still running every gate whose
@@ -136,16 +130,16 @@ internal class ProgressCoalescer(
     fun clear(): Unit = lock.withLock { posted.clear() }
 
     /**
-     * A decision to post, waiting for the platform's answer. Opaque to callers: pass it back to
-     * [commit] once the post succeeded.
+     * A recorded decision to post. Opaque to callers: pass it to [rollback] if the post failed.
      */
     class PostTicket internal constructor(
         internal val id: String,
-        internal val bucket: Int?,
-        internal val content: Any?,
+        internal val previous: Post?,
+        internal val recorded: Post?,
     )
 
-    private data class Post(val bucket: Int, val content: Any?, val at: TimeMark)
+    /** One recorded post. A plain class: [rollback] compares records by identity. */
+    internal class Post(val bucket: Int, val content: Any?, val at: TimeMark)
 
     /** What [decide] concluded, kept separate from acting on it so it can also be asked about. */
     private sealed interface Decision {

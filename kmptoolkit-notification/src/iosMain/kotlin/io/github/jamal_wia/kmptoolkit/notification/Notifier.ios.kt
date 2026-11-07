@@ -87,17 +87,22 @@ internal class IosNotifier(
             // kmptoolkit-scheduler's job, not this module's.
             trigger = null,
         )
-        val error: NSError? = suspendCancellableCoroutine { continuation ->
-            center.addNotificationRequest(request) { error: NSError? ->
-                continuation.resume(error)
+        val error: NSError? = try {
+            suspendCancellableCoroutine { continuation ->
+                center.addNotificationRequest(request) { error: NSError? ->
+                    continuation.resume(error)
+                }
             }
+        } catch (e: Throwable) {
+            // Cancelled while waiting for the system: the outcome is unknown, so do not keep a
+            // frame as shown that may not have been. A no-op if cancel/clear got there first.
+            coalescer.rollback(ticket)
+            throw e
         }
-        return if (error == null) {
-            // Recorded only after the system accepted it: a failed add leaves the baseline alone,
-            // so a retry of the same progress is posted, not coalesced.
-            coalescer.commit(ticket)
-            NotificationResult.Posted
-        } else if (error.isNotificationsNotAllowed()) {
+        if (error == null) return NotificationResult.Posted
+        // The system rejected it: nothing is showing, so a retry of the same progress must post.
+        coalescer.rollback(ticket)
+        return if (error.isNotificationsNotAllowed()) {
             // The authorization check above passed and the user revoked it before `add` ran: the
             // same answer the check would have given a moment later.
             NotificationResult.PermissionDenied

@@ -83,9 +83,9 @@ Derived from the contract in [`01-overview.md`](01-overview.md) and
 
 - `ProgressCoalescerTest` — bucketing (including widths 1 and 100), the two frames that are never
   suppressed (non-determinate, and 100%), clamping of out-of-range percentages, per-id independence,
-  `forget`/`clear`, that a frame is recorded only when committed after a successful post (a failed
-  post leaves the baseline and the rate-limit window untouched), an exact-count assertion that a 0..100 run produces eleven posts, and that the
-  non-committing `wouldSuppress` query agrees with `shouldPost` while recording nothing.
+  `forget`/`clear`, that a failed post is rolled back (baseline and rate-limit window restored, and a rollback after
+  `forget`/`clear` or a newer post changes nothing), an exact-count assertion that a 0..100 run produces eleven posts, and that the
+  non-committing `wouldSuppress` query agrees with `prepare` while recording nothing.
 - `NotificationConfigTest` — defaults, the application-id-derived broadcast action (and that two
   applications never resolve to the same one), and every rejected value.
 - `NotificationModelTest` — the defaults a caller gets, and the blank ids/names that fail at

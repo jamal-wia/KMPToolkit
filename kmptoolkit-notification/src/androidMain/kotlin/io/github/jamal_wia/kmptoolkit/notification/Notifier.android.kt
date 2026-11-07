@@ -175,14 +175,18 @@ internal class AndroidNotifier(
         }
         val ticket: ProgressCoalescer.PostTicket =
             coalescer.prepare(id, notification.progress, content) ?: return NotificationResult.Coalesced
-        val built: Notification = renderer.build(id, notification, options, iconResId)
-        when (val foregroundId: Int? = foregroundPlatformIds[id]) {
-            null -> notificationManager.notify(id, TAGGED_NOTIFICATION_ID, built)
-            else -> notificationManager.notify(foregroundId, built)
+        try {
+            val built: Notification = renderer.build(id, notification, options, iconResId)
+            when (val foregroundId: Int? = foregroundPlatformIds[id]) {
+                null -> notificationManager.notify(id, TAGGED_NOTIFICATION_ID, built)
+                else -> notificationManager.notify(foregroundId, built)
+            }
+        } catch (e: Throwable) {
+            // Nothing reached the tray, so the frame must not stand as the baseline: a retry of the
+            // same progress has to post. A no-op if cancel/clear or a newer post got there first.
+            coalescer.rollback(ticket)
+            throw e
         }
-        // Only now is the frame on screen; a build or notify that threw above leaves the baseline
-        // alone, so a retry of the same progress is posted rather than coalesced.
-        coalescer.commit(ticket)
         if (id !in sweptLegacyIds.value) {
             sweepLegacy(id)
             sweptLegacyIds.update { swept: Set<String> -> swept + id }
