@@ -36,6 +36,11 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(ExperimentalCoroutinesApi::class)
 class DownloaderEngineCancelTest {
 
+    private companion object {
+        /** The loop's skip check is this query of the next unit after the previous unit's commit. */
+        const val LOOP_SKIP_QUERY: Int = 3
+    }
+
     private val group = TestGroup("bundle")
     private val unitA = TestUnit(id = "a", group = group)
     private val unitB = TestUnit(id = "b", group = group)
@@ -116,6 +121,37 @@ class DownloaderEngineCancelTest {
                 }
             }
             inner.commitResource(unit)
+        }
+    }
+
+    /**
+     * Makes [lateId] appear on disk (as if the unit surface had just committed it) at the
+     * [queryNumber]-th availability query of it after [afterId] was committed: the point between
+     * the group's own post-commit checks and the loop's on-disk skip check of the next unit.
+     */
+    private class CommittedMeanwhileStorage(
+        private val inner: SetStorage,
+        private val afterId: String,
+        private val lateId: String,
+        private val queryNumber: Int,
+    ) : DownloaderStorage by inner {
+        private var afterCommitted: Boolean = false
+        private var queries: Int = 0
+        var lateQueriesAfterCommit: Int = 0
+            private set
+
+        override suspend fun commitResource(unit: DownloadUnit) {
+            inner.commitResource(unit)
+            if (unit.id == afterId) afterCommitted = true
+        }
+
+        override fun isResourceAvailable(unit: DownloadUnit): Boolean {
+            if (unit.id == lateId && afterCommitted) {
+                queries++
+                lateQueriesAfterCommit = queries
+                if (queries == queryNumber) inner.markAvailable(unit)
+            }
+            return inner.isResourceAvailable(unit)
         }
     }
 
@@ -507,5 +543,20 @@ class DownloaderEngineCancelTest {
         assertTrue(call.await().isSuccess)
         assertTrue(inner.isResourceAvailable(solo))
         assertEquals(UnitDownloadState.Completed, engine.unitDownloadStateFlow(solo).first())
+    }
+
+    @Test
+    fun `a unit committed by the unit surface just before the loop reaches it still completes the group`() = runTest {
+        val inner = SetStorage()
+        val storage = CommittedMeanwhileStorage(inner, afterId = "a", lateId = "b", queryNumber = LOOP_SKIP_QUERY)
+        val port = ControllablePort().apply { finishesOnEnqueue(inner) }
+        val notifier = RecordingNotifier()
+        val engine: DefaultDownloaderEngine = engine(storage, port, notifier)
+
+        engine.ensureAvailable(group)
+
+        assertEquals(listOf("a"), port.enqueued, "b was committed elsewhere, only a is transferred")
+        assertEquals(GroupDownloadState.Completed, engine.downloadState(group).value)
+        assertEquals(RecordingNotifier.Kind.COMPLETED, notifier.calls.last().kind)
     }
 }

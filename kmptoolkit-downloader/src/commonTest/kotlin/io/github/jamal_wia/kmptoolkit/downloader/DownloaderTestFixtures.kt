@@ -133,6 +133,10 @@ internal class SetStorage(
     var commitCount: Int = 0
         private set
 
+    fun markAvailable(unit: DownloadUnit) {
+        availableIds += unit.id
+    }
+
     fun setTempState(unit: DownloadUnit, state: TempFileState) {
         if (state == TempFileState.None) tempStates.remove(unit.id) else tempStates[unit.id] = state
     }

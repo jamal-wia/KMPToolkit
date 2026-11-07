@@ -62,7 +62,10 @@ public interface Downloader {
      * Cancels [group]'s in-progress download, if any. Safe to call when none is running. A call of
      * [ensureAvailable] that is running (or queued) for the group ends with
      * [DownloadCancelledException], whatever it was doing: waiting for a transfer, sitting out a
-     * retry backoff or committing.
+     * retry backoff or committing. The exception is a call whose last commit has already succeeded:
+     * every unit is on disk, so there is nothing to cancel and it completes and publishes
+     * [GroupDownloadState.Completed]. A per-unit [ensureAvailable] running for one of the group's
+     * units is cancelled too.
      */
     public fun cancelDownload(group: ResourceGroup)
 
@@ -72,7 +75,9 @@ public interface Downloader {
      *
      * Every reset is in place when this returns (the unit cancel is synchronous): a caller that
      * cancels and then immediately asks [hasActiveUnitDownload] does not race it. A running
-     * [ensureAvailable] ends with [DownloadCancelledException].
+     * [ensureAvailable] ends with [DownloadCancelledException], unless its last commit has already
+     * succeeded: then it completes and publishes [GroupDownloadState.Completed] (or
+     * [UnitDownloadState.Completed] for a unit).
      */
     public suspend fun cancelAllDownloads()
 
@@ -95,7 +100,8 @@ public interface Downloader {
      * Cancels [unit]'s in-progress or enqueued download, if any. Safe when none is active.
      * Synchronous: the transfer is cancelled and the state is [UnitDownloadState.Idle] when this
      * returns, so an [ensureAvailable] made right after it starts a new transfer. A call that is
-     * running (or queued) for the unit ends with [DownloadCancelledException].
+     * running (or queued) for the unit ends with [DownloadCancelledException], unless its commit has
+     * already succeeded: then it completes and publishes [UnitDownloadState.Completed].
      */
     public fun cancelDownload(unit: DownloadUnit)
 
