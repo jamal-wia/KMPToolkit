@@ -62,16 +62,52 @@ mid-extraction leaves the tree behind; the next commit of that unit replaces it,
 the process at that moment: the removal never waits for it (it would be deleting the tree the commit
 is extracting into), so it is skipped and the next cancel or commit reclaims the tree. The same
 skip happens, very rarely and for microseconds, while another unit's commit is registering or
-leaving. The tree is only renamed to `tmp/trash/<unit.id>-<random>` under the lock and deleted after
-it is released, so a large extraction never stalls other units' commits. If the process dies or the
-delete fails midway, the remainder stays in `tmp/trash/`; every later `deleteTempFile`, for any
-unit, sweeps that directory (nothing ever commits from it, so no lock is needed). A plain file
+leaving. The tree is only renamed to `tmp/kmptoolkit-internal/trash/<random number>` under the lock and
+deleted after it is released, so a large extraction never stalls other units' commits (the entry is
+named by a number alone, so no id's length can make the rename fail). If the process dies or the
+delete fails midway, the remainder stays in `tmp/kmptoolkit-internal/trash/`; every later
+`deleteTempFile`, for any unit, sweeps that directory (nothing ever commits from it, so no lock is needed). A plain file
 is moved into place by an atomic rename that replaces the old file, on both platforms, so a
 committed resource never goes missing while it is replaced. The lock is per process: a
 `BackgroundResourceDownloader` that commits from a separate Android process is not covered by it. The hash a transfer must have (`beginTempFile`) is a one-line file at
 `<base>/tmp/expect/<unit.id>.sha256`, keyed by id alone so a free-form `tempExtension` cannot make two
 units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>.sha256` and flushed to
 disk first, then moved into place by an atomic rename once the old temp files are gone.
+
+#### Units whose id is not a plain file name
+
+The names above are those of a unit whose id has no `/` and no NUL, whose `<id>.<ext>.complete`
+(and `staging-<id>`) fit in 255 bytes, and whose `tempExtension` is one plain name. For every other
+unit the same files live under `<base>/tmp/kmptoolkit-internal/`, named by a key: the lowercase
+base32 SHA-256 of the id (52 characters of `a-z2-7`). So `models/v1` has its partial at
+`tmp/kmptoolkit-internal/<key>.tmp`, its record at `tmp/kmptoolkit-internal/expect/<key>.sha256`, its
+staging at `tmp/kmptoolkit-internal/staging-<key>`. A `tempExtension` that is not a plain name of at
+most 64 bytes is replaced by `tmp` in the hashed name (the extension is cosmetic); the record stays
+keyed by the id alone. Nothing a plain id owns can be under `kmptoolkit-internal`, which is why a
+hashed unit can never collide with another unit's files, and why `tmp/` as a whole is reserved for the
+storage: do not put your own files there. Always take the temp path from `getTempFilePath(unit)`,
+never build it, and never cache it across launches: it may be under a subdirectory, and
+`beginTempFile` makes sure that directory exists.
+
+A unit whose names are hashed gets its 3.0.0 temp files moved on first touch in each process: the
+record, the complete file and the partial file move to their hashed place with a move that never
+overwrites (`link(2)` of the new name, then removal of the old one, so a destination created at the
+same moment is not replaced; when the destination already exists it wins and the old file is
+deleted), and a leftover staged record is deleted. A file system without hard links cannot do the
+move: it is logged and the old file stays. A process killed in between finishes the move next time. The move
+takes no lock. It only moves files whose old path was under `tmp/` and not below `expect`, `expect-staged`,
+`staging-…` or `trash`, so an old `tmp/staging-a/b.tmp`, `tmp/expect/foo.sha256` or `tmp/../x.tmp`
+left by an id with a separator stays where it is, and so does `tmp/trash/x.tmp` (in 3.0.0 only the
+unit `trash/x` could have written it; leaving it is a conservative rule, not a necessity); such orphans and old staging trees are not
+cleaned up. A downloader that cached the old path across the app update and keeps writing to it can
+write into a file that has been moved; take the path again after every launch.
+
+Known limits that are not fixed: two units whose id and extension join to the same name (`a.b` with
+`c`, and `a` with `b.c`) still share files, as in 3.0.0; ids that differ only in case or Unicode
+normalization share files on a case-insensitive volume. On such a volume (iOS asks the volume once
+per storage; an unanswerable volume counts as case-insensitive) the commit lock of `Model` and
+`model` is shared, so they never commit or detach a staging tree at the same time, and a
+`relativePath` such as `TMP/Expect/x` is rejected like `tmp/expect/x`. Android is case-sensitive.
 
 On iOS the OS may restart a background download from zero while claiming to resume it from
 `resumeData`. The bytes of the new file then do not match the hash recorded for the first one, so
@@ -86,9 +122,10 @@ would be deleted as corrupted. The rename into place keeps the attribute.
 
 ### Adopting a directory your app already populated
 
-The layout under the base directory is fixed: a committed resource at `<base>/<unit.relativePath>`,
-an in-progress transfer at `<base>/tmp/<unit.id>.<unit.tempExtension>`, an unpacked archive
-recognised by its `availabilityMarker`. An app that stored its downloads in exactly that shape under
+The layout under the base directory is fixed for every unit whose id is a plain file name (see
+above): a committed resource at `<base>/<unit.relativePath>`, an in-progress transfer at
+`<base>/tmp/<unit.id>.<unit.tempExtension>`, an unpacked archive recognised by its
+`availabilityMarker`. An app that stored its downloads in exactly that shape under
 its own directory name — typically because it is moving its own downloader onto this module — keeps
 every one of them by naming that directory:
 

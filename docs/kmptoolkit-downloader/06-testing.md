@@ -11,7 +11,7 @@ commonTest.dependencies {
 | Fixture | Use it when |
 |---|---|
 | `FakeDownloader` | You are testing code that only *asks* for a resource or observes its state |
-| `FakeDownloaderStorage` | You are testing storage-facing code without real files; `tempFileStates` sets what a transfer left behind; deliberately stricter than the real storages about `beginTempFile`, requires a `Complete` file to commit, records `beganWith`, and has a `failIntegrityFor` knob |
+| `FakeDownloaderStorage` | You are testing storage-facing code without real files; `tempFileStates` sets what a transfer left behind; deliberately stricter than the real storages about `beginTempFile`, requires a `Complete` file to commit, records `beganWith`, and has a `failIntegrityFor` knob; it does **not** validate `relativePath` or hash unit ids (the real storages throw `InvalidDownloadUnitException`), so test the "fails before any transfer, state `Error`" behaviour with the real storage only: the engine checks `relativePath` before a transfer only on the library's own storages, so a fixture whose `getResourcePath` throws covers just `pathOf` (and `commitResource` if it throws there too) |
 | `TestUnit` / `TestGroup` | You need a catalogue that exists only for the test |
 | `RecordingNotifier` | You want to assert what would have been shown, and in what order |
 | `InMemoryStateStore` | You need a `DownloadStateStore` that does not touch real storage |

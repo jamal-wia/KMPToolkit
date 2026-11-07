@@ -26,4 +26,10 @@ class AndroidDownloaderStorageContractTest : DownloaderStorageContractTest() {
     override fun deleteTestDirectory() {
         File(context.filesDir, config.baseDirectoryName).deleteRecursively()
     }
+
+    override fun baseDirectory(): String = File(context.filesDir, config.baseDirectoryName).absolutePath
+
+    override fun deleteFile(path: String) {
+        File(path).delete()
+    }
 }

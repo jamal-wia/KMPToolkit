@@ -420,7 +420,7 @@ internal class DefaultDownloaderEngine(
         progressScale: Float,
         token: CancelToken,
     ) {
-        failOnUnreadableUnitHash(group, groupState, unit)
+        failOnCatalogueError(group, groupState, unit)
         var integrityFailures = 0
         while (true) {
             throwIfGroupCancelled(group, groupState, token, unit)
@@ -456,21 +456,23 @@ internal class DefaultDownloaderEngine(
     }
 
     /**
-     * Reads [DownloadUnit.sha256] before anything is transferred. A getter that throws — a
-     * host that built the value with [Sha256.parse] in a `get() =` from a malformed constant —
-     * fails the unit here, as [DownloadError.Unknown] and without enqueueing a transfer, instead of
-     * after the whole download on every attempt. Not an integrity failure: downloading again cannot
-     * fix a catalogue. A transfer that is already running is cancelled, since its bytes could not be
-     * committed; the temp file is deliberately kept, because the bytes are not at fault and a
-     * corrected catalogue resumes from them.
+     * Checks the unit's catalogue entry before anything is transferred: reads
+     * [DownloadUnit.sha256], then asks a shipped storage whether the relativePath is usable. A
+     * getter that throws — a host that built the value with [Sha256.parse] in a `get() =` from a
+     * malformed constant — or a [DownloadUnit.relativePath] the shipped storage rejects
+     * with [InvalidDownloadUnitException] fails the unit here, as [DownloadError.Unknown] and without
+     * enqueueing a transfer, instead of after the whole download on every attempt. Not an integrity
+     * failure: downloading again cannot fix a catalogue. A transfer that is already running is
+     * cancelled, since its bytes could not be committed; the temp file is deliberately kept, because
+     * the bytes are not at fault and a corrected catalogue resumes from them.
      */
-    private suspend fun failOnUnreadableUnitHash(
+    private suspend fun failOnCatalogueError(
         group: ResourceGroup,
         groupState: MutableStateFlow<GroupDownloadState>,
         unit: DownloadUnit,
     ) {
-        val failure: DownloadFailedException = unreadableUnitHash(unit) ?: return
-        logger.e(failure) { "DownloadUnit.sha256 of $unit cannot be read: ${failure.cause?.message}" }
+        val failure: DownloadFailedException = catalogueFailure(unit) ?: return
+        logger.e(failure) { "The catalogue entry of $unit is unusable: ${failure.cause}" }
         cancelRunningTransfer(unit)
         groupState.value = GroupDownloadState.Error(error = failure.error)
         notifyError(group, failure.error)
@@ -478,9 +480,9 @@ internal class DefaultDownloaderEngine(
     }
 
     /** The per-unit twin of the group overload above. */
-    private suspend fun failOnUnreadableUnitHash(unit: DownloadUnit) {
-        val failure: DownloadFailedException = unreadableUnitHash(unit) ?: return
-        logger.e(failure) { "DownloadUnit.sha256 of $unit cannot be read: ${failure.cause?.message}" }
+    private suspend fun failOnCatalogueError(unit: DownloadUnit) {
+        val failure: DownloadFailedException = catalogueFailure(unit) ?: return
+        logger.e(failure) { "The catalogue entry of $unit is unusable: ${failure.cause}" }
         cancelRunningTransfer(unit)
         unitStateFlow(unit).value = UnitDownloadState.Error(failure.error)
         throw failure
@@ -493,19 +495,27 @@ internal class DefaultDownloaderEngine(
         }
     }
 
-    private fun unreadableUnitHash(unit: DownloadUnit): DownloadFailedException? {
-        return try {
+    private fun catalogueFailure(unit: DownloadUnit): DownloadFailedException? {
+        try {
             unit.sha256
-            null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            DownloadFailedException(
+            return DownloadFailedException(
                 unit = unit,
                 error = DownloadError.Unknown(e.message ?: "DownloadUnit.sha256 cannot be read"),
                 cause = e,
             )
         }
+        // Only a storage that implements RelativePathChecking is asked: any other (a host's own) is
+        // never called here, so it behaves exactly as in 3.0.0.
+        val reason: InvalidDownloadUnitException.Reason =
+            (storage as? RelativePathChecking)?.relativePathViolation(unit) ?: return null
+        return DownloadFailedException(
+            unit = unit,
+            error = DownloadError.Unknown("DownloadUnit.relativePath is invalid: $reason"),
+            cause = InvalidDownloadUnitException(unit, reason),
+        )
     }
 
     /**
@@ -1298,7 +1308,7 @@ internal class DefaultDownloaderEngine(
     }
 
     private suspend fun transferAndCommitUnit(unit: DownloadUnit, token: CancelToken) {
-        failOnUnreadableUnitHash(unit)
+        failOnCatalogueError(unit)
         val stateFlow: MutableStateFlow<UnitDownloadState> = unitStateFlow(unit)
         var integrityFailures = 0
         while (true) {
