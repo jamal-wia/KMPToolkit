@@ -264,6 +264,14 @@ or the lease — for that.
 `timeoutIntervalForRequest` and `timeoutIntervalForResource`. The defaults are the system's own values,
 so behaviour is unchanged unless you set them; both must be positive and finite.
 
+**Swift and the three-parameter constructor.** Before 3.1.0 the configuration had three parameters.
+Swift has no default arguments, so Swift code that calls
+`BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` keeps compiling in 3.1.0:
+that initializer is still exported (deprecated, with the system timeouts). Move to the five-argument
+initializer to set the timeouts; in Kotlin the new constructor's defaults make `BackgroundUploadConfig()`
+and any call with named arguments resolve to it, and only a call passing all three old arguments
+positionally lands on the deprecated one, with a warning.
+
 - **`requestTimeout` is an idle timeout.** Apple's documentation describes it as how long a task waits
   for additional data to arrive before giving up, with the timer reset whenever new data arrives. It is
   not a bound on the whole upload: a slow but steady transfer never trips it, and neither does a long

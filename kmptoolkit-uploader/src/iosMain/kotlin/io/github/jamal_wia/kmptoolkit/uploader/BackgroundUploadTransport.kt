@@ -91,12 +91,22 @@ public class BackgroundUploadConfig(
     public val requestTimeout: Duration = DEFAULT_REQUEST_TIMEOUT,
     public val resourceTimeout: Duration = DEFAULT_RESOURCE_TIMEOUT,
 ) {
-    /** The constructor before [requestTimeout] and [resourceTimeout] existed; kept for binary compatibility. */
-    @Deprecated("Superseded by the constructor with requestTimeout and resourceTimeout.", level = DeprecationLevel.HIDDEN)
+    /**
+     * The constructor before [requestTimeout] and [resourceTimeout] existed; kept so that Swift code calling
+     * `BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compiles. It has no
+     * default arguments on purpose: `BackgroundUploadConfig()` and every call that leaves a parameter out
+     * resolve to the primary constructor, and only a call passing all three arguments positionally lands
+     * here (with a deprecation warning).
+     */
+    @Deprecated(
+        "Superseded by the constructor with requestTimeout and resourceTimeout.",
+        ReplaceWith("BackgroundUploadConfig(sessionIdentifierPrefix, lease, rehandFlushWindow)"),
+        level = DeprecationLevel.WARNING,
+    )
     public constructor(
-        sessionIdentifierPrefix: String? = null,
-        lease: Duration = 60.minutes,
-        rehandFlushWindow: Duration = 3.seconds,
+        sessionIdentifierPrefix: String?,
+        lease: Duration,
+        rehandFlushWindow: Duration,
     ) : this(sessionIdentifierPrefix, lease, rehandFlushWindow, DEFAULT_REQUEST_TIMEOUT, DEFAULT_RESOURCE_TIMEOUT)
 
     init {

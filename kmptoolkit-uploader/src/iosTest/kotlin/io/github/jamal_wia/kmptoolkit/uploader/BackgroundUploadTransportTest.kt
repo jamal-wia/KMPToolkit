@@ -96,6 +96,37 @@ class BackgroundUploadTransportTest {
     }
 
     @Test
+    @Suppress("DEPRECATION")
+    fun `the three-argument constructor stays callable and takes the system timeouts`() {
+        // The call Swift code makes: BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:).
+        val old = BackgroundUploadConfig("old.prefix.", 5.minutes, 2.seconds)
+
+        assertEquals("old.prefix.", old.sessionIdentifierPrefix)
+        assertEquals(5.minutes, old.lease)
+        assertEquals(2.seconds, old.rehandFlushWindow)
+        assertEquals(60.seconds, old.requestTimeout)
+        assertEquals(7.days, old.resourceTimeout)
+        assertEquals(BackgroundUploadConfig("old.prefix.", 5.minutes, 2.seconds, 60.seconds, 7.days), old)
+        // The old overload keeps the primary constructor's validation.
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(" ", 5.minutes, 2.seconds) }
+    }
+
+    @Test
+    fun `calls that leave a parameter out resolve to the new constructor`() {
+        // No @Suppress: if any of these resolved to the deprecated overload, the build would warn; and the
+        // outcome below proves the new constructor's defaults are used.
+        val none = BackgroundUploadConfig()
+        val prefixOnly = BackgroundUploadConfig("p.")
+        val named = BackgroundUploadConfig(lease = 5.minutes, requestTimeout = 90.seconds)
+
+        assertEquals(60.minutes, none.lease)
+        assertEquals("p.", prefixOnly.sessionIdentifierPrefix)
+        assertEquals(3.seconds, prefixOnly.rehandFlushWindow)
+        assertEquals(90.seconds, named.requestTimeout)
+        assertEquals(5.minutes, named.lease)
+    }
+
+    @Test
     fun `the default prefix derives from the bundle identifier`() {
         val created = createBackgroundUploadTransport() as BackgroundSessionUploadTransport
 
