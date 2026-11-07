@@ -120,8 +120,13 @@ Nothing here differs from the shared contract, but it is worth knowing what happ
 - **The libvlc instance** — the expensive part, whose creation scans VLC's plugins — is created by
   the first `prepare` and **kept** across all of the above, so switching sources or unloading never
   rebuilds it. `release()` frees it, on the player's background teardown thread after the last
-  native media player. A player dropped without `release()` still frees it once garbage-collected,
-  as a safety net — but release every player you create rather than relying on that.
+  native media player. A player dropped without `release()` is freed once garbage-collected, as a
+  safety net: the native media player of a loaded source, then the instance. The net does not
+  cover a player that is **still playing** — it stays reachable and keeps decoding and playing — and
+  collection time is up to the JVM, so release every player you create rather than relying on it.
+- **Temporary asset copies** (an asset packed in a jar) are deleted when their source is closed. They
+  are not registered with the JDK's delete-on-exit list, which would grow with every load; a single
+  shutdown hook removes any copy that was never closed.
 - **Nothing slow runs on the calling thread**, which is usually the UI thread. Locating and loading
   libvlc and opening the source run on `Dispatchers.IO`. Stopping and freeing a native player — which
   for a stalled network stream can take as long as libvlc's network timeout — runs on a background

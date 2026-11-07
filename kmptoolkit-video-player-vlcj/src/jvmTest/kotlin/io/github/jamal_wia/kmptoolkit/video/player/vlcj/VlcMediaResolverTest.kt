@@ -99,6 +99,39 @@ class VlcMediaResolverTest {
     }
 
     @Test
+    fun `resolving jar assets over and over leaves no registry growth and no temp file`() {
+        val jar = File(scratch, "many.jar")
+        JarOutputStream(jar.outputStream()).use { out ->
+            out.putNextEntry(JarEntry("media/loop.mp4"))
+            out.write(byteArrayOf(1, 2, 3))
+            out.closeEntry()
+        }
+        val before: Int = deleteOnExitCount()
+        val live: Int = AssetCopies.liveCount
+        val copies: MutableList<File> = mutableListOf()
+        URLClassLoader(arrayOf(jar.toURI().toURL()), null).use { jarLoader ->
+            repeat(LOADS) {
+                val media: ResolvedMedia = VlcMediaResolver.resolve(VideoSource.Asset("media/loop.mp4"), jarLoader)
+                copies += assertNotNull(media.temporaryFile)
+                assertEquals(live + 1, AssetCopies.liveCount)
+                media.discard()
+                media.discard()
+            }
+        }
+
+        assertEquals(before, deleteOnExitCount(), "no per-load entry in the JDK's DeleteOnExitHook")
+        assertEquals(live, AssetCopies.liveCount)
+        assertTrue(copies.none { it.exists() })
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun deleteOnExitCount(): Int {
+        val hook: Class<*> = Class.forName("java.io.DeleteOnExitHook")
+        val field = hook.getDeclaredField("files").apply { isAccessible = true }
+        return synchronized(hook) { (field.get(null) as Collection<String>).size }
+    }
+
+    @Test
     fun `a missing asset fails with FileNotFoundException`() {
         assertFailsWith<FileNotFoundException> {
             VlcMediaResolver.resolve(VideoSource.Asset("video/absent.mp4"), loader)
@@ -149,5 +182,9 @@ class VlcMediaResolverTest {
         assertFailsWith<IllegalArgumentException> {
             VlcMediaResolver.headerOptions(mapOf("User-Agent" to "a\n:sout=#file"))
         }
+    }
+
+    private companion object {
+        const val LOADS: Int = 50
     }
 }

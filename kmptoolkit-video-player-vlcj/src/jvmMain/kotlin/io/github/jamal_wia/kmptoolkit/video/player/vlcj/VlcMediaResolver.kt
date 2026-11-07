@@ -8,6 +8,7 @@ import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * What VLC is asked to open for one [VideoSource].
@@ -24,8 +25,45 @@ internal class ResolvedMedia(
     val isLocal: Boolean,
     val temporaryFile: File?,
 ) {
+    /** Deletes the temporary copy, if there is one, and forgets it. Idempotent. */
     fun discard() {
-        temporaryFile?.delete()
+        temporaryFile?.let(AssetCopies::release)
+    }
+}
+
+/**
+ * The temporary copies of jar-packed assets that are alive right now. Each is deleted by its own
+ * [ResolvedMedia.discard]; the one shutdown hook only sweeps what a consumer never discarded.
+ *
+ * Not `File.deleteOnExit()`: that adds the path to the JDK's static `DeleteOnExitHook` set, which
+ * has no removal, so an app looping over a packaged playlist would grow it by one entry per load
+ * for the life of the process. Here the set is bounded by the number of live sessions.
+ */
+internal object AssetCopies {
+
+    private val live: MutableSet<File> = ConcurrentHashMap.newKeySet()
+
+    private val hook: Lazy<Unit> = lazy {
+        Runtime.getRuntime().addShutdownHook(
+            Thread({ live.forEach { it.delete() } }, "kmptoolkit-vlcj-asset-cleanup"),
+        )
+    }
+
+    /** How many copies have been created and not yet released. */
+    val liveCount: Int get() = live.size
+
+    /** Creates an empty temporary file and registers it; [release] deletes it. */
+    fun create(suffix: String): File {
+        hook.value
+        val file: File = Files.createTempFile("kmptoolkit-video-", suffix).toFile()
+        live += file
+        return file
+    }
+
+    /** Forgets and deletes [file]. Idempotent. */
+    fun release(file: File) {
+        live -= file
+        file.delete()
     }
 }
 
@@ -90,13 +128,12 @@ internal object VlcMediaResolver {
         }
         val extension: String = resourcePath.substringAfterLast('/').substringAfterLast('.', "")
         val suffix: String = if (extension.isEmpty()) ".tmp" else ".$extension"
-        val target: File = Files.createTempFile("kmptoolkit-video-", suffix).toFile()
-        target.deleteOnExit()
+        val target: File = AssetCopies.create(suffix)
         try {
             val input: InputStream = url.openStream()
             input.use { Files.copy(it, target.toPath(), StandardCopyOption.REPLACE_EXISTING) }
         } catch (error: Throwable) {
-            target.delete()
+            AssetCopies.release(target)
             throw error
         }
         return ResolvedMedia(target.absolutePath, emptyList(), isLocal = true, temporaryFile = target)
