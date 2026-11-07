@@ -7,6 +7,8 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
@@ -337,5 +339,54 @@ class MultipartBodyAdversarialTest {
 
         assertIs<UploadResult.TransportFailure>(outcome.result)
         assertEquals(0, hits.get(), "an unreadable source is a pre-flight failure; no connection is opened for it")
+    }
+
+    private fun answerWithoutReading(raw: String) {
+        thread(isDaemon = true) {
+            val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
+            socket.use {
+                // Answers without reading the request, then closes with the body still unread.
+                it.getOutputStream().write(raw.encodeToByteArray())
+                it.getOutputStream().flush()
+            }
+        }
+    }
+
+    private fun bigSourceRequest(): UploadRequest = UploadRequest(
+        url(),
+        fields = listOf(UploadField.File("f", "big.bin", "application/octet-stream", tempFile("early", 32L * 1024 * 1024).path)),
+    )
+
+    @Test
+    fun `a redirect sent before the body ends is the server's answer, not a transport failure`() {
+        answerWithoutReading("HTTP/1.1 301 Moved Permanently\r\nLocation: https://example.invalid/upload\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+
+        val outcome: MultipartOutcome = upload(bigSourceRequest())
+
+        assertEquals(UploadResult.Completed(301), outcome.result, "a received status must reach the handler's classify")
+    }
+
+    @Test
+    fun `a success sent before the body ends is the server's answer, not a transport failure that uploads the file again`() {
+        answerWithoutReading("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+
+        val outcome: MultipartOutcome = upload(bigSourceRequest())
+
+        assertEquals(UploadResult.Completed(200), outcome.result, "a received status must reach the handler's classify")
+    }
+
+    @Test
+    fun `a source that fails mid-body never reaches the server as a complete request`() {
+        val done = CountDownLatch(1)
+        answer(ok, afterRequest = { done.countDown() })
+        val file: File = tempFile("midbody", 1024)
+        val outcome: MultipartOutcome = upload(
+            UploadRequest(url(), fields = listOf(UploadField.File("f", "v.bin", "application/octet-stream", file.path))),
+            isCancelled = { file.delete(); false },
+        )
+
+        assertIs<UploadResult.TransportFailure>(outcome.result)
+        assertTrue(done.await(10, TimeUnit.SECONDS), "the server never saw the connection end")
+        assertTrue(!seen.get().endsWith("0\r\n\r\n"), "a local failure must drop the connection, not send the final chunk")
     }
 }

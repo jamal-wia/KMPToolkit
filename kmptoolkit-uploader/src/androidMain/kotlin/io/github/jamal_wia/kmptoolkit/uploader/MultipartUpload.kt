@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.uploader
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.HttpURLConnection
@@ -54,6 +55,9 @@ internal class MultipartOutcome(val result: UploadResult, val response: UploadRe
  *
  * The handler's own limit is applied later, in the engine; this reads at most the engine's ceiling plus
  * one byte, enough to know the body was longer.
+ *
+ * After a failure the connection is dropped without asking for the status, unless a write to the peer failed:
+ * asking would send the closing chunk and hand the server a complete, truncated request.
  */
 internal fun performMultipartUploadCapturing(
     request: UploadRequest,
@@ -91,7 +95,11 @@ internal fun performMultipartUploadCapturing(
         // Closed only once the body is whole. Closing a chunked stream sends its final chunk, so closing
         // it on a cancellation or a failed write would hand the server a complete, truncated request;
         // the disconnect below drops the connection instead.
-        out.close()
+        try {
+            out.close()
+        } catch (e: IOException) {
+            throw PeerWriteFailure(e) // the final chunk is a write to the peer
+        }
         watch?.finishWriting()
         val status: Int = connection.responseCode
         watch?.answered()
@@ -102,13 +110,15 @@ internal fun performMultipartUploadCapturing(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        // A server can reject-and-close before the chunked body finishes (size cap, proxy 4xx) — the
-        // write then throws, but a status may still be readable. Prefer the real status so a permanent
-        // rejection can be classified instead of retried forever as a transport failure.
-        // Not after the watchdog dropped the connection: the peer is not answering, and asking for its status
-        // would wait out the whole read timeout on a socket that was closed on purpose.
-        val lateStatus: Int? = connection?.takeUnless { watch?.wasDropped == true }?.let { conn ->
-            runCatching { conn.responseCode }.getOrNull()?.takeIf { it >= HTTP_BAD_REQUEST }
+        // Only a write the peer broke may have an answer waiting: a final status sent before the body ended
+        // is the server's answer, a rejection to classify or an early acceptance or redirect that must not
+        // upload the file again. After any other failure the connection is dropped without asking: asking for
+        // the status closes the chunked stream, which would send the final chunk and hand the server a
+        // complete, truncated request.
+        // Not after the watchdog dropped the connection either: the peer is not answering, and asking for its
+        // status would wait out the whole read timeout on a socket that was closed on purpose.
+        val lateStatus: Int? = connection?.takeIf { e is PeerWriteFailure && watch?.wasDropped != true }?.let { conn ->
+            runCatching { conn.responseCode }.getOrNull()?.takeIf { it in HTTP_FINAL_STATUSES }
         }
         if (lateStatus != null) {
             // Best effort: the connection was torn down mid-request, so the body may be unreadable — then
@@ -180,6 +190,12 @@ private fun declaresBody(connection: HttpURLConnection): Boolean {
     return connection.getHeaderField("Transfer-Encoding")?.contains("chunked", ignoreCase = true) == true
 }
 
+/**
+ * A write to the connection failed, so the peer closed or reset it mid-body. The only failure after which the
+ * server may already have answered.
+ */
+private class PeerWriteFailure(cause: IOException) : IOException(cause.message, cause)
+
 private class ReadBody(val bytes: ByteArray, val cut: Boolean)
 
 /**
@@ -223,9 +239,18 @@ private fun writeMultipartBody(
     fun ensureNotCancelled() {
         if (isCancelled()) throw CancellationException("Upload cancelled mid-body.")
     }
+    // Every write to the connection goes through here, so only these failures count as the peer breaking
+    // the write; reads of the source, the cancellation poll and the progress hooks stay outside.
+    fun send(bytes: ByteArray, length: Int = bytes.size) {
+        try {
+            out.write(bytes, 0, length)
+        } catch (e: IOException) {
+            throw PeerWriteFailure(e)
+        }
+    }
     fun writeText(text: String) {
         ensureNotCancelled()
-        out.write(text.encodeToByteArray())
+        send(text.encodeToByteArray())
     }
     val progress = WholePercentProgress(
         totalBytes = request.fields.filterIsInstance<UploadField.File>().sumOf { File(it.path).length() },
@@ -251,7 +276,7 @@ private fun writeMultipartBody(
                         val read: Int = input.read(buffer)
                         if (read < 0) break
                         ensureNotCancelled()
-                        out.write(buffer, 0, read)
+                        send(buffer, read)
                         watch?.touch()
                         progress.add(read.toLong())
                     }
@@ -266,6 +291,7 @@ private fun writeMultipartBody(
 private val HTTP_INFORMATIONAL_RANGE: IntRange = 100..199
 private val STATUSES_WITHOUT_CONTENT: Set<Int> = setOf(204, 205, 304)
 private const val HTTP_BAD_REQUEST: Int = 400
+private val HTTP_FINAL_STATUSES: IntRange = 200..599
 private const val COPY_BUFFER_BYTES: Int = 8 * 1024
 private const val NANOS_PER_MILLI: Long = 1_000_000L
 
