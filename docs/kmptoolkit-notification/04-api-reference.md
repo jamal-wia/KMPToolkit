@@ -52,7 +52,9 @@ if a post returns `Failed`, retrying the same progress posts it again instead of
 This also holds when posts of one id overlap: a frame that failed never counts as shown, so an older
 frame of the same id that is still in flight is not dropped on its account (it only yields to a frame
 that actually reached the tray), and a retry is never judged redundant against a frame that was never
-displayed. Per-id bookkeeping of frames that were started and never finished is aged out, so it does
+displayed. A frame that gave up because a newer one overtook it (answered `Coalesced`) is never
+revived or remembered as shown if that newer frame then fails, and on iOS a frame handed to the
+notification center and refused later, in any order of refusals, leaves no baseline behind. Per-id bookkeeping of frames that were started and never finished is aged out, so it does
 not grow for the notifier's lifetime.
 
 ## Factories

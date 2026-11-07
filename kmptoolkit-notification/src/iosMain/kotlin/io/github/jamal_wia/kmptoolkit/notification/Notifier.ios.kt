@@ -121,7 +121,11 @@ internal class IosNotifier(
             throw e
         }
         if (overtaken) return NotificationResult.Coalesced
-        if (error == null) return NotificationResult.Posted
+        if (error == null) {
+            // Confirmed: only now may the frame stop being undoable (see ProgressCoalescer.complete).
+            coalescer.acknowledge(ticket)
+            return NotificationResult.Posted
+        }
         // The system rejected it: nothing is showing, so a retry of the same progress must post.
         coalescer.rollback(ticket)
         return if (error.isNotificationsNotAllowed()) {

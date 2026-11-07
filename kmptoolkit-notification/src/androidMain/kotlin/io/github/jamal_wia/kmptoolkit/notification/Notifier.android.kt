@@ -200,7 +200,8 @@ internal class AndroidNotifier(
                     null -> notificationManager.notify(id, TAGGED_NOTIFICATION_ID, built)
                     else -> notificationManager.notify(foregroundId, built)
                 }
-                coalescer.complete(ticket)
+                // notify() returned, so the platform has accepted the frame: nothing can undo it.
+                coalescer.complete(ticket, acknowledged = true)
                 true
             }
             if (!shown) return NotificationResult.Coalesced
