@@ -76,6 +76,21 @@ internal class IosNotifier(
         // the only reason post() throws at all, and it throws for a caller's bug, not for a device
         // state. See Notifier.post's KDoc.
         requireValidNotificationId(id)
+        // The post is in flight from here on: a cancel that returns while it is still in the
+        // permission check, before the coalescer would hear of it, is ordered against it all the same.
+        val claim: ProgressCoalescer.PostClaim = coalescer.claim(id)
+        try {
+            return postClaimed(id, notification, claim)
+        } finally {
+            coalescer.release(claim)
+        }
+    }
+
+    private suspend fun postClaimed(
+        id: String,
+        notification: LocalNotification,
+        claim: ProgressCoalescer.PostClaim,
+    ): NotificationResult {
         // iOS reports "the user switched notifications off in Settings" and "the user answered no
         // to the prompt" as one and the same authorization status, so there is no honest way to
         // return NotificationsDisabled here — PermissionDenied covers both. Provisional authorization
@@ -84,7 +99,7 @@ internal class IosNotifier(
             return NotificationResult.PermissionDenied
         }
         val ticket: ProgressCoalescer.PostTicket =
-            coalescer.prepare(id, notification.progress, notification.copy(progress = null))
+            coalescer.prepare(id, notification.progress, notification.copy(progress = null), claim)
                 ?: return NotificationResult.Coalesced
 
         val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
@@ -95,6 +110,7 @@ internal class IosNotifier(
             trigger = null,
         )
         var overtaken = false
+        var handedOver = false
         val error: NSError? = try {
             suspendCancellableCoroutine { continuation ->
                 // Issued under the lock cancel() also takes, after asking whether the frame is still
@@ -106,6 +122,7 @@ internal class IosNotifier(
                     center.addNotificationRequest(request) { error: NSError? ->
                         continuation.resume(error)
                     }
+                    handedOver = true
                     coalescer.complete(ticket)
                     true
                 }
@@ -115,9 +132,12 @@ internal class IosNotifier(
                 }
             }
         } catch (e: Throwable) {
-            // Cancelled while waiting for the system: the outcome is unknown, so do not keep a
-            // frame as shown that may not have been. A no-op if cancel/clear got there first.
-            coalescer.rollback(ticket)
+            // Cancelled while waiting for the system. Once the request was handed over the outcome is
+            // unknown (the center may have accepted it), and neither the frame nor the baseline behind
+            // it may be trusted: the id is left with no baseline and its next frame posts. Before the
+            // hand-over nothing reached the center and the frame is simply rolled back. A no-op if
+            // cancel/clear got there first.
+            if (handedOver) coalescer.abandon(ticket) else coalescer.rollback(ticket)
             throw e
         }
         if (overtaken) return NotificationResult.Coalesced

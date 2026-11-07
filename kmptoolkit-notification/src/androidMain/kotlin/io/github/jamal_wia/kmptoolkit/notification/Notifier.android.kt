@@ -147,8 +147,11 @@ internal class AndroidNotifier(
         // Outside the guard below, and before anything else: a blank id is a bug in the caller, and
         // require() throws IllegalArgumentException, which the guard would otherwise swallow.
         requireValidNotificationId(id)
+        // The post is in flight from here on: a cancel that returns while it is still in the
+        // permission check, before the coalescer would hear of it, is ordered against it all the same.
+        val claim: ProgressCoalescer.PostClaim = coalescer.claim(id)
         return try {
-            postGated(id, notification, options)
+            postGated(id, notification, options, claim)
         } catch (e: CancellationException) {
             // Cancellation is not a notification failure: kotlinx's CancellationException is a
             // RuntimeException, so it has to be re-thrown before the catch below sees it.
@@ -157,6 +160,8 @@ internal class AndroidNotifier(
             // Anything the framework throws — a SecurityException if the permission is revoked
             // mid-call, a dead binder when a system service restarts, a payload notify() refuses.
             NotificationResult.Failed(e)
+        } finally {
+            coalescer.release(claim)
         }
     }
 
@@ -167,6 +172,7 @@ internal class AndroidNotifier(
         id: String,
         notification: LocalNotification,
         options: NotificationOptions,
+        claim: ProgressCoalescer.PostClaim,
     ): NotificationResult {
         if (!mayPostNotifications()) return NotificationResult.PermissionDenied
         if (!notificationManager.areNotificationsEnabled()) {
@@ -186,7 +192,7 @@ internal class AndroidNotifier(
             )
         }
         val ticket: ProgressCoalescer.PostTicket =
-            coalescer.prepare(id, notification.progress, content) ?: return NotificationResult.Coalesced
+            coalescer.prepare(id, notification.progress, content, claim) ?: return NotificationResult.Coalesced
         try {
             // Built outside the lock: real work (PendingIntents, bitmaps).
             val built: Notification = renderer.build(id, notification, options, iconResId)

@@ -69,6 +69,12 @@ internal class ProgressCoalescer(
     private val inFlight: MutableMap<String, MutableList<PostTicket>> = mutableMapOf()
     private var nextSerial: Long = 0L
 
+    /**
+     * Posts that have started and not yet ended, per id: see [claim]. Bounded by the number of posts
+     * running at once, because every claim is released in a `finally`.
+     */
+    private val claims: MutableMap<String, MutableList<PostClaim>> = mutableMapOf()
+
     /** How old a baseline must be before [pruneStale] drops it; far above any sensible rate limit. */
     private val staleAfter: Duration = maxOf(minInterval * STALE_INTERVAL_FACTOR, MIN_STALE_AFTER)
     private var lastPrune: TimeMark = timeSource.markNow()
@@ -87,12 +93,17 @@ internal class ProgressCoalescer(
      *
      * @param content everything about the post other than [progress], compared by equality. A change
      *   in it bypasses the bucket but not the rate limit. `null` compares equal to `null`.
+     * @param claim the post's [claim], if it took one: when [forget] / [clear] ran since, the post
+     *   was cancelled before it got here and the answer is `null` (the frame is dropped).
      */
     fun prepare(
         id: String,
         progress: NotificationProgress?,
         content: Any? = null,
+        claim: PostClaim? = null,
     ): PostTicket? = lock.withLock {
+        // A cancel that ran after the post started (see [claim]) has already said no to it.
+        if (claim?.cancelled == true) return@withLock null
         pruneStale()
         when (val decision: Decision = decide(id, progress, content)) {
             Decision.Suppress -> null
@@ -252,6 +263,23 @@ internal class ProgressCoalescer(
     }
 
     /**
+     * [ticket]'s frame was handed to the platform ([complete]d without acknowledgement) and its
+     * outcome will never be known (the caller was cancelled while the platform was answering). The
+     * tray may or may not show it, so neither it nor any baseline behind it may judge a later frame
+     * redundant: the id is left with no baseline and its next frame posts. A no-op on what
+     * [forget] / [clear] or a newer post already replaced.
+     */
+    fun abandon(ticket: PostTicket): Unit = lock.withLock {
+        val recorded: Post = ticket.recorded ?: return@withLock
+        // Unknown is "not a baseline" in both directions: refused makes `unrefused` skip this record,
+        // and the cut fallback makes it stop there instead of falling through to an older baseline
+        // that the tray may no longer show.
+        recorded.refused = true
+        recorded.fallback = null
+        if (posted[ticket.id] === recorded) posted.remove(ticket.id)
+    }
+
+    /**
      * Lock held. [from], or the first of the baselines behind it that was not refused: a frame that
      * was handed over optimistically and refused later is not what the tray shows.
      */
@@ -283,8 +311,37 @@ internal class ProgressCoalescer(
         return if (redundant) Decision.Suppress else Decision.Record(bucket)
     }
 
+    /**
+     * Registers a post of [id] that has just started, before its first suspension, so a [forget] or
+     * [clear] that runs while the post is still on its way to [prepare] (suspended in a permission
+     * check, say) is ordered against it: the post then learns, in [prepare], that it was cancelled.
+     * Pass it to [prepare] and always [release] it in a `finally`.
+     */
+    fun claim(id: String): PostClaim = lock.withLock {
+        val claim = PostClaim()
+        claims.getOrPut(id) { mutableListOf() }.add(claim)
+        claim
+    }
+
+    /** Ends [claim]; see [claim]. */
+    fun release(claim: PostClaim): Unit = lock.withLock {
+        val iterator: MutableIterator<MutableMap.MutableEntry<String, MutableList<PostClaim>>> =
+            claims.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry: MutableMap.MutableEntry<String, MutableList<PostClaim>> = iterator.next()
+            if (entry.value.remove(claim)) {
+                if (entry.value.isEmpty()) iterator.remove()
+                return@withLock
+            }
+        }
+    }
+
+    /** Test seam: how many claims are registered over all ids. */
+    internal fun claimCountForTest(): Int = lock.withLock { claims.values.sumOf { it.size } }
+
     /** Forgets [id]'s state, so its next determinate update posts. Called when it is cancelled. */
     fun forget(id: String): Unit = lock.withLock {
+        claims.remove(id)?.forEach { it.cancelled = true }
         posted.remove(id)
         latest.remove(id)
         inFlight.remove(id)
@@ -292,6 +349,8 @@ internal class ProgressCoalescer(
 
     /** Forgets every id's state. Called on [Notifier.cancelAll]. */
     fun clear(): Unit = lock.withLock {
+        claims.values.forEach { list: MutableList<PostClaim> -> list.forEach { it.cancelled = true } }
+        claims.clear()
         posted.clear()
         latest.clear()
         inFlight.clear()
@@ -307,6 +366,13 @@ internal class ProgressCoalescer(
         internal val serial: Long,
         internal val at: TimeMark,
     )
+
+    /** A post of one id that has started and not yet ended; see [claim]. */
+    class PostClaim internal constructor() {
+
+        /** Set by [forget] / [clear]; guarded by the coalescer's lock. */
+        internal var cancelled: Boolean = false
+    }
 
     private companion object {
         /** [staleAfter] is this many `minInterval`s, but never less than [MIN_STALE_AFTER]. */
