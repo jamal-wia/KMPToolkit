@@ -291,4 +291,32 @@ class DownloaderEngineStormAdversarialTest {
             assertTrue(call.await().isSuccess)
             assertEquals(1, storage.commitCount)
         }
+
+    @Test
+    fun `a transfer that never speaks ends every one of 32 callers with a timeout and the engine downloads again`() =
+        runTest(timeout = 30.seconds) {
+            val storage = SetStorage()
+            val port = Port()
+            val engine: DefaultDownloaderEngine = engine(storage, port)
+            val callers: List<Deferred<Result<Unit>>> = List(32) { async { runCatching { engine.ensureAvailable(unit) } } }
+
+            advanceUntilIdle()
+
+            callers.forEachIndexed { index: Int, caller: Deferred<Result<Unit>> ->
+                assertTrue(caller.isCompleted, "caller $index never ended")
+                val failure: Throwable? = caller.await().exceptionOrNull()
+                assertIs<DownloadFailedException>(failure, "caller $index: $failure")
+                assertEquals(DownloadError.Timeout, failure.error, "caller $index")
+            }
+            assertTrue(port.enqueued.size in 1..32, "enqueues: ${port.enqueued.size}")
+            assertEquals(UnitDownloadState.Error(DownloadError.Timeout), engine.unitDownloadStateFlow(unit).first())
+
+            val again: Deferred<Result<Unit>> = async { runCatching { engine.ensureAvailable(unit) } }
+            runCurrent()
+            val before: Int = port.enqueued.size
+            finish(storage, port, unit)
+            runCurrent()
+            assertTrue(again.await().isSuccess, "${again.await().exceptionOrNull()}")
+            assertTrue(before > 0)
+        }
 }
