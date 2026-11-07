@@ -120,6 +120,9 @@ internal class FxPlayback private constructor(
         }
         player.statusProperty().addListener { _, _, status ->
             setBuffering(status == MediaPlayer.Status.STALLED)
+            // JavaFX reports PLAYING some time after play(): a pulse in between may already have
+            // stopped, and a stall longer than the refresh window stops it too.
+            if (status == MediaPlayer.Status.PLAYING) startPulse()
         }
         player.currentTimeProperty().addListener { _, _, _ ->
             reportTimes()
@@ -139,7 +142,8 @@ internal class FxPlayback private constructor(
             atEnd = false
             player.seek(player.startTime)
         }
-        startPulse()
+        // Keeps the pulse alive until the status turns PLAYING (the listener restarts it then).
+        refreshPicture()
         player.play()
         reapplyRate()
     }

@@ -88,6 +88,7 @@ internal class VlcjVideoEngine(
     createRuntime: (List<String>) -> VlcRuntime = ::VlcjRuntime,
     private val teardown: Executor = newTeardownExecutor(),
     private val resolve: (VideoSource, ClassLoader) -> ResolvedMedia = VlcMediaResolver::resolve,
+    private val nanoTime: () -> Long = System::nanoTime,
 ) : VideoPlaybackEngine, VideoFrameSource {
 
     private val lock = Any()
@@ -203,7 +204,7 @@ internal class VlcjVideoEngine(
                         s.timeMs = target
                         // libvlc 3 applies set_time asynchronously on its input thread, so the clock
                         // may still read the old time for a moment after the call returned.
-                        s.seekHoldUntilNanos = System.nanoTime() + SEEK_HOLD_NANOS
+                        s.seekHoldUntilNanos = nanoTime() + SEEK_HOLD_NANOS
                     }
                 } finally {
                     s.seeksInFlight--
@@ -241,6 +242,9 @@ internal class VlcjVideoEngine(
         val s: Session = session ?: return 0L
         if (s.closed || !s.loaded) return 0L
         if (s.pendingSeekMs >= 0L) return s.pendingSeekMs
+        // A seek still queued (RepeatMode.One restarts from the end this way) outranks "ended".
+        val inFlight: Long? = synchronized(lock) { if (s.seeksInFlight > 0) s.seekTargetMs else null }
+        if (inFlight != null) return inFlight
         if (s.ended) return durationMs()
         if (s.started && !onVlcThread.get()) {
             withOpenSession { open ->
@@ -405,7 +409,7 @@ internal class VlcjVideoEngine(
          * ran, whichever comes first. [lock] held.
          */
         fun holdsSeekTarget(): Boolean =
-            seeksInFlight > 0 || (seekHoldUntilNanos != 0L && System.nanoTime() - seekHoldUntilNanos < 0L)
+            seeksInFlight > 0 || (seekHoldUntilNanos != 0L && nanoTime() - seekHoldUntilNanos < 0L)
 
         /** The displayed size parsing found; when known, the decoder's buffer size never replaces it. */
         @Volatile var parsedSize: VideoSize? = null

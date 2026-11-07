@@ -391,6 +391,22 @@ class JavaFxVideoEngineTest {
     }
 
     @Test
+    fun playingAgainAfterThePulseSettledKeepsProducingFrames() {
+        load()
+        awaitFrame()
+        awaitTrue(message = { "settled: ${inspect().describe()}" }) { !inspect().pulsing }
+        val settled: VideoFrame? = engine.frames.value
+
+        engine.start()
+
+        awaitTrue(message = { "no new frame after play(): ${inspect().describe()}" }) {
+            engine.frames.value.let { it != null && it !== settled }
+        }
+        Thread.sleep(1_000L)
+        assertTrue(inspect().pulsing || inspect().status != "PLAYING", "pulse must run while playing")
+    }
+
+    @Test
     fun releaseIsIdempotentAndClearsEverything() {
         load()
         engine.start()

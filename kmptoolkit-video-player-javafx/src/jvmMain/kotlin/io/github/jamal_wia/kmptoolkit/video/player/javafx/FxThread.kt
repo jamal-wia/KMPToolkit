@@ -10,6 +10,7 @@ import kotlinx.coroutines.CompletableDeferred
 internal object FxThread {
 
     private const val START_TIMEOUT_SECONDS: Long = 10L
+    private const val TOOLKIT_EXITED_MESSAGE: String = "Platform.exit has been called"
 
     /**
      * How many blocks [post] and [call] have queued with `Platform.runLater` that have not started yet,
@@ -26,6 +27,10 @@ internal object FxThread {
     @Volatile
     internal var runLater: (Runnable) -> Unit = { Platform.runLater(it) }
 
+    /** `Platform.startup`; a seam so a test can simulate a toolkit that has exited. */
+    @Volatile
+    internal var startup: (Runnable) -> Unit = { Platform.startup(it) }
+
     /**
      * Starts the toolkit, or confirms an already running one accepts work.
      *
@@ -41,10 +46,14 @@ internal object FxThread {
     fun startToolkit() {
         val started = CountDownLatch(1)
         val startedHere: Boolean = try {
-            Platform.startup { started.countDown() }
+            startup(Runnable { started.countDown() })
             true
         } catch (e: IllegalStateException) {
             // "Toolkit already initialized" — the app, or an earlier player, started it.
+            // After Platform.exit startup throws this too, and runLater would drop the block: wait for
+            // nothing, and let the runtime remember it as the permanent failure it is. The message is
+            // the only signal OpenJFX gives.
+            if (e.message == TOOLKIT_EXITED_MESSAGE) throw e
             // On the FX thread the toolkit is running and accepts work: nothing left to confirm.
             if (Platform.isFxApplicationThread()) return
             Platform.runLater { started.countDown() }
@@ -56,6 +65,13 @@ internal object FxThread {
             )
         }
         if (startedHere) Platform.setImplicitExit(false)
+    }
+
+    /** Whether the caller is the FX application thread; false where JavaFX cannot even load. */
+    fun isCurrent(): Boolean = try {
+        Platform.isFxApplicationThread()
+    } catch (e: LinkageError) {
+        false
     }
 
     /**

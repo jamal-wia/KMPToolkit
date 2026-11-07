@@ -18,19 +18,33 @@ internal fun interface JavaFxRuntime {
  * [FxThreadUnresponsiveException] describes a busy FX thread, which may pass, so the next call tries
  * again.
  *
- * @param startToolkit a test seam. Its default is a lambda, not a reference to `FxThread`: this file
+ * @param startToolkit a test seam.
+ * @param onFxThread whether the caller is the FX application thread; a test seam. Its default is a lambda, not a reference to `FxThread`: this file
  * must load on a classpath without OpenJFX.
  */
 internal class ToolkitJavaFxRuntime(
     private val startToolkit: () -> Unit = { FxThread.startToolkit() },
+    private val onFxThread: () -> Boolean = { FxThread.isCurrent() },
 ) : JavaFxRuntime {
 
+    @Volatile
     private var started: Boolean = false
     private var failure: Throwable? = null
 
+    override fun ensureStarted() {
+        if (started) return
+        // Before the monitor: another thread may hold it while it waits for the FX thread, which
+        // would then wait for the monitor in turn. Being on the FX thread proves the toolkit runs.
+        if (onFxThread()) {
+            started = true
+            return
+        }
+        ensureStartedLocked()
+    }
+
     // Blocking by nature: the start waits on the FX thread, and callers are plain synchronous code.
     @Synchronized
-    override fun ensureStarted() {
+    private fun ensureStartedLocked() {
         if (started) return
         failure?.let { throw JavaFxVideoPlayerException.RuntimeUnavailable(it) }
         try {

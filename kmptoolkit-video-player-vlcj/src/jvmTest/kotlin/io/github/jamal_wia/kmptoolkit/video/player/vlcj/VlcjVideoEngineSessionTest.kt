@@ -46,11 +46,15 @@ class VlcjVideoEngineSessionTest {
     private val teardownThread: ExecutorService =
         Executors.newSingleThreadExecutor { Thread(it, TEARDOWN_THREAD).apply { isDaemon = true } }
     private val listener = RecordingListener()
+
+    /** The engine's clock, frozen unless a test advances it, so no seek hold depends on wall time. */
+    @Volatile private var clockNanos: Long = 1_000_000_000L
     private val tempFiles: MutableList<File> = CopyOnWriteArrayList()
 
     private fun newEngine(
         discover: () -> Boolean = { true },
         resolve: (VideoSource, ClassLoader) -> ResolvedMedia = VlcMediaResolver::resolve,
+        nanoTime: () -> Long = { clockNanos },
     ): VlcjVideoEngine = VlcjVideoEngine(
         vlcArgs = emptyList(),
         discover = {
@@ -64,6 +68,7 @@ class VlcjVideoEngineSessionTest {
         },
         teardown = teardownThread,
         resolve = resolve,
+        nanoTime = nanoTime,
     ).also { it.setListener(listener) }
 
     private val engine: VlcjVideoEngine by lazy { newEngine() }
@@ -537,6 +542,29 @@ class VlcjVideoEngineSessionTest {
         player.fire { timeChanged(12_000L) }
 
         assertEquals(60_000L, engine.positionMs())
+    }
+
+    @Test
+    fun `after the hold window the clock takes over even if libvlc never reported a time near the target`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        engine.seekTo(60_000L)
+        player.playhead = 12_000L
+        clockNanos += 600_000_000L
+
+        assertEquals(12_000L, engine.positionMs())
+    }
+
+    @Test
+    fun `a seek still queued after the end stands over the end`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        player.fire { finished() }
+        listener.reaction = { event -> if (event == "buffering=true") engine.seekTo(500L) }
+        val held: CountDownLatch = holdTaskThread()
+        player.fire { buffering(20f) } // the seek is submitted from the event thread
+
+        assertEquals(500L, engine.positionMs(), "RepeatMode.One restarts like this; not the end")
+        held.countDown()
+        runtime.drainTasks()
     }
 
     @Test

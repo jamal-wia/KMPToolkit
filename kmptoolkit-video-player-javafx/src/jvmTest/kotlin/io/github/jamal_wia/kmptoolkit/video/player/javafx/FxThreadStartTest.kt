@@ -69,6 +69,43 @@ class FxThreadStartTest {
         assertEquals(1, calls)
     }
 
+    @Test
+    fun aToolkitThatExitedFailsAtOnceAndIsRememberedAsPermanent() {
+        val real: (Runnable) -> Unit = FxThread.startup
+        // What Platform.startup throws once Platform.exit ran; runLater would then drop every block.
+        FxThread.startup = { throw IllegalStateException("Platform.exit has been called") }
+        try {
+            val runtime = ToolkitJavaFxRuntime()
+            val begun: Long = System.nanoTime()
+            assertFalse(runtime.isAvailable())
+            assertFalse(runtime.isAvailable())
+            assertTrue(System.nanoTime() - begun < 2_000_000_000L, "no 10 s wait for a dropped block")
+        } finally {
+            FxThread.startup = real
+        }
+    }
+
+    @Test
+    fun theFxThreadIsNotHeldUpByAnotherThreadStartingTheToolkit() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        // Another thread inside ensureStarted, waiting for the FX thread as startToolkit does.
+        val runtime = ToolkitJavaFxRuntime(startToolkit = {
+            entered.countDown()
+            release.await(10L, TimeUnit.SECONDS)
+        })
+        val other = thread { runtime.isAvailable() }
+        try {
+            assertTrue(entered.await(5L, TimeUnit.SECONDS))
+            val answer: AtomicReference<Boolean> = AtomicReference()
+            onFxThreadWithin(2L) { answer.set(runtime.isAvailable()) }
+            assertEquals(true, answer.get())
+        } finally {
+            release.countDown()
+            other.join(5_000L)
+        }
+    }
+
     private class Outcome(val failure: Throwable?)
 
     /** Runs [block] on the FX thread and fails unless it finishes within [seconds]. */
