@@ -23,8 +23,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -159,15 +160,23 @@ public open class UploadHandlerWorker(
         ).milliseconds
 
         // An outcome journaled by an earlier run of this job — the process died between the server's answer
-        // and the engine's settlement — is replayed instead of uploading again.
+        // and the engine's settlement — is replayed instead of uploading again. A leftover of an attempt that
+        // was already settled is recognised by its stamp and dropped, and the job uploads.
         val journal: OutcomeJournal = androidOutcomeJournal(applicationContext)
         when (journal.replay(itemId, gatewaySettle(engineWait))) {
             ReplayOutcome.Replayed -> return Result.success()
             ReplayOutcome.Kept -> return Result.retry()
-            ReplayOutcome.NoEntry, ReplayOutcome.Discarded, ReplayOutcome.Stale, ReplayOutcome.Unreadable -> Unit
+            // "Not readable" never means "handled": wait for it over a few runs, then give it up.
+            ReplayOutcome.Unreadable -> {
+                if (runAttemptCount < UNREADABLE_ENTRY_RUNS) return Result.retry()
+                journal.delete(itemId)
+            }
+            ReplayOutcome.NoEntry, ReplayOutcome.Discarded, ReplayOutcome.Stale -> Unit
         }
 
-        val request: UploadRequest = when (val attempt: UploadAttempt = UploadGateway.prepareAttempt(itemId, engineWait)) {
+        val prepared: PreparedUpload = UploadGateway.prepareStampedAttempt(itemId, engineWait)
+        val attemptStamp: Int? = prepared.attemptStamp
+        val request: UploadRequest = when (val attempt: UploadAttempt = prepared.attempt) {
             UploadAttempt.EngineUnavailable -> return Result.retry()
             UploadAttempt.NothingOwed -> return Result.success()
             is UploadAttempt.Ready -> attempt.request
@@ -181,7 +190,7 @@ public open class UploadHandlerWorker(
         var journaled = false
         val outcome: MultipartOutcome = uploadReportingProgress(itemId, request) { answered ->
             val answer: UploadResponse? = answered.response
-            if (answer != null) journaled = journal.record(itemId, answer, bodyLimit)
+            if (answer != null) journaled = journal.record(itemId, answer, bodyLimit, attemptStamp)
         }
         // The server's answer, when there was one, goes to the handler with the status. An outcome that
         // did not reach the engine must not be lost: re-run. It is written to disk first, so a re-run in a
@@ -192,7 +201,7 @@ public open class UploadHandlerWorker(
         val response: UploadResponse? = outcome.response
         val landed: Boolean = if (response != null) {
             if (journaled) {
-                journal.settleRecorded(itemId, response, settle = gatewaySettle(engineWait))
+                journal.settleRecorded(itemId, response, attemptStamp, bodyLimit, gatewaySettle(engineWait))
             } else {
                 UploadGateway.complete(itemId, response, engineWait)
             }
@@ -208,25 +217,29 @@ public open class UploadHandlerWorker(
     /**
      * Uploads while forwarding whole-percent progress. The blocking write loop only drops fractions into
      * a conflated channel and a companion coroutine forwards them, so reporting never stalls the
-     * transfer. [onAnswer] runs as soon as the transfer returns, before the forwarder is awaited, so the
-     * caller can put the answer on disk first. The forwarder is then given [PROGRESS_FLUSH_TIMEOUT] to drain,
-     * so progress signals land before the settle unless the hook takes longer than that: the rest is
-     * dropped and the hook is cancelled, because a progress hook must never hold up the settlement.
+     * transfer. [onAnswer] runs on the transfer's thread the moment it returns, before the forwarder is
+     * awaited, so the caller can put the answer on disk first. The forwarder is then given
+     * [PROGRESS_FLUSH_TIMEOUT] to drain, so progress signals land before the settle unless the hook takes
+     * longer than that: the hook is then cancelled and no longer awaited, because a progress hook must never
+     * hold up the settlement.
      */
     private suspend fun uploadReportingProgress(
         itemId: String,
         request: UploadRequest,
         onAnswer: (MultipartOutcome) -> Unit,
-    ): MultipartOutcome = coroutineScope {
+    ): MultipartOutcome {
         val fractions: Channel<Float> = Channel(Channel.CONFLATED)
-        val forwarder: Job = launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
+        // Outside the job's structured scope on purpose: a hook that ignores cancellation, or blocks a
+        // thread, keeps running in the background but no longer delays the settlement.
+        val progressScope = CoroutineScope(currentCoroutineContext().minusKey(Job) + SupervisorJob())
+        val forwarder: Job = progressScope.launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
         try {
             // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO.
             val readTimeoutMillis: Int = inputData.getInt(
                 READ_TIMEOUT_MILLIS_KEY,
                 UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS,
             )
-            val transferred: MultipartOutcome = withWriteWatchdog(readTimeoutMillis) { watch ->
+            return withWriteWatchdog(readTimeoutMillis) { watch ->
                 withContext(Dispatchers.IO) {
                     val transfer: Job = coroutineContext.job
                     performMultipartUploadCapturing(
@@ -239,16 +252,23 @@ public open class UploadHandlerWorker(
                         onWholePercent = { fraction -> fractions.trySend(fraction) },
                         isCancelled = { !transfer.isActive },
                         watch = watch,
-                    )
+                    // A stop that lands while the body is read must not throw away a status the server already
+                    // sent: withContext discards a result whose job was cancelled, so the answer is journaled
+                    // here, on the transfer's thread (a synchronous file write belongs on IO), right when the
+                    // transfer returns.
+                    ).also(onAnswer)
                 }
             }
-            onAnswer(transferred)
-            transferred
         } finally {
             fractions.close()
-            // Bounded: a hook still running after the flush window loses the remaining progress, and the
-            // cancelled forwarder is not joined again here (the enclosing scope waits for it on its way out).
-            if (withTimeoutOrNull(PROGRESS_FLUSH_TIMEOUT) { forwarder.join() } == null) forwarder.cancel()
+            // Bounded: a hook still running after the flush window loses the remaining progress and is
+            // cancelled, never awaited again; the inner finally also cancels it when the job itself is
+            // stopped during the join.
+            try {
+                withTimeoutOrNull(PROGRESS_FLUSH_TIMEOUT) { forwarder.join() }
+            } finally {
+                progressScope.cancel()
+            }
         }
     }
 
@@ -268,6 +288,12 @@ public open class UploadHandlerWorker(
         public const val READ_TIMEOUT_MILLIS_KEY: String = "kmptoolkit_uploader_read_timeout_millis"
     }
 }
+
+/**
+ * An answer on disk that cannot be read is waited for over this many runs; then it is given up and the item
+ * uploads again, the documented at-least-once fallback.
+ */
+private const val UNREADABLE_ENTRY_RUNS: Int = 3
 
 /** How long the worker waits for [UploadHandler.onUploadProgress] to drain after the transfer ended. */
 private val PROGRESS_FLUSH_TIMEOUT: kotlin.time.Duration = 2.seconds

@@ -175,7 +175,7 @@ public sealed interface UploadPreparation {
 | `prepareUpload` | at hand-off, and again when the transport runs the attempt (`wasDetached = true`) | hand-off: a retry; run time: the item stays in flight for the lease |
 | `classify(payload, result, response)` | with the raw outcome and the server's response, for every outcome; the default calls the two-argument `classify` | `SettleResult.Failed` |
 | `classify(payload, result)` | by the default three-argument `classify`; the default is `defaultUploadClassification(result)` | `SettleResult.Failed` |
-| `onUploadProgress` | per whole percent, while in flight; must not block: on Android a hook still running 2 s after the transfer ended is cancelled | logged, ignored |
+| `onUploadProgress` | per whole percent, while in flight; must not block: on Android a hook still running 2 s after the transfer ended is cancelled and no longer awaited; one that ignores cancellation runs on in the background | logged, ignored |
 | `onDelivered(payload, response)` | for `Delivered`, before the row is removed; the default calls the one-argument `onDelivered` | logged, ignored — the response is then lost |
 | `onDelivered(payload)` | by the default two-argument `onDelivered` | logged, ignored |
 | `onSettled` | after the item settled; `attempts` as at hand-off | logged, ignored |

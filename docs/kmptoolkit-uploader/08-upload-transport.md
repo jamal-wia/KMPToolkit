@@ -76,7 +76,8 @@ What the engine does with it:
    failing preparation in the drain does: it spends retry budget, so a persistent failure ends in the give-up policy.
 3. **Progress.** Each whole percent goes to `onUploadProgress` through `UploadGateway.progress`.
    Best effort, never after the item has settled. On Android the answer is journaled as soon as the transfer
-   returns; a progress hook still running 2 s after that is cancelled so it cannot hold up the settlement.
+   returns; a progress hook still running 2 s after that is cancelled and no longer awaited, so it cannot hold up
+   the settlement (one that ignores cancellation runs on in the background).
 4. **Settle.** What the transport saw goes to `UploadGateway.complete` — with the server's
    `UploadResponse` when it answered, with a bare `UploadResult.TransportFailure` when it did not.
    The engine then:

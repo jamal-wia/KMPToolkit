@@ -136,8 +136,10 @@ class UploaderLifecycleChaosRound2AdversarialTest {
         private val onPrepare: (Int) -> Unit = {},
         private val onProgress: suspend (Float) -> Unit = {},
         private val onSettledHook: suspend () -> Unit = {},
+        private val retry: RetryPolicy = ExponentialBackoffRetryPolicy(),
     ) : UploadHandler<String>(NoopTransport()) {
         override val type: String = "chaos"
+        override val retryPolicy: RetryPolicy get() = retry
         override val maxResponseBodyBytes: Int get() = limit()
         private val prepared = AtomicInteger(0)
         val delivered = java.util.Collections.synchronizedList(mutableListOf<UploadResponse?>())
@@ -192,8 +194,9 @@ class UploaderLifecycleChaosRound2AdversarialTest {
         handler: ChaosHandler,
         id: String = "item-1",
         register: Boolean = true,
+        clock: UploaderClock = TestClock(),
     ): UploaderEngine {
-        val started: UploaderEngine = testEngine(store, listOf(handler), scope, idGenerator = { id })
+        val started: UploaderEngine = testEngine(store, listOf(handler), scope, clock = clock, idGenerator = { id })
         engines += started
         if (register) UploaderEngineRegistry.register(started)
         runBlocking {
@@ -348,6 +351,199 @@ class UploaderLifecycleChaosRound2AdversarialTest {
             assertTrue(!File(outcomesDir, id).exists(), "status $status: entry gone")
             engine.close()
         }
+    }
+
+
+    // R2-S1: a cancellation thrown by the store from inside the commit (the worker is not stopped)
+    @Test
+    fun `a cancellation the store throws inside the commit does not lose the answer`() {
+        serve()
+        val backing = TestUploaderStore()
+        val store = CancellingStore(backing)
+        val handler = ChaosHandler()
+        startEngine(store, handler)
+        store.cancelDeletes = 1
+        runCatching { runBlocking { withTimeout(15_000L) { worker().build().doWork() } } }
+        val rerun: ListenableWorker.Result = runWorker()
+        assertIs<ListenableWorker.Result.Success>(rerun)
+        assertEquals(1, connections.get(), "the answer was journaled before the failed commit; the re-run must replay it, not upload again")
+        assertTrue(
+            handler.delivered.size in 1..2,
+            "onDelivered runs before the commit and may repeat after a commit that did not land " +
+                "(UploadGateway.complete KDoc: onDelivered must tolerate running twice): ${handler.delivered.size}",
+        )
+        assertNull(backing.find("item-1"))
+    }
+
+    // R2-S2: an answer whose entry reads back as damaged right after it was written is not "handled"
+    @Test
+    fun `an entry that reads back damaged right after it was written is settled from memory`() {
+        val mem = HashMap<String, ByteArray>()
+        var corrupt = false
+        val storage = object : OutcomeStorage {
+            override fun write(itemId: String, bytes: ByteArray): Boolean { mem[itemId] = bytes; return true }
+            override fun read(itemId: String): ByteArray? = mem[itemId]?.let { if (corrupt) it.copyOf(it.size / 2) else it }
+            override fun delete(itemId: String) { mem.remove(itemId) }
+            override fun itemIds(): List<String> = mem.keys.toList()
+            override fun purgeLeftovers() = Unit
+        }
+        val journal = OutcomeJournal(storage)
+        val response = UploadResponse(201, emptyMap(), "x".encodeToByteArray(), false)
+        assertTrue(journal.record("a", response))
+        corrupt = true
+        var settledWith: UploadResponse? = null
+        val landed: Boolean = runBlocking {
+            withTimeout(5_000L) {
+                journal.settleRecorded("a", response) { _, r, _, _ -> settledWith = r; JournalSettleOutcome.LANDED }
+            }
+        }
+        assertTrue(landed)
+        assertEquals(response, settledWith, "the answer was held in memory and never reached the engine")
+    }
+
+    // R2-S2: a clock step forward between the write and the settlement expires the worker's own fresh entry
+    @Test
+    fun `a clock that jumps past the retention between record and settle does not make the answer look handled`() {
+        val mem = HashMap<String, ByteArray>()
+        val storage = object : OutcomeStorage {
+            override fun write(itemId: String, bytes: ByteArray): Boolean { mem[itemId] = bytes; return true }
+            override fun read(itemId: String): ByteArray? = mem[itemId]
+            override fun delete(itemId: String) { mem.remove(itemId) }
+            override fun itemIds(): List<String> = mem.keys.toList()
+            override fun purgeLeftovers() = Unit
+        }
+        var now = 1_000L
+        val journal = OutcomeJournal(storage, clock = { now })
+        val response = UploadResponse(201, emptyMap(), ByteArray(0), false)
+        assertTrue(journal.record("a", response))
+        now += OutcomeJournal.RETENTION_MILLIS + 1
+        var settledWith: UploadResponse? = null
+        runBlocking {
+            withTimeout(5_000L) {
+                journal.settleRecorded("a", response) { _, r, _, _ -> settledWith = r; JournalSettleOutcome.LANDED }
+            }
+        }
+        assertEquals(response, settledWith, "the answer was held in memory and never reached the engine")
+    }
+
+    // R2-S3: an entry that exists but cannot be read at the start of a job is not "nothing owed"
+    @Test
+    fun `an entry that cannot be read at the start of a job does not make the job upload again`() {
+        serve()
+        val backing = TestUploaderStore()
+        val handler = ChaosHandler()
+        startEngine(backing, handler)
+        val journal = OutcomeJournal(AndroidOutcomeStorage.forContext(context))
+        assertTrue(journal.record("item-1", UploadResponse(201, emptyMap(), "{}".encodeToByteArray(), false)))
+        val entry = File(outcomesDir, "item-1")
+        entry.setReadable(false)
+        try {
+            runCatching { runWorker() }
+        } finally {
+            entry.setReadable(true)
+        }
+        assertEquals(0, connections.get(), "the server's answer is on disk, merely unreadable right now: retry later, do not upload again")
+    }
+
+    @Test
+    fun `an entry that stays unreadable for three runs is given up and the item uploads once`() {
+        serve()
+        val backing = TestUploaderStore()
+        val handler = ChaosHandler()
+        startEngine(backing, handler)
+        val journal = OutcomeJournal(AndroidOutcomeStorage.forContext(context))
+        assertTrue(journal.record("item-1", UploadResponse(201, emptyMap(), "{}".encodeToByteArray(), false)))
+        val entry = File(outcomesDir, "item-1")
+        entry.setReadable(false)
+        val result: ListenableWorker.Result = try {
+            runBlocking { withTimeout(20_000L) { worker().setRunAttemptCount(3).build().doWork() } }
+        } finally {
+            entry.setReadable(true)
+        }
+        assertIs<ListenableWorker.Result.Success>(result)
+        assertEquals(1, connections.get(), "given up after three runs: the file uploads (the documented at-least-once fallback)")
+        assertEquals(1, handler.delivered.size)
+        assertTrue(journalFiles().isEmpty(), "no journal file is left: ${journalFiles()}")
+    }
+
+    // R2-S4 (rewritten): the contract is that a journal entry must not replay into the next attempt
+    @Test
+    fun `an entry the journal could not delete after the commit does not replay into the next attempt`() {
+        serve(raw = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+        val backing = TestUploaderStore()
+        val clock = TestClock(1_000L)
+        val classified = AtomicInteger(0)
+        val handler = ChaosHandler(
+            onClassify = { if (classified.getAndIncrement() == 0) outcomesDir.setWritable(false) },
+            retry = FixedRetryPolicy(delayMillis = 1_000L),
+        )
+        val started: UploaderEngine = startEngine(backing, handler, clock = clock)
+        val first: ListenableWorker.Result = runWorker()
+        outcomesDir.setWritable(true)
+        assertIs<ListenableWorker.Result.Success>(first)
+        assertEquals(1, journalFiles().size, "precondition: the delete after the commit could not remove the entry: ${journalFiles()}")
+        assertEquals(1, backing.find("item-1")?.attempts)
+        // The item becomes due and is handed off again: it is in flight at attempts 1.
+        clock.millis += 3_600_000L
+        runBlocking { withTimeout(10_000L) { started.drain() } }
+        assertEquals(UploaderItemState.IN_FLIGHT, backing.find("item-1")?.state)
+
+        val second: ListenableWorker.Result = runWorker()
+
+        assertIs<ListenableWorker.Result.Success>(second)
+        assertEquals(2, connections.get(), "the retry uploaded; the stale 503 did not stand in for it")
+        assertEquals(2, backing.find("item-1")?.attempts)
+        assertTrue(journalFiles().isEmpty(), "no journal file is left: ${journalFiles()}")
+    }
+
+    // R2-S6: stopped while the answer's body is still arriving: the status was received
+    @Test
+    fun `a job stopped while the answer body is still arriving keeps the received status`() {
+        val socketHold = CountDownLatch(1)
+        thread(isDaemon = true) {
+            val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
+            synchronized(held) { held += socket }
+            connections.incrementAndGet()
+            readRequest(socket)
+            runCatching {
+                socket.getOutputStream().write("HTTP/1.1 201 Created\r\nContent-Length: 100\r\nConnection: close\r\n\r\nab".encodeToByteArray())
+                socket.getOutputStream().flush()
+            }
+            accepted.countDown()
+            socketHold.await(20, TimeUnit.SECONDS)
+        }
+        val backing = TestUploaderStore()
+        val handler = ChaosHandler()
+        startEngine(backing, handler)
+        val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
+        assertTrue(accepted.await(15, TimeUnit.SECONDS))
+        runBlocking { delay(700L) }
+        running.cancel()
+        runBlocking { withTimeout(8_000L) { running.join() } }
+        socketHold.countDown()
+        assertTrue(
+            journalFiles().isNotEmpty(),
+            "the server answered 201 and the stop threw the received status away: the file uploads again",
+        )
+        val rerun: ListenableWorker.Result = runWorker()
+        assertIs<ListenableWorker.Result.Success>(rerun)
+        assertEquals(1, connections.get(), "the re-run replays the journaled status instead of uploading again")
+        assertEquals(1, handler.delivered.size)
+    }
+
+    // R2-S7: a progress hook that ignores its cancellation must not hold the settlement
+    @Test
+    fun `a progress hook that ignores cancellation does not hold up the settlement`() {
+        serve()
+        val file: File = file1k()
+        val handler = ChaosHandler(
+            fields = { listOf(UploadField.File("f", "p.bin", "application/octet-stream", file.path)) },
+            onProgress = { withContext(NonCancellable) { delay(20_000L) } },
+        )
+        startEngine(TestUploaderStore(), handler)
+        uploads.async { worker().build().doWork() }
+        runBlocking { withTimeout(10_000L) { delay(6_000L) } }
+        assertEquals(1, handler.delivered.size, "2 s flush bound plus margin elapsed, the settlement is still behind the hook")
     }
 
     private companion object {
