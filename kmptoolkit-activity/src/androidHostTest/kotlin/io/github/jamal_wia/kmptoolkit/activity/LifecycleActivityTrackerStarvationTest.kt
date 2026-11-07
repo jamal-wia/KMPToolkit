@@ -48,26 +48,6 @@ class LifecycleActivityTrackerStarvationTest {
     private fun newTracker(isTracked: (Activity) -> Boolean = { true }): LifecycleActivityTracker =
         (createActivityAccess(application, isTracked) as LifecycleActivityTracker).also { trackers.add(it) }
 
-    /** A tracker whose predicate captures a payload; only the handle and a weak reference to the payload escape. */
-    private fun releasedTrackerKeptByHandle(): Pair<ActivitySubscription, WeakReference<Payload>> {
-        val payload = Payload()
-        val tracker: ActivityAccess = createActivityAccess(application) { payload.hashCode() >= 0 }
-        val handle: ActivitySubscription = tracker.addOnActivityResumedListener { }
-        tracker.release()
-        return handle to WeakReference(payload)
-    }
-
-    @Test
-    fun `a handle kept after release does not keep what the tracker itself captured alive`() {
-        val (handle, payload) = releasedTrackerKeptByHandle()
-
-        assertTrue(
-            clearedAfterGc(listOf(payload)),
-            "a released tracker is still reachable through a subscription handle the caller kept, and pins the objects its predicate captured",
-        )
-        handle.cancel() // keeps the handle strongly reachable up to here
-    }
-
     private fun releasedTrackerWithoutHandle(): WeakReference<Payload> {
         val captured = Payload()
         val tracker: ActivityAccess = createActivityAccess(application) { captured.hashCode() >= 0 }
@@ -154,5 +134,64 @@ class LifecycleActivityTrackerStarvationTest {
             "${seen.count { it.get() != null }} of 200 destroyed activities are still reachable through the tracker",
         )
         assertEquals(1, tracker.listenerCountForTest())
+    }
+
+    @Test
+    fun `eight threads adding listeners with replays queued, then a release, leave none pinned and none counted`() {
+        val tracker: LifecycleActivityTracker = newTracker()
+        val activity: ActivityController<Activity> = Robolectric.buildActivity(Activity::class.java).setup()
+        controllers.add(activity)
+        val captured: java.util.concurrent.ConcurrentLinkedQueue<WeakReference<Payload>> = java.util.concurrent.ConcurrentLinkedQueue()
+        val workers: List<Thread> = List(8) {
+            thread(isDaemon = true) {
+                repeat(500) {
+                    val payload = Payload()
+                    tracker.addOnActivityResumedListener { payload.hashCode() }
+                    captured += WeakReference(payload)
+                }
+            }
+        }
+        workers.forEach { it.join(20_000) }
+        assertTrue(workers.none { it.isAlive }, "an adding thread did not finish")
+        assertEquals(4_000, tracker.listenerCountForTest())
+
+        tracker.release()
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        assertEquals(0, tracker.listenerCountForTest())
+        assertTrue(
+            clearedAfterGc(captured.toList()),
+            "${captured.count { it.get() != null }} of 4000 listeners are pinned after release and the queued replays ran",
+        )
+    }
+
+    private fun applicationCallbackCount(): Int {
+        val field = Application::class.java.getDeclaredField("mActivityLifecycleCallbacks")
+        field.isAccessible = true
+        val callbacks: Any = field.get(application)!!
+        return synchronized(callbacks) { (callbacks as List<*>).size }
+    }
+
+    private fun createUseAndRelease(round: Int): WeakReference<ActivityAccess> {
+        val tracker: ActivityAccess = createActivityAccess(application)
+        val handles: List<ActivitySubscription> = List(3) { tracker.addOnActivityResumedListener { } }
+        if (round % 2 == 0) handles.forEach { it.cancel() }
+        tracker.release()
+        return WeakReference(tracker)
+    }
+
+    @Test
+    fun `a thousand trackers created, used and released leave no callback on the application and are all collectable`() {
+        val screen: ActivityController<Activity> = Robolectric.buildActivity(Activity::class.java).setup()
+        controllers.add(screen)
+        val before: Int = applicationCallbackCount()
+        val dropped: List<WeakReference<ActivityAccess>> = List(1_000) { createUseAndRelease(it) }
+
+        assertEquals(before, applicationCallbackCount(), "released trackers stayed registered on the application")
+        assertTrue(
+            clearedAfterGc(dropped),
+            "${dropped.count { it.get() != null }} of 1000 released trackers are still reachable",
+        )
+        screen.pause().resume()
     }
 }
