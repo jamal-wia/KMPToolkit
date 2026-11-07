@@ -71,9 +71,14 @@ class RealPlayerLifecycleAdversarialTest {
     }
 
     private fun settle(what: String, condition: () -> Boolean) {
-        repeat(MAX_PUMPS) {
+        // The engine reports a failed load from its own playback thread, in real time, while a pump
+        // advances only the looper's virtual clock: wait in real time too, or a fast run of pumps
+        // gives up before the thread got to answer. Still bounded, never an open-ended wait.
+        val deadline: Long = System.nanoTime() + SETTLE_TIMEOUT_NANOS
+        while (System.nanoTime() < deadline) {
             if (condition()) return
             pump()
+            Thread.sleep(SETTLE_SLEEP_MS)
         }
         fail("did not settle: $what")
     }
@@ -170,6 +175,7 @@ class RealPlayerLifecycleAdversarialTest {
         const val GC_ROUNDS: Int = 30
         const val CYCLES: Int = 15
         const val PUMP_MS: Long = 32L
-        const val MAX_PUMPS: Int = 200
+        const val SETTLE_SLEEP_MS: Long = 2L
+        const val SETTLE_TIMEOUT_NANOS: Long = 15_000_000_000L
     }
 }
