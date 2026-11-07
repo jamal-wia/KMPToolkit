@@ -15,6 +15,7 @@ import kotlin.time.TimeSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -36,7 +37,8 @@ class MediaPlayerEngineAdversarialTest {
     private fun MediaPlayerEngine.heldPlayer(): MediaPlayer? =
         MediaPlayerEngine::class.java.getDeclaredField("mediaPlayer")
             .also { it.isAccessible = true }
-            .get(this) as MediaPlayer?
+            .get(this)
+            .let { holder -> (holder as MutableStateFlow<*>).value as MediaPlayer? }
 
     @Test
     fun `fifty loads cancelled while preparing leave no player held and each one is released`() =
