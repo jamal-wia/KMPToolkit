@@ -101,6 +101,12 @@ switch silenced, and without it most callers would report the player as "silentl
 not by itself keep audio going once the app is in the background or the screen locks — that needs
 the `audio` background mode, below.
 
+`release()` and `unload()` never deactivate the session: it is process-wide and the app's other
+audio may be using it, and activating it again does not stack, so nothing accumulates. An app that
+wants other apps' audio, which the activation interrupted, to resume deactivates the session
+itself with `setActive(false, withOptions: .notifyOthersOnDeactivation)`, or passes
+`managesAudioSession = false` and owns the session entirely.
+
 Pass `managesAudioSession = false` when the app owns its session — in particular when it also
 records, where the category has to be `PlayAndRecord` and switching it under the recorder's feet
 breaks it:
@@ -132,6 +138,8 @@ also makes `prepare()`'s cancellation contract hold on iOS.
 
 **Errors** are `IllegalStateException` carrying the `AVPlayerItem`'s `localizedDescription`, or
 `IllegalArgumentException` for an asset that is not in the bundle or a URL `NSURL` refuses.
+A load that fails or is cancelled releases its `AVPlayer`, item and end-of-item observer at once, as the
+Android engine does with its `MediaPlayer`, rather than holding them until the next load.
 
 ## Behavior that is identical on both
 

@@ -16,6 +16,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlin.random.Random
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -118,6 +119,24 @@ internal class AndroidDownloaderStorage(
         // Data first, record last: a crash in between leaves an orphan record, which reads as no
         // temp file at all and is overwritten by the next beginTempFile.
         deleteTempData(unit)
+        // The extraction tree of an archive commit that a process death interrupted: nothing else
+        // ever enumerates tmp/, so a unit that is then dropped would keep it forever. Skipped while
+        // a commit of the unit runs (it may be extracting into this very tree, or renaming it into
+        // place), or while the lock registry is momentarily busy; the next cancel or the next
+        // commit reclaims it. Under the lock the tree is only renamed away; the recursive delete
+        // runs after the lock is released so it cannot stall other units.
+        UnitCommitLocks.tryDetachThenDispose(
+            baseDirectory = baseDir.absolutePath,
+            unitId = unit.id,
+            detach = {
+                val staging = File(baseDir, "tmp/staging-${unit.id}")
+                val trash = File(baseDir, "tmp/trash/${unit.id}-${Random.nextLong().toULong()}")
+                trash.parentFile?.mkdirs()
+                if (staging.renameTo(trash)) trash else null
+            },
+            dispose = { trash: File -> trash.deleteRecursively() },
+        )
+        sweepTrash()
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
         // keep its record: with the record gone, the next attempt would commit that complete file
         // unchecked.
@@ -127,6 +146,16 @@ internal class AndroidDownloaderStorage(
         }
         expectationFile(unit).delete()
         stagedExpectationFile(unit).delete()
+    }
+
+    /**
+     * Deletes whatever `tmp/trash/` still holds: a detached extraction tree whose delete a process
+     * kill or an I/O error cut short. No commit ever uses a path under it, so it needs no lock, and
+     * a sweep racing another thread's delete of the same tree is harmless. A dedicated directory,
+     * not a name prefix in `tmp/`, so that a unit whose id starts with `trash-` keeps its temp file.
+     */
+    private fun sweepTrash() {
+        File(baseDir, "tmp/trash").listFiles()?.forEach { entry: File -> entry.deleteRecursively() }
     }
 
     private fun deleteTempData(unit: DownloadUnit) {

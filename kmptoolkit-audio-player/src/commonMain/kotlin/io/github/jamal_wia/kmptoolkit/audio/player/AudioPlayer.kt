@@ -17,7 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
  * **whoever creates a player releases it**, exactly once, when the screen or component that owns it
  * goes away:
  *
- * 1. [release] frees the native handle, cancels the position-polling coroutine, and detaches the
+ * 1. [release] frees the native handle (immediately, or as soon as a load still running on the
+ *    platform has unwound), cancels the position-polling coroutine, and detaches the
  *    engine's callbacks. [close] is the same operation under the [AutoCloseable] name, so a player
  *    also works with `use { }`.
  * 2. **[release] is idempotent.** Calling it a second (or tenth) time does nothing at all and never
@@ -196,8 +197,10 @@ public interface AudioPlayer : AutoCloseable {
     }
 
     /**
-     * Frees the native handle and stops all internal work, for good. Idempotent; see the lifecycle
-     * contract on [AudioPlayer]. To free the handle but keep using the player, see [unload].
+     * Frees the native handle and stops all internal work, for good. The handle is freed
+     * immediately, or as soon as a load still running on the platform has unwound (a blocking
+     * `setDataSource` on Android cannot be interrupted, and the handle is never freed under it).
+     * Idempotent; see the lifecycle contract on [AudioPlayer]. To free the handle but keep using the player, see [unload].
      */
     public fun release()
 
