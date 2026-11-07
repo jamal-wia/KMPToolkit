@@ -40,11 +40,13 @@ public fun createUploaderStorage(
     val applicationContext: Context = context.applicationContext
     val name: String = config.name ?: applicationContext.packageName
     val driver: AndroidSqliteDriver = mapFailures(UploaderStorageOperation.OPEN) {
-        AndroidSqliteDriver(
-            schema = KmpToolkitUploaderDatabase.Schema,
-            context = applicationContext,
-            name = uploaderDatabaseFileName(name),
-        ).also(::forceOpen)
+        openOwned(
+            AndroidSqliteDriver(
+                schema = KmpToolkitUploaderDatabase.Schema,
+                context = applicationContext,
+                name = uploaderDatabaseFileName(name),
+            ),
+        )
     }
     return standaloneStorage(driver)
 }

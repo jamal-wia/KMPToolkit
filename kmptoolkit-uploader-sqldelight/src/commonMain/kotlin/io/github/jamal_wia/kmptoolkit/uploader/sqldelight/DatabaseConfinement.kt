@@ -142,9 +142,14 @@ internal class DatabaseConfinement(val dispatcher: CloseableCoroutineDispatcher)
      * statement submitted before this call.
      */
     fun closeAfterDraining(finalizer: () -> Unit) {
-        runBlockingOnCurrentThread(EmptyCoroutineContext) {
-            withContext(dispatcher) { finalizer() }
+        try {
+            runBlockingOnCurrentThread(EmptyCoroutineContext) {
+                withContext(dispatcher) { finalizer() }
+            }
+        } finally {
+            // Whatever the finalizer did, the thread is released: a driver whose `close` threw must not also
+            // leave a parked worker behind. The failure still reaches the caller.
+            dispatcher.close()
         }
-        dispatcher.close()
     }
 }

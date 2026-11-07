@@ -205,5 +205,38 @@ internal fun forceOpen(driver: SqlDriver) {
  * A storage that owns [driver] and closes it with itself — the shape both standalone platform
  * factories produce, once they have built the driver their platform needs.
  */
-internal fun standaloneStorage(driver: SqlDriver): UploaderStorage =
+internal fun standaloneStorage(driver: SqlDriver): UploaderStorage = try {
     SqlDelightUploaderStorage(driver = driver, ownsDriver = true)
+} catch (failure: Throwable) {
+    // The storage never came to own the driver, so nobody else would close it.
+    closeAfterFailure(driver, failure)
+    throw failure
+}
+
+/**
+ * [forceOpen]s a driver this module has just built, and closes it again if that fails.
+ *
+ * A native driver holds a SQLite handle, a file descriptor and native-heap locks from the moment it is
+ * built, and a corrupt file fails the probe only after they exist; dropping the driver unclosed would
+ * leave them behind for every failed attempt. The failure is rethrown unchanged, with a failing `close`
+ * recorded as suppressed on it.
+ *
+ * @return [driver], open.
+ */
+internal fun <D : SqlDriver> openOwned(driver: D): D {
+    try {
+        forceOpen(driver)
+    } catch (failure: Throwable) {
+        closeAfterFailure(driver, failure)
+        throw failure
+    }
+    return driver
+}
+
+private fun closeAfterFailure(driver: SqlDriver, failure: Throwable) {
+    try {
+        driver.close()
+    } catch (closeFailure: Throwable) {
+        failure.addSuppressed(closeFailure)
+    }
+}
