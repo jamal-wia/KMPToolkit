@@ -123,9 +123,12 @@ class AndroidPermissionControllerStormTest {
 
     private class CountingHost(private val real: PermissionRequestHost) : PermissionRequestHost by real {
         var shown: Int = 0
+        var launchCalls: Int = 0
 
-        override fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean =
-            real.launch(androidPermissions, onResult).also { if (it) shown++ }
+        override fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean {
+            launchCalls++
+            return real.launch(androidPermissions, onResult).also { if (it) shown++ }
+        }
     }
 
     @Test
@@ -186,6 +189,41 @@ class AndroidPermissionControllerStormTest {
             screen.pause().resume()
             assertTrue(second.isCompleted, "the second return did not end the second wait")
             assertEquals(0, listeners.live.get(), "listeners were left subscribed")
+        }
+
+    @Test
+    fun `a caller queued behind a request cancelled with its dialog up still gets its own dialog and is not answered without one`() =
+        runTest(UnconfinedTestDispatcher(), timeout = 30.seconds) {
+            declare(camera, microphone)
+            val access: ActivityAccess = newAccess()
+            val host = CountingHost(ActivityResultPermissionRequestHost(access))
+            val controller: PermissionController =
+                createPermissionController(application, InMemoryKeyValueStorage(), access, host)
+            val screen = resumed(ComponentActivity::class.java)
+
+            val first = launch { controller.request(CommonPermission.Camera) }
+            val staleRequest: ShadowActivity.PermissionsRequest = lastRequest(screen.get())
+            // Queued behind the first: requests are serialized, so this one waits for it to finish.
+            val second: Deferred<PermissionStatus> = async { controller.request(CommonPermission.Microphone) }
+            assertFalse(second.isCompleted, "the second request did not wait for the first")
+
+            first.cancelAndJoin()
+
+            // The first dialog is still on screen and cannot be taken back. The queued request must not
+            // be answered as if it had been served: it never had a dialog of its own.
+            assertFalse(
+                second.isCompleted && host.shown == 1,
+                "the queued request completed with ${if (second.isCompleted) second.getCompleted() else null} " +
+                    "although its dialog was never shown (launch calls ${host.launchCalls}, dialogs ${host.shown})",
+            )
+
+            // The user answers the stale dialog; the queued request now gets its dialog and its own answer.
+            answer(screen.get(), staleRequest, camera, granted = false)
+            assertEquals(2, host.shown, "the queued request never got a dialog after the stale one was answered")
+            assertFalse(second.isCompleted)
+            answer(screen.get(), lastRequest(screen.get()), microphone, granted = true)
+            assertTrue(second.isCompleted)
+            assertEquals(PermissionStatus.Granted, second.getCompleted())
         }
 
     @Test

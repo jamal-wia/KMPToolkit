@@ -263,6 +263,11 @@ suspend fun onBecomeLauncherTapped() {
 A special access request that is cancelled while the user is on the Settings screen leaves the screen
 where it is; the next `check` or `observe` sees what the user did there.
 
+A runtime request cancelled while its system dialog is up leaves that dialog on screen too. A request
+queued behind it waits (up to 30 seconds) for the user to answer it, then shows its own dialog; if the
+dialog is still up after that, the request returns the unchanged status without showing anything, as
+for any launch the host refuses. Cancelling the waiting request ends its wait at once.
+
 ## Any other Android permission: `Runtime(name)`
 
 ```kotlin

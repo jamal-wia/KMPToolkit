@@ -11,6 +11,8 @@ import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import org.robolectric.Shadows.shadowOf
 
 /**
@@ -101,6 +103,7 @@ internal fun testController(
     isRevokedByPolicy: (String) -> Boolean = { false },
     notificationsEnabled: () -> Boolean = { true },
     logger: Logger = NoopLogger,
+    staleDialogTimeout: Duration = 30.seconds,
 ): AndroidPermissionController = AndroidPermissionController(
     context = context,
     host = host,
@@ -120,6 +123,7 @@ internal fun testController(
     notificationsEnabled = notificationsEnabled,
     specialAccesses = SpecialAccesses(context, logger, declaredPermissions),
     resultGrants = ResultGrants(context, logger),
+    staleDialogTimeout = staleDialogTimeout,
 )
 
 /** A permission type no controller knows: what a consumer-defined subtype would be. */

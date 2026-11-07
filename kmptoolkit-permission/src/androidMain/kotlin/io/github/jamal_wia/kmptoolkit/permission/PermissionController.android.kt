@@ -218,6 +218,13 @@ internal fun Context.declaresScanNeverForLocation(logger: Logger): Boolean {
  */
 private val RESUME_WAIT: Duration = 1.seconds
 
+/**
+ * How long a request queued behind a cancelled request waits for that request's system dialog, which
+ * stays on screen, to be answered. A user can take a while over a dialog, but a caller must not hang
+ * on one for ever; past this the request fails like a refused launch (status unchanged, nothing shown).
+ */
+private val STALE_DIALOG_TIMEOUT: Duration = 30.seconds
+
 /** Suspends until an activity is resumed (at once if one is), or [timeout] passes. */
 private suspend fun ActivityAccess.awaitResumed(timeout: Duration) {
     var subscription: ActivitySubscription? = null
@@ -300,6 +307,11 @@ internal class AndroidPermissionController(
     private val notificationsEnabled: () -> Boolean,
     private val specialAccesses: SpecialAccesses,
     private val resultGrants: ResultGrants,
+    /**
+     * How long a request waits for the dialog of a cancelled earlier request to be answered before its
+     * own launch is attempted; see [staleDialog].
+     */
+    private val staleDialogTimeout: Duration = STALE_DIALOG_TIMEOUT,
 ) : PermissionController {
 
     /** A permission whose request just resolved, so every [observe] of it re-reads at once. */
@@ -307,6 +319,15 @@ internal class AndroidPermissionController(
 
     /** Held for the whole of every request, so two prompts never overlap. */
     private val requestMutex: Mutex = Mutex()
+
+    /**
+     * Completes when the host has finished with the last dialog a *cancelled* caller left on screen
+     * (answered, abandoned or never shown); `null` when no such dialog is up. Cancelling a caller frees
+     * [requestMutex] but cannot take the system dialog back, and the host refuses a launch while one is
+     * pending, so the next request waits on this before it launches its own. Read and written only with
+     * [requestMutex] held, which is the synchronisation (D-21: a plain field behind the mutex).
+     */
+    private var staleDialog: CompletableDeferred<Unit>? = null
 
     /** Permissions already reported as undeclared, so a status observed on every resume warns once. */
     private val reportedUndeclared: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
@@ -649,21 +670,61 @@ internal class AndroidPermissionController(
      *   result, the other is ignored.
      */
     private suspend fun <T : Any> launchOnHost(what: String, launch: (deliver: (T) -> Unit) -> Boolean): T? {
+        if (!awaitStaleDialog(what)) return null
         val result: CompletableDeferred<T?> = CompletableDeferred()
+        // Completes when the host is done with this launch whatever the caller does: answered, failed
+        // to launch, or never launched because the caller was cancelled first.
+        val settled: CompletableDeferred<Unit> = CompletableDeferred()
         try {
             onMainThread {
                 // Cancelled before this ran (off main it is posted): do not put up a dialog nobody waits for.
-                if (!result.isActive) return@onMainThread
-                val launched: Boolean = runCatching { launch { value -> result.complete(value) } }.getOrElse { cause ->
+                if (!result.isActive) {
+                    settled.complete(Unit)
+                    return@onMainThread
+                }
+                val launched: Boolean = runCatching {
+                    launch { value ->
+                        result.complete(value)
+                        settled.complete(Unit)
+                    }
+                }.getOrElse { cause ->
                     logger.w(cause) { "The permission request host threw while launching" }
                     false
                 }
-                if (!launched && result.complete(null)) logger.w { "$what could not be shown" }
+                if (!launched) {
+                    settled.complete(Unit)
+                    if (result.complete(null)) logger.w { "$what could not be shown" }
+                }
             }
             return result.await()
         } finally {
             result.cancel() // a late delivery, or a still-queued launch, now sees a finished request
+            // A caller cancelled with its dialog still up: the next request has to wait for that dialog.
+            if (!settled.isCompleted) staleDialog = settled
         }
+    }
+
+    /**
+     * Waits, for at most [staleDialogTimeout], until the dialog an earlier cancelled caller left on
+     * screen is resolved, so a request queued behind it gets its own dialog instead of a refused launch.
+     * Cancelling the waiting caller ends the wait at once.
+     *
+     * @return `false` when the dialog was still up at the timeout: the request then fails like a refused
+     *   launch (nothing shown, status unchanged). The wait is not repeated for later requests.
+     */
+    private suspend fun awaitStaleDialog(what: String): Boolean {
+        val stale: CompletableDeferred<Unit> = staleDialog ?: return true
+        if (stale.isCompleted) {
+            staleDialog = null
+            return true
+        }
+        val resolved: Unit? = withTimeoutOrNull(staleDialogTimeout) { stale.await() }
+        staleDialog = null
+        if (resolved == null) {
+            logger.w { "$what could not be shown: an earlier cancelled request's dialog is still on screen" }
+            return false
+        }
+        return true
     }
 
     private fun onMainThread(block: () -> Unit) {
