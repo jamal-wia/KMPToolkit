@@ -8,7 +8,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -378,5 +381,131 @@ class DownloaderEngineCancelTest {
         assertTrue(unitCall.await().isSuccess)
         assertEquals(1, storage.commitEntries)
         assertEquals(1, port.enqueued.size)
+    }
+
+    // -- A flow that completes on the terminal event of an earlier transfer ---------------------------
+
+    /** Keeps the last event in a [MutableStateFlow] and completes on a terminal one. */
+    private class StateFlowPort : BackgroundResourceDownloader {
+        val state: MutableStateFlow<BackgroundDownloadEvent?> = MutableStateFlow(null)
+        val enqueued: MutableList<String> = mutableListOf()
+        var onEnqueue: (DownloadUnit, Int) -> Unit = { _, _ -> }
+
+        override fun enqueueDownload(unit: DownloadUnit) {
+            enqueued += unit.id
+            state.value = null // the old outcome is gone once a new transfer is enqueued
+            onEnqueue(unit, enqueued.size)
+        }
+
+        override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
+        override fun cancelDownload(unit: DownloadUnit) = Unit
+        override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> =
+            state.filterNotNull().transformWhile { event ->
+                emit(event)
+                event !is BackgroundDownloadEvent.Terminal
+            }
+    }
+
+    @Test
+    fun `a flow that completes on a leftover terminal is subscribed again and never hangs`() = runTest {
+        val inner = SetStorage()
+        val port = StateFlowPort()
+        port.onEnqueue = { unit, n ->
+            inner.setTempState(unit, TempFileState.Partial)
+            port.state.value = if (n == 1) {
+                BackgroundDownloadEvent.Error(unit, "connection reset")
+            } else {
+                BackgroundDownloadEvent.FileReady(unit)
+            }
+        }
+        val engine: DefaultDownloaderEngine =
+            engine(inner, port, config = DownloaderConfig(stallTimeout = Duration.INFINITE))
+
+        engine.ensureAvailable(single)
+
+        assertEquals(2, port.enqueued.size)
+        assertEquals(GroupDownloadState.Completed, engine.downloadState(single).value)
+    }
+
+    @Test
+    fun `a cancel reaches a call whose flow completed on a leftover terminal`() = runTest {
+        val inner = SetStorage()
+        val port = StateFlowPort()
+        port.onEnqueue = { unit, n ->
+            inner.setTempState(unit, TempFileState.Partial)
+            if (n == 1) port.state.value = BackgroundDownloadEvent.Error(unit, "connection reset")
+        }
+        val engine: DefaultDownloaderEngine =
+            engine(inner, port, config = DownloaderConfig(stallTimeout = Duration.INFINITE))
+        val call = backgroundScope.async { runCatching { engine.ensureAvailable(single) } }
+        advanceTimeBy(3.seconds)
+        runCurrent()
+
+        engine.cancelDownload(single)
+        runCurrent()
+
+        val outcome: Throwable? = call.await().exceptionOrNull()
+        assertTrue(outcome is DownloadCancelledException, "was $outcome")
+        assertEquals(GroupDownloadState.Idle, engine.downloadState(single).value)
+    }
+
+    // -- Surfaces overlapping on one unit -------------------------------------------------------------
+
+    @Test
+    fun `a group call does not download a unit the unit surface committed while it waited`() = runTest {
+        val inner = SetStorage()
+        val port = ControllablePort()
+        val engine: DefaultDownloaderEngine = engine(inner, port)
+        val unitCall = backgroundScope.async { runCatching { engine.ensureAvailable(solo) } }
+        runCurrent()
+        val groupCall = backgroundScope.async { runCatching { engine.ensureAvailable(single) } }
+        runCurrent()
+
+        inner.setTempState(solo, TempFileState.Complete)
+        port.events.tryEmit(BackgroundDownloadEvent.FileReady(solo))
+        runCurrent()
+
+        assertTrue(unitCall.await().isSuccess)
+        assertTrue(groupCall.await().isSuccess)
+        assertEquals(listOf("solo"), port.enqueued, "one transfer, not two")
+        assertEquals(GroupDownloadState.Completed, engine.downloadState(single).value)
+        assertEquals(TempFileState.None, inner.tempFileState(solo), "no orphan temp file")
+    }
+
+    @Test
+    fun `a cancel during the last commit has no effect and the group completes`() = runTest {
+        val inner = SetStorage()
+        val storage = GatedCommitStorage(inner, gatedId = "solo")
+        val port = ControllablePort().apply { finishesOnEnqueue(inner) }
+        val notifier = RecordingNotifier()
+        val engine: DefaultDownloaderEngine = engine(storage, port, notifier)
+        val call = backgroundScope.async { runCatching { engine.ensureAvailable(single) } }
+        storage.entered.await()
+
+        engine.cancelDownload(single)
+        storage.release.complete(Unit)
+
+        assertTrue(call.await().isSuccess, "every unit is on disk, so there is nothing to cancel")
+        assertEquals(GroupDownloadState.Completed, engine.downloadState(single).value)
+        assertEquals(RecordingNotifier.Kind.COMPLETED, notifier.calls.last().kind)
+    }
+
+    @Test
+    fun `a group cancel does not delete the temp file under a unit commit`() = runTest {
+        val inner = SetStorage()
+        val storage = GatedCommitStorage(inner, gatedId = "solo", failIfTempFileGone = true)
+        val port = ControllablePort().apply { finishesOnEnqueue(inner) }
+        val engine: DefaultDownloaderEngine = engine(storage, port)
+        val call = backgroundScope.async { runCatching { engine.ensureAvailable(solo) } }
+        storage.entered.await()
+
+        engine.cancelDownload(single)
+        storage.release.complete(Unit)
+
+        // The commit finished on the file it was reading (a group cancel used to delete it, which
+        // ended the unit call as a Storage error).
+        assertTrue(call.await().isSuccess)
+        assertTrue(inner.isResourceAvailable(solo))
+        assertEquals(UnitDownloadState.Completed, engine.unitDownloadStateFlow(solo).first())
     }
 }

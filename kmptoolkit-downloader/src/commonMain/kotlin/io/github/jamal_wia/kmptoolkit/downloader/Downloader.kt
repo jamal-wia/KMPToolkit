@@ -70,8 +70,9 @@ public interface Downloader {
      * Cancels every in-progress download — both group-level and per-unit. Used at logout, so
      * nothing keeps transferring under credentials that have just been revoked.
      *
-     * Suspend because each unit's state reset is awaited here rather than dispatched: a caller
-     * that cancels and then immediately asks [hasActiveUnitDownload] must not race the reset.
+     * Every reset is in place when this returns (the unit cancel is synchronous): a caller that
+     * cancels and then immediately asks [hasActiveUnitDownload] does not race it. A running
+     * [ensureAvailable] ends with [DownloadCancelledException].
      */
     public suspend fun cancelAllDownloads()
 

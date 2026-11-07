@@ -280,8 +280,11 @@ unit) as cancelled, and every `ensureAvailable` that was started before it ends 
 backoff, otherwise at its next step — before the next unit, before a transfer is started, after a
 commit in flight. The running call removes the temp files itself (the commit reads them, so the
 cancel never deletes them behind a running call), publishes `Idle` and removes the notification.
-A commit that had already succeeded leaves its resource in place and the call still reports the
-cancel. A request made after the cancel is not affected. This is how a cancel or a logout stops a
+A commit that had already succeeded leaves its resource in place: while units are still missing
+the call reports the cancel, and once the last commit has succeeded the cancel has no effect and
+`Completed` is published (the resource is there, so the state says so). A group cancel also
+cancels per-unit calls on that group's units, and never deletes a temp file a per-unit commit is
+reading. A request made after the cancel is not affected. This is how a cancel or a logout stops a
 call that is not a child of the engine's own scope (one a screen launched), and what keeps a retry
 backoff from re-enqueueing a download the user cancelled.
 

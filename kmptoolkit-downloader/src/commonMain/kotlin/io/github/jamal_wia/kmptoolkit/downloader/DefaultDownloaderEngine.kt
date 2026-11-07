@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -186,8 +187,10 @@ internal class DefaultDownloaderEngine(
 
         var downloadIndex = 0
         for (unit: DownloadUnit in units) {
-            throwIfGroupCancelled(group, groupState, token)
             if (storage.isResourceAvailable(unit)) continue
+            // After the on-disk skip: a cancel that arrives once the last unit is committed has
+            // nothing left to stop (see commitUnitAndNotify).
+            throwIfGroupCancelled(group, groupState, token)
 
             // A unit recovered from a complete temp file is not in downloadCount. If its bytes
             // then fail their check it downloads unplanned, over the whole bar rather than
@@ -204,6 +207,15 @@ internal class DefaultDownloaderEngine(
             // they could transfer and commit one unit id at the same time. Order is always
             // group, then unit; the unit surface takes only the unit mutex.
             unitMutex(unit).withLock {
+                // The unit surface may have committed this unit while the loop waited for its
+                // mutex: transferring it again would download a finished resource a second time
+                // and leave an orphan temp file. Publish the group's completion if that was the
+                // last missing unit.
+                if (storage.isResourceAvailable(unit)) {
+                    logger.i { "Unit $unit was committed by the unit surface meanwhile" }
+                    publishGroupCompletedIfAvailable(group, groupState)
+                    return@withLock
+                }
                 fetchAndCommitGroupUnit(
                     group = group,
                     groupState = groupState,
@@ -222,24 +234,52 @@ internal class DefaultDownloaderEngine(
      * serialises with it), the notification is removed and the state is Idle. A commit that already
      * succeeded leaves its resource in place.
      */
-    private fun cleanUpCancelledGroup(group: ResourceGroup, groupState: MutableStateFlow<GroupDownloadState>) {
+    private fun cleanUpCancelledGroup(
+        group: ResourceGroup,
+        groupState: MutableStateFlow<GroupDownloadState>,
+        heldUnit: DownloadUnit? = null,
+    ) {
         group.units.forEach { unit: DownloadUnit ->
             clearStallCount(unit)
-            safeDeleteTempFile(unit)
+            deleteTempFileUnlessUnitBusy(unit, heldUnit)
         }
         notifyRemove(group)
         groupState.value = GroupDownloadState.Idle
     }
 
-    /** The checkpoint of a running group call: cleans up and throws when the group was cancelled. */
+    /**
+     * Deletes the temp file of [unit] unless a per-unit call is working on it (it may be committing
+     * it; that call is cancelled too and removes the file itself). [heldUnit] is the unit whose
+     * mutex the caller already holds: the mutex is not reentrant, so it cannot be probed.
+     */
+    private fun deleteTempFileUnlessUnitBusy(unit: DownloadUnit, heldUnit: DownloadUnit?) {
+        if (unit.id == heldUnit?.id) {
+            safeDeleteTempFile(unit)
+            return
+        }
+        val mutex: Mutex = unitMutex(unit)
+        if (mutex.tryLock()) {
+            try {
+                safeDeleteTempFile(unit)
+            } finally {
+                mutex.unlock()
+            }
+        }
+    }
+
+    /**
+     * The checkpoint of a running group call: cleans up and throws when the group was cancelled.
+     * [heldUnit] is the unit whose mutex the caller holds, if any.
+     */
     private fun throwIfGroupCancelled(
         group: ResourceGroup,
         groupState: MutableStateFlow<GroupDownloadState>,
         token: CancelToken,
+        heldUnit: DownloadUnit? = null,
     ) {
         if (!token.isCancelled) return
         logger.i { "Download of $group cancelled while running" }
-        cleanUpCancelledGroup(group, groupState)
+        cleanUpCancelledGroup(group, groupState, heldUnit)
         throw DownloadCancelledException(group)
     }
 
@@ -251,6 +291,11 @@ internal class DefaultDownloaderEngine(
         val key: String = groupKeyOf(group)
         // First, so a running call sees it at its next checkpoint however the rest of this goes.
         groupCancelEpochs.getValue(key).update { it + 1 }
+        // A per-unit call on one of the group's units is cancelled with it (and removes its own
+        // temp file), so a group cancel never deletes a file a unit commit is reading.
+        group.units.forEach { unit: DownloadUnit ->
+            unitEntries.value[unit.id]?.cancelEpoch?.update { it + 1 }
+        }
         // tryLock, not lock: this function cannot suspend. With no running call the cleanup is done
         // here, under the mutex so a new request waits for it. A running call owns the temp files
         // (a commit in flight reads them) and deletes them itself at its next checkpoint.
@@ -260,7 +305,7 @@ internal class DefaultDownloaderEngine(
             group.units.forEach { unit: DownloadUnit ->
                 cancelTransfer(unit)
                 clearStallCount(unit)
-                if (ownsGroup) safeDeleteTempFile(unit)
+                if (ownsGroup) deleteTempFileUnlessUnitBusy(unit, heldUnit = null)
             }
             notifyRemove(group)
             groupStates.getValue(key).value = GroupDownloadState.Idle
@@ -370,7 +415,7 @@ internal class DefaultDownloaderEngine(
         failOnUnreadableUnitHash(group, groupState, unit)
         var integrityFailures = 0
         while (true) {
-            throwIfGroupCancelled(group, groupState, token)
+            throwIfGroupCancelled(group, groupState, token, unit)
             if (storage.tempFileState(unit) == TempFileState.Complete) {
                 logger.i { "Complete temp file found for $unit, committing..." }
             } else {
@@ -509,7 +554,7 @@ internal class DefaultDownloaderEngine(
                 beforeEnqueue = announceStart,
             )
             // Whatever ended the attempt, a cancel requested meanwhile ends the call.
-            throwIfGroupCancelled(group, groupState, token)
+            throwIfGroupCancelled(group, groupState, token, unit)
 
             val eventName: String? = result.terminalEvent::class.simpleName
             logger.i {
@@ -555,7 +600,7 @@ internal class DefaultDownloaderEngine(
                         // A cancel during the wait ends it at once; waiting it out and then
                         // re-enqueueing is what undid a cancel or a logout.
                         withTimeoutOrNull(backoff) { token.awaitCancel() }
-                        throwIfGroupCancelled(group, groupState, token)
+                        throwIfGroupCancelled(group, groupState, token, unit)
                         enqueueThisAttempt = true
                         continue
                     }
@@ -661,7 +706,9 @@ internal class DefaultDownloaderEngine(
      * - **Starting.** Whatever the subscription delivered before the enqueue is dropped: with the
      *   undispatched start that can only be a replay of an earlier attempt, and taking its terminal
      *   for this attempt's outcome would end a transfer nobody has started yet (or burn the retry
-     *   budget on one real failure). Events emitted inside or after the enqueue are kept.
+     *   budget on one real failure). Events emitted inside or after the enqueue are kept. When the
+     *   flow had already ended by then (it completed on that leftover), the engine subscribes again
+     *   right after the enqueue.
      * - **Attaching** ([enqueue] false). The subscription is registered first and the decision is
      *   re-checked after it: a transfer that ended between the caller's look and the subscription
      *   has had its terminal event dropped by a downloader without replay, so a complete temp file
@@ -695,18 +742,17 @@ internal class DefaultDownloaderEngine(
         onProgress: suspend (BackgroundDownloadEvent.Progress) -> Unit,
     ): TerminalWait = coroutineScope {
         val events: Channel<Any> = Channel(Channel.UNLIMITED)
-        val subscription: Job = launch(start = CoroutineStart.UNDISPATCHED) {
+        fun subscribe(): Job = launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                var sawTerminal = false
                 backgroundDownloader.observeProgress(unit).collect { event: BackgroundDownloadEvent ->
-                    if (event is BackgroundDownloadEvent.Terminal) sawTerminal = true
                     events.send(event)
                 }
-                // A marker element, not a failed channel: transformLatest below drops what it has
-                // emitted but not yet delivered when its upstream fails, which would lose a
-                // terminal event that is already on its way.
-                if (!sawTerminal) events.send(ObserveCompletedWithoutTerminal)
-                events.close()
+                // Always a marker element (never a closed or failed channel: transformLatest below
+                // drops what it has emitted but not yet delivered when its upstream fails, which
+                // would lose a terminal event already on its way, and a closed channel would also
+                // refuse the cancel marker). Whether the end of the flow matters is decided by the
+                // consumer, after the drain: a terminal the drain removed does not count.
+                events.send(ObserveCompleted)
             } catch (e: CancellationException) {
                 events.close()
                 throw e
@@ -714,11 +760,12 @@ internal class DefaultDownloaderEngine(
                 events.close(e)
             }
         }
+        var subscription: Job = subscribe()
         var cancelWatcher: Job? = null
         try {
             var startTransfer: Boolean = enqueue
             if (!startTransfer && !backgroundDownloader.isDownloadInProgress(unit)) {
-                if (tempFileIsComplete(unit)) {
+                if (tempFileIsComplete(unit) || storage.isResourceAvailable(unit)) {
                     logger.i { "The transfer of $unit ended before the engine subscribed; its file is complete" }
                     return@coroutineScope TerminalWait(BackgroundDownloadEvent.FileReady(unit), stalled = false)
                 }
@@ -731,10 +778,16 @@ internal class DefaultDownloaderEngine(
                 if (token.isCancelled) return@coroutineScope cancelledWait(unit)
                 // Nothing is suspended between this drain and the enqueue, so what is dropped here
                 // was delivered at subscription (a replay), never by this attempt's transfer.
-                while (events.tryReceive().isSuccess) {
-                    // drop
+                var subscriptionEnded = false
+                while (true) {
+                    val dropped: Any = events.tryReceive().getOrNull() ?: break
+                    if (dropped === ObserveCompleted) subscriptionEnded = true
                 }
                 backgroundDownloader.enqueueDownload(unit)
+                // A flow that ended on a leftover terminal (a per-unit state flow that completes on
+                // its last outcome) has nothing left to say: subscribe again, now that the transfer
+                // exists, and a port that replays its current state delivers this attempt's.
+                if (subscriptionEnded) subscription = subscribe()
                 if (token.isCancelled) {
                     // The cancel came after the check above: it either saw this transfer (and
                     // stopped it) or did not (and this stops it). cancelDownload bumps the epoch
@@ -750,6 +803,7 @@ internal class DefaultDownloaderEngine(
                 token.awaitCancel()
                 events.trySend(CancelRequested)
             }
+            var terminalSeen = false
             val terminalEvent: BackgroundDownloadEvent.Terminal = try {
                 events.receiveAsFlow()
                     .map<Any, Any?> { it }
@@ -759,12 +813,18 @@ internal class DefaultDownloaderEngine(
                     .onEach { event: Any? ->
                         if (event is BackgroundDownloadEvent.Progress) onProgress(event)
                     }
+                    // The end of the flow after a terminal needs no handling (and must not disturb
+                    // the terminal on its way); only an end with none seen is a failure.
+                    .filter { event: Any? ->
+                        if (event is BackgroundDownloadEvent.Terminal) terminalSeen = true
+                        event !== ObserveCompleted || !terminalSeen
+                    }
                     .transformLatest { event: Any? ->
                         if (event === CancelRequested) {
                             emit(BackgroundDownloadEvent.Cancelled(unit))
                             return@transformLatest
                         }
-                        if (event === ObserveCompletedWithoutTerminal) {
+                        if (event === ObserveCompleted) {
                             throw IllegalStateException(
                                 "observeProgress completed without a terminal event for $unit",
                             )
@@ -806,8 +866,8 @@ internal class DefaultDownloaderEngine(
     /** Queued when a cancel of the unit's group (or of the unit) is requested while it is awaited. */
     private object CancelRequested
 
-    /** Queued by the subscription when the event flow ends without a terminal event. */
-    private object ObserveCompletedWithoutTerminal
+    /** Queued by the subscription when the event flow ends. */
+    private object ObserveCompleted
 
     private fun cancelledWait(unit: DownloadUnit): TerminalWait =
         TerminalWait(terminalEvent = BackgroundDownloadEvent.Cancelled(unit), stalled = false)
@@ -893,31 +953,14 @@ internal class DefaultDownloaderEngine(
                     )
                 }
             }
-            // A cancel that landed during the commit leaves the resource in place and is reported
-            // as a cancel: no Completed and no notification after the user said stop.
-            throwIfGroupCancelled(group, groupState, token)
+            // A cancel that landed during the commit leaves the resource in place. While units are
+            // still missing it ends the call; once the group is complete there is nothing left to
+            // stop and the truth is published (a cancel after the last commit has no effect).
+            if (!isAvailable(group)) throwIfGroupCancelled(group, groupState, token, unit)
             // Only report Completed when ALL units of the group are done.
             // Emit progress=1f first so the UI always shows 100 % before transitioning.
             logger.i { "After commit, isAvailable($group)=${isAvailable(group)}" }
-            if (isAvailable(group)) {
-                // NonCancellable from here to the terminal publish: the file is already on disk, so
-                // this is bookkeeping, and a caller cancelling mid-way (navigating off the screen
-                // during the settle delay) must not strand the group at Downloading(1f) with an
-                // ongoing notification still posted — the next ensureAvailable short-circuits on
-                // isAvailable and would never come back to finish the hand-off.
-                withContext(NonCancellable) {
-                    groupState.value = GroupDownloadState.Downloading(progress = 1f)
-                    delay(timeMillis = COMPLETION_SETTLE_DELAY_MILLIS)
-                    groupState.value = GroupDownloadState.Completed
-                    // Cancel any lingering ongoing progress notification before posting the terminal
-                    // "completed": on rate-limiting notification implementations, a single post that
-                    // flips a rapidly-updated ongoing notification to non-ongoing is not reliably
-                    // honored, so an explicit remove + fresh post guarantees the shade ends on
-                    // "completed", not a stuck bar.
-                    notifyRemove(group)
-                    notifyCompleted(group)
-                }
-            }
+            publishGroupCompletedIfAvailable(group, groupState)
             logger.i { "Resource unit $unit committed successfully" }
             return true
         } catch (e: CancellationException) {
@@ -926,16 +969,44 @@ internal class DefaultDownloaderEngine(
             throw e
         } catch (e: ResourceIntegrityException) {
             // A commit that failed because the cancel took its file is a cancel, not an error.
-            throwIfGroupCancelled(group, groupState, token)
+            throwIfGroupCancelled(group, groupState, token, unit)
             logger.e(e) { "Resource $unit failed its integrity check: ${e.message}" }
             safeDeleteTempFile(unit)
             if (!lastAttempt) return false
             failGroupCommit(group, groupState, unit, DownloadError.Corrupted(e.message), e)
         } catch (e: Exception) {
-            throwIfGroupCancelled(group, groupState, token)
+            throwIfGroupCancelled(group, groupState, token, unit)
             val errorMessage: String = e.message ?: "Unknown error"
             logger.e(e) { "Failed to commit resource $unit: $errorMessage" }
             failGroupCommit(group, groupState, unit, DownloadError.Storage(errorMessage), e)
+        }
+    }
+
+    /**
+     * Publishes the group's completion when every unit is on disk; does nothing otherwise.
+     */
+    private suspend fun publishGroupCompletedIfAvailable(
+        group: ResourceGroup,
+        groupState: MutableStateFlow<GroupDownloadState>,
+    ) {
+        if (isAvailable(group)) {
+            // NonCancellable from here to the terminal publish: the file is already on disk, so
+            // this is bookkeeping, and a caller cancelling mid-way (navigating off the screen
+            // during the settle delay) must not strand the group at Downloading(1f) with an
+            // ongoing notification still posted — the next ensureAvailable short-circuits on
+            // isAvailable and would never come back to finish the hand-off.
+            withContext(NonCancellable) {
+                groupState.value = GroupDownloadState.Downloading(progress = 1f)
+                delay(timeMillis = COMPLETION_SETTLE_DELAY_MILLIS)
+                groupState.value = GroupDownloadState.Completed
+                // Cancel any lingering ongoing progress notification before posting the terminal
+                // "completed": on rate-limiting notification implementations, a single post that
+                // flips a rapidly-updated ongoing notification to non-ongoing is not reliably
+                // honored, so an explicit remove + fresh post guarantees the shade ends on
+                // "completed", not a stuck bar.
+                notifyRemove(group)
+                notifyCompleted(group)
+            }
         }
     }
 
@@ -1349,9 +1420,8 @@ internal class DefaultDownloaderEngine(
             if (!storage.isResourceAvailable(unit)) {
                 error("Resource $unit not available after commit")
             }
-            // A cancel that landed during the commit leaves the resource in place and is reported
-            // as a cancel.
-            throwIfUnitCancelled(unit, stateFlow, token)
+            // A cancel that arrives once the commit succeeded has nothing left to stop: Completed
+            // is the truth.
             // Same reasoning as the group path: once the file is on disk the terminal publish is
             // bookkeeping and must not be lost to a caller cancelling mid-way — the next
             // ensureAvailable would short-circuit on isAvailable and never set Completed.
