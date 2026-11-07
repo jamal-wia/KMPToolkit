@@ -14,8 +14,6 @@ import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.updateAndGet
 
 /**
  * The library's own [PermissionRequestHost]: it shows each dialog from the `ComponentActivity`
@@ -59,8 +57,11 @@ public class ActivityResultPermissionRequestHost(
     private val logger: Logger = NoopLogger,
 ) : PermissionRequestHost {
 
-    /** Unique per host, so two hosts in one app never answer each other's requests. */
-    private val keyPrefix: String = "io.github.jamal_wia.kmptoolkit.permission.host#${instances.updateAndGet { it + 1 }}"
+    /**
+     * Unique per host and per process, so two hosts in one app never answer each other's requests and a
+     * dead process's parked answer never matches a key of this one (see [PermissionHostKeys]).
+     */
+    private val keyPrefix: String = PermissionHostKeys.nextPrefix()
 
     private var pending: PendingRequest<*, *>? = null
 
@@ -198,13 +199,5 @@ public class ActivityResultPermissionRequestHost(
             launcher = null
             attachedTo = null
         }
-    }
-
-    private companion object {
-        /**
-         * Numbered, never random: the registry hands a pending result back by key after recreation, so hosts
-         * built in the same order must get the same keys. `updateAndGet` keeps the constructor non-suspending.
-         */
-        val instances: MutableStateFlow<Int> = MutableStateFlow(0)
     }
 }

@@ -260,7 +260,12 @@ The default `ActivityResultPermissionRequestHost` registers with the resumed `Co
 activity that resumes while a request is pending. The registry keeps a launched request's key across
 a configuration change and delivers the answer when something registers for it there, so a dialog
 answered while the activity was being recreated still reaches the waiting request. Process death
-ends the request: nothing in the new process is waiting, and nothing was recorded.
+ends the request: nothing in the new process is waiting, and nothing was recorded. The key carries a
+random token of the running process, so the answer to a dialog that was up when the process died,
+which the restored activity's registry parks under the old key, never matches a request of the new
+process and is never taken for its first one. The dead request's answer stays unread in that
+activity's saved state until the activity finishes (one small entry; no public registry API can
+remove it).
 
 The host holds the activity whose registry the dialog uses only while that dialog is showing; nothing
 is kept between requests. A request ends when the user answers, when that activity is finished
