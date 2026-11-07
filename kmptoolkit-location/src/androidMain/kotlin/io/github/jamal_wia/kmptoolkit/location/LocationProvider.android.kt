@@ -194,7 +194,7 @@ internal class AndroidLocationProvider(
             // block may run on any dispatcher, so a seed sent after the registration can land behind
             // a newer fix and leave the collector on an older position until the next update. Sent
             // before, every live fix follows it in the channel by construction. The seed is the
-            // freshest cached fix across the tracked providers — or `null` when there is none — so
+            // freshest cached fix across the enabled tracked providers — or `null` when there is none or every provider is off — so
             // the flow is never silent: while the location service is off the update callback never
             // fires, and without it observeLocation() would emit nothing at all and every downstream
             // combine would hang on its initial value. Reading the cache needs the permission too,
@@ -260,7 +260,11 @@ internal class AndroidLocationProvider(
         service.getBestProvider(criteria, true)
 
     private fun freshestLastKnownLocation(service: LocationUpdatesSource, providers: List<String>): Location? =
-        providers.mapNotNull { provider -> service.lastKnownLocation(provider) }
+        // Only providers that are switched on: the platform may keep handing out the last fix of a
+        // disabled provider, and a collection that starts after the user turned location off must
+        // begin on `null` (the same rule onProviderDisabled applies), not on a stale position.
+        providers.filter { provider -> service.isProviderEnabled(provider) }
+            .mapNotNull { provider -> service.lastKnownLocation(provider) }
             .maxByOrNull { location -> location.time }
 
     @SuppressLint("MissingPermission")
