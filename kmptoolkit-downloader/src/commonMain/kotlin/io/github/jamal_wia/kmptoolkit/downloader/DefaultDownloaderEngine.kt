@@ -226,6 +226,14 @@ internal class DefaultDownloaderEngine(
                 )
             }
         }
+        // The unit surface may have committed the last missing unit between the previous unit's
+        // commit (which then saw the group incomplete and published nothing) and the loop's
+        // on-disk check of that unit. Nothing else would publish Completed, and the next call
+        // short-circuits on isAvailable, so the group would stay at Downloading. This also covers a
+        // cancel that landed in that window (the state is then Idle although everything is on disk).
+        if (groupState.value !is GroupDownloadState.Completed) {
+            publishGroupCompletedIfAvailable(group, groupState)
+        }
     }
 
     /**
