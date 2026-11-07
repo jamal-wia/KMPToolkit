@@ -99,9 +99,9 @@ internal interface RecorderEngine {
      * after capture begins has no previous call to measure from, so its value covers an unspecified
      * stretch and is meant to be discarded.
      *
-     * Unlike the other calls this one must never throw: it runs on the metering coroutine,
-     * concurrently with transitions on the caller's thread, and may land just after the native
-     * recorder was paused, stopped or released.
+     * Unlike the other calls this one must never throw: it runs under the recorder's
+     * lock as a submitted action, so a throw would surface from whichever unrelated call drains the
+     * queue, and it may land just after the native recorder was paused, stopped or released.
      */
     fun peakDbfs(): Float?
 
@@ -148,6 +148,9 @@ internal interface RecordingFileSystem {
 
     /** Free bytes on the volume holding [path], or `-1` if the platform could not report it. */
     fun freeSpaceBytes(path: String): Long
+
+    /** Whether a file or directory exists at [path]. Never throws; `false` when unsure. */
+    fun exists(path: String): Boolean
 
     /** Deletes [path] if it exists. Never throws; a failure to delete is not worth a crash. */
     fun delete(path: String)

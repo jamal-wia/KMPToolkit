@@ -64,7 +64,7 @@ deterministic.
 | `var loadDelayMs: Long` | Give the test a window in which to cancel the coroutine that called `prepare`. |
 | `advancePositionTo(ms)` / `advancePositionBy(ms)` | Move the playhead, as playback would between two polls. |
 | `completePlayback()` | Play to the end: playhead to `durationMs`, then `onCompleted`. |
-| `failPlayback(cause)` | Fail *after* a successful load — a stream that dies mid-track. |
+| `failPlayback(cause)` | Fail *after* a successful load — a stream that dies mid-track, or right after `load` returned (the player then ends in `Error`, not `Ready`). Not meant to be called while a load is still running. |
 | `val positionMs`, `val isPlaying`, `val appliedSpeed` | Assert what the player asked the platform to do. |
 | `val loadedSources` | Every source passed to `load`, in order, including ones that then failed. |
 | `val releaseCount`, `val hasListener` | Assert the release contract — see below. |

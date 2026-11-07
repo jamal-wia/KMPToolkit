@@ -59,7 +59,13 @@ internal class MediaPlayerEngine(
                 // steady-state listeners below replace these, and resuming twice would crash.
                 player.setOnPreparedListener { if (continuation.isActive) continuation.resume(Unit) }
                 player.setOnErrorListener { _, what: Int, extra: Int ->
-                    if (continuation.isActive) continuation.resumeWithException(mediaPlayerError(what, extra))
+                    val error: IOException = mediaPlayerError(what, extra)
+                    // Awaited: the load fails. Resumed by prepared: report it as a playback failure -
+                    // the player honours that until it publishes Ready - rather than keep it for a
+                    // later check that could miss it. Cancelled (superseded, caller cancelled,
+                    // unloaded): drop it, nobody failed and the cancel path reports Idle.
+                    if (continuation.isActive) continuation.resumeWithException(error)
+                    else if (!continuation.isCancelled) listener?.onFailed(error)
                     true
                 }
                 player.prepareAsync()

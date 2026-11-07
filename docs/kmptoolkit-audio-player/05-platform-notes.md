@@ -63,6 +63,10 @@ work off the main thread and — because that thread has no `Looper` — makes t
 callbacks on the main looper. That is why the module needs no main dispatcher and therefore no
 `kotlinx-coroutines-android` dependency.
 
+**A late error** — one `MediaPlayer` reports right after it reported prepared, before `prepare`
+publishes `Ready` — is no longer lost: the engine forwards it to the player as a playback failure, and
+the player lets `Error` win over a `Ready` that was about to be published.
+
 **Playback speed** is applied via `PlaybackParams`, available since API 23. The module's `minSdk` is
 24, so there is no fallback path. The rate is pushed only while playing: assigning `playbackParams`
 to a paused `MediaPlayer` starts playback on several API levels.
@@ -112,6 +116,14 @@ observes `AVAudioSession.interruptionNotification` itself and calls `pause()`/`p
 **Background playback** additionally needs the `audio` background mode in `Info.plist`. The library
 does not set it, and setting it without genuinely playing in the background is an App Store
 rejection.
+
+**Threading.** The player's polling coroutine runs on `Dispatchers.Main` by default (3.1.0; it was
+`Dispatchers.Default`), because the engine creates the `AVPlayer` on the main thread and AVFoundation
+documents no thread safety for it. Drive the transport calls from the main thread as well. Position updates need a free main thread
+(a running main run loop, so not a host that blocks main); `createAudioPlayer(coroutineContext =
+Dispatchers.Default)` restores the 3.0 behavior. The
+end-of-item notification carries a per-load generation, so one already in flight when the source is
+unloaded or replaced is dropped instead of marking the new source `Completed`.
 
 **Loading progress** is detected by polling `AVPlayerItem.status` every 20 ms until it is
 `ReadyToPlay` or `Failed`. Polling rather than KVO: key-value observing has no Kotlin/Native binding

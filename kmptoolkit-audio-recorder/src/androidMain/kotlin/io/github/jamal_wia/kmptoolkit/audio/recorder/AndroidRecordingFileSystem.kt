@@ -43,6 +43,15 @@ internal class AndroidRecordingFileSystem(
         }
     }
 
+    override fun exists(path: String): Boolean {
+        @Suppress("TooGenericExceptionCaught", "SwallowedException")
+        return try {
+            File(path).exists()
+        } catch (failure: Throwable) {
+            false
+        }
+    }
+
     override fun delete(path: String) {
         @Suppress("TooGenericExceptionCaught", "SwallowedException")
         try {

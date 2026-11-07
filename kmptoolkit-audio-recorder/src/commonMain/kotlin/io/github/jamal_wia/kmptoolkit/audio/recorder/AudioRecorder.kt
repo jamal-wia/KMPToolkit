@@ -188,9 +188,18 @@ public interface AudioRecorder {
      * propagates; [state] is left at [RecorderState.Idle], never [RecorderState.Preparing].
      *
      * [release] may equally land while this call is suspended. The preparation then undoes itself
-     * — freeing the handle it had just created and deleting the file — and returns
+     * — freeing the handle it had just created and deleting the file it created — and returns
      * [RecorderError.AlreadyReleased] rather than moving a released recorder to
      * [RecorderState.Ready].
+     *
+     * An unexpected throw from a platform call made before the engine runs is reported as
+     * [RecorderError.EngineFailure] rather than escaping, and [state] never stays at
+     * [RecorderState.Preparing].
+     *
+     * A file that already exists at an explicit [outputPath] is replaced when preparation succeeds
+     * (the platform truncates it). If preparation fails or is cancelled, the partially created file
+     * is deleted only when this call created it; a file that was already there is left in place,
+     * though the platform may already have truncated it.
      *
      * @param outputPath absolute path of the file to record into. Must be absolute and non-blank; a
      *   blank or relative path fails with [RecorderError.DirectoryNotWritable] before the filesystem
@@ -296,7 +305,9 @@ public interface AudioRecorder {
      * When a finalization is in flight (a [stop], a [cancel] or a system event closing the file off
      * the lock), `release` returns at once and leaves the native recorder to that finalization,
      * which frees it when it completes; its outcome is not published over
-     * [RecorderState.Released]. The microphone is then free a moment after `release` returns.
+     * [RecorderState.Released]. The microphone is then free a moment after `release` returns. The same
+     * holds for a [prepare] in flight: `release` does not touch the native recorder, and the
+     * preparation's own tail (on the caller's coroutine) frees it once it runs.
      *
      * Idempotent, never fails, and never throws. See the class-level "Ownership and release" note
      * for who is expected to call it.

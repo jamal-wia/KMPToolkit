@@ -348,7 +348,10 @@ Cancellation is *not* how you abandon a recording that already started: `start` 
 so there is nothing to cancel. Call `cancel()`.
 
 `release()` during an in-flight `prepare()` is also safe: the preparation tears itself down when it
-completes rather than moving a released recorder to `Ready`.
+completes rather than moving a released recorder to `Ready`. The engine is never driven from two
+threads in that case either: `release()` only flips the state and leaves the native recorder (and, on
+iOS, the audio-session hold) to the preparation's own tail, and a `release()` that lands before the
+microphone was opened stops `prepare` from opening it at all — it returns `AlreadyReleased`.
 
 ## Threading
 

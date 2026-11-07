@@ -204,6 +204,14 @@ preparing in the same millisecond, or after the wall clock stepped backwards. Pa
 blank or relative one is rejected before the filesystem is touched, because on iOS
 `NSURL.fileURLWithPath("")` raises an Objective-C exception that Kotlin/Native cannot catch.
 
+An unexpected throw from a platform call before the engine runs (an unresolvable app directory, a
+filesystem error) is reported as `EngineFailure(PREPARE, cause)` too; `state` never stays at
+`Preparing` after the call, so the recorder can prepare again.
+
+**An existing file at an explicit `outputPath`** is replaced when preparation succeeds (the platform
+truncates it). When preparation fails or is cancelled, a file that was already there is not deleted by
+the library — only a file this call created is — though the platform may already have truncated it.
+
 Cancellable at every point, including while the directory and free-space checks are still pending:
 on cancellation the native recorder is released, the file is deleted, `state` returns to `Idle`, and
 `CancellationException` propagates.
@@ -273,7 +281,10 @@ first if you want it deleted. Releasing from `Ready` is the one exception: that 
 recorded into and nothing could ever clean it up afterwards, so it is deleted.
 
 Safe to call while a `prepare()` is still in flight — the preparation undoes itself when it
-finishes, rather than resurrecting a released recorder.
+finishes (freeing the handle and deleting the file it created), rather than resurrecting a released
+recorder. As with a finalization, `release()` then does not touch the native recorder: the
+preparation's tail, on its caller's coroutine, frees it, so the microphone is free a moment after
+`release()` returns.
 
 When a finalization is in flight (a `stop()`, a `cancel()` or a system event is closing the file off
 the lock), `release()` returns at once and does not touch the native recorder: the finalization owns

@@ -26,7 +26,11 @@ import kotlin.coroutines.CoroutineContext
  *   wants. Set it to `false` when the app configures the session itself — that setting is
  *   process-wide, and an app mixing recording with playback must own it. See
  *   `docs/kmptoolkit-audio-player/05-platform-notes.md`.
- * @param coroutineContext context for the position-polling coroutine. A [kotlinx.coroutines.Job] in it
+ * @param coroutineContext context for the position-polling coroutine. The default is
+ *   [Dispatchers.Main], so that `AVPlayer` — which documents no thread safety and which this engine
+ *   creates on the main thread — is read from the same thread that drives it; call the transport
+ *   functions from the main thread too. Position updates now need a free main thread (a running
+ *   main run loop); pass `Dispatchers.Default` to restore the 3.0 behavior. A [kotlinx.coroutines.Job] in it
  *   is ignored: the player runs under a job of its own, so releasing it never cancels a job that
  *   belongs to the caller.
  * @return a player in [PlayerState.Idle].
@@ -36,7 +40,7 @@ public fun createAudioPlayer(
     assetBundle: NSBundle = NSBundle.mainBundle,
     assetSubdirectories: List<String> = emptyList(),
     managesAudioSession: Boolean = true,
-    coroutineContext: CoroutineContext = Dispatchers.Default,
+    coroutineContext: CoroutineContext = Dispatchers.Main,
 ): AudioPlayer = createAudioPlayer(
     engine = AvPlayerEngine(
         assetBundle = assetBundle,

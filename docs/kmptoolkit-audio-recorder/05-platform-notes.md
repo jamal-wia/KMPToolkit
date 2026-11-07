@@ -288,6 +288,16 @@ linear in decibels between; `NaN` reads as silence.
   `peakPowerForChannel` are called only while `level` or `levelSamples` is collected. The value
   published is the maximum of `peakPowerForChannel` over the configured channel count, already in
   dBFS.
+- **Sampling is serialized with the transitions.** Each `peakDbfs()` call runs under the recorder's
+  lock, behind the meter's epoch, so it can never overlap the `stop()` or `release()` that ends the
+  session — `AVAudioRecorder` documents no thread safety. The call is cheap enough that running it
+  on whichever thread holds the lock costs nothing noticeable.
+- **`release()` is synchronous.** It stops the platform recorder, frees the engine and, on iOS,
+  deactivates the audio session (blocking IPC) inline on the calling thread, unless a finalizer or an
+  in-flight `prepare()` already owns the engine. That is the price of returning with the microphone
+  actually free, which a consumer that creates a new recorder right away depends on; expect tens of
+  milliseconds on the main thread. No other thread can be left waiting on the recorder's lock
+  meanwhile.
 - **Peak, not average.** iOS also offers `averagePowerForChannel`. It is not used, because
   Android's reading is a peak, and the same voice would otherwise draw a visibly different bar on
   each platform.
