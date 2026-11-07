@@ -441,4 +441,23 @@ class ActivityBiometricPromptPortTest {
 
         assertEquals(1, seams.stop.calls)
     }
+
+    @Test
+    fun `a show that runs after the activity saved its state reports NoPromptHost instead of hanging`() {
+        val controller = Robolectric.buildActivity(FragmentActivity::class.java).setup()
+        val activity: FragmentActivity = controller.get()
+        val seams = CountingSeams()
+        val outcomes = mutableListOf<BiometricResult>()
+        // Posted from a background thread while the activity was still resumed ...
+        val handle = onBackground { checkNotNull(portWith(activity, seams).show(promptText, true) { outcomes += it }) }
+        // ... and the activity saves its state (rotation, backgrounding) before the post runs.
+        controller.saveInstanceState(android.os.Bundle())
+
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(listOf<BiometricResult>(BiometricResult.NoPromptHost), outcomes)
+        assertEquals(0, seams.started, "androidx would drop the prompt silently, so it must not be started")
+        assertEquals(0, seams.stop.calls)
+        assertFalse((handle as ActivityPromptHandle).holdsSinkForTest())
+    }
 }

@@ -85,6 +85,14 @@ internal class ActivityBiometricPromptPort(
         activity.runOnUiThread {
             // Cheap pre-check: a show that was cancelled before this block ran builds no prompt at all.
             if (!handle.isWaiting) return@runOnUiThread
+            // The activity was resumed when it was read, but this block may run after it saved its state
+            // (a configuration change, or the app going to the background, between the post and now).
+            // androidx then logs and returns without showing anything or calling back, which would leave
+            // the caller suspended with a handle that never ends. Answer the way the no-host case does.
+            if (activity.supportFragmentManager.isStateSaved) {
+                handle.deliver(BiometricResult.NoPromptHost)
+                return@runOnUiThread
+            }
             val systemPrompt: BiometricPrompt = promptFactory(
                 activity,
                 ContextCompat.getMainExecutor(activity),

@@ -71,6 +71,10 @@ none — the app is backgrounded, a configuration change is in flight — or whe
 is not a `FragmentActivity`, `authenticate` returns `BiometricResult.NoPromptHost` and nothing is
 shown. It is deliberately not a `ClassCastException`, and deliberately not `Cancelled`.
 
+The same answer covers a call made from a background thread whose activity saves its state (a
+rotation, the app going to the background) before the prompt could be shown: androidx would drop the
+prompt silently, so the call returns `NoPromptHost` instead of staying suspended.
+
 Pass your app's own tracker instead — `createBiometricGate(context, activityAccess)`, or
 `activityAccess` on `createBiometricGateWithLauncher` — and the prompt is hosted by whichever activity
 *that* tracker answers with: its `isTracked` predicate is honoured, so an activity it does not track
