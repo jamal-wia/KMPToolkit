@@ -113,8 +113,12 @@ internal object UploadClassifierRegistry {
         slot.value = classify
     }
 
-    suspend fun await(timeoutMillis: Long): ((UploadResult) -> SettleResult)? =
-        withTimeoutOrNull(timeoutMillis) { slot.filterNotNull().first() }
+    suspend fun await(timeoutMillis: Long): ((UploadResult) -> SettleResult)? {
+        // Looked at first: withTimeoutOrNull never runs its block for a zero (or spent) budget, which would
+        // read a classifier that is registered right now as absent.
+        slot.value?.let { return it }
+        return withTimeoutOrNull(timeoutMillis) { slot.filterNotNull().first() }
+    }
 }
 
 /**

@@ -109,4 +109,14 @@ class WorkManagerWakeChurnAdversarialTest {
             assertTrue(held === first || held === second, "the slot holds a classifier neither transport registered")
         }
     }
+
+    @Test
+    fun `a classifier that is already registered is found with a zero wait`() {
+        val registered: (UploadResult) -> SettleResult = { SettleResult.Delivered }
+        UploadClassifierRegistry.register(registered)
+
+        val found: ((UploadResult) -> SettleResult)? = runBlocking { UploadClassifierRegistry.await(0L) }
+
+        assertTrue(found === registered, "a zero wait must still look at the slot; an engineWait under a millisecond rounds to it")
+    }
 }
