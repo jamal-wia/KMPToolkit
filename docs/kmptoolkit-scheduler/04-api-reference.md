@@ -181,7 +181,7 @@ invented for you.
 
 | Parameter | Contract |
 |---|---|
-| `alarmIntentScheme` | **Android only.** URI scheme for the per-alarm data URI that keeps two alarms' `PendingIntent`s distinct. `null` derives `<applicationId>.alarm`, with characters a URI scheme cannot hold (`_`, non-ASCII) replaced by `-`. A non-null value must be a valid URI scheme. |
+| `alarmIntentScheme` | **Android only.** URI scheme for the per-alarm data URI that keeps two alarms' `PendingIntent`s distinct. `null` derives `<applicationId>.alarm`, with characters a URI scheme cannot hold (`_`, non-ASCII) replaced by `-`. A non-null value must be a valid URI scheme. **Keep it stable across app launches and versions**: an alarm armed under an earlier scheme cannot be cancelled or replaced afterwards (cancel is a silent no-op, and scheduling the same id again arms a second alarm). |
 | `alarmIdKey` | Key carrying `ScheduledAlarm.id`: an intent extra on Android, a `userInfo` entry on iOS. |
 | `alarmTypeKey` | Key carrying `ScheduledAlarm.type`, on the same terms. |
 

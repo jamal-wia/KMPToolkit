@@ -171,6 +171,9 @@ manifest, and only you know which alarms are still wanted after however long the
   `ACTION_MY_PACKAGE_REPLACED` exactly as you re-arm after a reboot.
 - **Treating the result as a boolean.** `Inexact` is armed; `Failed` is not. Collapsing them either
   hides a downgrade or invents a failure that did not happen.
+- **Changing `alarmIntentScheme` between app versions.** Alarms armed under the earlier scheme can no
+  longer be cancelled or replaced: `cancel` is a silent no-op and a new `schedule` of the same id arms
+  a second alarm. Pick a scheme once and keep it.
 - **Expecting `cancelAll()` to clear everything.** It cancels exactly the ids you pass. There is no
   "cancel all mine" on Android.
 - **Assuming an alarm survives force-stop or reboot.** Neither is true on Android. Reconcile at
