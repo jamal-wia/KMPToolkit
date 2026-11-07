@@ -76,7 +76,7 @@ internal class WorkManagerUploadHandlerTransport(
         // expired ones. The engine may not be registered yet, so this waits for it off the caller's thread.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching {
-                journal.sweep { itemId, response -> UploadGateway.complete(itemId, response, config.engineWait) }
+                journal.sweep(gatewaySettle(config.engineWait))
             }.onFailure { failure -> logger.w(failure) { "The upload outcome journal sweep failed." } }
         }
     }
@@ -154,7 +154,7 @@ public open class UploadHandlerWorker(
         // An outcome journaled by an earlier run of this job — the process died between the server's answer
         // and the engine's settlement — is replayed instead of uploading again.
         val journal: OutcomeJournal = androidOutcomeJournal(applicationContext)
-        when (journal.replay(itemId) { id, response -> UploadGateway.complete(id, response, engineWait) }) {
+        when (journal.replay(itemId, gatewaySettle(engineWait))) {
             ReplayOutcome.Replayed -> return Result.success()
             ReplayOutcome.Kept -> return Result.retry()
             ReplayOutcome.NoEntry, ReplayOutcome.Discarded -> Unit
@@ -165,6 +165,9 @@ public open class UploadHandlerWorker(
             UploadAttempt.NothingOwed -> return Result.success()
             is UploadAttempt.Ready -> attempt.request
         }
+        // The handler's body limit, asked now while the engine is known to be reachable: the journal keeps no
+        // more of the body than the handler asked for.
+        val bodyLimit: Int = UploadGateway.responseBodyLimit(itemId, engineWait) ?: MAX_RESPONSE_BODY_BYTES
 
         val outcome: MultipartOutcome = uploadReportingProgress(itemId, request)
         // The server's answer, when there was one, goes to the handler with the status. An outcome that
@@ -175,9 +178,11 @@ public open class UploadHandlerWorker(
         // this process and the journal: it is never put into WorkManager's data.
         val response: UploadResponse? = outcome.response
         val landed: Boolean = if (response != null) {
-            val journaled: Boolean = journal.record(itemId, response)
-            UploadGateway.complete(itemId, response, engineWait).also { settled ->
-                if (settled && journaled) journal.delete(itemId)
+            val journaled: Boolean = journal.record(itemId, response, bodyLimit)
+            if (journaled) {
+                journal.settleRecorded(itemId, response, gatewaySettle(engineWait))
+            } else {
+                UploadGateway.complete(itemId, response, engineWait)
             }
         } else {
             UploadGateway.complete(itemId, outcome.result, engineWait)

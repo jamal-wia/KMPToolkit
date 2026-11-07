@@ -287,7 +287,7 @@ internal class BackgroundSessionUploadTransport(
         // Outcomes a dead process journaled and nobody collected: replay them to the engine, or delete the
         // expired ones. Once per transport, so once per process; the engine may not be up yet, which the
         // gateway waits for.
-        scope.launch { journal.sweep { itemId, response -> UploadGateway.complete(itemId, response) } }
+        scope.launch { journal.sweep(gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT)) }
     }
 
     /** The item id carried by [identifier], or `null` for a session this transport does not own. */
@@ -301,7 +301,7 @@ internal class BackgroundSessionUploadTransport(
     override fun launch(itemId: String, isRehandOff: Boolean, request: UploadRequest) {
         // First of all: an outcome this item's earlier upload journaled is replayed INSTEAD of uploading — the
         // session it ran on is gone and its events will not come again. Nothing is started, not even a session.
-        if (replayJournaled(itemId)) return
+        if (replayJournaled(itemId, isRehandOff)) return
         val live: LiveUpload = claimForHandOff(itemId) ?: run {
             logger.i { "Upload hand-off joins the live session — item=$itemId" }
             return
@@ -368,18 +368,27 @@ internal class BackgroundSessionUploadTransport(
     }
 
     /**
-     * Replays the journaled outcome of [itemId], if a usable one exists.
+     * Replays the journaled outcome of [itemId], if a usable one exists and this is a re-hand.
      *
-     * @return whether there was one — the caller then starts nothing. An unusable entry is deleted by the
-     *   inspection and reads as none.
+     * A lost settlement always leaves the item in flight until its lease expires, so only a re-hand can be
+     * owed a replay: for a first hand-off an entry is stale, and is deleted so that it cannot stand in for
+     * the upload this hand-off was made for.
+     *
+     * @return whether a replay was started — the caller then starts nothing. An unusable entry is deleted by
+     *   the inspection and reads as none.
      */
-    private fun replayJournaled(itemId: String): Boolean {
+    private fun replayJournaled(itemId: String, isRehandOff: Boolean): Boolean {
         val entry: JournalEntry = journal.inspect(itemId)
         if (entry !is JournalEntry.Valid) return false
+        if (!isRehandOff) {
+            logger.i { "Discarded a stale journaled outcome at a first hand-off — item=$itemId" }
+            journal.delete(itemId)
+            return false
+        }
         logger.i { "Upload hand-off replays the journaled outcome instead of uploading — item=$itemId" }
         scope.launch {
             // An engine that is not reachable keeps the entry; the lease expiry re-hands the item and lands here again.
-            journal.replayValid(itemId, entry) { id, response -> UploadGateway.complete(id, response) }
+            journal.replay(itemId, gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT))
         }
         return true
     }
@@ -392,7 +401,7 @@ internal class BackgroundSessionUploadTransport(
         if (entry is JournalEntry.Valid) {
             scope.launch {
                 try {
-                    journal.replayValid(itemId, entry) { id, response -> UploadGateway.complete(id, response) }
+                    journal.replay(itemId, gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT))
                 } finally {
                     onDone()
                 }
@@ -793,9 +802,15 @@ private class UploadSessionDelegate(
             forwarder.join()
             val landed: Boolean = when {
                 wasCancelled -> true
-                response != null -> UploadGateway.complete(itemId, response).also { settled ->
-                    if (settled && journaled) journal.delete(itemId)
+                response != null && journaled -> {
+                    // Written in full, synchronously; now that an engine can say what the handler asked
+                    // for, the body is cut to it before the settlement.
+                    UploadGateway.responseBodyLimit(itemId, UploadGateway.DEFAULT_ENGINE_WAIT)
+                        ?.let { limit -> journal.restrictBody(itemId, limit) }
+                    journal.settleRecorded(itemId, response, gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT))
                 }
+
+                response != null -> UploadGateway.complete(itemId, response)
 
                 else -> UploadGateway.complete(itemId, outcome)
             }

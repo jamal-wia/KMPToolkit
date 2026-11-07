@@ -21,6 +21,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSFileProtectionCompleteUntilFirstUserAuthentication
+import platform.Foundation.NSFileProtectionKey
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
@@ -113,6 +115,14 @@ class OutcomeJournalIosTest {
     }
 
     @Test
+    fun `the entry file has the protection class until first unlock`() {
+        storage.write("a", byteArrayOf(1))
+
+        val attributes: Map<Any?, *>? = NSFileManager.defaultManager.attributesOfItemAtPath("$dir/a", error = null)
+        assertEquals(NSFileProtectionCompleteUntilFirstUserAuthentication, attributes?.get(NSFileProtectionKey))
+    }
+
+    @Test
     fun `a journal that cannot be written reports it`() {
         val blocked = IosOutcomeStorage("/nonexistent-root-for-test/outcomes")
 
@@ -136,6 +146,23 @@ class OutcomeJournalIosTest {
 
         assertEquals(listOf<UploadResponse?>(sent()), handler.delivered)
         assertTrue(handler.classified.none { it is UploadResult.TransportFailure }, "an upload attempt would have failed here: ${handler.classified}")
+        assertEquals(JournalEntry.Absent, journal().inspect("jrn-1"))
+    }
+
+    @Test
+    fun `a first hand-off discards a stale entry and uploads instead of replaying it`() = runTest {
+        val handler = Recorder()
+        startEngine(handler)
+        val transport: BackgroundSessionUploadTransport = transport()
+        withContext(Dispatchers.Default) { delay(500L) }
+        journal().record("jrn-1", sent())
+
+        // A lost settlement leaves the item in flight until its lease expires, so only a re-hand is owed a
+        // replay; this hand-off is a retry's fresh one, and its upload (which fails: no URL) must happen.
+        transport.launch("jrn-1", isRehandOff = false, request = noServer)
+        until { handler.classified.any { it is UploadResult.TransportFailure } }
+
+        assertTrue(handler.delivered.isEmpty(), "the stale response was not delivered")
         assertEquals(JournalEntry.Absent, journal().inspect("jrn-1"))
     }
 

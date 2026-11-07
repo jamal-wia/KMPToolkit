@@ -57,7 +57,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   an iOS relaunch or a re-hand after a lease expiry replays that file through `UploadGateway.complete`
   instead of re-uploading. The file is deleted on `cancel` and after 7 days, an orphan sweep runs when
   the transport is created, and an entry of an unknown format version is ignored. No public API change.
-  The response body now rests briefly on disk, in no-backup storage on Android and a backup-excluded
+  The journal keeps the body only up to the handler's `maxResponseBodyBytes` and replays at most once per item. The response body now rests briefly on disk, in no-backup storage on Android and a backup-excluded
   Application Support directory (`NSFileProtectionCompleteUntilFirstUserAuthentication`) on iOS; see
   `docs/kmptoolkit-uploader/05-platform-notes.md`. The legacy `createWorkManagerUploadTransport` is
   unchanged.

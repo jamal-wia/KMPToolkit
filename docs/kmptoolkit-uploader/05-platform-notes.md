@@ -175,15 +175,19 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   iOS does not continue an upload for an app the user swiped away.
 - **The outcome journal.** Once a handler transport has the server's answer it writes it to a small file
   *before* the engine settles the item, and deletes the file when the settlement landed. The file holds
-  the status, the headers, the body (at most 1 MiB, as captured) and a timestamp, so **a response body
-  rests briefly on disk**. On Android it lives in `noBackupFilesDir/kmptoolkit-uploader/outcomes/<itemId>`
+  the status, the headers, the body and a timestamp, so **a response body rests briefly on disk**. The body is
+  held to the handler's `maxResponseBodyBytes` (never above 1 MiB); a handler that sets `0` has no body
+  in the file. On Android the limit is read before the upload starts; on iOS the file is first written
+  as captured, because the callback cannot wait, and cut to the limit as soon as the engine is reachable. On Android it lives in `noBackupFilesDir/kmptoolkit-uploader/outcomes/<itemId>`
   — never in a cloud backup or a device transfer. On iOS it lives in
   `Application Support/kmptoolkit-uploader/outcomes/<itemId>`, excluded from backup, with the
   `NSFileProtectionCompleteUntilFirstUserAuthentication` class (a background session can finish while
   the device is locked, so a stricter class would fail exactly when the file is needed). If the process
   dies between the answer and the settlement, the next run **replays the file instead of uploading
-  again**: the Android worker checks it before preparing the attempt, the iOS transport in a hand-off,
-  in `handleEvents` and once when it is created. A replayed response reaches `classify` and
+  again**: the Android worker checks it before preparing the attempt, the iOS transport in a re-hand
+  (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
+  created. The file is deleted just before the engine commits the settlement, so a retry that is
+  re-handed at once never meets it, and one replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
   file; so does the 7-day expiry. A file of an unknown format version, or an unreadable one, is ignored
   and deleted. Nothing is journaled for a transport failure (there is no response), a write that fails

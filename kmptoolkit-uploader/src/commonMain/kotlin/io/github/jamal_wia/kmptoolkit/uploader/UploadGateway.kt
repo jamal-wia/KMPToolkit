@@ -96,6 +96,24 @@ public object UploadGateway {
         return engine.settleUpload(itemId, UploadResult.Completed(response.statusCode), response)
     }
 
+    /**
+     * [complete] with an [UploadResponse], for the built-in transports' outcome journal: [onSettling] runs
+     * just before the engine commits the settlement, after the handler's hooks.
+     */
+    internal suspend fun completeJournaled(
+        itemId: String,
+        response: UploadResponse,
+        engineWait: Duration,
+        onSettling: () -> Unit,
+    ): Boolean {
+        val engine: DefaultUploaderEngine = awaitEngine(engineWait) ?: return false
+        return engine.settleUpload(itemId, UploadResult.Completed(response.statusCode), response, onSettling)
+    }
+
+    /** The body limit of [itemId]'s handler, or `null` when no engine answers within [engineWait] or the item is gone. */
+    internal suspend fun responseBodyLimit(itemId: String, engineWait: Duration): Int? =
+        awaitEngine(engineWait)?.responseBodyLimitOf(itemId)
+
     private suspend fun awaitEngine(wait: Duration): DefaultUploaderEngine? =
         UploaderEngineRegistry.await(wait) as? DefaultUploaderEngine
 }

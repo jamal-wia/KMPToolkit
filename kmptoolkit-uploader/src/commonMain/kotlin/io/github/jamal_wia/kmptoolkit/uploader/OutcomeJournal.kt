@@ -5,7 +5,12 @@ import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Where [OutcomeJournal] keeps its entries: one blob per item id. The platform implementation decides the
@@ -81,14 +86,17 @@ internal class OutcomeJournal(
 ) {
 
     /**
-     * Records [response] for [itemId], atomically. The body and headers are held to the engine's own ceilings.
+     * Records [response] for [itemId], atomically. The body is held to [bodyLimit] — the handler's own
+     * `maxResponseBodyBytes` where the transport knows it, never more than the engine's ceiling; `0` keeps no
+     * body at all — and the headers to the engine's cap.
      *
      * @return whether the entry is now on disk; `false` means the outcome is not protected.
      */
-    fun record(itemId: String, response: UploadResponse): Boolean {
+    fun record(itemId: String, response: UploadResponse, bodyLimit: Int = MAX_RESPONSE_BODY_BYTES): Boolean {
         if (!isJournalableId(itemId)) return false
         return try {
-            val bytes: ByteArray = OutcomeCodec.encode(response.enforced(MAX_RESPONSE_BODY_BYTES), clock.nowEpochMillis())
+            val limit: Int = bodyLimit.coerceIn(0, MAX_RESPONSE_BODY_BYTES)
+            val bytes: ByteArray = OutcomeCodec.encode(response.enforced(limit), clock.nowEpochMillis())
             storage.write(itemId, bytes)
         } catch (failure: Exception) {
             if (failure is CancellationException) throw failure
@@ -133,35 +141,63 @@ internal class OutcomeJournal(
     }
 
     /**
-     * Hands the entry of [itemId], if there is a usable one, to [complete] — the engine's settlement — and
-     * deletes it once [complete] returned `true`. An id the engine does not know settles nothing and
-     * returns `true`, so such an entry is deleted too; an unreachable engine returns `false` and the entry
-     * stays for the next attempt.
+     * Cuts the body of [itemId]'s entry to [limit] when it holds more; used once the handler's limit is
+     * known for an entry written before it was. A missing or unusable entry is left as it is.
      */
-    suspend fun replay(itemId: String, complete: suspend (String, UploadResponse) -> Boolean): ReplayOutcome =
-        when (val entry: JournalEntry = inspect(itemId)) {
-            JournalEntry.Absent -> ReplayOutcome.NoEntry
-            JournalEntry.Discarded -> ReplayOutcome.Discarded
-            is JournalEntry.Valid -> replayValid(itemId, entry, complete)
+    fun restrictBody(itemId: String, limit: Int) {
+        val entry: JournalEntry = inspect(itemId)
+        if (entry is JournalEntry.Valid && entry.response.bodySize > limit.coerceAtLeast(0)) {
+            record(itemId, entry.response, limit)
+        }
+    }
+
+    /**
+     * Settles the response a transport just [record]ed for [itemId], under the same per-item exclusion as
+     * [replay]: if a replayer — the creation sweep — already handled the entry meanwhile, there is nothing
+     * left to settle. Deleted once the engine commits or [settle] returned `true`.
+     *
+     * @return whether the outcome landed (or was already handled).
+     */
+    suspend fun settleRecorded(itemId: String, response: UploadResponse, settle: OutcomeSettle): Boolean =
+        OutcomeReplayLocks.withItem(itemId) {
+            if (inspect(itemId) !is JournalEntry.Valid) {
+                true
+            } else {
+                settle(itemId, response) { delete(itemId) }.also { landed -> if (landed) delete(itemId) }
+            }
         }
 
-    /** [replay] for an entry already inspected. */
-    suspend fun replayValid(
-        itemId: String,
-        entry: JournalEntry.Valid,
-        complete: suspend (String, UploadResponse) -> Boolean,
-    ): ReplayOutcome {
-        logger.i { "Replaying the journaled upload outcome — item=$itemId, status=${entry.response.statusCode}" }
-        if (!complete(itemId, entry.response)) return ReplayOutcome.Kept
-        delete(itemId)
-        return ReplayOutcome.Replayed
-    }
+    /**
+     * Hands the entry of [itemId], if there is a usable one, to [settle] — the engine's settlement — and
+     * deletes it once the engine commits (see [OutcomeSettle]) or [settle] returned `true`. An id the engine
+     * does not know settles nothing and returns `true`, so such an entry is deleted too; an unreachable
+     * engine returns `false` and the entry stays for the next attempt.
+     *
+     * One replay per item at a time, process-wide: a second one — the creation sweep and a worker, say —
+     * waits, then finds the entry gone and does nothing, so the response is delivered once.
+     */
+    suspend fun replay(itemId: String, settle: OutcomeSettle): ReplayOutcome =
+        OutcomeReplayLocks.withItem(itemId) {
+            when (val entry: JournalEntry = inspect(itemId)) {
+                JournalEntry.Absent -> ReplayOutcome.NoEntry
+                JournalEntry.Discarded -> ReplayOutcome.Discarded
+                is JournalEntry.Valid -> {
+                    logger.i { "Replaying the journaled upload outcome — item=$itemId, status=${entry.response.statusCode}" }
+                    if (!settle(itemId, entry.response) { delete(itemId) }) {
+                        ReplayOutcome.Kept
+                    } else {
+                        delete(itemId)
+                        ReplayOutcome.Replayed
+                    }
+                }
+            }
+        }
 
     /**
      * Replays or deletes every entry no one claimed — those of items whose transport never ran again — and
      * clears leftovers of cut-short writes. The 7-day expiry applies as in [inspect].
      */
-    suspend fun sweep(complete: suspend (String, UploadResponse) -> Boolean) {
+    suspend fun sweep(settle: OutcomeSettle) {
         val ids: List<String> = try {
             storage.purgeLeftovers()
             storage.itemIds()
@@ -170,7 +206,7 @@ internal class OutcomeJournal(
             logger.w(failure) { "Could not list the journaled upload outcomes." }
             return
         }
-        for (itemId in ids) replay(itemId, complete)
+        for (itemId in ids) replay(itemId, settle)
     }
 
     companion object {
@@ -319,6 +355,40 @@ internal object OutcomeCodec {
             val out: ByteArray = data.copyOfRange(position, position + length)
             position += length
             return out
+        }
+    }
+}
+
+/**
+ * The engine's settlement of a journaled response: `(itemId, response, onSettling)`. [onSettling] must run
+ * right before the engine commits the outcome, so the entry is gone before the item can be re-handed.
+ * Returns `false` when the outcome did not land.
+ */
+internal typealias OutcomeSettle = suspend (String, UploadResponse, () -> Unit) -> Boolean
+
+/** [OutcomeSettle] through [UploadGateway], waiting up to [engineWait] for an engine. */
+internal fun gatewaySettle(engineWait: Duration): OutcomeSettle = { itemId, response, onSettling ->
+    UploadGateway.completeJournaled(itemId, response, engineWait, onSettling)
+}
+
+/** One replay per item id at a time, shared by every [OutcomeJournal] in the process. */
+internal object OutcomeReplayLocks {
+
+    private class Entry(val mutex: Mutex = Mutex(), var users: Int = 0)
+
+    private val guard: Mutex = Mutex()
+    private val entries: MutableMap<String, Entry> = HashMap()
+
+    suspend fun <T> withItem(itemId: String, block: suspend () -> T): T {
+        val entry: Entry = guard.withLock { entries.getOrPut(itemId) { Entry() }.also { it.users++ } }
+        try {
+            return entry.mutex.withLock { block() }
+        } finally {
+            withContext(NonCancellable) {
+                guard.withLock {
+                    if (--entry.users == 0) entries.remove(itemId)
+                }
+            }
         }
     }
 }

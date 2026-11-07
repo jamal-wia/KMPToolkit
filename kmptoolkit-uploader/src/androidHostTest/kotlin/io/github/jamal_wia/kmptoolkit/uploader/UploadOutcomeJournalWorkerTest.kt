@@ -87,7 +87,8 @@ class UploadOutcomeJournalWorkerTest {
 
     private val created = "HTTP/1.1 201 Created\r\nLocation: /jobs/1\r\nContent-Length: 12\r\nConnection: close\r\n\r\n{\"job\":\"j1\"}"
 
-    private fun handler(onPrepared: (Int) -> Unit = {}) = JournalHandler(server.localPort, onPrepared)
+    private fun handler(bodyLimit: Int = UploadHandler.DEFAULT_MAX_RESPONSE_BODY_BYTES, onPrepared: (Int) -> Unit = {}) =
+        JournalHandler(server.localPort, bodyLimit, onPrepared)
 
     private suspend fun kotlinx.coroutines.test.TestScope.startEngine(handler: JournalHandler): UploaderEngine {
         val started: UploaderEngine = testEngine(TestUploaderStore(), listOf(handler), backgroundScope)
@@ -153,6 +154,22 @@ class UploadOutcomeJournalWorkerTest {
         assertEquals(2, handler.prepared.get(), "hand-off and the first run prepared; the replay did not")
         assertEquals("""{"job":"j1"}""", handler.delivered.single()?.body()?.decodeToString())
         assertTrue(!entryFile("item-1").exists())
+    }
+
+    @Test
+    fun `the journal keeps no more body than the handler asked for`() = runTest {
+        serve(created)
+        val handler: JournalHandler = handler(bodyLimit = 0)
+        val live: UploaderEngine = startEngine(handler)
+        // The engine goes away once the worker has asked for the limit, so the entry stays on disk.
+        handler.onLimitRead = { UploaderEngineRegistry.unregister(live) }
+
+        assertIs<ListenableWorker.Result.Retry>(runWorker())
+
+        val kept: JournalEntry.Valid = assertIs(journal().inspect("item-1"))
+        assertEquals(201, kept.response.statusCode)
+        assertEquals(0, kept.response.body().size, "a handler that wants no body has none on disk")
+        assertTrue(kept.response.isBodyTruncated)
     }
 
     @Test
@@ -272,8 +289,10 @@ class UploadOutcomeJournalWorkerTest {
         override fun cancel(itemId: String) = Unit
     }
 
-    private class JournalHandler(private val port: Int, private val onPrepared: (Int) -> Unit) :
+    private class JournalHandler(private val port: Int, private val bodyLimit: Int, private val onPrepared: (Int) -> Unit) :
         UploadHandler<String>(NoopTransport()) {
+        var onLimitRead: () -> Unit = {}
+        override val maxResponseBodyBytes: Int get() = bodyLimit.also { onLimitRead() }
         override val type: String = "journal"
         val prepared = AtomicInteger(0)
         val delivered = java.util.Collections.synchronizedList(mutableListOf<UploadResponse?>())

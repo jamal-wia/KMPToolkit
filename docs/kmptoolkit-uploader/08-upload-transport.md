@@ -122,7 +122,8 @@ moment the engine has settled it (a small file per item, in no-backup storage on
 backup-excluded Application Support directory on iOS). If the process dies in between, the next run
 **replays that answer through `UploadGateway.complete` instead of uploading again** — the Android
 worker at the start of `doWork`, the iOS transport in a hand-off, in `handleEvents` and once at
-creation. The file is deleted when the settlement lands, on `cancel`, and after 7 days; an item the
+creation (on iOS only a re-hand is owed a replay). The file holds the body only up to the handler's
+`maxResponseBodyBytes`. It is deleted just before the engine commits the settlement, on `cancel`, and after 7 days; an item the
 engine no longer knows settles nothing and its file is deleted. The response body therefore rests
 briefly on disk; see [`05-platform-notes.md`](05-platform-notes.md#the-servers-response). Your own
 transport has no journal: keep your own record if it needs one.

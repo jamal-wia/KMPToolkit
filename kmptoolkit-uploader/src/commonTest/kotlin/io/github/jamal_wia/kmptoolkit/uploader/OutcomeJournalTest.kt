@@ -9,7 +9,10 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 
 /**
@@ -137,7 +140,7 @@ class OutcomeJournalTest {
         clock.millis += 8.days.inWholeMilliseconds
         var calls = 0
 
-        val outcome: ReplayOutcome = journal.replay("item-1") { _, _ -> calls++; true }
+        val outcome: ReplayOutcome = journal.replay("item-1") { _, _, _ -> calls++; true }
 
         assertEquals(ReplayOutcome.Discarded, outcome)
         assertEquals(0, calls)
@@ -174,7 +177,7 @@ class OutcomeJournalTest {
         journal.record("item-1", sent)
         val seen = mutableListOf<Pair<String, UploadResponse>>()
 
-        val outcome: ReplayOutcome = journal.replay("item-1") { id, r -> seen += id to r; true }
+        val outcome: ReplayOutcome = journal.replay("item-1") { id, r, _ -> seen += id to r; true }
 
         assertEquals(ReplayOutcome.Replayed, outcome)
         assertEquals(listOf("item-1" to sent), seen)
@@ -185,11 +188,11 @@ class OutcomeJournalTest {
     fun `a replay that did not land keeps the entry for the next attempt`() = runTest {
         journal.record("item-1", response())
 
-        assertEquals(ReplayOutcome.Kept, journal.replay("item-1") { _, _ -> false })
+        assertEquals(ReplayOutcome.Kept, journal.replay("item-1") { _, _, _ -> false })
         assertIs<JournalEntry.Valid>(journal.inspect("item-1"))
 
-        assertEquals(ReplayOutcome.Replayed, journal.replay("item-1") { _, _ -> true })
-        assertEquals(ReplayOutcome.NoEntry, journal.replay("item-1") { _, _ -> error("no entry, nothing to replay") })
+        assertEquals(ReplayOutcome.Replayed, journal.replay("item-1") { _, _, _ -> true })
+        assertEquals(ReplayOutcome.NoEntry, journal.replay("item-1") { _, _, _ -> error("no entry, nothing to replay") })
     }
 
     @Test
@@ -200,7 +203,7 @@ class OutcomeJournalTest {
         journal.record("fresh-b", response(status = 202))
         val replayed = mutableListOf<String>()
 
-        journal.sweep { id, _ -> replayed += id; true }
+        journal.sweep { id, _, _ -> replayed += id; true }
 
         assertEquals(listOf("fresh-b"), replayed)
         assertTrue(storage.files.isEmpty(), "everything handled is gone: ${storage.files.keys}")
@@ -212,7 +215,7 @@ class OutcomeJournalTest {
         journal.record("item-1", response())
         storage.throwOnList = true
 
-        journal.sweep { _, _ -> error("not reached") }
+        journal.sweep { _, _, _ -> error("not reached") }
 
         storage.throwOnList = false
         assertIs<JournalEntry.Valid>(journal.inspect("item-1"))
@@ -231,7 +234,7 @@ class OutcomeJournalTest {
         val sent: UploadResponse = response(status = 201, body = """{"job":"j1"}""")
         journal.record("item-1", sent)
 
-        val complete: suspend (String, UploadResponse) -> Boolean = { id, r -> UploadGateway.complete(id, r, 10.milliseconds) }
+        val complete: OutcomeSettle = gatewaySettle(10.milliseconds)
         assertEquals(ReplayOutcome.Replayed, journal.replay("item-1", complete))
 
         assertEquals(listOf<UploadResponse?>(sent), handler.delivered)
@@ -252,7 +255,7 @@ class OutcomeJournalTest {
         journal.record("never-enqueued", response())
 
         val outcome: ReplayOutcome =
-            journal.replay("never-enqueued") { id, r -> UploadGateway.complete(id, r, 10.milliseconds) }
+            journal.replay("never-enqueued", gatewaySettle(10.milliseconds))
 
         assertEquals(ReplayOutcome.Replayed, outcome)
         assertTrue(handler.delivered.isEmpty())
@@ -264,10 +267,87 @@ class OutcomeJournalTest {
         UploaderEngineRegistry.current?.let(UploaderEngineRegistry::unregister)
         journal.record("item-1", response())
 
-        val outcome: ReplayOutcome = journal.replay("item-1") { id, r -> UploadGateway.complete(id, r, 5.milliseconds) }
+        val outcome: ReplayOutcome = journal.replay("item-1", gatewaySettle(5.milliseconds))
 
         assertEquals(ReplayOutcome.Kept, outcome)
         assertIs<JournalEntry.Valid>(journal.inspect("item-1"))
+    }
+
+    // --- Review findings: body limit, settle ordering, exclusive replay ---------------------------------
+
+    @Test
+    fun `the body is held to the limit given and zero keeps none`() {
+        val sent = response(body = "0123456789")
+
+        assertTrue(journal.record("a", sent, bodyLimit = 4))
+        assertTrue(journal.record("b", sent, bodyLimit = 0))
+        assertTrue(journal.record("c", sent, bodyLimit = Int.MAX_VALUE))
+        assertTrue(journal.record("d", sent, bodyLimit = -5))
+
+        assertEquals("0123", assertIs<JournalEntry.Valid>(journal.inspect("a")).response.body().decodeToString())
+        assertTrue(assertIs<JournalEntry.Valid>(journal.inspect("a")).response.isBodyTruncated)
+        assertEquals(0, assertIs<JournalEntry.Valid>(journal.inspect("b")).response.body().size)
+        assertTrue(assertIs<JournalEntry.Valid>(journal.inspect("b")).response.isBodyTruncated)
+        assertEquals("0123456789", assertIs<JournalEntry.Valid>(journal.inspect("c")).response.body().decodeToString())
+        assertEquals(0, assertIs<JournalEntry.Valid>(journal.inspect("d")).response.body().size)
+    }
+
+    @Test
+    fun `restricting an entry cuts a longer body and leaves a shorter one`() {
+        journal.record("a", response(body = "0123456789"))
+        journal.record("b", response(body = "01"))
+
+        journal.restrictBody("a", 3)
+        journal.restrictBody("b", 3)
+        journal.restrictBody("missing", 3)
+
+        assertEquals("012", assertIs<JournalEntry.Valid>(journal.inspect("a")).response.body().decodeToString())
+        assertEquals("01", assertIs<JournalEntry.Valid>(journal.inspect("b")).response.body().decodeToString())
+    }
+
+    @Test
+    fun `the entry is gone before the engine commits a retry so a re-hand cannot replay it`() = runTest {
+        val handler = DeliveryRecorder(classifier = { SettleResult.Failed(IllegalStateException("retry")) })
+        val started: UploaderEngine = testEngine(TestUploaderStore(), listOf(handler), backgroundScope, clock = TestClock(1_000L))
+        engine = started
+        UploaderEngineRegistry.register(started)
+        started.enqueue(handler, "payload")
+        started.drain()
+        handler.onSettledHook = { handler.entryAtSettled = storage.files.containsKey("item-1") }
+        journal.record("item-1", response(status = 503))
+
+        assertEquals(ReplayOutcome.Replayed, journal.replay("item-1", gatewaySettle(10.milliseconds)))
+
+        assertEquals(false, handler.entryAtSettled, "onSettled can run for as long as it likes; the entry must already be gone")
+        assertEquals(1, handler.classifiedCount)
+    }
+
+    @Test
+    fun `two replayers of one entry deliver it once`() = runTest {
+        val handler = DeliveryRecorder(deliveryDelay = 100.milliseconds)
+        val started: UploaderEngine = testEngine(TestUploaderStore(), listOf(handler), backgroundScope, clock = TestClock(1_000L))
+        engine = started
+        UploaderEngineRegistry.register(started)
+        started.enqueue(handler, "payload")
+        started.drain()
+        journal.record("item-1", response())
+        val other = OutcomeJournal(storage, clock) // a second instance, as the worker and the sweep each have
+
+        val first = async { journal.replay("item-1", gatewaySettle(10.milliseconds)) }
+        val second = async { other.replay("item-1", gatewaySettle(10.milliseconds)) }
+
+        assertEquals(setOf(ReplayOutcome.Replayed, ReplayOutcome.NoEntry), setOf(first.await(), second.await()))
+        assertEquals(1, handler.delivered.size, "the response is delivered once, not once per replayer")
+    }
+
+    @Test
+    fun `a recorded response is not settled again when a replayer already handled it`() = runTest {
+        var calls = 0
+        journal.record("item-1", response())
+        journal.delete("item-1") // the sweep replayed and deleted it between the write and the settle
+
+        assertTrue(journal.settleRecorded("item-1", response()) { _, _, _ -> calls++; true })
+        assertEquals(0, calls)
     }
 
     private class MemoryOutcomeStorage : OutcomeStorage {
@@ -312,15 +392,33 @@ class OutcomeJournalTest {
         override fun cancel(itemId: String) = Unit
     }
 
-    private class DeliveryRecorder : UploadHandler<String>(NoopTransport()) {
+    private class DeliveryRecorder(
+        private val classifier: (UploadResult) -> SettleResult = { defaultUploadClassification(it) },
+        private val deliveryDelay: Duration = Duration.ZERO,
+    ) : UploadHandler<String>(NoopTransport()) {
         override val type: String = "journal"
+        override val retryPolicy: RetryPolicy = FixedRetryPolicy()
         val delivered = mutableListOf<UploadResponse?>()
+        var classifiedCount = 0
+        var entryAtSettled: Boolean? = null
+        var onSettledHook: () -> Unit = {}
+
+        override suspend fun classify(payload: String, result: UploadResult, response: UploadResponse?): SettleResult {
+            classifiedCount++
+            return classifier(result)
+        }
+
+        override suspend fun onSettled(payload: String, attempts: Int, result: SettleResult) {
+            onSettledHook()
+        }
+
         override fun encodePayload(payload: String): String = payload
         override fun decodePayload(raw: String): String = raw
         override suspend fun prepareUpload(context: AttemptContext, payload: String): UploadPreparation =
             UploadPreparation.Proceed(UploadRequest(url = "https://example.com/u", fields = emptyList()))
 
         override suspend fun onDelivered(payload: String, response: UploadResponse?) {
+            if (deliveryDelay > Duration.ZERO) delay(deliveryDelay)
             delivered += response
         }
     }
