@@ -62,11 +62,11 @@ class OutcomeJournalIosTest {
     private suspend fun startEngine(handler: Recorder): UploaderEngine {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         engineScope = scope
-        val started: UploaderEngine = testEngine(TestUploaderStore(), listOf(handler), scope)
+        val started: UploaderEngine = testEngine(TestUploaderStore(), listOf(handler), scope, idGenerator = SequentialIds("jrn")::next)
         engine = started
         UploaderEngineRegistry.register(started)
         started.enqueue(handler, "payload")
-        started.drain() // item-1 in flight
+        started.drain() // jrn-1 in flight
         return started
     }
 
@@ -98,9 +98,9 @@ class OutcomeJournalIosTest {
 
     @Test
     fun `an entry round-trips through the journal on disk`() {
-        assertTrue(journal().record("item-1", sent()))
+        assertTrue(journal().record("jrn-1", sent()))
 
-        assertEquals(sent(), assertIs<JournalEntry.Valid>(journal().inspect("item-1")).response)
+        assertEquals(sent(), assertIs<JournalEntry.Valid>(journal().inspect("jrn-1")).response)
     }
 
     @Test
@@ -116,7 +116,7 @@ class OutcomeJournalIosTest {
     fun `a journal that cannot be written reports it`() {
         val blocked = IosOutcomeStorage("/nonexistent-root-for-test/outcomes")
 
-        assertFalse(OutcomeJournal(blocked).record("item-1", sent()))
+        assertFalse(OutcomeJournal(blocked).record("jrn-1", sent()))
     }
 
     // --- Transport --------------------------------------------------------------------------------------
@@ -125,36 +125,42 @@ class OutcomeJournalIosTest {
     fun `a hand-off with a journaled outcome replays it and uploads nothing`() = runTest {
         val handler = Recorder()
         startEngine(handler)
-        journal().record("item-1", sent())
+        // The creation-time sweep finds nothing yet; waiting it out keeps it from racing the hand-off, which
+        // is what this test is about.
+        val transport: BackgroundSessionUploadTransport = transport()
+        withContext(Dispatchers.Default) { delay(500L) }
+        journal().record("jrn-1", sent())
 
-        transport().launch("item-1", isRehandOff = true, request = noServer)
+        transport.launch("jrn-1", isRehandOff = true, request = noServer)
         until { handler.delivered.isNotEmpty() }
 
         assertEquals(listOf<UploadResponse?>(sent()), handler.delivered)
-        assertTrue(handler.classified.none { it is UploadResult.TransportFailure }, "an upload attempt would have failed here")
-        assertEquals(JournalEntry.Absent, journal().inspect("item-1"))
+        assertTrue(handler.classified.none { it is UploadResult.TransportFailure }, "an upload attempt would have failed here: ${handler.classified}")
+        assertEquals(JournalEntry.Absent, journal().inspect("jrn-1"))
     }
 
     @Test
     fun `a relaunch with a journaled outcome replays it and completes the system handler`() = runTest {
         val handler = Recorder()
         startEngine(handler)
-        journal().record("item-1", sent())
+        val transport: BackgroundSessionUploadTransport = transport()
+        withContext(Dispatchers.Default) { delay(500L) }
+        journal().record("jrn-1", sent())
         var done = 0
 
-        transport().handleRelaunchEvents("item-1") { done++ }
+        transport.handleRelaunchEvents("jrn-1") { done++ }
         until { done > 0 && handler.delivered.isNotEmpty() }
 
         assertEquals(1, done)
         assertEquals(listOf<UploadResponse?>(sent()), handler.delivered)
-        assertEquals(JournalEntry.Absent, journal().inspect("item-1"))
+        assertEquals(JournalEntry.Absent, journal().inspect("jrn-1"))
     }
 
     @Test
     fun `creating the transport replays an orphaned outcome and deletes an expired one`() = runTest {
         val handler = Recorder()
         startEngine(handler)
-        journal().record("item-1", sent())
+        journal().record("jrn-1", sent())
         journal(clock = { currentEpochMillis() - 8.days.inWholeMilliseconds }).record("stale", sent())
 
         transport()
@@ -178,21 +184,21 @@ class OutcomeJournalIosTest {
     @Test
     fun `an entry of another format version is ignored and deleted`() = runTest {
         val bytes: ByteArray = OutcomeCodec.encode(sent(), currentEpochMillis()).also { it[3] = 99 }
-        storage.write("item-1", bytes)
+        storage.write("jrn-1", bytes)
 
-        assertEquals(JournalEntry.Discarded, journal().inspect("item-1"))
-        assertNull(storage.read("item-1"))
+        assertEquals(JournalEntry.Discarded, journal().inspect("jrn-1"))
+        assertNull(storage.read("jrn-1"))
     }
 
     @Test
     fun `cancel deletes the item's journaled outcome and no other`() {
-        journal().record("item-1", sent())
-        journal().record("item-2", sent())
+        journal().record("jrn-1", sent())
+        journal().record("jrn-2", sent())
 
-        transport().cancel("item-1")
+        transport().cancel("jrn-1")
 
-        assertNull(storage.read("item-1"))
-        assertTrue(storage.read("item-2") != null)
+        assertNull(storage.read("jrn-1"))
+        assertTrue(storage.read("jrn-2") != null)
     }
 
     private class NoopTransport : UploadTransport {
