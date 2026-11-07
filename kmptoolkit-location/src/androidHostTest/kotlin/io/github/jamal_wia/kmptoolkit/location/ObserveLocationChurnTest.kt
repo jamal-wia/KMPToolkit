@@ -152,4 +152,26 @@ class ObserveLocationChurnTest {
         }
     }
 
+    @Test
+    fun `a collector that was busy ends on the newest fix not on the last one that fitted the buffer`() = runBlocking {
+        withTimeout(30_000) {
+            val source = Source()
+            val gate = CompletableDeferred<Unit>()
+            val received: MutableList<GeoCoordinates?> = mutableListOf()
+            val job = launch(Dispatchers.Default) {
+                provider(source).observeLocation().collect { value ->
+                    received += value
+                    if (received.size == 1) gate.await()
+                }
+            }
+            waitUntil("registration") { source.registeredCount == 2 }
+            val listener: LocationListener = source.lastListener!!
+            repeat(300) { i -> listener.onLocationChanged(fix(latitude = i.toDouble())) }
+            gate.complete(Unit)
+            delay(500)
+            job.cancelAndJoin()
+
+            assertEquals(GeoCoordinates(299.0, 0.0), received.last(), "the collector is left on a stale position after ${received.size} values")
+        }
+    }
 }

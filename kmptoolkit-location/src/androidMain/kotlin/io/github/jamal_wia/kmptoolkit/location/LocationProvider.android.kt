@@ -19,6 +19,7 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -228,7 +229,7 @@ internal class AndroidLocationProvider(
         }
 
         awaitClose { service.removeUpdates(listener) }
-    }
+    }.conflate() // a slow collector must end on the newest fix, never on a stale one
 
     override suspend fun isLocationEnabled(): Boolean {
         val service: LocationManager = manager ?: return false

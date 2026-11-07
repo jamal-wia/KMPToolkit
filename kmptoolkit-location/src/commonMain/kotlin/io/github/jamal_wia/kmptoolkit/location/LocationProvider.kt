@@ -32,6 +32,8 @@ public interface LocationProvider {
     /**
      * Hot stream of location updates. Emits `null` when no fix is available (permission revoked,
      * location service disabled, no signal) so a collector never sits without an answer.
+     * The stream is conflated: a collector that is busy skips intermediate positions and always
+     * ends on the newest one (including a newer `null`), never on a stale fix.
      * Implementations stop the underlying location request when the flow is cancelled.
      */
     public fun observeLocation(): Flow<GeoCoordinates?>

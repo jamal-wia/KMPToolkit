@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -128,7 +129,7 @@ private class IosLocationProvider(
                 retainedDelegate = null
             }
         }
-    }
+    }.conflate() // a slow collector must end on the newest fix, never on a stale one
 
     // Off the main thread: locationServicesEnabled() logs a runtime warning when called on the
     // main thread while authorization is still being determined.
