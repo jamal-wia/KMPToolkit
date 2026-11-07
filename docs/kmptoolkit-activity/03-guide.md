@@ -95,7 +95,10 @@ so a listener never needs its own thread hop.
 the listener is never called again, and if the listener is running on the main thread right then,
 `cancel()` waits for it to finish. Cancelling from inside a listener is always safe. Only avoid
 cancelling from another thread while holding a lock the listener also takes. `release()` behaves the
-same for all listeners.
+same for all listeners, for every caller: a second `release()` racing the first, or made from inside a
+listener, does not return before the listeners are stopped, and a listener added while `release()`
+runs is never called. Cancelling also drops the listener itself, so a handle you keep does not pin
+what it captured.
 
 ## Opening system screens
 

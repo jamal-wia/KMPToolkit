@@ -13,8 +13,8 @@ import org.robolectric.Robolectric
 import org.robolectric.android.controller.ActivityController
 
 /**
- * `ActivitySubscription.cancel()` releases whatever the listener captured: once it ran and the caller
- * dropped the handle, nothing the listener captured stays reachable from the tracker.
+ * `ActivitySubscription.cancel()` "releases whatever [the listener] captured": the caller may keep the
+ * handle it was given for the life of its owner, and that must not keep the listener's captures alive.
  */
 @RunWith(AndroidJUnit4::class)
 class LifecycleActivityTrackerReleaseCaptureTest {
@@ -58,9 +58,38 @@ class LifecycleActivityTrackerReleaseCaptureTest {
     }
 
     @Test
-    fun `a cancelled subscription whose handle is dropped no longer holds what its listener captured`() {
+    fun `control - a cancelled subscription whose handle is dropped no longer holds what its listener captured`() {
         val captured: WeakReference<Payload> = subscribeCancelAndForget(newTracker())
 
-        assertNull(if (clearedAfterGc(captured)) null else captured.get(), "cancel() left what the listener captured reachable from the tracker")
+        assertNull(if (clearedAfterGc(captured)) null else captured.get(), "the control did not clear: the test's GC is unreliable")
+    }
+
+    @Test
+    fun `a cancelled subscription whose handle the caller keeps no longer holds what its listener captured`() {
+        val tracker: LifecycleActivityTracker = newTracker()
+        val (subscription, captured) = subscribeWithCapture(tracker)
+
+        subscription.cancel()
+
+        // The handle stays reachable on purpose: a consumer keeps it in a field until its owner goes away.
+        assertNull(
+            if (clearedAfterGc(captured)) null else captured.get(),
+            "cancel() did not release what the listener captured while the handle was still held",
+        )
+        subscription.cancel() // keeps the handle strongly reachable up to here
+    }
+
+    @Test
+    fun `a subscription of a released tracker whose handle the caller keeps no longer holds what its listener captured`() {
+        val tracker: LifecycleActivityTracker = newTracker()
+        val (subscription, captured) = subscribeWithCapture(tracker)
+
+        tracker.release()
+
+        assertNull(
+            if (clearedAfterGc(captured)) null else captured.get(),
+            "release() did not release what the listener captured while the handle was still held",
+        )
+        subscription.cancel()
     }
 }

@@ -85,6 +85,9 @@ internal class LifecycleActivityTracker(
         // clears the list, so either that clear already removed this registration, or this re-check
         // sees the flag — without it, a released tracker would hold the listener for good.
         if (released.get()) {
+            // Marked cancelled, not just removed: a delivery on the main thread may already hold the
+            // registration, and release() has finished (or will finish) its loop without seeing it.
+            registration.markCancelled()
             listeners.remove(registration)
             return NoopSubscription
         }
@@ -97,11 +100,16 @@ internal class LifecycleActivityTracker(
     }
 
     override fun release() {
-        if (!released.compareAndSet(false, true)) return
-        application.unregisterActivityLifecycleCallbacks(this)
-        current.set(null)
-        // Through cancel(), not a bare flag: like cancel() it must not return while a delivery to the
-        // listener is still running on the main thread.
+        // A second caller does not return early: it marks every registration cancelled as well, so
+        // "once release() has returned, no listener is called" holds for every caller, including one
+        // that lost the race (or a listener calling release() again while the first call waits for it).
+        // A tracker-wide lock would deadlock with that re-entrant call, hence the repeated loop.
+        if (released.compareAndSet(false, true)) {
+            application.unregisterActivityLifecycleCallbacks(this)
+            current.set(null)
+        }
+        // Through markCancelled(), not a bare flag: like cancel() it must not return while a delivery
+        // to the listener is still running on the main thread.
         listeners.forEach { registration -> registration.markCancelled() }
         listeners.clear()
     }
@@ -179,7 +187,7 @@ internal class LifecycleActivityTracker(
      *   constructor value is published by the listeners add and the Handler post.
      */
     private inner class Registration(
-        val listener: (Activity) -> Unit,
+        listener: (Activity) -> Unit,
         var replayPending: Boolean,
     ) : ActivitySubscription {
         // A low-level lock on purpose (D-21): kmptoolkit-activity has no kotlinx-coroutines dependency,
@@ -190,6 +198,9 @@ internal class LifecycleActivityTracker(
         // lock never waits for another's, so two registrations cannot deadlock each other.
         private val lock: ReentrantLock = ReentrantLock()
 
+        /** Dropped by [markCancelled] (under [lock]) so a handle the caller keeps does not pin what the listener captured. */
+        private var listener: ((Activity) -> Unit)? = listener
+
         /** Set by [markCancelled] only, and only under [lock]; every delivery re-checks it under the same lock. */
         private var cancelled: Boolean = false
 
@@ -198,7 +209,7 @@ internal class LifecycleActivityTracker(
             lock.withLock {
                 if (cancelled) return
                 replayPending = false
-                listener(activity)
+                listener?.invoke(activity)
             }
         }
 
@@ -208,13 +219,16 @@ internal class LifecycleActivityTracker(
                 replayPending = false
                 if (cancelled || this !in listeners) return
                 current.get()?.get()?.let { activity ->
-                    if (!activity.isFinishing && !activity.isDestroyed) listener(activity)
+                    if (!activity.isFinishing && !activity.isDestroyed) listener?.invoke(activity)
                 }
             }
         }
 
         /** Waits for a delivery already running, then makes every later one a no-op. */
-        fun markCancelled(): Unit = lock.withLock { cancelled = true }
+        fun markCancelled(): Unit = lock.withLock {
+            cancelled = true
+            listener = null
+        }
 
         override fun cancel() {
             markCancelled()

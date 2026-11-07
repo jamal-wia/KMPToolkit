@@ -46,7 +46,8 @@ public interface ActivitySubscription {
 }
 ```
 
-Stops the listener from being called again and releases whatever it captured. Idempotent.
+Stops the listener from being called again and releases whatever it captured (the handle drops its reference to the listener, so keeping the handle
+does not keep the captured objects alive). Idempotent.
 
 The guarantee is strict and holds on every thread: once `cancel()` returns, the listener is never
 called again, from any thread. If the listener is running on the main thread at that moment,

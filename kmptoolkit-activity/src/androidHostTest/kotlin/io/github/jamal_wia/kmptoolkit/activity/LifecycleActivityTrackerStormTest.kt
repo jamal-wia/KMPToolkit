@@ -328,5 +328,104 @@ class LifecycleActivityTrackerStormTest {
     private companion object {
         const val MAX_DELIVERIES: Int = 2_000_000
         const val HANDOVERS: Int = 120
+        const val ROUNDS: Int = 300
+    }
+    /** True when [thread] is parked on a lock: it has started and cannot proceed. */
+    private fun awaitBlocked(thread: Thread): Boolean {
+        val deadline: Long = System.nanoTime() + 3_000_000_000L
+        while (System.nanoTime() < deadline) {
+            if (thread.state == Thread.State.WAITING || thread.state == Thread.State.BLOCKED) return true
+            if (!thread.isAlive) return false
+            Thread.sleep(1)
+        }
+        return false
+    }
+
+
+    @Test
+    fun `a release that loses the race to another thread's release does not return before every listener is stopped`() {
+        val tracker: LifecycleActivityTracker = newTracker()
+        val controller: ActivityController<Activity> = launchActivity()
+        val firstCalls = AtomicInteger()
+        val laterCalls = AtomicInteger()
+        val laterCalledAfterReleaseReturned = AtomicBoolean(false)
+        val releaseReturned = AtomicBoolean(false)
+        val otherRelease = AtomicReference<Thread?>(null)
+
+        tracker.addOnActivityResumedListener {
+            if (firstCalls.incrementAndGet() == 1) {
+                // The main thread is mid-delivery, holding this registration's lock. Another thread's
+                // release() takes the "first caller" role and parks on that lock.
+                val other: Thread = background("release") { tracker.release() }
+                otherRelease.set(other)
+                assertTrue(awaitBlocked(other), "the other release() did not park on the delivery")
+                // This release() lost the race: whatever it returns must already be true of the tracker.
+                tracker.release()
+                releaseReturned.set(true)
+                // A resume reaches the tracker again while the other release() is still parked.
+                tracker.onActivityResumed(controller.get())
+            }
+        }
+        tracker.addOnActivityResumedListener {
+            laterCalls.incrementAndGet()
+            if (releaseReturned.get()) laterCalledAfterReleaseReturned.set(true)
+        }
+
+        controller.setup()
+
+        otherRelease.get()!!.join(5_000)
+        assertFalse(otherRelease.get()!!.isAlive, "the first release() never finished (deadlock)")
+        assertFalse(
+            laterCalledAfterReleaseReturned.get(),
+            "a listener was called after release() had returned on the main thread",
+        )
+        assertEquals(0, tracker.listenerCountForTest())
+    }
+
+    @Test
+    fun `adders, back to back deliveries and a release racing on real threads never call a listener after release returned`() {
+        val violations = AtomicInteger()
+        val totalDeadline: Long = System.nanoTime() + 12_000_000_000L
+        var rounds = 0
+        while (rounds < ROUNDS && System.nanoTime() < totalDeadline) {
+            rounds++
+            val tracker: LifecycleActivityTracker = newTracker()
+            val activity: Activity = launchActivity().get()
+            tracker.onActivityResumed(activity)
+            val released = AtomicBoolean(false)
+            val stop = AtomicBoolean(false)
+            val adders: List<Thread> = List(3) { index ->
+                background("add-$index") {
+                    var added = 0
+                    while (!stop.get() && added < 20_000) {
+                        tracker.addOnActivityResumedListener { if (released.get()) violations.incrementAndGet() }
+                        added++
+                    }
+                }
+            }
+            val releaser: Thread = background("release") {
+                val spin: Long = System.nanoTime() + (rounds % 7) * 30_000L
+                while (System.nanoTime() < spin) Thread.onSpinWait()
+                tracker.release()
+                released.set(true)
+            }
+            val roundDeadline: Long = System.nanoTime() + 2_000_000_000L
+            var deliveries = 0
+            while (!released.get() && deliveries < 200_000 && System.nanoTime() < roundDeadline) {
+                tracker.onActivityResumed(activity)
+                deliveries++
+            }
+            // Deliveries keep coming for a moment after release() returned, to catch a late registration.
+            repeat(20) { tracker.onActivityResumed(activity) }
+            stop.set(true)
+            releaser.join(3_000)
+            adders.forEach { it.join(3_000) }
+            val stuck: List<String> = (adders + releaser).filter { it.isAlive }.map { it.name }
+            assertTrue(stuck.isEmpty(), "round $rounds: threads stuck: $stuck")
+            shadowOf(Looper.getMainLooper()).idle()
+            tracker.onActivityResumed(activity)
+            assertEquals(0, tracker.listenerCountForTest(), "round $rounds: the released tracker still holds listeners")
+        }
+        assertEquals(0, violations.get(), "listeners were called after release() had returned (${violations.get()} in $rounds rounds)")
     }
 }
