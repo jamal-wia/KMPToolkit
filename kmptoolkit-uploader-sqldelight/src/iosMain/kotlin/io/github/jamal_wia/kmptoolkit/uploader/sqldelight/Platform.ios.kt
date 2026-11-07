@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
 
+import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.driver.native.NativeSqliteDriver
 import co.touchlab.sqliter.DatabaseFileContext
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.KmpToolkitUploaderDatabase
@@ -43,7 +44,7 @@ public fun createUploaderStorage(config: UploaderDatabaseConfig = UploaderDataba
     val fileName: String = uploaderDatabaseFileName(name)
     val driver: NativeSqliteDriver = mapFailures(UploaderStorageOperation.OPEN) {
         try {
-            openNative(fileName)
+            if (config.recreateOnCorruption) openVerified(fileName) else openNative(fileName)
         } catch (failure: Throwable) {
             if (!config.recreateOnCorruption || !looksCorrupt(failure)) throw failure
             DatabaseFileContext.deleteDatabase(fileName)
@@ -56,6 +57,37 @@ public fun createUploaderStorage(config: UploaderDatabaseConfig = UploaderDataba
 private fun openNative(fileName: String): NativeSqliteDriver = openOwned(
     NativeSqliteDriver(schema = KmpToolkitUploaderDatabase.Schema, name = fileName),
 )
+
+/**
+ * [openNative] followed by an integrity probe, for [UploaderDatabaseConfig.recreateOnCorruption].
+ *
+ * Opening a native driver reads only the file header, so a file damaged below a valid header opens fine and
+ * fails on the first read that touches a damaged page — on every launch, forever. Android heals that case
+ * through the framework's corruption handler; here the probe (`PRAGMA quick_check`, which walks every page
+ * but does not compare index contents) surfaces it at the open, where the recreate decision is made. The
+ * queue is small by nature, and the probe runs only for an app that opted in to losing a damaged queue.
+ */
+private fun openVerified(fileName: String): NativeSqliteDriver {
+    val driver: NativeSqliteDriver = openNative(fileName)
+    try {
+        val verdict: String? = driver.executeQuery(
+            identifier = null,
+            sql = "PRAGMA quick_check(1)",
+            mapper = { cursor -> QueryResult.Value(if (cursor.next().value) cursor.getString(0) else null) },
+            parameters = 0,
+        ).value
+        // A verdict other than "ok" is SQLite's own description of the damage; the marker routes it to recreate.
+        check(verdict == "ok") { "database disk image is malformed: quick_check reported $verdict" }
+    } catch (failure: Throwable) {
+        try {
+            driver.close()
+        } catch (closeFailure: Throwable) {
+            failure.addSuppressed(closeFailure)
+        }
+        throw failure
+    }
+    return driver
+}
 
 /**
  * Whether SQLite reported that the file is not a database or is malformed (`SQLITE_NOTADB`,

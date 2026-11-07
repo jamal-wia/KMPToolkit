@@ -113,7 +113,7 @@ Which file the standalone factories open. Irrelevant when you supply a driver.
 | `recreateOnCorruption` | Meaning |
 |---|---|
 | `false` (default) | A file that is not a usable database fails the open with `UploaderStorageException(OPEN)` and is left untouched |
-| `true` | A file recognised as corrupt is deleted and an empty queue is opened, dropping everything still queued (the 3.0.0 behaviour). Other open failures still throw and keep the file |
+| `true` | A file recognised as corrupt is deleted and an empty queue is opened, dropping everything still queued (the 3.0.0 behaviour). On iOS damage below a valid header is found by an integrity probe at the open, as the framework's corruption handler finds it on Android. Other open failures still throw and keep the file |
 
 Changed in 3.1.0: before it, the default silently recreated the queue on Android. The two-argument
 constructor and `copy` keep the 3.0.0 one-argument signatures as hidden declarations, so code and

@@ -107,7 +107,11 @@ rather than start a fresh delivery.
 | `Detached(leaseMillis: Long)` | `IN_FLIGHT` under a lease | unchanged |
 
 `Detached` requires a positive lease; a non-positive one throws at construction, because it would
-expire the moment it was written and spin the drain.
+expire the moment it was written and spin the drain. The engine honours a lease for at most 24 hours:
+a longer one (up to `Long.MAX_VALUE`, or an `UploadTransport.leaseMillis` that large) is shortened to
+that, and the item is re-handed after a day. The ceiling is what lets the engine tell a lease written
+before a backwards wall-clock step from a real one (see the clocks note in
+[`05-platform-notes.md`](05-platform-notes.md)).
 
 ## `SettleResult`
 
@@ -330,7 +334,7 @@ death, which a monotonic reading cannot.
 
 The module's one piece of global state, and only because a WorkManager `Worker` and an iOS `BGTask`
 handler are constructed by the OS outside any object graph. Registration is explicit — nothing
-registers on your behalf. `close()` clears the slot if the closing engine holds it, and registering an engine that is already closed (or closes while `register` runs) is ignored, so a closed engine is never handed out. `await` returning
+registers on your behalf. `close()` clears the slot if the closing engine holds it, and registering an engine that is already closed (or closes while `register` runs) is ignored, so a closed engine is never handed out. An engine stopped by cancelling the scope it was created in (without `close()`) is just as inert: it is unregistered, `current` and `await` never return it, and registering one is ignored. `await` with a zero timeout still returns an engine that is registered at that moment. `await` returning
 `null` means the outcome did not land, so a platform executor should ask to be retried.
 
 ## SPI — `io.github.jamal_wia.kmptoolkit.uploader.spi`
