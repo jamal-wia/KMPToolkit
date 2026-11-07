@@ -46,7 +46,9 @@ public interface ActivitySubscription {
 }
 ```
 
-Stops the listener from being called again and releases whatever it captured. Idempotent.
+Stops the listener from being called again and releases whatever it captured. Idempotent. The
+guarantee holds inside a dispatch too: a listener that cancels another one while a resume is being
+delivered keeps that one from being called for the same resume.
 
 ## `createActivityAccess`
 

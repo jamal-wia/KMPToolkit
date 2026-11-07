@@ -337,4 +337,16 @@ class LifecycleActivityTrackerTest {
         assertNotNull(filtered.withActivity { activity -> activity })
         filtered.release()
     }
+
+    @Test
+    fun `a listener cancelled by an earlier listener during a resume is not called for that resume`() {
+        var secondCalls = 0
+        lateinit var second: ActivitySubscription
+        tracker.addOnActivityResumedListener { second.cancel() }
+        second = tracker.addOnActivityResumedListener { secondCalls++ }
+
+        launchActivity().setup()
+
+        assertEquals(0, secondCalls)
+    }
 }
