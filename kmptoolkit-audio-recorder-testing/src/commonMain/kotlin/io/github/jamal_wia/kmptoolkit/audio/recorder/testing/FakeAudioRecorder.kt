@@ -107,7 +107,7 @@ public class FakeAudioRecorder(
     private val _deletedPaths: MutableList<String> = mutableListOf()
 
     /**
-     * Every path thrown away, in order: by [cancel], by re-preparing over a file that was never
+     * Every path thrown away, in order: by [cancel], by [release] from [RecorderState.Ready], by re-preparing over a file that was never
      * recorded into, by a scripted failure of [prepare] or [start], and by [simulateInterruption] or
      * [simulateRecordingLost] from [RecorderState.Ready] — all the cases in which the real recorder
      * deletes the file it had opened. A failed [stop] keeps its file (carried on the failed state).
@@ -243,6 +243,9 @@ public class FakeAudioRecorder(
         if (released) return
         released = true
         releaseCount++
+        // A prepared recorder that was never started owns an empty file; the real one deletes it.
+        val current: RecorderState = _state.value
+        if (current is RecorderState.Ready) _deletedPaths += current.outputPath
         _elapsed.value = Duration.ZERO
         _level.value = 0f
         _state.value = RecorderState.Released

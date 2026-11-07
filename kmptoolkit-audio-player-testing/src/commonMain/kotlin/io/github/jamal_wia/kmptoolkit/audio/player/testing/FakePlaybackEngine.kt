@@ -92,10 +92,12 @@ public class FakePlaybackEngine(
 
     override suspend fun load(source: AudioSource) {
         loadedSources += source
-        if (loadDelayMs > 0L) delay(loadDelayMs)
-        loadFailure?.let { failure: Throwable -> throw failure }
+        // A load discards what was loaded before, and a failed or cancelled one leaves nothing
+        // playable behind, so the previous source stops here and not only on success.
         positionMs = 0L
         isPlaying = false
+        if (loadDelayMs > 0L) delay(loadDelayMs)
+        loadFailure?.let { failure: Throwable -> throw failure }
     }
 
     override fun start() {
@@ -134,12 +136,16 @@ public class FakePlaybackEngine(
     }
 
     /**
-     * Moves the playhead forward by [amountMs], never past [durationMs].
+     * Moves the playhead forward by [amountMs], never past [durationMs]. The sum saturates, so an
+     * amount as large as [Long.MAX_VALUE] lands on the end instead of wrapping around.
      *
      * @param amountMs how far to advance, in milliseconds.
      */
     public fun advancePositionBy(amountMs: Long) {
-        positionMs = (positionMs + amountMs).coerceAtMost(durationMs)
+        val sum: Long = positionMs + amountMs
+        // Overflow happened exactly when a positive amount produced a sum below the old position.
+        val saturated: Long = if (amountMs > 0L && sum < positionMs) Long.MAX_VALUE else sum
+        positionMs = saturated.coerceAtMost(durationMs)
     }
 
     /**

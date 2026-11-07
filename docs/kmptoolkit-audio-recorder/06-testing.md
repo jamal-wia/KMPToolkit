@@ -67,7 +67,7 @@ and observation:
 | Property | Records |
 |---|---|
 | `preparedPaths` | every path `prepare` opened, in order |
-| `deletedPaths` | every path thrown away: by `cancel`, by re-preparing over an unused file, by a scripted `prepare`/`start` failure, and by `simulateInterruption`/`simulateRecordingLost` from `Ready`. A failed `stop` keeps its file: it is carried on the `Failed` state, and `cancel()` then deletes it |
+| `deletedPaths` | every path thrown away: by `cancel`, by `release` from `Ready`, by re-preparing over an unused file, by a scripted `prepare`/`start` failure, and by `simulateInterruption`/`simulateRecordingLost` from `Ready`. A failed `stop` keeps its file: it is carried on the `Failed` state, and `cancel()` then deletes it |
 | `completedRecordings` | every `RecordedFile` produced by `stop` |
 | `releaseCount` | whether the code under test released the recorder — at most `1`, since `release` is idempotent |
 

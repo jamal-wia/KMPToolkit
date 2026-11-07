@@ -319,7 +319,11 @@ private class EngineAudioPlayer(
         val current: PlayerState = _stateFlow.value
         if (!current.isPlayable || current is PlayerState.Playing) return
 
-        if (current is PlayerState.Completed) {
+        val duration: Long = engine.durationMs()
+        // A seek onto the end of a completed source leaves Paused with the playhead at the end, which
+        // is the end just the same.
+        val atEnd: Boolean = duration > 0L && engine.positionMs() >= duration
+        if (current is PlayerState.Completed || atEnd) {
             // From the end there is nothing left to resume. MediaPlayer restarts from 0 on its own
             // while AVPlayer sits at the end without completing again, so rewind explicitly and make
             // both platforms mean the same thing.
@@ -341,7 +345,9 @@ private class EngineAudioPlayer(
         if (!current.isPlayable) return
 
         val duration: Long = engine.durationMs()
-        val target: Long = positionMs.coerceIn(0L, maxOf(0L, duration))
+        // A length of 0 means the platform has not reported one yet (a live stream, a header not parsed),
+        // so there is no end to clamp to: the target goes to the engine, which knows better.
+        val target: Long = if (duration > 0L) positionMs.coerceIn(0L, duration) else positionMs.coerceAtLeast(0L)
         engine.seekTo(target)
         _playbackPositionFlow.value = target
 

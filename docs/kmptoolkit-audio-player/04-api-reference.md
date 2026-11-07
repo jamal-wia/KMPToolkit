@@ -47,10 +47,10 @@ entirely after `release()`.
 
 | Member | Contract |
 |---|---|
-| `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts position polling. Ignored while already `Playing`. From `Completed` it starts over from `0`, like `replay()`. |
+| `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts position polling. Ignored while already `Playing`. From `Completed`, or with the playhead sitting on the end (a seek onto the end of a completed source), it starts over from `0`, like `replay()`. |
 | `fun pause()` | `Playing` → `Paused(duration, position)`, stops polling. Ignored in any other state. |
 | `fun stop()` | Any playable → `Ready(duration)` with the playhead at `0`; the source stays loaded. |
-| `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`. |
+| `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`; while the duration is not known yet (`0`) there is no end to clamp to, so the target is passed on (never below `0`) and a forward skip never rewinds. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`. |
 | `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`; the addition saturates, so `Long.MAX_VALUE` lands on the end. |
 | `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`. |
 | `fun replay()` | Seek to `0` and play. Valid from any playable state, including `Completed`. |
