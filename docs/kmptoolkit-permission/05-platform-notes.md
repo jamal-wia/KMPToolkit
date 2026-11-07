@@ -268,7 +268,12 @@ activity's saved state until the activity finishes (one small entry; no public r
 remove it).
 
 The host holds the activity whose registry the dialog uses only while that dialog is showing; nothing
-is kept between requests. A request ends when the user answers, when that activity is finished
+is kept between requests. An activity destroyed for recreation (a configuration change, the system
+reclaiming it) is let go at its destroy, and the answer is picked up from the recreated instance when
+it resumes. An activity that another live one covered while the dialog was up stays registered until
+the request ends, since the answer goes to the registry the dialog was started from; every
+registration, including one the registry handed a waiting answer to during registration, is dropped
+when the request ends. A request ends when the user answers, when that activity is finished
 (destroyed, or another activity resumes over it), or at process death. A caller that is cancelled
 while the dialog is up does **not** withdraw it: the system dialog cannot be taken back, so the
 request stays pending until the user answers, the answer is then discarded, and a launch in that
