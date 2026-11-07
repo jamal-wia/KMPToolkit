@@ -24,7 +24,7 @@ internal object FxThread {
      * simulate a toolkit that has exited (which silently drops what it is given).
      */
     @Volatile
-    internal var runLater: (Runnable) -> Unit = Platform::runLater
+    internal var runLater: (Runnable) -> Unit = { Platform.runLater(it) }
 
     /**
      * Starts the toolkit, or confirms an already running one accepts work.

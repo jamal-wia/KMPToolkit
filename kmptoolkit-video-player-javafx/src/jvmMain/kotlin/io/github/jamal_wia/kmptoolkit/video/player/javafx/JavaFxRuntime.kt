@@ -18,10 +18,11 @@ internal fun interface JavaFxRuntime {
  * [FxThreadUnresponsiveException] describes a busy FX thread, which may pass, so the next call tries
  * again.
  *
- * @param startToolkit a test seam.
+ * @param startToolkit a test seam. Its default is a lambda, not a reference to `FxThread`: this file
+ * must load on a classpath without OpenJFX.
  */
 internal class ToolkitJavaFxRuntime(
-    private val startToolkit: () -> Unit = FxThread::startToolkit,
+    private val startToolkit: () -> Unit = { FxThread.startToolkit() },
 ) : JavaFxRuntime {
 
     private var started: Boolean = false
