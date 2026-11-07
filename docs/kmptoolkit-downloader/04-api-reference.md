@@ -150,8 +150,11 @@ message (the library carries no user-facing text); `toString` names the unit id 
 methods never look at `relativePath`, so `cancelDownload` of a bad unit still cleans up. Nothing outside
 the base directory, and no storage-managed directory, is ever touched.
 
-The engine reports it before any byte is fetched, as `DownloadFailedException` with
-`DownloadError.Unknown` whose `cause` is this exception; no transfer is enqueued and the state is `Error`.
+For the library's own storages (the ones the two factories return) the engine reports it before any
+byte is fetched, as `DownloadFailedException` with `DownloadError.Unknown` whose `cause` is this
+exception; no transfer is enqueued and the state is `Error`. A `DownloaderStorage` you wrote is not asked
+before the transfer: the engine never calls its `getResourcePath` there, so it behaves as in 3.0.0 and
+this exception reaches the host only from that storage's own `pathOf` / `commitResource` calls.
 `DownloadError` has no subclass for it. `FakeDownloaderStorage` in `kmptoolkit-downloader-testing` does
 not validate paths. A `DownloadUnit.id` is never rejected: an id
 that cannot be a file name is stored under a hashed name ([`05-platform-notes.md`](05-platform-notes.md)).
