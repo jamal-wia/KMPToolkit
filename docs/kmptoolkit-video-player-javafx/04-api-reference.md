@@ -47,7 +47,7 @@ could be started.
 - **Not a format check:** `true` does not mean every source decodes on this OS.
 - Blocks the calling thread for as long as the toolkit takes to start (typically well under a
   second, bounded at 10 s), so the first call belongs off the UI thread. On the JavaFX application
-  thread itself it returns at once. Thread-safe.
+  thread itself it returns at once, and still answers `false` when `javafx.media` is missing. Thread-safe.
 
 ## `JavaFxVideoPlayerException`
 

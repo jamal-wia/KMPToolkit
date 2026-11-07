@@ -42,6 +42,19 @@ internal class ToolkitJavaFxRuntime(
         // Before the monitor: another thread may hold it while it waits for the FX thread, which
         // would then wait for the monitor in turn. Being on the FX thread proves the toolkit runs.
         if (isFxThread()) {
+            // Being on the FX thread proves javafx.graphics runs, not that javafx.media is present.
+            // `failure` is written here without the monitor (the FX thread must not take it): it is a
+            // volatile and every writer stores a permanent failure, so concurrent writes are equivalent
+            // (D-17/D-21).
+            try {
+                mediaClassesPresent()
+            } catch (e: ClassNotFoundException) {
+                failure = e
+                throw JavaFxVideoPlayerException.RuntimeUnavailable(e)
+            } catch (e: LinkageError) {
+                failure = e
+                throw JavaFxVideoPlayerException.RuntimeUnavailable(e)
+            }
             started = true
             return
         }
@@ -66,7 +79,7 @@ internal class ToolkitJavaFxRuntime(
         if (started) return
         failure?.let { throw JavaFxVideoPlayerException.RuntimeUnavailable(it) }
         try {
-            Class.forName(MEDIA_PLAYER_CLASS, false, ToolkitJavaFxRuntime::class.java.classLoader)
+            mediaClassesPresent()
             startToolkit()
             started = true
         } catch (e: FxThreadUnresponsiveException) {
@@ -80,6 +93,11 @@ internal class ToolkitJavaFxRuntime(
             failure = e
             throw JavaFxVideoPlayerException.RuntimeUnavailable(e)
         }
+    }
+
+    /** Throws when the `javafx.media` classes are not on the classpath. */
+    private fun mediaClassesPresent() {
+        Class.forName(MEDIA_PLAYER_CLASS, false, ToolkitJavaFxRuntime::class.java.classLoader)
     }
 
     fun isAvailable(): Boolean = try {
