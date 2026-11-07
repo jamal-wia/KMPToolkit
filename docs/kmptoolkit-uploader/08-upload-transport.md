@@ -268,9 +268,11 @@ so behaviour is unchanged unless you set them; both must be positive and finite.
 Swift has no default arguments, so Swift code that calls
 `BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` keeps compiling in 3.1.0:
 that initializer is still exported (deprecated, with the system timeouts). Move to the five-argument
-initializer to set the timeouts; in Kotlin the new constructor's defaults make `BackgroundUploadConfig()`
-and any call with named arguments resolve to it, and only a call passing all three old arguments
-positionally lands on the deprecated one, with a warning.
+initializer to set the timeouts. In Kotlin the new constructor's defaults make `BackgroundUploadConfig()`
+and every call that leaves a parameter out or names a timeout resolve to it; only a call that supplies
+exactly the three old arguments (positionally or by name) and no timeout lands on the deprecated
+overload, with a warning. That overload has no default arguments, unlike in 3.0.0: a library compiled
+against 3.0.0 that calls it with arguments omitted must be recompiled against 3.1.0.
 
 - **`requestTimeout` is an idle timeout.** Apple's documentation describes it as how long a task waits
   for additional data to arrive before giving up, with the timer reset whenever new data arrives. It is

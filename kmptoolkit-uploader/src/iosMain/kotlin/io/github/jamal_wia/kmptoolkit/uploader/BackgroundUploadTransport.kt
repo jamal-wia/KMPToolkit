@@ -95,12 +95,20 @@ public class BackgroundUploadConfig(
      * The constructor before [requestTimeout] and [resourceTimeout] existed; kept so that Swift code calling
      * `BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compiles. It has no
      * default arguments on purpose: `BackgroundUploadConfig()` and every call that leaves a parameter out
-     * resolve to the primary constructor, and only a call passing all three arguments positionally lands
-     * here (with a deprecation warning).
+     * resolve to the primary constructor, and only a call that supplies exactly these three arguments
+     * (positionally or by name) and no timeout lands here, with a deprecation warning.
+     *
+     * Removing its defaults (3.0.0 had them) is a deliberate, recorded trade-off: a library compiled against
+     * 3.0.0 that calls it with arguments omitted must be recompiled against 3.1.0.
      */
     @Deprecated(
         "Superseded by the constructor with requestTimeout and resourceTimeout.",
-        ReplaceWith("BackgroundUploadConfig(sessionIdentifierPrefix, lease, rehandFlushWindow)"),
+        ReplaceWith(
+            "BackgroundUploadConfig(sessionIdentifierPrefix, lease, rehandFlushWindow, " +
+                "requestTimeout = 60.seconds, resourceTimeout = 7.days)",
+            "kotlin.time.Duration.Companion.seconds",
+            "kotlin.time.Duration.Companion.days",
+        ),
         level = DeprecationLevel.WARNING,
     )
     public constructor(

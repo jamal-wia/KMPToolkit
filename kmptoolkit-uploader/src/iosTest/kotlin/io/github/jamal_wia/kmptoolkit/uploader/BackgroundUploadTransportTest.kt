@@ -112,9 +112,29 @@ class BackgroundUploadTransportTest {
     }
 
     @Test
+    @Suppress("DEPRECATION")
+    fun `a call naming exactly the three old arguments also takes the system timeouts`() {
+        // Named arguments do not change overload resolution: this lands on the deprecated overload too.
+        val named = BackgroundUploadConfig(
+            sessionIdentifierPrefix = "named.",
+            lease = 5.minutes,
+            rehandFlushWindow = 2.seconds,
+        )
+
+        assertEquals("named.", named.sessionIdentifierPrefix)
+        assertEquals(5.minutes, named.lease)
+        assertEquals(2.seconds, named.rehandFlushWindow)
+        assertEquals(60.seconds, named.requestTimeout)
+        assertEquals(7.days, named.resourceTimeout)
+        assertFailsWith<IllegalArgumentException> {
+            BackgroundUploadConfig(sessionIdentifierPrefix = " ", lease = 5.minutes, rehandFlushWindow = 2.seconds)
+        }
+    }
+
+    @Test
     fun `calls that leave a parameter out resolve to the new constructor`() {
-        // No @Suppress: if any of these resolved to the deprecated overload, the build would warn; and the
-        // outcome below proves the new constructor's defaults are used.
+        // No @Suppress: a call resolving to the deprecated overload would make the build warn. No assertion can
+        // observe which overload ran (the values are the same), so this is checked by the compiler's warnings.
         val none = BackgroundUploadConfig()
         val prefixOnly = BackgroundUploadConfig("p.")
         val named = BackgroundUploadConfig(lease = 5.minutes, requestTimeout = 90.seconds)
