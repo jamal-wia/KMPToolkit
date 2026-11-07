@@ -306,6 +306,46 @@ class AndroidAlarmSchedulerAdversarialTest {
         assertTrue(late.latch.await(WAIT_SECONDS * 2, TimeUnit.SECONDS), "the later alarm starved behind ${slowStarted.get()} slow handlers\n" + threadDump())
     }
 
+    @Test
+    fun `scheduler recreation and registry resets racing a burst of fires lose and duplicate nothing`() {
+        val total = AtomicInteger()
+        val perId = AtomicIntegerArray(BURST)
+        val handlers: List<AlarmHandler> = listOf(object : AlarmHandler {
+            override val type: String = "BURST"
+            override suspend fun onFire(alarm: ScheduledAlarm) {
+                perId.incrementAndGet(alarm.id.removePrefix("n-").toInt())
+                total.incrementAndGet()
+            }
+        })
+        AlarmDispatch.install(keys, handlers)
+        val barrier = CyclicBarrier(8 + 4)
+        val workers: List<Thread> = List(8) { worker: Int ->
+            thread(name = "kmptoolkit-adversarial-burst-$worker") {
+                barrier.await(WAIT_SECONDS, TimeUnit.SECONDS)
+                repeat(BURST / 8) { index: Int ->
+                    val id = "n-${worker * (BURST / 8) + index}"
+                    AlarmReceiver().onReceive(context, AlarmIntents.toIntent(context, alarm(id = id, type = "BURST"), keys))
+                }
+            }
+        }
+        val reinstallers: List<Thread> = List(4) { worker: Int ->
+            thread(name = "kmptoolkit-adversarial-reinstall-$worker") {
+                barrier.await(WAIT_SECONDS, TimeUnit.SECONDS)
+                repeat(50) {
+                    createAlarmScheduler(context, handlers = handlers)
+                    Thread.yield()
+                }
+            }
+        }
+        (workers + reinstallers).forEach { it.joinBounded() }
+
+        val deadline: Long = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS * 2)
+        while (total.get() < BURST && System.nanoTime() < deadline) Thread.sleep(20)
+        Thread.sleep(SETTLE_MILLIS)
+        val wrong: List<String> = (0 until BURST).filter { perId.get(it) != 1 }.map { "n-$it fired ${perId.get(it)} times" }
+        assertEquals(emptyList(), wrong.take(5), "total=${total.get()}")
+    }
+
     private companion object {
         const val WAIT_SECONDS: Long = 5L
         const val SETTLE_MILLIS: Long = 300L

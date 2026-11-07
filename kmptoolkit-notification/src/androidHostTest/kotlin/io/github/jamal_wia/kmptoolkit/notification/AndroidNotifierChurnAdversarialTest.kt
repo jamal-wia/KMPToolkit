@@ -138,6 +138,22 @@ class AndroidNotifierChurnAdversarialTest {
         assertEquals(NotificationResult.Posted, post(notifier, "id-0", frame("t", 10)))
     }
 
+    @Test
+    fun `progress percentages far outside the range are clamped on the tray and never crash a post`() {
+        val notifier: Notifier = notifier()
+        listOf(Int.MIN_VALUE, -1, 0, 100, 101, Int.MAX_VALUE).forEachIndexed { index: Int, percent: Int ->
+            val id = "p$index"
+            val result: NotificationResult = post(notifier, id, frame("t$index", percent))
+            assertTrue(result is NotificationResult.Posted, "percent=$percent gave $result")
+        }
+
+        shown.forEach { notification: Notification ->
+            val progress: Int = notification.extras.getInt(Notification.EXTRA_PROGRESS)
+            assertTrue(progress in 0..100, "tray progress $progress is out of range")
+        }
+        assertEquals(6, shown.size)
+    }
+
     private companion object {
         const val WAIT_SECONDS: Long = 5L
     }

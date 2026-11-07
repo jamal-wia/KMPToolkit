@@ -99,6 +99,23 @@ class AndroidAlarmSchedulerFaultAdversarialTest {
         assertIs<AlarmScheduleResult.Exact>(next)
     }
 
+    @Test
+    fun `a cancel queued behind a parked schedule of the same id is applied after it and leaves nothing armed`() {
+        val scheduler: AlarmScheduler = createAlarmScheduler(context)
+        val pause: Faults.Pause = Faults.pauseNextExactCheck()
+        val scheduling: Thread = thread(name = "kmptoolkit-adversarial-schedule") { runBlocking { scheduler.schedule(alarm("x")) } }
+        assertTrue(pause.entered.await(WAIT_SECONDS, TimeUnit.SECONDS), "the schedule never reached the platform")
+        val cancelling: Thread = thread(name = "kmptoolkit-adversarial-cancel") { runBlocking { scheduler.cancel("x") } }
+        Thread.sleep(SETTLE_MILLIS)
+
+        pause.release.countDown()
+        scheduling.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS))
+        cancelling.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS))
+
+        assertTrue(!scheduling.isAlive && !cancelling.isAlive, "a call is stuck")
+        assertEquals(emptySet(), armedIds(), "the cancel that was issued after the schedule started did not win")
+    }
+
     /** Parks the exact-permission check, and can make the next platform cancel throw. */
     @Implements(AlarmManager::class)
     class FaultyShadowAlarmManager : ShadowAlarmManager() {
