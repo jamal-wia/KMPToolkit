@@ -350,6 +350,87 @@ class AudioPlayerLifecycleChaosTest {
             }
         }
 
+    @Test
+    fun `a poll tick queued behind an unload or a stop never writes a stale position afterwards`() =
+        runTest(timeout = 120.seconds) {
+            withContext(Dispatchers.Default) {
+                withTimeout(100.seconds) {
+                    repeat(RACE_ITERATIONS) { iteration: Int ->
+                        val seed: Int = TICK_SEED + iteration
+                        val random = Random(seed)
+                        val engine = ChaosEngine(loadMillis = 0)
+                        val player: AudioPlayer = createAudioPlayer(
+                            engine,
+                            AudioPlayerConfig(positionUpdateIntervalMs = 1L),
+                            Dispatchers.Default,
+                        )
+                        player.prepare(first)
+                        player.play()
+                        delay(random.nextInt(0, 4).milliseconds)
+                        val unload: Boolean = iteration % 2 == 0
+                        val ending: Job = launch(Dispatchers.Default) {
+                            repeat(random.nextInt(0, 3)) { yield() }
+                            if (unload) player.unload() else player.stop()
+                        }
+                        withTimeout(10.seconds) { ending.join() }
+                        player.seekTo(0L) // drains the lock; inert unless playable
+                        val expected: PlayerState = if (unload) PlayerState.Idle else PlayerState.Ready(10_000L)
+                        assertEquals(expected, player.stateFlow.value, "seed $seed: state right after")
+                        delay(5.milliseconds)
+                        assertEquals(expected, player.stateFlow.value, "seed $seed: a stale tick rewrote the state")
+                        assertEquals(0L, player.playbackPositionFlow.value, "seed $seed: a stale tick rewrote the position")
+                        player.release()
+                    }
+                }
+            }
+        }
+
+    @Test
+    fun `a seek racing the end of the source leaves it completed or paused and never playing`() =
+        runTest(timeout = 120.seconds) {
+            withContext(Dispatchers.Default) {
+                withTimeout(100.seconds) {
+                    repeat(RACE_ITERATIONS) { iteration: Int ->
+                        val seed: Int = SEEK_SEED + iteration
+                        val random = Random(seed)
+                        val engine = ChaosEngine(loadMillis = 0)
+                        val player: AudioPlayer = createAudioPlayer(
+                            engine,
+                            AudioPlayerConfig(positionUpdateIntervalMs = 1L),
+                            Dispatchers.Default,
+                        )
+                        player.prepare(first)
+                        player.play()
+                        val ready = AtomicInt(0)
+                        val go = AtomicBoolean(false)
+                        val jitters: List<Int> = List(2) { random.nextInt(0, 3) }
+                        val completing: Job = launch(Dispatchers.Default) {
+                            ready.incrementAndFetch()
+                            while (!go.load()) yield()
+                            repeat(jitters[0]) { yield() }
+                            requireNotNull(engine.currentListener()).onCompleted()
+                        }
+                        val seeking: Job = launch(Dispatchers.Default) {
+                            ready.incrementAndFetch()
+                            while (!go.load()) yield()
+                            repeat(jitters[1]) { yield() }
+                            player.seekTo(2_000L)
+                        }
+                        while (ready.load() < 2) yield()
+                        go.store(true)
+                        withTimeout(10.seconds) { listOf(completing, seeking).joinAll() }
+                        player.seekBackward(0L) // drains the lock
+                        val state: PlayerState = player.stateFlow.value
+                        assertTrue(
+                            state is PlayerState.Completed || state is PlayerState.Paused,
+                            "seed $seed: a seek racing the end left $state",
+                        )
+                        player.release()
+                    }
+                }
+            }
+        }
+
     // --- Foreground and background churn ---
 
     @Test
@@ -600,5 +681,7 @@ class AudioPlayerLifecycleChaosTest {
         const val RACE_ITERATIONS: Int = 300
         const val RACE_SEED: Int = 0x5EED
         const val CANCEL_SEED: Int = 0xCA17
+        const val TICK_SEED: Int = 0x71C
+        const val SEEK_SEED: Int = 0x5EE
     }
 }
