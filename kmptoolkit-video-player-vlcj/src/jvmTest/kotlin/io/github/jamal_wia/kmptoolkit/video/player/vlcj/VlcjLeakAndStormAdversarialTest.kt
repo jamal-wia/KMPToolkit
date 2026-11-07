@@ -209,6 +209,8 @@ class VlcjLeakAndStormAdversarialTest {
     private fun loadJarAssetAndDrop(ext: String): WeakReference<VlcjVideoEngine> {
         val engine: VlcjVideoEngine = newEngine(classLoader = jarLoader(ext))
         runBlocking { withTimeout(5_000L) { engine.load(VideoSource.Asset("assets/clip.$ext")) } }
+        // While the engine is still referenced: once it is dropped the Cleaner may run at any moment.
+        assertEquals(1, copiesOnDisk(ext).size, "the loaded session owns one temporary copy")
         return WeakReference(engine)
     }
 
@@ -217,7 +219,6 @@ class VlcjLeakAndStormAdversarialTest {
         val ext = "d2leakdrop"
         val liveBefore: Int = AssetCopies.liveCount
         val reference: WeakReference<VlcjVideoEngine> = loadJarAssetAndDrop(ext)
-        assertEquals(1, copiesOnDisk(ext).size)
         var rounds = 0
         while (reference.get() != null && rounds < 100) {
             System.gc()
