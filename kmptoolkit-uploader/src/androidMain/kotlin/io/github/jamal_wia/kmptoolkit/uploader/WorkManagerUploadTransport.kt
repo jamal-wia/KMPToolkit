@@ -144,14 +144,17 @@ public class UploaderUploadWorker(
 
         // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO, polling
         // its own job so a cancelled job stops the body instead of finishing it unseen.
-        val outcome: UploadResult = withContext(Dispatchers.IO) {
-            val transfer: Job = coroutineContext.job
-            performMultipartUpload(
-                request = request,
-                connectTimeoutMillis = connectTimeoutMillis,
-                readTimeoutMillis = readTimeoutMillis,
-                isCancelled = { !transfer.isActive },
-            )
+        val outcome: UploadResult = withWriteWatchdog(readTimeoutMillis) { watch ->
+            withContext(Dispatchers.IO) {
+                val transfer: Job = coroutineContext.job
+                performMultipartUpload(
+                    request = request,
+                    connectTimeoutMillis = connectTimeoutMillis,
+                    readTimeoutMillis = readTimeoutMillis,
+                    isCancelled = { !transfer.isActive },
+                    watch = watch,
+                )
+            }
         }
         // classify is the app's code: a throw is a failed attempt of this item, never a lost outcome — an
         // exception out of doWork would leave the row in flight, and the whole file would upload again once
