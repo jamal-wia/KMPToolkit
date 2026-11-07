@@ -360,4 +360,34 @@ class UploadSessionSeamIosTest {
             assertEquals(1, runs.value, "iteration $it")
         }
     }
+
+    @Test
+    fun `a drained signal before registration still runs the callback`() = runTest {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default).also(scopes::add)
+        val journal = OutcomeJournal(IosOutcomeStorage(dir), UploaderClock.System)
+        val delegate = UploadSessionDelegate("seam-drain-early", scope, NoopLogger, journal, NSLock(), {})
+        var runs = 0
+
+        delegate.URLSessionDidFinishEventsForBackgroundURLSession(NSURLSession.sharedSession)
+        delegate.notifyWhenDrained { runs++ }
+
+        assertEquals(1, runs)
+    }
+
+    @Test
+    fun `two registrations both run once`() = runTest {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default).also(scopes::add)
+        val journal = OutcomeJournal(IosOutcomeStorage(dir), UploaderClock.System)
+        val delegate = UploadSessionDelegate("seam-drain-two", scope, NoopLogger, journal, NSLock(), {})
+        var first = 0
+        var second = 0
+
+        delegate.notifyWhenDrained { first++ }
+        delegate.notifyWhenDrained { second++ }
+        delegate.URLSessionDidFinishEventsForBackgroundURLSession(NSURLSession.sharedSession)
+        delegate.URLSessionDidFinishEventsForBackgroundURLSession(NSURLSession.sharedSession)
+
+        assertEquals(1, first)
+        assertEquals(1, second)
+    }
 }

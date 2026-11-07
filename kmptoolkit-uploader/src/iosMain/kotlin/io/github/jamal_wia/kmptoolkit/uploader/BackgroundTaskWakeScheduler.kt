@@ -4,13 +4,13 @@ import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
 import io.github.jamal_wia.kmptoolkit.uploader.spi.WakeScheduler
-import kotlin.concurrent.AtomicInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import platform.BackgroundTasks.BGProcessingTaskRequest
 import platform.BackgroundTasks.BGTaskScheduler
@@ -125,13 +125,13 @@ public class BackgroundTaskWakeScheduler internal constructor(
         NSBundle.mainBundle.bundleIdentifier ?: BackgroundTaskWakeConfig.FALLBACK_BUNDLE_ID,
     )
 
-    /** `1` while a request is believed to be pending. */
-    private val armed: AtomicInt = AtomicInt(0)
+    /** `true` while a request is believed to be pending. */
+    private val armed: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
     @OptIn(ExperimentalForeignApi::class) // the NSError out-pointer of submitTaskRequest
     override fun scheduleWake() {
         // Already armed: a request exists, or one is being submitted right now. Nothing to add.
-        if (!armed.compareAndSet(expected = 0, newValue = 1)) return
+        if (!armed.compareAndSet(expect = false, update = true)) return
         val request = BGProcessingTaskRequest(identifier = taskIdentifier).apply {
             requiresNetworkConnectivity = config.requiresNetworkConnectivity
             requiresExternalPower = config.requiresExternalPower
@@ -140,14 +140,14 @@ public class BackgroundTaskWakeScheduler internal constructor(
         if (!submitted) {
             // Expected on the simulator, and whenever background refresh is switched off by the
             // user. Disarm so a later attempt retries; the launch-time drain still delivers.
-            armed.value = 0
+            armed.value = false
             logger.w { "BGTaskScheduler refused the uploader wake; delivery falls back to app launch." }
         }
     }
 
     override fun cancelWake() {
         BGTaskScheduler.sharedScheduler.cancelTaskRequestWithIdentifier(taskIdentifier)
-        armed.value = 0
+        armed.value = false
     }
 
     /**
@@ -165,7 +165,7 @@ public class BackgroundTaskWakeScheduler internal constructor(
      */
     public fun handleWake(onDone: (Boolean) -> Unit) {
         // iOS has already spent the request by launching the task.
-        armed.value = 0
+        armed.value = false
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             // onDone must run even if the drain throws — a store failure, say — or iOS never hears that
             // the task finished and holds it against the app's future background time.

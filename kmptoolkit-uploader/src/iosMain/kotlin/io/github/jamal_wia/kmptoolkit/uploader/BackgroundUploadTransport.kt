@@ -5,8 +5,6 @@ import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
-import kotlin.concurrent.AtomicInt
-import kotlin.concurrent.AtomicReference
 import kotlin.concurrent.Volatile
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
@@ -274,11 +272,11 @@ public object BackgroundUploadRelaunch {
 
 /** Runs [action] at most once, whichever of several racing callers gets there first. */
 internal class OnceGuard(private val action: () -> Unit) {
-    private val fired = AtomicInt(0)
+    private val fired: CompletableDeferred<Unit> = CompletableDeferred()
 
     /** @return whether this call ran the action. */
     fun fire(): Boolean {
-        if (!fired.compareAndSet(expected = 0, newValue = 1)) return false
+        if (!fired.complete(Unit)) return false
         action()
         return true
     }
@@ -304,6 +302,8 @@ internal class BackgroundSessionUploadTransport(
     )
 
     /** One live session per item in this process; the delegate removes its own entry when it completes. */
+    // NSLock, not a coroutine Mutex: taken from NSURLSession delegate callbacks and the non-suspending
+    // launch()/cancel(), around Objective-C session calls that must be atomic with these maps.
     private val liveLock = NSLock()
     private val liveUploads: MutableMap<String, LiveUpload> = mutableMapOf()
 
@@ -885,6 +885,9 @@ internal class UploadSessionDelegate(
     private val onInvalidated: (UploadSessionDelegate) -> Unit = {},
 ) : NSObject(), NSURLSessionDataDelegateProtocol {
 
+    // @Volatile, not StateFlow: written on the NSURLSession delegate queue (receivedAnyEvent on every progress
+    // event); decisions read them under terminalLock, the volatile only serves the lock-free early-outs.
+
     /** Any event at all tells a re-hand's flush window not to start a fresh upload. */
     @Volatile
     var receivedAnyEvent: Boolean = false
@@ -897,11 +900,11 @@ internal class UploadSessionDelegate(
     @Volatile
     var terminalDelivered: Boolean = false
 
-    @Volatile
-    private var terminalHandled: Boolean = false
-
-    /** The drained callback; taken with a compare-and-set, so however many callers race, it runs once. */
-    private val onAllEventsDelivered: AtomicReference<(() -> Unit)?> = AtomicReference(null)
+    /**
+     * Completed when the buffered events are drained: DidFinishEvents, or the terminal event settled. A signal
+     * that lands before anyone registered is remembered, and every registered callback runs exactly once.
+     */
+    private val drained: CompletableDeferred<Unit> = CompletableDeferred()
 
     /**
      * Progress goes through one conflated channel and one forwarder, so fractions reach the handler in order
@@ -942,18 +945,8 @@ internal class UploadSessionDelegate(
 
     /** Chains [callback] to "the buffered events are drained"; fires at once if they already are. */
     fun notifyWhenDrained(callback: () -> Unit) {
-        onAllEventsDelivered.value = callback
-        if (terminalHandled) fireDrained()
-    }
-
-    private fun fireDrained() {
-        while (true) {
-            val callback: (() -> Unit) = onAllEventsDelivered.value ?: return
-            if (onAllEventsDelivered.compareAndSet(callback, null)) {
-                callback()
-                return
-            }
-        }
+        // Runs synchronously on the completing thread, or at once on this thread if already drained.
+        drained.invokeOnCompletion { callback() }
     }
 
     /** The response body so far, kept up to the engine's ceiling plus one byte; handed over once, at completion. */
@@ -977,7 +970,7 @@ internal class UploadSessionDelegate(
     }
 
     override fun URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession) {
-        fireDrained()
+        drained.complete(Unit)
     }
 
     override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
@@ -1052,8 +1045,7 @@ internal class UploadSessionDelegate(
             onTerminal(this@UploadSessionDelegate)
             // The terminal event was the buffered work: once it is settled, the OS completion handler need
             // not wait for the safety timeout — DidFinishEvents may never come after invalidation.
-            terminalHandled = true
-            fireDrained()
+            drained.complete(Unit)
         }
     }
 }
