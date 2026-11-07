@@ -1,6 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.downloader
 
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -21,37 +24,67 @@ import kotlinx.coroutines.withContext
  * Keyed by the storage's absolute base directory together with [DownloadUnit.id], so two storages
  * over different directories never wait for each other, and two over the same directory always do.
  * An entry lives only while a commit holds or awaits it, so the registry does not grow with the
- * catalogue. Kotlin/Native shares this object between threads; [registryLock] guards the map.
+ * catalogue. Kotlin/Native shares this object between threads; [entries] is updated by compare-and-set.
  */
 internal object UnitCommitLocks {
 
-    private class Entry {
-        val mutex: Mutex = Mutex()
+    /**
+     * One unit's slot. Immutable, replaced through [entries]'s compare-and-set: [users] commits hold
+     * or await [mutex]; [detaching] marks a [tryWithUnitLock] that holds the unit for its O(1)
+     * action, during which a commit of the unit waits on [entries] before it registers.
+     */
+    private class Entry(val mutex: Mutex, val users: Int, val detaching: Boolean)
 
-        /** Commits holding or awaiting [mutex]; the entry is dropped when it returns to zero. */
-        var users: Int = 0
-    }
-
-    private val registryLock: Mutex = Mutex()
-    private val entries: MutableMap<Pair<String, String>, Entry> = mutableMapOf()
+    // A StateFlow of an immutable map instead of a Mutex over a mutable one: the non-suspending
+    // tryWithUnitLock must examine and claim the registry without ever failing because other units'
+    // commits are registering or leaving at that moment (a Mutex hands itself to a queued waiter on
+    // unlock, so a tryLock on a busy registry fails for as long as anyone queues).
+    private val entries: MutableStateFlow<Map<Pair<String, String>, Entry>> = MutableStateFlow(emptyMap())
 
     /** Runs [action] while no other commit of [unitId] under [baseDirectory] runs in this process. */
     suspend fun <T> withUnitLock(baseDirectory: String, unitId: String, action: suspend () -> T): T {
         val key: Pair<String, String> = baseDirectory to unitId
-        val entry: Entry = registryLock.withLock {
-            entries.getOrPut(key) { Entry() }.also { it.users++ }
-        }
+        val mutex: Mutex = register(key)
         try {
-            return entry.mutex.withLock { action() }
+            return mutex.withLock { action() }
         } finally {
             // NonCancellable: a commit cancelled while waiting must still give its slot back, or the
             // entry would never be dropped.
             withContext(NonCancellable) {
-                registryLock.withLock {
-                    entry.users--
-                    if (entry.users == 0) entries.remove(key)
+                entries.update { current: Map<Pair<String, String>, Entry> ->
+                    val entry: Entry = current.getValue(key)
+                    if (entry.users <= 1) current - key else current + (key to Entry(entry.mutex, entry.users - 1, false))
                 }
             }
+        }
+    }
+
+    private suspend fun register(key: Pair<String, String>): Mutex {
+        while (true) {
+            var registered: Mutex? = null
+            entries.update { current: Map<Pair<String, String>, Entry> ->
+                val entry: Entry? = current[key]
+                when {
+                    entry == null -> {
+                        val mutex = Mutex()
+                        registered = mutex
+                        current + (key to Entry(mutex, 1, false))
+                    }
+
+                    entry.detaching -> {
+                        registered = null
+                        current
+                    }
+
+                    else -> {
+                        registered = entry.mutex
+                        current + (key to Entry(entry.mutex, entry.users + 1, false))
+                    }
+                }
+            }
+            registered?.let { return it }
+            // A detach holds the unit for an O(1) action; wait until it has finished.
+            entries.first { current: Map<Pair<String, String>, Entry> -> current[key]?.detaching != true }
         }
     }
 
@@ -59,25 +92,28 @@ internal object UnitCommitLocks {
      * Runs [action] only when no commit of [unitId] under [baseDirectory] holds or awaits the unit,
      * and returns whether it ran. Never suspends and never waits, so a caller that cannot suspend
      * ([DownloaderStorage.deleteTempFile]) and that may itself hold another lock cannot deadlock
-     * against a commit. It also returns false when the registry is merely busy for a moment (a
-     * commit of any unit registering or leaving, another call of this function), so a `false`
-     * means "not now", never "nothing to do".
+     * against a commit. `false` means exactly "a commit of this unit holds or awaits it, or another
+     * call of this function holds it right now": other units' commits registering or leaving never
+     * make it fail, so the answer is never "not now" for an unrelated reason.
      *
-     * A commit registers its entry under [registryLock], so holding the registry for the whole of
-     * [action] keeps every commit of every unit from starting until it returns: the unit is
-     * excluded without registering an entry of its own (which could not be removed again without
-     * suspending). [action] must therefore be O(1) and must not suspend; slow work belongs in
-     * [tryDetachThenDispose].
+     * The unit is claimed with a [detaching] entry for the duration of [action], so a commit of the
+     * unit that arrives meanwhile waits for it instead of starting beside it. [action] must be O(1)
+     * and must not suspend; slow work belongs in [tryDetachThenDispose].
      */
     fun tryWithUnitLock(baseDirectory: String, unitId: String, action: () -> Unit): Boolean {
-        if (!registryLock.tryLock()) return false
-        try {
-            if ((baseDirectory to unitId) in entries) return false
-            action()
-            return true
-        } finally {
-            registryLock.unlock()
+        val key: Pair<String, String> = baseDirectory to unitId
+        var claimed = false
+        entries.update { current: Map<Pair<String, String>, Entry> ->
+            claimed = key !in current
+            if (claimed) current + (key to Entry(Mutex(), 0, true)) else current
         }
+        if (!claimed) return false
+        try {
+            action()
+        } finally {
+            entries.update { current: Map<Pair<String, String>, Entry> -> current - key }
+        }
+        return true
     }
 
     /**

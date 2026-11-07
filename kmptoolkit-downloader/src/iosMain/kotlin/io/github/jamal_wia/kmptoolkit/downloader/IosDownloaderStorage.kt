@@ -315,8 +315,8 @@ internal class IosDownloaderStorage(
         // The extraction tree of an archive commit that a process death interrupted: nothing else
         // ever enumerates tmp/, so a unit that is then dropped would keep it forever. Skipped while
         // a commit of the unit runs (it may be extracting into this very tree, or moving it into
-        // place), or while the lock registry is momentarily busy; the next cancel or the next
-        // commit reclaims it. Under the lock the tree is only renamed away; the recursive delete
+        // place); the next cancel or the next commit reclaims it. A merely busy lock registry
+        // is retried, never taken for a running commit. Under the lock the tree is only renamed away; the recursive delete
         // runs after the lock is released so it cannot stall other units.
         UnitCommitLocks.tryDetachThenDispose(
             baseDirectory = baseDir,

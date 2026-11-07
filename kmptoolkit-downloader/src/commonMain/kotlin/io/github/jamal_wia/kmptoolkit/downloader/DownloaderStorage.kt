@@ -137,8 +137,7 @@ public interface DownloaderStorage {
      *
      * The shipped storages also remove the extraction staging an interrupted archive commit of
      * [unit] left behind, unless a commit of [unit] is running in this process (the removal never
-     * waits for it, and it may also be skipped for an instant while the process's commit
-     * registry is busy; the next call or the next commit reclaims the staging). A custom storage that
+     * waits for it; the next call or the next commit reclaims the staging). A custom storage that
      * extracts archives through a staging area should do the same, or an interrupted extraction of
      * a unit that is then dropped stays on disk. They also sweep `tmp/trash/`, where a detached
      * extraction tree lands before its delete, so a tree whose delete a process kill or an I/O error
