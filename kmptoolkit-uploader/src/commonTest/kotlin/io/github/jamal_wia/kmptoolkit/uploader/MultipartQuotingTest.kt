@@ -6,12 +6,12 @@ import kotlin.test.assertEquals
 class MultipartQuotingTest {
 
     @Test
-    fun `a quote, a carriage return and a line feed are percent-escaped and nothing else changes`() {
+    fun `a quote and both line break characters are percent-escaped and nothing else changes`() {
         assertEquals("a%22b%0D%0Ac%0Ad%0De", multipartQuotedValue("a\"b\r\nc\nd\re"))
     }
 
     @Test
-    fun `a plain name, a percent sign and non-ascii text pass through untouched`() {
+    fun `a plain name with a percent sign and non-ascii text passes through untouched`() {
         assertEquals("photo 100%.jpg", multipartQuotedValue("photo 100%.jpg"))
         assertEquals("фото", multipartQuotedValue("фото"))
         assertEquals("", multipartQuotedValue(""))
