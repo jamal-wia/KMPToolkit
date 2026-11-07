@@ -161,6 +161,27 @@ class LoggerThreadStormTest {
         assertEquals(1, last.seen.get())
     }
 
+    @Test
+    fun `a sink that rethrows an Error does not starve the sinks after it`() {
+        val after = CountingSink()
+        val logger: Logger = createLoggerFactory(
+            sinks = listOf(LogSink { _, _, _, _ -> throw AssertionError("sink assertion") }, after),
+        ).logger("tag")
+
+        runCatching { logger.log(LogLevel.INFO, null) { "m" } }
+
+        assertEquals(1, after.seen.get(), "a sink after one that threw an Error never saw the event")
+    }
+
+    @Test
+    fun `a sink that throws NotImplementedError does not crash the caller`() {
+        val logger: Logger = createLoggerFactory(
+            sinks = listOf(LogSink { _, _, _, _ -> TODO("sink not written yet") }),
+        ).logger("tag")
+
+        logger.log(LogLevel.INFO, null) { "m" }
+    }
+
     private companion object {
         const val THREADS = 16
         const val PER_THREAD = 400

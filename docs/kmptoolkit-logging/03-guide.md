@@ -150,7 +150,10 @@ to the console, the serious half also to the reporter.
 A logging call is not part of the work the caller is trying to do, so a broken destination must not
 turn into a crash somewhere unrelated. If a sink throws:
 
-- the throwable is swallowed;
+- the throwable is swallowed: every `Exception`, and the Errors a broken sink raises for its own
+  reasons (`AssertionError`, a `TODO()` sink's `NotImplementedError`, on Android a `LinkageError` such
+  as `NoSuchMethodError`). A `CancellationException` is rethrown after every sink has been offered the
+  event, and any other `Error` (`StackOverflowError`, `OutOfMemoryError`) reaches the caller at once;
 - the sinks after it in the list still receive the event;
 - the caller returns normally.
 

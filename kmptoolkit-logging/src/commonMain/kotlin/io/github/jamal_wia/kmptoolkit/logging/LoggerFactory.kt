@@ -17,6 +17,17 @@ public interface LoggerFactory {
 }
 
 /**
+ * Whether a sink's failure is one the logger contains: every `Exception`, plus the Errors a broken or
+ * unfinished sink raises (`AssertionError`, `NotImplementedError`, and on the JVM a `LinkageError`
+ * such as `NoSuchMethodError`). Any other Error (`StackOverflowError`, `OutOfMemoryError`) is not.
+ */
+internal fun Throwable.isContainedSinkFailure(): Boolean =
+    this is Exception || this is AssertionError || this is NotImplementedError || this.isLinkageError()
+
+/** The JVM's `LinkageError` (a library version mismatch); never true where the platform has none. */
+internal expect fun Throwable.isLinkageError(): Boolean
+
+/**
  * Creates a [LoggerFactory] that forwards every event at or above [minLevel] to each of [sinks],
  * in list order.
  *
@@ -27,8 +38,14 @@ public interface LoggerFactory {
  * - **The message lambda is evaluated at most once per event**, even with several sinks, and never
  *   when the event is filtered out.
  * - **A sink that throws cannot break the caller.** The throwable is swallowed and the remaining
- *   sinks still receive the event. (A `CancellationException` is the exception: it is rethrown, but
- *   only after every sink has been offered the event.) A logging call is not part of the behavior a caller is trying to
+ *   sinks still receive the event. That covers every `Exception` and the Errors a broken sink raises
+ *   for its own reasons: an `AssertionError`, a `TODO()` sink's `NotImplementedError`, and on Android
+ *   a `LinkageError` such as `NoSuchMethodError`. Two kinds reach the caller: a
+ *   `CancellationException` is rethrown, but only after every sink has been offered the event, and
+ *   any other `Error` (`StackOverflowError`, `OutOfMemoryError`) is rethrown at once, because
+ *   swallowing it would hide a process that is already failing. A sink must not log through the factory it is installed in:
+ *   there is no re-entrancy guard, so it recurses until the stack overflows and that error reaches
+ *   the caller. A logging call is not part of the behavior a caller is trying to
  *   execute, so a broken log destination must not turn into a crash in unrelated code — and there
  *   is nowhere to report the failure to that is not itself a sink.
  * - **An exception from the message lambda is *not* swallowed** and propagates to the caller. That
@@ -79,13 +96,17 @@ private class TagLogger(
                 // break the caller's structured concurrency — the exact opposite of the guarantee
                 // this catch exists to provide.
                 if (cancellation == null) cancellation = e
-            } catch (_: Exception) {
+            } catch (e: Throwable) {
                 // Deliberate: see createLoggerFactory's KDoc. A failing destination must not
-                // propagate into the caller, and must not cost the other sinks their event.
+                // propagate into the caller, and must not cost the other sinks their event. That
+                // includes the Errors a broken or unfinished sink raises for its own reasons: an
+                // AssertionError, a TODO() sink's NotImplementedError, a NoSuchMethodError from a
+                // mismatched logging library.
                 //
-                // Exception, not Throwable: an Error means the process is already in trouble
+                // Any other Error is rethrown: it means the process is already in trouble
                 // (StackOverflowError from a sink that logs into itself, OutOfMemoryError) and
                 // swallowing it would turn a loud, findable bug into an invisible one.
+                if (!e.isContainedSinkFailure()) throw e
             }
         }
         cancellation?.let { throw it }
