@@ -948,6 +948,7 @@ internal class DefaultDownloaderEngine(
             // Skip commitResource() to avoid failing on an already-consumed temp file.
             if (storage.isResourceAvailable(unit)) {
                 logger.i { "Resource unit $unit already committed, skipping commit" }
+                dropStrayTempFile(unit)
             } else {
                 logger.i { "Committing resource $unit..." }
                 storage.commitResource(unit = unit)
@@ -1145,6 +1146,21 @@ internal class DefaultDownloaderEngine(
             safeDeleteTempFile(unit)
         } else {
             logger.i { "Keeping the temp file of $unit after $error, so a retry resumes from it" }
+        }
+    }
+
+    /**
+     * Called when [unit] is already committed and this call skips the commit: another commit (a
+     * second engine over the same directory, or a platform downloader that commits on its own)
+     * finalized it first. A transfer of this call may still have finished on its own, and its
+     * [TempFileState.Complete] temp file would stay on disk for ever, since nothing consumes it
+     * any more. It is dropped here; a [TempFileState.Partial] file belongs to a transfer that is
+     * still running and is left alone. Best effort, like every other temp file delete.
+     */
+    private fun dropStrayTempFile(unit: DownloadUnit) {
+        if (storage.tempFileState(unit) == TempFileState.Complete) {
+            logger.i { "Dropping the temp file of $unit, which was committed by another commit" }
+            safeDeleteTempFile(unit)
         }
     }
 
@@ -1446,6 +1462,8 @@ internal class DefaultDownloaderEngine(
         try {
             if (!storage.isResourceAvailable(unit)) {
                 storage.commitResource(unit)
+            } else {
+                dropStrayTempFile(unit)
             }
             if (!storage.isResourceAvailable(unit)) {
                 error("Resource $unit not available after commit")
