@@ -187,7 +187,7 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   again**: the Android worker checks it before preparing the attempt, the iOS transport in a re-hand
   (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
   created. The file is deleted just before the engine commits the settlement, so a retry that is
-  re-handed at once never meets it, and one replay per item runs at a time in a process. A replayed response reaches `classify` and
+  re-handed at once never meets it; if the commit fails it is written back, so the answer is not lost, and one replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
   file; so does the 7-day expiry. A file of an unknown format version, or an unreadable one, is ignored
   and deleted. Nothing is journaled for a transport failure (there is no response), a write that fails

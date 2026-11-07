@@ -169,6 +169,14 @@ class UploadHandlerWorkerChaosAdversarialTest {
         }
     }
 
+    /** A store whose delete suspends first, as a real database call does, so a cancellation lands on the settlement's write. */
+    private class YieldingStore(private val delegate: TestUploaderStore) : UploaderStore by delegate {
+        override suspend fun deleteById(id: String) {
+            kotlinx.coroutines.yield()
+            delegate.deleteById(id)
+        }
+    }
+
     private fun startEngine(
         store: UploaderStore,
         handler: ChaosHandler,
@@ -524,6 +532,50 @@ class UploadHandlerWorkerChaosAdversarialTest {
 
         assertTrue(tookMillis < 3_000, "the cancelled job lingered $tookMillis ms waiting for an answer (read timeout 5000 ms)")
         assertEquals(0, handler.delivered.size)
+        assertTrue(journalFiles().isEmpty())
+    }
+
+    @Test
+    fun `a settlement the store refuses after the answer was journaled does not make the next run upload again`() {
+        serve()
+        val backing = TestUploaderStore()
+        val store = RefusingStore(backing)
+        val handler = ChaosHandler()
+        startEngine(store, handler)
+        store.failDeletes = 1
+
+        val first: ListenableWorker.Result = runWorker()
+        assertIs<ListenableWorker.Result.Retry>(first, "the outcome did not land: the job asks for a re-run")
+        assertEquals(UploaderItemState.IN_FLIGHT, backing.find("item-1")?.state)
+
+        val second: ListenableWorker.Result = runWorker()
+
+        assertIs<ListenableWorker.Result.Success>(second)
+        assertEquals(1, connections.get(), "the answer the first run journaled is replayed; the file is not uploaded again")
+        assertNull(backing.find("item-1"))
+    }
+
+    @Test
+    fun `a job stopped in the middle of the settlement does not make its re-run upload the file again`() {
+        serve()
+        val backing = TestUploaderStore()
+        val store = YieldingStore(backing)
+        lateinit var job: Deferred<ListenableWorker.Result>
+        val stopOnce = AtomicInteger(0)
+        val handler = ChaosHandler(onClassify = {
+            // WorkManager stops the job while the engine is classifying the answer.
+            if (stopOnce.getAndIncrement() == 0) job.cancel()
+        })
+        startEngine(store, handler)
+        job = uploads.async(start = CoroutineStart.LAZY) { worker().build().doWork() }
+        job.start()
+        runCatching { runBlocking { withTimeout(20_000L) { job.await() } } }
+
+        val rerun: ListenableWorker.Result = runWorker()
+
+        assertIs<ListenableWorker.Result.Success>(rerun)
+        assertEquals(1, connections.get(), "the re-run replays")
+        assertEquals(1, handler.delivered.size)
         assertTrue(journalFiles().isEmpty())
     }
 

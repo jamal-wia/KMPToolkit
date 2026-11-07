@@ -15,6 +15,7 @@ import kotlin.time.Duration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -987,12 +989,18 @@ internal class DefaultUploaderEngine(
         // The outcome is about to be committed, which may return the item to the queue and re-hand it at
         // once: a transport's journal entry must be gone by then, or it would replay into the next attempt.
         // A throw here must not stop the settlement.
-        try {
-            onSettling?.invoke()
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
+        // The server already answered and the entry was just deleted, so the commit is a short write of a
+        // known fact that a stop must not split from the delete (D-21: NonCancellable is the high-level tool
+        // here, as in the classic worker's settle). After this block a cancellation can only surface after
+        // the commit. classify, onDelivered and onSettled stay cancellable: they are feature code.
+        withContext(NonCancellable) {
+            try {
+                onSettling?.invoke()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+            }
+            settle(id, record.claim, settleResult)
         }
-        settle(id, record.claim, settleResult)
         runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
     }
 

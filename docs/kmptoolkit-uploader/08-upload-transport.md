@@ -125,8 +125,9 @@ backup-excluded Application Support directory on iOS). If the process dies in be
 worker at the start of `doWork`, the iOS transport in a hand-off, in `handleEvents` and once at
 creation (on iOS only a re-hand is owed a replay). The file holds the body only up to the handler's
 `maxResponseBodyBytes` (on iOS, after a brief window in which the whole captured body is on disk; see
-[`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted just before the engine commits the settlement, on `cancel`, and after 7 days; an item the
-engine no longer knows settles nothing and its file is deleted. The response body therefore rests
+[`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted just before the engine commits the settlement, on `cancel`, and after 7 days; if the commit
+fails (a store error) the file is written back, and a stop of the job cannot separate the delete from the
+commit. An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
 briefly on disk; see [`05-platform-notes.md`](05-platform-notes.md#the-servers-response). Your own
 transport has no journal: keep your own record if it needs one.
 

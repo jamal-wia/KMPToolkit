@@ -92,6 +92,27 @@ class OutcomeJournalChurnAdversarialTest {
     }
 
     @Test
+    fun `a replay whose settlement fails after onSettling puts the entry back with its original time and delivers it once later`() = runBlocking {
+        val journal: OutcomeJournal = journal()
+        val writtenAt: Long = nowMillis
+        assertTrue(journal.record("item-1", response()))
+        nowMillis += 3.days.inWholeMilliseconds
+
+        val first: ReplayOutcome = journal.replay("item-1") { _, _, onSettling -> onSettling(); false }
+
+        assertEquals(ReplayOutcome.Kept, first)
+        val back: JournalEntry = journal.inspect("item-1")
+        assertIs<JournalEntry.Valid>(back, "the answer the failed commit did not take is back on disk")
+        assertEquals(writtenAt, back.writtenAtMillis, "the 7-day expiry keeps counting from the first write")
+        assertEquals(201, back.response.statusCode)
+        var delivered = 0
+        val second: ReplayOutcome = journal.replay("item-1") { _, _, onSettling -> onSettling(); delivered++; true }
+        assertEquals(ReplayOutcome.Replayed, second)
+        assertEquals(1, delivered)
+        assertEquals(0, fileCount())
+    }
+
+    @Test
     fun `every prefix of a valid entry and a few thousand mutations of it read as damaged without throwing`() {
         val valid: ByteArray = OutcomeCodec.encode(
             UploadResponse(200, mapOf("a" to "b", "location" to "/jobs/1"), ByteArray(300) { it.toByte() }, true),
