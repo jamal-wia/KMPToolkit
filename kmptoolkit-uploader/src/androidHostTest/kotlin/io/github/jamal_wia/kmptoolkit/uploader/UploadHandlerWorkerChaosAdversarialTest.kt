@@ -579,6 +579,26 @@ class UploadHandlerWorkerChaosAdversarialTest {
         assertTrue(journalFiles().isEmpty())
     }
 
+    @Test
+    fun `a progress hook that never returns does not keep an answered upload from being settled`() {
+        serve()
+        val file: File = File(context.cacheDir, "progress-${System.nanoTime()}.bin").also {
+            RandomAccessFile(it, "rw").use { f -> f.setLength(1024) }
+            tempFiles += it
+        }
+        val backing = TestUploaderStore()
+        val handler = ChaosHandler(
+            fields = { listOf(UploadField.File("f", "p.bin", "application/octet-stream", file.path)) },
+            onProgress = { kotlinx.coroutines.awaitCancellation() },
+        )
+        startEngine(backing, handler)
+        val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
+
+        val result: ListenableWorker.Result? = runBlocking { withTimeout(10_000L) { delay(5_000L); if (running.isCompleted) running.await() else null } }
+
+        assertEquals(1, handler.delivered.size, "the answer arrived, but the settlement waits on the hook (job result $result)")
+    }
+
     private companion object {
         const val CREATED: String = "HTTP/1.1 201 Created\r\nLocation: /jobs/1\r\nContent-Length: 12\r\nConnection: close\r\n\r\n{\"job\":\"j1\"}"
     }

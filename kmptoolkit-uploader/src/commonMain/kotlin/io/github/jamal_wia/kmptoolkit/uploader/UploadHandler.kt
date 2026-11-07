@@ -122,7 +122,8 @@ public abstract class UploadHandler<P : Any>(
 
     /**
      * Upload progress of [payload], from 0 to 1. Best effort: whole percents only, possibly
-     * skipping some, and never after the item has settled.
+     * skipping some, and never after the item has settled. Must not block: on Android a hook still running
+     * 2 seconds after the transfer ended is cancelled, so it cannot hold up the settlement.
      */
     public open suspend fun onUploadProgress(payload: P, fraction: Float) {}
 
