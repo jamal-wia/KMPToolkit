@@ -17,8 +17,12 @@ import javafx.scene.paint.Color
 import javafx.util.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -360,13 +364,29 @@ internal class FxPlayback private constructor(
                 // at once (ToolkitJavaFxRuntime re-checks it on every call); only an exit that races
                 // the load itself, between that probe and this call, waits out the timeout.
                 withTimeoutOrNull(readyTimeoutMs) {
-                    val playback: FxPlayback = FxThread.call {
-                        FxPlayback(media, sink, maxFrameRate).also {
-                            created.set(it)
-                            onCreated(it)
+                    coroutineScope {
+                        // The toolkit can end at any moment, by implicit exit as well as
+                        // Platform.exit(); the wait then ends at once instead of at the timeout.
+                        val exitWatch: Job = launch {
+                            while (true) {
+                                delay(EXIT_POLL_MS)
+                                if (FxThread.hasExited(wait = false)) {
+                                    throw JavaFxVideoPlayerException.RuntimeUnavailable(
+                                        IllegalStateException("The JavaFX toolkit has exited"),
+                                    )
+                                }
+                            }
                         }
+                        val playback: FxPlayback = FxThread.call {
+                            FxPlayback(media, sink, maxFrameRate).also {
+                                created.set(it)
+                                onCreated(it)
+                            }
+                        }
+                        playback.ready.await()
+                        exitWatch.cancel()
+                        playback
                     }
-                    playback.ready.await()
                 } ?: throw if (created.get() == null) {
                     JavaFxVideoPlayerException.RuntimeUnavailable(
                         IllegalStateException(
@@ -384,6 +404,8 @@ internal class FxPlayback private constructor(
                 throw e
             }
         }
+
+        private const val EXIT_POLL_MS: Long = 100L
 
         private fun Duration?.toMillisOrZero(): Long {
             if (this == null || isUnknown || isIndefinite) return 0L

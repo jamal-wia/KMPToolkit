@@ -62,6 +62,11 @@ import kotlinx.coroutines.withContext
  *   unreachable is synchronous.
  * - Native calls from the caller's thread go through [lock], and every one checks the session is
  *   still open first, so no call can reach a native player after its session closed.
+ *   That barrier waits for a native call in flight, so it relies on every native call made on the
+ *   caller's thread returning at once. libvlc 3's play, pause, set_time, rate, volume and time
+ *   controls only post work to the input thread or read its state, and the blocking ones (stop,
+ *   release) run only on [teardown]. Never add a call that can block (a synchronous stop, a
+ *   set_media that releases a running input) to a caller-thread path.
  * - VLCJ delivers events on its own event thread and pictures on libvlc's video-output thread;
  *   neither may call back into libvlc (VLCJ's documented rule). Events therefore only update cached
  *   values and notify the listener; a transport call that arrives on one of those threads (a
@@ -206,7 +211,7 @@ internal class VlcjVideoEngine(
             inOrder(s) {
                 try {
                     // Before the first start, between start() and the first Playing (no output yet),
-                    // and after the end, libvlc has no running input to seek in: remember the target
+                    // while a looping source restarts, and after the end, libvlc has no running input to seek in: remember the target
                     // and apply it when output begins. Nothing starts playing here.
                     if (!s.started || s.ended || !s.outputBegun) {
                         s.pendingSeekMs = target
@@ -405,8 +410,9 @@ internal class VlcjVideoEngine(
         @Volatile var ended: Boolean = false
 
         /**
-         * Whether libvlc reported Playing since the last start from rest (the first start, or a start
-         * from the end); written inside [inOrder] actions under [lock].
+         * Whether libvlc reported Playing since the last start from rest (the first start, a start
+         * from the end, or the replay of a looping source at its end); written inside [inOrder]
+         * actions under [lock].
          */
         @Volatile var outputBegun: Boolean = false
         @Volatile var pendingSeekMs: Long = -1L
@@ -558,8 +564,18 @@ internal class VlcjVideoEngine(
 
         override fun finished() = onVlcCallback {
             s.setBuffering(false)
-            // While looping VLCJ's own handler replays the media; the end is not an end.
-            if (s.player?.repeat() == true) return@onVlcCallback
+            if (s.player?.repeat() == true) {
+                // While looping VLCJ's own handler replays the media: the end is not an end, but the
+                // replay is a start from rest. libvlc has no running input until it reports Playing
+                // again, so a seek made in that gap is parked like one made between start() and the
+                // first Playing. Through the ordered queue: a Playing of the cycle that just ended
+                // may still be waiting there, and must not set outputBegun back after this.
+                withOpenSession { open ->
+                    if (open !== s) return@withOpenSession
+                    inOrder(s) { s.outputBegun = false }
+                }
+                return@onVlcCallback
+            }
             s.ended = true
             s.timeMs = s.lengthMs
             notify(s) { it.onCompleted() }
