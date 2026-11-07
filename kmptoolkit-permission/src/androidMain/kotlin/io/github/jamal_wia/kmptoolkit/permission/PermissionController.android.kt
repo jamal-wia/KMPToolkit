@@ -355,13 +355,14 @@ internal class AndroidPermissionController(
     override fun observe(permission: Permission): Flow<PermissionStatus> {
         val source: Permission = permission.statusSource()
         return callbackFlow {
-            trySend(Unit)
-            val subscription: ActivitySubscription = addResumedListener { trySend(Unit) }
-            // UNDISPATCHED: subscribed before the first status read starts, so a request resolving in
-            // between is not emitted to nobody (the flow has no replay).
+            // UNDISPATCHED, and before the first tick: the subscription exists before any status read
+            // can start on any dispatcher, so a request resolving in between is not emitted to
+            // nobody (the flow has no replay).
             launch(start = CoroutineStart.UNDISPATCHED) {
                 requestsResolved.collect { resolved -> if (resolved == source) send(Unit) }
             }
+            val subscription: ActivitySubscription = addResumedListener { trySend(Unit) }
+            trySend(Unit)
             awaitClose { subscription.cancel() }
         }
             .conflate()

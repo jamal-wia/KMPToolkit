@@ -103,12 +103,13 @@ internal class IosPermissionController(
 
     override fun observe(permission: Permission): Flow<PermissionStatus> =
         callbackFlow {
-            trySend(Unit)
-            val unregister: () -> Unit = addBecameActiveListener { trySend(Unit) }
-            // UNDISPATCHED: subscribed before the first status read starts (the flow has no replay).
+            // UNDISPATCHED, and before the first tick: subscribed before any status read can start on
+            // any dispatcher (the flow has no replay).
             launch(start = CoroutineStart.UNDISPATCHED) {
                 requestsResolved.collect { resolved -> if (resolved.statusSource() == permission.statusSource()) send(Unit) }
             }
+            val unregister: () -> Unit = addBecameActiveListener { trySend(Unit) }
+            trySend(Unit)
             awaitClose { unregister() }
         }
             .conflate()
