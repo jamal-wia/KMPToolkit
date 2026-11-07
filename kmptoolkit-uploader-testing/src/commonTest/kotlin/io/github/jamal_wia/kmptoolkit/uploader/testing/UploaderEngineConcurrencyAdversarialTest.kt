@@ -455,4 +455,45 @@ class UploaderEngineConcurrencyAdversarialTest {
             engine.close()
         }
     }
+
+    @Test
+    fun `thirty-two concurrent upload preparations for one in-flight item change nothing`() = realTest {
+        val store = InMemoryUploaderStore()
+        val handler = UploadingHandler(ConcurrentTransport())
+        val engine: UploaderEngine = createUploaderEngine(store, listOf(handler), realScope())
+        UploaderEngineRegistry.register(engine)
+        val id: String = assertNotNull(engine.enqueue(handler, "p"))
+        engine.drain()
+        val before: UploaderItem = assertNotNull(store.snapshot().single())
+
+        val attempts: List<io.github.jamal_wia.kmptoolkit.uploader.UploadAttempt> =
+            together(32) { UploadGateway.prepareAttempt(id) }
+
+        assertTrue(attempts.all { it is io.github.jamal_wia.kmptoolkit.uploader.UploadAttempt.Ready }, "a preparation was refused: $attempts")
+        assertEquals(before, store.snapshot().single(), "a preparation changed the row")
+        engine.close()
+    }
+
+    @Test
+    fun `a failing delete after a delivered effect repeats it once after the alarm and never spins`() = realTest {
+        val inner = InMemoryUploaderStore()
+        val failures = AtomicInt(0)
+        val store = object : io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore by inner {
+            override suspend fun deleteById(id: String) {
+                if (failures.fetchAndIncrement() == 0) throw IllegalStateException("disk full")
+                inner.deleteById(id)
+            }
+        }
+        val handler = CountingHandler()
+        val engine: UploaderEngine = createUploaderEngine(store, listOf(handler), realScope())
+        engine.enqueue(handler, "p")
+        engine.start()
+
+        delay(30)
+        assertTrue(handler.executed.value.size <= 2, "the effect ran ${handler.executed.value.size} times in 30 ms: a tight loop")
+        withTimeout(10.seconds) { while (inner.snapshot().isNotEmpty()) delay(10) }
+
+        assertEquals(2, handler.executed.value.size, "the effect should repeat exactly once after the failed delete")
+        engine.close()
+    }
 }

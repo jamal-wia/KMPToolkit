@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -61,6 +62,7 @@ class UploaderEngineChaosAdversarialTest {
             val store = TestUploaderStore()
             val parent = Job()
             val scope = CoroutineScope(StandardTestDispatcher(testScheduler) + parent)
+            try {
             val blocking = TestHandler(onExecute = { _, _ -> CompletableDeferred<Unit>().await(); AttemptResult.Success })
             val first: UploaderEngine = testEngine(store, listOf(blocking), scope)
             val id: String = first.enqueue(blocking, "p")!!
@@ -82,7 +84,9 @@ class UploaderEngineChaosAdversarialTest {
             assertEquals(listOf(0), healthy.attempts.map { it.attempts })
             assertEquals(emptyList(), store.items)
             second.close()
-            parent.cancel()
+            } finally {
+                parent.cancel()
+            }
         }
 
     @Test
@@ -112,6 +116,7 @@ class UploaderEngineChaosAdversarialTest {
         val store = TestUploaderStore()
         val parent = Job()
         val scope = CoroutineScope(StandardTestDispatcher(testScheduler) + parent)
+        try {
         lateinit var engine: UploaderEngine
         val suicidal = TestHandler(onExecute = { _, _ -> engine.close(); AttemptResult.Success })
         engine = testEngine(store, listOf(suicidal), scope)
@@ -127,7 +132,9 @@ class UploaderEngineChaosAdversarialTest {
 
         assertEquals(emptyList(), store.items, "the queue was left wedged by a close inside a handler")
         next.close()
-        parent.cancel()
+        } finally {
+            parent.cancel()
+        }
     }
 
     @Test
@@ -170,5 +177,42 @@ class UploaderEngineChaosAdversarialTest {
         assertEquals(0, handler.attempts.size, "nothing may run in a cancelled scope")
         assertEquals(false, engine.awaitDrained(kotlin.time.Duration.parse("5s")))
         engine.close()
+    }
+
+    @Test
+    fun `two hundred failure and drain cycles never grow the engine's set of coroutines`() = runTest(timeout = 30.seconds) {
+        val parent = Job()
+        val scope = CoroutineScope(StandardTestDispatcher(testScheduler) + parent)
+        val store = TestUploaderStore()
+        val network = TestConstraint("network", satisfied = true)
+        val handler = TestHandler(constraintKeys = setOf("network"), onExecute = { _, _ -> AttemptResult.Retry(null) })
+        val clock = TestClock(0L)
+        val engine: UploaderEngine = testEngine(store, listOf(handler), scope, clock = clock, constraintProviders = listOf(network))
+        // The scope is not the test's background scope, so a failed assertion would leave the engine's
+        // heartbeat for runTest's cleanup to advance forever: always tear it down, whatever happens.
+        try {
+            engine.start()
+            engine.enqueue(handler, "first")
+            runCurrent()
+            // One heartbeat, one drain, one constraint collector, and the one alarm armed by the failed attempt.
+            val baseline: Int = parent.children.single().children.count()
+            assertEquals(4, baseline, "unexpected engine shape: ${parent.children.single().children.toList()}")
+
+            repeat(200) { cycle ->
+                engine.enqueue(handler, "p$cycle")
+                clock.millis += 10_000L // every earlier gate has passed, so each pass retries them all and re-arms the alarm
+                engine.trigger()
+                runCurrent()
+                network.set(false)
+                network.set(true)
+                runCurrent()
+                assertEquals(baseline, parent.children.single().children.count(), "cycle $cycle: the engine accumulated coroutines")
+            }
+        } finally {
+            engine.close()
+            parent.cancel()
+        }
+        runCurrent()
+        assertEquals(0, parent.children.count())
     }
 }

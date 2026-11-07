@@ -46,6 +46,7 @@ class UploaderEngineRestartAdversarialTest {
     fun `a hundred start and close cycles leave no child of the parent scope and the last engine drains the queue`() =
         runTest(timeout = 30.seconds) {
             val parentJob = Job()
+            try {
             val scope = CoroutineScope(StandardTestDispatcher(testScheduler) + parentJob)
             val store = TestUploaderStore()
             val clock = TestClock(0L)
@@ -113,7 +114,10 @@ class UploaderEngineRestartAdversarialTest {
             last.close()
             advanceUntilIdle()
             assertEquals(0, parentJob.children.count())
-            parentJob.cancel()
+            } finally {
+                // not the background scope: a failed assertion must not leave the heartbeat to runTest's cleanup
+                parentJob.cancel()
+            }
         }
 
     @Test

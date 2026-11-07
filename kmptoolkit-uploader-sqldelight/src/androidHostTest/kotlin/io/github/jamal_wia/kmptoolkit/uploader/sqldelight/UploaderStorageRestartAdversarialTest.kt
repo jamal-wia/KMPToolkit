@@ -744,4 +744,50 @@ class UploaderStorageRestartAdversarialTest {
         assertTrue(result.exceptionOrNull() is IllegalStateException, "expected a fast IllegalStateException, got ${result.exceptionOrNull()}")
         assertTrue(storage.store.insertKeep(anItem("still-usable")))
     }
+
+    @Test
+    fun `sixteen failure reports for one claim from two connections spend exactly one attempt`() = realTest {
+        repeat(10) { iteration ->
+            val config: UploaderDatabaseConfig = newConfig()
+            val dead: DeadProcess = processDiesWithItemInFlight(config)
+            val one: UploaderEngine = engineOver(open(config), UploadingHandler(SafeTransport()), Job(), dead.clock)
+            val two: UploaderEngine = engineOver(open(config), UploadingHandler(SafeTransport()), Job(), dead.clock)
+
+            together(16) { index ->
+                runCatching {
+                    (if (index % 2 == 0) one else two).settle(dead.id, dead.claim, SettleResult.Failed(IllegalStateException("f$index")))
+                }
+            }
+
+            val row: UploaderItem = assertNotNull(open(config).store.getById(dead.id))
+            assertEquals(1, row.attempts, "iteration $iteration: ${row.attempts} attempts spent by reports about one claim")
+            assertEquals(UploaderItemState.PENDING, row.state)
+            assertEquals(dead.claim + 1, row.claim)
+        }
+    }
+
+    @Test
+    fun `failure, park and delivery reports racing for one item end with the item removed and nothing resurrected`() = realTest {
+        repeat(10) { iteration ->
+            val config: UploaderDatabaseConfig = newConfig()
+            val dead: DeadProcess = processDiesWithItemInFlight(config)
+            val one: UploaderEngine = engineOver(open(config), UploadingHandler(SafeTransport()), Job(), dead.clock)
+            val two: UploaderEngine = engineOver(open(config), UploadingHandler(SafeTransport()), Job(), dead.clock)
+
+            together(17) { index ->
+                val engine: UploaderEngine = if (index % 2 == 0) one else two
+                runCatching {
+                    when {
+                        index == 8 -> engine.settle(dead.id, dead.claim, SettleResult.Delivered)
+                        index % 3 == 0 -> engine.settle(dead.id, dead.claim, SettleResult.Park("p$index"))
+                        else -> engine.settle(dead.id, dead.claim, SettleResult.Failed(IllegalStateException("f$index")))
+                    }
+                }
+            }
+            // One more report after the delivery settled: it must not bring the row back.
+            one.settle(dead.id, dead.claim, SettleResult.Failed(IllegalStateException("after")))
+
+            assertEquals(null, open(config).store.getById(dead.id), "iteration $iteration: the delivered item is back in the queue")
+        }
+    }
 }
