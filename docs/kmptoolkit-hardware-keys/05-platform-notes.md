@@ -23,7 +23,8 @@ consumes it, to the `PhoneWindow` fallback that implements system behaviour such
 - **Windows without a callback** (a focusable `Popup`, which is a bare view added to the
   `WindowManager`). There is no callback to wrap, and here `ViewRootImpl` does offer unhandled keys
   to `View.OnUnhandledKeyEventListener` before falling back. The effect adds one through
-  `ViewCompat.addOnUnhandledKeyEventListener` — **on API 28 and higher only**. Below 28 the platform
+  `View.addOnUnhandledKeyEventListener` directly (not `ViewCompat`, whose remove leaves an entry
+  behind in the view's tag map on every enter/leave) — **on API 28 and higher only**. Below 28 the platform
   does not dispatch these listeners; androidx emulates them only inside a `ComponentActivity` or
   `ComponentDialog`, where a `Popup` never reaches them. The effect is a no-op in a `Popup` there.
 - **The Activity's own window.** No `DialogWindowProvider` is present, so the effect takes the
@@ -40,10 +41,12 @@ The effects in one window share that wrapper and each holds a share of it: it st
 the last of them leaves composition, whichever one entered first, and only then is the window's
 original callback restored (and still not over a decorator someone else installed afterwards).
 
-The share count lives on the wrapper itself, found again through `window.callback`; no registry keyed
-by the window exists. A window whose effect was never disposed (an abandoned composition) is
-therefore collectable together with its own wrapper, instead of being pinned by a global entry whose
-value reaches the window back through the dialog.
+The share count lives on the wrapper itself, found again through `window.callback`, or, when another
+decorator was layered on top of it, through a registry that holds both the window and the wrapper
+weakly. A window whose effect was never disposed (an abandoned composition) is therefore collectable
+together with its own wrapper, instead of being pinned by a global entry whose value reaches the
+window back through the dialog. On the listener path the same rule holds per view: effects composed
+on one view share one platform listener, which the last of them removes.
 
 ### The back key
 
