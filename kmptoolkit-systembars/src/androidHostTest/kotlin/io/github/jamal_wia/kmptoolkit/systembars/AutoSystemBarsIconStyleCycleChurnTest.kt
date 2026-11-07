@@ -25,6 +25,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Fifty STARTED to CREATED cycles with overlapping triggers, then leaving composition: nothing is
@@ -55,6 +56,7 @@ class AutoSystemBarsIconStyleCycleChurnTest {
     private val controller = RecordingSystemBarsController()
     private var samples: Int = 0
     private var shown: Boolean by mutableStateOf(true)
+    private var inUse: SystemBarsController by mutableStateOf(controller)
 
     private fun setUp() {
         composeTestRule.mainClock.autoAdvance = false
@@ -64,7 +66,7 @@ class AutoSystemBarsIconStyleCycleChurnTest {
                 CompositionLocalProvider(LocalLifecycleOwner provides host) {
                     AutoSystemBarsIconStyle(
                         intervalMs = INTERVAL_MS,
-                        controller = controller,
+                        controller = inUse,
                         probe = probe,
                         onSampled = { samples++ },
                     ) {
@@ -124,6 +126,7 @@ class AutoSystemBarsIconStyleCycleChurnTest {
             assertEquals(whileStopped, samples, "cycle $cycle: a sample ran while the host was below STARTED")
             assertEquals(0, probe.observerCount, "cycle $cycle: a trigger collector outlived its STARTED cycle")
         }
+        assertTrue(samples > 0, "the loop never sampled, so the checks above proved nothing")
         assertEquals(1, controller.activeOverrideCount, "exactly one claim while composed")
 
         moveTo(Lifecycle.State.STARTED)
@@ -154,6 +157,27 @@ class AutoSystemBarsIconStyleCycleChurnTest {
             composeTestRule.waitForIdle()
             frames(1)
         }
+    }
+
+    @Test
+    fun `swapping the controller and the probe moves the claim and the observer with no leftovers`() {
+        setUp()
+        moveTo(Lifecycle.State.STARTED)
+        frames(3)
+        val second = RecordingSystemBarsController()
+        repeat(10) { round ->
+            val target: RecordingSystemBarsController = if (round % 2 == 0) second else controller
+            val other: RecordingSystemBarsController = if (round % 2 == 0) controller else second
+            composeTestRule.runOnUiThread { inUse = target }
+            composeTestRule.waitForIdle()
+            frames(3)
+            assertEquals(1, target.activeOverrideCount, "round $round: the new controller has no claim")
+            assertEquals(0, other.activeOverrideCount, "round $round: the old controller keeps a claim")
+            assertEquals(1, probe.observerCount, "round $round: exactly one trigger collector")
+        }
+        leave()
+        assertEquals(0, controller.activeOverrideCount + second.activeOverrideCount)
+        assertEquals(0, probe.observerCount)
     }
 
     private companion object {
