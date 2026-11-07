@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.biometric
 
+import android.os.Handler
+import android.os.Looper
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -48,7 +50,9 @@ internal interface PromptHandle {
  * any thread; [PromptHandle.cancel] is posted the same way and drops a show that has not run yet.
  *
  * The activity is reached through [ActivityAccess] and never stored: the reference lives only for
- * the duration of the posted block, so a prompt outliving its activity cannot leak one.
+ * the duration of the posted block. The handle returned to the caller holds no activity at all, only the
+ * system prompt, and lets go of that as soon as an outcome has been delivered, so a prompt outliving its
+ * activity (a rotation while the sheet is up) is not kept alive by this module once it is over.
  */
 internal class ActivityBiometricPromptPort(
     private val activityAccess: ActivityAccess,
@@ -63,17 +67,8 @@ internal class ActivityBiometricPromptPort(
     ): PromptHandle? {
         val activity: FragmentActivity =
             activityAccess.withActivity { it as? FragmentActivity } ?: return null
-        val handle = ActivityPromptHandle(activity)
-        // A callback that fires at most once. Android is well-behaved here, but a duplicate
-        // delivery would resume an already-resumed continuation, which is a crash rather than a
-        // misreport — cheap to make impossible.
-        var delivered = false
-        val deliverOnce: (BiometricResult) -> Unit = { outcome ->
-            if (!delivered) {
-                delivered = true
-                onOutcome(outcome)
-            }
-        }
+        val handle = ActivityPromptHandle()
+        val deliverOnce: (BiometricResult) -> Unit = deliverOnceAndRelease(handle, onOutcome)
         activity.runOnUiThread {
             if (handle.isCancelled) return@runOnUiThread
             val systemPrompt = BiometricPrompt(
@@ -95,6 +90,29 @@ internal class ActivityBiometricPromptPort(
                 }
         }
         return handle
+    }
+}
+
+/**
+ * A callback that fires at most once. Android is well-behaved here, but a duplicate delivery would
+ * resume an already-resumed continuation, which is a crash rather than a misreport — cheap to make
+ * impossible. The first delivery also [releases][ActivityPromptHandle.release] [handle]: the outcome
+ * is terminal (a [BiometricResult.Rejected] excepted: its own dismissal releases the handle), so nothing is left to cancel and the prompt (which holds the activity's fragment
+ * manager) must not stay reachable through the framework's stored callback.
+ */
+internal fun deliverOnceAndRelease(
+    handle: ActivityPromptHandle,
+    onOutcome: (BiometricResult) -> Unit,
+): (BiometricResult) -> Unit {
+    var delivered = false
+    return { outcome: BiometricResult ->
+        if (!delivered) {
+            delivered = true
+            // A single-attempt rejection is followed by a dismissal through the handle, which still
+            // needs the prompt and releases it itself.
+            if (outcome != BiometricResult.Rejected) handle.release()
+            onOutcome(outcome)
+        }
     }
 }
 
@@ -134,22 +152,46 @@ internal fun authenticationCallback(
  * [cancel] can arrive before the posted show has run — a coroutine cancelled in the same tick it
  * started — so the flag is checked by the show block too, and cancelling is otherwise posted to the
  * main thread because `cancelAuthentication` is a UI call like any other.
+ *
+ * It holds no activity: the main looper is reached directly rather than through one. The prompt it
+ * does hold (it is what [cancel] acts on) is dropped by [release], which the port calls once the
+ * outcome is delivered.
  */
-private class ActivityPromptHandle(private val activity: FragmentActivity) : PromptHandle {
+internal class ActivityPromptHandle : PromptHandle {
 
     @Volatile
     var isCancelled: Boolean = false
         private set
 
     @Volatile
+    private var released: Boolean = false
+
+    @Volatile
     private var prompt: BiometricPrompt? = null
 
     fun attach(prompt: BiometricPrompt) {
-        this.prompt = prompt
+        if (!released) this.prompt = prompt
     }
+
+    /** Drops the prompt: an outcome has been delivered, so there is nothing left to cancel. */
+    fun release() {
+        released = true
+        prompt = null
+    }
+
+    /** Test seam: whether the system prompt is still referenced. */
+    internal fun holdsPromptForTest(): Boolean = prompt != null
 
     override fun cancel() {
         isCancelled = true
-        activity.runOnUiThread { prompt?.cancelAuthentication() }
+        val target: BiometricPrompt = prompt ?: return
+        // Dismissing is the last thing the prompt is needed for.
+        release()
+        runOnMain { target.cancelAuthentication() }
+    }
+
+    private fun runOnMain(block: () -> Unit) {
+        val main: Looper = Looper.getMainLooper()
+        if (Looper.myLooper() == main) block() else Handler(main).post(block)
     }
 }

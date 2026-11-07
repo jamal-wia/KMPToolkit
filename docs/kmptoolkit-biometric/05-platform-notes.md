@@ -81,6 +81,13 @@ activity is resumed from the resumed callback, and Android offers no way to ask 
 created lazily, on its first injection into a screen, is created after `MainActivity` resumed: it
 answers `NoPromptHost` until the activity pauses and resumes again.
 
+A gate built without an `activityAccess` registers a lifecycle callback with the `Application` of its
+own, for the life of the process; build the gate once (or share one tracker) rather than per screen.
+
+The gate keeps no activity of its own. While a prompt is up it holds the system `BiometricPrompt` so
+that cancelling the calling coroutine can dismiss it, and lets go of it as soon as the outcome has
+been delivered, so a prompt that was showing during a rotation does not keep the old activity alive.
+
 ### Authenticator strength
 
 `BIOMETRIC_ONLY` maps to `BIOMETRIC_STRONG` by default and never silently to `BIOMETRIC_WEAK`. The weak
