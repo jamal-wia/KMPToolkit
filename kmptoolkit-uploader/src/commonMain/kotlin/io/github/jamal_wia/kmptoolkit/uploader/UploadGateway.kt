@@ -50,7 +50,9 @@ public object UploadGateway {
     }
 
     /**
-     * Settles [itemId] with the raw [result]: the handler classifies it, [UploadHandler.onDelivered]
+     * Settles [itemId] with the raw [result] and no server response — for a [UploadResult.TransportFailure],
+     * or a transport that cannot read the response (use [complete] with an [UploadResponse] otherwise):
+     * the handler classifies it, [UploadHandler.onDelivered]
      * runs for a delivery, the item settles, then [UploadHandler.onSettled] runs.
      *
      * It settles under the item's current claim, which is why it takes none: [UploadTransport.launch] is
@@ -69,6 +71,29 @@ public object UploadGateway {
     ): Boolean {
         val engine: DefaultUploaderEngine = awaitEngine(engineWait) ?: return false
         return engine.settleUpload(itemId, result)
+    }
+
+    /**
+     * Settles [itemId] with what the server answered: the engine builds `UploadResult.Completed(response.statusCode)`
+     * from it, the handler classifies it with [response] in hand ([UploadHandler.classify]), and
+     * [UploadHandler.onDelivered] receives it for a delivery. Everything else is as for the status-only
+     * [complete]. A transport that never got an answer reports through [complete] with
+     * [UploadResult.TransportFailure] instead.
+     *
+     * The engine trims the body to the handler's [UploadHandler.maxResponseBodyBytes] — one enforcement
+     * point, so a transport hands over what it read (at most 1 MiB, with
+     * [UploadResponse.isBodyTruncated] set if it had to stop there) and need not know the limit.
+     *
+     * @return as [complete]; an unknown or already settled [itemId] is a no-op that returns `true`.
+     * @since 3.1.0
+     */
+    public suspend fun complete(
+        itemId: String,
+        response: UploadResponse,
+        engineWait: Duration = DEFAULT_ENGINE_WAIT,
+    ): Boolean {
+        val engine: DefaultUploaderEngine = awaitEngine(engineWait) ?: return false
+        return engine.settleUpload(itemId, UploadResult.Completed(response.statusCode), response)
     }
 
     private suspend fun awaitEngine(wait: Duration): DefaultUploaderEngine? =

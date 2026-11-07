@@ -419,12 +419,22 @@ sealed interface io.github.jamal_wia.kmptoolkit.uploader/UploadResult { // io.gi
 abstract class <#A: kotlin/Any> io.github.jamal_wia.kmptoolkit.uploader/UploadHandler : io.github.jamal_wia.kmptoolkit.uploader/UploaderHandler<#A> { // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler|null[0]
     constructor <init>(io.github.jamal_wia.kmptoolkit.uploader/UploadTransport) // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.<init>|<init>(io.github.jamal_wia.kmptoolkit.uploader.UploadTransport){}[0]
 
-    abstract suspend fun classify(#A, io.github.jamal_wia.kmptoolkit.uploader/UploadResult): io.github.jamal_wia.kmptoolkit.uploader/SettleResult // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.classify|classify(1:0;io.github.jamal_wia.kmptoolkit.uploader.UploadResult){}[0]
+    open val maxResponseBodyBytes // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.maxResponseBodyBytes|{}maxResponseBodyBytes[0]
+        open fun <get-maxResponseBodyBytes>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.maxResponseBodyBytes.<get-maxResponseBodyBytes>|<get-maxResponseBodyBytes>(){}[0]
+
     abstract suspend fun prepareUpload(io.github.jamal_wia.kmptoolkit.uploader/AttemptContext, #A): io.github.jamal_wia.kmptoolkit.uploader/UploadPreparation // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.prepareUpload|prepareUpload(io.github.jamal_wia.kmptoolkit.uploader.AttemptContext;1:0){}[0]
     final suspend fun execute(io.github.jamal_wia.kmptoolkit.uploader/AttemptContext, #A): io.github.jamal_wia.kmptoolkit.uploader/AttemptResult // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.execute|execute(io.github.jamal_wia.kmptoolkit.uploader.AttemptContext;1:0){}[0]
+    open suspend fun classify(#A, io.github.jamal_wia.kmptoolkit.uploader/UploadResult): io.github.jamal_wia.kmptoolkit.uploader/SettleResult // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.classify|classify(1:0;io.github.jamal_wia.kmptoolkit.uploader.UploadResult){}[0]
+    open suspend fun classify(#A, io.github.jamal_wia.kmptoolkit.uploader/UploadResult, io.github.jamal_wia.kmptoolkit.uploader/UploadResponse?): io.github.jamal_wia.kmptoolkit.uploader/SettleResult // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.classify|classify(1:0;io.github.jamal_wia.kmptoolkit.uploader.UploadResult;io.github.jamal_wia.kmptoolkit.uploader.UploadResponse?){}[0]
     open suspend fun onDelivered(#A) // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.onDelivered|onDelivered(1:0){}[0]
+    open suspend fun onDelivered(#A, io.github.jamal_wia.kmptoolkit.uploader/UploadResponse?) // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.onDelivered|onDelivered(1:0;io.github.jamal_wia.kmptoolkit.uploader.UploadResponse?){}[0]
     open suspend fun onSettled(#A, kotlin/Int, io.github.jamal_wia.kmptoolkit.uploader/SettleResult) // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.onSettled|onSettled(1:0;kotlin.Int;io.github.jamal_wia.kmptoolkit.uploader.SettleResult){}[0]
     open suspend fun onUploadProgress(#A, kotlin/Float) // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.onUploadProgress|onUploadProgress(1:0;kotlin.Float){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.Companion|null[0]
+        final const val DEFAULT_MAX_RESPONSE_BODY_BYTES // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.Companion.DEFAULT_MAX_RESPONSE_BODY_BYTES|{}DEFAULT_MAX_RESPONSE_BODY_BYTES[0]
+            final fun <get-DEFAULT_MAX_RESPONSE_BODY_BYTES>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/UploadHandler.Companion.DEFAULT_MAX_RESPONSE_BODY_BYTES.<get-DEFAULT_MAX_RESPONSE_BODY_BYTES>|<get-DEFAULT_MAX_RESPONSE_BODY_BYTES>(){}[0]
+    }
 }
 
 final class io.github.jamal_wia.kmptoolkit.uploader/AttemptContext { // io.github.jamal_wia.kmptoolkit.uploader/AttemptContext|null[0]
@@ -558,6 +568,23 @@ final class io.github.jamal_wia.kmptoolkit.uploader/UploadRequest { // io.github
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/UploadRequest.toString|toString(){}[0]
 }
 
+final class io.github.jamal_wia.kmptoolkit.uploader/UploadResponse { // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse|null[0]
+    constructor <init>(kotlin/Int, kotlin.collections/Map<kotlin/String, kotlin/String>, kotlin/ByteArray, kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.<init>|<init>(kotlin.Int;kotlin.collections.Map<kotlin.String,kotlin.String>;kotlin.ByteArray;kotlin.Boolean){}[0]
+
+    final val headers // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.headers|{}headers[0]
+        final fun <get-headers>(): kotlin.collections/Map<kotlin/String, kotlin/String> // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.headers.<get-headers>|<get-headers>(){}[0]
+    final val isBodyTruncated // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.isBodyTruncated|{}isBodyTruncated[0]
+        final fun <get-isBodyTruncated>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.isBodyTruncated.<get-isBodyTruncated>|<get-isBodyTruncated>(){}[0]
+    final val statusCode // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.statusCode|{}statusCode[0]
+        final fun <get-statusCode>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.statusCode.<get-statusCode>|<get-statusCode>(){}[0]
+
+    final fun body(): kotlin/ByteArray // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.body|body(){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.hashCode|hashCode(){}[0]
+    final fun header(kotlin/String): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.header|header(kotlin.String){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/UploadResponse.toString|toString(){}[0]
+}
+
 final class io.github.jamal_wia.kmptoolkit.uploader/UploaderConfig { // io.github.jamal_wia.kmptoolkit.uploader/UploaderConfig|null[0]
     constructor <init>(kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin/Int = ...) // io.github.jamal_wia.kmptoolkit.uploader/UploaderConfig.<init>|<init>(kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration;kotlin.Int){}[0]
 
@@ -652,6 +679,7 @@ final object io.github.jamal_wia.kmptoolkit.uploader/UploadGateway { // io.githu
     final val DEFAULT_ENGINE_WAIT // io.github.jamal_wia.kmptoolkit.uploader/UploadGateway.DEFAULT_ENGINE_WAIT|{}DEFAULT_ENGINE_WAIT[0]
         final fun <get-DEFAULT_ENGINE_WAIT>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.uploader/UploadGateway.DEFAULT_ENGINE_WAIT.<get-DEFAULT_ENGINE_WAIT>|<get-DEFAULT_ENGINE_WAIT>(){}[0]
 
+    final suspend fun complete(kotlin/String, io.github.jamal_wia.kmptoolkit.uploader/UploadResponse, kotlin.time/Duration = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/UploadGateway.complete|complete(kotlin.String;io.github.jamal_wia.kmptoolkit.uploader.UploadResponse;kotlin.time.Duration){}[0]
     final suspend fun complete(kotlin/String, io.github.jamal_wia.kmptoolkit.uploader/UploadResult, kotlin.time/Duration = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/UploadGateway.complete|complete(kotlin.String;io.github.jamal_wia.kmptoolkit.uploader.UploadResult;kotlin.time.Duration){}[0]
     final suspend fun prepareAttempt(kotlin/String, kotlin.time/Duration = ...): io.github.jamal_wia.kmptoolkit.uploader/UploadAttempt // io.github.jamal_wia.kmptoolkit.uploader/UploadGateway.prepareAttempt|prepareAttempt(kotlin.String;kotlin.time.Duration){}[0]
     final suspend fun progress(kotlin/String, kotlin/Float) // io.github.jamal_wia.kmptoolkit.uploader/UploadGateway.progress|progress(kotlin.String;kotlin.Float){}[0]

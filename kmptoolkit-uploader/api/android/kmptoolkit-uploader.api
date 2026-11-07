@@ -246,7 +246,9 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/UploadField$Text : io
 
 public final class io/github/jamal_wia/kmptoolkit/uploader/UploadGateway {
 	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/UploadGateway;
+	public final fun complete-exY8QGI (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResponse;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun complete-exY8QGI (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResult;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun complete-exY8QGI$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploadGateway;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResponse;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun complete-exY8QGI$default (Lio/github/jamal_wia/kmptoolkit/uploader/UploadGateway;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResult;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public final fun getDEFAULT_ENGINE_WAIT-UwyO8pc ()J
 	public final fun prepareAttempt-8Mi8wO0 (Ljava/lang/String;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -255,17 +257,25 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/UploadGateway {
 }
 
 public abstract class io/github/jamal_wia/kmptoolkit/uploader/UploadHandler : io/github/jamal_wia/kmptoolkit/uploader/UploaderHandler {
+	public static final field Companion Lio/github/jamal_wia/kmptoolkit/uploader/UploadHandler$Companion;
+	public static final field DEFAULT_MAX_RESPONSE_BODY_BYTES I
 	public fun <init> (Lio/github/jamal_wia/kmptoolkit/uploader/UploadTransport;)V
-	public abstract fun classify (Ljava/lang/Object;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResult;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun classify (Ljava/lang/Object;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResult;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResponse;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun classify (Ljava/lang/Object;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResult;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun execute (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptContext;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun getConstraintKeys ()Ljava/util/Set;
+	public fun getMaxResponseBodyBytes ()I
 	public fun getRetryPolicy ()Lio/github/jamal_wia/kmptoolkit/uploader/RetryPolicy;
 	public fun getSchemaVersion ()I
+	public fun onDelivered (Ljava/lang/Object;Lio/github/jamal_wia/kmptoolkit/uploader/UploadResponse;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun onDelivered (Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun onSettled (Ljava/lang/Object;ILio/github/jamal_wia/kmptoolkit/uploader/SettleResult;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun onUploadProgress (Ljava/lang/Object;FLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun orderingKey (Ljava/lang/Object;)Ljava/lang/String;
 	public abstract fun prepareUpload (Lio/github/jamal_wia/kmptoolkit/uploader/AttemptContext;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadHandler$Companion {
 }
 
 public class io/github/jamal_wia/kmptoolkit/uploader/UploadHandlerWorker : androidx/work/CoroutineWorker {
@@ -333,6 +343,18 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/UploadRequest {
 	public final fun getMethod ()Ljava/lang/String;
 	public final fun getUrl ()Ljava/lang/String;
 	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/UploadResponse {
+	public fun <init> (ILjava/util/Map;[BZ)V
+	public final fun body ()[B
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHeaders ()Ljava/util/Map;
+	public final fun getStatusCode ()I
+	public fun hashCode ()I
+	public final fun header (Ljava/lang/String;)Ljava/lang/String;
+	public final fun isBodyTruncated ()Z
 	public fun toString ()Ljava/lang/String;
 }
 

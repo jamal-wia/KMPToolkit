@@ -17,10 +17,12 @@ package io.github.jamal_wia.kmptoolkit.uploader
  *   system daemon keeps its headers for the life of the transfer.
  *   Return [UploadPreparation.Drop] or [UploadPreparation.Park] from it to finish an item that should
  *   no longer upload — a deleted source file, a submission the server already has.
- * - **[classify] turns the raw outcome into a [SettleResult]**, with the payload at hand: a 401 can
- *   refresh a token and fail for a retry, a 409 can drop, a 413 can park.
+ * - **[classify] turns the raw outcome into a [SettleResult]**, with the payload and the server's
+ *   [UploadResponse] at hand: a 401 can refresh a token and fail for a retry, a 409 can drop, a 413 can
+ *   park, a 422 can read which field the server rejected.
  * - **Hooks** react to the outcome: [onUploadProgress] for a progress bar, [onDelivered] for a local
- *   write that must happen before the row disappears, [onSettled] for everything after it.
+ *   write that must happen before the row disappears — it also receives the server's response, so a
+ *   created resource's id or a job id can be saved there — and [onSettled] for everything after it.
  *
  * Every hook runs isolated: an exception from one is logged and does not change the settlement — the
  * upload already happened, and failing locally must not make it happen twice.
@@ -44,13 +46,18 @@ package io.github.jamal_wia.kmptoolkit.uploader
  *         )
  *     }
  *
- *     override suspend fun classify(payload: AvatarUpload, result: UploadResult): SettleResult =
- *         defaultUploadClassification(result)
+ *     override suspend fun onDelivered(payload: AvatarUpload, response: UploadResponse?) {
+ *         // The server answered 202 with a job id; keep it. Idempotent: this may run twice.
+ *         val jobId: String? = response?.header("location") ?: response?.let { parseJobId(it.body()) }
+ *         if (jobId != null) avatars.saveJobId(payload.id, jobId)
+ *     }
  * }
  * ```
  *
  * The transport must be one that settles through [UploadGateway]; `createWorkManagerUploadTransport`,
  * which settles through a single global classifier instead, is not.
+ *
+ * `classify` is optional: without an override, [defaultUploadClassification] decides.
  *
  * @param transport runs the upload. Its [UploadTransport.leaseMillis] is the lease every hand-off
  *   is claimed under.
@@ -72,10 +79,45 @@ public abstract class UploadHandler<P : Any>(
     public abstract suspend fun prepareUpload(context: AttemptContext, payload: P): UploadPreparation
 
     /**
-     * What the upload's raw [result] means for the item. See [defaultUploadClassification] for a
-     * reasonable baseline. A thrown exception settles the item as [SettleResult.Failed].
+     * The largest response body, in bytes, this handler wants to see in [classify] and [onDelivered].
+     * Defaults to [DEFAULT_MAX_RESPONSE_BODY_BYTES]; read each time a response is settled.
+     *
+     * The engine is the one place that enforces it: the effective limit is this value clamped to
+     * `0..1 MiB` — a negative value counts as `0` (and is logged once), a value above 1 MiB as 1 MiB.
+     * A body longer than the limit is cut to it and [UploadResponse.isBodyTruncated] is set; that never
+     * causes a retry. `0` captures no body at all, but the status and headers are still delivered.
+     *
+     * @since 3.1.0
      */
-    public abstract suspend fun classify(payload: P, result: UploadResult): SettleResult
+    public open val maxResponseBodyBytes: Int get() = DEFAULT_MAX_RESPONSE_BODY_BYTES
+
+    /**
+     * What the upload's raw [result] means for the item, given what the server [response] said. See
+     * [defaultUploadClassification] for a reasonable baseline. A thrown exception settles the item as
+     * [SettleResult.Failed] — so **never throw because a body is malformed**: decide on the status, and
+     * treat a body you cannot read as absent.
+     *
+     * This is the hook the engine calls, for every outcome. [response] is `null` exactly when the server
+     * never answered — [result] is then [UploadResult.TransportFailure] — or when a custom transport
+     * reported through the status-only [UploadGateway.complete]. Whenever it is not `null`, [result] is
+     * `UploadResult.Completed(response.statusCode)`.
+     *
+     * The default calls the two-argument [classify], so a handler written for 3.0 keeps working
+     * unchanged.
+     *
+     * @since 3.1.0
+     */
+    public open suspend fun classify(payload: P, result: UploadResult, response: UploadResponse?): SettleResult =
+        classify(payload, result)
+
+    /**
+     * What the upload's raw [result] means for the item, without the server's response. Kept for
+     * handlers written before 3.1.0, and no longer abstract: the default is
+     * [defaultUploadClassification]. Override the three-argument [classify] to see the response.
+     * A thrown exception settles the item as [SettleResult.Failed].
+     */
+    public open suspend fun classify(payload: P, result: UploadResult): SettleResult =
+        defaultUploadClassification(result)
 
     /**
      * Upload progress of [payload], from 0 to 1. Best effort: whole percents only, possibly
@@ -87,6 +129,26 @@ public abstract class UploadHandler<P : Any>(
      * Called when [classify] said [SettleResult.Delivered], **before** the item's row is removed — the
      * place for a local write that marks the domain object as sent, so the two cannot disagree after a
      * crash in between.
+     *
+     * [response] is what the server answered: parse it and persist what the app needs — a created
+     * resource's id, a job id — here. It may run twice for one item (a settle that did not land is
+     * retried), so make the write idempotent, keyed by something of the payload. An exception thrown
+     * here is logged and does **not** stop the settlement, so the response is then lost: keep it simple
+     * and make a failure here rare. [response] is `null` only when a custom transport reported through
+     * the status-only [UploadGateway.complete].
+     *
+     * The default calls the one-argument [onDelivered], so a handler written for 3.0 keeps working.
+     *
+     * @since 3.1.0
+     */
+    public open suspend fun onDelivered(payload: P, response: UploadResponse?) {
+        onDelivered(payload)
+    }
+
+    /**
+     * Called when [classify] said [SettleResult.Delivered], **before** the item's row is removed.
+     * Kept for handlers written before 3.1.0; override the two-argument [onDelivered] to see the
+     * server's response.
      */
     public open suspend fun onDelivered(payload: P) {}
 
@@ -120,6 +182,20 @@ public abstract class UploadHandler<P : Any>(
                 }
             }
         }
+
+    /** Constants of [UploadHandler]. */
+    public companion object {
+
+        /**
+         * The default of [maxResponseBodyBytes]: 64 KiB, room for a JSON answer or a validation error.
+         *
+         * @since 3.1.0
+         */
+        public const val DEFAULT_MAX_RESPONSE_BODY_BYTES: Int = 65_536
+    }
+
+    /** [maxResponseBodyBytes] as the engine enforces it: clamped to `0..1 MiB`. */
+    internal fun effectiveMaxResponseBodyBytes(): Int = maxResponseBodyBytes.coerceIn(0, MAX_RESPONSE_BODY_BYTES)
 }
 
 /**
