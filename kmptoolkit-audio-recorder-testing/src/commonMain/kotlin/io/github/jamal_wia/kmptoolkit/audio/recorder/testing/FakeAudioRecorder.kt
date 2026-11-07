@@ -75,6 +75,10 @@ public class FakeAudioRecorder(
     private val directory: String = DEFAULT_FAKE_DIRECTORY,
 ) : AudioRecorder {
 
+    init {
+        require(directory.startsWith('/')) { "directory must be an absolute path, was '$directory'" }
+    }
+
     private val _state: MutableStateFlow<RecorderState> = MutableStateFlow(RecorderState.Idle)
     override val state: StateFlow<RecorderState> = _state.asStateFlow()
 
@@ -95,7 +99,8 @@ public class FakeAudioRecorder(
 
     /**
      * Error the next otherwise-legal operation fails with, then cleared. An illegal transition is
-     * still reported as [RecorderError.IllegalState] and does not consume this.
+     * still reported as [RecorderError.IllegalState] and does not consume this; neither does a
+     * [prepare] refused for an explicit path that is blank or not absolute.
      */
     public var failNextOperationWith: RecorderError? = null
 
@@ -107,10 +112,14 @@ public class FakeAudioRecorder(
     private val _deletedPaths: MutableList<String> = mutableListOf()
 
     /**
-     * Every path thrown away, in order: by [cancel], by [release] from [RecorderState.Ready], by re-preparing over a file that was never
-     * recorded into, by a scripted failure of [prepare] or [start], and by [simulateInterruption] or
-     * [simulateRecordingLost] from [RecorderState.Ready] — all the cases in which the real recorder
-     * deletes the file it had opened. A failed [stop] keeps its file (carried on the failed state).
+     * Every path thrown away, in order: by [cancel], by [release] from [RecorderState.Ready], by
+     * re-preparing over a file that was never recorded into, by a scripted
+     * [RecorderError.EngineFailure] of [prepare] or any scripted failure of [start], and by
+     * [simulateInterruption] or [simulateRecordingLost] from [RecorderState.Ready] — all the cases in
+     * which the real recorder deletes the file it had opened. Any other scripted [prepare] failure
+     * (permission, format, directory, storage) happens before the real recorder opens anything, so
+     * nothing is recorded. A failed [stop] keeps its file (carried on the failed state). The fake has
+     * no notion of a file that already existed at an explicit path; the real recorder keeps such a file.
      */
     public val deletedPaths: List<String> get() = _deletedPaths.toList()
 
@@ -144,11 +153,16 @@ public class FakeAudioRecorder(
         _elapsed.value = Duration.ZERO
 
         if (!permissionGranted) return fail(RecorderError.PermissionDenied)
+        // An argument refusal, like an illegal transition: it consumes no scripted failure.
+        if (outputPath != null && (outputPath.isBlank() || !outputPath.startsWith('/'))) {
+            return fail(RecorderError.DirectoryNotWritable(outputPath))
+        }
 
         val path: String = outputPath ?: generatePath()
         consumeScriptedFailure()?.let { error ->
-            // The real recorder deletes the file it had already opened before the engine failed.
-            _deletedPaths += path
+            // Only the engine failing leaves a file behind to delete: the real recorder reports every
+            // other prepare failure (permission, format, directory, storage) before it creates anything.
+            if (error is RecorderError.EngineFailure) _deletedPaths += path
             return fail(error)
         }
 
