@@ -106,8 +106,8 @@ internal class AvPlayerVideoEngine(
 
     /** One loaded source: its AVFoundation objects, observers, and the values the getters return. */
     private class Session(val asset: AVURLAsset, val item: AVPlayerItem) {
-        // Cells (MutableStateFlow, nothing collects them): written on the main thread, read by the
-        // synchronous getters from the player's polling thread (D-21, D-24).
+        // Cells (MutableStateFlow, nothing collects them): written on the main thread (and by seekTo on
+        // the caller's thread), read by the synchronous getters from the player's polling thread (D-21, D-24).
         val durationMs: MutableStateFlow<Long> = MutableStateFlow(0L)
         val positionMs: MutableStateFlow<Long> = MutableStateFlow(0L)
         val bufferedPositionMs: MutableStateFlow<Long> = MutableStateFlow(0L)

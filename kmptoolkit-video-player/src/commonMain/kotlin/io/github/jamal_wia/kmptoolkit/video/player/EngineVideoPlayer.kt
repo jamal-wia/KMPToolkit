@@ -61,8 +61,8 @@ internal class EngineVideoPlayer(
     private var positionJob: Job? = null
 
     /**
-     * The load in flight, or the last one to finish. Not guarded by [gate]: [prepare] swaps it before
-     * taking the gate so it can join the load it replaced without holding a blocking lock, while
+     * The load in flight, or the last one to finish. Not guarded by [gate]: [prepare] swaps it outside the
+     * gate, so it can join the load it replaced without holding a blocking lock, while
      * unload/release (non-suspending) swap it under the gate. A [MutableStateFlow] only as an atomic
      * cell with `getAndUpdate`; nothing collects it (D-21, D-24). [Load] compares by identity.
      */
