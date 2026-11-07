@@ -39,4 +39,23 @@ class OneAlertRequestTest {
         assertEquals(1, request.pendingCount)
         assertEquals(2, begun)
     }
+
+    @Test
+    fun `a request that finishes before begin returns is not kept`() {
+        var starts = 0
+        val instant = OneAlertRequest { finished: (Any) -> Unit ->
+            starts++
+            val token = Any()
+            finished(token)
+            token
+        }
+
+        instant.start()
+        assertEquals(0, instant.pendingCount)
+
+        instant.start()
+
+        assertEquals(0, instant.pendingCount)
+        assertEquals(2, starts, "the second prompt begins again instead of being swallowed")
+    }
 }

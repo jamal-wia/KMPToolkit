@@ -81,7 +81,8 @@ private class CoreLocationServicesAlert : ServicesAlert {
 
 /**
  * Keeps at most one request pending. [begin] starts a request and returns what must stay
- * referenced until it finishes; it calls its argument when the request is over. Not thread-safe:
+ * referenced until it finishes; it calls its argument when the request is over, possibly before it
+ * returns. Not thread-safe:
  * the caller serialises (the main queue). Separated from CoreLocation so a test can drive it with
  * a request that never finishes.
  */
@@ -94,7 +95,11 @@ internal class OneAlertRequest(private val begin: (finished: (Any) -> Unit) -> A
 
     fun start() {
         if (pending.isNotEmpty()) return
-        pending += begin { finished: Any -> pending -= finished }
+        // A request may be over before begin returns; then there is nothing to keep, and adding
+        // the handle afterwards would wedge every later prompt.
+        var finishedEarly = false
+        val handle: Any = begin { finished: Any -> if (!pending.remove(finished)) finishedEarly = true }
+        if (!finishedEarly) pending += handle
     }
 }
 
