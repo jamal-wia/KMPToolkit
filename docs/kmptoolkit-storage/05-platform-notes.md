@@ -217,7 +217,8 @@ app sharing that code with desktop could not compile it for desktop without the 
 - **Durability.** Every write rewrites the whole file into a temporary sibling, syncs it to the device
   and atomically renames it over the old one, so a process killed — or a machine losing power —
   mid-write leaves the previous contents. A temporary file a killed write left behind is removed by
-  `clear()`. Every read reads the file afresh.
+  `clear()`, which matches only this store's own temporary names (`<file name><digits>.tmp`), never a
+  neighbouring store's in-flight file. Every read reads the file afresh.
 - **Failures.** A corrupted or hand-edited file (a malformed `\uXXXX` escape), a name the file system
   rejects (`:` or `*` on Windows) and a denied security check arrive as `OperationFailed`, never as an
   exception. The store is meant for a handful of small values; it is not a database.

@@ -56,7 +56,7 @@ internal class JvmKeyValueStorage(
         Files.deleteIfExists(file.toPath())
         // A process killed between creating a temporary file and renaming it leaves that file behind.
         file.absoluteFile.parentFile
-            ?.listFiles { sibling -> sibling.name.startsWith(file.name) && sibling.name.endsWith(TEMPORARY_SUFFIX) }
+            ?.listFiles { sibling -> isOwnTemporary(sibling.name) }
             ?.forEach { leftover -> Files.deleteIfExists(leftover.toPath()) }
     }
 
@@ -77,6 +77,17 @@ internal class JvmKeyValueStorage(
                 StorageResult.Failure(StorageError.OperationFailed(operation, key = key, cause = error))
             }
         }
+    }
+
+    /**
+     * Exactly the shape [File.createTempFile] gives this store's writer: the file name, a run of digits,
+     * the suffix. A looser prefix match would also take another store's temporary file whose own file
+     * name merely starts with this one's.
+     */
+    private fun isOwnTemporary(name: String): Boolean {
+        if (!name.startsWith(file.name) || !name.endsWith(TEMPORARY_SUFFIX)) return false
+        val middle: String = name.substring(file.name.length, name.length - TEMPORARY_SUFFIX.length)
+        return middle.isNotEmpty() && middle.all { it in '0'..'9' }
     }
 
     private fun load(): Properties {
