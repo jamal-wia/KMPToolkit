@@ -89,8 +89,9 @@ internal class AndroidScreenWakeLockController(
 
     // The window this controller last turned the flag ON for and has not turned it off again — see
     // the class KDoc. Weak, because it must outlive nothing, and null for a controller that has
-    // never written the flag, which is what keeps the resume callback off another owner's flag.
-    @Volatile
+    // never written the flag, which is what keeps the resume callback off another owner's flag. Main
+    // thread only, like [enabled] and [subscription]: every access runs from applyRequested or the
+    // resume listener, both delivered on the main thread, so no volatile is needed.
     private var pushedTo: WeakReference<Activity>? = null
 
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
