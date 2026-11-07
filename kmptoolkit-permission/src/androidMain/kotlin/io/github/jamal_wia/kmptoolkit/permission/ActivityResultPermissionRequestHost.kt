@@ -41,7 +41,9 @@ import kotlinx.coroutines.flow.updateAndGet
  *   requests.
  * - **A cancelled caller does not withdraw a dialog.** A system dialog already on screen cannot be
  *   taken back, so the request stays pending until the user answers (or the activity is finished) and
- *   the answer is then dropped. A launch in that window returns `false`, as for any pending request.
+ *   the answer is then dropped. A launch in that window returns `false`, as for any pending request;
+ *   the controller waits for the host to be free (bounded) before it launches for a request queued
+ *   behind the cancelled one.
  *
  * A launch returns `false` when no activity is resumed, or the resumed one is not a
  * `ComponentActivity` — every `AppCompatActivity` and Compose `ComponentActivity` is one.

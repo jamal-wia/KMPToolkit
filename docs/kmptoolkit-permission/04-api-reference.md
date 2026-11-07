@@ -192,7 +192,11 @@ public interface PermissionController {
   runtime permission that can still prompt shares one system dialog; background location and
   background body sensors never join it. Everything else is requested in order, one at a time.
 - **Requests are serialized.** A request made while another is in flight — through the same
-  controller — waits for it, so two prompts never overlap.
+  controller — waits for it, so two prompts never overlap. That includes a request cancelled while
+  its system dialog is still up: the dialog cannot be taken back, so the next request waits (at most
+  30 seconds, and its own cancellation ends the wait at once) until that dialog is answered, then
+  shows its own. If the dialog is still up after that, the request fails like a refused launch:
+  nothing shown, the status returned unchanged.
 - **`observe`** emits the current status on collection, then each *different* status: on every
   activity resume on Android, every time the app becomes active on iOS, and after every request
   through the same controller that covered the permission (or the entry it stands for on this API

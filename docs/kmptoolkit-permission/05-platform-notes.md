@@ -269,6 +269,13 @@ while the dialog is up does **not** withdraw it: the system dialog cannot be tak
 request stays pending until the user answers, the answer is then discarded, and a launch in that
 window returns `false` like any launch while one is pending.
 
+The controller covers that window for the request queued behind the cancelled one: it waits until the
+host is free (the stale dialog answered or abandoned) and then launches its own dialog. The wait is
+bounded at 30 seconds (an internal constant, not configurable) and ends at once if the waiting caller
+is cancelled. When the stale dialog is still up at the bound, the waiting request fails like a refused
+launch: nothing is shown and the current status is returned. A request arriving after the wait has
+timed out is not held again; it goes straight to the host.
+
 Each `createPermissionController` call without an `activityAccess` registers its own activity
 tracker, a lifecycle callback on the `Application` that lives as long as the process. Build the
 controller once, or pass one shared `ActivityAccess` to every factory that takes one.
