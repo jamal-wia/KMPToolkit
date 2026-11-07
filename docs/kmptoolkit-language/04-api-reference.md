@@ -84,7 +84,7 @@ public interface AppLanguageHolder {
 |---|---|
 | `languageFlow` | The currently selected language. Distinct values only |
 | `language` | Snapshot of the above |
-| `setLanguage(language)` | Calls [`applyLanguageGlobally`](#applylanguageglobally-and-getsystemlanguagecode) **on every call**, including one passing the language already in effect — the platform default is shared state the OS itself rewrites, so re-asserting it is the point. Then, only when the language actually changed, updates `languageFlow` and calls the `onLanguageChanged` callback given to [`createAppLanguageHolder`](#createapplanguageholder). Safe from any thread: concurrent calls are serialized, so the platform locale, `languageFlow` and the last value passed to `onLanguageChanged` always agree on whichever call ran last. The callback runs inside that serialized step — a slow one holds up a concurrent call, and calling `setLanguage` from inside it is allowed |
+| `setLanguage(language)` | Calls [`applyLanguageGlobally`](#applylanguageglobally-and-getsystemlanguagecode) **on every call**, including one passing the language already in effect — the platform default is shared state the OS itself rewrites, so re-asserting it is the point. Then, only when the language actually changed, updates `languageFlow` and calls the `onLanguageChanged` callback given to [`createAppLanguageHolder`](#createapplanguageholder). Safe from any thread: concurrent calls are serialized, so the platform locale, `languageFlow` and the last value passed to `onLanguageChanged` always agree on whichever call ran last. The callback runs inside that serialized step — a slow one holds up a concurrent call, and calling `setLanguage` from inside it is allowed. It must not block waiting for another thread that may itself call `setLanguage` (a synchronous hop to the main thread, say): hand slow or main-bound persistence off asynchronously |
 
 ### `createAppLanguageHolder`
 
@@ -98,7 +98,10 @@ public fun createAppLanguageHolder(
 
 Common to both platforms — no `Context` needed. Calls `applyGlobally(initialLanguage)` before
 returning. `onLanguageChanged` is not called for `initialLanguage` itself, only for a later
-`setLanguage` that actually changes something. `applyGlobally` defaults to the real
+`setLanguage` that actually changes something. It runs under the holder's lock, like in
+[`setLanguage`](#applanguageholder): it must not block waiting for another thread that may itself
+call `setLanguage`, and slow or main-bound persistence should be handed off asynchronously.
+`applyGlobally` defaults to the real
 [`applyLanguageGlobally`](#applylanguageglobally-and-getsystemlanguagecode); override it only in a
 test that wants a holder without touching the real platform locale — production code should leave
 the default.

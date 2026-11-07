@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.systembars
 
+import kotlinx.coroutines.flow.MutableStateFlow
+
 /**
  * The real controller with the platform call recorded instead of performed.
  *
@@ -10,7 +12,8 @@ package io.github.jamal_wia.kmptoolkit.systembars
  */
 internal class RecordingSystemBarsController(
     initialConfig: SystemBarsConfig = SystemBarsConfig(),
-) : LayeredSystemBarsController(initialConfig) {
+    createLayersFlow: (Layers) -> MutableStateFlow<Layers> = { initial: Layers -> MutableStateFlow(initial) },
+) : LayeredSystemBarsController(initialConfig, createLayersFlow) {
 
     /** Every configuration handed to the platform, in order. */
     val applied: MutableList<SystemBarsConfig> = mutableListOf()

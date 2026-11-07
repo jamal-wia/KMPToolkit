@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 
 /**
  * The platform-independent half of every [SystemBarsController]: the layer stack, the atomic
@@ -21,6 +22,8 @@ import kotlinx.coroutines.flow.map
  */
 internal abstract class LayeredSystemBarsController(
     initialConfig: SystemBarsConfig,
+    // A seam: a test wraps the flow to land another writer at an exact point of a transition.
+    createLayersFlow: (Layers) -> MutableStateFlow<Layers> = { initial: Layers -> MutableStateFlow(initial) },
 ) : SystemBarsController {
 
     /**
@@ -30,7 +33,7 @@ internal abstract class LayeredSystemBarsController(
      * order: an override released while three later ones are still live must take *its* layer with
      * it and leave theirs where they are.
      */
-    private data class Layer(val id: Long, val override: SystemBarsOverride)
+    internal data class Layer(val id: Long, val override: SystemBarsOverride)
 
     /**
      * @param nextId the identity the next pushed layer will take. Part of the atomic state rather
@@ -40,7 +43,7 @@ internal abstract class LayeredSystemBarsController(
      *   layer had already been released would then match the next layer pushed and release or
      *   overwrite someone else's.
      */
-    private data class Layers(
+    internal data class Layers(
         val base: SystemBarsConfig,
         val overrides: List<Layer>,
         val nextId: Long = 1L,
@@ -56,7 +59,7 @@ internal abstract class LayeredSystemBarsController(
      * than maintained alongside it — two state holders updated in sequence can be observed
      * disagreeing, and under two writers can end up permanently stale.
      */
-    private val layers: MutableStateFlow<Layers> = MutableStateFlow(
+    private val layers: MutableStateFlow<Layers> = createLayersFlow(
         Layers(base = initialConfig, overrides = emptyList()),
     )
 
@@ -114,11 +117,10 @@ internal abstract class LayeredSystemBarsController(
     override fun release() {
         // `nextId` is carried across rather than reset: handles taken before the teardown must stay
         // dead afterwards, and restarting the sequence would let one of them alias a later layer.
-        layers.value = Layers(
-            base = SystemBarsConfig(),
-            overrides = emptyList(),
-            nextId = layers.value.nextId,
-        )
+        // Atomic with the other transitions: a push that wins its CAS meanwhile keeps its id counted.
+        layers.update { current ->
+            Layers(base = SystemBarsConfig(), overrides = emptyList(), nextId = current.nextId)
+        }
     }
 
     private inner class Handle(private val id: Long) : SystemBarsOverrideHandle {

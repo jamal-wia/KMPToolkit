@@ -197,7 +197,9 @@ equivalent cap on `observeLocation()` — a `Flow` that "gives up" would be indi
   a disabled service, or no signal. Nothing throws.
 - **Assuming `observeLocation()` is silent until a real fix arrives.** Both platform implementations
   seed the flow immediately — with the freshest cached fix, or `null` — precisely so a `combine()`
-  downstream never hangs waiting for its first value.
+  downstream never hangs waiting for its first value. On Android the seed is sent before the update
+  listeners are registered, so a live fix is always delivered after it and the last value you see is
+  never an older cached one.
 - **Polling `isLocationEnabled()` in a loop.** There is no observe API for it, deliberately — see
   [`05-platform-notes.md`](05-platform-notes.md). Read it when you are about to act on the answer:
   screen resume, before starting a feature, after `openLocationSettings()` returns control to your

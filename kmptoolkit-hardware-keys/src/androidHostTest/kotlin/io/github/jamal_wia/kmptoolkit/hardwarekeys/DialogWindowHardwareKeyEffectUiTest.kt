@@ -106,6 +106,34 @@ class DialogWindowHardwareKeyEffectUiTest {
     }
 
     @Test
+    fun `the policy stays in force when the effect that decorated leaves before the one that did not`() = runComposeUiTest {
+        var seen = 0
+        DialogWindowHardwareKeyPolicy.install { _ ->
+            seen++
+            true
+        }
+        var showFirst by mutableStateOf(true)
+        var window: Window? = null
+
+        setContent {
+            Dialog(onDismissRequest = {}) {
+                window = dialogWindow()
+                if (showFirst) DialogWindowHardwareKeyEffect() // enters first, so it decorates
+                DialogWindowHardwareKeyEffect()
+            }
+        }
+        waitForIdle()
+
+        showFirst = false
+        waitForIdle()
+
+        val consumed: Boolean = assertNotNull(window).callback
+            .dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP))
+        assertTrue(consumed, "the second effect is still composed, so the policy still applies")
+        assertEquals(1, seen)
+    }
+
+    @Test
     fun `a window already composed keeps its policy through a recomposition`() = runComposeUiTest {
         val consulted = mutableListOf<String>()
         DialogWindowHardwareKeyPolicy.install { _ ->

@@ -181,6 +181,25 @@ class LoggerFactoryTest {
     }
 
     @Test
+    fun `a sink that cancels does not cost the sinks after it the event`() {
+        val cancelling = object : LogSink {
+            override fun log(level: LogLevel, tag: String, message: String, throwable: Throwable?): Unit =
+                throw CancellationException("cancelled while logging")
+        }
+        val received: MutableList<String> = mutableListOf()
+        val recording = object : LogSink {
+            override fun log(level: LogLevel, tag: String, message: String, throwable: Throwable?) {
+                received += message
+            }
+        }
+        val logger: Logger = createLoggerFactory(LogLevel.VERBOSE, listOf(cancelling, recording)).logger("T")
+
+        assertFailsWith<CancellationException> { logger.log(LogLevel.INFO, null) { "x" } }
+
+        assertEquals(listOf("x"), received)
+    }
+
+    @Test
     fun `a CancellationException from a sink propagates instead of being swallowed`() {
         // Swallowing it would let logging silently break the caller's structured concurrency.
         val cancelling = object : LogSink {

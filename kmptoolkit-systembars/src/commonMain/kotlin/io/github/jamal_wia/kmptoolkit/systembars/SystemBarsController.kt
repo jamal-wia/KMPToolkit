@@ -91,6 +91,9 @@ public interface SystemBarsController {
      * A controller that lives as long as the process never needs this. It exists for tests and for
      * a host that tears down its whole object graph without ending the process. Idempotent; the
      * controller must not be used afterwards.
+     *
+     * Does not repaint: the window is left showing the last applied configuration while
+     * [config] reports the defaults.
      */
     public fun release()
 }

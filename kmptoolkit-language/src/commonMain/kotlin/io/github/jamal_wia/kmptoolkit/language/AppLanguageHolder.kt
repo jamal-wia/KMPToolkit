@@ -41,6 +41,9 @@ public interface AppLanguageHolder {
      * [languageFlow] and the last value handed to `onLanguageChanged` always agree: whichever call
      * runs last wins all three. `onLanguageChanged` runs inside that step, so a slow callback holds up
      * a concurrent `setLanguage`; calling `setLanguage` again from inside the callback is allowed.
+     * The callback therefore must not block waiting for another thread that may itself call
+     * `setLanguage` (a synchronous hop to the main thread, say): that thread would wait on the lock
+     * while this one waits on it. Hand slow or main-bound persistence off asynchronously.
      */
     public fun setLanguage(language: AppLanguage)
 }
@@ -55,7 +58,9 @@ public interface AppLanguageHolder {
  * @param onLanguageChanged called with the new language every time [AppLanguageHolder.setLanguage]
  *   actually changes it — your hook to persist the choice for next launch. Not called for
  *   [initialLanguage] itself, and not called when `setLanguage` is passed the language already in
- *   effect.
+ *   effect. It runs while the holder holds the lock that serializes [AppLanguageHolder.setLanguage],
+ *   so it must not block waiting for another thread that may itself call `setLanguage`; hand
+ *   main-bound or slow persistence off asynchronously.
  * @param applyGlobally the platform side effect to run on [initialLanguage] and on every language
  *   change — [applyLanguageGlobally] by default. Overriding it is only for a test that wants a
  *   holder without touching the real platform locale; production code should leave the default.

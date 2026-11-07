@@ -92,15 +92,49 @@ public fun createLocationProviderWithLauncher(
     logger: Logger = NoopLogger,
 ): LocationProvider = AndroidLocationProvider(context.applicationContext, config, logger, systemScreenLauncher)
 
-private class AndroidLocationProvider(
+/**
+ * The part of `LocationManager` that [AndroidLocationProvider.observeLocation] uses, as a seam: the
+ * framework class cannot be subclassed in a unit test, and the order of a registration against a
+ * delivery is exactly what a test of the seed has to control.
+ */
+internal interface LocationUpdatesSource {
+    val allProviders: List<String>
+    fun isProviderEnabled(provider: String): Boolean
+    fun lastKnownLocation(provider: String): Location?
+    fun requestUpdates(provider: String, minTimeMillis: Long, minDistanceMeters: Float, listener: LocationListener)
+    fun removeUpdates(listener: LocationListener)
+}
+
+@SuppressLint("MissingPermission")
+private class ManagerUpdatesSource(private val service: LocationManager) : LocationUpdatesSource {
+    override val allProviders: List<String> get() = service.allProviders
+    override fun isProviderEnabled(provider: String): Boolean = service.isProviderEnabled(provider)
+    override fun lastKnownLocation(provider: String): Location? = service.getLastKnownLocation(provider)
+    override fun requestUpdates(
+        provider: String,
+        minTimeMillis: Long,
+        minDistanceMeters: Float,
+        listener: LocationListener,
+    ) {
+        service.requestLocationUpdates(provider, minTimeMillis, minDistanceMeters, listener, Looper.getMainLooper())
+    }
+
+    override fun removeUpdates(listener: LocationListener) = service.removeUpdates(listener)
+}
+
+internal class AndroidLocationProvider(
     private val context: Context,
     private val config: LocationProviderConfig,
     private val logger: Logger,
     private val systemScreenLauncher: SystemScreenLauncher,
+    updatesSource: LocationUpdatesSource? = null,
 ) : LocationProvider {
 
     private val manager: LocationManager? =
         context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+
+    private val updatesSource: LocationUpdatesSource? =
+        updatesSource ?: manager?.let { service: LocationManager -> ManagerUpdatesSource(service) }
 
     // ACCURACY_FINE steers getBestProvider() towards GPS over network positioning, so a fix can
     // still be obtained with no internet — a cold GNSS fix without assistance is slow, which is
@@ -127,9 +161,8 @@ private class AndroidLocationProvider(
         }
     }
 
-    @SuppressLint("MissingPermission")
     override fun observeLocation(): Flow<GeoCoordinates?> = callbackFlow {
-        val service: LocationManager? = manager
+        val service: LocationUpdatesSource? = updatesSource
         if (service == null) {
             trySend(null)
             close()
@@ -156,13 +189,22 @@ private class AndroidLocationProvider(
         }
 
         try {
+            // Seed first, register second. A live fix is delivered on the main looper while this
+            // block may run on any dispatcher, so a seed sent after the registration can land behind
+            // a newer fix and leave the collector on an older position until the next update. Sent
+            // before, every live fix follows it in the channel by construction. The seed is the
+            // freshest cached fix across the tracked providers — or `null` when there is none — so
+            // the flow is never silent: while the location service is off the update callback never
+            // fires, and without it observeLocation() would emit nothing at all and every downstream
+            // combine would hang on its initial value. Reading the cache needs the permission too,
+            // so it shares the SecurityException path of the registration.
+            trySend(freshestLastKnownLocation(service, providers)?.toCoordinates())
             providers.forEach { provider ->
-                service.requestLocationUpdates(
+                service.requestUpdates(
                     provider,
                     config.minUpdateIntervalMillis,
                     config.minUpdateDistanceMeters,
                     listener,
-                    Looper.getMainLooper(),
                 )
             }
         } catch (security: SecurityException) {
@@ -171,12 +213,6 @@ private class AndroidLocationProvider(
             close()
             return@callbackFlow
         }
-
-        // Seed immediately with the freshest cached fix across the tracked providers — or `null`
-        // when there is none — so the flow is never silent. While the location service is off the
-        // update callback never fires, so without this seed observeLocation() would emit nothing
-        // at all and every downstream combine would hang on its initial value.
-        trySend(freshestLastKnownLocation(service, providers)?.toCoordinates())
 
         awaitClose { service.removeUpdates(listener) }
     }
@@ -209,9 +245,8 @@ private class AndroidLocationProvider(
     private fun bestEnabledProvider(service: LocationManager): String? =
         service.getBestProvider(criteria, true)
 
-    @SuppressLint("MissingPermission")
-    private fun freshestLastKnownLocation(service: LocationManager, providers: List<String>): Location? =
-        providers.mapNotNull { provider -> service.getLastKnownLocation(provider) }
+    private fun freshestLastKnownLocation(service: LocationUpdatesSource, providers: List<String>): Location? =
+        providers.mapNotNull { provider -> service.lastKnownLocation(provider) }
             .maxByOrNull { location -> location.time }
 
     @SuppressLint("MissingPermission")

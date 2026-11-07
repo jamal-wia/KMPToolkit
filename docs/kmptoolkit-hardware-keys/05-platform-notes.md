@@ -36,6 +36,10 @@ consumes it, to the `PhoneWindow` fallback that implements system behaviour such
 Calling the effect twice in the same dialog window — an app-wide dialog wrapper plus a shared component
 that calls it too — installs one wrapper, not two, so the interceptor runs once per key event.
 
+The effects in one window share that wrapper and each holds a share of it: it stays in force until
+the last of them leaves composition, whichever one entered first, and only then is the window's
+original callback restored (and still not over a decorator someone else installed afterwards).
+
 ### The back key
 
 With predictive back (the default for apps targeting API 36 on Android 16+), the back gesture reaches
