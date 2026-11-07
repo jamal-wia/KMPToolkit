@@ -20,8 +20,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * activity resumed — a lazy DI singleton first injected by a screen — answers
  * [BiometricResult.NoPromptHost] until that activity pauses and resumes again. Each call registers a
  * lifecycle callback with the `Application` that lives as long as the process, so do not build a gate
- * per screen; to share one tracker between several consumers use [createBiometricGateWithLauncher]
- * with an `activityAccess`.
+ * per screen; to share one tracker between several consumers use the overload taking an
+ * `ActivityAccess` ([createBiometricGate] with `activityAccess`).
  *
  * @param context any `Context`; its application context is retained to query `BiometricManager`
  *   for [BiometricGate.availability] and to track the currently resumed activity, which the

@@ -86,7 +86,9 @@ own, for the life of the process; build the gate once (or share one tracker) rat
 
 The gate keeps no activity of its own. While a prompt is up it holds the system `BiometricPrompt` so
 that cancelling the calling coroutine can dismiss it, and lets go of it as soon as the outcome has
-been delivered, so a prompt that was showing during a rotation does not keep the old activity alive.
+been delivered, and likewise drops its reference to your coroutine's callback. androidx may keep the
+prompt and its callback for longer; the module guarantees only that it is not what keeps them reachable
+once the prompt is over, so a prompt that was showing during a rotation is not pinned by the gate.
 
 ### Authenticator strength
 

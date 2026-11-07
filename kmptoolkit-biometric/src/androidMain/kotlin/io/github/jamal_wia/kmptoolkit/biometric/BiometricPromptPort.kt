@@ -6,6 +6,7 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
+import java.util.concurrent.Executor
 
 /**
  * The narrow slice of `androidx.biometric` this module drives.
@@ -51,13 +52,21 @@ internal interface PromptHandle {
  *
  * The activity is reached through [ActivityAccess] and never stored: the reference lives only for
  * the duration of the posted block. The handle returned to the caller holds no activity at all, only the
- * system prompt, and lets go of that as soon as an outcome has been delivered, so a prompt outliving its
- * activity (a rotation while the sheet is up) is not kept alive by this module once it is over.
+ * system prompt, and lets go of that as soon as an outcome has been delivered. The port also drops its
+ * reference to the caller's outcome callback at that moment. What it cannot control is the framework:
+ * androidx keeps the prompt and its callback for as long as it likes, so this module only guarantees
+ * that it is not what keeps them reachable once the prompt is over.
  */
 internal class ActivityBiometricPromptPort(
     private val activityAccess: ActivityAccess,
     private val config: BiometricGateConfig,
     private val options: BiometricGateOptions = BiometricGateOptions(),
+    // Test seams: `BiometricPrompt` is final and Robolectric has no biometric service, so a test
+    // needs to see the callback the port builds and to keep the real prompt from starting.
+    private val promptFactory: (FragmentActivity, Executor, BiometricPrompt.AuthenticationCallback) -> BiometricPrompt =
+        { activity, executor, callback -> BiometricPrompt(activity, executor, callback) },
+    private val startPrompt: (BiometricPrompt, BiometricPrompt.PromptInfo) -> Unit =
+        { systemPrompt, info -> systemPrompt.authenticate(info) },
 ) : BiometricPromptPort {
 
     override fun show(
@@ -71,14 +80,14 @@ internal class ActivityBiometricPromptPort(
         val deliverOnce: (BiometricResult) -> Unit = deliverOnceAndRelease(handle, onOutcome)
         activity.runOnUiThread {
             if (handle.isCancelled) return@runOnUiThread
-            val systemPrompt = BiometricPrompt(
+            val systemPrompt: BiometricPrompt = promptFactory(
                 activity,
                 ContextCompat.getMainExecutor(activity),
                 authenticationCallback(options.singleAttempt, deliverOnce, handle::cancel),
             )
             handle.attach(systemPrompt)
             runCatching {
-                systemPrompt.authenticate(buildPromptInfo(prompt, config, options.strength, requireConfirmation))
+                startPrompt(systemPrompt, buildPromptInfo(prompt, config, options.strength, requireConfirmation))
             }
                 .onFailure {
                     // The builder validates the authenticator/negative-button combination against
@@ -104,14 +113,17 @@ internal fun deliverOnceAndRelease(
     handle: ActivityPromptHandle,
     onOutcome: (BiometricResult) -> Unit,
 ): (BiometricResult) -> Unit {
-    var delivered = false
+    // The first delivery clears the reference: the framework may keep this lambda for as long as it
+    // keeps the callback, and the caller's callback captures the caller's continuation.
+    var pending: ((BiometricResult) -> Unit)? = onOutcome
     return { outcome: BiometricResult ->
-        if (!delivered) {
-            delivered = true
+        val target: ((BiometricResult) -> Unit)? = pending
+        if (target != null) {
+            pending = null
             // A single-attempt rejection is followed by a dismissal through the handle, which still
             // needs the prompt and releases it itself.
             if (outcome != BiometricResult.Rejected) handle.release()
-            onOutcome(outcome)
+            target(outcome)
         }
     }
 }
@@ -150,8 +162,11 @@ internal fun authenticationCallback(
  * Handle over a prompt that may not exist yet.
  *
  * [cancel] can arrive before the posted show has run — a coroutine cancelled in the same tick it
- * started — so the flag is checked by the show block too, and cancelling is otherwise posted to the
- * main thread because `cancelAuthentication` is a UI call like any other.
+ * started — so the flag is checked by the show block too. Cancelling is always posted to the main
+ * thread (run inline only when already on it), never decided from the calling thread: the prompt is
+ * attached by the show block on main, so a cancel from another thread that looked at the prompt
+ * itself could see it missing, return, and leave the sheet that attaches a moment later on screen.
+ * Posted, it runs after the show block (the main queue is FIFO and the show block was posted first).
  *
  * It holds no activity: the main looper is reached directly rather than through one. The prompt it
  * does hold (it is what [cancel] acts on) is dropped by [release], which the port calls once the
@@ -184,10 +199,12 @@ internal class ActivityPromptHandle : PromptHandle {
 
     override fun cancel() {
         isCancelled = true
-        val target: BiometricPrompt = prompt ?: return
-        // Dismissing is the last thing the prompt is needed for.
-        release()
-        runOnMain { target.cancelAuthentication() }
+        runOnMain {
+            val target: BiometricPrompt? = prompt
+            // Dismissing is the last thing the prompt is needed for.
+            release()
+            target?.cancelAuthentication()
+        }
     }
 
     private fun runOnMain(block: () -> Unit) {

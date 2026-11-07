@@ -15,6 +15,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
+import android.os.Looper
 
 /**
  * The "there is nobody to show a prompt to" half of the real port.
@@ -155,6 +157,98 @@ class ActivityBiometricPromptPortTest {
         assertTrue(handle.holdsPromptForTest())
 
         handle.cancel()
+        assertFalse(handle.holdsPromptForTest())
+    }
+
+    @Test
+    fun `a cancel from another thread before the prompt is attached still dismisses it once attached`() {
+        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val handle = ActivityPromptHandle()
+        // The caller is cancelled on a background thread while the show block has not attached yet.
+        Thread { handle.cancel() }.also { it.start(); it.join(5_000) }
+        // The show block then attaches on main, and the posted cancel runs after it.
+        handle.attach(BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), noopCallback))
+        assertTrue(handle.holdsPromptForTest())
+
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertFalse(handle.holdsPromptForTest())
+    }
+
+    @Test
+    fun `the callback of the caller is not reachable from the delivery lambda after an outcome`() {
+        val handle = ActivityPromptHandle()
+        val callerCallback: (BiometricResult) -> Unit = { }
+        val deliver: (BiometricResult) -> Unit = deliverOnceAndRelease(handle, callerCallback)
+        assertTrue(reaches(deliver, callerCallback))
+
+        deliver(BiometricResult.Authenticated)
+
+        assertFalse(reaches(deliver, callerCallback))
+    }
+
+    /** Whether [target] is held by [from]'s captured variables (the lambda's fields and Kotlin refs). */
+    private fun reaches(from: Any, target: Any): Boolean {
+        var current: Any? = from
+        val seen = mutableSetOf<Any>()
+        val queue = ArrayDeque<Any>().apply { add(from) }
+        while (queue.isNotEmpty()) {
+            current = queue.removeFirst()
+            if (!seen.add(current)) continue
+            for (field in current.javaClass.declaredFields) {
+                if (java.lang.reflect.Modifier.isStatic(field.modifiers)) continue
+                field.isAccessible = true
+                val value: Any = field.get(current) ?: continue
+                if (value === target) return true
+                if (value.javaClass.name.startsWith("kotlin.jvm.internal.Ref") ||
+                    value.javaClass.name.contains("Lambda") || value is Function<*>
+                ) queue.add(value)
+            }
+        }
+        return false
+    }
+
+    // --- the show() wiring ------------------------------------------------------------------
+
+    @Test
+    fun `an outcome from the framework callback releases the handle that show returned`() {
+        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        var callback: BiometricPrompt.AuthenticationCallback? = null
+        val port = ActivityBiometricPromptPort(
+            FakeActivityAccess(activity),
+            BiometricGateConfig(),
+            promptFactory = { a, executor, cb ->
+                callback = cb
+                BiometricPrompt(a, executor, cb)
+            },
+            startPrompt = { _, _ -> },
+        )
+        val outcomes = mutableListOf<BiometricResult>()
+
+        val handle = port.show(promptText, requireConfirmation = true) { outcomes += it } as ActivityPromptHandle
+
+        assertTrue(handle.holdsPromptForTest())
+        val captured: BiometricPrompt.AuthenticationCallback = checkNotNull(callback)
+        captured.onAuthenticationError(BiometricPrompt.ERROR_USER_CANCELED, "cancelled")
+        captured.onAuthenticationError(BiometricPrompt.ERROR_LOCKOUT, "again")
+
+        assertEquals(1, outcomes.size)
+        assertFalse(handle.holdsPromptForTest())
+    }
+
+    @Test
+    fun `a prompt that fails to start reports Failed and releases the handle`() {
+        val activity: FragmentActivity = Robolectric.buildActivity(FragmentActivity::class.java).setup().get()
+        val port = ActivityBiometricPromptPort(
+            FakeActivityAccess(activity),
+            BiometricGateConfig(),
+            startPrompt = { _, _ -> error("rejected by the builder") },
+        )
+        val outcomes = mutableListOf<BiometricResult>()
+
+        val handle = port.show(promptText, requireConfirmation = true) { outcomes += it } as ActivityPromptHandle
+
+        assertEquals(listOf<BiometricResult>(BiometricResult.Failed()), outcomes)
         assertFalse(handle.holdsPromptForTest())
     }
 
