@@ -39,6 +39,25 @@ class UploaderStorageLifecycleRound2IosAdversarialTest {
         }
     }
 
+    private suspend fun seed(config: UploaderDatabaseConfig, count: Int) {
+        val storage: UploaderStorage = createUploaderStorage(config)
+        try {
+            storage.transactionRunner.inTransaction {
+                repeat(count) { storage.store.insertKeep(anItem("seed-$it")) }
+            }
+        } finally {
+            storage.close()
+        }
+    }
+
+    private fun damageBelowTheFirstPage(path: String) {
+        val bytes: ByteArray = read(path)
+        assertTrue(bytes.size >= 4 * 4096, "setup: the seeded file is too small (${bytes.size}) for damage to reach a data page")
+        assertTrue(read("$path-wal").isEmpty(), "setup: a write-ahead log still holds pages, so damage to the main file would be masked")
+        for (index in 4096 until bytes.size) bytes[index] = ((index * 131) xor 0x5A).toByte()
+        write(path, bytes)
+    }
+
     @Test
     fun `recreateOnCorruption keeps a working consistent queue when a dead write-ahead log sits next to it`() = runTest {
         val config = UploaderDatabaseConfig(
@@ -76,6 +95,33 @@ class UploaderStorageLifecycleRound2IosAdversarialTest {
             } finally {
                 reopened.close()
             }
+        } finally {
+            removeAll(path)
+        }
+    }
+
+    @Test
+    fun `default config over a file damaged below a valid header fails typed on use and leaves the file as found`() = runTest {
+        val config = UploaderDatabaseConfig("com.example.r2.interior-${uniqueDatabaseName("ios")}")
+        val path: String = DatabaseFileContext.databasePath(uploaderDatabaseFileName(config.name!!), null)
+        removeAll(path)
+        try {
+            seed(config, 600)
+            damageBelowTheFirstPage(path)
+            val damaged: ByteArray = read(path)
+
+            val outcome: Result<UploaderStorage> = runCatching { createUploaderStorage(config) }
+            outcome.getOrNull()?.let { storage ->
+                try {
+                    val failure: Throwable? = runCatching { storage.store.getAllActive() }.exceptionOrNull()
+                    assertTrue(failure is UploaderStorageException, "reading damaged pages must fail typed, got $failure")
+                } finally {
+                    storage.close()
+                }
+            }
+            outcome.exceptionOrNull()?.let { assertTrue(it is UploaderStorageException, "got $it") }
+
+            assertTrue(damaged.contentEquals(read(path)), "the damaged file was modified or deleted without the app's say")
         } finally {
             removeAll(path)
         }

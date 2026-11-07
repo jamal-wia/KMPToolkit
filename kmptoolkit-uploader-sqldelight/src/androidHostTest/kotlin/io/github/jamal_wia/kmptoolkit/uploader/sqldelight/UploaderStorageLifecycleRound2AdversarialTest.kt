@@ -6,6 +6,9 @@ import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 
@@ -209,5 +212,36 @@ class UploaderStorageLifecycleRound2AdversarialTest {
         val after: Int = Thread.getAllStackTraces().keys.size
         assertTrue(after - before <= 3, "threads grew from $before to $after over thirty failed opens")
         application().deleteDatabase(file.name)
+    }
+
+    @Test
+    fun `closing the storage under a live observer neither hangs nor throws when the observer is cancelled afterwards`() = runTest {
+        val config = UploaderDatabaseConfig("com.example.r2.observer")
+        val file = fileOf(config)
+        val threadsBefore: Int = Thread.getAllStackTraces().keys.count { it.name == "kmptoolkit-uploader-db" }
+        val storage: UploaderStorage = createUploaderStorage(application(), config)
+        val seen = java.util.concurrent.atomic.AtomicReference<List<String>>(emptyList())
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default + kotlinx.coroutines.SupervisorJob())
+        try {
+            val collector: kotlinx.coroutines.Job = scope.launch {
+                storage.store.observeByType("checks.type").collect { list -> seen.set(list.map { it.id }) }
+            }
+            storage.store.insertKeep(anItem("one"))
+            val sawInsert: Boolean? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                kotlinx.coroutines.withTimeoutOrNull(10_000) { while ("one" !in seen.get()) kotlinx.coroutines.delay(10); true }
+            }
+            assertEquals(true, sawInsert, "setup: the observer never showed the inserted row, last emission ${seen.get()}")
+
+            storage.close() // the observer is still subscribed
+            val joined: Boolean? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                kotlinx.coroutines.withTimeoutOrNull(10_000) { collector.cancelAndJoin(); true }
+            }
+            assertEquals(true, joined, "cancelling an observer of a closed storage never completed")
+        } finally {
+            scope.cancel()
+            application().deleteDatabase(file.name)
+        }
+        val threadsAfter: Int = Thread.getAllStackTraces().keys.count { it.name == "kmptoolkit-uploader-db" }
+        assertTrue(threadsAfter <= threadsBefore, "the database thread outlived close(): $threadsBefore -> $threadsAfter")
     }
 }
