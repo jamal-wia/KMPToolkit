@@ -178,9 +178,10 @@ The group path's policy, as a table because it is not obvious:
 
 **What happens to the partial file.** A failed transfer keeps it, so the user's retry resumes
 instead of starting over — a drive through a tunnel must not cost a 1.8 GB download. It is deleted
-in exactly three cases: the user cancels (`cancelDownload`, either overload, whatever state the file
-is in), the bytes fail their integrity check at commit, and the failure is `NotFound` (404/410 — the
-object is gone, so the bytes can never be completed). `Unauthorized` keeps it: a refreshed session
+in exactly four cases: the user cancels (`cancelDownload`, either overload, whatever state the file
+is in), the bytes fail their integrity check at commit, the failure is `NotFound` (404/410 — the
+object is gone, so the bytes can never be completed), and the downloader reports `Cancelled` (the
+engine takes that for a user cancel; a port reports it only as the answer to `cancelDownload`). `Unauthorized` keeps it: a refreshed session
 fixes that. The engine has no rule for a 416; see
 [`07-background-downloader.md`](07-background-downloader.md).
 

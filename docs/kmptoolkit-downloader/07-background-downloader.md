@@ -29,6 +29,10 @@ interface BackgroundResourceDownloader {
 
 - **`enqueueDownload` is idempotent.** Enqueuing a unit already in flight joins the running
   transfer rather than starting a second one.
+- **`enqueueDownload` does not throw.** Report a failure to begin — including a platform refusal
+  such as a foreground service that may not start from the background — as an
+  `Error` event. A throw ends the call as a port failure (`DownloadFailedException` with the cause)
+  instead of going through the retry and classification path.
 - **`observeProgress` must survive process death.** On relaunch, an implementation reconnects to
   whatever the OS kept running and replays its outcome — this is what lets `ensureAvailable`, called
   again after a restart, pick up a transfer that finished while the process was dead.
@@ -63,11 +67,12 @@ For every attempt the engine **subscribes to `observeProgress(unit)` first** and
 failure to begin — therefore reaches it even through a `MutableSharedFlow` without replay. The
 sequence, per attempt:
 
-1. subscribe (undispatched, into a buffered channel) and arm the stall timer;
+1. subscribe (undispatched, into a buffered channel);
 2. **drop everything the subscription has delivered so far** — with nothing suspended between this
    drain and the next step, it can only be a replay of an earlier attempt;
 3. `enqueueDownload(unit)`;
-4. wait for the first `Terminal` event; every event on the way restarts the stall timer.
+4. wait for the first `Terminal` event. The stall timer is armed as this wait begins, before any
+   event can arrive, and every event on the way restarts it.
 
 When the engine instead *attaches* to a transfer that `isDownloadInProgress` reports as running, it
 does not enqueue and keeps what the subscription replays — that replay is how an attach hears an
@@ -82,9 +87,12 @@ otherwise.
 - **Replay `1` is fine too** (a `SharedFlow(replay = 1)`, a per-unit `StateFlow` of the last event):
   what it delivers before the enqueue is dropped. But once `enqueueDownload` has been called, a
   terminal event of an *earlier* transfer must never be delivered again — clear the replay cache
-  (`resetReplayCache()`, or set the state back to a non-terminal value) as part of `enqueueDownload`,
-  before the new transfer can emit. The engine cannot tell a stale `Error` from this attempt's.
-  The same goes for a stale `Cancelled`: it would be taken for a user cancel and cost the partial.
+  as part of `enqueueDownload`, before the new transfer can emit: `resetReplayCache()` on a
+  *per-unit* `SharedFlow` (on one flow shared by all units it would clear every unit's replay), or
+  set a per-unit state back to a non-terminal value. The engine cannot tell a stale `Error` from
+  this attempt's. The same goes for a stale `Cancelled`: it would be taken for a user cancel and
+  cost the partial. A `StateFlow` has one more limit: it **conflates equal values**, so it cannot
+  carry the iOS keep-alive (below), which relies on a repeated, equal `Progress` being delivered.
 - **A flow that shifts the subscription to another coroutine registers late.** `flowOn`,
   `buffer()`, `callbackFlow` and `channelFlow` start their upstream after `collect` has returned
   control, so the subscription may not be registered when `enqueueDownload` runs, and a
@@ -114,8 +122,12 @@ answer, for instance `HTTP 503: Service Unavailable`.
 |---|---|---|
 | `404`, `410` | `NotFound` | not retried; temp file deleted |
 | `401`, `403` | `Unauthorized` | not retried; temp file kept |
-| `5xx` | `Server(code)` | retried; temp file kept |
-| any other (`416`, `429`, …) | `Unknown(raw message)` | retried; temp file kept |
+| `5xx` | `Server(code)` | retried (group surface); temp file kept |
+| any other (`416`, `429`, …) | `Unknown(raw message)` | retried (group surface); temp file kept |
+
+"Retried" holds for `ensureAvailable(group)` only. `ensureAvailable(unit)` makes **one** attempt
+and reports the failure at once as a `DownloadFailedException`; the partial is kept or deleted by
+the same rule, so the next call resumes it.
 
 A status beats words: `HTTP 503: upstream said Forbidden` is a `Server(503)` and is retried. Only a
 message with **no** stated status is read by its words: `unauthorized` / `forbidden` is
@@ -125,21 +137,35 @@ else — an id, a URL, a byte count — is never taken for a status, and the wor
 no longer mean `NotFound`: state `HTTP 404`. The engine's own stall never goes through the text; it
 is a `Timeout` directly.
 
+**Build the message yourself; do not pass a client's exception text through for an HTTP failure.**
+A client's own wording rarely has the shape above: `HttpURLConnection`'s `Server returned HTTP
+response code: 403 for URL: …` is **not** matched (the word `response` sits between `HTTP` and the
+digits), so it would be `Unknown` and retried instead of `Unauthorized`; its 404 arrives as a
+`FileNotFoundException` whose message is just the URL, which is then read by its words (a URL that
+contains `network` becomes `NoConnection`). Write `"HTTP ${connection.responseCode}: …"` from the
+response code you hold.
+
 ### What happens to the partial file
 
 The engine **keeps** the partial temp file when a transfer fails — a lost connection, a timeout, a
 5xx, a rejected request (`Unauthorized`, a `416`, any unclassified error) — so the next attempt or
 `ensureAvailable` resumes it with a `Range` request. It **deletes** it in exactly these cases: the
 user cancels (`cancelDownload`, either overload, any file state); the bytes fail their integrity
-check at commit; the failure is `NotFound`; and a `Cancelled` event that reaches it. A complete file
+check at commit; the failure is `NotFound`; and a `Cancelled` event that reaches it. Emit
+`Cancelled` **only** as the answer to `cancelDownload`: the engine takes any `Cancelled` for a user
+cancel, deletes the temp file and the hash record and ends the call with
+`DownloadCancelledException`. A transfer that stops for another reason — the system cancelled the
+task, the user force-quit the app (`NSURLErrorCancelled`, -999, on iOS) — is an `Error`, and its
+partial (on iOS, its `resumeData`, from `NSURLSessionDownloadTaskResumeData` in the error's
+`userInfo`) is kept. A complete file
 whose commit failed for another reason (a full disk) is kept and committed by the next call
 without a transfer.
 
 The engine has **no rule for a `416`**: it is an `Unknown` failure, the partial stays, and the
 retry would send the same `Range` and get the same `416`. That is why the `416` is yours to resolve
 inside the downloader (see "Check the length before you mark"): resolve it to "already whole" or
-restart from byte zero yourself. A `416` you emit as an `Error` instead is retried three times
-and then leaves the partial in place until a cancel deletes it.
+restart from byte zero yourself. A `416` you emit as an `Error` instead is tried three times on the group surface (once on the
+unit surface) and then leaves the partial in place until a cancel deletes it.
 
 ### Silence, stalls and the stall timer
 
@@ -155,8 +181,8 @@ legitimately quiet must say so:
   timeouts, on iOS only the background session's `timeoutIntervalForResource`, 7 days by default.
   A flow that never terminates holds the `ensureAvailable` call until then.
 
-A repeated value keeps the timer alive but is not progress: the retry budget (three failures in a
-row without moving past the earlier high-water mark) is unaffected by it.
+A repeated value keeps the timer alive but is not progress: the retry budget of the group surface
+(three failures in a row without moving past the earlier high-water mark) is unaffected by it.
 
 ## Where to write bytes
 
@@ -319,14 +345,26 @@ draws from:
   the OS, check `storage.tempFileState(unit)` / `storage.getTempFileSize(unit)` before
   re-enqueuing — a resumable transfer that instead starts from zero every relaunch defeats half the
   point of this module, and a `Complete` file needs no transfer at all.
-- **Android 15 caps a `dataSync` foreground service at 6 hours** in any 24-hour window. The system
-  then calls the service's `onTimeout(startId, fgsType)`, which has to stop the service within a
-  few seconds or the app crashes, and a new `dataSync` service cannot be started from the
-  background until the user brings the app to the foreground. Handle it as a failed attempt: stop
-  writing, flush, and emit an `Error` (for example `"Foreground service time limit reached"`). The
-  engine keeps the partial and the next `ensureAvailable` resumes it, when the service can run
-  again. A transfer that routinely needs more than 6 hours belongs on a user-initiated data
-  transfer job or a `WorkManager` worker instead of a `dataSync` service.
+- **Android 15 caps a `dataSync` foreground service at 6 hours** in any 24-hour window, for apps
+  that **target** Android 15 (API 35) or higher. The system then calls the service's
+  `onTimeout(startId, fgsType)`, which has to stop the service within a few seconds or the app
+  crashes, and a new `dataSync` service cannot be started from the background until the user
+  brings the app to the foreground. Handle it as a failed attempt: stop writing, flush, and emit an
+  `Error` (for example `"Foreground service time limit reached"`). The engine keeps the partial.
+
+  Mind what the engine does next. That text classifies as `Unknown`, so on the group surface the
+  engine re-enqueues after 2 s and again after 4 s, and each re-enqueue tries to start a `dataSync`
+  service from the background, which Android refuses (`ForegroundServiceStartNotAllowedException`).
+  `enqueueDownload` must catch that and emit an `Error` rather than throw (see the contract list).
+  The call then fails after three attempts, and the partial waits for an `ensureAvailable` made
+  after the user brings the app to the foreground; a call made earlier fails the same way.
+
+  A transfer that routinely needs more than 6 hours cannot be saved by a `WorkManager` worker: one
+  that runs long does so through `setForeground`, which is the same foreground service, of type
+  `dataSync` for a download, under the same limit (a plain worker is stopped after about ten
+  minutes). The alternative is a user-initiated data transfer job (`JobInfo.Builder.setUserInitiated`,
+  API 34+), which needs a user action to start it and the `RUN_USER_INITIATED_JOBS` permission. As
+  with every permission, document it for your consumers; this library does not declare it.
 
 ## A worked skeleton (iOS)
 
@@ -361,26 +399,44 @@ handle it:
   seconds — the last known fraction, `0` included when nothing has arrived yet.
 
   ```kotlin
-  // in your downloader, one coroutine per running unit; stops when the task finishes or is cancelled
+  // In your downloader, one coroutine per running unit; stops when the task finishes or is
+  // cancelled. lastFraction is written on the URLSession delegate queue and read here: keep it in
+  // an atomic cell, not a plain var.
+  private val lastFraction = atomic(0f) // or an AtomicReference / MutableStateFlow per unit
+
   while (taskIsStillListedBySystem(unit)) {
-      events.tryEmit(BackgroundDownloadEvent.Progress(unit, lastFraction))
+      events.tryEmit(BackgroundDownloadEvent.Progress(unit, lastFraction.value))
       delay(60.seconds)
   }
   ```
 
+  The flow must **deliver equal values**: a `MutableSharedFlow` does, a `StateFlow` does not (it
+  conflates a repeat of the same `Progress`, the timer is never restarted, and the engine cancels a
+  healthy task after the stall timeout). On a `StateFlow`-backed port, merge a separate keep-alive
+  `SharedFlow` into `observeProgress`, or make every keep-alive value distinct.
+
   A repeated value keeps the stall timer alive but is **not** progress: it does not touch the retry
   budget, and a transfer that repeats one value and then fails is still stopped after three
-  attempts.
-- **`DownloaderConfig(stallTimeout = Duration.INFINITE)`.** No stall detection at all; on iOS the
-  only bound left is the 7-day `timeoutIntervalForResource`. A flow that never terminates then
-  holds the `ensureAvailable` call for that long.
+  attempts (on the group surface; the unit surface makes one).
+- **`DownloaderConfig(stallTimeout = Duration.INFINITE)`.** No stall detection at all.
+
+Both hold `ensureAvailable` for as long as the system holds the task, up to the 7-day
+`timeoutIntervalForResource`; neither is a tighter bound. What the keep-alive adds is that a task
+that vanished without a terminal event (the system no longer lists it) still stalls after
+`stallTimeout` and fails, where `INFINITE` would wait for the full 7 days. Prefer the keep-alive
+unless your app is routinely suspended for long periods: while it is suspended, the engine's stall
+`delay` and the keep-alive `delay` are both frozen, so on resume both deadlines may have passed and
+nothing orders the keep-alive's emit before the stall. Re-emit the current `Progress` as soon as
+the app returns to the foreground, or choose `INFINITE` there.
 
 **Cancel with resume data.** When `cancelDownload` is called — by the user, or by the engine after a
 stall — cancel the task with `cancel(byProducingResumeData:)` and keep the data **together with the
 hash** that was recorded for it (see the decision table). The next `enqueueDownload` starts a
 download task from that `resumeData`, after `beginTempFile` with the saved hash. The partial lives
 inside the OS, not under `getTempFilePath`, so the engine's "keep the partial after a failure" has
-nothing to keep on iOS: what survives is your `resumeData`. The port is not told *why* it is
+nothing to keep on iOS: what survives is your `resumeData`. Emit `Cancelled` only as the answer
+to this call; a task that ends with `NSURLErrorCancelled` on its own (a force-quit, a system
+cancel) is an `Error`, and keeps its `resumeData`. The port is not told *why* it is
 cancelled: if a user cancel should start over from zero, your own user-facing cancel path discards
 the `resumeData` as well. Discard it too after a `NotFound` failure, where the bytes can never be
 completed.

@@ -24,15 +24,17 @@ own app's manifest / `Info.plist`, roughly:
 
 ### Platform limits of the transfer layer
 
-- **Android 15 caps a `dataSync` foreground service at 6 hours** per 24 hours. The system calls the
-  service's `onTimeout`, which must stop it within seconds; a new `dataSync` service cannot start
-  from the background afterwards. Report it as an `Error`: the engine keeps the partial and the next
-  `ensureAvailable` resumes it.
+- **Android 15 caps a `dataSync` foreground service at 6 hours** per 24 hours, for apps that target
+  Android 15 (API 35) or higher. The system calls the service's `onTimeout`, which must stop it
+  within seconds; a new `dataSync` service cannot start from the background afterwards. Report it
+  as an `Error`: the engine keeps the partial and an `ensureAvailable` made once the app is in the
+  foreground again resumes it. A `WorkManager` worker kept alive with `setForeground` is the same
+  foreground service and under the same limit; see 07 for the details.
 - **A background `NSURLSession` always waits for connectivity** and stays silent while it does, for
   up to its `timeoutIntervalForResource` (7 days by default). The engine's stall timer (5 minutes,
   armed at subscription) reads that as a stall, so the downloader re-emits the current `Progress`
-  about every 60 seconds while the system lists the task, or the host sets
-  `DownloaderConfig(stallTimeout = Duration.INFINITE)`. See the iOS section of
+  about every 60 seconds while the system lists the task (through a flow that delivers equal
+  values, not a `StateFlow`), or the host sets `DownloaderConfig(stallTimeout = Duration.INFINITE)`. See the iOS section of
   [`07-background-downloader.md`](07-background-downloader.md).
 - **A resume with `Range` needs a validator the library does not store.** Storage records only the
   expected hash, no `ETag`; an `If-Range` header on Android is the downloader's own business.
