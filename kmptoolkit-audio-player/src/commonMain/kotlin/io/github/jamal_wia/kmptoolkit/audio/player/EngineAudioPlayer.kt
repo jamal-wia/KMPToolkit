@@ -121,7 +121,8 @@ private class EngineAudioPlayer(
     private val _playbackPositionFlow: MutableStateFlow<Long> = MutableStateFlow(0L)
     override val playbackPositionFlow: StateFlow<Long> = _playbackPositionFlow.asStateFlow()
 
-    // Written under the gate; volatile so the public getter, read on any thread without the lock, sees the latest value.
+    // Written under the gate; volatile so the public getter, read on any thread without the lock,
+    // sees the latest value.
     @Volatile
     override var playbackSpeed: Float = NORMAL_PLAYBACK_SPEED
         private set
