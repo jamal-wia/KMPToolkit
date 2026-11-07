@@ -16,7 +16,10 @@ package io.github.jamal_wia.kmptoolkit.scheduler
  *   alarms' `PendingIntent`s distinct. `null` (the default) derives it from the application id, as
  *   `<applicationId>.alarm` — unique per app, so two apps built from this library never collide.
  *   A non-null value must be a valid URI scheme: a letter followed by letters, digits, `+`, `-`,
- *   or `.`.
+ *   or `.`. **Keep it stable across app launches and versions:** an alarm armed under one scheme
+ *   cannot be cancelled or replaced once the scheme changes, because its `PendingIntent` is matched
+ *   on the scheme. Cancelling it is then a silent no-op, and scheduling the same id again arms a
+ *   second alarm next to the old one.
  * @param alarmIdKey key carrying [ScheduledAlarm.id] — an intent extra on Android, a `userInfo`
  *   entry on iOS. Change it if it would collide with a key in your own [ScheduledAlarm.payload],
  *   since on iOS the two share one flat dictionary.

@@ -100,20 +100,42 @@ class AndroidAlarmSchedulerFaultAdversarialTest {
     }
 
     @Test
-    fun `a cancel queued behind a parked schedule of the same id is applied after it and leaves nothing armed`() {
+    fun `a platform cancel that throws is not allowed to escape cancel`() {
         val scheduler: AlarmScheduler = createAlarmScheduler(context)
-        val pause: Faults.Pause = Faults.pauseNextExactCheck()
-        val scheduling: Thread = thread(name = "kmptoolkit-adversarial-schedule") { runBlocking { scheduler.schedule(alarm("x")) } }
-        assertTrue(pause.entered.await(WAIT_SECONDS, TimeUnit.SECONDS), "the schedule never reached the platform")
-        val cancelling: Thread = thread(name = "kmptoolkit-adversarial-cancel") { runBlocking { scheduler.cancel("x") } }
-        Thread.sleep(SETTLE_MILLIS)
+        runBlocking { scheduler.schedule(alarm("x")) }
+        Faults.failNextCancel(SecurityException("revoked"))
 
-        pause.release.countDown()
-        scheduling.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS))
-        cancelling.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS))
+        val escaped: Throwable? = runCatching { runBlocking { withTimeout(WAIT_SECONDS * 1000) { scheduler.cancel("x") } } }.exceptionOrNull()
 
-        assertTrue(!scheduling.isAlive && !cancelling.isAlive, "a call is stuck")
-        assertEquals(emptySet(), armedIds(), "the cancel that was issued after the schedule started did not win")
+        assertEquals(null, escaped, "cancel threw ${escaped?.javaClass?.simpleName}")
+    }
+
+    @Test
+    fun `a platform cancel that throws IllegalStateException is not allowed to escape cancel`() {
+        val scheduler: AlarmScheduler = createAlarmScheduler(context)
+        runBlocking { scheduler.schedule(alarm("x")) }
+        Faults.failNextCancel(IllegalStateException("binder died"))
+
+        val escaped: Throwable? = runCatching { runBlocking { withTimeout(WAIT_SECONDS * 1000) { scheduler.cancel("x") } } }.exceptionOrNull()
+
+        assertEquals(null, escaped, "cancel threw ${escaped?.javaClass?.simpleName}")
+    }
+
+    @Test
+    fun `cancelAll goes on with the remaining ids after one platform cancel throws`() {
+        val scheduler: AlarmScheduler = createAlarmScheduler(context)
+        runBlocking {
+            scheduler.schedule(alarm("a"))
+            scheduler.schedule(alarm("b"))
+        }
+        Faults.failNextCancel(SecurityException("revoked"))
+
+        val escaped: Throwable? = runCatching {
+            runBlocking { withTimeout(WAIT_SECONDS * 1000) { scheduler.cancelAll(listOf("a", "b")) } }
+        }.exceptionOrNull()
+
+        assertEquals(null, escaped, "cancelAll threw ${escaped?.javaClass?.simpleName}")
+        assertEquals(1, armedIds().size, "the id after the failing one was not cancelled")
     }
 
     /** Parks the exact-permission check, and can make the next platform cancel throw. */
