@@ -102,6 +102,19 @@ unit `trash/x` could have written it; leaving it is a conservative rule, not a n
 cleaned up. A downloader that cached the old path across the app update and keeps writing to it can
 write into a file that has been moved; take the path again after every launch.
 
+Only partial and complete files that already existed before this version first used the base
+directory are moved. On that first use the storage writes a one-time marker,
+`tmp/kmptoolkit-internal/legacy-layout`, holding `fresh` (the base had nothing under `tmp/`, so there
+is no 3.0.0 file: nothing is ever migrated) or `upgraded` (it had files: only a partial or complete
+file whose modification time is strictly older than the marker is moved). A resource that another
+unit commits later at a path that looks like such a file (a `relativePath` under `tmp/`, which is
+accepted with a warning) is therefore never swept into the temp area. Records are not subject to this:
+they live under `tmp/expect/`, which no resource may use. If the marker cannot be written or read,
+nothing is moved, a warning is logged once, and the unit's partial download starts again instead of
+resuming. Residual: a file under `tmp/` with an older modification time than the marker (an adopted
+or copied file that kept its time, or a clock set back) that has the exact legacy name of a hashed
+unit's partial can still be moved; do not put your own files under `tmp/`.
+
 Known limits that are not fixed: two units whose id and extension join to the same name (`a.b` with
 `c`, and `a` with `b.c`) still share files, as in 3.0.0; ids that differ only in case or Unicode
 normalization share files on a case-insensitive volume. On such a volume (iOS asks the volume once

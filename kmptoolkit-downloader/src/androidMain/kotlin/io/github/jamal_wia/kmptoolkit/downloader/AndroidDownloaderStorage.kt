@@ -69,6 +69,30 @@ internal class AndroidDownloaderStorage(
         override fun createParentDirectory(path: String) {
             File(path).parentFile?.mkdirs()
         }
+
+        override fun lastModifiedMillis(path: String): Long? = File(path).lastModified().takeIf { it > 0L }
+
+        override fun hasEntriesOtherThan(directory: String, name: String): Boolean =
+            File(directory).list().orEmpty().any { it != name }
+
+        override fun readText(path: String): String? = try {
+            File(path).readText()
+        } catch (e: IOException) {
+            null
+        }
+
+        override fun writeNew(path: String, text: String): Boolean {
+            val target = File(path)
+            val temporary = File(target.parentFile, "${target.name}.${Random.nextLong().toULong()}.tmp")
+            return try {
+                temporary.writeText(text)
+                io.github.jamal_wia.kmptoolkit.downloader.renameNoReplace(temporary.path, target.path)
+            } catch (e: IOException) {
+                false
+            } finally {
+                temporary.delete()
+            }
+        }
     }
 
     /**
@@ -76,9 +100,12 @@ internal class AndroidDownloaderStorage(
      * moved to them (once per process), so every method sees the files wherever they are.
      */
     private fun names(unit: DownloadUnit): UnitFileLayout.Names {
+        // Before any name is returned, so before this version writes anything under tmp/ of the base.
+        val cutoff: LegacyTempMigrations.Cutoff =
+            LegacyTempMigrations.ensureLayout(baseDir.absolutePath, migrationFiles, logger)
         val names: UnitFileLayout.Names = layout.namesOf(unit)
         if (names.anyHashed) {
-            LegacyTempMigrations.migrateOnce(baseDir.absolutePath, unit, layout, names, migrationFiles, logger)
+            LegacyTempMigrations.migrateOnce(baseDir.absolutePath, unit, layout, names, migrationFiles, logger, cutoff)
         }
         return names
     }

@@ -137,8 +137,10 @@ class AndroidDownloaderOddIdChaosTest {
         "emoji-😀-€-é",
     )
 
+    /** The files below [directory], without the one-time layout marker, which is not a temp file or record. */
     private fun filesUnder(directory: File): List<String> =
-        directory.walkTopDown().filter { it.isFile }.map { it.relativeTo(directory).path }.sorted().toList()
+        directory.walkTopDown().filter { it.isFile && it.name != "legacy-layout" }
+            .map { it.relativeTo(directory).path }.sorted().toList()
 
     private fun outsideRoot(): List<String> =
         context.filesDir.walkTopDown().filter { it.isFile && !it.startsWith(root) }.map { it.path }.toList()

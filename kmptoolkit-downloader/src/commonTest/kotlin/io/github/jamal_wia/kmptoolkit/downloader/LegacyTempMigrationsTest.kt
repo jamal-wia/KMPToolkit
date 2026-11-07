@@ -32,7 +32,7 @@ class LegacyTempMigrationsTest {
     fun `a destination that appears after the existence check is never replaced`() {
         val files = RacingFiles(legacy = "base/tmp/models/v1.tmp", destination = "base/${names.partial}")
 
-        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger)
+        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger, OLD_FILES_ONLY)
 
         assertEquals("new transfer", files.contents[files.destination], "the destination written meanwhile must survive")
         assertFalse("base/tmp/models/v1.tmp" in files.contents, "the stale legacy file is dropped")
@@ -43,7 +43,7 @@ class LegacyTempMigrationsTest {
         val files = RacingFiles(legacy = "base/tmp/models/v1.tmp", destination = "base/${names.partial}", racing = false)
         files.failMoves = true
 
-        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger)
+        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger, OLD_FILES_ONLY)
 
         assertTrue("base/tmp/models/v1.tmp" in files.contents)
         assertFalse(files.destination in files.contents)
@@ -52,16 +52,16 @@ class LegacyTempMigrationsTest {
     @Test
     fun `the record of finished units can be reset so a test may run the pass again`() {
         val files = RacingFiles(legacy = "base/tmp/models/v1.tmp", destination = "base/${names.partial}", racing = false)
-        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger)
+        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger, OLD_FILES_ONLY)
         assertTrue(files.destination in files.contents)
 
         files.contents["base/tmp/models/v1.tmp"] = "again"
-        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger)
+        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger, OLD_FILES_ONLY)
         assertTrue("base/tmp/models/v1.tmp" in files.contents, "a unit already done is skipped")
 
         LegacyTempMigrations.resetForTests()
         files.contents.remove(files.destination)
-        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger)
+        LegacyTempMigrations.migrateOnce("base", unit, layout, names, files, NoopLogger, OLD_FILES_ONLY)
         assertFalse("base/tmp/models/v1.tmp" in files.contents, "after the reset the pass runs again")
     }
 
@@ -95,5 +95,18 @@ class LegacyTempMigrationsTest {
         }
 
         override fun createParentDirectory(path: String) = Unit
+
+        override fun lastModifiedMillis(path: String): Long? = if (path in contents) 500L else null
+
+        override fun hasEntriesOtherThan(directory: String, name: String): Boolean = false
+
+        override fun readText(path: String): String? = contents[path]
+
+        override fun writeNew(path: String, text: String): Boolean = false
+    }
+
+    private companion object {
+        /** The marker says every file older than 1000 ms is a 3.0.0 file; RacingFiles' files are 500 ms old. */
+        val OLD_FILES_ONLY: LegacyTempMigrations.Cutoff = LegacyTempMigrations.Cutoff.Before(1_000L)
     }
 }
