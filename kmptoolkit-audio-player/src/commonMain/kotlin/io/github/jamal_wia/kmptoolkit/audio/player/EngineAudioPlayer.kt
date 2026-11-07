@@ -242,13 +242,14 @@ private class EngineAudioPlayer(
     override fun seekForward(amountMs: Long): Unit = gate.exclusive {
         if (released) return@exclusive
         if (!_stateFlow.value.isPlayable) return@exclusive
-        seekToLocked(engine.positionMs() + amountMs)
+        seekToLocked(saturatingAdd(engine.positionMs(), amountMs))
     }
 
     override fun seekBackward(amountMs: Long): Unit = gate.exclusive {
         if (released) return@exclusive
         if (!_stateFlow.value.isPlayable) return@exclusive
-        seekToLocked(engine.positionMs() - amountMs)
+        // -Long.MIN_VALUE does not exist as a Long, so the largest amount stands in for it.
+        seekToLocked(saturatingAdd(engine.positionMs(), if (amountMs == Long.MIN_VALUE) Long.MAX_VALUE else -amountMs))
     }
 
     override fun replay(): Unit = gate.exclusive {
@@ -259,6 +260,9 @@ private class EngineAudioPlayer(
     }
 
     override fun setPlaybackSpeed(speed: Float): Unit = gate.exclusive {
+        // NaN names no rate and coerceIn would pass it through, so it is ignored: the current rate
+        // (always inside the range) stays. Infinities clamp to the range ends like any large value.
+        if (speed.isNaN()) return@exclusive
         playbackSpeed = speed.coerceIn(config.minPlaybackSpeed, config.maxPlaybackSpeed)
         if (released) return@exclusive
         if (_stateFlow.value is PlayerState.Playing) engine.setSpeed(playbackSpeed)
@@ -425,5 +429,16 @@ private class EngineAudioPlayer(
 
     private companion object {
         const val NORMAL_PLAYBACK_SPEED: Float = 1.0f
+    }
+}
+
+/** `a + b` that stops at [Long.MAX_VALUE] / [Long.MIN_VALUE] instead of wrapping around. */
+private fun saturatingAdd(a: Long, b: Long): Long {
+    val sum: Long = a + b
+    // Overflow happened exactly when both operands share a sign that the sum does not.
+    return if (((a xor sum) and (b xor sum)) < 0L) {
+        if (a < 0L) Long.MIN_VALUE else Long.MAX_VALUE
+    } else {
+        sum
     }
 }
