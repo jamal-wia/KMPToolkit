@@ -275,4 +275,59 @@ class WorkManagerUploadIntegrationAdversarialTest {
         assertEquals(0, handler.delivered.size, "a cancelled item delivers nothing")
         assertTrue(journalRoot.walkTopDown().none { it.isFile }, "a cancelled item leaves no answer on disk")
     }
+
+    @Test
+    fun `a classic job runs a request with odd strings through WorkManager's own persistence unchanged`() {
+        val source: File = File(context.cacheDir, "odd dir ${System.nanoTime()}").apply { mkdirs() }.let { dir ->
+            File(dir, "файл 日本 \uD83D\uDE00.bin").also {
+                RandomAccessFile(it, "rw").use { file -> file.setLength(3) }
+                tempFiles += it
+                tempFiles += dir
+            }
+        }
+        val received = java.util.concurrent.atomic.AtomicReference("")
+        thread(isDaemon = true) {
+            val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
+            socket.use {
+                it.soTimeout = 20_000
+                val input = it.getInputStream()
+                val text = StringBuilder()
+                val buffer = ByteArray(8192)
+                var tail = ""
+                while (!tail.endsWith("0\r\n\r\n")) {
+                    val read: Int = runCatching { input.read(buffer) }.getOrDefault(-1)
+                    if (read < 0) return@thread
+                    val chunk = String(buffer, 0, read, Charsets.UTF_8)
+                    text.append(chunk)
+                    tail = (tail + chunk).takeLast(16)
+                }
+                received.set(text.toString())
+                it.getOutputStream().write("HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".encodeToByteArray())
+            }
+        }
+        val started: UploaderEngine = testEngine(TestUploaderStore(), listOf(TestHandler()), scope)
+        engine = started
+        UploaderEngineRegistry.register(started)
+        val transport: UploadTransport = createWorkManagerUploadTransport(context, config, ::defaultUploadClassification)
+
+        transport.launch(
+            "item-odd",
+            UploadRequest(
+                url = "http://127.0.0.1:${server.localPort}/upload?q=a%20b&x=\u00e9",
+                headers = mapOf("Authorization" to "Bearer t0k\u00e9n", "X-Empty" to ""),
+                fields = listOf(
+                    UploadField.Text("ключ", ""),
+                    UploadField.Text("multi", "line1\nline2\r\n\u0000tail"),
+                    UploadField.File("f", "файл 日本 \uD83D\uDE00.bin", "application/x-odd", source.path),
+                ),
+            ),
+        )
+
+        awaitTrue { states("item-odd").all { it == WorkInfo.State.SUCCEEDED } && states("item-odd").isNotEmpty() }
+        val body: String = received.get()
+        assertTrue(body.contains("name=\"ключ\"\r\n\r\n\r\n"), "the empty text value survived")
+        assertTrue(body.contains("line1\nline2\r\n\u0000tail"), "the multi-line value survived")
+        assertTrue(body.contains("filename=\"файл 日本 \uD83D\uDE00.bin\""), "the unicode file name survived")
+        assertTrue(body.contains("Content-Type: application/x-odd"))
+    }
 }

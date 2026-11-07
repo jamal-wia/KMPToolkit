@@ -165,4 +165,68 @@ class MultipartBodyAdversarialTest {
         assertTrue(head.contains("multipart/form-data; boundary=kmptoolkit-uploader-"), "headers were: $head")
         assertTrue(!head.contains("application/json"))
     }
+
+    @Test
+    fun `a chunked answer that ends without its terminator keeps the bytes it had and is flagged`() {
+        answer("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhello\r\n5\r\nworld\r\n")
+
+        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))))
+
+        assertEquals(UploadResult.Completed(200), outcome.result)
+        val response: UploadResponse = assertNotNull(outcome.response)
+        assertEquals("helloworld", response.body().decodeToString())
+        assertTrue(response.isBodyTruncated)
+    }
+
+    @Test
+    fun `a server that promises a body and then goes silent is cut at the read timeout with the status kept`() {
+        val hold = java.util.concurrent.CountDownLatch(1)
+        thread(isDaemon = true) {
+            val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
+            socket.use {
+                it.soTimeout = 20_000
+                val input = it.getInputStream()
+                val buffer = ByteArray(8192)
+                var tail = ""
+                while (!tail.endsWith("0\r\n\r\n")) {
+                    val read: Int = runCatching { input.read(buffer) }.getOrDefault(-1)
+                    if (read < 0) return@thread
+                    tail = (tail + String(buffer, 0, read, Charsets.ISO_8859_1)).takeLast(16)
+                }
+                it.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc".encodeToByteArray())
+                it.getOutputStream().flush()
+                hold.await(15, java.util.concurrent.TimeUnit.SECONDS)
+            }
+        }
+        val startedAt: Long = System.nanoTime()
+        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))), readTimeoutMillis = 1_000)
+        val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000
+        hold.countDown()
+
+        assertEquals(UploadResult.Completed(200), outcome.result)
+        val response: UploadResponse = assertNotNull(outcome.response)
+        assertEquals("abc", response.body().decodeToString())
+        assertTrue(response.isBodyTruncated)
+        assertTrue(tookMillis < 4_000, "took $tookMillis ms against a 1000 ms read timeout")
+    }
+
+    @Test
+    fun `an interim 100 Continue before the real answer is skipped`() {
+        answer("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 201 Created\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+
+        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))))
+
+        assertEquals(UploadResult.Completed(201), outcome.result)
+        assertEquals("ok", assertNotNull(outcome.response).body().decodeToString())
+    }
+
+    @Test
+    fun `an HTTP 1_0 answer with no length is read to the end of the connection`() {
+        answer("HTTP/1.0 200 OK\r\n\r\n" + "z".repeat(200_000))
+
+        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))))
+
+        assertEquals(UploadResult.Completed(200), outcome.result)
+        assertEquals(200_000, assertNotNull(outcome.response).body().size)
+    }
 }

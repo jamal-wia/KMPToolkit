@@ -504,6 +504,29 @@ class UploadHandlerWorkerChaosAdversarialTest {
         assertTrue(journalFiles().isEmpty())
     }
 
+    @Test
+    fun `a job cancelled while the server never answers is freed promptly, not after the read timeout`() {
+        val reached = CountDownLatch(1)
+        val hold = CountDownLatch(1)
+        serve(raw = CREATED, beforeAnswer = { reached.countDown(); hold.await(20, TimeUnit.SECONDS) })
+        val backing = TestUploaderStore()
+        val handler = ChaosHandler()
+        startEngine(backing, handler)
+        val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
+        assertTrue(reached.await(10, TimeUnit.SECONDS), "the request was fully sent")
+        Thread.sleep(300)
+
+        val cancelledAt: Long = System.nanoTime()
+        running.cancel()
+        runBlocking { withTimeout(12_000L) { running.join() } }
+        val tookMillis: Long = (System.nanoTime() - cancelledAt) / 1_000_000
+        hold.countDown()
+
+        assertTrue(tookMillis < 3_000, "the cancelled job lingered $tookMillis ms waiting for an answer (read timeout 5000 ms)")
+        assertEquals(0, handler.delivered.size)
+        assertTrue(journalFiles().isEmpty())
+    }
+
     private companion object {
         const val CREATED: String = "HTTP/1.1 201 Created\r\nLocation: /jobs/1\r\nContent-Length: 12\r\nConnection: close\r\n\r\n{\"job\":\"j1\"}"
     }
