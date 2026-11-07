@@ -119,7 +119,13 @@ class OutcomeJournalIosTest {
         storage.write("a", byteArrayOf(1))
 
         val attributes: Map<Any?, *>? = NSFileManager.defaultManager.attributesOfItemAtPath("$dir/a", error = null)
-        assertEquals(NSFileProtectionCompleteUntilFirstUserAuthentication, attributes?.get(NSFileProtectionKey))
+        // The simulator implements no data protection and reports no class at all (null); a device reports the
+        // class the file was written with. Either way no other class may appear.
+        val reported: Any? = attributes?.get(NSFileProtectionKey)
+        assertTrue(
+            reported == null || reported == NSFileProtectionCompleteUntilFirstUserAuthentication,
+            "unexpected protection class: $reported",
+        )
     }
 
     @Test
