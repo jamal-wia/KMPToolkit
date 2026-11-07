@@ -163,12 +163,14 @@ internal class EngineVideoPlayer(
             // to finish unwinding first — releasing under it is the interleaving ruled out above.
             withContext(NonCancellable) { previous?.finished?.join() }
             gate.exclusive {
-                if (currentLoad.value === load) {
+                // isCurrent, not just identity: release() may have run completely between this call's
+                // released check and its installing itself in currentLoad, so the identity holds again
+                // here while the engine is already released and disposed, and nothing of it may be
+                // called after dispose.
+                if (isCurrent(load)) {
                     engine.release()
-                    if (!released) {
-                        resetSourceFlows()
-                        _stateFlow.value = VideoPlayerState.Idle
-                    }
+                    resetSourceFlows()
+                    _stateFlow.value = VideoPlayerState.Idle
                 }
             }
             throw cancellation
