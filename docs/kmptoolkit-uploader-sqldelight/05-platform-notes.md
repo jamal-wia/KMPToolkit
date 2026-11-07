@@ -90,7 +90,9 @@ What this means for you:
 - **`close()` blocks until the thread is quiet**, then releases it. It has to: releasing a thread
   does not join it, and closing the connection while a statement is still running would close it
   under a live cursor. On Android the thread is a daemon, so forgetting `close()` leaks a thread but
-  cannot hang a JVM; on iOS it is a worker with its own run loop and must be closed.
+  cannot hang a JVM; on iOS it is a worker with its own run loop and must be closed. If closing the
+  driver throws, the thread is still released and the exception reaches the caller; the storage counts
+  as closed, so a second `close()` does nothing.
 
 `observeByType`'s flow reads on that same thread, so an emission can never observe a half-applied
 transaction. Collecting it from inside `inTransaction` is safe — it recognizes it is already on the

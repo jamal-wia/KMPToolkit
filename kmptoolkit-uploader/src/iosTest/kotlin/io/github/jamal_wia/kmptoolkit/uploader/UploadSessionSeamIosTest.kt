@@ -266,6 +266,80 @@ class UploadSessionSeamIosTest {
         until { h.created[1].tasksCreated == 1 }
     }
 
+    // --- leaks: a session dropped without a task must end its progress forwarder -------------------------
+
+    private val FakeSession.forwarderEnded: Boolean get() = delegate.forwarder.isCompleted
+
+    @Test
+    fun `a session that reports itself invalid ends its progress forwarder`() = runTest {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default).also(scopes::add)
+        val journal = OutcomeJournal(IosOutcomeStorage(dir), UploaderClock.System)
+        val delegate = UploadSessionDelegate("seam-leak-invalid", scope, NoopLogger, journal, NSLock(), {})
+        assertFalse(delegate.forwarder.isCompleted)
+
+        delegate.reportInvalidated()
+
+        until { delegate.forwarder.isCompleted }
+    }
+
+    @Test
+    fun `cancelling an item that is not live here ends the orphan session's forwarder`() = runTest {
+        val h: Harness = harness()
+
+        h.transport.cancel(newItem()) // the fake reports 0 cancelled tasks and never a completion
+
+        until { h.created.single().forwarderEnded }
+    }
+
+    @Test
+    fun `cancelling a live session that has no completion ends its forwarder`() = runTest {
+        val itemId: String = newItem()
+        val h: Harness = harness()
+        h.transport.launch(itemId, isRehandOff = false, request = request())
+        val session: FakeSession = h.created.single()
+        assertFalse(session.forwarderEnded)
+
+        h.transport.cancel(itemId)
+
+        until { session.forwarderEnded }
+    }
+
+    @Test
+    fun `a hand-off that fails before it creates a task ends its session's forwarder`() = runTest {
+        val itemId: String = newItem()
+        val h: Harness = harness()
+        val unreadable = UploadField.File("f", "f.bin", "application/octet-stream", "/nonexistent/${NSUUID().UUIDString()}")
+
+        h.transport.launch(itemId, isRehandOff = false, request = UploadRequest(url = "https://upload.invalid/x", fields = listOf(unreadable)))
+
+        val session: FakeSession = h.created.single()
+        assertEquals(0, session.tasksCreated)
+        until { session.forwarderEnded }
+    }
+
+    @Test
+    fun `an idle relaunch session released after its events drain ends its forwarder`() = runTest {
+        val itemId: String = newItem()
+        val h: Harness = harness()
+        h.transport.handleRelaunchEvents(itemId) {}
+        val session: FakeSession = h.created.single()
+        assertFalse(session.forwarderEnded)
+
+        session.delegate.URLSessionDidFinishEventsForBackgroundURLSession(NSURLSession.sharedSession)
+
+        until { session.invalidationWasRequested }
+        until { session.forwarderEnded }
+    }
+
+    @Test
+    fun `repeated cancels of idle items leave no forwarder behind`() = runTest {
+        val h: Harness = harness()
+
+        repeat(25) { h.transport.cancel(newItem()) }
+
+        until { h.created.size == 25 && h.created.all { it.forwarderEnded } }
+    }
+
     // --- #11: the drained callback runs once -------------------------------------------------------------
 
     @Test

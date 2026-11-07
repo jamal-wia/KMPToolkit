@@ -35,10 +35,12 @@ import platform.posix.pthread_self
 public fun createUploaderStorage(config: UploaderDatabaseConfig = UploaderDatabaseConfig()): UploaderStorage {
     val name: String = config.name ?: bundleIdentifier()
     val driver: NativeSqliteDriver = mapFailures(UploaderStorageOperation.OPEN) {
-        NativeSqliteDriver(
-            schema = KmpToolkitUploaderDatabase.Schema,
-            name = uploaderDatabaseFileName(name),
-        ).also(::forceOpen)
+        openOwned(
+            NativeSqliteDriver(
+                schema = KmpToolkitUploaderDatabase.Schema,
+                name = uploaderDatabaseFileName(name),
+            ),
+        )
     }
     return standaloneStorage(driver)
 }
