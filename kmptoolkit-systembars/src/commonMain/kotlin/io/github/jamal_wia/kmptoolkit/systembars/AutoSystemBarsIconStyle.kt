@@ -172,9 +172,9 @@ public fun AutoSystemBarsIconStyle(
         // One readback at a time: on API 24-27 the readback suspends, so the trigger collector and
         // the periodic tick could otherwise both be inside a sample, re-recording the strip layer
         // under the first one's pending read.
-        val sampling = Mutex()
+        val sampling = SerialSampler()
 
-        suspend fun sampleOnce(): Unit = sampling.withLock {
+        suspend fun sampleOnce(): Unit = sampling.run {
             val started: TimeSource.Monotonic.ValueTimeMark = TimeSource.Monotonic.markNow()
             // Captured before the readback (on API 24-27 toImageBitmap suspends, and a root draw
             // landing meanwhile must count as unread) and booked only once the readback succeeded —
@@ -279,6 +279,20 @@ public fun AutoSystemBarsIconStyle(
             handle.release()
         }
     }
+}
+
+/**
+ * Runs samples one at a time, in the order they ask. On API 24-27 the readback suspends, so the
+ * trigger collector and the periodic tick can both be inside a sample; the second would re-record
+ * the scratch layer under the first one's pending read. A [Mutex], not a flag: a waiting sample must
+ * run afterwards (it is the one that reads the post-trigger frame) and a cancelled waiter must just
+ * leave. Kept as a class of its own so a test can drive it with a readback that never finishes.
+ */
+internal class SerialSampler {
+
+    private val mutex: Mutex = Mutex()
+
+    suspend fun <T> run(sample: suspend () -> T): T = mutex.withLock { sample() }
 }
 
 /**
