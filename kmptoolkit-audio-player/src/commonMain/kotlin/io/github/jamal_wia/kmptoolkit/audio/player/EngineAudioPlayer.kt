@@ -242,14 +242,17 @@ private class EngineAudioPlayer(
     override fun seekForward(amountMs: Long): Unit = gate.exclusive {
         if (released) return@exclusive
         if (!_stateFlow.value.isPlayable) return@exclusive
-        seekToLocked(saturatingAdd(engine.positionMs(), amountMs))
+        seekToLocked(saturatingAdd(engine.positionMs(), amountMs), relative = true)
     }
 
     override fun seekBackward(amountMs: Long): Unit = gate.exclusive {
         if (released) return@exclusive
         if (!_stateFlow.value.isPlayable) return@exclusive
         // -Long.MIN_VALUE does not exist as a Long, so the largest amount stands in for it.
-        seekToLocked(saturatingAdd(engine.positionMs(), if (amountMs == Long.MIN_VALUE) Long.MAX_VALUE else -amountMs))
+        seekToLocked(
+            saturatingAdd(engine.positionMs(), if (amountMs == Long.MIN_VALUE) Long.MAX_VALUE else -amountMs),
+            relative = true,
+        )
     }
 
     override fun replay(): Unit = gate.exclusive {
@@ -339,15 +342,20 @@ private class EngineAudioPlayer(
         startPositionUpdates()
     }
 
-    private fun seekToLocked(positionMs: Long) {
+    private fun seekToLocked(positionMs: Long, relative: Boolean = false) {
         if (released) return
         val current: PlayerState = _stateFlow.value
         if (!current.isPlayable) return
 
         val duration: Long = engine.durationMs()
-        // A length of 0 means the platform has not reported one yet (a live stream, a header not parsed),
-        // so there is no end to clamp to: the target goes to the engine, which knows better.
-        val target: Long = if (duration > 0L) positionMs.coerceIn(0L, duration) else positionMs.coerceAtLeast(0L)
+        // A length of 0 means the platform has not reported one yet (a live stream, a header not parsed).
+        // An absolute seek still clamps to 0..0 then, but a relative skip has no end to clamp to: moving
+        // from 30 s by +/-5 s must not land on 0, so its target goes to the engine, which knows better.
+        val target: Long = if (relative && duration <= 0L) {
+            positionMs.coerceAtLeast(0L)
+        } else {
+            positionMs.coerceIn(0L, maxOf(0L, duration))
+        }
         engine.seekTo(target)
         _playbackPositionFlow.value = target
 

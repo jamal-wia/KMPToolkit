@@ -43,6 +43,20 @@ class AudioPlayerEdgeInputTest {
     }
 
     @Test
+    fun `skipping backward in a source of unknown length moves back by the amount`() = runTest {
+        val engine = RecordingPlaybackEngine(duration = 0L)
+        withPlayer(engine) { player ->
+            player.prepare(source)
+            player.play()
+            engine.position = 30_000L
+
+            player.seekBackward(5_000L)
+
+            assertEquals(25_000L, engine.position)
+        }
+    }
+
+    @Test
     fun `playing from a completed source after seeking to its end starts over like replay`() = runTest {
         val engine = RecordingPlaybackEngine(duration = 10_000L)
         withPlayer(engine) { player ->
