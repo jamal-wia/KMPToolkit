@@ -70,7 +70,15 @@ internal object AlarmIntents {
      * distinctness is carried by the data URI above — so any stable `Int` derived from the id will
      * do.
      */
-    fun requestCode(id: String): Int = id.hashCode()
+    fun requestCode(id: String): Int = requestCode(id, slot = 0)
+
+    /**
+     * Request code of one of an alarm's two `PendingIntent` slots. A replacement is armed in the slot
+     * the current alarm does not occupy, so a replacement the platform refuses has not touched the
+     * alarm that stays armed; slot `0` is the code every earlier version used, so an alarm armed
+     * before an update is found there.
+     */
+    fun requestCode(id: String, slot: Int): Int = id.hashCode() + slot
 
     private fun alarmUri(id: String, scheme: String): Uri =
         Uri.Builder().scheme(scheme).appendPath(id).build()

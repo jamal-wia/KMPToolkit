@@ -22,8 +22,11 @@ package io.github.jamal_wia.kmptoolkit.scheduler
  *   second alarm next to the old one.
  * @param alarmIdKey key carrying [ScheduledAlarm.id] — an intent extra on Android, a `userInfo`
  *   entry on iOS. Change it if it would collide with a key in your own [ScheduledAlarm.payload],
- *   since on iOS the two share one flat dictionary.
- * @param alarmTypeKey key carrying [ScheduledAlarm.type], on the same terms as [alarmIdKey].
+ *   since on iOS the two share one flat dictionary. **Keep it stable across app versions**, like
+ *   [alarmIntentScheme]: an Android alarm armed under an earlier key is read with the new one when
+ *   it fires, finds no id, and is dropped without a trace.
+ * @param alarmTypeKey key carrying [ScheduledAlarm.type], on the same terms as [alarmIdKey],
+ *   including keeping it stable across app versions.
  * @throws IllegalArgumentException if a key is blank, the two keys are equal, or
  *   [alarmIntentScheme] is non-null and not a valid URI scheme. Failing at construction beats
  *   failing months later on an alarm that silently never fired.
