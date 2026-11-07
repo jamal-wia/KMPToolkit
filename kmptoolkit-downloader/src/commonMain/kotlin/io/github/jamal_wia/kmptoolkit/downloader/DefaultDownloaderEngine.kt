@@ -164,11 +164,11 @@ internal class DefaultDownloaderEngine(
      */
     override fun cancelDownload(group: ResourceGroup) {
         group.units.forEach { unit: DownloadUnit ->
-            backgroundDownloader.cancelDownload(unit)
+            cancelTransfer(unit)
             clearStallCount(unit)
             safeDeleteTempFile(unit)
         }
-        notifier.remove(group)
+        notifyRemove(group)
         groupStates.getValue(groupKeyOf(group)).value = GroupDownloadState.Idle
         logger.i { "Download cancelled for $group" }
     }
@@ -204,7 +204,7 @@ internal class DefaultDownloaderEngine(
             logger.i { "Retry skipped for $group — a download is already being managed" }
             return
         }
-        notifier.remove(group)
+        notifyRemove(group)
         // Drive the retry through ensureAvailable on the engine's OWN scope so the group state
         // reflects the full lifecycle (progress -> completion) even when the trigger is the
         // notification-shade Retry (no UI caller). A fire-and-forget enqueue left the state stuck at
@@ -246,6 +246,26 @@ internal class DefaultDownloaderEngine(
      * [MAX_INTEGRITY_RETRIES] more times before the failure is reported.
      */
     private suspend fun fetchAndCommitGroupUnit(
+        group: ResourceGroup,
+        groupState: MutableStateFlow<GroupDownloadState>,
+        unit: DownloadUnit,
+        progressBase: Float,
+        progressScale: Float,
+    ) {
+        try {
+            transferAndCommitGroupUnit(group, groupState, unit, progressBase, progressScale)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: DownloadFailedException) {
+            throw e
+        } catch (e: DownloadCancelledException) {
+            throw e
+        } catch (e: Exception) {
+            failOnPortFailure(group, groupState, unit, e)
+        }
+    }
+
+    private suspend fun transferAndCommitGroupUnit(
         group: ResourceGroup,
         groupState: MutableStateFlow<GroupDownloadState>,
         unit: DownloadUnit,
@@ -302,7 +322,7 @@ internal class DefaultDownloaderEngine(
         logger.e(failure) { "DownloadUnit.sha256 of $unit cannot be read: ${failure.cause?.message}" }
         cancelRunningTransfer(unit)
         groupState.value = GroupDownloadState.Error(error = failure.error)
-        notifier.showError(group = group, error = failure.error)
+        notifyError(group, failure.error)
         throw failure
     }
 
@@ -317,7 +337,9 @@ internal class DefaultDownloaderEngine(
 
     /** Stops a transfer of [unit] still running; never touches its temp file. */
     private fun cancelRunningTransfer(unit: DownloadUnit) {
-        if (backgroundDownloader.isDownloadInProgress(unit)) backgroundDownloader.cancelDownload(unit)
+        guardPort("Checking for a running transfer of $unit") {
+            if (backgroundDownloader.isDownloadInProgress(unit)) backgroundDownloader.cancelDownload(unit)
+        }
     }
 
     private fun unreadableUnitHash(unit: DownloadUnit): DownloadFailedException? {
@@ -361,7 +383,7 @@ internal class DefaultDownloaderEngine(
         }
         if (!inProgress) {
             groupState.value = GroupDownloadState.Downloading(progress = progressBase)
-            notifier.showProgress(group = group, progress = progressBase)
+            notifyProgress(group, progressBase)
         }
 
         val progressMark = ProgressMark()
@@ -397,7 +419,7 @@ internal class DefaultDownloaderEngine(
                     logger.i { "Cancelled for $unit" }
                     clearStallCount(unit)
                     groupState.value = GroupDownloadState.Idle
-                    notifier.remove(group)
+                    notifyRemove(group)
                     safeDeleteTempFile(unit)
                     throw DownloadCancelledException(group)
                 }
@@ -428,7 +450,7 @@ internal class DefaultDownloaderEngine(
                     clearStallCount(unit)
                     logger.e { "Download failed for $unit: $errorMessage" }
                     groupState.value = GroupDownloadState.Error(error = downloadError)
-                    notifier.showError(group = group, error = downloadError)
+                    notifyError(group, downloadError)
                     deleteTempFileAfterFailure(unit, downloadError)
                     throw DownloadFailedException(unit = unit, error = downloadError)
                 }
@@ -488,7 +510,7 @@ internal class DefaultDownloaderEngine(
             if (scaledProgress > currentProgress) {
                 groupState.value =
                     GroupDownloadState.Downloading(progress = scaledProgress)
-                notifier.showProgress(group = group, progress = scaledProgress)
+                notifyProgress(group, scaledProgress)
             }
         }
 
@@ -561,7 +583,7 @@ internal class DefaultDownloaderEngine(
                     .first()
             } catch (e: DownloadResourceStallException) {
                 logger.e(e) { "${e.message.orEmpty()} for $unit" }
-                backgroundDownloader.cancelDownload(unit)
+                cancelTransfer(unit)
                 // Returned as an Error so the retry loop can handle it, flagged as a stall so it is
                 // reported as a timeout without reading the text back.
                 return@coroutineScope TerminalWait(
@@ -683,8 +705,8 @@ internal class DefaultDownloaderEngine(
                     // flips a rapidly-updated ongoing notification to non-ongoing is not reliably
                     // honored, so an explicit remove + fresh post guarantees the shade ends on
                     // "completed", not a stuck bar.
-                    notifier.remove(group = group)
-                    notifier.showCompleted(group = group)
+                    notifyRemove(group)
+                    notifyCompleted(group)
                 }
             }
             logger.i { "Resource unit $unit committed successfully" }
@@ -718,7 +740,7 @@ internal class DefaultDownloaderEngine(
         cause: Exception,
     ): Nothing {
         groupState.value = GroupDownloadState.Error(error = downloadError)
-        notifier.showError(group = group, error = downloadError)
+        notifyError(group, downloadError)
         throw DownloadFailedException(unit = unit, error = downloadError, cause = cause)
     }
 
@@ -739,6 +761,82 @@ internal class DefaultDownloaderEngine(
             logger.e(e) { "Failed to mark the temp file of $unit complete: ${e.message}" }
         }
     }
+
+    // -- Calls into the host's ports ---------------------------------------------------
+    //
+    // A port is host code and can throw (a notification manager refusing a post, a foreground
+    // service that may not start from the background, a key-value store that fails). None of that
+    // may leave a group stuck at Downloading or reach the caller as a raw exception it was never
+    // promised: a call whose failure cannot change the outcome is logged and swallowed here, and
+    // anything else ends the unit as a DownloadFailedException through [failOnPortFailure].
+
+    /** Runs a call whose failure must not change the outcome; logs and swallows it. */
+    private inline fun guardPort(what: String, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.e(e) { "$what threw: ${e.message}" }
+        }
+    }
+
+    // A failed notification must never fail the download it was describing (DownloadNotifier says
+    // so), so a notifier that throws is logged and the download carries on.
+    private suspend fun notifyProgress(group: ResourceGroup, progress: Float) =
+        guardPort("DownloadNotifier.showProgress($group)") { notifier.showProgress(group, progress) }
+
+    private suspend fun notifyCompleted(group: ResourceGroup) =
+        guardPort("DownloadNotifier.showCompleted($group)") { notifier.showCompleted(group) }
+
+    private suspend fun notifyError(group: ResourceGroup, error: DownloadError) =
+        guardPort("DownloadNotifier.showError($group)") { notifier.showError(group, error) }
+
+    private fun notifyRemove(group: ResourceGroup) =
+        guardPort("DownloadNotifier.remove($group)") { notifier.remove(group) }
+
+    private fun cancelTransfer(unit: DownloadUnit) =
+        guardPort("BackgroundResourceDownloader.cancelDownload($unit)") {
+            backgroundDownloader.cancelDownload(unit)
+        }
+
+    /**
+     * Ends a group unit whose attempt was broken by a port that threw ([cause]): a transfer that
+     * is still running is cancelled, the state becomes [GroupDownloadState.Error] with
+     * [DownloadError.Unknown] — the engine cannot say more than the host's own message — and the
+     * caller gets a [DownloadFailedException] carrying [cause]. The temp file stays.
+     */
+    private suspend fun failOnPortFailure(
+        group: ResourceGroup,
+        groupState: MutableStateFlow<GroupDownloadState>,
+        unit: DownloadUnit,
+        cause: Exception,
+    ): Nothing {
+        logger.e(cause) { "A port threw during the download of $unit: ${cause.message}" }
+        cancelRunningTransfer(unit)
+        clearStallCount(unit)
+        val error: DownloadError = DownloadError.Unknown(portFailureMessage(cause))
+        groupState.value = GroupDownloadState.Error(error = error)
+        notifyError(group, error)
+        throw DownloadFailedException(unit = unit, error = error, cause = cause)
+    }
+
+    /** The per-unit twin of the group overload above. */
+    private fun failOnPortFailure(
+        unit: DownloadUnit,
+        stateFlow: MutableStateFlow<UnitDownloadState>,
+        cause: Exception,
+    ): Nothing {
+        logger.e(cause) { "A port threw during the download of $unit: ${cause.message}" }
+        cancelRunningTransfer(unit)
+        clearStallCount(unit)
+        val error: DownloadError = DownloadError.Unknown(portFailureMessage(cause))
+        stateFlow.value = UnitDownloadState.Error(error)
+        throw DownloadFailedException(unit = unit, error = error, cause = cause)
+    }
+
+    private fun portFailureMessage(cause: Exception): String =
+        cause.message ?: cause::class.simpleName ?: "A port threw"
 
     /**
      * What a transfer that ended in [error] leaves behind. The partial file is the user's progress,
@@ -834,6 +932,20 @@ internal class DefaultDownloaderEngine(
      * the bytes fail their integrity check.
      */
     private suspend fun fetchAndCommitUnit(unit: DownloadUnit) {
+        try {
+            transferAndCommitUnit(unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: DownloadFailedException) {
+            throw e
+        } catch (e: DownloadCancelledException) {
+            throw e
+        } catch (e: Exception) {
+            failOnPortFailure(unit, unitStateFlow(unit), e)
+        }
+    }
+
+    private suspend fun transferAndCommitUnit(unit: DownloadUnit) {
         failOnUnreadableUnitHash(unit)
         var integrityFailures = 0
         while (true) {
@@ -871,7 +983,7 @@ internal class DefaultDownloaderEngine(
     // guaranteed visible before it cancels scope's children — going through the non-suspend overload
     // raced the state write against that very cancellation and reliably lost in production.
     private suspend fun cancelUnitDownloadAwaitingState(unit: DownloadUnit) {
-        backgroundDownloader.cancelDownload(unit)
+        cancelTransfer(unit)
         clearStallCount(unit)
         safeDeleteTempFile(unit)
         unitStateFlow(unit).value = UnitDownloadState.Idle
@@ -1003,8 +1115,9 @@ internal class DefaultDownloaderEngine(
         return newCount
     }
 
+    /** Never throws: a counter that could not be cleared is stale at worst, never a failed download. */
     private fun clearStallCount(unit: DownloadUnit) {
-        stateStore.remove(stallCountKey(unit))
+        guardPort("Clearing the failure count of $unit") { stateStore.remove(stallCountKey(unit)) }
     }
 
     private fun stallCountKey(unit: DownloadUnit): String = "download_stall_count_${unit.id}"

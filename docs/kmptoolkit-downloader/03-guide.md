@@ -204,6 +204,14 @@ Three things make it work:
   string-based — what a failing transfer reports differs per platform and per layer — so it is
   confined to one place and everything downstream is typed.
 
+**When your own code throws.** The ports are host code. A `DownloadNotifier` that throws is logged
+and ignored — a failed notification never fails the download it describes. Anything else that
+throws inside an attempt (`enqueueDownload` — on Android 12+ a foreground service that may not
+start from the background — `isDownloadInProgress`, the event flow, the `DownloadStateStore`) ends
+the unit as a `DownloadFailedException` carrying that exception as its `cause`, with
+`DownloadError.Unknown` (the host's own message) as the error, the state flow at `Error` and the
+notifier told. The group is never left at `Downloading`. The temp file stays.
+
 The per-unit path has **no retry loop** — one stall surfaces directly as `Error`.
 
 ## Tell the user — the `DownloadNotifier` port
