@@ -109,6 +109,10 @@ seek have not reached it yet. The engine holds the target until libvlc reports a
 second of it, or for 500 ms after the `setTime` call, whichever comes first. A `seekForward()` made
 right after a seek therefore steps from the target, and the progress bar does not jump back.
 
+A seek made before playback has begun (before the first `start()`, between `start()` and libvlc
+reporting Playing, or after the end) is applied when output begins, and its target is held from then
+on in exactly the same way.
+
 ## Rendering
 
 The engine asks VLC for 32-bit RGB frames of the decoded picture size and copies each one into an
