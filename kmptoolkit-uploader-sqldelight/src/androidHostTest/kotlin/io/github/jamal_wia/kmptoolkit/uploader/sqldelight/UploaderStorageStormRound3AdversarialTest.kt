@@ -312,5 +312,41 @@ class UploaderStorageStormRound3AdversarialTest {
         awaitCondition { dbThreads() < before }
     }
 
-}
+    @Test
+    fun `four threads healing the same corrupt file at once leave no acknowledged write lost`() = realTest {
+        repeat(5) { iteration ->
+            val name = "adv.a1r3.heal.$iteration.${Random.nextLong(0L, Long.MAX_VALUE)}"
+            files += name
+            val file = application().getDatabasePath(uploaderDatabaseFileName(name)).also { it.parentFile?.mkdirs() }
+            file.writeBytes(ByteArray(8_192) { (it * 7).toByte() })
+            val config = UploaderDatabaseConfig(name, recreateOnCorruption = true)
+            val start = CompletableDeferred<Unit>()
+            val handler = PlainHandler()
+            val workers: List<Deferred<Result<String?>>> = List(4) { w ->
+                async {
+                    start.await()
+                    runCatching {
+                        val storage: UploaderStorage = createUploaderStorage(application(), config).also { storages += it }
+                        val engine: UploaderEngine = engineOver(storage, handler)
+                        engine.enqueue(handler, "w$w")
+                    }
+                }
+            }
+            start.complete(Unit)
+            val results: List<Result<String?>> = workers.awaitAll()
+            val acknowledged: List<String> = results.mapNotNull { it.getOrNull() }
+            assertTrue(
+                acknowledged.isNotEmpty(),
+                "iteration $iteration: no opener succeeded: ${results.map { it.exceptionOrNull()?.toString() }}",
+            )
 
+            val reader: UploaderStorage = createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
+            val rows: List<String> = reader.store.getAllActive().map { it.id }
+            assertEquals(
+                emptyList(),
+                acknowledged.filter { it !in rows },
+                "iteration $iteration: enqueues acknowledged to their callers are not in the file",
+            )
+        }
+    }
+}
