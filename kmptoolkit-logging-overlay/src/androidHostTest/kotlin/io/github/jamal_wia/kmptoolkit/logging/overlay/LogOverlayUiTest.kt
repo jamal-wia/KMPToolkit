@@ -24,8 +24,9 @@ import kotlin.test.assertTrue
  */
 @RunWith(RobolectricTestRunner::class)
 // Pinned, not left to default: nothing under test is API-level sensitive, so a stable emulated
-// runtime keeps the test independent of the module's compileSdk (37). Robolectric 4.17 does ship
-// an SDK 37 runtime, so raising the pin is possible whenever it is wanted.
+// runtime keeps the test independent of the module's compileSdk (37). Robolectric 4.17 ships an
+// SDK 37 image, but running it needs a JVM access flag this build does not pass (see the modules'
+// robolectric.properties), so the pin stays at a level that runs without it.
 @Config(sdk = [34])
 @OptIn(ExperimentalTestApi::class)
 class LogOverlayUiTest {
