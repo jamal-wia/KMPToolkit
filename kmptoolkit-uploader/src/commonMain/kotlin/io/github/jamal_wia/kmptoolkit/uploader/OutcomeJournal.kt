@@ -143,11 +143,16 @@ internal class OutcomeJournal(
     /**
      * Cuts the body of [itemId]'s entry to [limit] when it holds more; used once the handler's limit is
      * known for an entry written before it was. A missing or unusable entry is left as it is.
+     *
+     * Under the same per-item exclusion as [replay]: a replayer that handled and deleted the entry in the
+     * meantime must not have it written back by a cut that read it earlier, or the response would settle twice.
      */
-    fun restrictBody(itemId: String, limit: Int) {
-        val entry: JournalEntry = inspect(itemId)
-        if (entry is JournalEntry.Valid && entry.response.bodySize > limit.coerceAtLeast(0)) {
-            record(itemId, entry.response, limit)
+    suspend fun restrictBody(itemId: String, limit: Int) {
+        OutcomeReplayLocks.withItem(itemId) {
+            val entry: JournalEntry = inspect(itemId)
+            if (entry is JournalEntry.Valid && entry.response.bodySize > limit.coerceAtLeast(0)) {
+                record(itemId, entry.response, limit)
+            }
         }
     }
 

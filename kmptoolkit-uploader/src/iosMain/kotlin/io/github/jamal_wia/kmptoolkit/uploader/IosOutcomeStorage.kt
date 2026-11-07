@@ -43,8 +43,7 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
         } else {
             bytes.usePinned { pinned -> NSData.create(bytes = pinned.addressOf(0), length = bytes.size.convert()) }
         }
-        val options = NSDataWritingAtomic or NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
-        return data.writeToFile("$dir/$itemId", options = options, error = null)
+        return data.writeToFile("$dir/$itemId", options = WRITE_OPTIONS, error = null)
     }
 
     override fun read(itemId: String): ByteArray? {
@@ -69,8 +68,7 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
     /** Creates [dir] with the protection class and the backup exclusion; idempotent. */
     private fun ensureDirectory(): Boolean {
         if (!files.fileExistsAtPath(dir)) {
-            val attributes: Map<Any?, *> = mapOf(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
-            if (!files.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = attributes, error = null)) {
+            if (!files.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = DIRECTORY_ATTRIBUTES, error = null)) {
                 return false
             }
         }
@@ -79,6 +77,12 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
     }
 
     companion object {
+
+        /** The options every entry is written with: atomic, protected until the first unlock after boot. */
+        val WRITE_OPTIONS: ULong = NSDataWritingAtomic or NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
+
+        /** The attributes the directory is created with: the same protection class. */
+        val DIRECTORY_ATTRIBUTES: Map<Any?, *> = mapOf(NSFileProtectionKey to NSFileProtectionCompleteUntilFirstUserAuthentication)
 
         /** `Application Support/kmptoolkit-uploader/outcomes`. */
         fun default(): IosOutcomeStorage {
