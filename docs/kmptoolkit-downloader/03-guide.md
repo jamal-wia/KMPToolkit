@@ -76,6 +76,19 @@ from "nobody has asked" (`Idle`) from "finished downloading this process" (`Comp
 separate storage read. `Completed` is sticky and never demoted back to `Available` — that
 distinction is what a UI row keys off to celebrate a fresh download exactly once.
 
+## Unit ids and relative paths
+
+Give units ids made of `[A-Za-z0-9._-]` and keep them unique ignoring case (on iOS, ignoring Unicode
+normalization too). Other ids work, but they are stored under a hashed name (see
+[`05-platform-notes.md`](05-platform-notes.md)) rather than at the readable path.
+
+A `relativePath` is yours: it is used exactly as written. If it cannot be used safely (empty, NUL,
+climbing out of the base directory, or naming a directory the storage manages such as `tmp` or
+`tmp/expect`) the unit fails before any transfer: `ensureAvailable` throws `DownloadFailedException`
+with `DownloadError.Unknown`, whose `cause` is `InvalidDownloadUnitException` carrying the
+`Reason`. `isAvailable` is `false` and `pathOf` throws the same exception. It is a catalogue error:
+fix the catalogue, the temp files are kept.
+
 ## Prove the bytes are usable — `ResourceFormat`
 
 "Is this download usable?" is not "does the file exist?": a truncated database and a

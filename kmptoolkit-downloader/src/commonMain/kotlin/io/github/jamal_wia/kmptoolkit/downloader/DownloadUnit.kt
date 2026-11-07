@@ -17,19 +17,42 @@ package io.github.jamal_wia.kmptoolkit.downloader
  * [id] is the identity that crosses boundaries a typed reference cannot: an Android `Intent` extra,
  * an iOS background-session identifier, a persisted stall-count key. It must be stable across app
  * versions (it is written to disk and read back) and unique within the host's catalogue.
+ *
+ * Any string is accepted as an [id]; one that is not a plain file name (it contains `/` or NUL, or a
+ * name derived from it would pass 255 bytes) is stored under a hashed name by the shipped storages,
+ * so it never collides with another unit or leaves `tmp/`. Prefer `[A-Za-z0-9._-]`, and keep ids
+ * unique ignoring case (and, on iOS, Unicode normalization): an iOS volume may treat `Model` and
+ * `model` as one file. A [relativePath] that cannot be used safely is rejected with
+ * [InvalidDownloadUnitException].
  */
 public interface DownloadUnit {
 
-    /** Stable, unique identity — survives serialization to an Intent extra / session id / storage key. */
+    /**
+     * Stable, unique identity — survives serialization to an Intent extra / session id / storage key.
+     * Unique ignoring case; see the type's documentation for ids that are not plain file names.
+     */
     public val id: String
 
     /** Opaque path handed to the host's URL resolver. This library never parses or composes it. */
     public val apiPath: String
 
-    /** Where the committed resource lives, relative to the platform's resource base directory. */
+    /**
+     * Where the committed resource lives, relative to the platform's resource base directory, used
+     * exactly as written.
+     *
+     * The shipped storages reject, with [InvalidDownloadUnitException], a path that is empty or
+     * normalizes to nothing, contains NUL, leaves the base directory (`../x`), or names something
+     * the storage manages itself (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`,
+     * `tmp/staging-…`, or this unit's own temp files). Any other path under `tmp/` works but is
+     * reserved for the storage and logs a warning.
+     */
     public val relativePath: String
 
-    /** Extension of the in-progress temp file. Only cosmetic — the temp name is derived from [id]. */
+    /**
+     * Extension of the in-progress temp file. Only cosmetic — the temp name is derived from [id]. An
+     * extension that is not one plain name (it contains `/` or NUL, or is long) is replaced by `tmp`
+     * in the hashed name the shipped storages then use.
+     */
     public val tempExtension: String get() = "tmp"
 
     /**

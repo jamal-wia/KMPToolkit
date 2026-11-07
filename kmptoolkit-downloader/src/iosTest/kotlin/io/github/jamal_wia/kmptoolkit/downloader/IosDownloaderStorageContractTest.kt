@@ -61,11 +61,19 @@ class IosDownloaderStorageContractTest : DownloaderStorageContractTest() {
     override fun pathExists(path: String): Boolean = NSFileManager.defaultManager.fileExistsAtPath(path)
 
     override fun deleteTestDirectory() {
+        NSFileManager.defaultManager.removeItemAtPath(baseDirectory(), error = null)
+    }
+
+    override fun baseDirectory(): String {
         val appSupport: String = NSSearchPathForDirectoriesInDomains(
             NSApplicationSupportDirectory,
             NSUserDomainMask,
             true,
         ).first() as String
-        NSFileManager.defaultManager.removeItemAtPath("$appSupport/${config.baseDirectoryName}", error = null)
+        return "$appSupport/${config.baseDirectoryName}"
+    }
+
+    override fun deleteFile(path: String) {
+        NSFileManager.defaultManager.removeItemAtPath(path, error = null)
     }
 }

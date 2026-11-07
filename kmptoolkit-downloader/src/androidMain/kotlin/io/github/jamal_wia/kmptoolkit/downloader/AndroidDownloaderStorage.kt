@@ -35,6 +35,11 @@ import java.util.zip.ZipInputStream
  * can leave a partial file that reads as complete. A `tmp/<id>.<ext>` left by an earlier version of
  * this library is therefore partial, and is resumed rather than committed.
  *
+ * Those are the names of a unit whose id is a plain file name. An id that is not (a `/`, a NUL, a
+ * name too long for one path component) gets the same files under `tmp/kmptoolkit-internal/`, named
+ * by a hash of the id: see [UnitFileLayout]. [DownloadUnit.relativePath] is validated by the same
+ * class, and a path that cannot be used safely throws [InvalidDownloadUnitException].
+ *
  * The hash a transfer must have ([beginTempFile]) is a one-line record at `tmp/expect/<id>.sha256`, keyed
  * by id alone so a free-form temp extension can never make two units share or miss a record. It is
  * written before the old temp files are deleted and moved into place by a rename, so a crash leaves
@@ -44,33 +49,74 @@ internal class AndroidDownloaderStorage(
     private val context: Context,
     private val config: DownloaderStorageConfig,
     private val logger: Logger,
+    /** Test seam: Android's `filesDir` is case-sensitive, so production never sets this. */
+    caseInsensitive: Boolean = false,
 ) : DownloaderStorage {
 
     private val baseDir: File by lazy { File(context.filesDir, config.baseDirectoryName) }
 
+    private val layout: UnitFileLayout = UnitFileLayout(caseInsensitive)
+
+    private val tmpPathWarnings: FirstSightings = FirstSightings()
+
+    private val migrationFiles: LegacyTempMigrations.Files = object : LegacyTempMigrations.Files {
+        override fun exists(path: String): Boolean = File(path).exists()
+        override fun rename(from: String, to: String): Boolean = File(from).renameTo(File(to))
+        override fun delete(path: String) {
+            File(path).delete()
+        }
+
+        override fun createParentDirectory(path: String) {
+            File(path).parentFile?.mkdirs()
+        }
+    }
+
+    /**
+     * The names of [unit]'s files. A unit whose names are hashed first has its 3.0.0 temp files
+     * moved to them (once per process), so every method sees the files wherever they are.
+     */
+    private fun names(unit: DownloadUnit): UnitFileLayout.Names {
+        val names: UnitFileLayout.Names = layout.namesOf(unit)
+        if (names.anyHashed) {
+            LegacyTempMigrations.migrateOnce(baseDir.absolutePath, unit, layout, names, migrationFiles, logger)
+        }
+        return names
+    }
+
     override fun isResourceAvailable(unit: DownloadUnit): Boolean {
+        val path: String = try {
+            getResourcePath(unit)
+        } catch (e: InvalidDownloadUnitException) {
+            return false
+        }
         return if (unit.isDirectoryResource) {
-            val pagesDir = File(getResourcePath(unit))
+            val pagesDir = File(path)
             pagesDir.exists() && File(pagesDir, unit.archiveMarker()).exists()
         } else {
-            File(getResourcePath(unit)).exists()
+            File(path).exists()
         }
     }
 
     override fun getResourcePath(unit: DownloadUnit): String {
+        when (val inspection: UnitFileLayout.PathInspection = layout.inspectRelativePath(unit)) {
+            is UnitFileLayout.PathInspection.Rejected -> throw InvalidDownloadUnitException(unit, inspection.reason)
+            UnitFileLayout.PathInspection.AcceptedUnderTmp -> {
+                if (tmpPathWarnings.isFirst(unit.relativePath)) {
+                    logger.w { "relativePath '${unit.relativePath}' of $unit is under tmp/, which the storage reserves" }
+                }
+            }
+            UnitFileLayout.PathInspection.Accepted -> Unit
+        }
         return File(baseDir, unit.relativePath).absolutePath
     }
 
-    override fun getTempFilePath(unit: DownloadUnit): String {
-        return File(baseDir, "tmp/${unit.id}.${unit.tempExtension}").absolutePath
-    }
-
-    private fun completeTempFile(unit: DownloadUnit): File =
-        File(baseDir, "tmp/${unit.id}.${unit.tempExtension}.complete")
+    override fun getTempFilePath(unit: DownloadUnit): String =
+        File(baseDir, names(unit).partial).absolutePath
 
     override fun tempFileState(unit: DownloadUnit): TempFileState {
-        if (completeTempFile(unit).exists()) return TempFileState.Complete
-        val partial = File(getTempFilePath(unit))
+        val names: UnitFileLayout.Names = names(unit)
+        if (File(baseDir, names.complete).exists()) return TempFileState.Complete
+        val partial = File(baseDir, names.partial)
         return if (partial.exists() && partial.length() > 0) {
             TempFileState.Partial
         } else {
@@ -79,14 +125,15 @@ internal class AndroidDownloaderStorage(
     }
 
     override fun getTempFileSize(unit: DownloadUnit): Long {
-        val tempFile = File(getTempFilePath(unit))
+        val tempFile = File(baseDir, names(unit).partial)
         return if (tempFile.exists()) tempFile.length() else 0L
     }
 
     override fun markTempFileComplete(unit: DownloadUnit) {
-        val complete: File = completeTempFile(unit)
+        val names: UnitFileLayout.Names = names(unit)
+        val complete = File(baseDir, names.complete)
         if (complete.exists()) return
-        val partial = File(getTempFilePath(unit))
+        val partial = File(baseDir, names.partial)
         check(partial.exists()) { "No temp file to mark complete for $unit at ${partial.path}" }
         check(partial.renameTo(complete)) { "Could not mark the temp file of $unit complete" }
         logger.i { "Marked the temp file of $unit complete (${complete.length()} bytes)" }
@@ -96,29 +143,33 @@ internal class AndroidDownloaderStorage(
         // Before any side effect: a contradictory catalogue must leave the existing partial file and
         // its record exactly as they were.
         requireConsistentExpectations(unit, expectedSha256)
-        val staged: File = stagedExpectationFile(unit)
+        val names: UnitFileLayout.Names = names(unit)
+        val staged = File(baseDir, names.stagedRecord)
         staged.parentFile?.mkdirs()
         FileOutputStream(staged).use { output: FileOutputStream ->
             output.write(encodeExpectation(expectedSha256).encodeToByteArray())
             output.fd.sync()
         }
-        deleteTempData(unit)
+        deleteTempData(names)
         // A delete that failed must not be followed by the rename: the surviving old bytes would
         // be paired with the new record.
-        if (File(getTempFilePath(unit)).exists() || completeTempFile(unit).exists()) {
+        if (File(baseDir, names.partial).exists() || File(baseDir, names.complete).exists()) {
             staged.delete()
             throw IllegalStateException("Could not discard the previous temp file of $unit")
         }
-        val record: File = expectationFile(unit)
+        val record = File(baseDir, names.record)
         record.parentFile?.mkdirs()
         check(staged.renameTo(record)) { "Could not record the expected hash of $unit" }
+        // The downloader writes straight into the partial path; its directory may be a hashed one.
+        File(baseDir, names.partial).parentFile?.mkdirs()
         logger.i { "Began the temp file of $unit (expected hash: ${expectedSha256?.hex ?: "none"})" }
     }
 
     override fun deleteTempFile(unit: DownloadUnit) {
         // Data first, record last: a crash in between leaves an orphan record, which reads as no
         // temp file at all and is overwritten by the next beginTempFile.
-        deleteTempData(unit)
+        val names: UnitFileLayout.Names = names(unit)
+        deleteTempData(names)
         // The extraction tree of an archive commit that a process death interrupted: nothing else
         // ever enumerates tmp/, so a unit that is then dropped would keep it forever. Skipped while
         // a commit of the unit runs (it may be extracting into this very tree, or renaming it into
@@ -127,10 +178,10 @@ internal class AndroidDownloaderStorage(
         // runs after the lock is released so it cannot stall other units.
         UnitCommitLocks.tryDetachThenDispose(
             baseDirectory = baseDir.absolutePath,
-            unitId = unit.id,
+            unitId = layout.lockKey(unit),
             detach = {
-                val staging = File(baseDir, "tmp/staging-${unit.id}")
-                val trash = File(baseDir, "tmp/trash/${unit.id}-${Random.nextLong().toULong()}")
+                val staging = File(baseDir, names.staging)
+                val trash = File(baseDir, layout.trashEntry(Random.nextLong().toULong()))
                 trash.parentFile?.mkdirs()
                 if (staging.renameTo(trash)) trash else null
             },
@@ -140,36 +191,33 @@ internal class AndroidDownloaderStorage(
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
         // keep its record: with the record gone, the next attempt would commit that complete file
         // unchecked.
-        if (File(getTempFilePath(unit)).exists() || completeTempFile(unit).exists()) {
+        if (File(baseDir, names.partial).exists() || File(baseDir, names.complete).exists()) {
             logger.w { "Could not delete the temp file of $unit; keeping its expected-hash record" }
             return
         }
-        expectationFile(unit).delete()
-        stagedExpectationFile(unit).delete()
+        File(baseDir, names.record).delete()
+        File(baseDir, names.stagedRecord).delete()
     }
 
     /**
-     * Deletes whatever `tmp/trash/` still holds: a detached extraction tree whose delete a process
-     * kill or an I/O error cut short. No commit ever uses a path under it, so it needs no lock, and
-     * a sweep racing another thread's delete of the same tree is harmless. A dedicated directory,
-     * not a name prefix in `tmp/`, so that a unit whose id starts with `trash-` keeps its temp file.
+     * Deletes whatever the trash directory (`tmp/kmptoolkit-internal/trash/`) still holds: a detached
+     * extraction tree whose delete a process kill or an I/O error cut short. No commit ever uses a
+     * path under it, so it needs no lock, and a sweep racing another thread's delete of the same
+     * tree is harmless. A dedicated directory, not a name prefix in `tmp/`, so that a unit whose id
+     * starts with `trash-` keeps its temp file; entries are named by a number alone, so no id's
+     * length can make the rename into it fail.
      */
     private fun sweepTrash() {
-        File(baseDir, "tmp/trash").listFiles()?.forEach { entry: File -> entry.deleteRecursively() }
+        File(baseDir, UnitFileLayout.TRASH_DIRECTORY).listFiles()?.forEach { entry: File -> entry.deleteRecursively() }
     }
 
-    private fun deleteTempData(unit: DownloadUnit) {
-        File(getTempFilePath(unit)).delete()
-        completeTempFile(unit).delete()
+    private fun deleteTempData(names: UnitFileLayout.Names) {
+        File(baseDir, names.partial).delete()
+        File(baseDir, names.complete).delete()
     }
 
-    private fun expectationFile(unit: DownloadUnit): File = File(baseDir, "tmp/expect/${unit.id}.sha256")
-
-    private fun stagedExpectationFile(unit: DownloadUnit): File =
-        File(baseDir, "tmp/expect-staged/${unit.id}.sha256")
-
-    private fun readExpectation(unit: DownloadUnit): RecordedExpectation {
-        val record: File = expectationFile(unit)
+    private fun readExpectation(unit: DownloadUnit, names: UnitFileLayout.Names): RecordedExpectation {
+        val record = File(baseDir, names.record)
         if (!record.exists()) return RecordedExpectation.Missing
         return try {
             decodeExpectation(record.readText())
@@ -180,7 +228,13 @@ internal class AndroidDownloaderStorage(
     }
 
     override fun getResourceSize(unit: DownloadUnit): Long {
-        val target = File(getResourcePath(unit))
+        val target = File(
+            try {
+                getResourcePath(unit)
+            } catch (e: InvalidDownloadUnitException) {
+                return 0L
+            },
+        )
         if (!target.exists()) return 0L
         return if (target.isDirectory) {
             target.walkBottomUp()
@@ -205,10 +259,14 @@ internal class AndroidDownloaderStorage(
     override suspend fun commitResource(
         unit: DownloadUnit,
     ): Unit = withContext(Dispatchers.IO) {
+        // Before the lock and before any side effect: a relativePath that cannot be used must leave
+        // the temp file where it is, and the names are resolved outside the lock.
+        getResourcePath(unit)
+        val names: UnitFileLayout.Names = names(unit)
         // Serialized per unit across every instance over this directory — see UnitCommitLocks for
         // who races here. Everything below is decided only once the lock is held.
-        UnitCommitLocks.withUnitLock(baseDir.absolutePath, unit.id) {
-            val tempFile: File = completeTempFile(unit)
+        UnitCommitLocks.withUnitLock(baseDir.absolutePath, layout.lockKey(unit)) {
+            val tempFile = File(baseDir, names.complete)
             if (!tempFile.exists() && isResourceAvailable(unit)) {
                 // A concurrent commit finalized the unit while this one waited. Its record is
                 // already gone, and one present now belongs to a newer transfer: touch nothing.
@@ -219,23 +277,23 @@ internal class AndroidDownloaderStorage(
                 "No complete temp file for $unit — a partial transfer is resumed, never committed"
             }
             try {
-                commitCompleteTempFile(unit, tempFile)
+                commitCompleteTempFile(unit, tempFile, names)
             } finally {
                 // The record belongs to the temp file. Once the file is gone — committed, or deleted
                 // by a failed check — the record goes with it, last. A failure that left the file in
                 // place keeps its record, so the retry is still checked against it.
-                if (!tempFile.exists()) expectationFile(unit).delete()
+                if (!tempFile.exists()) File(baseDir, names.record).delete()
             }
         }
     }
 
-    private fun commitCompleteTempFile(unit: DownloadUnit, tempFile: File) {
-        verifySha256(tempFile, unit)
+    private fun commitCompleteTempFile(unit: DownloadUnit, tempFile: File, names: UnitFileLayout.Names) {
+        verifySha256(tempFile, unit, names)
         if (unit.isDirectoryResource) {
             val targetDir = File(getResourcePath(unit))
             // Per-unit, not a single shared name — two archive units extracting at the same time
             // must not collide in one staging directory.
-            val stagingDir = File(baseDir, "tmp/staging-${unit.id}")
+            val stagingDir = File(baseDir, names.staging)
             // Clean any leftover staging from a previous failed attempt
             stagingDir.deleteRecursively()
             try {
@@ -289,11 +347,11 @@ internal class AndroidDownloaderStorage(
      * throws is the host's mistake, not the download's, and surfaces as that exception instead so
      * it is not answered with a pointless re-download.
      */
-    private fun verifySha256(tempFile: File, unit: DownloadUnit) {
+    private fun verifySha256(tempFile: File, unit: DownloadUnit, names: UnitFileLayout.Names) {
         checkExpectations(
             unit = unit,
             unitSha256 = unit.sha256,
-            recorded = readExpectation(unit),
+            recorded = readExpectation(unit, names),
             logger = logger,
             computeHex = { sha256Hex(tempFile) },
             deleteTempFile = { tempFile.delete() },

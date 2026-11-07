@@ -35,12 +35,16 @@ public interface Downloader {
     /**
      * True when [unit]'s resource is present and committed on disk. Unlike the group overload this
      * never consults the bundled-assets bypass — a runtime-catalogue unit is never bundled.
+     * `false` for a unit whose [DownloadUnit.relativePath] the storage rejects
+     * ([InvalidDownloadUnitException]).
      */
     public fun isAvailable(unit: DownloadUnit): Boolean
 
     /**
      * Absolute path of [unit]'s committed resource — what a consumer opens after
      * [ensureAvailable] returns. Valid only while [isAvailable] holds.
+     *
+     * @throws InvalidDownloadUnitException when the storage rejects [DownloadUnit.relativePath].
      */
     public fun pathOf(unit: DownloadUnit): String
 

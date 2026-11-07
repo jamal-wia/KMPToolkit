@@ -31,12 +31,23 @@ public interface DownloaderStorage {
      */
     public fun isResourceAvailable(unit: DownloadUnit): Boolean
 
-    /** Absolute path of the committed resource — a file, or a directory for an archive unit. */
+    /**
+     * Absolute path of the committed resource — a file, or a directory for an archive unit.
+     *
+     * @throws InvalidDownloadUnitException when [DownloadUnit.relativePath] cannot be used safely.
+     *   The shipped storages also throw it from [commitResource] and [deleteResource], answer `false`
+     *   from [isResourceAvailable] and `0` from [getResourceSize], and never touch a path outside
+     *   their base directory for it.
+     */
     public fun getResourcePath(unit: DownloadUnit): String
 
     /**
      * Absolute path a [BackgroundResourceDownloader] writes [unit]'s bytes into while the transfer
      * runs. Whatever lies here is [TempFileState.Partial] until [markTempFileComplete] is called.
+     *
+     * Always ask for it rather than building it, and do not cache it across launches: for a unit
+     * whose id is not a plain file name it is under a subdirectory of `tmp/`, and a 3.0.0 file is
+     * moved there on first use. [beginTempFile] creates its parent directory.
      */
     public fun getTempFilePath(unit: DownloadUnit): String
 
