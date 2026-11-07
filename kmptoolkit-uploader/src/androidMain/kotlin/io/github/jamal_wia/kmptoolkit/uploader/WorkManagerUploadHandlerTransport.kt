@@ -19,7 +19,9 @@ import io.github.jamal_wia.kmptoolkit.logging.w
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.job
@@ -64,9 +66,20 @@ internal class WorkManagerUploadHandlerTransport(
     private val context: Context,
     private val config: UploadTransportConfig,
     private val logger: Logger,
+    private val journal: OutcomeJournal = androidOutcomeJournal(context, logger),
 ) : UploadTransport {
 
     override val leaseMillis: Long = config.leaseMillis
+
+    init {
+        // Outcomes a dead process journaled and nobody collected: replay them to the engine, or delete the
+        // expired ones. The engine may not be registered yet, so this waits for it off the caller's thread.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching {
+                journal.sweep(gatewaySettle(config.engineWait))
+            }.onFailure { failure -> logger.w(failure) { "The upload outcome journal sweep failed." } }
+        }
+    }
 
     override fun launch(itemId: String, request: UploadRequest) {
         launch(itemId, isRehandOff = false, request = request)
@@ -100,6 +113,8 @@ internal class WorkManagerUploadHandlerTransport(
     }
 
     override fun cancel(itemId: String) {
+        // A cancelled item settles nothing, so an outcome journaled for it must not be replayed later.
+        journal.delete(itemId)
         // A running job's coroutine is cancelled, which stops the body mid-stream; a queued one never runs.
         runCatching {
             WorkManager.getInstance(context).cancelUniqueWork(config.resolveUniqueWorkName(context.packageName, itemId))
@@ -136,21 +151,39 @@ public open class UploadHandlerWorker(
             UploadTransportConfig.DEFAULT_ENGINE_WAIT.inWholeMilliseconds,
         ).milliseconds
 
+        // An outcome journaled by an earlier run of this job — the process died between the server's answer
+        // and the engine's settlement — is replayed instead of uploading again.
+        val journal: OutcomeJournal = androidOutcomeJournal(applicationContext)
+        when (journal.replay(itemId, gatewaySettle(engineWait))) {
+            ReplayOutcome.Replayed -> return Result.success()
+            ReplayOutcome.Kept -> return Result.retry()
+            ReplayOutcome.NoEntry, ReplayOutcome.Discarded -> Unit
+        }
+
         val request: UploadRequest = when (val attempt: UploadAttempt = UploadGateway.prepareAttempt(itemId, engineWait)) {
             UploadAttempt.EngineUnavailable -> return Result.retry()
             UploadAttempt.NothingOwed -> return Result.success()
             is UploadAttempt.Ready -> attempt.request
         }
+        // The handler's body limit, asked now while the engine is known to be reachable: the journal keeps no
+        // more of the body than the handler asked for.
+        val bodyLimit: Int = UploadGateway.responseBodyLimit(itemId, engineWait) ?: MAX_RESPONSE_BODY_BYTES
 
         val outcome: MultipartOutcome = uploadReportingProgress(itemId, request)
         // The server's answer, when there was one, goes to the handler with the status. An outcome that
-        // did not reach the engine must not be lost: re-run. The re-run prepares first, so an item that
-        // settled meanwhile uploads nothing — but one still in flight uploads again, which is why the
-        // handler's onDelivered must tolerate a repeat. The body stays in this process: it is never put
-        // into WorkManager's data.
+        // did not reach the engine must not be lost: re-run. It is written to disk first, so a re-run in a
+        // new process replays it instead of uploading again; without the journal (a write that failed) the
+        // re-run prepares first, so an item that settled meanwhile uploads nothing — but one still in flight
+        // uploads again, which is why the handler's onDelivered must tolerate a repeat. The body stays in
+        // this process and the journal: it is never put into WorkManager's data.
         val response: UploadResponse? = outcome.response
         val landed: Boolean = if (response != null) {
-            UploadGateway.complete(itemId, response, engineWait)
+            val journaled: Boolean = journal.record(itemId, response, bodyLimit)
+            if (journaled) {
+                journal.settleRecorded(itemId, response, gatewaySettle(engineWait))
+            } else {
+                UploadGateway.complete(itemId, response, engineWait)
+            }
         } else {
             UploadGateway.complete(itemId, outcome.result, engineWait)
         }

@@ -49,6 +49,19 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   change in the ABI dump, and it is binary and source compatible. The legacy
   `createWorkManagerUploadTransport` (global classifier) stays status-only.
 
+### Fixed
+
+- `kmptoolkit-uploader`: an upload whose answer arrived but whose settlement was lost no longer uploads
+  again. The Android and iOS handler transports write the completed outcome (status, headers, capped
+  body) to a small file before settling and delete it once the engine has the answer; a worker restart,
+  an iOS relaunch or a re-hand after a lease expiry replays that file through `UploadGateway.complete`
+  instead of re-uploading. The file is deleted on `cancel` and after 7 days, an orphan sweep runs when
+  the transport is created, and an entry of an unknown format version is ignored. No public API change.
+  The journal keeps the body only up to the handler's `maxResponseBodyBytes` (on iOS, after a brief window in which the whole captured body is on disk) and replays at most once per item. The response body now rests briefly on disk, in no-backup storage on Android and a backup-excluded
+  Application Support directory (`NSFileProtectionCompleteUntilFirstUserAuthentication`) on iOS; see
+  `docs/kmptoolkit-uploader/05-platform-notes.md`. The legacy `createWorkManagerUploadTransport` is
+  unchanged.
+
 ## [3.0.0]
 
 ### Breaking

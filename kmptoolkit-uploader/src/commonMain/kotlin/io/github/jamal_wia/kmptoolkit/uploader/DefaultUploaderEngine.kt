@@ -778,8 +778,13 @@ internal class DefaultUploaderEngine(
      * @return `false` when a store failure kept the outcome from landing; the executor keeps it and
      *   retries.
      */
-    suspend fun settleUpload(id: String, result: UploadResult, response: UploadResponse? = null): Boolean = try {
-        settleUploadOutcome(id, result, response)
+    suspend fun settleUpload(
+        id: String,
+        result: UploadResult,
+        response: UploadResponse? = null,
+        onSettling: (() -> Unit)? = null,
+    ): Boolean = try {
+        settleUploadOutcome(id, result, response, onSettling)
         true
     } catch (e: CancellationException) {
         throw e
@@ -800,7 +805,27 @@ internal class DefaultUploaderEngine(
         settle(id, record.claim, result)
     }
 
-    private suspend fun settleUploadOutcome(id: String, rawResult: UploadResult, rawResponse: UploadResponse?) {
+    /**
+     * The body limit the handler of [id] enforces, or `null` when the item is gone, has no upload handler or
+     * the store cannot say. Lets a transport hold the outcome journal to the same limit.
+     */
+    suspend fun responseBodyLimitOf(id: String): Int? = try {
+        val record: UploaderItem? = store.getById(id)
+        val handler: UploadHandler<*>? = record?.let { handlersByType[it.type] as? UploadHandler<*> }
+        @Suppress("UNCHECKED_CAST")
+        if (record == null || handler == null) null else effectiveBodyLimit(record, handler as UploadHandler<Any>)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        null
+    }
+
+    private suspend fun settleUploadOutcome(
+        id: String,
+        rawResult: UploadResult,
+        rawResponse: UploadResponse?,
+        onSettling: (() -> Unit)?,
+    ) {
         val record: UploaderItem? = store.getById(id)
         if (record == null) {
             logger.i { "Upload settle($rawResult) for unknown id=$id — no-op." }
@@ -829,6 +854,14 @@ internal class DefaultUploaderEngine(
         }
         // Under the item's current claim: an upload transport keys its platform job by item id, so every
         // claim of the item is served by this same job, and its report is about the attempt now held.
+        // The outcome is about to be committed, which may return the item to the queue and re-hand it at
+        // once: a transport's journal entry must be gone by then, or it would replay into the next attempt.
+        // A throw here must not stop the settlement.
+        try {
+            onSettling?.invoke()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+        }
         settle(id, record.claim, settleResult)
         runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
     }
