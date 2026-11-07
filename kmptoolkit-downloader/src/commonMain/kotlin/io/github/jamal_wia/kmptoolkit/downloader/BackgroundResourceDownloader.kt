@@ -29,6 +29,11 @@ public interface BackgroundResourceDownloader {
     /**
      * Starts a background download for [unit]. Idempotent: enqueuing a unit already in flight joins
      * the running transfer rather than starting a second one.
+     *
+     * The engine subscribes to [observeProgress] **before** it calls this, so an event emitted while
+     * enqueuing (a download that is already whole, a failure to begin) reaches it even through a
+     * flow without replay. Do not throw from here; report a failure as a
+     * [BackgroundDownloadEvent.Error] instead.
      */
     public fun enqueueDownload(unit: DownloadUnit)
 

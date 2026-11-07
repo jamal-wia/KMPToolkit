@@ -163,6 +163,8 @@ internal class ScriptedAttemptsDownloader(
     private val inProgress: Boolean = false,
     private val script: suspend FlowCollector<BackgroundDownloadEvent>.(attempt: Int, unit: DownloadUnit) -> Unit,
 ) : BackgroundResourceDownloader {
+    /** `subscribe` and `enqueue`, in the order the engine did them. */
+    val log: MutableList<String> = mutableListOf()
     val enqueueTimes: MutableList<Long> = mutableListOf()
     val cancelledUnits: MutableList<String> = mutableListOf()
     var subscriptions: Int = 0
@@ -170,6 +172,7 @@ internal class ScriptedAttemptsDownloader(
     val enqueueCount: Int get() = enqueueTimes.size
 
     override fun enqueueDownload(unit: DownloadUnit) {
+        log += "enqueue"
         enqueueTimes += clock()
         check(enqueueTimes.size <= maxEnqueues) { "retry loop: more than $maxEnqueues enqueues" }
     }
@@ -180,6 +183,7 @@ internal class ScriptedAttemptsDownloader(
     }
 
     override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+        log += "subscribe"
         val attempt: Int = subscriptions++
         script(attempt, unit)
     }

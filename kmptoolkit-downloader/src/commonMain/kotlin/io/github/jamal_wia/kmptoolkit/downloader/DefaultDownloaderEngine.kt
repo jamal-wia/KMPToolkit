@@ -11,10 +11,14 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +28,7 @@ import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -357,11 +362,13 @@ internal class DefaultDownloaderEngine(
         if (!inProgress) {
             groupState.value = GroupDownloadState.Downloading(progress = progressBase)
             notifier.showProgress(group = group, progress = progressBase)
-            backgroundDownloader.enqueueDownload(unit)
         }
 
         val progressMark = ProgressMark()
         var failedAttempts = 0
+        // The first attempt attaches to a transfer already running, or starts one; every later one
+        // starts a new transfer. Either way the attempt subscribes to the events before it enqueues.
+        var enqueueThisAttempt: Boolean = !inProgress
         while (true) {
             val result: DownloadAttemptResult = awaitBackgroundDownloadCompletion(
                 group = group,
@@ -370,6 +377,7 @@ internal class DefaultDownloaderEngine(
                 progressBase = progressBase,
                 progressScale = progressScale,
                 progressMark = progressMark,
+                enqueue = enqueueThisAttempt,
             )
 
             val eventName: String? = result.terminalEvent::class.simpleName
@@ -397,6 +405,14 @@ internal class DefaultDownloaderEngine(
                 is BackgroundDownloadEvent.Error -> {
                     val errorMessage: String = result.terminalEvent.message
                     logger.e { "Error for $unit: $errorMessage" }
+                    // The transfer may have finished and its FileReady been lost (a downloader that
+                    // emitted it with nobody listening, or one that failed while reporting it): a
+                    // complete temp file is committed, never re-downloaded or deleted.
+                    if (tempFileIsComplete(unit)) {
+                        logger.i { "Temp file of $unit is complete despite the error, committing it" }
+                        clearStallCount(unit)
+                        return
+                    }
                     val downloadError: DownloadError =
                         if (result.stalled) DownloadError.Timeout else errorMessage.toDownloadError()
                     if (downloadError.isWorthRetrying() &&
@@ -406,7 +422,7 @@ internal class DefaultDownloaderEngine(
                         val backoff: Duration = retryBackoff(failedAttempts)
                         logger.i { "Retrying download for $unit in $backoff (error: $errorMessage)" }
                         delay(backoff)
-                        backgroundDownloader.enqueueDownload(unit)
+                        enqueueThisAttempt = true
                         continue
                     }
                     clearStallCount(unit)
@@ -440,18 +456,11 @@ internal class DefaultDownloaderEngine(
      * Suspends until the background download for [unit] emits a terminal event. Maps unit-level
      * progress to the overall group progress using [progressBase] and [progressScale].
      *
-     * Uses **inactivity timeout** (stall detection) instead of a fixed wall-clock timeout: -
-     * [transformLatest] restarts the inner block on each new event, cancelling the previous
-     * [delay]. - If no event arrives within [STALL_TIMEOUT], the delay completes and throws
-     *   [DownloadResourceStallException].
-     * - A slow-but-progressing download (receiving Progress events) will never stall-timeout.
-     * - Primary network/transport timeouts are handled by the [BackgroundResourceDownloader].
-     *
      * Returns a [DownloadAttemptResult] containing the terminal event and whether this attempt
-     * advanced [progressMark] — used by [downloadUnitWithRetry] to decide on retry. Every event,
-     * a repeated [BackgroundDownloadEvent.Progress] included, restarts the stall timer above.
+     * advanced [progressMark] — used by [downloadUnitWithRetry] to decide on retry. [enqueue] says
+     * whether this attempt starts the transfer (false: it attaches to one already running); see
+     * [awaitTerminalEvent] for the subscription order and the stall detection.
      */
-    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun awaitBackgroundDownloadCompletion(
         group: ResourceGroup,
         groupState: MutableStateFlow<GroupDownloadState>,
@@ -459,64 +468,131 @@ internal class DefaultDownloaderEngine(
         progressBase: Float,
         progressScale: Float,
         progressMark: ProgressMark,
+        enqueue: Boolean,
     ): DownloadAttemptResult {
         var madeProgress = false
-        var stalled = false
 
-        val terminalEvent: BackgroundDownloadEvent.Terminal = try {
-            backgroundDownloader.observeProgress(unit)
-                .onEach { event: BackgroundDownloadEvent ->
-                    if (event is BackgroundDownloadEvent.Progress) {
-                        if (event.fraction > progressMark.highWater) {
-                            progressMark.highWater = event.fraction
-                            madeProgress = true
-                        }
-                        val scaledProgress: Float = progressBase + event.fraction * progressScale
-                        // Guard: never report progress lower than the current value.
-                        // On retry, the new attempt starts at fraction=0 before real
-                        // progress is reported — without this check the UI would
-                        // jump back to progressBase (e.g. 50% for a second unit).
-                        val currentProgress: Float =
-                            (groupState.value as? GroupDownloadState.Downloading)
-                                ?.progress ?: 0f
-                        if (scaledProgress > currentProgress) {
-                            groupState.value =
-                                GroupDownloadState.Downloading(progress = scaledProgress)
-                            notifier.showProgress(group = group, progress = scaledProgress)
-                        }
-                    }
-                }
-                .transformLatest { event: BackgroundDownloadEvent ->
-                    emit(event)
-                    // Resets on each upstream emission; fires only if no new event arrives.
-                    delay(STALL_TIMEOUT)
-                    throw DownloadResourceStallException()
-                }
-                .filterIsInstance<BackgroundDownloadEvent.Terminal>()
-                .first()
-        } catch (e: DownloadResourceStallException) {
-            logger.e(e) { "${e.message.orEmpty()} for $unit" }
-            backgroundDownloader.cancelDownload(unit)
-            stalled = true
-            // Return as Error so the retry loop in downloadUnitWithRetry can handle it. Flagged as
-            // a stall so it is reported as a timeout without reading the text back.
-            BackgroundDownloadEvent.Error(
-                unit = unit,
-                message = e.message ?: "Download stalled (timeout)",
-            )
-        } catch (e: CancellationException) {
-            // The background download continues even if the coroutine is cancelled
-            // (e.g., user navigated away). Do NOT cancel the notification —
-            // the transfer is still running under the platform's own machinery.
-            logger.i { "Detached from background download for $unit (coroutine cancelled: ${e.message})" }
-            throw e
+        val wait: TerminalWait = awaitTerminalEvent(unit = unit, enqueue = enqueue) { event ->
+            if (event.fraction > progressMark.highWater) {
+                progressMark.highWater = event.fraction
+                madeProgress = true
+            }
+            val scaledProgress: Float = progressBase + event.fraction * progressScale
+            // Guard: never report progress lower than the current value.
+            // On retry, the new attempt starts at fraction=0 before real
+            // progress is reported — without this check the UI would
+            // jump back to progressBase (e.g. 50% for a second unit).
+            val currentProgress: Float =
+                (groupState.value as? GroupDownloadState.Downloading)
+                    ?.progress ?: 0f
+            if (scaledProgress > currentProgress) {
+                groupState.value =
+                    GroupDownloadState.Downloading(progress = scaledProgress)
+                notifier.showProgress(group = group, progress = scaledProgress)
+            }
         }
 
         return DownloadAttemptResult(
-            terminalEvent = terminalEvent,
+            terminalEvent = wait.terminalEvent,
             madeProgress = madeProgress,
-            stalled = stalled,
+            stalled = wait.stalled,
         )
+    }
+
+    /** One attempt's terminal event, and whether it is the engine's own stall error. */
+    private class TerminalWait(
+        val terminalEvent: BackgroundDownloadEvent.Terminal,
+        val stalled: Boolean,
+    )
+
+    /**
+     * Subscribes to [BackgroundResourceDownloader.observeProgress] for [unit], THEN (when [enqueue])
+     * starts the transfer, and suspends until a terminal event arrives. The order matters: a
+     * downloader that publishes through a `MutableSharedFlow` without replay drops whatever it emits
+     * with no subscriber, and a transfer that finishes inside `enqueueDownload` — a download that is
+     * already whole, a failure to begin — would otherwise lose its terminal event and the attempt
+     * would only end by stalling. The collection is started undispatched so it is registered before
+     * [BackgroundResourceDownloader.enqueueDownload] is called, and buffers everything after that.
+     *
+     * Uses **inactivity timeout** (stall detection) instead of a fixed wall-clock timeout:
+     * - [transformLatest] restarts the inner block on each new event, cancelling the previous
+     *   [delay]. A repeated [BackgroundDownloadEvent.Progress] restarts it like any other event.
+     * - If no event arrives within [STALL_TIMEOUT], the delay completes and throws
+     *   [DownloadResourceStallException]; the transfer is cancelled and the attempt ends as a stall.
+     * - A slow-but-progressing download (receiving Progress events) will never stall-timeout.
+     * - Primary network/transport timeouts are handled by the [BackgroundResourceDownloader].
+     *
+     * [onProgress] runs for each [BackgroundDownloadEvent.Progress].
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun awaitTerminalEvent(
+        unit: DownloadUnit,
+        enqueue: Boolean,
+        onProgress: suspend (BackgroundDownloadEvent.Progress) -> Unit,
+    ): TerminalWait = coroutineScope {
+        val events: Channel<BackgroundDownloadEvent> = Channel(Channel.UNLIMITED)
+        val subscription: Job = launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                backgroundDownloader.observeProgress(unit).collect { event: BackgroundDownloadEvent ->
+                    events.send(event)
+                }
+                events.close()
+            } catch (e: CancellationException) {
+                events.close()
+                throw e
+            } catch (e: Throwable) {
+                events.close(e)
+            }
+        }
+        try {
+            if (enqueue) backgroundDownloader.enqueueDownload(unit)
+            val terminalEvent: BackgroundDownloadEvent.Terminal = try {
+                events.receiveAsFlow()
+                    .onEach { event: BackgroundDownloadEvent ->
+                        if (event is BackgroundDownloadEvent.Progress) onProgress(event)
+                    }
+                    .transformLatest { event: BackgroundDownloadEvent ->
+                        emit(event)
+                        // Resets on each upstream emission; fires only if no new event arrives.
+                        delay(STALL_TIMEOUT)
+                        throw DownloadResourceStallException()
+                    }
+                    .filterIsInstance<BackgroundDownloadEvent.Terminal>()
+                    .first()
+            } catch (e: DownloadResourceStallException) {
+                logger.e(e) { "${e.message.orEmpty()} for $unit" }
+                backgroundDownloader.cancelDownload(unit)
+                // Returned as an Error so the retry loop can handle it, flagged as a stall so it is
+                // reported as a timeout without reading the text back.
+                return@coroutineScope TerminalWait(
+                    terminalEvent = BackgroundDownloadEvent.Error(
+                        unit = unit,
+                        message = e.message ?: "Download stalled (timeout)",
+                    ),
+                    stalled = true,
+                )
+            } catch (e: CancellationException) {
+                // The background download continues even if the coroutine is cancelled
+                // (e.g., user navigated away). Do NOT cancel the notification —
+                // the transfer is still running under the platform's own machinery.
+                logger.i { "Detached from background download for $unit (coroutine cancelled: ${e.message})" }
+                throw e
+            }
+            TerminalWait(terminalEvent = terminalEvent, stalled = false)
+        } finally {
+            subscription.cancel()
+            events.cancel()
+        }
+    }
+
+    /** True when the storage holds a finished download of [unit]; a read that fails is "no". */
+    private fun tempFileIsComplete(unit: DownloadUnit): Boolean = try {
+        storage.tempFileState(unit) == TempFileState.Complete
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logger.e(e) { "Cannot read the temp file state of $unit: ${e.message}" }
+        false
     }
 
     /**
@@ -821,44 +897,20 @@ internal class DefaultDownloaderEngine(
      * the same contract as the group path, so the two `ensureAvailable` overloads never differ in
      * whether the caller hears about a failure.
      */
-    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun downloadUnitOnly(unit: DownloadUnit) {
         val stateFlow: MutableStateFlow<UnitDownloadState> = unitStateFlow(unit)
-        if (!backgroundDownloader.isDownloadInProgress(unit)) {
-            stateFlow.value = UnitDownloadState.Downloading(progress = 0f)
-            backgroundDownloader.enqueueDownload(unit)
-        }
+        val enqueue: Boolean = !backgroundDownloader.isDownloadInProgress(unit)
+        if (enqueue) stateFlow.value = UnitDownloadState.Downloading(progress = 0f)
 
-        var stalled = false
-        val terminalEvent: BackgroundDownloadEvent.Terminal = try {
-            backgroundDownloader.observeProgress(unit)
-                .onEach { event: BackgroundDownloadEvent ->
-                    if (event is BackgroundDownloadEvent.Progress) {
-                        stateFlow.value = UnitDownloadState.Downloading(progress = event.fraction)
-                    }
-                }
-                .transformLatest { event: BackgroundDownloadEvent ->
-                    emit(event)
-                    delay(STALL_TIMEOUT)
-                    throw DownloadResourceStallException()
-                }
-                .filterIsInstance<BackgroundDownloadEvent.Terminal>()
-                .first()
-        } catch (e: DownloadResourceStallException) {
-            logger.e(e) { "${e.message.orEmpty()} for $unit" }
-            backgroundDownloader.cancelDownload(unit)
-            stalled = true
-            BackgroundDownloadEvent.Error(
-                unit = unit,
-                message = e.message ?: "Download stalled (timeout)",
-            )
+        val wait: TerminalWait = awaitTerminalEvent(unit = unit, enqueue = enqueue) { event ->
+            stateFlow.value = UnitDownloadState.Downloading(progress = event.fraction)
         }
 
         settleUnitDownload(
             unit = unit,
             stateFlow = stateFlow,
-            terminalEvent = terminalEvent,
-            stalled = stalled,
+            terminalEvent = wait.terminalEvent,
+            stalled = wait.stalled,
         )
     }
 
@@ -884,6 +936,11 @@ internal class DefaultDownloaderEngine(
 
             is BackgroundDownloadEvent.Error -> {
                 clearStallCount(unit)
+                // A finished download whose FileReady was lost is committed, never deleted.
+                if (tempFileIsComplete(unit)) {
+                    logger.i { "Temp file of $unit is complete despite the error, committing it" }
+                    return
+                }
                 val downloadError: DownloadError =
                     if (stalled) DownloadError.Timeout else terminalEvent.message.toDownloadError()
                 stateFlow.value = UnitDownloadState.Error(downloadError)

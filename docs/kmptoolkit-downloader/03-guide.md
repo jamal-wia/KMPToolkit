@@ -14,15 +14,22 @@ ensureAvailable ─▶ [already available?] ─── yes ──▶ return at on
                    [transfer running?] ── yes ──▶ attach to it
                           │ no
                           ▼
-                   enqueueDownload (resumes a Partial file)
+                   subscribe to the events, THEN enqueueDownload (resumes a Partial file)
                           │
                           ▼
                    Progress… ─┬─ FileReady ─▶ mark Complete ─▶ commit ─▶ verify ─▶ Completed
                               │                                  └─ check failed ─▶ download again
-                              ├─ Error     ─▶ retry? ─▶ re-enqueue │ give up
+                              ├─ Error     ─▶ temp file Complete? ─ yes ─▶ commit
+                              │                 └─ no ─▶ retry? ─▶ re-enqueue │ give up
                               ├─ Cancelled ─▶ Idle, temp deleted
                               └─ (silence)  ─▶ 5-minute stall ─▶ treated as Error
 ```
+
+The engine subscribes to a transfer's events **before** it enqueues the transfer, so an event your
+downloader emits while enqueuing (a file that is already whole, a failure to begin) is not lost even
+through a `MutableSharedFlow` without replay. And on an `Error` or a stall it first looks at the
+temp file: a `Complete` one means the transfer finished and only its `FileReady` went missing, so the
+engine commits it instead of re-downloading or deleting it.
 
 Two invariants make the rest of this document make sense:
 
