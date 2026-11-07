@@ -641,9 +641,12 @@ internal class AndroidPermissionController(
      * Runs [launch] on the main thread — an `ActivityResultLauncher` must be started there, and the
      * caller's coroutine may be anywhere — and suspends for the value it delivers.
      *
+     * The result is a single-assignment [CompletableDeferred]: the first value to arrive wins and any
+     * later one is dropped.
+     *
      * @return the delivered value, or `null` when the host could not show anything. A host that both
-     *   reports failure and delivers breaks its contract; the continuation is resumed exactly once
-     *   regardless.
+     *   reports failure and delivers breaks its contract; whichever of the two arrives first is the
+     *   result, the other is ignored.
      */
     private suspend fun <T : Any> launchOnHost(what: String, launch: (deliver: (T) -> Unit) -> Boolean): T? {
         val result: CompletableDeferred<T?> = CompletableDeferred()

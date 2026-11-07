@@ -28,13 +28,13 @@ internal class LifecycleActivityTracker(
     private val isTracked: (Activity) -> Boolean = { true },
 ) : ActivityAccess, Application.ActivityLifecycleCallbacks {
 
+    // java.util.concurrent on purpose: this module has no kotlinx-coroutines dependency, and its API
+    // is non-suspending, fed by main-thread lifecycle callbacks and called from any thread.
+    // The other atomic / volatile fields below (listeners, released, Registration.cancelled) follow it.
     /**
      * The only reference to an activity this class holds, and it is weak. Atomic so a caller on another
      * thread clearing a stale activity cannot erase one that resumed in the meantime.
      */
-    // java.util.concurrent on purpose: this module has no kotlinx-coroutines dependency, and its API
-    // is non-suspending, fed by main-thread lifecycle callbacks and called from any thread.
-    // The other atomic / volatile fields below (listeners, released, Registration.cancelled) follow it.
     private val current: AtomicReference<WeakReference<Activity>?> = AtomicReference(null)
 
     /**
