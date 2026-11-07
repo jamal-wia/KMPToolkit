@@ -6,6 +6,7 @@ import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.concurrent.atomics.decrementAndFetch
 import kotlin.concurrent.atomics.incrementAndFetch
+import kotlin.coroutines.CoroutineContext
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -106,6 +107,7 @@ class RecorderStormTest {
             try {
                 val deadline = TimeSource.Monotonic.markNow() + 10.seconds
                 while (!prepareOpen.load() && !deadline.hasPassedNow()) delay(1L)
+                busy()
                 onPrepared(outputPath)
                 if (failPrepare.load()) throw IllegalStateException("scripted prepare failure")
                 open.store(true)
@@ -197,11 +199,12 @@ class RecorderStormTest {
         engine: RecorderEngine,
         fileSystem: RecordingFileSystem,
         config: AudioRecorderConfig = AudioRecorderConfig(minimumFreeSpaceBytes = 0L),
+        worker: CoroutineContext = Dispatchers.Default,
     ): DefaultAudioRecorder = DefaultAudioRecorder(
         engine = engine,
         fileSystem = fileSystem,
         config = config,
-        workerContext = Dispatchers.Default,
+        workerContext = worker,
         epochClock = EpochClock { 1L },
         silenceDebounce = 3.milliseconds,
     )
@@ -322,6 +325,35 @@ class RecorderStormTest {
     }
 
     @Test
+    fun `eight callers preparing at once leave exactly one file and one open handle`() = storm {
+        repeat(ROUNDS) { round: Int ->
+            val seed: Long = 1_299_709L * round + 1L
+            val fs = StormFs()
+            val engine = StormEngine(onPrepared = { fs.create(it) }, busyMicros = 400L)
+            val recorder: DefaultAudioRecorder = recorder(engine, fs)
+            val paths: List<String> = List(8) { "/data/prep-$round-$it.m4a" }
+            val results = paths.mapIndexed { i: Int, path: String ->
+                val own = Random(seed + i)
+                async(Dispatchers.Default) {
+                    jitter(own)
+                    recorder.prepare(path).isSuccess
+                }
+            }.awaitAll()
+            assertTrue(results.any { it }, "seed $seed: no prepare succeeded: $results")
+            val state: RecorderState = recorder.state.value
+            val ready: RecorderState.Ready = assertIs<RecorderState.Ready>(state, "seed $seed: $state")
+            assertEquals(0, engine.overlaps.load(), "seed $seed: engine.prepare overlapped another engine call")
+            // Every prepare that was superseded by a later one cleaned up its own file.
+            val left: List<String> = paths.filter { fs.has(it) }
+            assertEquals(listOf(ready.outputPath), left, "seed $seed: files left behind: $left (deletions ${fs.deletions()})")
+            assertTrue(engine.open.load(), "seed $seed: the recorder is Ready but holds no handle")
+            recorder.release()
+            awaitTrue("seed $seed: handle freed") { !engine.open.load() }
+            assertFalse(fs.has(ready.outputPath), "seed $seed: release left the Ready file behind")
+        }
+    }
+
+    @Test
     fun `engine events and level collectors on other threads never overlap the engine or outlive release`() = storm {
         eventStorm(callers = 1)
     }
@@ -331,7 +363,12 @@ class RecorderStormTest {
         eventStorm(callers = 3)
     }
 
-    private suspend fun CoroutineScope.eventStorm(callers: Int) {
+    @Test
+    fun `one thread running the caller and the worker never wedges under events and collectors`() = storm {
+        eventStorm(callers = 1, serial = true)
+    }
+
+    private suspend fun CoroutineScope.eventStorm(callers: Int, serial: Boolean = false) {
         repeat(STORM_ROUNDS) { round: Int ->
             val seed: Long = 7_919L * round + 11L + callers
             val fs = StormFs()
@@ -341,7 +378,9 @@ class RecorderStormTest {
                 durationUpdateInterval = 1.milliseconds,
                 levelUpdateInterval = 1.milliseconds,
             )
-            val recorder: DefaultAudioRecorder = recorder(engine, fs, config)
+            val serialContext: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
+            val recorder: DefaultAudioRecorder =
+                if (serial) recorder(engine, fs, config, serialContext) else recorder(engine, fs, config)
             val done = AtomicBoolean(false)
             val leaked = AtomicInt(0)
 
@@ -397,7 +436,7 @@ class RecorderStormTest {
             // One caller is a single-threaded dispatcher, the documented way to drive a recorder;
             // several callers go beyond that contract, which the lock is still meant to survive.
             val caller: CoroutineDispatcher =
-                if (callers == 1) Dispatchers.Default.limitedParallelism(1) else Dispatchers.Default
+                if (serial) serialContext else if (callers == 1) Dispatchers.Default.limitedParallelism(1) else Dispatchers.Default
             (0 until callers).map { c: Int ->
                 launch(caller) {
                     val own = Random(seed + 1_000L * c)

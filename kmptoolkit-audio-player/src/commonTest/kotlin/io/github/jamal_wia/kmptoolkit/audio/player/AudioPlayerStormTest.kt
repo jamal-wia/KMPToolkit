@@ -15,6 +15,7 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -141,14 +142,15 @@ class AudioPlayerStormTest {
         engine: HandleEngine,
         seed: Long,
         releaseAtEnd: Boolean,
+        dispatcher: CoroutineDispatcher = Dispatchers.Default,
     ): Job {
         val random = Random(seed)
-        return launch(Dispatchers.Default) {
+        return launch(dispatcher) {
             repeat(OPS) { op: Int ->
                 when (random.nextInt(14)) {
                     0, 1, 2 -> {
                         val target: AudioSource = sources[random.nextInt(sources.size)]
-                        val call: Job = launch(Dispatchers.Default) { player.prepare(target) }
+                        val call: Job = launch(dispatcher) { player.prepare(target) }
                         // A child of this worker, so joining the worker waits for the call as well.
                         if (random.nextBoolean()) {
                             jitter(random)
@@ -289,6 +291,39 @@ class AudioPlayerStormTest {
         }
     }
 
+
+    @Test
+    fun `callers and poller and callbacks sharing one single thread never wedge the player`() = storm {
+        repeat(ROUNDS) { round: Int ->
+            val seed: Long = 15_485_863L * round + 3L
+            val engine = HandleEngine(loadSteps = round % 3, slowUnwind = round % 2 == 0)
+            // One thread runs the callers, the poll coroutine and every engine continuation, while the
+            // transport calls block it on the player's lock: nothing may wait for a thread that is waiting.
+            val serial: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
+            val player: AudioPlayer = createAudioPlayer(
+                engine = engine,
+                config = AudioPlayerConfig(positionUpdateIntervalMs = 1L),
+                coroutineContext = serial,
+            )
+            val done = AtomicBoolean(false)
+            val workers: List<Job> = (0 until 3).map { w: Int ->
+                worker(player, engine, seed + w, releaseAtEnd = false, dispatcher = serial)
+            }
+            val callbacks: Job = callbackThread(engine, seed + 99L, done)
+            workers.joinAll()
+            done.store(true)
+            callbacks.join()
+            engine.clearFailure()
+            awaitTrue("seed $seed: loads unwound") { engine.activeLoads.load() == 0 }
+            assertTrue(engine.maxLoads.load() <= 1, "seed $seed: ${engine.maxLoads.load()} loads ran at once")
+            assertEquals(0, engine.releasesDuringLoad.load(), "seed $seed: engine released under a running load")
+            withTimeout(5.seconds) { player.prepare(sources[0]) }
+            assertIs<PlayerState.Ready>(player.stateFlow.value, "seed $seed")
+            assertEquals(1, engine.live.load(), "seed $seed: a Ready player must hold exactly one handle")
+            player.release()
+            awaitTrue("seed $seed: handle freed after release") { engine.live.load() == 0 }
+        }
+    }
 
     private companion object {
         const val ROUNDS: Int = 30
