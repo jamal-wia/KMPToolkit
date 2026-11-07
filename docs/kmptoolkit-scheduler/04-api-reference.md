@@ -185,7 +185,10 @@ invented for you.
 | `alarmIdKey` | Key carrying `ScheduledAlarm.id`: an intent extra on Android, a `userInfo` entry on iOS. **Keep it stable across app versions**, like `alarmIntentScheme`: an Android alarm armed under an earlier key is read with the new one at fire time, finds no id, and is dropped without a trace. |
 | `alarmTypeKey` | Key carrying `ScheduledAlarm.type`, on the same terms, including keeping it stable across app versions. |
 
-Throws `IllegalArgumentException` at construction if a key is blank, the two keys are equal, or the
+Throws `IllegalArgumentException` at construction if a key is blank, the two keys are equal, a key is
+one of the names the module writes into the same Android intent extras (`kmptoolkit_alarm_fire_at`,
+`kmptoolkit_alarm_title`, `kmptoolkit_alarm_body`, `kmptoolkit_alarm_channel`,
+`kmptoolkit_alarm_payload`; the check applies on iOS too, so a config is portable), or the
 scheme is non-null and invalid. There is no iOS background-task id here because the module registers
 none — iOS scheduling goes through `UNUserNotificationCenter`.
 
