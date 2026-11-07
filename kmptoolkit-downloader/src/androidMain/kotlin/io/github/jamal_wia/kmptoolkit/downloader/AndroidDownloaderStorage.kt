@@ -223,7 +223,7 @@ internal class AndroidDownloaderStorage(
                 trash.parentFile?.mkdirs()
                 if (staging.renameTo(trash)) trash else null
             },
-            dispose = { trash: File -> trash.deleteRecursively() },
+            dispose = { trash: File -> deleteTree(trash) },
         )
         sweepTrash()
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
@@ -246,7 +246,35 @@ internal class AndroidDownloaderStorage(
      * length can make the rename into it fail.
      */
     private fun sweepTrash() {
-        File(baseDir, UnitFileLayout.TRASH_DIRECTORY).listFiles()?.forEach { entry: File -> entry.deleteRecursively() }
+        File(baseDir, UnitFileLayout.TRASH_DIRECTORY).listFiles()?.forEach { entry: File -> deleteTree(entry) }
+    }
+
+    /**
+     * Deletes [file] and everything under it, treating an entry that another thread already removed
+     * as gone. Kotlin's `deleteRecursively` walks with `FileTreeWalk`, which asserts (an
+     * `AssertionError`, live in every test JVM) when a tree vanishes under its walk; two cleanups of
+     * one tree, or a cleanup racing a recommit, must never surface that. A symbolic link is removed
+     * as a link, never followed.
+     */
+    private fun deleteTree(file: File) {
+        if (!isSymbolicLink(file)) {
+            file.listFiles()?.forEach { child: File -> deleteTree(child) }
+        }
+        file.delete()
+    }
+
+    /** The size of the files under [file]; an entry that vanished meanwhile counts as zero. */
+    private fun treeSize(file: File): Long {
+        val children: Array<File>? = file.listFiles()
+        return if (children == null) file.length() else children.sumOf { child: File -> treeSize(child) }
+    }
+
+    private fun isSymbolicLink(file: File): Boolean = try {
+        val parent: File? = file.parentFile?.canonicalFile
+        val candidate: File = if (parent == null) file else File(parent, file.name)
+        candidate.canonicalFile != candidate.absoluteFile
+    } catch (e: java.io.IOException) {
+        false
     }
 
     private fun deleteTempData(names: UnitFileLayout.Names) {
@@ -275,9 +303,7 @@ internal class AndroidDownloaderStorage(
         )
         if (!target.exists()) return 0L
         return if (target.isDirectory) {
-            target.walkBottomUp()
-                .filter { f: File -> f.isFile }
-                .sumOf { f: File -> f.length() }
+            treeSize(target)
         } else {
             target.length()
         }
@@ -287,7 +313,7 @@ internal class AndroidDownloaderStorage(
         val target = File(getResourcePath(unit))
         if (!target.exists()) return
         if (target.isDirectory) {
-            target.deleteRecursively()
+            deleteTree(target)
         } else {
             target.delete()
         }
@@ -333,7 +359,7 @@ internal class AndroidDownloaderStorage(
             // must not collide in one staging directory.
             val stagingDir = File(baseDir, names.staging)
             // Clean any leftover staging from a previous failed attempt
-            stagingDir.deleteRecursively()
+            deleteTree(stagingDir)
             try {
                 extractZip(
                     tempFile = tempFile,
@@ -355,14 +381,14 @@ internal class AndroidDownloaderStorage(
                     }
                 }
                 // Atomic swap: remove old target, rename staging to target
-                targetDir.deleteRecursively()
+                deleteTree(targetDir)
                 if (!stagingDir.renameTo(targetDir)) {
                     // Fallback: copy + delete (cross-filesystem)
                     stagingDir.copyRecursively(target = targetDir, overwrite = true)
-                    stagingDir.deleteRecursively()
+                    deleteTree(stagingDir)
                 }
             } catch (e: Exception) {
-                stagingDir.deleteRecursively()
+                deleteTree(stagingDir)
                 throw e
             }
             tempFile.delete()
