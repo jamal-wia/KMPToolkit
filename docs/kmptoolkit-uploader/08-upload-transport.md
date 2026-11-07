@@ -321,6 +321,12 @@ Its worker settles under the item's current claim, as the gateway does and for t
 job is unique per item id, so it serves every claim of the item. Like the gateway, it reaches only an
 engine made by `createUploaderEngine`, and retries the job otherwise.
 
+The outcome of an upload that happened is never lost to a fault after it. A `classify` that throws
+settles the attempt as `Failed` (it spends retry budget, so a persistent bug ends in the give-up
+policy instead of re-uploading the file every lease); a settle the store refuses makes the job report
+a retry; and the settle write is not cancelled with the job when WorkManager stops it just after the
+server answered.
+
 Its limits are the reason `UploadHandler` exists:
 
 - **The whole request is stored in WorkManager's `Data`** — URL, headers and field values, encoded by

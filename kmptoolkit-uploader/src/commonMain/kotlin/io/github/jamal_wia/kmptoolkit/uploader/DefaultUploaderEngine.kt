@@ -796,13 +796,23 @@ internal class DefaultUploaderEngine(
     /**
      * Settles [result] under the item's current claim — for an upload transport's job, which is keyed by
      * item id and therefore serves every claim of the item. See [settleUploadOutcome].
+     *
+     * @return `false` when a store failure kept the verdict from landing, so the job reports a retry
+     *   instead of failing and leaving the item in flight until its lease runs out.
      */
-    suspend fun settleUnderCurrentClaim(id: String, result: SettleResult) {
-        val record: UploaderItem = store.getById(id) ?: run {
+    suspend fun settleUnderCurrentClaim(id: String, result: SettleResult): Boolean = try {
+        val record: UploaderItem? = store.getById(id)
+        if (record == null) {
             logger.i { "settle($result) for unknown id=$id — no-op." }
-            return
+        } else {
+            settle(id, record.claim, result)
         }
-        settle(id, record.claim, result)
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        logger.e(e) { "Settle($result) under the current claim for id=$id failed — store failure; the job retries." }
+        false
     }
 
     /**
