@@ -85,7 +85,8 @@ internal fun performMultipartUploadCapturing(
             setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
         }
         watch?.begin(connection)
-        val out: OutputStream = connection.outputStream
+        val out: OutputStream = connection.outputStream // connects; not counted as body inactivity
+        watch?.startWriting()
         writeMultipartBody(out, boundary, request, onWholePercent, isCancelled, watch)
         // Closed only once the body is whole. Closing a chunked stream sends its final chunk, so closing
         // it on a cancellation or a failed write would hand the server a complete, truncated request;
@@ -266,12 +267,20 @@ internal class WriteWatch {
     /** Whether [drop] was called: the connection was closed from outside, not by the peer. */
     val wasDropped: Boolean get() = dropped
 
+    /**
+     * Publishes [opened] so a [drop] reaches it, and so a cancel during the connect is not lost. Does NOT start
+     * the stall clock: the connect (TCP + TLS) runs under the connect timeout, not the body-inactivity limit.
+     */
     fun begin(opened: HttpURLConnection) {
         connection.set(opened)
-        lastActivityNanos = System.nanoTime()
-        writing = true
         // A drop that landed before the connection was published (a cancel during connect) still applies.
         if (dropped) opened.disconnect()
+    }
+
+    /** The connection is up and the body write starts: from here on, silence counts as a stall. */
+    fun startWriting() {
+        lastActivityNanos = System.nanoTime()
+        writing = true
     }
 
     fun touch() {

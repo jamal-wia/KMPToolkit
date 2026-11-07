@@ -9,6 +9,7 @@ import java.net.ServerSocket
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
@@ -104,6 +105,19 @@ class MultipartUploadStallTest {
         val result: UploadResult = withTimeout(15_000) { upload.await() }
 
         assertIs<UploadResult.TransportFailure>(result)
+    }
+
+    @Test
+    fun `the stall clock starts when the body write starts, not when the connection is published`() {
+        val watch = WriteWatch()
+        val connection = java.net.URL("http://127.0.0.1:1/").openConnection() as java.net.HttpURLConnection
+        watch.begin(connection) // the connect is in progress
+        Thread.sleep(150)
+        assertFalse(watch.stalledFor(50), "time spent connecting is not body inactivity")
+
+        watch.startWriting()
+        Thread.sleep(150)
+        assertTrue(watch.stalledFor(50), "silence during the body write is a stall")
     }
 
     private companion object {
