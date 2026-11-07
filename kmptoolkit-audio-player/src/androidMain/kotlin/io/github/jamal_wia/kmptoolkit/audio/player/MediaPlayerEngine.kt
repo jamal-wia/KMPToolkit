@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -43,6 +44,10 @@ internal class MediaPlayerEngine(
         // no Looper of its own, which is exactly what happens here — so this needs no main-thread
         // dispatcher and the module needs no kotlinx-coroutines-android dependency.
         val player: MediaPlayer
+        // An error delivered after onPrepared resumed the continuation but before the steady-state
+        // listeners below replace the one-shot ones: nothing is awaiting it any more, so it is kept
+        // here and rethrown once the swap is done instead of being swallowed.
+        val lateError: AtomicReference<Throwable?> = AtomicReference(null)
         try {
             player = withContext(Dispatchers.IO) {
                 // Published before setDataSource, so that a cancellation landing while this block is
@@ -59,7 +64,8 @@ internal class MediaPlayerEngine(
                 // steady-state listeners below replace these, and resuming twice would crash.
                 player.setOnPreparedListener { if (continuation.isActive) continuation.resume(Unit) }
                 player.setOnErrorListener { _, what: Int, extra: Int ->
-                    if (continuation.isActive) continuation.resumeWithException(mediaPlayerError(what, extra))
+                    val error: IOException = mediaPlayerError(what, extra)
+                    if (continuation.isActive) continuation.resumeWithException(error) else lateError.set(error)
                     true
                 }
                 player.prepareAsync()
@@ -79,6 +85,11 @@ internal class MediaPlayerEngine(
         player.setOnErrorListener { _, what: Int, extra: Int ->
             listener?.onFailed(mediaPlayerError(what, extra))
             true
+        }
+        // The swap comes first so an error from here on reaches onFailed; one that beat it is here.
+        lateError.get()?.let { error: Throwable ->
+            release()
+            throw error
         }
     }
 

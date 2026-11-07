@@ -263,6 +263,20 @@ class AudioPlayerReuseTest {
     }
 
     @Test
+    fun `an error reported right after the load returns wins over Ready`() = runTest {
+        val failure = IllegalStateException("died right after prepared")
+        val engine = RecordingPlaybackEngine().apply {
+            afterLoad = { requireNotNull(listener).onFailed(failure) }
+        }
+        val player: AudioPlayer = newPlayer(engine)
+
+        player.prepare(first)
+        advanceUntilIdle()
+
+        assertEquals(PlayerState.Error(failure), player.stateFlow.value)
+    }
+
+    @Test
     fun `release during an unwinding load frees the engine only once it has unwound`() = runTest {
         val engine = RecordingPlaybackEngine().apply {
             loadDelayMs = 1_000L

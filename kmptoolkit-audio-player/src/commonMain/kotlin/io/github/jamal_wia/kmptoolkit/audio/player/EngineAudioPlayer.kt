@@ -201,6 +201,10 @@ private class EngineAudioPlayer(
 
         gate.exclusive {
             if (!isCurrent(load)) return@exclusive
+            // Still Preparing: a platform error that arrived after the engine's load returned but
+            // before this block (see onFailed) already moved the state to Error, and Ready must not
+            // overwrite it.
+            if (_stateFlow.value !is PlayerState.Preparing) return@exclusive
             engine.setSpeed(playbackSpeed)
             _stateFlow.value = PlayerState.Ready(engine.durationMs())
         }
@@ -292,8 +296,12 @@ private class EngineAudioPlayer(
         _stateFlow.value = PlayerState.Completed(duration)
     }
 
+    // Preparing counts as well: the engine installs its steady-state error callback when its load
+    // returns, which is slightly before prepare() publishes Ready, and an error landing in that
+    // window describes the source that was just loaded.
     override fun onFailed(cause: Throwable): Unit = gate.submit {
-        if (released || !_stateFlow.value.isPlayable) return@submit
+        val current: PlayerState = _stateFlow.value
+        if (released || !(current.isPlayable || current is PlayerState.Preparing)) return@submit
         stopPositionUpdates()
         _stateFlow.value = PlayerState.Error(cause)
     }

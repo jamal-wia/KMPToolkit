@@ -92,6 +92,12 @@ public interface AudioPlayer : AutoCloseable {
      * `CancellationException` propagates — so a `LaunchedEffect` or a scoped `launch` that goes away
      * leaves no half-open native handle behind.
      *
+     * **There is no built-in deadline.** A remote load is bounded only by the platform's own network
+     * timeouts, so a stalled stream can leave the player in [PlayerState.Preparing] for a long time.
+     * A caller that wants a deadline wraps the call, for example in `withTimeoutOrNull(10.seconds)`;
+     * cancellation returns the player to [PlayerState.Idle], and [unload], [release] or a new
+     * [prepare] also end a load that is waiting.
+     *
      * @param source what to load; see [AudioSource].
      */
     public suspend fun prepare(source: AudioSource)

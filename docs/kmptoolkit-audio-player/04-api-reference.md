@@ -35,6 +35,8 @@ source, resets the playhead to `0`, and re-applies `playbackSpeed`.
   and `CancellationException` propagates.
 - **A newer `prepare` replaces this one** — the older load is cancelled and fully unwound before the
   newer one starts; the replaced call returns normally without writing any state.
+- **No built-in deadline** — a remote load is bounded only by the platform's own network timeouts.
+  A caller that wants one wraps the call in `withTimeoutOrNull`; cancellation returns to `Idle`.
 - After `release()`: sets `Error(AudioPlayerReleasedException)` and loads nothing. After `unload()`
   it works as on a fresh player.
 
@@ -185,7 +187,7 @@ public fun createAudioPlayer(
     assetBundle: NSBundle = NSBundle.mainBundle,
     assetSubdirectories: List<String> = emptyList(),
     managesAudioSession: Boolean = true,
-    coroutineContext: CoroutineContext = Dispatchers.Default,
+    coroutineContext: CoroutineContext = Dispatchers.Main,
 ): AudioPlayer
 ```
 
@@ -197,6 +199,10 @@ Backed by `AVFoundation.AVPlayer`.
 - `managesAudioSession` — whether to switch the shared `AVAudioSession` to the playback category.
   See [`05-platform-notes.md`](05-platform-notes.md) before turning it off, and before leaving it on
   in an app that also records.
+- `coroutineContext` — hosts the position-polling coroutine. Defaults to `Dispatchers.Main` (it was
+  `Dispatchers.Default` before 3.1.0): `AVPlayer` is created on the main thread and documents no
+  thread safety, so it is read from the same thread that should drive it. Call the transport
+  functions from the main thread too.
 
 ---
 

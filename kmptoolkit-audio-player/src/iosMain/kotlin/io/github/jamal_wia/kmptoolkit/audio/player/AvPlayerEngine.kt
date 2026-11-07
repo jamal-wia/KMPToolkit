@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.audio.player
 
+import kotlin.concurrent.atomics.AtomicInt
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlin.concurrent.atomics.incrementAndFetch
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +39,7 @@ import platform.darwin.NSObjectProtocol
  * @param assetSubdirectories bundle subdirectories searched after the bundle root.
  * @param managesAudioSession whether to switch the shared `AVAudioSession` to the playback category.
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, ExperimentalAtomicApi::class)
 internal class AvPlayerEngine(
     private val assetBundle: NSBundle,
     private val assetSubdirectories: List<String>,
@@ -46,6 +49,13 @@ internal class AvPlayerEngine(
     private var player: AVPlayer? = null
     private var completionObserver: NSObjectProtocol? = null
     private var listener: PlaybackEngineListener? = null
+
+    /**
+     * Bumped by every [release]. The end-of-item block runs on whichever thread posts the
+     * notification, so removing the observer does not stop one that is already running; each block
+     * compares the value it captured against this one and drops itself when its load is gone.
+     */
+    private val generation: AtomicInt = AtomicInt(0)
 
     /** The rate [start] plays at. Remembered because a paused AVPlayer cannot be told it yet. */
     private var speed: Float = NORMAL_SPEED
@@ -111,6 +121,7 @@ internal class AvPlayerEngine(
             NSNotificationCenter.defaultCenter.removeObserver(observer)
         }
         completionObserver = null
+        generation.incrementAndFetch()
         player?.pause()
         player = null
     }
@@ -166,12 +177,13 @@ internal class AvPlayerEngine(
     }
 
     private fun observeCompletion(item: AVPlayerItem) {
+        val captured: Int = generation.load()
         completionObserver = NSNotificationCenter.defaultCenter.addObserverForName(
             name = AVPlayerItemDidPlayToEndTimeNotification,
             `object` = item,
             queue = null,
         ) { _ ->
-            listener?.onCompleted()
+            if (generation.load() == captured) listener?.onCompleted()
         }
     }
 
