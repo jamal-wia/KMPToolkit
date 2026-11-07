@@ -96,8 +96,10 @@ public fun LogOverlayPanel(
     val records: List<LogRecord> by state.records.collectAsState()
     // Which record's stack trace is expanded. Deliberately composition-local rather than part of
     // LogOverlayState: it is a view detail, and two panels showing the same buffer should be able
-    // to expand different rows.
-    val expandedId: MutableState<Long?> = remember { mutableStateOf(null) }
+    // to expand different rows. Held as the record itself and compared by identity, not by id: ids
+    // restart at 1 after clear(), and a swapped state numbers from 1 too, so an id would hand the
+    // expanded row to an unrelated new record.
+    val expandedRecord: MutableState<LogRecord?> = remember { mutableStateOf(null) }
 
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surface) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -143,9 +145,9 @@ public fun LogOverlayPanel(
                     items(items = records.asReversed(), key = LogRecord::id) { record ->
                         LogRecordRow(
                             record = record,
-                            isExpanded = expandedId.value == record.id,
+                            isExpanded = expandedRecord.value === record,
                             onClick = {
-                                expandedId.value = if (expandedId.value == record.id) null else record.id
+                                expandedRecord.value = if (expandedRecord.value === record) null else record
                             },
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = HORIZONTAL_PADDING))

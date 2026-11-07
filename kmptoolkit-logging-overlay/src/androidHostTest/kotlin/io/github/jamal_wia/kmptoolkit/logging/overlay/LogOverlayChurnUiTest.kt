@@ -103,6 +103,23 @@ class LogOverlayChurnUiTest {
         assertTrue(state.records.value.any { it.message == "after" })
     }
 
+    @Test
+    fun `an expanded row does not survive clear to expand the record that reuses its id`() = runComposeUiTest {
+        val state = LogOverlayState()
+        state.record(LogLevel.ERROR, "Net", "first", IllegalStateException("first-trace"))
+        setContent { LogOverlayPanel(state = state) }
+
+        onNodeWithText("[Net] first").performClick()
+        onNodeWithText("first-trace", substring = true).assertIsDisplayed()
+
+        state.clear()
+        state.record(LogLevel.ERROR, "Net", "second", IllegalStateException("second-trace"))
+        waitForIdle()
+
+        onNodeWithText("[Net] second").assertIsDisplayed()
+        onNodeWithText("second-trace", substring = true).assertDoesNotExist()
+    }
+
     private companion object {
         const val MAX = 50
         const val PER_WRITER = 2_500

@@ -167,7 +167,9 @@ The panel on its own, for placing inside your own bottom sheet, developer screen
 - Renders records **newest first**.
 - A row whose record has a `throwableText` expands to show it on tap and collapses on a second tap.
   Which row is expanded is composition-local state, not part of `LogOverlayState`, so two panels
-  over the same buffer can expand different rows.
+  over the same buffer can expand different rows. The expanded row is remembered as the record itself,
+  not its id, so after `clear()` (ids restart at `1`) or a swapped `LogOverlayState` a new record never
+  inherits the expansion of an older one.
 
 ## Level colors
 
