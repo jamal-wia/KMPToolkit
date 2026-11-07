@@ -224,6 +224,30 @@ final class io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig { 
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig.toString|toString(){}[0]
 }
 
+final class io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException : kotlin/IllegalArgumentException { // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit, io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason) // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.<init>|<init>(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit;io.github.jamal_wia.kmptoolkit.downloader.InvalidDownloadUnitException.Reason){}[0]
+
+    final val reason // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.reason|{}reason[0]
+        final fun <get-reason>(): io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.reason.<get-reason>|<get-reason>(){}[0]
+    final val unit // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.unit|{}unit[0]
+        final fun <get-unit>(): io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.unit.<get-unit>|<get-unit>(){}[0]
+
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.toString|toString(){}[0]
+
+    final enum class Reason : kotlin/Enum<io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason> { // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason|null[0]
+        enum entry EMPTY // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.EMPTY|null[0]
+        enum entry ESCAPES_BASE_DIRECTORY // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.ESCAPES_BASE_DIRECTORY|null[0]
+        enum entry INVALID_CHARACTER // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.INVALID_CHARACTER|null[0]
+        enum entry RESERVED_INTERNAL_PATH // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH|null[0]
+
+        final val entries // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.entries|#static{}entries[0]
+            final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason> // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.entries.<get-entries>|<get-entries>#static(){}[0]
+
+        final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.valueOf|valueOf#static(kotlin.String){}[0]
+        final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason> // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.values|values#static(){}[0]
+    }
+}
+
 final class io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException : kotlin/RuntimeException { // io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException|null[0]
     constructor <init>(kotlin/String, kotlin/Throwable? = ...) // io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException.<init>|<init>(kotlin.String;kotlin.Throwable?){}[0]
 }

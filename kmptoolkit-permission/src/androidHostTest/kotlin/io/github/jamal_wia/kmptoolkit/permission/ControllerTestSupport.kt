@@ -11,6 +11,8 @@ import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import org.robolectric.Shadows.shadowOf
 
 /**
@@ -18,13 +20,13 @@ import org.robolectric.Shadows.shadowOf
  * still registered. [resumedNow] makes a newly added listener fire at once, as a real access does
  * while an activity is resumed.
  */
-class ResumeListeners(var resumedNow: Boolean = false) {
+open class ResumeListeners(var resumedNow: Boolean = false) {
 
     private val listeners: MutableList<() -> Unit> = mutableListOf()
 
     val count: Int get() = listeners.size
 
-    fun add(listener: () -> Unit): ActivitySubscription {
+    open fun add(listener: () -> Unit): ActivitySubscription {
         listeners += listener
         if (resumedNow) listener()
         return object : ActivitySubscription {
@@ -101,6 +103,7 @@ internal fun testController(
     isRevokedByPolicy: (String) -> Boolean = { false },
     notificationsEnabled: () -> Boolean = { true },
     logger: Logger = NoopLogger,
+    staleDialogTimeout: Duration = 30.seconds,
 ): AndroidPermissionController = AndroidPermissionController(
     context = context,
     host = host,
@@ -120,6 +123,7 @@ internal fun testController(
     notificationsEnabled = notificationsEnabled,
     specialAccesses = SpecialAccesses(context, logger, declaredPermissions),
     resultGrants = ResultGrants(context, logger),
+    staleDialogTimeout = staleDialogTimeout,
 )
 
 /** A permission type no controller knows: what a consumer-defined subtype would be. */

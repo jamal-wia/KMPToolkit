@@ -37,6 +37,11 @@ public interface IosSystemBarsController : SystemBarsController {
      * changes. Held strongly; clear it (or [SystemBarsController.release] the controller) when that
      * host goes away.
      *
+     * A view controller that owns this controller and also assigns itself here forms a retain cycle
+     * that Kotlin/Native's garbage collector cannot break across the Objective-C boundary, so such a
+     * host must clear this property in its teardown. The usual shape, an app-wide controller whose
+     * host is the root view controller, has no cycle.
+     *
      * While it is `null` the configuration is still tracked — it simply has nowhere to be
      * delivered, and the next host to be assigned picks it up on its first appearance query.
      */

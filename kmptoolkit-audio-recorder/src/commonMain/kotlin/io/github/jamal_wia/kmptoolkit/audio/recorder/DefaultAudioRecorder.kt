@@ -2,8 +2,6 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import io.github.jamal_wia.kmptoolkit.core.StateMachineLock
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import kotlin.concurrent.atomics.AtomicReference
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -80,7 +78,7 @@ import kotlinx.coroutines.withContext
  *   brief handover (an assistant taking the microphone for a moment) must not.
  * @param freeSpacePollInterval how often the free-space watchdog looks, at most, while recording.
  */
-@OptIn(ToolkitInternalApi::class, ExperimentalAtomicApi::class)
+@OptIn(ToolkitInternalApi::class)
 internal class DefaultAudioRecorder(
     private val engine: RecorderEngine,
     private val fileSystem: RecordingFileSystem,
@@ -170,16 +168,26 @@ internal class DefaultAudioRecorder(
      * When the free-space watchdog last looked, for the session: set by `start()`, cleared by
      * `prepare()`, and deliberately *not* reset by `resume()` — a ticker only lives from one
      * start/resume to the next pause, so a mark kept by the ticker itself would restart on every
-     * resume and a user who pauses more often than the poll interval would never be checked. An
-     * atomic rather than a plain guarded field because the ticker claims a poll with a
-     * compare-and-set, off the lock, so two tickers (one just cancelled, one just started) can
-     * never both poll for the same interval.
+     * resume and a user who pauses more often than the poll interval would never be checked. A
+     * MutableStateFlow used for its compareAndSet rather than a plain guarded field, because the
+     * ticker claims a poll with a compare-and-set, off the lock, so two tickers (one just cancelled,
+     * one just started) can never both poll for the same interval.
      */
-    private val lastSpaceCheck: AtomicReference<TimeMark?> = AtomicReference(null)
+    private val lastSpaceCheck: MutableStateFlow<TimeMark?> = MutableStateFlow(null)
 
     // --- prepare ---
 
     override suspend fun prepare(outputPath: String?): RecorderResult<String> {
+        // One claim per call, dropped whatever way the call ends (see OutputPathOwners).
+        val claim = OutputPathClaim()
+        try {
+            return prepareClaiming(outputPath, claim)
+        } finally {
+            OutputPathOwners.release(claim)
+        }
+    }
+
+    private suspend fun prepareClaiming(outputPath: String?, claim: OutputPathClaim): RecorderResult<String> {
         var token: Long
         while (true) {
             when (val step: Begin<RecorderResult<String>, Long> = gate.exclusive { beginPrepare() }) {
@@ -209,6 +217,9 @@ internal class DefaultAudioRecorder(
             }
             val directory: String = fileSystem.parentOf(path)
                 ?: return failPrepare(RecorderError.DirectoryNotWritable(path))
+            // Before the file is looked at: from here on this call is the path's owner until a later
+            // recorder takes the path over, and only the owner's tail may delete (undoPreparation).
+            OutputPathOwners.claim(path, claim)
             storage = withContext(workerContext) {
                 // Before ensureWritableDirectory and the engine touch anything: undoPreparation
                 // deletes only a file this call created.
@@ -247,7 +258,7 @@ internal class DefaultAudioRecorder(
             // Leave nothing half-open behind: the caller's coroutine is going away, and a native
             // recorder holding the microphone plus a zero-byte file would outlive it.
             gate.exclusive {
-                undoPreparation(path, storage.pathExisted)
+                undoPreparation(path, storage.pathExisted, claim)
                 // Released is terminal: a release() that landed meanwhile keeps its state.
                 if (!released) _state.value = RecorderState.Idle
             }
@@ -260,11 +271,11 @@ internal class DefaultAudioRecorder(
             // resurrect a dead recorder, which would both overwrite Released and leak the handle
             // release() could not reach because the engine had not been assigned yet.
             if (released) {
-                undoPreparation(path, storage.pathExisted)
+                undoPreparation(path, storage.pathExisted, claim)
                 return@exclusive releasedFailure(RecorderOperation.PREPARE)
             }
             if (prepareFailure != null) {
-                undoPreparation(path, storage.pathExisted)
+                undoPreparation(path, storage.pathExisted, claim)
                 return@exclusive fail(
                     RecorderError.EngineFailure(RecorderOperation.PREPARE, prepareFailure)
                 )
@@ -299,7 +310,7 @@ internal class DefaultAudioRecorder(
         discardPreparedButUnusedFile(current)
         engine.release()
         resetTiming()
-        lastSpaceCheck.store(null)
+        lastSpaceCheck.value = null
         session++
         _state.value = RecorderState.Preparing
         return Begin.Go(session)
@@ -331,7 +342,7 @@ internal class DefaultAudioRecorder(
         segmentStart = mark
         _elapsed.value = Duration.ZERO
         // The poll interval counts from the moment capture began, once per recording.
-        lastSpaceCheck.store(timeSource.markNow())
+        lastSpaceCheck.value = timeSource.markNow()
         startTicker(base = Duration.ZERO, mark = mark, outputPath = current.outputPath)
         startMeter()
         _state.value = RecorderState.Recording(current.outputPath)
@@ -799,11 +810,13 @@ internal class DefaultAudioRecorder(
      * and neither waits on I/O of any consequence — deleting a file that was opened and never
      * written to. Lock held.
      */
-    private fun undoPreparation(path: String, pathExisted: Boolean) {
+    private fun undoPreparation(path: String, pathExisted: Boolean, claim: OutputPathClaim) {
         engine.release()
         // A file that was already at an explicit outputPath is the caller's: a failed or cancelled
         // attempt must not delete it. (The platform may already have truncated it; that is documented.)
-        if (!pathExisted) fileSystem.delete(path)
+        // Nor may a tail whose path a newer recorder has taken over: by now the file there may be
+        // that recorder's finished recording, not the one this attempt created.
+        if (!pathExisted) OutputPathOwners.deleteIfOwner(path, claim) { fileSystem.delete(path) }
     }
 
     private fun discardPreparedButUnusedFile(current: RecorderState) {
@@ -909,7 +922,7 @@ internal class DefaultAudioRecorder(
 
     /** Whether a free-space poll is due; if so, this caller owns it and the interval restarts. */
     private fun claimSpaceCheck(): Boolean {
-        val last: TimeMark = lastSpaceCheck.load() ?: return false
+        val last: TimeMark = lastSpaceCheck.value ?: return false
         if (last.elapsedNow() < freeSpacePollInterval) return false
         return lastSpaceCheck.compareAndSet(last, timeSource.markNow())
     }

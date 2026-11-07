@@ -3,9 +3,9 @@ package io.github.jamal_wia.kmptoolkit.notification
 /**
  * The smallest mutual-exclusion primitive this module needs, because Kotlin common code has none.
  *
- * It exists for one caller — [ProgressCoalescer], whose state is touched from whichever thread
- * finished a chunk of work, and from [Notifier.cancel], which is not a suspending function and so
- * cannot take a coroutine `Mutex`. A few lines of `expect`/`actual` beat either an atomics
+ * It exists for the callers that cannot take a coroutine `Mutex` — [ProgressCoalescer], whose
+ * state is touched from whichever thread finished a chunk of work, and each [Notifier]'s post lock,
+ * which orders a post against [Notifier.cancel], itself not a suspending function. A few lines of `expect`/`actual` beat either an atomics
  * dependency or a "not thread-safe, sorry" caveat on an interface people will call from a
  * background thread anyway.
  *

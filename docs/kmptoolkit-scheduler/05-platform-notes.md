@@ -68,6 +68,12 @@ thing from a permission:
   when someone forgets it: no compile error, no exception, `schedule` still reports success, and
   the alarm simply never arrives. That is the worst possible failure mode for a scheduling library.
 
+The receiver is built by the system with no arguments, so the handlers reach it through one
+process-wide registration: the `handlerProvider` (or the handler list) of the **latest**
+`createAlarmScheduler` call, kept for the life of the process. It holds only what you pass, so a
+provider that captures an `Activity` or another UI object pins it until the process dies; capture
+application-scoped objects only.
+
 If you need the alarm broadcast to go somewhere else entirely, do not use the module's receiver:
 schedule nothing through it, declare your own receiver, and use `handlerFor` for the dispatch rule.
 
@@ -138,8 +144,10 @@ Practical consequences:
   `Failed(PlatformError(...))` without adding. Re-scheduling an identifier that is already pending
   replaces it and is not counted, so it still succeeds at the cap. The count covers every pending local
   notification of the app, including ones created by your own code or another library, not only this
-  scheduler's. The check and the add run under a process-wide lock, so concurrent `schedule` calls
-  through this library cannot overshoot; notifications added by code outside it are not serialised
+  scheduler's. The authorization check, the cap check and the add run under one process-wide lock, and
+  `cancel` / `cancelAll` take the same lock, so concurrent `schedule` calls through this library
+  cannot overshoot and a `cancel` of an id can never be overtaken by a `schedule` of it that was
+  already in flight (the alarm is never left armed after `cancel` returned); notifications added by code outside it are not serialised
   with it and can still push the total past 64. Schedule a rolling window rather than
   a year of reminders.
 

@@ -262,6 +262,24 @@ a configuration change and delivers the answer when something registers for it t
 answered while the activity was being recreated still reaches the waiting request. Process death
 ends the request: nothing in the new process is waiting, and nothing was recorded.
 
+The host holds the activity whose registry the dialog uses only while that dialog is showing; nothing
+is kept between requests. A request ends when the user answers, when that activity is finished
+(destroyed, or another activity resumes over it), or at process death. A caller that is cancelled
+while the dialog is up does **not** withdraw it: the system dialog cannot be taken back, so the
+request stays pending until the user answers, the answer is then discarded, and a launch in that
+window returns `false` like any launch while one is pending.
+
+The controller covers that window for the request queued behind the cancelled one: it waits until the
+host is free (the stale dialog answered or abandoned) and then launches its own dialog. The wait is
+bounded at 30 seconds (an internal constant, not configurable) and ends at once if the waiting caller
+is cancelled. When the stale dialog is still up at the bound, the waiting request fails like a refused
+launch: nothing is shown and the current status is returned. A request arriving after the wait has
+timed out is not held again; it goes straight to the host.
+
+Each `createPermissionController` call without an `activityAccess` registers its own activity
+tracker, a lifecycle callback on the `Application` that lives as long as the process. Build the
+controller once, or pass one shared `ActivityAccess` to every factory that takes one.
+
 ### `minSdk`
 
 24, matching the rest of the toolkit.
@@ -331,7 +349,7 @@ iOS 18 limited contacts status — are reached behind a runtime OS check.
 | `Camera` | `AVCaptureDevice.authorizationStatus(for: .video)` + `requestAccess` | **Clean.** Restricted is `Restricted`. |
 | `Microphone` | `AVAudioSession.recordPermission` + `requestRecordPermission` | **Clean.** No restricted state exists. |
 | `Notifications` | `UNUserNotificationCenter.getNotificationSettings` + `requestAuthorization` with `IosPermissionOptions.notificationOptions` | **Asynchronous.** Provisional is `Limited`, and a request from it asks again without `Provisional`, which shows the full prompt; ephemeral (an App Clip) is `Granted`. `openSettings` opens the app's notification page on iOS 15.4+ (`UIApplicationOpenNotificationSettingsURLString`), the app's page below. |
-| `Location` | `CLLocationManager.authorizationStatus` + `requestWhenInUseAuthorization` | **Folded.** "When in use" and "always" are granted; reduced accuracy is `Limited`. The answer arrives through the delegate, which `request` awaits. |
+| `Location` | `CLLocationManager.authorizationStatus` + `requestWhenInUseAuthorization` | **Folded.** "When in use" and "always" are granted; reduced accuracy is `Limited`. The answer arrives through the delegate, which `request` awaits — with the same fallback as `LocationBackground`: if iOS shows no prompt (Location Services off device-wide) or the user leaves it unanswered, `request` returns the status as it is instead of waiting for ever. |
 | `LocationBackground` | the same manager + `requestAlwaysAuthorization` | **Folded, with one inference.** Only "always" is granted (`Limited` with reduced accuracy); "when in use" is `Denied(explainFirst = true)`. iOS shows the upgrade prompt **at most once** and says nothing when it declines, so `request` waits for a changed status or — if the app did not resign active within a second — returns the status as it is. Once the upgrade was asked for in this process and the status stayed "when in use", the entry reads `PermanentlyDenied`. While location is not determined, a request asks for "when in use" first. |
 | `AudioLibrary` | `MPMediaLibrary.authorizationStatus` + `requestAuthorization` | **Clean.** The user's music library. |
 | `PhotoLibrary` | `PHPhotoLibrary.authorizationStatus(for: .readWrite)` + `requestAuthorization(for:)` | **Clean.** `.limited` is `Limited`; iOS does not prompt again from there — `presentLimitedPhotoLibraryPicker` lets the user change the selection. |

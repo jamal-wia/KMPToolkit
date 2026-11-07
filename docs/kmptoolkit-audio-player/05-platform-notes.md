@@ -67,6 +67,13 @@ callbacks on the main looper. That is why the module needs no main dispatcher an
 publishes `Ready` — is no longer lost: the engine forwards it to the player as a playback failure, and
 the player lets `Error` win over a `Ready` that was about to be published.
 
+**A late callback of a replaced source** — the platform reads a `MediaPlayer`'s listener on the main
+looper while a new `load` or `release` clears it on another thread, so a completion or error of the
+previous source's `MediaPlayer` can still arrive after the engine let go of it. The engine fences every
+steady-state callback by the handle that raised it and drops one from a player that is no longer its
+current one, so it can neither complete nor fail the source that replaced it. The iOS engine fences the
+same way with a generation counter.
+
 **Playback speed** is applied via `PlaybackParams`, available since API 23. The module's `minSdk` is
 24, so there is no fallback path. The rate is pushed only while playing: assigning `playbackParams`
 to a paused `MediaPlayer` starts playback on several API levels.
@@ -101,6 +108,12 @@ switch silenced, and without it most callers would report the player as "silentl
 not by itself keep audio going once the app is in the background or the screen locks — that needs
 the `audio` background mode, below.
 
+`release()` and `unload()` never deactivate the session: it is process-wide and the app's other
+audio may be using it, and activating it again does not stack, so nothing accumulates. An app that
+wants other apps' audio, which the activation interrupted, to resume deactivates the session
+itself with `setActive(false, withOptions: .notifyOthersOnDeactivation)`, or passes
+`managesAudioSession = false` and owns the session entirely.
+
 Pass `managesAudioSession = false` when the app owns its session — in particular when it also
 records, where the category has to be `PlayAndRecord` and switching it under the recorder's feet
 breaks it:
@@ -132,6 +145,8 @@ also makes `prepare()`'s cancellation contract hold on iOS.
 
 **Errors** are `IllegalStateException` carrying the `AVPlayerItem`'s `localizedDescription`, or
 `IllegalArgumentException` for an asset that is not in the bundle or a URL `NSURL` refuses.
+A load that fails or is cancelled releases its `AVPlayer`, item and end-of-item observer at once, as the
+Android engine does with its `MediaPlayer`, rather than holding them until the next load.
 
 ## Behavior that is identical on both
 

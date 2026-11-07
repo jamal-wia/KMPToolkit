@@ -40,6 +40,11 @@ The effects in one window share that wrapper and each holds a share of it: it st
 the last of them leaves composition, whichever one entered first, and only then is the window's
 original callback restored (and still not over a decorator someone else installed afterwards).
 
+The share count lives on the wrapper itself, found again through `window.callback`; no registry keyed
+by the window exists. A window whose effect was never disposed (an abandoned composition) is
+therefore collectable together with its own wrapper, instead of being pinned by a global entry whose
+value reaches the window back through the dialog.
+
 ### The back key
 
 With predictive back (the default for apps targeting API 36 on Android 16+), the back gesture reaches

@@ -10,15 +10,15 @@ The interface consumers depend on.
 | Member | Signature | Notes |
 |---|---|---|
 | `isAvailable` | `fun isAvailable(group: ResourceGroup): Boolean` | Synchronous, no I/O wait. Honours `bundledResourcesPresent`. |
-| `isAvailable` | `fun isAvailable(unit: DownloadUnit): Boolean` | Never consults the bundled bypass. |
-| `pathOf` | `fun pathOf(unit: DownloadUnit): String` | Valid only while `isAvailable(unit)` holds. |
+| `isAvailable` | `fun isAvailable(unit: DownloadUnit): Boolean` | Never consults the bundled bypass. `false` for a unit whose `relativePath` the storage rejects. |
+| `pathOf` | `fun pathOf(unit: DownloadUnit): String` | Valid only while `isAvailable(unit)` holds. Throws `InvalidDownloadUnitException` for a `relativePath` the storage rejects. |
 | `downloadState` | `fun downloadState(group: ResourceGroup): StateFlow<GroupDownloadState>` | One flow per declared group. Throws `IllegalArgumentException` for an undeclared group. |
 | `ensureAvailable` | `suspend fun ensureAvailable(group: ResourceGroup)` | Returns at once if already available; concurrent calls share one download. |
 | `cancelDownload` | `fun cancelDownload(group: ResourceGroup)` | Safe from any thread. Also ends a running `ensureAvailable(group)` with `DownloadCancelledException`, unless its last commit has already succeeded: then the call completes and publishes `Completed`. A per-unit `ensureAvailable` running for one of the group's units is cancelled too. |
 | `cancelAllDownloads` | `suspend fun cancelAllDownloads()` | Cancels every group- and unit-level download, and ends every running `ensureAvailable` with `DownloadCancelledException` (also one a screen launched, outside the engine's scope), except a call whose last commit has already succeeded: that one completes and publishes `Completed`. The logout entry point. |
 | `retryDownload` | `fun retryDownload(group: ResourceGroup)` | Non-suspend; skipped if the group's download is already managed. |
 | `ensureAvailable` | `suspend fun ensureAvailable(unit: DownloadUnit)` | Concurrent calls for the SAME unit share one download. |
-| `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` | Non-suspend and synchronous: the transfer is cancelled and the state is `Idle` on return. Also ends a running `ensureAvailable(unit)` with `DownloadCancelledException`, unless its commit has already succeeded: then the call completes and publishes `Completed`. |
+| `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` | Non-suspend and synchronous: the transfer is cancelled and the state is `Idle` on return. Also ends a running `ensureAvailable(unit)` with `DownloadCancelledException`, unless its commit has already succeeded: then the call completes and publishes `Completed`. Also deletes the unit's partial temp data and a leftover archive staging tree, and does so for a unit the engine never tracked without starting to track it. |
 | `hasActiveUnitDownload` | `suspend fun hasActiveUnitDownload(): Boolean` | True while any per-unit download is `Downloading`. |
 | `unitDownloadStateFlow` | `fun unitDownloadStateFlow(unit: DownloadUnit): Flow<UnitDownloadState>` | First emission is seeded from disk (`Available` or `Idle`). |
 
@@ -87,9 +87,9 @@ compiled against) with value `equals` / `hashCode` / `toString`.
 
 | Member | Type | Notes |
 |---|---|---|
-| `id` | `String` | Durable identity — persisted, used as a background-session id. |
+| `id` | `String` | Durable identity — persisted, used as a background-session id. Any string is accepted: an id that is not a plain file name (it contains `/` or NUL, or a derived name would pass 255 bytes) is stored under a hashed name, so it never collides with another unit or escapes `tmp/`. Ids must be unique ignoring case, and on iOS ignoring Unicode normalization too (an iOS volume may treat `Model` and `model`, or NFC and NFD spellings, as one file). Prefer `[A-Za-z0-9._-]`. |
 | `apiPath` | `String` | Opaque; resolved by your `DownloadUrlResolver`. |
-| `relativePath` | `String` | Relative to the storage's own base directory. |
+| `relativePath` | `String` | Relative to the storage's own base directory, used exactly as written (a leading `/` still means inside the base). Rejected with `InvalidDownloadUnitException` when it is empty or normalizes to nothing, contains NUL, leaves the base directory, or names something the storage manages (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`, `tmp/staging-…`, or the unit's own temp files). Any other path under `tmp/` (including `tmp/trash/…`, which 3.0.0 never used) is accepted, with a warning, and stays reserved for 4.0. |
 | `tempExtension` | `String` | Default `"tmp"`. Cosmetic — the temp name is derived from `id`. |
 | `format` | `ResourceFormat` | Default `Opaque`. |
 | `sha256` | `Sha256?` | Default `null`. A constant expectation; checked at commit, and a mismatch downloads again. Do not set it for an object replaced in place — use `beginTempFile`. The engine reads it before a transfer and fails the unit with `DownloadError.Unknown` if the getter throws; storage reads it again at begin and commit. |
@@ -135,6 +135,29 @@ Neither carries a `group` / `unit` field — the flow you collected is the ident
 |---|---|
 | `DownloadCancelledException` | `group: ResourceGroup`, `unit: DownloadUnit?` (null on the group surface) |
 | `DownloadFailedException` | `unit: DownloadUnit`, `error: DownloadError`, `cause: Throwable?` |
+
+## `InvalidDownloadUnitException` *(since 3.1.0)*
+
+`class InvalidDownloadUnitException(unit: DownloadUnit, reason: Reason) : IllegalArgumentException`,
+with `enum class Reason { EMPTY, INVALID_CHARACTER, ESCAPES_BASE_DIRECTORY, RESERVED_INTERNAL_PATH }`.
+A `DownloaderStorage` throws it from `getResourcePath`, `commitResource` and `deleteResource` when `unit.relativePath` can never be used safely: it is empty or
+normalizes to nothing (`EMPTY`), contains NUL (`INVALID_CHARACTER`), leaves the base directory
+(`ESCAPES_BASE_DIRECTORY`), or names something the storage manages itself, such as `tmp`,
+`tmp/expect`, `tmp/staging-…` or the unit's own temp files, hashed or 3.0.0-named (`RESERVED_INTERNAL_PATH`). It has no
+message (the library carries no user-facing text); `toString` names the unit id and the reason.
+
+`isResourceAvailable` answers `false` and `getResourceSize` answers `0` for such a unit, and the temp-side
+methods never look at `relativePath`, so `cancelDownload` of a bad unit still cleans up. Nothing outside
+the base directory, and no storage-managed directory, is ever touched.
+
+For the library's own storages (the ones the two factories return) the engine reports it before any
+byte is fetched, as `DownloadFailedException` with `DownloadError.Unknown` whose `cause` is this
+exception; no transfer is enqueued and the state is `Error`. A `DownloaderStorage` you wrote is not asked
+before the transfer: the engine never calls its `getResourcePath` there, so it behaves as in 3.0.0 and
+this exception reaches the host only from that storage's own `pathOf` / `commitResource` calls.
+`DownloadError` has no subclass for it. `FakeDownloaderStorage` in `kmptoolkit-downloader-testing` does
+not validate paths. A `DownloadUnit.id` is never rejected: an id
+that cannot be a file name is stored under a hashed name ([`05-platform-notes.md`](05-platform-notes.md)).
 
 ## `BackgroundResourceDownloader` — **the SPI you implement**
 
@@ -185,10 +208,13 @@ transfer, resumed from `getTempFileSize`), `Complete` (marked by `markTempFileCo
 state committed without a transfer). `markTempFileComplete` is atomic, idempotent once complete,
 and throws when there is no file. `commitResource` throws when there is no complete file, and
 throws `ResourceIntegrityException(message, cause)` — after deleting the temp file — when the bytes
-fail a check; the engine answers that with one fresh download. Commits of one unit are mutually
+fail a check; the engine answers that with one fresh download. All three resource methods that name a
+path (`getResourcePath`, `commitResource`, `deleteResource`) throw `InvalidDownloadUnitException` for a
+`relativePath` that is not usable. Commits of one unit are mutually
 exclusive across every storage instance over the same base directory in the process, and a commit
 that finds the resource already committed by a concurrent one (no complete file, resource
-available) returns normally without touching anything.
+available) returns normally without touching anything. When the engine itself finds the resource already committed and a transfer of its own left a
+complete temp file behind, it deletes that file instead of leaving it on disk.
 
 `beginTempFile(unit, expectedSha256)` is called by the party that owns the writer, exactly when it
 is about to write from byte 0, and replaces whatever transfer was there: afterwards `tempFileState`
@@ -199,7 +225,7 @@ set and differ, or when reading `unit.sha256` throws, and with `IllegalStateExce
 temp file or the record cannot be replaced. On iOS call it before every task, including one resumed
 from `resumeData` (with the hash saved beside it). `commitResource` hashes the complete file once and checks every stated expectation;
 `deleteTempFile` removes the data first and the record last, and keeps the record (logging a
-warning, never throwing) when a data file could not be deleted. It is not enforced that a downloader
+warning, never throwing) when a data file could not be deleted; the shipped storages also remove the unit's archive extraction staging, unless a commit of the unit is running (then it is left for the next call). It is not enforced that a downloader
 calls `beginTempFile` (a recordless partial still resumes); see
 [`07-background-downloader.md`](07-background-downloader.md) for when to call it.
 
@@ -208,7 +234,8 @@ Android; `createDownloaderStorage(config = DownloaderStorageConfig(), logger = N
 
 `DownloaderStorageConfig(baseDirectoryName: String = "kmptoolkit_downloader")` — the one thing
 about the shipped storage you might need to change, so two libraries sharing a process never
-collide.
+collide. The name must be one plain folder name: not blank, not `.` or `..`, and without a path
+separator or NUL; anything else throws `IllegalArgumentException` from the constructor.
 
 ## `spi` package
 

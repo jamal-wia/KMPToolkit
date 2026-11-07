@@ -7,10 +7,13 @@ import kotlinx.cinterop.usePinned
 import kotlin.test.BeforeTest
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSData
+import platform.Foundation.NSDate
+import platform.Foundation.NSFileModificationDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask
 import platform.Foundation.dataWithContentsOfFile
+import platform.Foundation.dateWithTimeIntervalSinceNow
 import platform.posix.fclose
 import platform.posix.fopen
 import platform.posix.fwrite
@@ -49,6 +52,16 @@ class IosDownloaderStorageContractTest : DownloaderStorageContractTest() {
         }
     }
 
+    override fun backdate(path: String) {
+        val anHourAgo: NSDate = NSDate.dateWithTimeIntervalSinceNow(-3600.0)
+        val changed: Boolean = NSFileManager.defaultManager.setAttributes(
+            attributes = mapOf(NSFileModificationDate to anHourAgo),
+            ofItemAtPath = path,
+            error = null,
+        )
+        check(changed) { "could not backdate $path" }
+    }
+
     override fun readFile(path: String): ByteArray? {
         val data: NSData = NSData.dataWithContentsOfFile(path) ?: return null
         val bytes = ByteArray(data.length.toInt())
@@ -61,11 +74,19 @@ class IosDownloaderStorageContractTest : DownloaderStorageContractTest() {
     override fun pathExists(path: String): Boolean = NSFileManager.defaultManager.fileExistsAtPath(path)
 
     override fun deleteTestDirectory() {
+        NSFileManager.defaultManager.removeItemAtPath(baseDirectory(), error = null)
+    }
+
+    override fun baseDirectory(): String {
         val appSupport: String = NSSearchPathForDirectoriesInDomains(
             NSApplicationSupportDirectory,
             NSUserDomainMask,
             true,
         ).first() as String
-        NSFileManager.defaultManager.removeItemAtPath("$appSupport/${config.baseDirectoryName}", error = null)
+        return "$appSupport/${config.baseDirectoryName}"
+    }
+
+    override fun deleteFile(path: String) {
+        NSFileManager.defaultManager.removeItemAtPath(path, error = null)
     }
 }

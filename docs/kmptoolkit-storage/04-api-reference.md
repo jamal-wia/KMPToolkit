@@ -135,7 +135,10 @@ and process restarts; reset by `clear()`, by clearing app data, and by a reinsta
 
 `current()` always returns an id and never fails. If the store cannot be written, the id is valid
 for that call but a later call produces a different one — a degraded signal rather than an error to
-handle. Nothing is memoized in memory, so a `clear()` takes effect on the very next call.
+handle. If the entry cannot be read right now (`StorageError.Unavailable`, for example a keystore that
+is not answering), the id is fresh for that call and the stored one is left untouched; only an absent,
+blank, `Undecryptable` or otherwise permanently unreadable entry is overwritten. Nothing is memoized
+in memory, so a `clear()` takes effect on the very next call.
 
 Concurrent first calls agree: the read-generate-write runs under one lock shared by every provider in
 the process, so callers racing on a fresh store — through one provider or several over the same

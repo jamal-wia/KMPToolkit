@@ -253,6 +253,8 @@ private const val NANOS_PER_MILLI: Long = 1_000_000L
  * cannot interrupt it. The only way out is to close the socket from another thread, which [drop] does.
  */
 internal class WriteWatch {
+    // @Volatile/AtomicReference, not StateFlow or Mutex: touch() runs on the blocking body-write thread once per
+    // chunk, and begin()/drop() is a publish-then-check handshake between that thread and the watchdog.
     private val connection: AtomicReference<HttpURLConnection?> = AtomicReference(null)
 
     @Volatile

@@ -9,7 +9,7 @@ The narrow interface features depend on.
 
 | Member | Signature | Notes |
 |---|---|---|
-| `enqueue` | `suspend fun <P : Any> enqueue(handler: UploaderHandler<P>, payload: P, uniqueKey: String? = null, tag: String? = null, conflictPolicy: ConflictPolicy = KEEP): String?` | Suspends until persisted. Returns the new item id, or `null` when a `KEEP` conflict left the queued item in place. |
+| `enqueue` | `suspend fun <P : Any> enqueue(handler: UploaderHandler<P>, payload: P, uniqueKey: String? = null, tag: String? = null, conflictPolicy: ConflictPolicy = KEEP): String?` | Suspends until persisted. Returns the new item id, or `null` when a `KEEP` conflict left the queued item in place. The drain trigger and the platform wake are armed even if the caller is cancelled (or the write fails) mid-call, because a row may already have committed. |
 | `observe` | `fun observe(type: String): Flow<List<UploaderItem>>` | All states, insertion order. Does not suspend — the query runs on collection. |
 | `cancel` | `suspend fun cancel(id: String)` | Since 2.0.0. Withdraws one item in any state: deletes its row, then cancels its upload on its `UploadHandler`'s transport. Touches nothing else. Unknown id: no-op. Best effort for bytes already sent. |
 | `cancelByTag` | `suspend fun cancelByTag(tag: String)` | Since 2.0.0. `cancel` for every item with that exact tag — the logout wipe. |
@@ -28,7 +28,7 @@ whether a call can block.
 | `start` | `fun start()` | Idempotent. Launches one drain coroutine, wires triggers, drains leftovers. A call after `close()` is a no-op. |
 | `drain` | `suspend fun drain()` | One full pass. **Do not call on a started engine** — it breaks single-flight. For tests and diagnostics. |
 | `settle` | `suspend fun settle(id: String, claim: Long, result: SettleResult)` | Reports a detached delivery, with the `id` and `claim` from the executor's `AttemptContext`. Every race degrades to a no-op; see below. |
-| `awaitDrained` | `suspend fun awaitDrained(timeout: Duration): Boolean` | For a wake job. An `IN_FLIGHT` item counts as **not** drained. |
+| `awaitDrained` | `suspend fun awaitDrained(timeout: Duration): Boolean` | For a wake job. An `IN_FLIGHT` item counts as **not** drained. An already empty queue is `true` even for a zero timeout. A failing store read never throws: it counts as "not drained" and is re-read at `drainPollInterval`, so a persistent failure ends in `false` at the timeout. |
 | `close` | `fun close()` | Idempotent, non-suspending. Stops the engine, leaves the queue and your scope alone. |
 
 ### `settle` guards
@@ -107,7 +107,11 @@ rather than start a fresh delivery.
 | `Detached(leaseMillis: Long)` | `IN_FLIGHT` under a lease | unchanged |
 
 `Detached` requires a positive lease; a non-positive one throws at construction, because it would
-expire the moment it was written and spin the drain.
+expire the moment it was written and spin the drain. The engine honours a lease for at most 24 hours:
+a longer one (up to `Long.MAX_VALUE`, or an `UploadTransport.leaseMillis` that large) is shortened to
+that, and the item is re-handed after a day. The ceiling is what lets the engine tell a lease written
+before a backwards wall-clock step from a real one (see the clocks note in
+[`05-platform-notes.md`](05-platform-notes.md)).
 
 ## `SettleResult`
 
@@ -330,7 +334,7 @@ death, which a monotonic reading cannot.
 
 The module's one piece of global state, and only because a WorkManager `Worker` and an iOS `BGTask`
 handler are constructed by the OS outside any object graph. Registration is explicit — nothing
-registers on your behalf. `close()` clears the slot if the closing engine holds it. `await` returning
+registers on your behalf. `close()` clears the slot if the closing engine holds it, and registering an engine that is already closed (or closes while `register` runs) is ignored, so a closed engine is never handed out. An engine stopped by cancelling the scope it was created in (without `close()`) is just as inert: it is unregistered, `current` and `await` never return it, and registering one is ignored. `await` with a zero timeout still returns an engine that is registered at that moment. `await` returning
 `null` means the outcome did not land, so a platform executor should ask to be retried.
 
 ## SPI — `io.github.jamal_wia.kmptoolkit.uploader.spi`
@@ -362,7 +366,8 @@ nested call joins the outer transaction. `TransactionRunner.Direct` runs the blo
 ### `ConstraintProvider`
 
 `val key: String`, `val satisfied: StateFlow<Boolean>`. Cheap to read, emits on every change, read
-from arbitrary threads. Seed optimistically.
+from arbitrary threads. Seed optimistically. If reading `satisfied` throws, the engine logs it and skips
+that item for the pass (as if unsatisfied) without affecting the items behind it.
 
 ### `WakeScheduler`
 
@@ -392,7 +397,7 @@ default.
 | `BackgroundTaskWakeScheduler.taskIdentifier` | The resolved string — must be in `Info.plist` |
 | `BackgroundTaskWakeScheduler.handleWake(onDone)` | Call from your Swift `BGTaskScheduler` handler; `onDone` runs even if the drain throws |
 | `createBackgroundUploadTransport(config, logger)` | Since 1.5.0. Background `NSURLSession` per item, for `UploadHandler` items; reads the server's response since 3.1.0 |
-| `BackgroundUploadConfig(sessionIdentifierPrefix = null, lease = 60.minutes, rehandFlushWindow = 3.seconds, requestTimeout = 60.seconds, resourceTimeout = 7.days)` | `sessionIdentifierPrefix` defaults to `<bundleId>.uploader.upload.`. `requestTimeout` (idle timeout) and `resourceTimeout` (whole transfer, retries included) since 3.1.0 — the system defaults, both must be positive and finite; see [timeouts](08-upload-transport.md#timeouts) |
+| `BackgroundUploadConfig(sessionIdentifierPrefix = null, lease = 60.minutes, rehandFlushWindow = 3.seconds, requestTimeout = 60.seconds, resourceTimeout = 7.days)` | `sessionIdentifierPrefix` defaults to `<bundleId>.uploader.upload.`. `requestTimeout` (idle timeout) and `resourceTimeout` (whole transfer, retries included) since 3.1.0 — the system defaults, both must be positive and finite; see [timeouts](08-upload-transport.md#timeouts). The three-parameter constructor remains as a deprecated overload (without default arguments) so Swift callers of `init(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compile |
 | `BackgroundUploadRelaunch.handleEvents(identifier, completion)` | Call from `handleEventsForBackgroundURLSession` |
 
 ## `kmptoolkit-uploader-testing`

@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.e
@@ -54,10 +55,16 @@ internal class DefaultUploaderEngine(
     private val transactionRunner: TransactionRunner,
     private val wakeScheduler: WakeScheduler,
     private val config: UploaderConfig,
-    private val logger: Logger,
+    logger: Logger,
     private val clock: UploaderClock,
     private val idGenerator: () -> String,
 ) : UploaderEngine {
+
+    /**
+     * The caller's logger behind a guard: a sink that throws (an uninitialised crash reporter, say) must
+     * never take the drain, an enqueue or a settle down with it, so every call goes through [NonThrowingLogger].
+     */
+    private val logger: Logger = NonThrowingLogger(logger)
 
     private val handlersByType: Map<String, UploaderHandler<*>> =
         handlers.associateBy { it.type }.also { byType ->
@@ -81,6 +88,13 @@ internal class DefaultUploaderEngine(
     private val engineJob: Job = SupervisorJob(scope.coroutineContext[Job])
 
     private val engineScope: CoroutineScope = CoroutineScope(scope.coroutineContext + engineJob)
+
+    init {
+        // An engine whose owning scope is cancelled without close() is as dead as a closed one: leaving it in
+        // the registry would hand a drain that never runs to every platform entry point, and keep the engine,
+        // its store and its handlers reachable from a global.
+        engineJob.invokeOnCompletion { UploaderEngineRegistry.unregister(this) }
+    }
 
     /** Conflated wake-up channel: many [trigger] calls collapse into a single pending signal. */
     private val triggerChannel: Channel<Unit> = Channel(capacity = Channel.CONFLATED)
@@ -172,14 +186,25 @@ internal class DefaultUploaderEngine(
         // ever being cancelled. One handed off before the replacement lands is cancelled here; one whose
         // hand-off is still launching cancels itself, finding its row gone right after the launch.
         var superseded: UploaderItem? = null
-        val inserted: Boolean = transactionRunner.inTransaction {
-            when (conflictPolicy) {
-                ConflictPolicy.KEEP -> store.insertKeep(record)
-                ConflictPolicy.REPLACE -> {
-                    superseded = store.insertReplace(record)
-                    true
+        val inserted: Boolean = try {
+            transactionRunner.inTransaction {
+                when (conflictPolicy) {
+                    ConflictPolicy.KEEP -> store.insertKeep(record)
+                    ConflictPolicy.REPLACE -> {
+                        superseded = store.insertReplace(record)
+                        true
+                    }
                 }
             }
+        } finally {
+            // Persist-first for the wake too: even if the process dies before the drain runs, the
+            // platform wake is already armed for the debt that was just persisted. This sits in a finally
+            // because a caller cancelled (or a store failing) after the row committed but before the call
+            // returned cannot tell whether the row landed, and a committed row with no armed wake and no
+            // trigger would wait for some unrelated one. Arming for a row that did not land is harmless:
+            // the next drain pass finds the queue empty and disarms. Neither call suspends or throws.
+            trigger()
+            wakeScheduler.scheduleWake()
         }
         // A parked item has no upload to cancel; only an upload handler's items have one at all.
         superseded?.takeIf { handler is UploadHandler<*> && it.state != UploaderItemState.PARKED }
@@ -189,10 +214,6 @@ internal class DefaultUploaderEngine(
         } else {
             logger.d { "Enqueue of ${record.logName} kept the already-queued item." }
         }
-        trigger()
-        // Persist-first for the wake too: even if the process dies before the drain runs, the
-        // platform wake is already armed for the debt that was just persisted.
-        wakeScheduler.scheduleWake()
         return record.id.takeIf { inserted }
     }
 
@@ -241,15 +262,36 @@ internal class DefaultUploaderEngine(
 
     override suspend fun awaitDrained(timeout: Duration): Boolean {
         trigger()
+        // An already empty queue is drained whatever budget is left: a zero (or spent) timeout must not
+        // turn "nothing owed" into "not drained" just because the timed block below never gets to run.
+        if (isQueueEmpty()) return true
         // Bounded by coroutine time rather than by the clock, so a test driving virtual time gets
         // the same behavior as production without also having to advance a fake wall clock.
         val drained: Boolean? = withTimeoutOrNull(timeout) {
-            while (store.getAllActive().isNotEmpty()) {
+            do {
                 delay(config.drainPollInterval)
-            }
+            } while (!isQueueEmpty())
             true
         }
         return drained == true
+    }
+
+    /**
+     * Whether the store reports nothing owed. A failing read answers `false` ("not known to be empty")
+     * instead of throwing: the caller is typically a platform wake job, where an exception ends the whole
+     * job over what is usually a momentary lock, while the drain loop itself already survives the same
+     * failure. A persistent failure therefore ends in the caller's timeout, which reports "not drained".
+     * Real cancellation, including the timeout's own, still propagates.
+     */
+    private suspend fun isQueueEmpty(): Boolean = try {
+        store.getAllActive().isEmpty()
+    } catch (e: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        logger.e(e) { "Queue read leaked a cancellation; treating the queue as not drained." }
+        false
+    } catch (e: Throwable) {
+        logger.e(e) { "Queue read failed; treating the queue as not drained." }
+        false
     }
 
     override suspend fun settle(id: String, claim: Long, result: SettleResult) {
@@ -333,6 +375,9 @@ internal class DefaultUploaderEngine(
         // effect again in a tight loop; an alarm retries them instead.
         val failedThisCall: MutableSet<String> = mutableSetOf()
         while (true) {
+            // A store whose calls never suspend gives cancellation no other place to be seen: without this a
+            // close() (or a cancelled scope) from inside a handler would not stop the pass.
+            currentCoroutineContext().ensureActive()
             val active: List<UploaderItem> = store.getAllActive()
             if (active.isEmpty()) {
                 cancelAlarm()
@@ -353,6 +398,7 @@ internal class DefaultUploaderEngine(
             var soonestGate: Long? = null
 
             for (item in eligible) {
+                currentCoroutineContext().ensureActive()
                 val handler: UploaderHandler<*>? = handlersByType[item.type]
                 if (handler == null) {
                     // Either a wiring bug or a payload from a build that had the type. Parking
@@ -362,7 +408,9 @@ internal class DefaultUploaderEngine(
                     executedAny = true
                     continue
                 }
-                if (item.state == UploaderItemState.IN_FLIGHT && item.leaseUntilEpochMillis > nowMillis) {
+                if (item.state == UploaderItemState.IN_FLIGHT && item.leaseUntilEpochMillis > nowMillis &&
+                    !isClockAnomalyLease(item.leaseUntilEpochMillis, nowMillis)
+                ) {
                     // A detached executor still holds an unexpired claim. Its expiry is a gate like
                     // a backoff gate, so the alarm re-triggers at it and a silently dead executor
                     // is re-handed promptly rather than on the next heartbeat.
@@ -371,7 +419,20 @@ internal class DefaultUploaderEngine(
                 }
                 // An expired lease falls through: the item is attemptable again and the handler
                 // runs afresh, its hand-off idempotent by contract.
-                if (!constraintsSatisfied(handler)) continue
+                // A provider that throws on read must not abort the pass for every item behind it: the
+                // item is skipped like an unsatisfied one (never attempted on an unreadable constraint),
+                // and the next trigger or heartbeat asks again.
+                val constraintsMet: Boolean = try {
+                    constraintsSatisfied(handler)
+                } catch (e: CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                    logger.e(e) { "Reading a constraint of ${item.logName} leaked a cancellation; skipping it this pass." }
+                    false
+                } catch (e: Throwable) {
+                    logger.e(e) { "Reading a constraint of ${item.logName} failed; skipping it this pass." }
+                    false
+                }
+                if (!constraintsMet) continue
                 if (item.nextRunAtEpochMillis > nowMillis &&
                     !isClockAnomalyGate(item.nextRunAtEpochMillis, nowMillis, handler)
                 ) {
@@ -379,7 +440,7 @@ internal class DefaultUploaderEngine(
                     continue
                 }
                 if (item.id in failedThisCall) {
-                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, nowMillis + config.minAlarmDelay.inWholeMilliseconds)
+                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, saturatingAdd(nowMillis, config.minAlarmDelay.inWholeMilliseconds))
                     continue
                 }
                 // One item's failure must not abort the pass: the items behind it would not run, no alarm
@@ -437,13 +498,33 @@ internal class DefaultUploaderEngine(
         nowMillis: Long,
         handler: UploaderHandler<*>,
     ): Boolean {
-        val reachable: Long = handler.retryPolicy.maxDelayMillis * config.clockAnomalyFactor
+        val reachable: Long = saturatingMultiply(handler.retryPolicy.maxDelayMillis, config.clockAnomalyFactor.toLong())
         val anomaly: Boolean = gateEpochMillis - nowMillis > reachable
         if (anomaly) {
             logger.w {
                 "Backoff gate ${gateEpochMillis - nowMillis}ms ahead exceeds the policy's " +
                     "reachable maximum (${reachable}ms) — treating it as a wall-clock jump and " +
                     "running now."
+            }
+        }
+        return anomaly
+    }
+
+    /**
+     * Whether a persisted lease is too far in the future to be real — the lease twin of [isClockAnomalyGate].
+     * The engine never writes a lease beyond [MAX_LEASE_MILLIS] (see [clampLease]), so one further ahead than
+     * [UploaderConfig.clockAnomalyFactor] times that was written before the wall clock stepped **backwards**.
+     * Honouring it would freeze the item, and its ordering channel, for the whole jump; it is treated as
+     * expired instead and the item is re-handed (a hand-off is idempotent by contract), which writes a sane
+     * lease.
+     */
+    private fun isClockAnomalyLease(leaseUntilEpochMillis: Long, nowMillis: Long): Boolean {
+        val reachable: Long = saturatingMultiply(MAX_LEASE_MILLIS, config.clockAnomalyFactor.toLong())
+        val anomaly: Boolean = leaseUntilEpochMillis - nowMillis > reachable
+        if (anomaly) {
+            logger.w {
+                "Lease ${leaseUntilEpochMillis - nowMillis}ms ahead exceeds the longest lease the engine " +
+                    "writes (${MAX_LEASE_MILLIS}ms) — treating it as a wall-clock jump and re-handing the item."
             }
         }
         return anomaly
@@ -530,7 +611,7 @@ internal class DefaultUploaderEngine(
                 // execute() was still returning, and its Park or Drop must stand.
                 val claimed: Boolean = store.markInFlight(
                     id = item.id,
-                    leaseUntilEpochMillis = clock.nowEpochMillis() + outcome.leaseMillis,
+                    leaseUntilEpochMillis = saturatingAdd(clock.nowEpochMillis(), clampLease(outcome.leaseMillis)),
                     expectedState = item.state,
                     expectedClaim = item.claim,
                 )
@@ -593,7 +674,7 @@ internal class DefaultUploaderEngine(
             logger.e { "Parked ${item.logName} — non-positive transport lease." }
             return
         }
-        val leaseUntil: Long = clock.nowEpochMillis() + lease
+        val leaseUntil: Long = saturatingAdd(clock.nowEpochMillis(), clampLease(lease))
         // Claimed only in the state and claim this pass read the item in. Between that read and here a
         // detached executor of an earlier attempt may have settled it — parked on a permanent failure,
         // or back to pending under a backoff gate — and an unguarded claim would revive it and upload it
@@ -648,7 +729,7 @@ internal class DefaultUploaderEngine(
     ) {
         val attempts: Int = record.attempts + 1
         val error: String? = cause?.let { "${it::class.simpleName}: ${it.message}" }
-        val nextRunAt: Long = clock.nowEpochMillis() + handler.retryPolicy.backoffMillis(attempts)
+        val nextRunAt: Long = saturatingAdd(clock.nowEpochMillis(), handler.retryPolicy.backoffMillis(attempts))
         // The give-up is decided before the write and made by it, not by a second write after it: a row
         // that passed through PENDING on its way to parked or dropped could be handed off once more by
         // a drain pass landing in between — an attempt past maxAttempts, on an item already given up.
@@ -972,6 +1053,13 @@ internal class DefaultUploaderEngine(
         }
     }
 
+    /**
+     * Whether the engine is permanently inert: [close] has run, or the scope it was created in is cancelled.
+     * Read by [UploaderEngineRegistry] so such an engine is never handed out.
+     */
+    internal val isClosed: Boolean
+        get() = closed.value || !engineJob.isActive
+
     override fun close() {
         if (!closed.compareAndSet(expect = false, update = true)) return
         UploaderEngineRegistry.unregister(this)
@@ -981,4 +1069,49 @@ internal class DefaultUploaderEngine(
 
     private val UploaderItem.logName: String
         get() = "$type/${uniqueKey ?: id}"
+
+    private companion object {
+        /**
+         * The longest lease the engine writes, 24 hours. A longer one is shortened ([clampLease]): the item is
+         * merely re-handed after a day, which a hand-off tolerates by contract, whereas a lease with no ceiling
+         * cannot be told from one written before a backwards clock step ([isClockAnomalyLease]).
+         */
+        const val MAX_LEASE_MILLIS: Long = 24L * 60 * 60 * 1000
+
+        fun clampLease(leaseMillis: Long): Long = leaseMillis.coerceAtMost(MAX_LEASE_MILLIS)
+    }
+}
+
+/** `a + b`, held at the `Long` range instead of wrapping: a gate or lease near `Long.MAX_VALUE` stays far away. */
+internal fun saturatingAdd(a: Long, b: Long): Long {
+    val sum: Long = a + b
+    // Overflow happened exactly when both operands share a sign the sum does not.
+    return if (((a xor sum) and (b xor sum)) < 0) (if (a < 0) Long.MIN_VALUE else Long.MAX_VALUE) else sum
+}
+
+/** `a * b` for non-negative operands, held at `Long.MAX_VALUE` instead of wrapping. */
+internal fun saturatingMultiply(a: Long, b: Long): Long =
+    if (a != 0L && b > Long.MAX_VALUE / a) Long.MAX_VALUE else a * b
+
+/**
+ * Forwards to [delegate] and swallows what it throws. The logger is consumer code the engine calls from its
+ * only drain coroutine and from the caller's own coroutine in `enqueue`; neither may be broken by it.
+ * Cancellation is the one exception that still propagates.
+ */
+private class NonThrowingLogger(private val delegate: Logger) : Logger {
+    override val tag: String
+        get() = try { delegate.tag } catch (e: CancellationException) { throw e } catch (_: Throwable) { "" }
+
+    override fun isLoggable(level: LogLevel): Boolean =
+        try { delegate.isLoggable(level) } catch (e: CancellationException) { throw e } catch (_: Throwable) { false }
+
+    override fun log(level: LogLevel, throwable: Throwable?, message: () -> String) {
+        try {
+            delegate.log(level, throwable, message)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            // A failing sink loses the line, never the work.
+        }
+    }
 }

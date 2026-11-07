@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.scheduler
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -23,11 +24,15 @@ class IosPendingCapTest {
         initialPending: List<String>,
         private val denied: Boolean = false,
         private val slowAdd: Boolean = false,
+        private val authGate: CompletableDeferred<Unit>? = null,
     ) : NotificationCenterPort {
         val pending: MutableList<String> = initialPending.toMutableList()
         var addCalls: Int = 0
 
-        override suspend fun isAuthorizationDenied(): Boolean = denied
+        override suspend fun isAuthorizationDenied(): Boolean {
+            authGate?.await()
+            return denied
+        }
         override suspend fun pendingIdentifiers(): List<String> = pending.toList()
         override suspend fun add(request: UNNotificationRequest): NSError? {
             addCalls++
@@ -124,5 +129,20 @@ class IosPendingCapTest {
         }
         assertEquals(1, results.count { it == AlarmScheduleResult.Exact })
         assertEquals(64, center.pending.size)
+    }
+
+    @Test
+    fun `a cancel issued while schedule awaits authorization still removes the alarm`() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val center = FakeCenter(emptyList(), authGate = gate)
+        val scheduler: IosAlarmScheduler = scheduler(center)
+        val scheduling = async { scheduler.schedule(alarm("A")) }
+        yield()
+        val cancelling = async { scheduler.cancel("A") }
+        yield()
+        gate.complete(Unit)
+        scheduling.await()
+        cancelling.await()
+        assertTrue("A" !in center.pending, "the alarm was armed after cancel() returned")
     }
 }

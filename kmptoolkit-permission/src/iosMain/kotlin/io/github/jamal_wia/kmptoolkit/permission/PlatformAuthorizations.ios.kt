@@ -3,8 +3,8 @@
 package io.github.jamal_wia.kmptoolkit.permission
 
 import kotlin.coroutines.resume
-import kotlin.concurrent.Volatile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import platform.CoreBluetooth.CBCentralManager
@@ -283,9 +283,9 @@ internal object LocationAuthorization {
      * once per install and reports nothing when it declines, so this is the only way to tell "may still
      * be asked" from "settings only". Kept in memory: after a restart one more request finds out again.
      */
-    @Volatile
-    var alwaysUpgradeAsked: Boolean = false
-        private set
+    val alwaysUpgradeAsked: Boolean get() = upgradeAsked.value
+
+    private val upgradeAsked: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
     // Read on the calling thread: hopping to the main queue would deadlock a caller that blocks it.
     fun current(): CLAuthorizationStatus = CLLocationManager().authorizationStatus
@@ -297,10 +297,22 @@ internal object LocationAuthorization {
     }
 
     /**
-     * Asks for "when in use" and suspends until iOS reports a decision. The dialog is guaranteed to
-     * appear while the status is not determined, so the delegate is guaranteed to hear back.
+     * Asks for "when in use" and suspends until iOS reports a decision. The dialog normally appears
+     * while the status is not determined, but not always: with Location Services off device-wide iOS
+     * can show another alert, or none, and leave the status undetermined; the user can also leave the
+     * prompt unanswered. So, like [requestAlways], this waits for a changed status, or — when the app
+     * did not resign active shortly after the call — a short timeout, or until it is active again,
+     * and then reads the current status. It never waits for ever.
      */
-    suspend fun requestWhenInUse(): CLAuthorizationStatus = request { manager -> manager.requestWhenInUseAuthorization() }
+    suspend fun requestWhenInUse(): CLAuthorizationStatus {
+        val before: CLAuthorizationStatus = current()
+        return awaitPossiblePrompt(
+            start = { onChange ->
+                startRequest(before, onChange) { manager -> manager.requestWhenInUseAuthorization() }
+            },
+            fallback = ::current,
+        )
+    }
 
     /**
      * Asks for "always". iOS shows the upgrade prompt **at most once** per install and reports nothing
@@ -316,20 +328,8 @@ internal object LocationAuthorization {
                 startRequest(before, onChange) { manager -> manager.requestAlwaysAuthorization() }
             },
             fallback = ::current,
-        ).also { if (before == kCLAuthorizationStatusAuthorizedWhenInUse) alwaysUpgradeAsked = true }
+        ).also { if (before == kCLAuthorizationStatusAuthorizedWhenInUse) upgradeAsked.value = true }
     }
-
-    private suspend fun request(ask: (CLLocationManager) -> Unit): CLAuthorizationStatus =
-        withContext(Dispatchers.Main) {
-            suspendCancellableCoroutine { continuation ->
-                val abandon: () -> Unit = startRequest(kCLAuthorizationStatusNotDetermined, { status ->
-                    if (continuation.isActive) continuation.resume(status)
-                }, ask)
-                continuation.invokeOnCancellation {
-                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0), dispatch_get_main_queue()) { abandon() }
-                }
-            }
-        }
 
     /**
      * Must run on the main queue. Calls [onChange] once, with the first status that differs from
@@ -654,7 +654,7 @@ private suspend fun <T> awaitPossiblePrompt(
     }
 }
 
-/** How long after an "always" request a system prompt has to take the app out of the active state. */
+/** How long after an "always" or when-in-use request a system prompt has to take the app out of the active state. */
 private const val PROMPT_GRACE_MILLIS: Long = 1_000
 
 private const val NANOS_PER_MILLI: Long = 1_000_000

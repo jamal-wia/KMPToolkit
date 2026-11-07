@@ -10,7 +10,18 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.runner.RunWith
 
 /**
@@ -146,6 +157,108 @@ class AndroidDownloaderStorageTempFileTest {
 
         assertFalse(storage.isResourceAvailable(unit))
         assertEquals(TempFileState.None, storage.tempFileState(unit))
+    }
+
+    @Test
+    fun `deleting the temp file also removes the staging tree an interrupted extraction left`() {
+        val unit = TestUnit(id = "model")
+        writePartial(unit, ByteArray(10))
+        storage.markTempFileComplete(unit)
+        val staging = File(root, "tmp/staging-model/nested").apply { mkdirs() }
+        File(staging, "marker").writeText("half-extracted")
+        val other = File(root, "tmp/staging-other").apply { mkdirs() }
+
+        storage.deleteTempFile(unit)
+
+        assertFalse(File(root, "tmp/staging-model").exists())
+        assertTrue(other.exists(), "another unit's staging tree is not touched")
+        assertEquals(
+            emptyList<String>(),
+            File(root, "tmp/kmptoolkit-internal/trash").list()?.toList().orEmpty(),
+            "the detached tree must be deleted, not left as trash",
+        )
+    }
+
+    @Test
+    fun `deleting a temp file sweeps a trash tree a killed process left, whatever unit it belonged to`() {
+        val leftover = File(root, "tmp/kmptoolkit-internal/trash/gone-123/nested").apply { mkdirs() }
+        File(leftover, "file").writeText("half-deleted")
+        val other = File(root, "tmp/staging-other").apply { mkdirs() }
+        // A unit whose id merely starts with "trash-" owns a temp file that must survive the sweep.
+        val lookalike = TestUnit(id = "trash-model")
+        writePartial(lookalike, ByteArray(10))
+
+        storage.deleteTempFile(TestUnit(id = "unrelated"))
+
+        assertFalse(File(root, "tmp/kmptoolkit-internal/trash/gone-123").exists(), "the leftover trash tree is reclaimed")
+        assertTrue(other.exists(), "another unit's staging tree is not touched")
+        assertTrue(File(storage.getTempFilePath(lookalike)).exists(), "a unit id starting with trash- is not trash")
+    }
+
+    @Test
+    fun `deleting the temp file leaves the staging tree alone while a commit of the unit runs`() = runTest {
+        val unit = TestUnit(id = "model")
+        val staging = File(root, "tmp/staging-model/nested").apply { mkdirs() }
+        val gate = CompletableDeferred<Unit>()
+        val commit: Job = launch(Dispatchers.Unconfined) {
+            UnitCommitLocks.withUnitLock(root.absolutePath, "model") { gate.await() }
+        }
+
+        storage.deleteTempFile(unit)
+
+        assertTrue(staging.exists(), "an extraction in progress must survive a cancel")
+        gate.complete(Unit)
+        withTimeout(5_000) { commit.join() }
+        storage.deleteTempFile(unit)
+        assertFalse(File(root, "tmp/staging-model").exists(), "reclaimed once no commit runs")
+    }
+
+    // 18
+    @Test
+    fun `on a case-insensitive volume a cancel of one case variant leaves the staging tree alone while a commit of the other runs`() = runTest {
+        val folding: DownloaderStorage = AndroidDownloaderStorage(context, config, NoopLogger, caseInsensitive = true)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val committing = HoldingUnit(id = "Model", entered = entered, release = release)
+        File(folding.getTempFilePath(committing)).apply { parentFile!!.mkdirs() }.writeBytes("abc".toByteArray())
+        folding.markTempFileComplete(committing)
+        val staging = File(root, "tmp/staging-model/nested").apply { mkdirs() }
+        val commit: Deferred<Unit> = async(Dispatchers.IO) {
+            runCatching { folding.commitResource(committing) }
+            Unit
+        }
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS), "the commit never reached its hash check")
+
+            folding.deleteTempFile(TestUnit(id = "model"))
+
+            assertTrue(staging.exists(), "a cancel of 'model' must not detach the tree while 'Model' commits")
+        } finally {
+            release.countDown()
+        }
+        // Real time: the commit runs on another thread, and runTest's virtual clock would skip ahead.
+        withContext(Dispatchers.Default) { withTimeout(5_000) { commit.await() } }
+    }
+
+    private class HoldingUnit(
+        override val id: String,
+        private val entered: CountDownLatch,
+        private val release: CountDownLatch,
+    ) : DownloadUnit {
+        /** Read inside the commit's lock, so it parks the commit exactly there; bounded so it can never hang. */
+        override val sha256: Sha256?
+            get() {
+                entered.countDown()
+                release.await(5, TimeUnit.SECONDS)
+                return null
+            }
+        override val apiPath: String = "/resources/$id"
+        override val relativePath: String = "resources/$id.bin"
+        override val group: ResourceGroup = object : ResourceGroup {
+            override val key: String = id
+            override val units: List<DownloadUnit> get() = listOf(this@HoldingUnit)
+        }
+        override fun toString(): String = "HoldingUnit($id)"
     }
 
     private fun writePartial(unit: DownloadUnit, bytes: ByteArray) {

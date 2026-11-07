@@ -194,6 +194,12 @@ val tempPath: String = storage.getTempFilePath(unit)   // where to write
 val resumeFrom: Long = storage.getTempFileSize(unit)    // 0 if nothing survived
 ```
 
+Always take `tempPath` from `getTempFilePath(unit)` and never build or cache it: for a unit whose id is
+not a plain file name it is under a subdirectory (`tmp/kmptoolkit-internal/`) and it moves when an app
+update migrates the 3.0.0 files (only those that existed before the first use of this version, see
+`05-platform-notes.md`), so a path stored in a persisted job (for example WorkManager input
+data) can point at a file that is no longer there. Read it again at the start of every attempt.
+
 Open an ordinary file handle at `tempPath` in append mode, request bytes starting at `resumeFrom`
 if your transport supports a byte-range request, and stream what arrives. When the transfer
 finishes, flush and close the file, call `storage.markTempFileComplete(unit)`, then emit

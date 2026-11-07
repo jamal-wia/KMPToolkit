@@ -34,6 +34,10 @@ public interface AlarmScheduler {
     /**
      * Cancels the alarm with [id]. Cancelling an id that is not armed is a no-op, not an error —
      * neither platform can tell the two cases apart, so there is nothing truthful to report.
+     *
+     * Never throws for a platform refusal: on Android a `SecurityException` or `IllegalStateException`
+     * from `AlarmManager` is caught and logged, and the alarm may then stay armed. A failed cancel is
+     * not reported, because this call returns nothing.
      */
     public suspend fun cancel(id: String)
 
@@ -43,6 +47,9 @@ public interface AlarmScheduler {
      * This cancels **exactly the ids passed**, not "everything this module ever scheduled":
      * Android's `AlarmManager` cannot enumerate its own alarms, and this module stores nothing. If
      * you want a clean slate, pass every id you know about.
+     *
+     * Like [cancel], it never throws for a platform refusal; a refusal on one id does not stop the
+     * ids after it.
      */
     public suspend fun cancelAll(ids: Collection<String>)
 }

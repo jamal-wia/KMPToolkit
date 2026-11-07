@@ -55,6 +55,8 @@ public expect fun newReentrantLock(): ReentrantLockHandle
 @OptIn(ExperimentalAtomicApi::class)
 public class StateMachineLock {
 
+    // A platform lock, not a coroutine Mutex: exclusive() backs the players' non-suspending API and must block
+    // until the transition is done; this module has no coroutines dependency.
     private val lock: ReentrantLockHandle
 
     /** A lock backed by the platform's own reentrant lock. */
@@ -71,6 +73,8 @@ public class StateMachineLock {
     private var depth: Int = 0
 
     /** Actions [submit] could not run at once, oldest first. */
+    // Lock-free CAS list, not a Channel: submit() runs on engine callback threads that hold engine locks and must
+    // never block or suspend.
     private val queued: AtomicReference<List<() -> Unit>> = AtomicReference(emptyList())
 
     /** Runs [block] holding the lock, waiting for it if necessary, then runs whatever was queued meanwhile. */

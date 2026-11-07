@@ -25,17 +25,19 @@ import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.w
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -73,6 +75,8 @@ private const val LEGACY_ASKED: String = "true"
  *   open from. The default tracks activities itself; it must then be created in
  *   `Application.onCreate`, because a tracker created after the first activity resumed does not know
  *   that activity until it resumes again. Pass your app's own access to narrow it to your activities.
+ *   Each call without one registers a lifecycle callback with the `Application` that lives as long as
+ *   the process, so build the controller once, and pass one shared access if you build more than one.
  * - **[host]** shows the system dialog and the screens that answer with a result. The default,
  *   [ActivityResultPermissionRequestHost] on [activityAccess], needs no wiring and survives an activity
  *   recreated while a dialog is up; pass your own [PermissionRequestHost] if your app already owns that
@@ -214,6 +218,13 @@ internal fun Context.declaresScanNeverForLocation(logger: Logger): Boolean {
  */
 private val RESUME_WAIT: Duration = 1.seconds
 
+/**
+ * How long a request queued behind a cancelled request waits for that request's system dialog, which
+ * stays on screen, to be answered. A user can take a while over a dialog, but a caller must not hang
+ * on one for ever; past this the request fails like a refused launch (status unchanged, nothing shown).
+ */
+private val STALE_DIALOG_TIMEOUT: Duration = 30.seconds
+
 /** Suspends until an activity is resumed (at once if one is), or [timeout] passes. */
 private suspend fun ActivityAccess.awaitResumed(timeout: Duration) {
     var subscription: ActivitySubscription? = null
@@ -296,6 +307,11 @@ internal class AndroidPermissionController(
     private val notificationsEnabled: () -> Boolean,
     private val specialAccesses: SpecialAccesses,
     private val resultGrants: ResultGrants,
+    /**
+     * How long a request waits for the dialog of a cancelled earlier request to be answered before its
+     * own launch is attempted; see [staleDialog].
+     */
+    private val staleDialogTimeout: Duration = STALE_DIALOG_TIMEOUT,
 ) : PermissionController {
 
     /** A permission whose request just resolved, so every [observe] of it re-reads at once. */
@@ -304,8 +320,21 @@ internal class AndroidPermissionController(
     /** Held for the whole of every request, so two prompts never overlap. */
     private val requestMutex: Mutex = Mutex()
 
+    /**
+     * Completes when the host has finished with the last dialog a *cancelled* caller left on screen
+     * (answered, abandoned or never shown); `null` when no such dialog is up. Cancelling a caller frees
+     * [requestMutex] but cannot take the system dialog back, and the host refuses a launch while one is
+     * pending, so the next request waits on this before it launches its own. Read and written only with
+     * [requestMutex] held, which is the synchronisation (D-21: a plain field behind the mutex).
+     */
+    private var staleDialog: CompletableDeferred<Unit>? = null
+
     /** Permissions already reported as undeclared, so a status observed on every resume warns once. */
-    private val reportedUndeclared: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val reportedUndeclared: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+
+    /** `true` the first time [key] is reported. */
+    private fun MutableStateFlow<Set<String>>.markReported(key: String): Boolean =
+        key !in getAndUpdate { reported -> if (key in reported) reported else reported + key }
 
     /** Read, and warned about, on first use — so a status observed on every resume warns once. */
     private val scanDisavowsLocation: Boolean by lazy {
@@ -353,9 +382,14 @@ internal class AndroidPermissionController(
     override fun observe(permission: Permission): Flow<PermissionStatus> {
         val source: Permission = permission.statusSource()
         return callbackFlow {
-            trySend(Unit)
+            // UNDISPATCHED, and before the first tick: the subscription exists before any status read
+            // can start on any dispatcher, so a request resolving in between is not emitted to
+            // nobody (the flow has no replay).
+            launch(start = CoroutineStart.UNDISPATCHED) {
+                requestsResolved.collect { resolved -> if (resolved == source) send(Unit) }
+            }
             val subscription: ActivitySubscription = addResumedListener { trySend(Unit) }
-            launch { requestsResolved.collect { resolved -> if (resolved == source) send(Unit) } }
+            trySend(Unit)
             awaitClose { subscription.cancel() }
         }
             .conflate()
@@ -573,21 +607,29 @@ internal class AndroidPermissionController(
      * listener; the screen stays where it is, and the next [check] or [observe] sees what the user did.
      */
     private suspend fun openAndAwaitReturn(request: SystemScreenRequest, permission: Permission): Boolean {
-        var subscription: ActivitySubscription? = null
+        val returned: CompletableDeferred<Boolean> = CompletableDeferred()
+        // Handed from the main-thread subscribe to whichever thread finishes the wait; taken once.
+        val subscription: MutableStateFlow<ActivitySubscription?> = MutableStateFlow(null)
         try {
-            return suspendCancellableCoroutine { continuation ->
-                val armed = AtomicBoolean(false)
-                subscription = addResumedListener {
-                    if (armed.get() && continuation.isActive) continuation.resume(true)
+            // Subscribe and open on the main thread. Off main a listener added while an activity is
+            // resumed gets its immediate call posted, not run: it could land after `armed` is set
+            // but before the old activity's pause, and end the wait while Settings is on screen.
+            // On main that call is synchronous and has been ignored before the screen is opened.
+            onMainThread {
+                if (!returned.isActive) return@onMainThread
+                var armed = false // main thread only: the listener (ActivityAccess contract) and the set below
+                subscription.value = addResumedListener { if (armed) returned.complete(true) }
+                // Finished while subscribing: the finally block may already have taken the (still empty) cell.
+                if (!returned.isActive) {
+                    subscription.getAndUpdate { null }?.cancel()
+                    return@onMainThread
                 }
-                if (openScreen(request, permission)) {
-                    armed.set(true)
-                } else if (continuation.isActive) {
-                    continuation.resume(false)
-                }
+                if (openScreen(request, permission)) armed = true else returned.complete(false)
             }
+            return returned.await()
         } finally {
-            subscription?.cancel()
+            returned.cancel()
+            subscription.getAndUpdate { null }?.cancel()
         }
     }
 
@@ -620,27 +662,70 @@ internal class AndroidPermissionController(
      * Runs [launch] on the main thread — an `ActivityResultLauncher` must be started there, and the
      * caller's coroutine may be anywhere — and suspends for the value it delivers.
      *
+     * The result is a single-assignment [CompletableDeferred]: the first value to arrive wins and any
+     * later one is dropped.
+     *
      * @return the delivered value, or `null` when the host could not show anything. A host that both
-     *   reports failure and delivers breaks its contract; the continuation is resumed exactly once
-     *   regardless.
+     *   reports failure and delivers breaks its contract; whichever of the two arrives first is the
+     *   result, the other is ignored.
      */
-    private suspend fun <T : Any> launchOnHost(what: String, launch: (deliver: (T) -> Unit) -> Boolean): T? =
-        suspendCancellableCoroutine { continuation ->
-            val delivered = AtomicBoolean(false)
-            val deliver: (T?) -> Unit = { value ->
-                if (delivered.compareAndSet(false, true) && continuation.isActive) continuation.resume(value)
-            }
+    private suspend fun <T : Any> launchOnHost(what: String, launch: (deliver: (T) -> Unit) -> Boolean): T? {
+        if (!awaitStaleDialog(what)) return null
+        val result: CompletableDeferred<T?> = CompletableDeferred()
+        // Completes when the host is done with this launch whatever the caller does: answered, failed
+        // to launch, or never launched because the caller was cancelled first.
+        val settled: CompletableDeferred<Unit> = CompletableDeferred()
+        try {
             onMainThread {
-                val launched: Boolean = runCatching { launch { value -> deliver(value) } }.getOrElse { cause ->
+                // Cancelled before this ran (off main it is posted): do not put up a dialog nobody waits for.
+                if (!result.isActive) {
+                    settled.complete(Unit)
+                    return@onMainThread
+                }
+                val launched: Boolean = runCatching {
+                    launch { value ->
+                        result.complete(value)
+                        settled.complete(Unit)
+                    }
+                }.getOrElse { cause ->
                     logger.w(cause) { "The permission request host threw while launching" }
                     false
                 }
-                if (!launched && !delivered.get()) {
-                    logger.w { "$what could not be shown" }
-                    deliver(null)
+                if (!launched) {
+                    settled.complete(Unit)
+                    if (result.complete(null)) logger.w { "$what could not be shown" }
                 }
             }
+            return result.await()
+        } finally {
+            result.cancel() // a late delivery, or a still-queued launch, now sees a finished request
+            // A caller cancelled with its dialog still up: the next request has to wait for that dialog.
+            if (!settled.isCompleted) staleDialog = settled
         }
+    }
+
+    /**
+     * Waits, for at most [staleDialogTimeout], until the dialog an earlier cancelled caller left on
+     * screen is resolved, so a request queued behind it gets its own dialog instead of a refused launch.
+     * Cancelling the waiting caller ends the wait at once.
+     *
+     * @return `false` when the dialog was still up at the timeout: the request then fails like a refused
+     *   launch (nothing shown, status unchanged). The wait is not repeated for later requests.
+     */
+    private suspend fun awaitStaleDialog(what: String): Boolean {
+        val stale: CompletableDeferred<Unit> = staleDialog ?: return true
+        if (stale.isCompleted) {
+            staleDialog = null
+            return true
+        }
+        val resolved: Unit? = withTimeoutOrNull(staleDialogTimeout) { stale.await() }
+        staleDialog = null
+        if (resolved == null) {
+            logger.w { "$what could not be shown: an earlier cancelled request's dialog is still on screen" }
+            return false
+        }
+        return true
+    }
 
     private fun onMainThread(block: () -> Unit) {
         val main: Looper = Looper.getMainLooper()
@@ -677,7 +762,7 @@ internal class AndroidPermissionController(
     private fun declared(permission: Permission, androidPermissions: List<String>): List<String> {
         val declared: Set<String> = declaredPermissions() ?: return androidPermissions
         val present: List<String> = androidPermissions.filter { it in declared }
-        if (present.isEmpty() && reportedUndeclared.add(permission.id)) {
+        if (present.isEmpty() && reportedUndeclared.markReported(permission.id)) {
             logger.w { "$permission reads Unavailable: declare ${androidPermissions.joinToString(" or ")} in the manifest" }
         }
         return present

@@ -11,6 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerConfig
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
@@ -91,7 +94,9 @@ public fun VideoPlayer(
  * that has to survive a configuration change, or that a view model drives, belongs in the view
  * model — use the `VideoPlayer(player = …)` overload for it.
  *
- * @param autoPlay start playing once [source] is prepared.
+ * @param autoPlay start playing once [source] is prepared. With [pauseOnBackground], a source that
+ *   finishes preparing while the host is in the background is left Ready instead; it does not start
+ *   on return either.
  * @param onProgress called with the playhead and the duration, in milliseconds, whenever either
  *   changes — about every [VideoPlayerConfig.positionUpdateIntervalMs] while playing — but only
  *   while the duration is known (positive); a live stream never reports.
@@ -111,7 +116,12 @@ public fun VideoPlayer(
     config: VideoPlayerConfig = VideoPlayerConfig(),
     controls: @Composable VideoControlsScope.() -> Unit = { DefaultVideoControls() },
 ) {
-    val player: VideoPlayer = rememberVideoPlayer(source, autoPlay, config)
+    val lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current
+    // A load that finishes after the app was backgrounded must not start playing there: the stop
+    // event came while the player was still Preparing, so PauseOnBackgroundEffect found nothing to pause.
+    val player: VideoPlayer = rememberOwnedVideoPlayer(source, autoPlay, config) {
+        !pauseOnBackground || lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    }
     if (onProgress != null) ProgressEffect(player, onProgress)
     VideoPlayer(
         player = player,

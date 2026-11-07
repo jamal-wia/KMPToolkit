@@ -24,7 +24,7 @@ package io.github.jamal_wia.kmptoolkit.uploader
  */
 public interface UploadTransport {
 
-    /** The lease to pass as `AttemptResult.Detached(leaseMillis)`. */
+    /** The lease to pass as `AttemptResult.Detached(leaseMillis)`; the engine honours at most 24 hours of it. */
     public val leaseMillis: Long
 
     /** Starts (or rejoins) the upload for the outbox item [itemId]. */

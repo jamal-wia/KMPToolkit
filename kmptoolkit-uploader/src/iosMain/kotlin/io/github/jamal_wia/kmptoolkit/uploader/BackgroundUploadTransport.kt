@@ -5,8 +5,6 @@ import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
-import kotlin.concurrent.AtomicInt
-import kotlin.concurrent.AtomicReference
 import kotlin.concurrent.Volatile
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
@@ -32,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import platform.Foundation.NSBundle
@@ -91,12 +90,30 @@ public class BackgroundUploadConfig(
     public val requestTimeout: Duration = DEFAULT_REQUEST_TIMEOUT,
     public val resourceTimeout: Duration = DEFAULT_RESOURCE_TIMEOUT,
 ) {
-    /** The constructor before [requestTimeout] and [resourceTimeout] existed; kept for binary compatibility. */
-    @Deprecated("Superseded by the constructor with requestTimeout and resourceTimeout.", level = DeprecationLevel.HIDDEN)
+    /**
+     * The constructor before [requestTimeout] and [resourceTimeout] existed; kept so that Swift code calling
+     * `BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compiles. It has no
+     * default arguments on purpose: `BackgroundUploadConfig()` and every call that leaves a parameter out
+     * resolve to the primary constructor, and only a call that supplies exactly these three arguments
+     * (positionally or by name) and no timeout lands here, with a deprecation warning.
+     *
+     * Removing its defaults (3.0.0 had them) is a deliberate, recorded trade-off: a library compiled against
+     * 3.0.0 that calls it with arguments omitted must be recompiled against 3.1.0.
+     */
+    @Deprecated(
+        "Superseded by the constructor with requestTimeout and resourceTimeout.",
+        ReplaceWith(
+            "BackgroundUploadConfig(sessionIdentifierPrefix, lease, rehandFlushWindow, " +
+                "requestTimeout = 60.seconds, resourceTimeout = 7.days)",
+            "kotlin.time.Duration.Companion.seconds",
+            "kotlin.time.Duration.Companion.days",
+        ),
+        level = DeprecationLevel.WARNING,
+    )
     public constructor(
-        sessionIdentifierPrefix: String? = null,
-        lease: Duration = 60.minutes,
-        rehandFlushWindow: Duration = 3.seconds,
+        sessionIdentifierPrefix: String?,
+        lease: Duration,
+        rehandFlushWindow: Duration,
     ) : this(sessionIdentifierPrefix, lease, rehandFlushWindow, DEFAULT_REQUEST_TIMEOUT, DEFAULT_RESOURCE_TIMEOUT)
 
     init {
@@ -172,7 +189,8 @@ public class BackgroundUploadConfig(
  * file — and removed when the upload completes. It is rebuilt on every hand-off.
  *
  * Create it once per process, before the engine starts; the relaunch entry point finds it through a
- * process-wide registration.
+ * process-wide registration. A second call replaces that registration with the new transport and does not
+ * stop the first one, which keeps the sessions it owns.
  *
  * @since 1.5.0
  */
@@ -255,11 +273,11 @@ public object BackgroundUploadRelaunch {
 
 /** Runs [action] at most once, whichever of several racing callers gets there first. */
 internal class OnceGuard(private val action: () -> Unit) {
-    private val fired = AtomicInt(0)
+    private val fired: CompletableDeferred<Unit> = CompletableDeferred()
 
     /** @return whether this call ran the action. */
     fun fire(): Boolean {
-        if (!fired.compareAndSet(expected = 0, newValue = 1)) return false
+        if (!fired.complete(Unit)) return false
         action()
         return true
     }
@@ -285,6 +303,8 @@ internal class BackgroundSessionUploadTransport(
     )
 
     /** One live session per item in this process; the delegate removes its own entry when it completes. */
+    // NSLock, not a coroutine Mutex: taken from NSURLSession delegate callbacks and the non-suspending
+    // launch()/cancel(), around Objective-C session calls that must be atomic with these maps.
     private val liveLock = NSLock()
     private val liveUploads: MutableMap<String, LiveUpload> = mutableMapOf()
 
@@ -345,6 +365,7 @@ internal class BackgroundSessionUploadTransport(
                     if (invalidated == null) {
                         logger.w { "The previous session was not reported invalid in time; continuing — item=$itemId" }
                         forgetInvalidating(itemId, claim.predecessor)
+                        claim.predecessor.closeProgress()
                     }
                     handOff(itemId, isRehandOff, request, claim.token)
                 }
@@ -383,6 +404,8 @@ internal class BackgroundSessionUploadTransport(
                 // retry budget.
                 live.delegate.cancelled = true
                 live.session.invalidateAndCancel()
+                // A session cancelled before it had a task never gets a completion to close its progress pipe.
+                live.delegate.closeProgress()
                 removeTemporaryBody(itemId)
                 orphan = null
             } else if (invalidating.containsKey(itemId)) {
@@ -408,6 +431,8 @@ internal class BackgroundSessionUploadTransport(
             liveLock.lock()
             try {
                 orphan.session.invalidateAndCancel()
+                // No task of this process ever ran on the orphan session, so no completion will close it.
+                orphan.delegate.closeProgress()
                 if (liveUploads[itemId] === orphan) liveUploads.remove(itemId)
                 removeTemporaryBody(itemId)
             } finally {
@@ -458,7 +483,7 @@ internal class BackgroundSessionUploadTransport(
             }
             return
         }
-        val (live: LiveUpload, created: Boolean) = obtainLive(itemId)
+        val (live: LiveUpload, created: Boolean) = obtainLive(itemId, newWake = true)
         if (created) logger.i { "Relaunch settlement — item=$itemId" }
         live.delegate.notifyWhenDrained {
             onDone()
@@ -539,11 +564,18 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
-    /** The live session for [itemId], created under the lock if absent; and whether this call created it. */
-    private fun obtainLive(itemId: String): Pair<LiveUpload, Boolean> {
+    /**
+     * The live session for [itemId], created under the lock if absent; and whether this call created it.
+     * [newWake] starts a new drained signal on an existing session, inside the same lock.
+     */
+    private fun obtainLive(itemId: String, newWake: Boolean = false): Pair<LiveUpload, Boolean> {
         liveLock.lock()
         try {
-            liveUploads[itemId]?.let { existing -> return existing to false }
+            liveUploads[itemId]?.let { existing ->
+                // A relaunch wake on a session that is still live: its events are not the earlier wake's.
+                if (newWake) existing.delegate.startWake()
+                return existing to false
+            }
             val live: LiveUpload = createLive(itemId)
             liveUploads[itemId] = live
             return live to true
@@ -601,6 +633,8 @@ internal class BackgroundSessionUploadTransport(
                 // Inside the lock, so a hand-off that finds the slot empty creates its session — with the
                 // same identifier — only after this one is invalidated.
                 live.session.finishTasksAndInvalidate()
+                // The session never had a task, so no completion will close its progress pipe.
+                live.delegate.closeProgress()
             } finally {
                 liveLock.unlock()
             }
@@ -659,6 +693,8 @@ internal class BackgroundSessionUploadTransport(
         live.delegate.cancelled = true
         live.delegate.terminalDelivered = true
         live.session.invalidateAndCancel()
+        // No task was created, so no completion will close the progress pipe either.
+        live.delegate.closeProgress()
         scope.launch {
             if (!UploadGateway.complete(itemId, UploadResult.TransportFailure(message))) {
                 logger.w { "Upload failure did not reach an engine — item=$itemId" }
@@ -857,6 +893,13 @@ internal class UploadSessionDelegate(
     private val onInvalidated: (UploadSessionDelegate) -> Unit = {},
 ) : NSObject(), NSURLSessionDataDelegateProtocol {
 
+    // @Volatile, not StateFlow: these flags only ever go false -> true, so no read-modify-write needs to be
+    // atomic and a plain volatile is enough. They are written from NSURLSession delegate callbacks
+    // (receivedAnyEvent on every progress event) and, for cancelled/terminalDelivered, from several writers,
+    // some without terminalLock (receivedAnyEvent, and failBeforeStart). The volatile is what makes every
+    // read, locked or not, see those writes; terminalLock only orders task creation against complete()/cancel(),
+    // it does not publish these fields.
+
     /** Any event at all tells a re-hand's flush window not to start a fresh upload. */
     @Volatile
     var receivedAnyEvent: Boolean = false
@@ -869,18 +912,27 @@ internal class UploadSessionDelegate(
     @Volatile
     var terminalDelivered: Boolean = false
 
-    @Volatile
-    private var terminalHandled: Boolean = false
+    /**
+     * Completed once the terminal event is settled. Permanent: a delegate that settled is never reused.
+     */
+    private val settled: CompletableDeferred<Unit> = CompletableDeferred()
 
-    /** The drained callback; taken with a compare-and-set, so however many callers race, it runs once. */
-    private val onAllEventsDelivered: AtomicReference<(() -> Unit)?> = AtomicReference(null)
+    /**
+     * DidFinishEvents of the current wake. A signal that lands before anyone registered is remembered, but only
+     * until the next [startWake] replaces a completed one, so a later relaunch wake on the same live delegate
+     * waits for its own signal (or the settlement) instead of firing at once. A wake's own signal is therefore
+     * remembered only when it lands after [startWake], as it does on a session that wake opens. On a session
+     * still live from an earlier wake it can land before [startWake]; it then counts as the earlier wake's and is
+     * dropped, and that wake waits for the settlement or the 25 s safety timeout (as before this change).
+     */
+    private val finishedEvents: MutableStateFlow<CompletableDeferred<Unit>> = MutableStateFlow(CompletableDeferred())
 
     /**
      * Progress goes through one conflated channel and one forwarder, so fractions reach the handler in order
      * and the forwarder is joined before the settlement — never a progress call after the item settled.
      */
     private val fractions: Channel<Float> = Channel(Channel.CONFLATED)
-    private val forwarder: Job = scope.launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
+    internal val forwarder: Job = scope.launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
 
     private val progress: WholePercentProgress = WholePercentProgress(totalBytes = PERCENT_BASIS) { fraction ->
         fractions.trySend(fraction)
@@ -893,26 +945,40 @@ internal class UploadSessionDelegate(
         reportInvalidated()
     }
 
+    /**
+     * Ends the progress pipe from the owner's side, for a session that is dropped without ever delivering a
+     * terminal event (no task was created, or it was cancelled while idle): `didCompleteWithError` is sent
+     * once per task, so without this the forwarder would stay suspended on the channel for the life of the
+     * transport and pin this delegate. Idempotent, and a no-op once [complete] has closed the channel. The
+     * forwarder drains the one conflated value that may be pending and ends; later progress is dropped.
+     */
+    fun closeProgress() {
+        fractions.close()
+    }
+
     /** What `didBecomeInvalidWithError` does; separate so a test double of the session can report it. */
     fun reportInvalidated() {
+        // After this callback no task can run on the session, so nothing more is worth forwarding.
+        closeProgress()
         onInvalidated(this)
         invalidated.complete(Unit)
     }
 
-    /** Chains [callback] to "the buffered events are drained"; fires at once if they already are. */
-    fun notifyWhenDrained(callback: () -> Unit) {
-        onAllEventsDelivered.value = callback
-        if (terminalHandled) fireDrained()
+    /** Begins a new relaunch wake: a DidFinishEvents remembered from an earlier wake no longer counts. */
+    fun startWake() {
+        finishedEvents.update { current -> if (current.isCompleted) CompletableDeferred() else current }
     }
 
-    private fun fireDrained() {
-        while (true) {
-            val callback: (() -> Unit) = onAllEventsDelivered.value ?: return
-            if (onAllEventsDelivered.compareAndSet(callback, null)) {
-                callback()
-                return
-            }
-        }
+    /**
+     * Chains [callback] to "the buffered events of this wake are drained" (DidFinishEvents of the current wake,
+     * or the terminal event settled); fires at once if they already are. Runs exactly once however many
+     * signals arrive.
+     */
+    fun notifyWhenDrained(callback: () -> Unit) {
+        // Runs synchronously on the completing thread, or at once on this thread if already drained.
+        val once = OnceGuard(callback)
+        settled.invokeOnCompletion { once.fire() }
+        finishedEvents.value.invokeOnCompletion { once.fire() }
     }
 
     /** The response body so far, kept up to the engine's ceiling plus one byte; handed over once, at completion. */
@@ -936,7 +1002,7 @@ internal class UploadSessionDelegate(
     }
 
     override fun URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession) {
-        fireDrained()
+        finishedEvents.value.complete(Unit)
     }
 
     override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
@@ -1011,8 +1077,7 @@ internal class UploadSessionDelegate(
             onTerminal(this@UploadSessionDelegate)
             // The terminal event was the buffered work: once it is settled, the OS completion handler need
             // not wait for the safety timeout — DidFinishEvents may never come after invalidation.
-            terminalHandled = true
-            fireDrained()
+            settled.complete(Unit)
         }
     }
 }

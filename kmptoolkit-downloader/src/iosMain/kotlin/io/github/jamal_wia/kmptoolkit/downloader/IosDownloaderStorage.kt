@@ -24,11 +24,14 @@ import platform.CoreCrypto.CC_SHA256_DIGEST_LENGTH
 import platform.CoreCrypto.CC_SHA256_Final
 import platform.CoreCrypto.CC_SHA256_Init
 import platform.CoreCrypto.CC_SHA256_Update
+import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import platform.Foundation.NSApplicationSupportDirectory
+import platform.Foundation.NSDate
 import platform.Foundation.NSDirectoryEnumerator
+import platform.Foundation.NSFileModificationDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileProtectionKey
 import platform.Foundation.NSFileProtectionNone
@@ -37,11 +40,14 @@ import platform.Foundation.NSFileType
 import platform.Foundation.NSFileTypeDirectory
 import platform.Foundation.NSFileTypeRegular
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
+import platform.Foundation.NSNumber
 import platform.Foundation.NSString
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
+import platform.Foundation.NSURLVolumeSupportsCaseSensitiveNamesKey
+import platform.Foundation.timeIntervalSince1970
 import platform.Foundation.NSUserDomainMask
 import platform.posix.FILE
 import platform.posix.SEEK_CUR
@@ -78,6 +84,11 @@ import platform.zlib.inflate as zlibInflate
  * can leave a partial file that reads as complete. A `tmp/<id>.<ext>` left by an earlier version of
  * this library is therefore partial, and is resumed rather than committed.
  *
+ * Those are the names of a unit whose id is a plain file name. An id that is not (a `/`, a NUL, a
+ * name too long for one path component) gets the same files under `tmp/kmptoolkit-internal/`, named
+ * by a hash of the id: see [UnitFileLayout]. [DownloadUnit.relativePath] is validated by the same
+ * class, and a path that cannot be used safely throws [InvalidDownloadUnitException].
+ *
  * The hash a transfer must have ([beginTempFile]) is a one-line record at `tmp/expect/<id>.sha256`, keyed
  * by id alone so a free-form temp extension can never make two units share or miss a record. It is
  * written before the old temp files are deleted and moved into place by a rename, so a crash leaves
@@ -87,7 +98,9 @@ import platform.zlib.inflate as zlibInflate
 internal class IosDownloaderStorage(
     private val config: DownloaderStorageConfig,
     private val logger: Logger,
-) : DownloaderStorage {
+    /** Test seam: null asks the volume, which is what production does. */
+    private val caseInsensitiveOverride: Boolean? = null,
+) : DownloaderStorage, RelativePathChecking {
 
     private val baseDir: String by lazy {
         // Application Support, not Documents: these are re-downloadable assets, and Apple
@@ -111,36 +124,124 @@ internal class IosDownloaderStorage(
         resourceDir
     }
 
-    override fun isResourceAvailable(unit: DownloadUnit): Boolean {
-        return if (unit.isDirectoryResource) {
-            val pagesDir: String = getResourcePath(unit)
-            fileExists("$pagesDir/${unit.archiveMarker()}")
-        } else {
-            fileExists(getResourcePath(unit))
+    /**
+     * Whether the volume under the base directory folds case. A volume that cannot be asked is
+     * treated as case-insensitive: that only over-serializes commits and rejects absurd
+     * case-variant `TMP/...` paths, while the opposite guess could let two case variants of an id
+     * commit at once over the same files.
+     */
+    private val layout: UnitFileLayout by lazy {
+        UnitFileLayout(caseInsensitive = caseInsensitiveOverride ?: !volumeIsCaseSensitive(baseDir))
+    }
+
+    private val tmpPathWarnings: FirstSightings = FirstSightings()
+
+    private val migrationFiles: LegacyTempMigrations.Files = object : LegacyTempMigrations.Files {
+        override fun exists(path: String): Boolean = fileExists(path)
+        override fun renameNoReplace(from: String, to: String): Boolean =
+            io.github.jamal_wia.kmptoolkit.downloader.renameNoReplace(from, to)
+        override fun delete(path: String) {
+            remove(path)
+        }
+
+        override fun createParentDirectory(path: String) {
+            this@IosDownloaderStorage.createParentDirectory(path)
+        }
+
+        override fun lastModifiedMillis(path: String): Long? {
+            val attributes: Map<Any?, *>? = NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null)
+            val modified: NSDate = attributes?.get(NSFileModificationDate) as? NSDate ?: return null
+            return (modified.timeIntervalSince1970 * 1000.0).toLong().takeIf { it > 0L }
+        }
+
+        override fun hasEntriesOtherThan(directory: String, name: String): Boolean =
+            NSFileManager.defaultManager.contentsOfDirectoryAtPath(directory, error = null).orEmpty().any { it != name }
+
+        override fun readText(path: String): String? =
+            NSString.stringWithContentsOfFile(path = path, encoding = NSUTF8StringEncoding, error = null)
+
+        override fun writeNew(path: String, text: String): Boolean {
+            val temporary = "$path.${Random.nextLong().toULong()}.tmp"
+            return try {
+                writeAndSync(temporary, text.encodeToByteArray())
+                io.github.jamal_wia.kmptoolkit.downloader.renameNoReplace(temporary, path)
+            } catch (e: IllegalStateException) {
+                false
+            } finally {
+                remove(temporary)
+            }
         }
     }
 
+    private fun volumeIsCaseSensitive(path: String): Boolean {
+        val values: Map<Any?, *>? = NSURL.fileURLWithPath(path)
+            .resourceValuesForKeys(listOf(NSURLVolumeSupportsCaseSensitiveNamesKey), error = null)
+        return when (val value: Any? = values?.get(NSURLVolumeSupportsCaseSensitiveNamesKey)) {
+            is Boolean -> value
+            is NSNumber -> value.boolValue
+            else -> false
+        }
+    }
+
+    /**
+     * The names of [unit]'s files. A unit whose names are hashed first has its 3.0.0 temp files
+     * moved to them (once per process), so every method sees the files wherever they are.
+     */
+    private fun names(unit: DownloadUnit): UnitFileLayout.Names {
+        // Before any name is returned, so before this version writes anything under tmp/ of the base.
+        val cutoff: LegacyTempMigrations.Cutoff = LegacyTempMigrations.ensureLayout(baseDir, migrationFiles, logger)
+        val names: UnitFileLayout.Names = layout.namesOf(unit)
+        if (names.anyHashed) {
+            LegacyTempMigrations.migrateOnce(baseDir, unit, layout, names, migrationFiles, logger, cutoff)
+        }
+        return names
+    }
+
+    override fun isResourceAvailable(unit: DownloadUnit): Boolean {
+        val path: String = try {
+            getResourcePath(unit)
+        } catch (e: InvalidDownloadUnitException) {
+            return false
+        }
+        return if (unit.isDirectoryResource) {
+            fileExists("$path/${unit.archiveMarker()}")
+        } else {
+            fileExists(path)
+        }
+    }
+
+    override fun relativePathViolation(unit: DownloadUnit): InvalidDownloadUnitException.Reason? =
+        (layout.inspectRelativePath(unit) as? UnitFileLayout.PathInspection.Rejected)?.reason
+
     override fun getResourcePath(unit: DownloadUnit): String {
+        when (val inspection: UnitFileLayout.PathInspection = layout.inspectRelativePath(unit)) {
+            is UnitFileLayout.PathInspection.Rejected -> throw InvalidDownloadUnitException(unit, inspection.reason)
+            UnitFileLayout.PathInspection.AcceptedUnderTmp -> {
+                if (tmpPathWarnings.isFirst(unit.relativePath)) {
+                    logger.w { "relativePath '${unit.relativePath}' of $unit is under tmp/, which the storage reserves" }
+                }
+            }
+            UnitFileLayout.PathInspection.Accepted -> Unit
+        }
         return "$baseDir/${unit.relativePath}"
     }
 
-    override fun getTempFilePath(unit: DownloadUnit): String {
-        return "$baseDir/tmp/${unit.id}.${unit.tempExtension}"
-    }
+    override fun getTempFilePath(unit: DownloadUnit): String = "$baseDir/${names(unit).partial}"
 
-    private fun completeTempFilePath(unit: DownloadUnit): String =
-        "$baseDir/tmp/${unit.id}.${unit.tempExtension}.complete"
-
-    override fun tempFileState(unit: DownloadUnit): TempFileState = when {
-        fileExists(completeTempFilePath(unit)) -> TempFileState.Complete
-        getTempFileSize(unit) > 0L -> TempFileState.Partial
-        else -> TempFileState.None
+    override fun tempFileState(unit: DownloadUnit): TempFileState {
+        val names: UnitFileLayout.Names = names(unit)
+        return when {
+            fileExists("$baseDir/${names.complete}") -> TempFileState.Complete
+            sizeOf("$baseDir/${names.partial}") > 0L -> TempFileState.Partial
+            else -> TempFileState.None
+        }
     }
 
     override fun markTempFileComplete(unit: DownloadUnit) {
-        val complete: String = completeTempFilePath(unit)
+        val names: UnitFileLayout.Names = names(unit)
+        val complete = "$baseDir/${names.complete}"
         if (fileExists(complete)) return
-        val partial: String = getTempFilePath(unit)
+        val partial = "$baseDir/${names.partial}"
         check(fileExists(partial)) { "No temp file to mark complete for $unit at $partial" }
         val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
             srcPath = partial,
@@ -151,8 +252,9 @@ internal class IosDownloaderStorage(
         logger.i { "Marked the temp file of $unit complete" }
     }
 
-    override fun getTempFileSize(unit: DownloadUnit): Long {
-        val path: String = getTempFilePath(unit)
+    override fun getTempFileSize(unit: DownloadUnit): Long = sizeOf("$baseDir/${names(unit).partial}")
+
+    private fun sizeOf(path: String): Long {
         val attributes: Map<Any?, *>? = NSFileManager.defaultManager
             .attributesOfItemAtPath(path, error = null)
 
@@ -164,17 +266,18 @@ internal class IosDownloaderStorage(
         // Before any side effect: a contradictory catalogue must leave the existing partial file and
         // its record exactly as they were.
         requireConsistentExpectations(unit, expectedSha256)
-        val staged: String = stagedExpectationPath(unit)
+        val names: UnitFileLayout.Names = names(unit)
+        val staged = "$baseDir/${names.stagedRecord}"
         createParentDirectory(staged)
         writeAndSync(staged, encodeExpectation(expectedSha256).encodeToByteArray())
-        deleteTempData(unit)
+        deleteTempData(names)
         // A delete that failed must not be followed by the rename: the surviving old bytes would
         // be paired with the new record.
-        if (fileExists(getTempFilePath(unit)) || fileExists(completeTempFilePath(unit))) {
+        if (fileExists("$baseDir/${names.partial}") || fileExists("$baseDir/${names.complete}")) {
             remove(staged)
             throw IllegalStateException("Could not discard the previous temp file of $unit")
         }
-        val record: String = expectationPath(unit)
+        val record = "$baseDir/${names.record}"
         createParentDirectory(record)
         // The record holds only a public hash, and a background commit can run while the device is
         // locked: under the app's default protection class it would read as Unreadable, and the
@@ -186,36 +289,66 @@ internal class IosDownloaderStorage(
         )
         // POSIX rename replaces an existing record atomically; moveItemAtPath would refuse.
         check(rename(staged, record) == 0) { "Could not record the expected hash of $unit" }
+        // The downloader writes straight into the partial path; its directory may be a hashed one.
+        createParentDirectory("$baseDir/${names.partial}")
         logger.i { "Began the temp file of $unit (expected hash: ${expectedSha256?.hex ?: "none"})" }
     }
 
     override fun deleteTempFile(unit: DownloadUnit) {
         // Data first, record last: a crash in between leaves an orphan record, which reads as no
         // temp file at all and is overwritten by the next beginTempFile.
-        deleteTempData(unit)
+        val names: UnitFileLayout.Names = names(unit)
+        deleteTempData(names)
+        // The extraction tree of an archive commit that a process death interrupted: nothing else
+        // ever enumerates tmp/, so a unit that is then dropped would keep it forever. Skipped while
+        // a commit of the unit runs (it may be extracting into this very tree, or moving it into
+        // place), or while the lock registry is momentarily busy; the next cancel or the next
+        // commit reclaims it. Under the lock the tree is only renamed away; the recursive delete
+        // runs after the lock is released so it cannot stall other units.
+        UnitCommitLocks.tryDetachThenDispose(
+            baseDirectory = baseDir,
+            unitId = layout.lockKey(unit),
+            detach = {
+                val trash = "$baseDir/${layout.trashEntry(Random.nextLong().toULong())}"
+                createParentDirectory(trash)
+                if (rename("$baseDir/${names.staging}", trash) == 0) trash else null
+            },
+            dispose = { trash: String -> NSFileManager.defaultManager.removeItemAtPath(trash, error = null) },
+        )
+        sweepTrash()
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
         // keep its record: with the record gone, the next attempt would commit that complete file
         // unchecked.
-        if (fileExists(getTempFilePath(unit)) || fileExists(completeTempFilePath(unit))) {
+        if (fileExists("$baseDir/${names.partial}") || fileExists("$baseDir/${names.complete}")) {
             logger.w { "Could not delete the temp file of $unit; keeping its expected-hash record" }
             return
         }
-        remove(expectationPath(unit))
-        remove(stagedExpectationPath(unit))
+        remove("$baseDir/${names.record}")
+        remove("$baseDir/${names.stagedRecord}")
     }
 
-    private fun deleteTempData(unit: DownloadUnit) {
-        remove(getTempFilePath(unit))
-        remove(completeTempFilePath(unit))
+    /**
+     * Deletes whatever the trash directory (`tmp/kmptoolkit-internal/trash/`) still holds: a
+     * detached extraction tree whose delete a process kill or an I/O error cut short. No commit ever
+     * uses a path under it, so it needs no lock, and a sweep racing another thread's delete of the
+     * same tree is harmless. A dedicated directory, not a name prefix in `tmp/`, so that a unit
+     * whose id starts with `trash-` keeps its temp file; entries are named by a number alone, so no
+     * id's length can make the rename into it fail.
+     */
+    private fun sweepTrash() {
+        val trashDir = "$baseDir/${UnitFileLayout.TRASH_DIRECTORY}"
+        NSFileManager.defaultManager.contentsOfDirectoryAtPath(trashDir, error = null).orEmpty().forEach { name ->
+            NSFileManager.defaultManager.removeItemAtPath("$trashDir/$name", error = null)
+        }
     }
 
-    private fun expectationPath(unit: DownloadUnit): String = "$baseDir/tmp/expect/${unit.id}.sha256"
+    private fun deleteTempData(names: UnitFileLayout.Names) {
+        remove("$baseDir/${names.partial}")
+        remove("$baseDir/${names.complete}")
+    }
 
-    private fun stagedExpectationPath(unit: DownloadUnit): String =
-        "$baseDir/tmp/expect-staged/${unit.id}.sha256"
-
-    private fun readExpectation(unit: DownloadUnit): RecordedExpectation {
-        val record: String = expectationPath(unit)
+    private fun readExpectation(unit: DownloadUnit, names: UnitFileLayout.Names): RecordedExpectation {
+        val record = "$baseDir/${names.record}"
         if (!fileExists(record)) return RecordedExpectation.Missing
         val text: String? = NSString.stringWithContentsOfFile(
             path = record,
@@ -257,7 +390,11 @@ internal class IosDownloaderStorage(
     }
 
     override fun getResourceSize(unit: DownloadUnit): Long {
-        val path: String = getResourcePath(unit)
+        val path: String = try {
+            getResourcePath(unit)
+        } catch (e: InvalidDownloadUnitException) {
+            return 0L
+        }
         if (!fileExists(path)) return 0L
         val fm: NSFileManager = NSFileManager.defaultManager
         val attributes: Map<Any?, *>? = fm.attributesOfItemAtPath(path, error = null)
@@ -296,10 +433,14 @@ internal class IosDownloaderStorage(
     override suspend fun commitResource(
         unit: DownloadUnit,
     ): Unit = withContext(Dispatchers.IO) {
+        // Before the lock and before any side effect: a relativePath that cannot be used must leave
+        // the temp file where it is, and the names are resolved outside the lock.
+        getResourcePath(unit)
+        val names: UnitFileLayout.Names = names(unit)
         // Serialized per unit across every instance over this directory — see UnitCommitLocks for
         // who races here. Everything below is decided only once the lock is held.
-        UnitCommitLocks.withUnitLock(baseDir, unit.id) {
-            val tempFilePath: String = completeTempFilePath(unit)
+        UnitCommitLocks.withUnitLock(baseDir, layout.lockKey(unit)) {
+            val tempFilePath = "$baseDir/${names.complete}"
             if (!fileExists(tempFilePath) && isResourceAvailable(unit)) {
                 // A concurrent commit finalized the unit while this one waited. Its record is
                 // already gone, and one present now belongs to a newer transfer: touch nothing.
@@ -310,23 +451,23 @@ internal class IosDownloaderStorage(
                 "No complete temp file for $unit — a partial transfer is resumed, never committed"
             }
             try {
-                commitCompleteTempFile(unit, tempFilePath)
+                commitCompleteTempFile(unit, tempFilePath, names)
             } finally {
                 // The record belongs to the temp file. Once the file is gone — committed, or deleted
                 // by a failed check — the record goes with it, last. A failure that left the file in
                 // place keeps its record, so the retry is still checked against it.
-                if (!fileExists(tempFilePath)) remove(expectationPath(unit))
+                if (!fileExists(tempFilePath)) remove("$baseDir/${names.record}")
             }
         }
     }
 
-    private fun commitCompleteTempFile(unit: DownloadUnit, tempFilePath: String) {
-        verifySha256(tempFilePath, unit)
+    private fun commitCompleteTempFile(unit: DownloadUnit, tempFilePath: String, names: UnitFileLayout.Names) {
+        verifySha256(tempFilePath, unit, names)
         if (unit.isDirectoryResource) {
             val targetDir: String = getResourcePath(unit)
             // Per-unit, not a single shared name — two archive units extracting at the same time
             // must not collide in one staging directory.
-            val stagingDir = "$baseDir/tmp/staging-${unit.id}"
+            val stagingDir = "$baseDir/${names.staging}"
             // Clean any leftover staging from a previous failed attempt
             NSFileManager.defaultManager.removeItemAtPath(stagingDir, error = null)
             try {
@@ -403,11 +544,11 @@ internal class IosDownloaderStorage(
      * [DownloadUnit.sha256] getter throws is the host's mistake, not the download's, and surfaces
      * as that exception instead so it is not answered with a pointless re-download.
      */
-    private fun verifySha256(tempFilePath: String, unit: DownloadUnit) {
+    private fun verifySha256(tempFilePath: String, unit: DownloadUnit, names: UnitFileLayout.Names) {
         checkExpectations(
             unit = unit,
             unitSha256 = unit.sha256,
-            recorded = readExpectation(unit),
+            recorded = readExpectation(unit, names),
             logger = logger,
             computeHex = { sha256Hex(tempFilePath) },
             deleteTempFile = { remove(tempFilePath) },

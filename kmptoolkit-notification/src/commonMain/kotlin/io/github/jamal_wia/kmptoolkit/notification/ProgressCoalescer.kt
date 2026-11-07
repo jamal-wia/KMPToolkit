@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.notification
 
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
@@ -54,6 +55,25 @@ internal class ProgressCoalescer(
     private val posted: MutableMap<String, Post> = mutableMapOf()
 
     /**
+     * The newest [PostTicket] issued per id, dropped by [forget] / [clear], by [complete] for a
+     * terminal frame and by [pruneStale]. A ticket that is not the id's current one belongs to a
+     * frame that a cancel or a newer post has overtaken, and [isLive] says so.
+     */
+    private val latest: MutableMap<String, PostTicket> = mutableMapOf()
+
+    /**
+     * Per id, the tickets issued and not yet completed or rolled back, oldest first. When the newest
+     * one fails, the newest of these takes over as the id's live frame (see [rollback]): a frame that
+     * never reached the platform has overtaken nothing.
+     */
+    private val inFlight: MutableMap<String, MutableList<PostTicket>> = mutableMapOf()
+    private var nextSerial: Long = 0L
+
+    /** How old a baseline must be before [pruneStale] drops it; far above any sensible rate limit. */
+    private val staleAfter: Duration = maxOf(minInterval * STALE_INTERVAL_FACTOR, MIN_STALE_AFTER)
+    private var lastPrune: TimeMark = timeSource.markNow()
+
+    /**
      * Decides whether the notification for [id] carrying [progress] should reach the platform, and
      * **records the decision atomically** as the baseline for the next call.
      *
@@ -73,32 +93,186 @@ internal class ProgressCoalescer(
         progress: NotificationProgress?,
         content: Any? = null,
     ): PostTicket? = lock.withLock {
+        pruneStale()
         when (val decision: Decision = decide(id, progress, content)) {
             Decision.Suppress -> null
             Decision.Reset -> {
                 posted.remove(id)
-                PostTicket(id, previous = null, recorded = null)
+                issue(id, previous = null, recorded = null)
             }
 
             is Decision.Record -> {
-                val recorded = Post(bucket = decision.bucket, content = content, at = timeSource.markNow())
-                val previous: Post? = posted.put(id, recorded)
-                PostTicket(id, previous = previous, recorded = recorded)
+                // What a rollback may restore is the last baseline that was really shown. The record
+                // currently held may belong to a post still in flight (or one that already failed), so
+                // the ticket carries that record's own shown baseline instead.
+                val held: Post? = posted[id]
+                val baseline: Post? = unrefused(if (held == null || held.shown) held else held.fallback)
+                val recorded = Post(bucket = decision.bucket, content = content, at = timeSource.markNow(), fallback = baseline)
+                posted[id] = recorded
+                issue(id, previous = baseline, recorded = recorded)
             }
         }
     }
 
     /**
-     * Undoes [ticket]'s record because its post failed: restores what the id held before, but only
-     * if the id still holds exactly what that ticket recorded. A [forget], a [clear], or a newer
-     * post for the id in the meantime means the record is no longer this ticket's to undo, and
-     * nothing changes. A terminal frame ([prepare] cleared the id) has nothing to restore.
+     * Lock held. Drops the baselines of ids that went quiet without a terminal frame or a cancel (a
+     * failed download, a notification the user swiped away), so they do not accumulate for the
+     * notifier's lifetime. Dropping a baseline is always safe: the id's next frame simply posts, as
+     * the first one for an id does. Scans at most once per tenth of [staleAfter], whatever the
+     * number of tracked ids: a single id whose frame was never settled must age out as well.
+     */
+    private fun pruneStale() {
+        if (lastPrune.elapsedNow() < staleAfter / PRUNE_SPACING) return
+        lastPrune = timeSource.markNow()
+        val iterator: MutableIterator<MutableMap.MutableEntry<String, Post>> = posted.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry: MutableMap.MutableEntry<String, Post> = iterator.next()
+            if (entry.value.at.elapsedNow() > staleAfter) {
+                latest.remove(entry.key)
+                inFlight.remove(entry.key)
+                iterator.remove()
+            }
+        }
+        // Tickets with no baseline (terminal frames) and tickets whose caller never completed or
+        // rolled them back have no `posted` entry to age out with, so they age out on their own.
+        latest.values.removeAll { ticket: PostTicket -> ticket.at.elapsedNow() > staleAfter }
+        val flights: MutableIterator<MutableMap.MutableEntry<String, MutableList<PostTicket>>> =
+            inFlight.entries.iterator()
+        while (flights.hasNext()) {
+            val flight: MutableList<PostTicket> = flights.next().value
+            flight.removeAll { ticket: PostTicket -> ticket.at.elapsedNow() > staleAfter }
+            if (flight.isEmpty()) flights.remove()
+        }
+    }
+
+    /** Test seam: how many ids the baseline map holds. */
+    internal fun postedCountForTest(): Int = lock.withLock { posted.size }
+
+    /** Test seam: how many ids the newest-serial map holds. */
+    internal fun latestCountForTest(): Int = lock.withLock { latest.size }
+
+    /** Lock held. Numbers a new ticket for [id] and makes it the id's newest. */
+    private fun issue(id: String, previous: Post?, recorded: Post?): PostTicket {
+        val ticket = PostTicket(id, previous, recorded, ++nextSerial, timeSource.markNow())
+        latest[id] = ticket
+        inFlight.getOrPut(id) { mutableListOf() }.add(ticket)
+        return ticket
+    }
+
+    /**
+     * Lock held. Takes [ticket] out of its id's in-flight list. A completed frame is on the tray, so
+     * every older frame still in flight is out of date and leaves with it; a failed one takes only
+     * itself.
+     */
+    private fun settle(ticket: PostTicket, completed: Boolean) {
+        val flight: MutableList<PostTicket> = inFlight[ticket.id] ?: return
+        if (completed) flight.removeAll { it.serial <= ticket.serial } else flight.remove(ticket)
+        if (flight.isEmpty()) inFlight.remove(ticket.id)
+    }
+
+    /**
+     * Runs [action] with the content of the frame the tray is known to show for [id], under the
+     * coalescer's lock, or does nothing when that is unknown or another frame of the id is still in
+     * flight (that frame is about to replace what is shown, and a caller restoring state for the
+     * frame on the tray would overwrite what the newer frame prepared). A [prepare] that starts
+     * while [action] runs waits for it, so its own work comes after. [action] must not call back
+     * into the coalescer.
+     */
+    fun withShownContent(id: String, action: (content: Any?) -> Unit): Unit = lock.withLock {
+        if (inFlight[id]?.isNotEmpty() == true) return@withLock
+        val shown: Post = posted[id]?.takeIf { it.shown } ?: return@withLock
+        action(shown.content)
+    }
+
+    /**
+     * Whether [ticket]'s frame is still the newest for its id and the id was not cancelled since.
+     * The caller asks this right before the platform call, under the lock that [forget]'s caller
+     * also holds around its own platform call, so a frame that lost the race to a cancel or to a
+     * newer frame (a terminal "Done", say) is dropped instead of reappearing on top of it.
+     *
+     * **A `false` answer is final.** The caller drops the frame and never settles the ticket, so the
+     * answer also takes the ticket out of its id's in-flight list: an overtaken frame that gave up
+     * must not be promoted back to live, nor become a baseline, when the newer frame later fails.
+     * Ask it once per ticket, right before the platform call.
+     */
+    fun isLive(ticket: PostTicket): Boolean = lock.withLock {
+        val live: Boolean = latest[ticket.id]?.serial == ticket.serial
+        if (!live) settle(ticket, completed = false)
+        live
+    }
+
+    /**
+     * Marks [ticket]'s frame as shown. A terminal frame ([prepare] cleared the id) leaves nothing
+     * to protect, so the id's newest-serial entry goes too — which makes any older frame still in
+     * flight read as overtaken.
+     *
+     * @param acknowledged `true` when the platform has already accepted the frame (Android's `notify`
+     *   returns only once it has), so nothing can undo it and the record sheds the baseline it kept
+     *   for a rollback. `false` when the frame was only handed over and the outcome arrives later (the
+     *   iOS notification center reports an error through a completion handler): the record then
+     *   counts as shown but keeps that baseline until [acknowledge] or [rollback] settles it, so two
+     *   refused frames whose refusals arrive in either order leave no baseline behind.
+     */
+    fun complete(ticket: PostTicket, acknowledged: Boolean = false): Unit = lock.withLock {
+        settle(ticket, completed = true)
+        ticket.recorded?.let { recorded: Post ->
+            recorded.shown = true
+            if (acknowledged) recorded.fallback = null
+        }
+        if (ticket.recorded == null && latest[ticket.id]?.serial == ticket.serial) latest.remove(ticket.id)
+    }
+
+    /** The platform accepted a frame that was [complete]d before its outcome was known. */
+    fun acknowledge(ticket: PostTicket): Unit = lock.withLock {
+        ticket.recorded?.fallback = null
+    }
+
+    /**
+     * Undoes [ticket]'s record because its post failed.
+     *
+     * If the ticket was the id's newest and an older frame is still in flight, that frame takes over
+     * as the live one and as the baseline: the failed frame never reached the platform, so it
+     * overtook nothing. Otherwise the id's newest-serial entry goes (a frame that never reached the
+     * platform will never be [complete]d, so nothing else would clear it) and, if the id still holds
+     * exactly what the ticket recorded, the last baseline that was actually shown is restored. A
+     * [forget], a [clear], or a newer post for the id in the meantime means the record is no longer
+     * this ticket's to undo, and nothing changes. A terminal frame ([prepare] cleared the id) has
+     * nothing to restore.
+     *
+     * A ticket that was already [complete]d without being acknowledged (the iOS order: handed to the
+     * notification center first, refused later) may be rolled back too, in any order relative to the
+     * other refusals of its id: a refused frame is skipped when a baseline is restored.
      */
     fun rollback(ticket: PostTicket): Unit = lock.withLock {
+        // Whatever else is true, this frame is not on the tray: a later rollback must not restore it.
+        ticket.recorded?.refused = true
+        settle(ticket, completed = false)
+        if (latest[ticket.id]?.serial == ticket.serial) {
+            val promoted: PostTicket? = inFlight[ticket.id]?.lastOrNull()
+            if (promoted != null) {
+                latest[ticket.id] = promoted
+                if (ticket.recorded == null || posted[ticket.id] === ticket.recorded) {
+                    val baseline: Post? = promoted.recorded
+                    if (baseline == null) posted.remove(ticket.id) else posted[ticket.id] = baseline
+                }
+                return@withLock
+            }
+            latest.remove(ticket.id)
+        }
         val recorded: Post = ticket.recorded ?: return@withLock
         if (posted[ticket.id] !== recorded) return@withLock
-        val previous: Post? = ticket.previous
+        val previous: Post? = unrefused(ticket.previous)
         if (previous == null) posted.remove(ticket.id) else posted[ticket.id] = previous
+    }
+
+    /**
+     * Lock held. [from], or the first of the baselines behind it that was not refused: a frame that
+     * was handed over optimistically and refused later is not what the tray shows.
+     */
+    private fun unrefused(from: Post?): Post? {
+        var node: Post? = from
+        while (node != null && node.refused) node = node.fallback
+        return node
     }
 
     /**
@@ -124,10 +298,18 @@ internal class ProgressCoalescer(
     }
 
     /** Forgets [id]'s state, so its next determinate update posts. Called when it is cancelled. */
-    fun forget(id: String): Unit = lock.withLock { posted.remove(id) }
+    fun forget(id: String): Unit = lock.withLock {
+        posted.remove(id)
+        latest.remove(id)
+        inFlight.remove(id)
+    }
 
     /** Forgets every id's state. Called on [Notifier.cancelAll]. */
-    fun clear(): Unit = lock.withLock { posted.clear() }
+    fun clear(): Unit = lock.withLock {
+        posted.clear()
+        latest.clear()
+        inFlight.clear()
+    }
 
     /**
      * A recorded decision to post. Opaque to callers: pass it to [rollback] if the post failed.
@@ -136,10 +318,28 @@ internal class ProgressCoalescer(
         internal val id: String,
         internal val previous: Post?,
         internal val recorded: Post?,
+        internal val serial: Long,
+        internal val at: TimeMark,
     )
 
+    private companion object {
+        /** [staleAfter] is this many `minInterval`s, but never less than [MIN_STALE_AFTER]. */
+        const val STALE_INTERVAL_FACTOR: Int = 120
+        val MIN_STALE_AFTER: Duration = 10.minutes
+
+        /** A scan runs at most once per `staleAfter / PRUNE_SPACING`. */
+        const val PRUNE_SPACING: Int = 10
+    }
+
     /** One recorded post. A plain class: [rollback] compares records by identity. */
-    internal class Post(val bucket: Int, val content: Any?, val at: TimeMark)
+    internal class Post(val bucket: Int, val content: Any?, val at: TimeMark, var fallback: Post? = null) {
+
+        /** Set once the frame reached the platform; guarded by the coalescer's lock. */
+        var shown: Boolean = false
+
+        /** Set when the platform refused the frame; guarded by the coalescer's lock. */
+        var refused: Boolean = false
+    }
 
     /** What [decide] concluded, kept separate from acting on it so it can also be asked about. */
     private sealed interface Decision {

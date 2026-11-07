@@ -26,6 +26,9 @@ package io.github.jamal_wia.kmptoolkit.notification
  * - **[cancel] of an id that is not showing is a no-op**, and so is [cancelAll] with nothing to
  *   clear. Neither reports anything back, because neither platform tells you whether it removed
  *   anything.
+ * - **Neither [cancel] nor [cancelAll] throws for a runtime condition.** A platform that refuses the
+ *   removal (a dead binder, a revoked right) is logged and the notification may stay on the tray;
+ *   both are teardown calls, often made on logout or from a `finally`, and cannot report it.
  * - **Safe to call from any thread**, including concurrently for different ids.
  * - **It schedules nothing.** Everything posted here appears immediately. For "show this at 08:00
  *   tomorrow", see [`kmptoolkit-scheduler`](https://github.com/jamal-wia/KMPToolkit).
@@ -77,6 +80,7 @@ public interface Notifier {
      * later run under the same id starts fresh.
      *
      * A no-op when nothing is showing under [id] — including an id this notifier never posted.
+     * Never throws for a platform refusal: it is logged and the notification may stay showing.
      */
     public fun cancel(id: String)
 
@@ -85,7 +89,8 @@ public interface Notifier {
      *
      * That is deliberate: on logout you want a clean tray, including a notification left by a
      * previous process. Scheduled-but-not-yet-delivered notifications are not touched — see
-     * `docs/kmptoolkit-notification/05-platform-notes.md`.
+     * `docs/kmptoolkit-notification/05-platform-notes.md`. Never throws for a platform refusal: it is
+     * logged and the tray may stay as it was.
      */
     public fun cancelAll()
 }

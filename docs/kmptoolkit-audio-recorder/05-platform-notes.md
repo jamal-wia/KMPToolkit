@@ -314,7 +314,9 @@ Everything else, because it lives in common code and is covered by one shared su
 both targets: the transition table, permission and storage pre-checks, path generation, elapsed-time
 accounting across pause and resume, the dBFS-to-`0f..1f` mapping and subscription-driven metering of
 `level` and `levelSamples`, deletion of abandoned files, retention of completed ones, cancellation
-of an in-flight `prepare`, release idempotency, the fact that no public method throws, and
+of an in-flight `prepare` (including the ownership fence that stops a released recorder's late
+`prepare` tail from deleting the file of a newer recorder that reuses the same explicit path),
+release idempotency, the fact that no public method throws, and
 everything that follows an event once the engine has reported it: the debounce of a silenced input,
 the free-space watchdog, which state each event produces, that a running `stop()`/`cancel()` wins,
 and that a `release()` during a finalization leaves the platform recorder to it. Only the mapping of

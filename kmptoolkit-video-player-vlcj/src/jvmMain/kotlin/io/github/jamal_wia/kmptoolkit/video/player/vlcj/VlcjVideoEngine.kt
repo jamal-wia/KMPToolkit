@@ -8,16 +8,17 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoPlaybackEngineListener
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import java.lang.ref.Cleaner
+import java.lang.ref.WeakReference
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
@@ -38,9 +39,10 @@ import kotlinx.coroutines.withContext
  *   [release]**: the player calls [release] on every unload and every abandoned prepare, and
  *   rebuilding libvlc (a plugin scan) each time would make those slow. It is freed by [dispose],
  *   which the player calls once from `VideoPlayer.release()`. A [Cleaner] stays registered only as
- *   a safety net for a player that is dropped without being released: it frees the instance when
- *   the engine is garbage-collected rather than leaking a native library instance for the life of
- *   the process.
+ *   a safety net for a player that is dropped without being released: once the engine is
+ *   garbage-collected it releases every native player still open and then the instance, rather
+ *   than leaking them for the life of the process. A player that is still playing is not
+ *   collectable (the position poller keeps it reachable), so the net does not stop it: release it.
  * - One native media player per loaded source (a *session*), so events still queued from a
  *   previous source can be recognised and dropped by identity.
  *
@@ -91,11 +93,17 @@ internal class VlcjVideoEngine(
     private val nanoTime: () -> Long = System::nanoTime,
 ) : VideoPlaybackEngine, VideoFrameSource {
 
+    // Monitors, not Mutexes: they are taken on VLC's native event and video-output threads (JNA
+    // callbacks), on VLCJ's task thread and by the synchronous SPI, none of which can suspend (D-21).
+    // Volatile fields are written under them or on one VLC thread and read unlocked by the getters.
     private val lock = Any()
     private val listenerLock = Any()
     private val frameLock = Any()
 
-    /** True on VLC's event and video-output threads while this engine handles a callback. */
+    /**
+     * True on VLC's event and video-output threads while this engine handles a callback. A
+     * ThreadLocal: those are native threads with no coroutine context to carry this marker.
+     */
     private val onVlcThread: ThreadLocal<Boolean> = ThreadLocal.withInitial { false }
 
     // Captures only constructor parameters, never `this`: it is the Cleaner's action.
@@ -291,14 +299,16 @@ internal class VlcjVideoEngine(
      * it made would otherwise be orphaned until JVM exit.
      */
     private suspend fun resolveMedia(source: VideoSource, loader: ClassLoader): ResolvedMedia {
-        val result: AtomicReference<ResolvedMedia?> = AtomicReference(null)
+        // A plain local is enough: withContext resumes only after its block finished, and that
+        // completion happens-before the resumption, whether it returns or throws a late cancellation.
+        var resolved: ResolvedMedia? = null
         try {
-            withContext(Dispatchers.IO) { result.set(resolve(source, loader)) }
+            withContext(Dispatchers.IO) { resolved = resolve(source, loader) }
         } catch (error: Throwable) {
-            result.get()?.discard()
+            resolved?.discard()
             throw error
         }
-        return checkNotNull(result.get())
+        return checkNotNull(resolved)
     }
 
     /** Runs [block] under [lock] with the current session, if there is one and it is still open. */
@@ -376,10 +386,15 @@ internal class VlcjVideoEngine(
     /** One loaded source on its own native media player. */
     private inner class Session(val media: ResolvedMedia) {
 
+        // One-shot CAS: closeSession is reached from the synchronous release()/dispose() as well as
+        // from load (D-21).
         val closing: AtomicBoolean = AtomicBoolean(false)
         val parsed: CompletableDeferred<VlcParseStatus> = CompletableDeferred()
 
         @Volatile var player: VlcNativePlayer? = null
+        // Written by the loading thread under [lock], read by the teardown thread without it; both
+        // are blocking threads outside any coroutine, so a volatile is the whole need (D-21).
+        @Volatile var nativeSession: NativeSession? = null
         @Volatile var closed: Boolean = false
         @Volatile var loaded: Boolean = false
         @Volatile var started: Boolean = false
@@ -421,8 +436,13 @@ internal class VlcjVideoEngine(
             val libvlc: VlcRuntime = runtime.acquire()
             synchronized(lock) {
                 if (closed) throw CancellationException("The load was abandoned")
-                val created: VlcNativePlayer = libvlc.newPlayer(callbacks)
+                // The native side gets only a weak forwarder: whatever libvlc, VLCJ or JNA hold must
+                // not keep this engine reachable, or the Cleaner could never run (see RuntimeHolder).
+                val created: VlcNativePlayer = libvlc.newPlayer(WeakVlcCallbacks(callbacks))
                 player = created
+                val opened = NativeSession(created, media)
+                nativeSession = opened
+                runtime.track(opened)
                 created.setRepeat(looping)
                 if (!created.prepare(media.mrl, media.options)) {
                     throw VlcPlaybackException("VLC rejected the media locator")
@@ -474,14 +494,20 @@ internal class VlcjVideoEngine(
             notify(this) { it.onVideoSizeChanged(size) }
         }
 
-        /** Runs on the [teardown] thread: native player first, then the media it had open. */
+        /**
+         * Runs on the [teardown] thread: native player first, then the media it had open. The
+         * [RuntimeHolder] may have claimed the native session already: [dispose] queues the
+         * holder's own close of every open session right behind this task, and whichever of the two
+         * runs first wins [RuntimeHolder.claim]. (Not because the engine was collected: this queued
+         * task holds the session, and so the engine.)
+         */
         fun teardown() {
-            player?.let { p: VlcNativePlayer ->
-                runCatching { p.stopParsing() }
-                runCatching { p.stop() }
-                runCatching { p.release() }
+            val opened: NativeSession? = nativeSession
+            if (opened == null) {
+                media.discard()
+            } else if (runtime.claim(opened)) {
+                opened.close()
             }
-            media.discard()
         }
     }
 
@@ -578,7 +604,9 @@ internal class VlcjVideoEngine(
     }
 
     /**
-     * Owns the libvlc instance. Also the [Cleaner] action, so it must never reference the engine.
+     * Owns the libvlc instance and every native player still open. Also the [Cleaner] action, so
+     * it must never reference the engine; that is also what keeps the native players, and the JNA
+     * callbacks inside them, strongly reachable until they are released.
      */
     private class RuntimeHolder(
         private val create: () -> VlcRuntime,
@@ -587,16 +615,40 @@ internal class VlcjVideoEngine(
 
         private var runtime: VlcRuntime? = null
         private var disposed: Boolean = false
+        // A concurrent set: written by loading threads, read by the Cleaner thread or the dispose()
+        // caller (which only iterate it and queue claim tasks), emptied by the teardown thread.
+        // None of them is a coroutine or may suspend, so a Mutex does not fit; `remove` returning
+        // true is what makes [claim] an atomic one-winner guard (D-21).
+        private val openSessions: MutableSet<NativeSession> = ConcurrentHashMap.newKeySet()
+
+        /** Registers a native player created from this holder's libvlc instance. */
+        fun track(session: NativeSession) {
+            openSessions += session
+        }
+
+        /** Takes [session] over for its teardown; `false` when someone else already did. */
+        fun claim(session: NativeSession): Boolean = openSessions.remove(session)
 
         /** The libvlc instance, created on first use. Blocking; call off the main thread. */
+        // Monitor: shared with the Cleaner action (run), which cannot suspend, and creating libvlc
+        // blocks anyway (D-21).
         @Synchronized
         fun acquire(): VlcRuntime {
             check(!disposed) { "The engine was disposed" }
             return runtime ?: create().also { runtime = it }
         }
 
-        /** Frees the instance on [teardown], after every session teardown queued before it. */
+        /**
+         * Frees what is left on [teardown]: every native player still open (an engine collected
+         * without `release()`), then the instance, after every session teardown queued before it.
+         */
         override fun run() {
+            // Iterated directly, not copied with toList(): that checks the size and then reads the
+            // first element, and throws NoSuchElementException when the teardown thread claims the
+            // last session in between. The set's iterator is weakly consistent and never throws.
+            for (session: NativeSession in openSessions) {
+                teardown.execute { if (claim(session)) session.close() }
+            }
             val released: VlcRuntime = synchronized(this) {
                 disposed = true
                 runtime.also { runtime = null }
@@ -626,6 +678,44 @@ internal class VlcjVideoEngine(
         ) { task: Runnable -> Thread(task, "kmptoolkit-vlcj-teardown").apply { isDaemon = true } }
             .apply { allowCoreThreadTimeOut(true) }
     }
+}
+
+/** A native player and the media it has open: what must be freed together. */
+internal class NativeSession(private val player: VlcNativePlayer, private val media: ResolvedMedia) {
+
+    /** Stops and releases the native player, then discards the media. Call once, after claiming. */
+    fun close() {
+        runCatching { player.stopParsing() }
+        runCatching { player.stop() }
+        runCatching { player.release() }
+        media.discard()
+    }
+}
+
+/**
+ * Forwards to [target] while it is alive and does nothing after. What libvlc's event and render
+ * callbacks reach, so that no native-side structure keeps the engine reachable.
+ */
+internal class WeakVlcCallbacks(target: VlcPlayerCallbacks) : VlcPlayerCallbacks {
+
+    private val reference: WeakReference<VlcPlayerCallbacks> = WeakReference(target)
+
+    private inline fun forward(block: VlcPlayerCallbacks.() -> Unit) {
+        reference.get()?.block()
+    }
+
+    override fun playing() = forward { playing() }
+    override fun paused() = forward { paused() }
+    override fun stopped() = forward { stopped() }
+    override fun finished() = forward { finished() }
+    override fun error() = forward { error() }
+    override fun buffering(cachePercent: Float) = forward { buffering(cachePercent) }
+    override fun lengthChanged(lengthMs: Long) = forward { lengthChanged(lengthMs) }
+    override fun timeChanged(timeMs: Long) = forward { timeChanged(timeMs) }
+    override fun parsed(status: VlcParseStatus) = forward { parsed(status) }
+    override fun durationChanged(durationMs: Long) = forward { durationChanged(durationMs) }
+    override fun bufferFormat(width: Int, height: Int) = forward { bufferFormat(width, height) }
+    override fun display(pixels: ByteBuffer, width: Int, height: Int) = forward { display(pixels, width, height) }
 }
 
 /**

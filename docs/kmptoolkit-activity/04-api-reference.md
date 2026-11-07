@@ -46,7 +46,18 @@ public interface ActivitySubscription {
 }
 ```
 
-Stops the listener from being called again and releases whatever it captured. Idempotent.
+Stops the listener from being called again and releases whatever it captured (the handle drops its reference to the listener, so keeping the handle
+does not keep the captured objects alive). Idempotent.
+
+The guarantee is strict and holds on every thread: once `cancel()` returns, the listener is never
+called again, from any thread. If the listener is running on the main thread at that moment,
+`cancel()` waits for it to return. Called from inside a listener (its own or another's), it never
+waits and cannot deadlock. The guarantee holds inside a dispatch too: a listener that cancels another
+one while a resume is being delivered keeps that one from being called for the same resume.
+
+Do not call `cancel()` from another thread while holding a lock that the listener also takes: it
+would wait for the listener, which would wait for the lock. `ActivityAccess.release()` gives the same
+guarantee for every listener at once.
 
 ## `createActivityAccess`
 

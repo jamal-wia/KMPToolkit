@@ -1,8 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.video.player.compose
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -23,8 +23,13 @@ import kotlinx.coroutines.isActive
  *   it is the player's [io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState.Error].
  * - **[autoPlay]** plays once each prepare succeeds. Changing it later does not start or stop the
  *   current source; it applies to the next prepare.
- * - **Release** happens when the call leaves the composition. Never release the returned player
- *   yourself, and do not keep it beyond the composition.
+ * - **Release** happens when the call leaves the composition, and also when a composition that
+ *   created the player is thrown away before it was ever shown (a dropped lazy-list prefetch, an
+ *   aborted composition). Never release the returned player yourself, and do not keep it beyond
+ *   the composition.
+ * - **Lifecycle.** This function does not know the host lifecycle: with [autoPlay] it plays once the
+ *   prepare succeeds, even if the app went to the background meanwhile. The `VideoPlayer(source = …)`
+ *   overload skips that start while the host is stopped; see [PauseOnBackgroundEffect].
  *
  * [config] and the factory are read on first composition only; a new player with different ones
  * needs a new composition — wrap the call in `key(config) { … }`.
@@ -38,24 +43,54 @@ public fun rememberVideoPlayer(
     source: VideoSource?,
     autoPlay: Boolean = false,
     config: VideoPlayerConfig = VideoPlayerConfig(),
+): VideoPlayer = rememberOwnedVideoPlayer(source, autoPlay, config, canAutoPlay = { true })
+
+/**
+ * [rememberVideoPlayer] with a say over the start: [canAutoPlay] is asked each time a prepare has
+ * succeeded, and a `false` leaves the player Ready instead of playing. [VideoPlayer] uses it to
+ * keep a video that finished loading in the background from starting there.
+ */
+@Composable
+internal fun rememberOwnedVideoPlayer(
+    source: VideoSource?,
+    autoPlay: Boolean,
+    config: VideoPlayerConfig,
+    canAutoPlay: () -> Boolean,
 ): VideoPlayer {
     val factory: VideoPlayerFactory = LocalVideoPlayerFactory.current
         ?: platformVideoPlayerFactory()
         ?: throw IllegalStateException(MISSING_FACTORY_MESSAGE)
-    val player: VideoPlayer = remember { factory.create(config) }
+    val owned: OwnedPlayer = remember { OwnedPlayer(factory.create(config)) }
+    val player: VideoPlayer = owned.player
     val latestAutoPlay: State<Boolean> = rememberUpdatedState(autoPlay)
+    val latestCanAutoPlay: State<() -> Boolean> = rememberUpdatedState(canAutoPlay)
 
-    DisposableEffect(player) {
-        onDispose { player.release() }
-    }
     LaunchedEffect(player, source) {
         if (source == null) {
             player.unload()
         } else {
             player.prepare(source)
             // A prepare superseded by a newer source must not start the newer one early.
-            if (latestAutoPlay.value && isActive) player.play()
+            if (latestAutoPlay.value && isActive && latestCanAutoPlay.value()) player.play()
         }
     }
     return player
+}
+
+/**
+ * Ties a player's life to the `remember` slot that holds it. A `DisposableEffect` is not enough: its
+ * effects never run for a composition that is abandoned before its changes are applied, but a
+ * [RememberObserver] is told in that case too ([onAbandoned]) — so the player (a native engine
+ * with threads, on Android) is released either way. `release()` is idempotent.
+ */
+private class OwnedPlayer(val player: VideoPlayer) : RememberObserver {
+    override fun onRemembered() = Unit
+
+    override fun onForgotten() {
+        player.release()
+    }
+
+    override fun onAbandoned() {
+        player.release()
+    }
 }

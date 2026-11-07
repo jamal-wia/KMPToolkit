@@ -71,6 +71,10 @@ none — the app is backgrounded, a configuration change is in flight — or whe
 is not a `FragmentActivity`, `authenticate` returns `BiometricResult.NoPromptHost` and nothing is
 shown. It is deliberately not a `ClassCastException`, and deliberately not `Cancelled`.
 
+The same answer covers a call made from a background thread whose activity saves its state (a
+rotation, the app going to the background) before the prompt could be shown: androidx would drop the
+prompt silently, so the call returns `NoPromptHost` instead of staying suspended.
+
 Pass your app's own tracker instead — `createBiometricGate(context, activityAccess)`, or
 `activityAccess` on `createBiometricGateWithLauncher` — and the prompt is hosted by whichever activity
 *that* tracker answers with: its `isTracked` predicate is honoured, so an activity it does not track
@@ -80,6 +84,19 @@ never hosts the prompt. The gate does not release a tracker it was given.
 activity is resumed from the resumed callback, and Android offers no way to ask afterwards. A gate
 created lazily, on its first injection into a screen, is created after `MainActivity` resumed: it
 answers `NoPromptHost` until the activity pauses and resumes again.
+
+A gate built without an `activityAccess` registers a lifecycle callback with the `Application` of its
+own, for the life of the process; build the gate once (or share one tracker) rather than per screen.
+
+The gate keeps no activity of its own. While a prompt is up it holds the system `BiometricPrompt` (so
+that cancelling the calling coroutine can dismiss it) and your coroutine's pending result, and it drops
+both as soon as an outcome has been delivered or the call is cancelled. androidx may keep the prompt and
+its callback for longer; the module guarantees only that it is not what keeps them reachable once the
+prompt is over, so a prompt that was showing during a rotation is not pinned by the gate.
+
+Cancelling `authenticate` is safe from any thread, at any moment: a cancellation that arrives before the
+sheet has been started stops it from appearing, and one that arrives later dismisses it, with no result
+delivered. The prompt itself is always driven on the main thread.
 
 ### Authenticator strength
 

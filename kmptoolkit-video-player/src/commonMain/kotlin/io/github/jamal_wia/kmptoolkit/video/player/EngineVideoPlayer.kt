@@ -2,9 +2,6 @@ package io.github.jamal_wia.kmptoolkit.video.player
 
 import io.github.jamal_wia.kmptoolkit.core.StateMachineLock
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import kotlin.concurrent.Volatile
-import kotlin.concurrent.atomics.AtomicReference
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableJob
@@ -18,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,7 +44,7 @@ import kotlinx.coroutines.withContext
  * Internal rather than private so the platform accessors (`media3PlayerOrNull`,
  * `avPlayerOrNull`, `frameSourceOrNull`) can reach [engine].
  */
-@OptIn(ExperimentalAtomicApi::class, ToolkitInheritanceApi::class, ToolkitInternalApi::class)
+@OptIn(ToolkitInheritanceApi::class, ToolkitInternalApi::class)
 internal class EngineVideoPlayer(
     internal val engine: VideoPlaybackEngine,
     private val config: VideoPlayerConfig,
@@ -62,8 +60,13 @@ internal class EngineVideoPlayer(
     /** The polling coroutine while playing. Guarded. */
     private var positionJob: Job? = null
 
-    /** The load in flight, or the last one to finish. Swapped atomically by [prepare], [unload], [release]. */
-    private val currentLoad: AtomicReference<Load?> = AtomicReference(null)
+    /**
+     * The load in flight, or the last one to finish. Not guarded by [gate]: [prepare] swaps it outside the
+     * gate, so it can join the load it replaced without holding a blocking lock, while
+     * unload/release (non-suspending) swap it under the gate. A [MutableStateFlow] only as an atomic
+     * cell with `getAndUpdate`; nothing collects it (D-21, D-24). [Load] compares by identity.
+     */
+    private val currentLoad: MutableStateFlow<Load?> = MutableStateFlow(null)
 
     /**
      * One [prepare] call.
@@ -74,8 +77,7 @@ internal class EngineVideoPlayer(
      */
     private class Load(val job: CompletableJob, val finished: CompletableJob = Job())
 
-    // Written under the lock; volatile so the unlocked fast-path checks in prepare() see it.
-    @Volatile
+    /** Set once by [release]. Guarded. */
     private var released: Boolean = false
 
     private val _stateFlow: MutableStateFlow<VideoPlayerState> = MutableStateFlow(VideoPlayerState.Idle)
@@ -114,14 +116,15 @@ internal class EngineVideoPlayer(
     }
 
     override suspend fun prepare(source: VideoSource) {
-        if (released) {
-            gate.exclusive { _stateFlow.value = VideoPlayerState.Error(VideoPlayerReleasedException()) }
-            return
+        val refused: Boolean = gate.exclusive {
+            if (released) _stateFlow.value = VideoPlayerState.Error(VideoPlayerReleasedException())
+            released
         }
+        if (refused) return
         // A child of the caller's job, so the caller's cancellation still reaches the engine, and a
         // handle of our own, so a later prepare/unload/release can cancel just this load.
         val load = Load(Job(parent = currentCoroutineContext()[Job]))
-        val previous: Load? = currentLoad.exchange(load)
+        val previous: Load? = currentLoad.getAndUpdate { load }
         try {
             previous?.let {
                 previous.job.cancel()
@@ -150,7 +153,7 @@ internal class EngineVideoPlayer(
                 return
             }
         } catch (cancellation: CancellationException) {
-            if (currentLoad.load() !== load) {
+            if (currentLoad.value !== load) {
                 // Superseded. Whatever replaced this load owns the engine and the state now.
                 if (currentCoroutineContext().isActive) return
                 throw cancellation
@@ -160,17 +163,23 @@ internal class EngineVideoPlayer(
             // to finish unwinding first — releasing under it is the interleaving ruled out above.
             withContext(NonCancellable) { previous?.finished?.join() }
             gate.exclusive {
-                if (currentLoad.load() === load) {
+                // isCurrent, not just identity: release() may have run completely between this call's
+                // released check and its installing itself in currentLoad, so the identity holds again
+                // here while the engine is already released and disposed, and nothing of it may be
+                // called after dispose.
+                if (isCurrent(load)) {
                     engine.release()
-                    if (!released) {
-                        resetSourceFlows()
-                        _stateFlow.value = VideoPlayerState.Idle
-                    }
+                    resetSourceFlows()
+                    _stateFlow.value = VideoPlayerState.Idle
                 }
             }
             throw cancellation
         } finally {
             load.job.complete()
+            // Finished is transitive: a load that was superseded and cancelled while still waiting
+            // for the one it replaced must not report finished before that one has, or the load
+            // queued behind it would start while the first is still unwinding in the engine.
+            withContext(NonCancellable) { previous?.finished?.join() }
             load.finished.complete()
         }
 
@@ -411,7 +420,7 @@ internal class EngineVideoPlayer(
      */
     private fun abandonLoad(dispose: Boolean) {
         val placeholder = Load(Job().apply { cancel() })
-        val abandoned: Load? = currentLoad.exchange(placeholder)
+        val abandoned: Load? = currentLoad.getAndUpdate { placeholder }
         abandoned?.job?.cancel()
         val freeEngine: () -> Unit = {
             engine.release()
@@ -428,7 +437,7 @@ internal class EngineVideoPlayer(
         }
     }
 
-    private fun isCurrent(load: Load): Boolean = !released && currentLoad.load() === load
+    private fun isCurrent(load: Load): Boolean = !released && currentLoad.value === load
 
     /** Lock held. (Re)starts polling; each tick is submitted, so it is serialized like a callback. */
     private fun startPositionUpdates() {

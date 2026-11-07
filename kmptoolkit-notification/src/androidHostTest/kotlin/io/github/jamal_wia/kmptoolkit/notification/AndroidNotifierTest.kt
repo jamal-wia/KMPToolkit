@@ -22,6 +22,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
@@ -424,6 +425,53 @@ class AndroidNotifierTest {
         assertEquals(NotificationResult.Posted, notifier.post("d", frame))
 
         assertEquals(NotificationResult.Coalesced, notifier.post("d", frame))
+    }
+
+    @Test
+    fun `a cancel that lands while a post is being built is not followed by the notification`() =
+        runTest {
+            val hooked = HookRenderer(context)
+            val notifier: Notifier = AndroidNotifier(context, permissions, hooked, ProgressCoalescer(minInterval = Duration.ZERO))
+            hooked.onBuild = { notifier.cancel("d") }
+
+            val result: NotificationResult =
+                notifier.post("d", notification().copy(progress = NotificationProgress.Determinate(40)))
+
+            assertEquals(NotificationResult.Coalesced, result)
+            assertEquals(0, shown.size, "the notification came back after cancel() returned")
+        }
+
+    @Test
+    fun `a progress frame overtaken by a terminal frame is not shown on top of it`() = runTest {
+        val hooked = HookRenderer(context)
+        val notifier: Notifier = AndroidNotifier(context, permissions, hooked, ProgressCoalescer(minInterval = Duration.ZERO))
+        hooked.onBuild = {
+            // The terminal frame is posted by another thread while this frame is still being built.
+            runBlocking { notifier.post("d", notification(title = "Done")) }
+        }
+
+        notifier.post("d", notification(title = "Downloading").copy(progress = NotificationProgress.Determinate(90)))
+
+        assertEquals(1, shown.size)
+        assertEquals("Done", shown.single().extras.getString(Notification.EXTRA_TITLE))
+    }
+
+    /** A renderer that runs [onBuild] once, inside the first build, like another thread landing mid-build. */
+    private class HookRenderer(context: Context) : NotificationRenderer(context, "test.ACTION") {
+        var onBuild: (() -> Unit)? = null
+
+        override fun build(
+            id: String,
+            notification: LocalNotification,
+            options: NotificationOptions,
+            iconResId: Int,
+        ): Notification {
+            onBuild?.let { hook: () -> Unit ->
+                onBuild = null
+                hook()
+            }
+            return super.build(id, notification, options, iconResId)
+        }
     }
 
     /** A renderer whose first build throws, standing in for a framework call that refused a post. */

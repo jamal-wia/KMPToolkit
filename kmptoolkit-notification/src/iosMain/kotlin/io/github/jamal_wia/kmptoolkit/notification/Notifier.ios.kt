@@ -63,6 +63,13 @@ internal class IosNotifier(
     private val center: UNUserNotificationCenter
         get() = UNUserNotificationCenter.currentNotificationCenter()
 
+    /**
+     * Orders a post's "still wanted? then add" step against [cancel] and [cancelAll]. Separate from
+     * the coalescer's own lock and always taken first, so the two never invert. An `NSLock` is not
+     * reentrant: nothing under it calls back into this class.
+     */
+    private val postLock: NotifierLock = notifierLock()
+
     override suspend fun post(id: String, notification: LocalNotification): NotificationResult {
         // Validation, not a catch: `requestWithIdentifier` rejects an empty identifier by raising an
         // Objective-C exception, and Kotlin/Native cannot catch one — the process would die. This is
@@ -87,10 +94,24 @@ internal class IosNotifier(
             // kmptoolkit-scheduler's job, not this module's.
             trigger = null,
         )
+        var overtaken = false
         val error: NSError? = try {
             suspendCancellableCoroutine { continuation ->
-                center.addNotificationRequest(request) { error: NSError? ->
-                    continuation.resume(error)
+                // Issued under the lock cancel() also takes, after asking whether the frame is still
+                // wanted: the center applies requests in call order, so a cancel that ran first is
+                // not followed by this frame, and a frame overtaken by a newer one is dropped. The
+                // completion is awaited outside the lock.
+                val issued: Boolean = postLock.withLock {
+                    if (!coalescer.isLive(ticket)) return@withLock false
+                    center.addNotificationRequest(request) { error: NSError? ->
+                        continuation.resume(error)
+                    }
+                    coalescer.complete(ticket)
+                    true
+                }
+                if (!issued) {
+                    overtaken = true
+                    continuation.resume(null)
                 }
             }
         } catch (e: Throwable) {
@@ -99,7 +120,12 @@ internal class IosNotifier(
             coalescer.rollback(ticket)
             throw e
         }
-        if (error == null) return NotificationResult.Posted
+        if (overtaken) return NotificationResult.Coalesced
+        if (error == null) {
+            // Confirmed: only now may the frame stop being undoable (see ProgressCoalescer.complete).
+            coalescer.acknowledge(ticket)
+            return NotificationResult.Posted
+        }
         // The system rejected it: nothing is showing, so a retry of the same progress must post.
         coalescer.rollback(ticket)
         return if (error.isNotificationsNotAllowed()) {
@@ -115,17 +141,22 @@ internal class IosNotifier(
         domain == UNErrorDomain && code == UNErrorCodeNotificationsNotAllowed
 
     override fun cancel(id: String) {
-        coalescer.forget(id)
-        val notificationCenter: UNUserNotificationCenter = center
-        notificationCenter.removeDeliveredNotificationsWithIdentifiers(listOf(id))
-        notificationCenter.removePendingNotificationRequestsWithIdentifiers(listOf(id))
+        // One critical section with the decide-and-add of an in-flight post (see post).
+        postLock.withLock {
+            coalescer.forget(id)
+            val notificationCenter: UNUserNotificationCenter = center
+            notificationCenter.removeDeliveredNotificationsWithIdentifiers(listOf(id))
+            notificationCenter.removePendingNotificationRequestsWithIdentifiers(listOf(id))
+        }
     }
 
     override fun cancelAll() {
-        coalescer.clear()
-        // Delivered only, mirroring Android's cancelAll(): a pending request is something the OS
-        // has been asked to show later, which is nobody's idea of "clear the tray".
-        center.removeAllDeliveredNotifications()
+        postLock.withLock {
+            coalescer.clear()
+            // Delivered only, mirroring Android's cancelAll(): a pending request is something the OS
+            // has been asked to show later, which is nobody's idea of "clear the tray".
+            center.removeAllDeliveredNotifications()
+        }
     }
 
     private fun contentFor(notification: LocalNotification): UNMutableNotificationContent =

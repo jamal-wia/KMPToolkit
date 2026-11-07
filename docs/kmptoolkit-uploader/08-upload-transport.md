@@ -230,6 +230,15 @@ when the task completes) and builds the response from the final `NSHTTPURLRespon
 is invalidated; only headers whose names and values are strings are kept. **A force-quit cancels
 background transfers** — iOS does not continue an upload for an app the user swiped away.
 
+Create the transport once per process. A second `createBackgroundUploadTransport` call becomes the
+relaunch target (`BackgroundUploadRelaunch` holds one slot) but does not stop the first transport, which
+keeps the sessions it owns and its start-up sweep; two transports must never serve one session
+identifier prefix, so keep a single instance and hand it to the engine.
+
+A session that is dropped without ever running a task (a cancel of an item that is not uploading, a
+hand-off that fails before it creates its task, an idle relaunch session) also stops forwarding progress
+for it, so a long-lived app does not accumulate a suspended coroutine per such session.
+
 A session is replaced only once its predecessor has reported itself invalid: invalidating a session
 only requests it, and two live background sessions with one identifier are undefined. A hand-off that
 finds the previous session of its item still invalidating waits for `didBecomeInvalidWithError` (at
@@ -263,6 +272,16 @@ or the lease — for that.
 `BackgroundUploadConfig(requestTimeout = 60.seconds, resourceTimeout = 7.days)` sets the session's
 `timeoutIntervalForRequest` and `timeoutIntervalForResource`. The defaults are the system's own values,
 so behaviour is unchanged unless you set them; both must be positive and finite.
+
+**Swift and the three-parameter constructor.** Before 3.1.0 the configuration had three parameters.
+Swift has no default arguments, so Swift code that calls
+`BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` keeps compiling in 3.1.0:
+that initializer is still exported (deprecated, with the system timeouts). Move to the five-argument
+initializer to set the timeouts. In Kotlin the new constructor's defaults make `BackgroundUploadConfig()`
+and every call that leaves a parameter out or names a timeout resolve to it; only a call that supplies
+exactly the three old arguments (positionally or by name) and no timeout lands on the deprecated
+overload, with a warning. That overload has no default arguments, unlike in 3.0.0: a library compiled
+against 3.0.0 that calls it with arguments omitted must be recompiled against 3.1.0.
 
 - **`requestTimeout` is an idle timeout.** Apple's documentation describes it as how long a task waits
   for additional data to arrive before giving up, with the timer reset whenever new data arrives. It is

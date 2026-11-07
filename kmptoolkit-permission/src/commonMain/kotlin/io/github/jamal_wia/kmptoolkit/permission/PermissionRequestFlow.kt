@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.permission
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +46,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * | `Requesting` | request permanently denied | `AwaitingSettings` |
  * | `Requesting` | request restricted or unavailable | `Unavailable` |
  * | `Requesting` | request denied or unanswered | `Denied` |
+ * | `Requesting` | the calling coroutine is cancelled | `Idle` (nothing was decided; `refresh()` reads the real choice) |
  * | `AwaitingRationale` | `rationaleAcknowledged()` | `Requesting`, then the request outcome |
  * | `AwaitingRationale` | `rationaleDismissed()` | `Denied` |
  * | `AwaitingSettings` | `openSettings()` | `AwaitingSettings` (the app is backgrounded) |
@@ -57,10 +59,16 @@ import kotlinx.coroutines.flow.asStateFlow
  * callbacks, both of which arrive out of order and twice — a double-tapped button must not crash
  * an app.
  *
- * **Drive one flow from one coroutine**, normally the UI one. It holds mutable state and does not
- * synchronize; two coroutines calling [start] concurrently can both get past the
- * [PermissionFlowState.Requesting] guard. The controller underneath does serialize their requests, so
- * no two dialogs ever overlap, but the flow's own state would then follow whichever finished last.
+ * **Drive one flow from one coroutine**, normally the UI one. A [refresh] on resume and a [start] on
+ * tap are two coroutines in practice, and the flow tolerates that: every transition that follows a
+ * suspension publishes only if the state is still the one it started from (a compare-and-set), so a
+ * stale result never overwrites a live [PermissionFlowState.Requesting] or its outcome — the newer
+ * state wins and is what the call returns. The synchronous transitions ([reset], [rationaleDismissed],
+ * [settingsDeclined]) check and write in one atomic step too, so none of them can overwrite a
+ * `Requesting` published at the same moment. The controller underneath serializes requests, so no two
+ * dialogs ever overlap. If the calling coroutine is cancelled while the dialog is up, the flow goes
+ * back to [PermissionFlowState.Idle] (nothing was decided) instead of staying `Requesting` forever;
+ * the next [refresh] reads what the user actually chose.
  *
  * The instance is cheap and holds no platform resource — there is nothing to release. Keep one per
  * screen, or build one per tap; both are fine.
@@ -99,20 +107,23 @@ public class PermissionRequestFlow(
      * @return the state reached, identical to [state]'s value when this returns.
      */
     public suspend fun start(): PermissionFlowState {
-        if (mutableState.value == PermissionFlowState.Requesting) return PermissionFlowState.Requesting
+        val before: PermissionFlowState = mutableState.value
+        if (before == PermissionFlowState.Requesting) return PermissionFlowState.Requesting
         return when (val status: PermissionStatus = controller.check(permission)) {
-            is PermissionStatus.Granted -> moveTo(PermissionFlowState.Granted)
-            is PermissionStatus.Limited -> moveTo(PermissionFlowState.Limited)
-            is PermissionStatus.PermanentlyDenied -> moveTo(PermissionFlowState.AwaitingSettings)
-            is PermissionStatus.Restricted, is PermissionStatus.Unavailable -> moveTo(PermissionFlowState.Unavailable)
+            is PermissionStatus.Granted -> moveFrom(before, PermissionFlowState.Granted)
+            is PermissionStatus.Limited -> moveFrom(before, PermissionFlowState.Limited)
+            is PermissionStatus.PermanentlyDenied -> moveFrom(before, PermissionFlowState.AwaitingSettings)
+            is PermissionStatus.Restricted, is PermissionStatus.Unavailable ->
+                moveFrom(before, PermissionFlowState.Unavailable)
+
             is PermissionStatus.Denied ->
                 if (status.explainFirst) {
-                    moveTo(PermissionFlowState.AwaitingRationale)
+                    moveFrom(before, PermissionFlowState.AwaitingRationale)
                 } else {
-                    prompt()
+                    prompt(before)
                 }
 
-            is PermissionStatus.NotDetermined -> prompt()
+            is PermissionStatus.NotDetermined -> prompt(before)
         }
     }
 
@@ -122,8 +133,10 @@ public class PermissionRequestFlow(
      * A no-op returning the unchanged state unless the flow is in
      * [PermissionFlowState.AwaitingRationale].
      */
-    public suspend fun rationaleAcknowledged(): PermissionFlowState =
-        if (mutableState.value == PermissionFlowState.AwaitingRationale) prompt() else mutableState.value
+    public suspend fun rationaleAcknowledged(): PermissionFlowState {
+        val before: PermissionFlowState = mutableState.value
+        return if (before == PermissionFlowState.AwaitingRationale) prompt(before) else before
+    }
 
     /**
      * The user dismissed your explanation without agreeing: the flow ends at
@@ -133,11 +146,7 @@ public class PermissionRequestFlow(
      * [PermissionFlowState.AwaitingRationale].
      */
     public fun rationaleDismissed(): PermissionFlowState =
-        if (mutableState.value == PermissionFlowState.AwaitingRationale) {
-            moveTo(PermissionFlowState.Denied)
-        } else {
-            mutableState.value
-        }
+        moveWhen(PermissionFlowState.Denied) { it == PermissionFlowState.AwaitingRationale }
 
     /**
      * Sends the user to the most specific system settings screen for [permission] —
@@ -160,11 +169,7 @@ public class PermissionRequestFlow(
      * [PermissionFlowState.AwaitingSettings].
      */
     public fun settingsDeclined(): PermissionFlowState =
-        if (mutableState.value == PermissionFlowState.AwaitingSettings) {
-            moveTo(PermissionFlowState.Denied)
-        } else {
-            mutableState.value
-        }
+        moveWhen(PermissionFlowState.Denied) { it == PermissionFlowState.AwaitingSettings }
 
     /**
      * Re-derives the state from what the OS says right now, without ever showing a dialog.
@@ -181,8 +186,10 @@ public class PermissionRequestFlow(
      * A no-op while the system dialog is up ([PermissionFlowState.Requesting]).
      */
     public suspend fun refresh(): PermissionFlowState {
-        if (mutableState.value == PermissionFlowState.Requesting) return PermissionFlowState.Requesting
-        return moveTo(
+        val before: PermissionFlowState = mutableState.value
+        if (before == PermissionFlowState.Requesting) return PermissionFlowState.Requesting
+        return moveFrom(
+            before,
             when (val status: PermissionStatus = controller.check(permission)) {
                 is PermissionStatus.Granted -> PermissionFlowState.Granted
                 is PermissionStatus.Limited -> PermissionFlowState.Limited
@@ -209,11 +216,7 @@ public class PermissionRequestFlow(
      * screen would leave the answer nowhere to land.
      */
     public fun reset(): PermissionFlowState =
-        if (mutableState.value == PermissionFlowState.Requesting) {
-            PermissionFlowState.Requesting
-        } else {
-            moveTo(PermissionFlowState.Idle)
-        }
+        moveWhen(PermissionFlowState.Idle) { it != PermissionFlowState.Requesting }
 
     /**
      * Shows the system dialog and maps the answer.
@@ -227,10 +230,24 @@ public class PermissionRequestFlow(
      * [PermissionFlowState.AwaitingRationale] would loop the user through an explanation for a
      * dialog they just answered. The next [start] picks that rationale up.
      */
-    private suspend fun prompt(): PermissionFlowState {
-        moveTo(PermissionFlowState.Requesting)
-        return moveTo(
-            when (controller.request(permission)) {
+    private suspend fun prompt(from: PermissionFlowState): PermissionFlowState {
+        // Only from the state the caller observed: if another coroutine moved the flow while the
+        // caller was suspended in check(), theirs is the newer word and no second prompt starts.
+        if (!mutableState.compareAndSet(from, PermissionFlowState.Requesting)) return mutableState.value
+        val answer: PermissionStatus = try {
+            controller.request(permission)
+        } catch (cancellation: CancellationException) {
+            // The caller went away with the dialog up: nobody is left to receive the answer and
+            // nothing was decided. Left at Requesting, every method would refuse to move the flow
+            // for the life of its holder. CAS, so a concurrent writer is not overwritten.
+            mutableState.compareAndSet(PermissionFlowState.Requesting, PermissionFlowState.Idle)
+            throw cancellation
+        }
+        // CAS from Requesting, like every other transition after a suspension: a state written in the
+        // meantime is the newer word and is returned instead.
+        return moveFrom(
+            PermissionFlowState.Requesting,
+            when (answer) {
                 is PermissionStatus.Granted -> PermissionFlowState.Granted
                 is PermissionStatus.Limited -> PermissionFlowState.Limited
                 is PermissionStatus.PermanentlyDenied -> PermissionFlowState.AwaitingSettings
@@ -241,8 +258,20 @@ public class PermissionRequestFlow(
         )
     }
 
-    private fun moveTo(next: PermissionFlowState): PermissionFlowState {
-        mutableState.value = next
-        return next
+    /** Publishes [next] only if the state is still [before]; otherwise returns the newer state. */
+    private fun moveFrom(before: PermissionFlowState, next: PermissionFlowState): PermissionFlowState =
+        if (mutableState.compareAndSet(before, next)) next else mutableState.value
+
+    /**
+     * Atomically moves to [next] when the *current* state satisfies [allowed]; otherwise returns the
+     * state as it is. The check and the write are one compare-and-set, so a concurrent [start] that
+     * has just published `Requesting` can never be overwritten by a transition that checked earlier.
+     */
+    private inline fun moveWhen(next: PermissionFlowState, allowed: (PermissionFlowState) -> Boolean): PermissionFlowState {
+        while (true) {
+            val current: PermissionFlowState = mutableState.value
+            if (!allowed(current)) return current
+            if (mutableState.compareAndSet(current, next)) return next
+        }
     }
 }

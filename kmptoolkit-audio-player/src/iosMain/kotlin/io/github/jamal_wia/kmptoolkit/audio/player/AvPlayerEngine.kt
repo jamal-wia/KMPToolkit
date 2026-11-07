@@ -1,12 +1,11 @@
 package io.github.jamal_wia.kmptoolkit.audio.player
 
-import kotlin.concurrent.atomics.AtomicInt
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
-import kotlin.concurrent.atomics.incrementAndFetch
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionCategoryPlayback
@@ -39,7 +38,7 @@ import platform.darwin.NSObjectProtocol
  * @param assetSubdirectories bundle subdirectories searched after the bundle root.
  * @param managesAudioSession whether to switch the shared `AVAudioSession` to the playback category.
  */
-@OptIn(ExperimentalForeignApi::class, ExperimentalAtomicApi::class)
+@OptIn(ExperimentalForeignApi::class)
 internal class AvPlayerEngine(
     private val assetBundle: NSBundle,
     private val assetSubdirectories: List<String>,
@@ -50,12 +49,15 @@ internal class AvPlayerEngine(
     private var completionObserver: NSObjectProtocol? = null
     private var listener: PlaybackEngineListener? = null
 
+    /** Whether an `AVPlayer` is held; a test hook for "a failed or cancelled load leaves nothing". */
+    internal val hasPlayer: Boolean get() = player != null
+
     /**
      * Bumped by every [release]. The end-of-item block runs on whichever thread posts the
      * notification, so removing the observer does not stop one that is already running; each block
      * compares the value it captured against this one and drops itself when its load is gone.
      */
-    private val generation: AtomicInt = AtomicInt(0)
+    private val generation: MutableStateFlow<Int> = MutableStateFlow(0)
 
     /** The rate [start] plays at. Remembered because a paused AVPlayer cannot be told it yet. */
     private var speed: Float = NORMAL_SPEED
@@ -67,17 +69,25 @@ internal class AvPlayerEngine(
     override suspend fun load(source: AudioSource) {
         release()
 
-        val url: NSURL = resolveUrl(source)
+        // A load that throws or is cancelled leaves nothing playable behind (see PlaybackEngine):
+        // without this the failed AVPlayer, its item and the end-of-item observer would stay held
+        // until the next load, unload or release.
+        try {
+            val url: NSURL = resolveUrl(source)
 
-        withContext(Dispatchers.Main) {
-            if (managesAudioSession) activateAudioSession()
+            withContext(Dispatchers.Main) {
+                if (managesAudioSession) activateAudioSession()
 
-            val item = AVPlayerItem(uRL = url)
-            player = AVPlayer(playerItem = item)
-            observeCompletion(item)
+                val item = AVPlayerItem(uRL = url)
+                player = AVPlayer(playerItem = item)
+                observeCompletion(item)
+            }
+
+            awaitReadyToPlay()
+        } catch (failure: Throwable) {
+            release()
+            throw failure
         }
-
-        awaitReadyToPlay()
     }
 
     override fun start() {
@@ -121,7 +131,7 @@ internal class AvPlayerEngine(
             NSNotificationCenter.defaultCenter.removeObserver(observer)
         }
         completionObserver = null
-        generation.incrementAndFetch()
+        generation.update { it + 1 }
         player?.pause()
         player = null
     }
@@ -177,13 +187,13 @@ internal class AvPlayerEngine(
     }
 
     private fun observeCompletion(item: AVPlayerItem) {
-        val captured: Int = generation.load()
+        val captured: Int = generation.value
         completionObserver = NSNotificationCenter.defaultCenter.addObserverForName(
             name = AVPlayerItemDidPlayToEndTimeNotification,
             `object` = item,
             queue = null,
         ) { _ ->
-            if (generation.load() == captured) listener?.onCompleted()
+            if (generation.value == captured) listener?.onCompleted()
         }
     }
 

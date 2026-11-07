@@ -420,7 +420,7 @@ internal class DefaultDownloaderEngine(
         progressScale: Float,
         token: CancelToken,
     ) {
-        failOnUnreadableUnitHash(group, groupState, unit)
+        failOnCatalogueError(group, groupState, unit)
         var integrityFailures = 0
         while (true) {
             throwIfGroupCancelled(group, groupState, token, unit)
@@ -456,21 +456,23 @@ internal class DefaultDownloaderEngine(
     }
 
     /**
-     * Reads [DownloadUnit.sha256] before anything is transferred. A getter that throws — a
-     * host that built the value with [Sha256.parse] in a `get() =` from a malformed constant —
-     * fails the unit here, as [DownloadError.Unknown] and without enqueueing a transfer, instead of
-     * after the whole download on every attempt. Not an integrity failure: downloading again cannot
-     * fix a catalogue. A transfer that is already running is cancelled, since its bytes could not be
-     * committed; the temp file is deliberately kept, because the bytes are not at fault and a
-     * corrected catalogue resumes from them.
+     * Checks the unit's catalogue entry before anything is transferred: reads
+     * [DownloadUnit.sha256], then asks a shipped storage whether the relativePath is usable. A
+     * getter that throws — a host that built the value with [Sha256.parse] in a `get() =` from a
+     * malformed constant — or a [DownloadUnit.relativePath] the shipped storage rejects
+     * with [InvalidDownloadUnitException] fails the unit here, as [DownloadError.Unknown] and without
+     * enqueueing a transfer, instead of after the whole download on every attempt. Not an integrity
+     * failure: downloading again cannot fix a catalogue. A transfer that is already running is
+     * cancelled, since its bytes could not be committed; the temp file is deliberately kept, because
+     * the bytes are not at fault and a corrected catalogue resumes from them.
      */
-    private suspend fun failOnUnreadableUnitHash(
+    private suspend fun failOnCatalogueError(
         group: ResourceGroup,
         groupState: MutableStateFlow<GroupDownloadState>,
         unit: DownloadUnit,
     ) {
-        val failure: DownloadFailedException = unreadableUnitHash(unit) ?: return
-        logger.e(failure) { "DownloadUnit.sha256 of $unit cannot be read: ${failure.cause?.message}" }
+        val failure: DownloadFailedException = catalogueFailure(unit) ?: return
+        logger.e(failure) { "The catalogue entry of $unit is unusable: ${failure.cause}" }
         cancelRunningTransfer(unit)
         groupState.value = GroupDownloadState.Error(error = failure.error)
         notifyError(group, failure.error)
@@ -478,9 +480,9 @@ internal class DefaultDownloaderEngine(
     }
 
     /** The per-unit twin of the group overload above. */
-    private suspend fun failOnUnreadableUnitHash(unit: DownloadUnit) {
-        val failure: DownloadFailedException = unreadableUnitHash(unit) ?: return
-        logger.e(failure) { "DownloadUnit.sha256 of $unit cannot be read: ${failure.cause?.message}" }
+    private suspend fun failOnCatalogueError(unit: DownloadUnit) {
+        val failure: DownloadFailedException = catalogueFailure(unit) ?: return
+        logger.e(failure) { "The catalogue entry of $unit is unusable: ${failure.cause}" }
         cancelRunningTransfer(unit)
         unitStateFlow(unit).value = UnitDownloadState.Error(failure.error)
         throw failure
@@ -493,19 +495,27 @@ internal class DefaultDownloaderEngine(
         }
     }
 
-    private fun unreadableUnitHash(unit: DownloadUnit): DownloadFailedException? {
-        return try {
+    private fun catalogueFailure(unit: DownloadUnit): DownloadFailedException? {
+        try {
             unit.sha256
-            null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            DownloadFailedException(
+            return DownloadFailedException(
                 unit = unit,
                 error = DownloadError.Unknown(e.message ?: "DownloadUnit.sha256 cannot be read"),
                 cause = e,
             )
         }
+        // Only a storage that implements RelativePathChecking is asked: any other (a host's own) is
+        // never called here, so it behaves exactly as in 3.0.0.
+        val reason: InvalidDownloadUnitException.Reason =
+            (storage as? RelativePathChecking)?.relativePathViolation(unit) ?: return null
+        return DownloadFailedException(
+            unit = unit,
+            error = DownloadError.Unknown("DownloadUnit.relativePath is invalid: $reason"),
+            cause = InvalidDownloadUnitException(unit, reason),
+        )
     }
 
     /**
@@ -948,6 +958,7 @@ internal class DefaultDownloaderEngine(
             // Skip commitResource() to avoid failing on an already-consumed temp file.
             if (storage.isResourceAvailable(unit)) {
                 logger.i { "Resource unit $unit already committed, skipping commit" }
+                dropStrayTempFile(unit)
             } else {
                 logger.i { "Committing resource $unit..." }
                 storage.commitResource(unit = unit)
@@ -1148,6 +1159,21 @@ internal class DefaultDownloaderEngine(
         }
     }
 
+    /**
+     * Called when [unit] is already committed and this call skips the commit: another commit (a
+     * second engine over the same directory, or a platform downloader that commits on its own)
+     * finalized it first. A transfer of this call may still have finished on its own, and its
+     * [TempFileState.Complete] temp file would stay on disk for ever, since nothing consumes it
+     * any more. It is dropped here; a [TempFileState.Partial] file belongs to a transfer that is
+     * still running and is left alone. Best effort, like every other temp file delete.
+     */
+    private fun dropStrayTempFile(unit: DownloadUnit) {
+        if (storage.tempFileState(unit) == TempFileState.Complete) {
+            logger.i { "Dropping the temp file of $unit, which was committed by another commit" }
+            safeDeleteTempFile(unit)
+        }
+    }
+
     private fun safeDeleteTempFile(unit: DownloadUnit) {
         try {
             storage.deleteTempFile(unit)
@@ -1282,7 +1308,7 @@ internal class DefaultDownloaderEngine(
     }
 
     private suspend fun transferAndCommitUnit(unit: DownloadUnit, token: CancelToken) {
-        failOnUnreadableUnitHash(unit)
+        failOnCatalogueError(unit)
         val stateFlow: MutableStateFlow<UnitDownloadState> = unitStateFlow(unit)
         var integrityFailures = 0
         while (true) {
@@ -1316,7 +1342,29 @@ internal class DefaultDownloaderEngine(
      * made right after it starts clean instead of racing a cancel that is still on its way.
      */
     override fun cancelDownload(unit: DownloadUnit) {
-        cancelUnitNow(unitEntry(unit))
+        val entry: UnitEntry? = unitEntries.value[unit.id]
+        if (entry != null) {
+            cancelUnitNow(entry)
+            return
+        }
+        // Never tracked, so no call is running for it (a running call always has an entry) and
+        // there is no state to reset. Release what the platform and the disk may hold, without
+        // creating an entry or a mutex that would then live as long as the engine.
+        val mutex: Mutex? = unitMutexes.value[unit.id]
+        val ownsUnit: Boolean = mutex?.tryLock() ?: true
+        try {
+            cancelTransfer(unit)
+            clearStallCount(unit)
+            // With no mutex there was nothing to lock, so a request on another thread may have
+            // started tracking the unit since the snapshot above; deleting now would run unguarded
+            // against its commit. Leave the files to the tracked path below.
+            val startedMeanwhile: Boolean =
+                mutex == null && (unitEntries.value[unit.id] != null || unitMutexes.value[unit.id] != null)
+            if (ownsUnit && !startedMeanwhile) safeDeleteTempFile(unit)
+        } finally {
+            if (mutex != null && ownsUnit) mutex.unlock()
+        }
+        if (mutex == null) unitEntries.value[unit.id]?.let { late: UnitEntry -> cancelUnitNow(late) }
     }
 
     private fun cancelUnitNow(entry: UnitEntry) {
@@ -1424,6 +1472,8 @@ internal class DefaultDownloaderEngine(
         try {
             if (!storage.isResourceAvailable(unit)) {
                 storage.commitResource(unit)
+            } else {
+                dropStrayTempFile(unit)
             }
             if (!storage.isResourceAvailable(unit)) {
                 error("Resource $unit not available after commit")

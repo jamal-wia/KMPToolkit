@@ -27,7 +27,7 @@ made inside it, with nothing reporting the mismatch.
 |---|---|
 | `store` | Implements `UploaderStore` in full — every invariant in its KDoc, verified by `UploaderStoreContract` against a real database on Android and iOS. Every write is committed before the call returns. Safe to call from any coroutine on any thread; calls are serialized internally. |
 | `transactionRunner` | A real SQL transaction, reentrant: a nested `inTransaction` joins the outer one. Atomic across everything written through **this** database. Rolls back and propagates unchanged on a throw or a cancellation. |
-| `close()` | Releases the database thread, and the connection if this storage opened one. Idempotent. Never closes a driver you supplied. Using the storage afterwards is a bug; close the engine first. Throws `IllegalStateException` when called on the database thread (inside `inTransaction`). |
+| `close()` | Releases the database thread, and the connection if this storage opened one. Idempotent. The thread is released even if closing the driver throws; the failure is rethrown. Never closes a driver you supplied. Using the storage afterwards is a bug; close the engine first. Throws `IllegalStateException` when called on the database thread (inside `inTransaction`). |
 
 **Lifetime.** One instance per queue, per process, for the life of the process. Not per screen — the
 queue outlives the UI, which is the point of it.
@@ -66,6 +66,14 @@ Activity cannot leak it.
 
 **Throws** `UploaderStorageException(OPEN, …)` if the file cannot be opened, created or migrated.
 
+A file that is not a database (corrupt, truncated) is **left untouched** by default: Android's own
+behaviour would delete it and open an empty queue, silently dropping every effect still owed, so this
+factory fails the open instead. Report it, then start afresh with
+`Context.deleteDatabase("<name>.kmptoolkit.uploader.db")` (`<name>` is `UploaderDatabaseConfig.name`, or
+the package name by default) if the app decides the queue is lost, or opt in with
+`UploaderDatabaseConfig(recreateOnCorruption = true)`, which deletes the file and opens an empty queue
+(the 3.0.0 behaviour).
+
 ## `createUploaderStorage(config)` — iOS
 
 ```kotlin
@@ -75,7 +83,12 @@ public fun createUploaderStorage(config: UploaderDatabaseConfig = UploaderDataba
 The same, on the iOS file system. See [`05-platform-notes.md`](05-platform-notes.md) for where the
 file lands.
 
-**Throws** `UploaderStorageException(OPEN, …)`.
+**Throws** `UploaderStorageException(OPEN, …)`. A driver the factory opened but could not probe (a corrupt
+file, a failed migration) is closed before the exception is thrown, so a retry loop does not accumulate
+SQLite handles.
+
+A corrupt file is handled exactly as on Android: left untouched by default, deleted and replaced by an
+empty queue with `UploaderDatabaseConfig(recreateOnCorruption = true)`.
 
 > The factories are per-platform, not `expect`/`actual`: Android needs a `Context` and iOS needs
 > nothing, and a shared signature would force one of them to declare a parameter it ignores. See
@@ -84,7 +97,10 @@ file lands.
 ## `UploaderDatabaseConfig`
 
 ```kotlin
-public data class UploaderDatabaseConfig(public val name: String? = null)
+public data class UploaderDatabaseConfig(
+    public val name: String? = null,
+    public val recreateOnCorruption: Boolean = false,   // since 3.1.0
+)
 ```
 
 Which file the standalone factories open. Irrelevant when you supply a driver.
@@ -93,6 +109,16 @@ Which file the standalone factories open. Irrelevant when you supply a driver.
 |---|---|
 | `null` (default) | Resolved at runtime to the app's own identifier: `Context.getPackageName()` on Android, `CFBundleIdentifier` on iOS |
 | a string | Used verbatim as the identifying part of the file name |
+
+| `recreateOnCorruption` | Meaning |
+|---|---|
+| `false` (default) | A file that is not a usable database fails the open with `UploaderStorageException(OPEN)` and is left untouched |
+| `true` | A file recognised as corrupt is deleted and an empty queue is opened, dropping everything still queued (the 3.0.0 behaviour). On iOS damage below a valid header is found by an integrity probe at the open, as the framework's corruption handler finds it on Android. Other open failures still throw and keep the file |
+
+Changed in 3.1.0: before it, the default silently recreated the queue on Android. The two-argument
+constructor and `copy` keep the 3.0.0 one-argument signatures as hidden declarations, so code and
+binaries built against 3.0.0 keep linking; only a binary that calls `copy()` with every default
+omitted needs a recompile.
 
 **Rejected at construction**, with `IllegalArgumentException`: blank names, and names containing
 `/`, `\`, a space, or a NUL. The name becomes part of a file name verbatim, so a separator in it

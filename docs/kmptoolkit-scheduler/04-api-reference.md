@@ -73,8 +73,8 @@ content.
 | Member | Contract |
 |---|---|
 | `schedule` | Arms `alarm`, replacing any pending alarm with the same `id`. A fire time in the past is legal — Android fires it immediately, iOS clamps the trigger to one second out. Never throws for a permission or platform refusal; those come back in the result — including Android's cap of 500 concurrent alarms per app, reported as `Failed(PlatformError)`. |
-| `cancel` | Cancels `id`. Cancelling an id that is not armed is a no-op, not an error — neither platform can tell those apart. |
-| `cancelAll` | Cancels exactly the ids passed, in order. An empty collection is a no-op. It is **not** "cancel everything". |
+| `cancel` | Cancels `id`. Cancelling an id that is not armed is a no-op, not an error — neither platform can tell those apart. Never throws for a platform refusal: on Android any `RuntimeException` from `AlarmManager` (a refusal, a revoked right, a restarting system server) is caught and logged, and the alarm may stay armed (the call returns nothing, so the failure is not reported). |
+| `cancelAll` | Cancels exactly the ids passed, in order. An empty collection is a no-op. It is **not** "cancel everything". Like `cancel`, it never throws for a platform refusal, and a refusal on one id does not stop the ids after it. The ids are copied first, so a collection you change while it runs does not break it. |
 
 ## `ScheduledAlarm`
 
@@ -124,7 +124,7 @@ public sealed interface AlarmScheduleResult {
 |---|---|---|
 | `Exact` | yes | Android accepted `setExactAndAllowWhileIdle`, or iOS accepted the notification request. |
 | `Inexact` | yes | Android could not schedule exactly and fell back to `setAndAllowWhileIdle`. |
-| `Failed` | **no** | Nothing was armed. |
+| `Failed` | **no** | Nothing was armed. On Android this includes any `RuntimeException` from `AlarmManager`, not only a refusal. A refused *replacement* leaves the alarm that was armed exactly as it was, content and time included. |
 
 ## `InexactReason`
 
@@ -181,9 +181,9 @@ invented for you.
 
 | Parameter | Contract |
 |---|---|
-| `alarmIntentScheme` | **Android only.** URI scheme for the per-alarm data URI that keeps two alarms' `PendingIntent`s distinct. `null` derives `<applicationId>.alarm`, with characters a URI scheme cannot hold (`_`, non-ASCII) replaced by `-`. A non-null value must be a valid URI scheme. |
-| `alarmIdKey` | Key carrying `ScheduledAlarm.id`: an intent extra on Android, a `userInfo` entry on iOS. |
-| `alarmTypeKey` | Key carrying `ScheduledAlarm.type`, on the same terms. |
+| `alarmIntentScheme` | **Android only.** URI scheme for the per-alarm data URI that keeps two alarms' `PendingIntent`s distinct. `null` derives `<applicationId>.alarm`, with characters a URI scheme cannot hold (`_`, non-ASCII) replaced by `-`. A non-null value must be a valid URI scheme. **Keep it stable across app launches and versions**: an alarm armed under an earlier scheme cannot be cancelled or replaced afterwards (cancel is a silent no-op, and scheduling the same id again arms a second alarm). |
+| `alarmIdKey` | Key carrying `ScheduledAlarm.id`: an intent extra on Android, a `userInfo` entry on iOS. **Keep it stable across app versions**, like `alarmIntentScheme`: an Android alarm armed under an earlier key is read with the new one at fire time, finds no id, and is dropped without a trace. |
+| `alarmTypeKey` | Key carrying `ScheduledAlarm.type`, on the same terms, including keeping it stable across app versions. |
 
 Throws `IllegalArgumentException` at construction if a key is blank, the two keys are equal, or the
 scheme is non-null and invalid. There is no iOS background-task id here because the module registers
