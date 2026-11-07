@@ -50,6 +50,9 @@ internal class AvPlayerEngine(
     private var completionObserver: NSObjectProtocol? = null
     private var listener: PlaybackEngineListener? = null
 
+    /** Whether an `AVPlayer` is held; a test hook for "a failed or cancelled load leaves nothing". */
+    internal val hasPlayer: Boolean get() = player != null
+
     /**
      * Bumped by every [release]. The end-of-item block runs on whichever thread posts the
      * notification, so removing the observer does not stop one that is already running; each block
@@ -67,17 +70,25 @@ internal class AvPlayerEngine(
     override suspend fun load(source: AudioSource) {
         release()
 
-        val url: NSURL = resolveUrl(source)
+        // A load that throws or is cancelled leaves nothing playable behind (see PlaybackEngine):
+        // without this the failed AVPlayer, its item and the end-of-item observer would stay held
+        // until the next load, unload or release.
+        try {
+            val url: NSURL = resolveUrl(source)
 
-        withContext(Dispatchers.Main) {
-            if (managesAudioSession) activateAudioSession()
+            withContext(Dispatchers.Main) {
+                if (managesAudioSession) activateAudioSession()
 
-            val item = AVPlayerItem(uRL = url)
-            player = AVPlayer(playerItem = item)
-            observeCompletion(item)
+                val item = AVPlayerItem(uRL = url)
+                player = AVPlayer(playerItem = item)
+                observeCompletion(item)
+            }
+
+            awaitReadyToPlay()
+        } catch (failure: Throwable) {
+            release()
+            throw failure
         }
-
-        awaitReadyToPlay()
     }
 
     override fun start() {
