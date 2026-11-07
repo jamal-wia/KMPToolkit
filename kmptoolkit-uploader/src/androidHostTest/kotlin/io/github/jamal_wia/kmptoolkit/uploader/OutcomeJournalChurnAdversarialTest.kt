@@ -62,20 +62,20 @@ class OutcomeJournalChurnAdversarialTest {
             when (index % 4) {
                 0 -> { // delivered through the transport's own settle
                     assertTrue(journal.record(id, response()))
-                    assertTrue(journal.settleRecorded(id, response()) { _, _, onSettling -> onSettling(); true })
+                    assertTrue(journal.settleRecorded(id, response()) { _, _, _, onSettling -> onSettling(); landedIf(true) })
                 }
                 1 -> { // replayed by a later process
                     assertTrue(journal.record(id, response()))
-                    assertEquals(ReplayOutcome.Replayed, journal.replay(id) { _, _, onSettling -> onSettling(); true })
+                    assertEquals(ReplayOutcome.Replayed, journal.replay(id) { _, _, _, onSettling -> onSettling(); landedIf(true) })
                 }
                 2 -> { // expired after a week
                     assertTrue(journal.record(id, response()))
                     nowMillis += 8.days.inWholeMilliseconds
-                    assertEquals(ReplayOutcome.Discarded, journal.replay(id) { _, _, _ -> error("an expired entry must not settle") })
+                    assertEquals(ReplayOutcome.Discarded, journal.replay(id) { _, _, _, _ -> error("an expired entry must not settle") })
                 }
                 else -> { // an engine that does not know the item: settles nothing, the entry still goes
                     assertTrue(journal.record(id, response()))
-                    assertEquals(ReplayOutcome.Replayed, journal.replay(id) { _, _, _ -> true })
+                    assertEquals(ReplayOutcome.Replayed, journal.replay(id) { _, _, _, _ -> landedIf(true) })
                 }
             }
             // a cut-short write of the dead process, ignored by readers and swept later
@@ -84,9 +84,9 @@ class OutcomeJournalChurnAdversarialTest {
                 setLastModified(nowMillis - 2 * 60 * 60 * 1000L)
             }
             nowMillis += 2 * 60 * 60 * 1000L
-            if (index % 10 == 9) journal.sweep { _, _, _ -> true }
+            if (index % 10 == 9) journal.sweep { _, _, _, _ -> landedIf(true) }
         }
-        journal.sweep { _, _, _ -> true }
+        journal.sweep { _, _, _, _ -> landedIf(true) }
 
         assertEquals(0, fileCount(), "files left: ${root.walkTopDown().filter { it.isFile }.map { it.name }.toList()}")
     }
@@ -98,7 +98,7 @@ class OutcomeJournalChurnAdversarialTest {
         assertTrue(journal.record("item-1", response()))
         nowMillis += 3.days.inWholeMilliseconds
 
-        val first: ReplayOutcome = journal.replay("item-1") { _, _, onSettling -> onSettling(); false }
+        val first: ReplayOutcome = journal.replay("item-1") { _, _, _, onSettling -> onSettling(); landedIf(false) }
 
         assertEquals(ReplayOutcome.Kept, first)
         val back: JournalEntry = journal.inspect("item-1")
@@ -106,7 +106,7 @@ class OutcomeJournalChurnAdversarialTest {
         assertEquals(writtenAt, back.writtenAtMillis, "the 7-day expiry keeps counting from the first write")
         assertEquals(201, back.response.statusCode)
         var delivered = 0
-        val second: ReplayOutcome = journal.replay("item-1") { _, _, onSettling -> onSettling(); delivered++; true }
+        val second: ReplayOutcome = journal.replay("item-1") { _, _, _, onSettling -> onSettling(); delivered++; landedIf(true) }
         assertEquals(ReplayOutcome.Replayed, second)
         assertEquals(1, delivered)
         assertEquals(0, fileCount())
@@ -174,10 +174,10 @@ class OutcomeJournalChurnAdversarialTest {
                         withTimeout(60_000L) {
                             repeat(200) { step ->
                                 val id = "item-${(step + offset * 25) % 200}"
-                                journal.replay(id) { itemId, _, onSettling ->
+                                journal.replay(id) { itemId, _, _, onSettling ->
                                     settled.getOrPut(itemId) { AtomicInteger() }.incrementAndGet()
                                     onSettling()
-                                    true
+                                    landedIf(true)
                                 }
                             }
                         }
@@ -201,7 +201,7 @@ class OutcomeJournalChurnAdversarialTest {
             val id = "race-$round"
             assertTrue(journal.record(id, response(body = ByteArray(5_000))))
             val threads: List<Thread> = listOf(
-                thread { runBlocking { withTimeout(20_000L) { journal.replay(id) { _, _, onSettling -> settledTotal.incrementAndGet(); onSettling(); true } } } },
+                thread { runBlocking { withTimeout(20_000L) { journal.replay(id) { _, _, _, onSettling -> settledTotal.incrementAndGet(); onSettling(); landedIf(true) } } } },
                 thread { runBlocking { withTimeout(20_000L) { journal.restrictBody(id, 10) } } },
                 thread { if (round % 2 == 0) journal.delete(id) },
             )
@@ -219,7 +219,7 @@ class OutcomeJournalChurnAdversarialTest {
         File(dir, "item-junk").writeBytes(ByteArray(4096) { 7 })
         val journal: OutcomeJournal = journal()
 
-        withTimeout(10_000L) { journal.sweep { _, _, _ -> error("nothing here is a usable entry") } }
+        withTimeout(10_000L) { journal.sweep { _, _, _, _ -> error("nothing here is a usable entry") } }
 
         assertTrue(File(dir, "item-junk").exists().not(), "unusable entries are deleted")
         assertTrue(File(dir, "item-empty").exists().not())
@@ -233,12 +233,12 @@ class OutcomeJournalChurnAdversarialTest {
         val holding = kotlinx.coroutines.CompletableDeferred<Unit>()
         val release = kotlinx.coroutines.CompletableDeferred<Unit>()
         val holder = pool.launch {
-            journal.replay("held") { _, _, onSettling -> holding.complete(Unit); release.await(); onSettling(); true }
+            journal.replay("held") { _, _, _, onSettling -> holding.complete(Unit); release.await(); onSettling(); landedIf(true) }
         }
         withTimeout(10_000L) { holding.await() }
         val waiters: List<kotlinx.coroutines.Job> = List(100) {
             pool.launch {
-                journal.replay("held") { _, _, _ -> error("a waiter must find the entry gone") }
+                journal.replay("held") { _, _, _, _ -> error("a waiter must find the entry gone") }
             }
         }
         kotlinx.coroutines.delay(200L)
@@ -248,7 +248,7 @@ class OutcomeJournalChurnAdversarialTest {
         withTimeout(10_000L) { holder.join() }
 
         assertTrue(journal.record("held", response()))
-        val outcome: ReplayOutcome = withTimeout(10_000L) { journal.replay("held") { _, _, onSettling -> onSettling(); true } }
+        val outcome: ReplayOutcome = withTimeout(10_000L) { journal.replay("held") { _, _, _, onSettling -> onSettling(); landedIf(true) } }
 
         pool.cancel()
         assertEquals(ReplayOutcome.Replayed, outcome)
@@ -262,7 +262,7 @@ class OutcomeJournalChurnAdversarialTest {
         val journal: OutcomeJournal = journal()
 
         assertEquals(false, journal.record("item-1", response()))
-        withTimeout(10_000L) { journal.sweep { _, _, _ -> error("nothing to settle") } }
+        withTimeout(10_000L) { journal.sweep { _, _, _, _ -> error("nothing to settle") } }
         assertEquals(JournalEntry.Absent, journal.inspect("item-1"))
     }
 
@@ -297,7 +297,7 @@ class OutcomeJournalChurnAdversarialTest {
         assertTrue(journal.record("a", response()))
         var settled = 0
 
-        val landed: Boolean = journal.settleRecorded("a", response()) { _, _, onSettling -> settled++; onSettling(); true }
+        val landed: Boolean = journal.settleRecorded("a", response()) { _, _, _, onSettling -> settled++; onSettling(); landedIf(true) }
 
         assertEquals(1, settled, "the answer the worker holds in memory is settled")
         assertTrue(landed)

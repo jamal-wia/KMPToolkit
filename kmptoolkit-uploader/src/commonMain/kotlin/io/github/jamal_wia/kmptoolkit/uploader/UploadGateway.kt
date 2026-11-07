@@ -36,9 +36,20 @@ public object UploadGateway {
      *   store failed to read the item, in which case the executor should retry later rather than
      *   conclude anything.
      */
-    public suspend fun prepareAttempt(itemId: String, engineWait: Duration = DEFAULT_ENGINE_WAIT): UploadAttempt {
-        val engine: DefaultUploaderEngine = awaitEngine(engineWait) ?: return UploadAttempt.EngineUnavailable
-        return engine.prepareUploadAttempt(itemId)
+    public suspend fun prepareAttempt(itemId: String, engineWait: Duration = DEFAULT_ENGINE_WAIT): UploadAttempt =
+        prepareStampedAttempt(itemId, engineWait).attempt
+
+    /**
+     * [prepareAttempt] with the attempt stamp (the row's `attempts` when the attempt is [UploadAttempt.Ready])
+     * the built-in workers journal their answer with.
+     */
+    internal suspend fun prepareStampedAttempt(
+        itemId: String,
+        engineWait: Duration = DEFAULT_ENGINE_WAIT,
+    ): PreparedUpload {
+        val engine: DefaultUploaderEngine = awaitEngine(engineWait)
+            ?: return PreparedUpload(UploadAttempt.EngineUnavailable, null)
+        return engine.prepareStampedUploadAttempt(itemId)
     }
 
     /**
@@ -99,16 +110,18 @@ public object UploadGateway {
 
     /**
      * [complete] with an [UploadResponse], for the built-in transports' outcome journal: [onSettling] runs
-     * just before the engine commits the settlement, after the handler's hooks.
+     * just before the engine commits the settlement, after the handler's hooks, for an unstamped answer only.
+     * [attemptStamp] is the attempt the answer belongs to; see [JournalSettleOutcome].
      */
     internal suspend fun completeJournaled(
         itemId: String,
         response: UploadResponse,
+        attemptStamp: Int?,
         engineWait: Duration,
         onSettling: () -> Unit,
-    ): Boolean {
-        val engine: DefaultUploaderEngine = awaitEngine(engineWait) ?: return false
-        return engine.settleUpload(itemId, UploadResult.Completed(response.statusCode), response, onSettling)
+    ): JournalSettleOutcome {
+        val engine: DefaultUploaderEngine = awaitEngine(engineWait) ?: return JournalSettleOutcome.NOT_LANDED
+        return engine.settleJournaled(itemId, response, attemptStamp, onSettling)
     }
 
     /** The body limit of [itemId]'s handler, or `null` when no engine answers within [engineWait] or the item is gone. */
@@ -135,3 +148,6 @@ public sealed interface UploadAttempt {
     /** No engine to ask, or its store could not read the item. Retry later; do not treat the item as settled. */
     public data object EngineUnavailable : UploadAttempt
 }
+
+/** An [UploadAttempt] and the attempt stamp its answer is journaled with (`null` unless it is [UploadAttempt.Ready]). */
+internal class PreparedUpload(val attempt: UploadAttempt, val attemptStamp: Int?)

@@ -1072,7 +1072,7 @@ internal class UploadSessionDelegate(
                     // for, the body is cut to it before the settlement.
                     UploadGateway.responseBodyLimit(itemId, UploadGateway.DEFAULT_ENGINE_WAIT)
                         ?.let { limit -> journal.restrictBody(itemId, limit) }
-                    journal.settleRecorded(itemId, response, gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT))
+                    journal.settleRecorded(itemId, response, settle = gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT))
                 }
 
                 response != null -> UploadGateway.complete(itemId, response)

@@ -164,7 +164,7 @@ public open class UploadHandlerWorker(
         when (journal.replay(itemId, gatewaySettle(engineWait))) {
             ReplayOutcome.Replayed -> return Result.success()
             ReplayOutcome.Kept -> return Result.retry()
-            ReplayOutcome.NoEntry, ReplayOutcome.Discarded -> Unit
+            ReplayOutcome.NoEntry, ReplayOutcome.Discarded, ReplayOutcome.Stale, ReplayOutcome.Unreadable -> Unit
         }
 
         val request: UploadRequest = when (val attempt: UploadAttempt = UploadGateway.prepareAttempt(itemId, engineWait)) {
@@ -192,7 +192,7 @@ public open class UploadHandlerWorker(
         val response: UploadResponse? = outcome.response
         val landed: Boolean = if (response != null) {
             if (journaled) {
-                journal.settleRecorded(itemId, response, gatewaySettle(engineWait))
+                journal.settleRecorded(itemId, response, settle = gatewaySettle(engineWait))
             } else {
                 UploadGateway.complete(itemId, response, engineWait)
             }

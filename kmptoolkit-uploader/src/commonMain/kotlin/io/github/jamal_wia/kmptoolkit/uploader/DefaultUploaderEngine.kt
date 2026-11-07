@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -978,21 +979,29 @@ internal class DefaultUploaderEngine(
      * see [UploadGateway.prepareAttempt]. A store failure reads as [UploadAttempt.EngineUnavailable], so
      * the executor retries instead of concluding anything.
      */
-    suspend fun prepareUploadAttempt(id: String): UploadAttempt = try {
-        prepareUploadRequest(id)?.let(UploadAttempt::Ready) ?: UploadAttempt.NothingOwed
+    suspend fun prepareUploadAttempt(id: String): UploadAttempt = prepareStampedUploadAttempt(id).attempt
+
+    /**
+     * [prepareUploadAttempt] with the attempt stamp of a journaled answer: the row's `attempts` as read for a
+     * [UploadAttempt.Ready] attempt, else `null`.
+     */
+    internal suspend fun prepareStampedUploadAttempt(id: String): PreparedUpload = try {
+        prepareUploadRequest(id)?.let { (request: UploadRequest, stamp: Int) ->
+            PreparedUpload(UploadAttempt.Ready(request), stamp)
+        } ?: PreparedUpload(UploadAttempt.NothingOwed, null)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Throwable) {
         logger.e(e) { "Upload attempt for id=$id could not be prepared — store failure; retry later." }
-        UploadAttempt.EngineUnavailable
+        PreparedUpload(UploadAttempt.EngineUnavailable, null)
     }
 
     /**
-     * @return `null` when nothing is to be uploaded: the row is gone or no longer in flight, the
-     *   handler dropped or parked it (applied here), or preparation failed (charged to the row as a
-     *   failed attempt, guarded by its claim).
+     * @return the request and the row's `attempts` it was prepared at, or `null` when nothing is to be
+     *   uploaded: the row is gone or no longer in flight, the handler dropped or parked it (applied here), or
+     *   preparation failed (charged to the row as a failed attempt, guarded by its claim).
      */
-    private suspend fun prepareUploadRequest(id: String): UploadRequest? {
+    private suspend fun prepareUploadRequest(id: String): Pair<UploadRequest, Int>? {
         val record: UploaderItem? = store.getById(id)
         if (record == null || record.state != UploaderItemState.IN_FLIGHT) {
             logger.i { "Upload attempt for id=$id has nothing owed (state=${record?.state})." }
@@ -1021,7 +1030,7 @@ internal class DefaultUploaderEngine(
             return null
         }
         return when (preparation) {
-            is UploadPreparation.Proceed -> preparation.request
+            is UploadPreparation.Proceed -> preparation.request to record.attempts
             is UploadPreparation.Drop -> {
                 store.deleteById(id)
                 logger.i { "Dropped ${record.logName} at upload attempt — ${preparation.reason}." }
@@ -1090,15 +1099,20 @@ internal class DefaultUploaderEngine(
         result: UploadResult,
         response: UploadResponse? = null,
         onSettling: (() -> Unit)? = null,
-    ): Boolean = try {
-        settleUploadOutcome(id, result, response, onSettling)
-        true
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Throwable) {
-        logger.e(e) { "Upload settle($result) for id=$id failed — store failure; the executor retries." }
-        false
-    }
+    ): Boolean = settleUploadOutcome(id, result, response, null, onSettling) != JournalSettleOutcome.NOT_LANDED
+
+    /**
+     * Settles a journaled answer of the attempt stamped [attemptStamp] (`null` for an unstamped one): the
+     * built-in transports' outcome journal. A throw out of this function means the commit did not land.
+     * [onSettling] is invoked only for an unstamped answer.
+     */
+    internal suspend fun settleJournaled(
+        id: String,
+        response: UploadResponse,
+        attemptStamp: Int?,
+        onSettling: () -> Unit,
+    ): JournalSettleOutcome =
+        settleUploadOutcome(id, UploadResult.Completed(response.statusCode), response, attemptStamp, onSettling)
 
     /**
      * Settles [result] under the item's current claim — for an upload transport's job, which is keyed by
@@ -1116,7 +1130,13 @@ internal class DefaultUploaderEngine(
         }
         true
     } catch (e: CancellationException) {
-        throw e
+        // The caller runs this inside NonCancellable, where a cancellation can only be the store's own.
+        if (currentCoroutineContext().isActive) {
+            logger.e(e) { "Settle($result) under the current claim for id=$id: the store leaked a cancellation; the job retries." }
+            false
+        } else {
+            throw e
+        }
     } catch (e: Throwable) {
         logger.e(e) { "Settle($result) under the current claim for id=$id failed — store failure; the job retries." }
         false
@@ -1137,19 +1157,46 @@ internal class DefaultUploaderEngine(
         null
     }
 
+    /**
+     * The one settle path of an upload outcome. Anything thrown means a settlement that did not land, so the
+     * result is [JournalSettleOutcome.NOT_LANDED]; only a real cancellation of the caller propagates. A
+     * cancellation thrown while the caller is still active is a store's own (its scope, a `withTimeout` in
+     * `getById`): nothing was committed.
+     */
     private suspend fun settleUploadOutcome(
         id: String,
         rawResult: UploadResult,
         rawResponse: UploadResponse?,
+        attemptStamp: Int?,
         onSettling: (() -> Unit)?,
-    ) {
+    ): JournalSettleOutcome = try {
+        settleUploadUnguarded(id, rawResult, rawResponse, attemptStamp, onSettling)
+    } catch (e: CancellationException) {
+        if (currentCoroutineContext().isActive) {
+            logger.e(e) { "Upload settle($rawResult) for id=$id: the store leaked a cancellation; not landed." }
+            JournalSettleOutcome.NOT_LANDED
+        } else {
+            throw e
+        }
+    } catch (e: Throwable) {
+        logger.e(e) { "Upload settle($rawResult) for id=$id failed — store failure; the executor retries." }
+        JournalSettleOutcome.NOT_LANDED
+    }
+
+    private suspend fun settleUploadUnguarded(
+        id: String,
+        rawResult: UploadResult,
+        rawResponse: UploadResponse?,
+        attemptStamp: Int?,
+        onSettling: (() -> Unit)?,
+    ): JournalSettleOutcome {
         val record: UploaderItem? = store.getById(id)
         if (record == null) {
             logger.i { "Upload settle($rawResult) for unknown id=$id — no-op." }
-            return
+            return JournalSettleOutcome.LANDED
         }
         val (handler: UploadHandler<Any>, payload: Any) = uploadHandlerAndPayload(record, "upload settle")
-            ?: return
+            ?: return JournalSettleOutcome.LANDED
         // The one place the body limit is enforced; with a response, the result is built from it so the
         // two cannot disagree.
         val response: UploadResponse? = rawResponse?.enforced(effectiveBodyLimit(record, handler))
@@ -1164,6 +1211,18 @@ internal class DefaultUploaderEngine(
         } catch (e: Throwable) {
             SettleResult.Failed(e)
         }
+        // A stamped answer is stale when the row has moved past its attempt (a commit for it, or a later
+        // charge, already landed) or is parked. Deliveries and drops are facts and stand; a Failed or Park
+        // verdict would charge or park the wrong attempt, so it is not applied.
+        val stale: Boolean =
+            attemptStamp != null && (record.attempts != attemptStamp || record.state == UploaderItemState.PARKED)
+        if (stale && settleResult !is SettleResult.Delivered && settleResult !is SettleResult.Drop) {
+            logger.i {
+                "journaled answer of attempt $attemptStamp for ${record.logName} is stale " +
+                    "(item at ${record.attempts}, ${record.state}); not applied"
+            }
+            return JournalSettleOutcome.STALE
+        }
         if (settleResult is SettleResult.Delivered) {
             // Before the row settles, isolated: the upload already landed, and a local failure must
             // not make it upload again.
@@ -1171,22 +1230,37 @@ internal class DefaultUploaderEngine(
         }
         // Under the item's current claim: an upload transport keys its platform job by item id, so every
         // claim of the item is served by this same job, and its report is about the attempt now held.
-        // The outcome is about to be committed, which may return the item to the queue and re-hand it at
-        // once: a transport's journal entry must be gone by then, or it would replay into the next attempt.
-        // A throw here must not stop the settlement.
-        // The server already answered and the entry was just deleted, so the commit is a short write of a
-        // known fact that a stop must not split from the delete (D-21: NonCancellable is the high-level tool
-        // here, as in the classic worker's settle). After this block a cancellation can only surface after
-        // the commit. classify, onDelivered and onSettled stay cancellable: they are feature code.
-        withContext(NonCancellable) {
+        // A stamped answer has no pre-commit delete (its entry is deleted by the journal after this returns,
+        // and a leftover is recognised by its stamp); an unstamped one is deleted by onSettling right before
+        // the commit, so it cannot replay into a re-handed attempt. The server already answered, so the commit
+        // is a short write of a known fact that a stop must not split from the delete (D-21: NonCancellable is
+        // the high-level tool here, as in the classic worker's settle). Anything thrown inside this block,
+        // a store's CancellationException included, is a commit that did not land: inside NonCancellable a
+        // cancellation can only be the store's own. classify, onDelivered and onSettled stay cancellable:
+        // they are feature code.
+        val committed: Boolean = withContext(NonCancellable) {
             try {
                 onSettling?.invoke()
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
             }
-            settle(id, record.claim, settleResult)
+            try {
+                settle(id, record.claim, settleResult)
+                true
+            } catch (e: Throwable) {
+                logger.e(e) { "Upload settle commit for ${record.logName} failed; not landed." }
+                false
+            }
         }
-        runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
+        if (!committed) return JournalSettleOutcome.NOT_LANDED
+        // The commit landed and the caller must learn that; the job's cancelled state is kept for its next
+        // suspension point.
+        try {
+            runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
+        } catch (e: CancellationException) {
+            logger.i { "onSettled skipped for ${record.logName}: stopped right after the commit." }
+        }
+        return JournalSettleOutcome.LANDED
     }
 
     /** The handler's body limit as enforced, logging a negative value once per handler type. */

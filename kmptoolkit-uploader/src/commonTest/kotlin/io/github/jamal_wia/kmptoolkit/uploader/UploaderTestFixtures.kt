@@ -374,3 +374,7 @@ internal fun failingHandler(
     retryPolicy = retryPolicy,
     onExecute = { _, _ -> AttemptResult.Retry(cause) },
 )
+
+/** Maps a fake settlement's old boolean answer onto the journal's three-way outcome. */
+internal fun landedIf(value: Boolean): JournalSettleOutcome =
+    if (value) JournalSettleOutcome.LANDED else JournalSettleOutcome.NOT_LANDED

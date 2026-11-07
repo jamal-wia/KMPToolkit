@@ -1,20 +1,26 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 
 /**
  * The outcome journal from the ticket's contract: a Completed outcome is kept until the engine settled it,
@@ -66,7 +72,7 @@ class OutcomeJournalTest {
     @Test
     fun `an entry written by another format version is ignored and deleted`() {
         val current: ByteArray = OutcomeCodec.encode(response(), 1_000_000L)
-        for (version in listOf(0, 2, OutcomeCodec.VERSION + 1, -1, Int.MAX_VALUE)) {
+        for (version in listOf(0, 3, OutcomeCodec.VERSION_STAMPED + 1, -1, Int.MAX_VALUE)) {
             val other: ByteArray = current.copyOf()
             other[0] = (version ushr 24).toByte()
             other[1] = (version ushr 16).toByte()
@@ -141,7 +147,7 @@ class OutcomeJournalTest {
         clock.millis += 8.days.inWholeMilliseconds
         var calls = 0
 
-        val outcome: ReplayOutcome = journal.replay("item-1") { _, _, _ -> calls++; true }
+        val outcome: ReplayOutcome = journal.replay("item-1") { _, _, _, _ -> calls++; landedIf(true) }
 
         assertEquals(ReplayOutcome.Discarded, outcome)
         assertEquals(0, calls)
@@ -179,7 +185,7 @@ class OutcomeJournalTest {
         journal.record("item-1", sent)
         val seen = mutableListOf<Pair<String, UploadResponse>>()
 
-        val outcome: ReplayOutcome = journal.replay("item-1") { id, r, _ -> seen += id to r; true }
+        val outcome: ReplayOutcome = journal.replay("item-1") { id, r, _, _ -> seen += id to r; landedIf(true) }
 
         assertEquals(ReplayOutcome.Replayed, outcome)
         assertEquals(listOf("item-1" to sent), seen)
@@ -190,11 +196,11 @@ class OutcomeJournalTest {
     fun `a replay that did not land keeps the entry for the next attempt`() = runTest {
         journal.record("item-1", response())
 
-        assertEquals(ReplayOutcome.Kept, journal.replay("item-1") { _, _, _ -> false })
+        assertEquals(ReplayOutcome.Kept, journal.replay("item-1") { _, _, _, _ -> landedIf(false) })
         assertIs<JournalEntry.Valid>(journal.inspect("item-1"))
 
-        assertEquals(ReplayOutcome.Replayed, journal.replay("item-1") { _, _, _ -> true })
-        assertEquals(ReplayOutcome.NoEntry, journal.replay("item-1") { _, _, _ -> error("no entry, nothing to replay") })
+        assertEquals(ReplayOutcome.Replayed, journal.replay("item-1") { _, _, _, _ -> landedIf(true) })
+        assertEquals(ReplayOutcome.NoEntry, journal.replay("item-1") { _, _, _, _ -> error("no entry, nothing to replay") })
     }
 
     @Test
@@ -205,7 +211,7 @@ class OutcomeJournalTest {
         journal.record("fresh-b", response(status = 202))
         val replayed = mutableListOf<String>()
 
-        journal.sweep { id, _, _ -> replayed += id; true }
+        journal.sweep { id, _, _, _ -> replayed += id; landedIf(true) }
 
         assertEquals(listOf("fresh-b"), replayed)
         assertTrue(storage.files.isEmpty(), "everything handled is gone: ${storage.files.keys}")
@@ -217,7 +223,7 @@ class OutcomeJournalTest {
         journal.record("item-1", response())
         storage.throwOnList = true
 
-        journal.sweep { _, _, _ -> error("not reached") }
+        journal.sweep { _, _, _, _ -> error("not reached") }
 
         storage.throwOnList = false
         assertIs<JournalEntry.Valid>(journal.inspect("item-1"))
@@ -373,8 +379,187 @@ class OutcomeJournalTest {
         journal.record("item-1", response())
         journal.delete("item-1") // the sweep replayed and deleted it between the write and the settle
 
-        assertTrue(journal.settleRecorded("item-1", response()) { _, _, _ -> calls++; true })
+        assertTrue(journal.settleRecorded("item-1", response()) { _, _, _, _ -> calls++; landedIf(true) })
         assertEquals(0, calls)
+    }
+
+    // --- Round 2: attempt-stamped entries, the three-way settle outcome -------------------------------------
+
+    private class ProcessDeath : Error()
+
+    @Test
+    fun `a stamped entry is never deleted before the settlement returns`() = runTest {
+        // The process-death window of an entry that was deleted just before the commit: the stamp lets the entry
+        // stay until the commit is durable, so a death anywhere inside the settlement leaves it for the next run.
+        journal.record("a", response(), attemptStamp = 0)
+        val writesBefore: Int = storage.writes
+
+        assertFailsWith<ProcessDeath> {
+            journal.settleRecorded("a", response()) { _, _, _, onSettling -> onSettling(); throw ProcessDeath() }
+        }
+
+        assertEquals(0, storage.deletes, "nothing deleted before the settlement returned")
+        assertEquals(writesBefore, storage.writes, "no restore was needed")
+        assertEquals(0, assertIs<JournalEntry.Valid>(journal.inspect("a")).attemptStamp)
+
+        assertFalse(
+            journal.settleRecorded("a", response()) { _, _, _, onSettling -> onSettling(); JournalSettleOutcome.NOT_LANDED },
+        )
+        assertEquals(0, storage.deletes)
+        assertEquals(writesBefore, storage.writes)
+        assertEquals(0, assertIs<JournalEntry.Valid>(journal.inspect("a")).attemptStamp)
+    }
+
+    @Test
+    fun `a stamped entry whose delete failed after the commit replays as stale and is deleted`() = runTest {
+        journal.record("a", response(), attemptStamp = 0)
+        storage.silentDeletes = 1
+
+        assertTrue(journal.settleRecorded("a", response()) { _, _, _, _ -> JournalSettleOutcome.LANDED })
+        assertNotNull(storage.files["a"], "the delete after the commit quietly failed, so a leftover remains")
+
+        val outcome: ReplayOutcome = journal.replay("a") { _, _, stamp, _ ->
+            assertEquals(0, stamp)
+            JournalSettleOutcome.STALE
+        }
+
+        assertEquals(ReplayOutcome.Stale, outcome)
+        assertNull(storage.files["a"])
+    }
+
+    @Test
+    fun `a stamped entry round-trips and an unstamped one reads with no stamp`() {
+        val stamped: ByteArray = OutcomeCodec.encode(response(), 5L, attemptStamp = 7)
+        val unstamped: ByteArray = OutcomeCodec.encode(response(), 5L)
+
+        assertEquals(OutcomeCodec.VERSION_STAMPED, stamped[3].toInt())
+        assertEquals(OutcomeCodec.VERSION_UNSTAMPED, unstamped[3].toInt())
+        assertEquals(7, assertIs<DecodedOutcome.Ok>(OutcomeCodec.decode(stamped)).attemptStamp)
+        assertNull(assertIs<DecodedOutcome.Ok>(OutcomeCodec.decode(unstamped)).attemptStamp)
+        assertEquals(response(), assertIs<DecodedOutcome.Ok>(OutcomeCodec.decode(stamped)).response)
+    }
+
+    @Test
+    fun `a negative stamp is a damaged entry`() {
+        storage.files["a"] = OutcomeCodec.encode(response(), 1_000_000L, attemptStamp = -1)
+
+        assertEquals(JournalEntry.Discarded, journal.inspect("a"))
+        assertNull(storage.files["a"])
+    }
+
+    @Test
+    fun `a body cut keeps the attempt stamp`() = runTest {
+        journal.record("a", response(body = "0123456789"), attemptStamp = 4)
+
+        journal.restrictBody("a", 3)
+
+        val entry: JournalEntry.Valid = assertIs(journal.inspect("a"))
+        assertEquals("012", entry.response.body().decodeToString())
+        assertEquals(4, entry.attemptStamp)
+    }
+
+    @Test
+    fun `an unstamped entry is written back when the settlement ends in a cancellation after onSettling`() = runTest {
+        val writtenAt: Long = clock.millis
+        journal.record("a", response())
+        clock.millis += 3.days.inWholeMilliseconds
+
+        assertFailsWith<CancellationException> {
+            journal.settleRecorded("a", response()) { _, _, _, onSettling -> onSettling(); throw CancellationException("store scope") }
+        }
+
+        val back: JournalEntry.Valid = assertIs(journal.inspect("a"))
+        assertEquals(writtenAt, back.writtenAtMillis, "the original write time is kept")
+        assertNull(back.attemptStamp)
+    }
+
+    private class DeleteFaultStore(private val inner: TestUploaderStore) : UploaderStore by inner {
+        fun innerStore(): TestUploaderStore = inner
+        var failWith: Throwable? = null
+        var afterDelete: (() -> Unit)? = null
+
+        override suspend fun deleteById(id: String) {
+            failWith?.let { failure ->
+                failWith = null
+                throw failure
+            }
+            inner.deleteById(id)
+            afterDelete?.invoke()
+        }
+    }
+
+    private suspend fun kotlinx.coroutines.test.TestScope.startedEngine(
+        store: UploaderStore,
+        handler: DeliveryRecorder,
+        testClock: TestClock,
+    ): DefaultUploaderEngine {
+        val started: UploaderEngine = testEngine(store, listOf(handler), backgroundScope, clock = testClock)
+        engine = started
+        UploaderEngineRegistry.register(started)
+        started.enqueue(handler, "payload")
+        started.drain()
+        return started as DefaultUploaderEngine
+    }
+
+    @Test
+    fun `a journaled answer of an attempt the item has moved past is not applied`() = runTest {
+        val handler = DeliveryRecorder()
+        val testClock = TestClock(1_000L)
+        val store = TestUploaderStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, testClock)
+        var settledCount = 0
+        handler.onSettledHook = { settledCount++ }
+        assertEquals(0, store.find("item-1")?.attempts)
+
+        assertEquals(JournalSettleOutcome.LANDED, started.settleJournaled("item-1", response(status = 503), 0) { })
+        assertEquals(1, store.find("item-1")?.attempts)
+        assertEquals(UploaderItemState.PENDING, store.find("item-1")?.state)
+        assertEquals(1, settledCount)
+
+        testClock.millis += 3_600_000L
+        started.drain()
+        assertEquals(UploaderItemState.IN_FLIGHT, store.find("item-1")?.state)
+        assertEquals(1, store.find("item-1")?.attempts)
+
+        assertEquals(JournalSettleOutcome.STALE, started.settleJournaled("item-1", response(status = 503), 0) { })
+        assertEquals(UploaderItemState.IN_FLIGHT, store.find("item-1")?.state)
+        assertEquals(1, store.find("item-1")?.attempts, "the stale failure did not charge the new attempt")
+        assertEquals(1, settledCount, "no hook ran for the stale answer")
+
+        assertEquals(JournalSettleOutcome.LANDED, started.settleJournaled("item-1", response(status = 201), 0) { })
+        assertNull(store.find("item-1"), "a delivery is a fact and stands from any attempt")
+    }
+
+    @Test
+    fun `a cancellation the store throws inside the commit is a settlement that did not land`() = runTest {
+        val handler = DeliveryRecorder()
+        val store = DeleteFaultStore(TestUploaderStore())
+        val inner: TestUploaderStore = store.innerStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        store.failWith = CancellationException("the store's own scope")
+
+        val outcome: JournalSettleOutcome = started.settleJournaled("item-1", response(status = 201), 0) { }
+
+        assertEquals(JournalSettleOutcome.NOT_LANDED, outcome)
+        assertNotNull(inner.find("item-1"), "nothing was committed")
+    }
+
+    @Test
+    fun `a stop that lands during the commit still reports the commit as landed`() = runTest {
+        val handler = DeliveryRecorder()
+        val store = DeleteFaultStore(TestUploaderStore())
+        val inner: TestUploaderStore = store.innerStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        handler.onSettledHook = { yield() }
+        var caller: Job? = null
+        store.afterDelete = { caller?.cancel() }
+        var result: Result<JournalSettleOutcome>? = null
+
+        caller = launch { result = runCatching { started.settleJournaled("item-1", response(status = 201), 0) { } } }
+        caller.join()
+
+        assertEquals(JournalSettleOutcome.LANDED, result?.getOrNull(), "result: $result")
+        assertNull(inner.find("item-1"))
     }
 
     private class MemoryOutcomeStorage : OutcomeStorage {
@@ -385,10 +570,16 @@ class OutcomeJournalTest {
         var throwOnDelete = false
         var throwOnList = false
         var purged = false
+        var writes = 0
+        var deletes = 0
+
+        /** Deletes that silently do nothing before the next one really deletes (a delete that quietly failed). */
+        var silentDeletes = 0
 
         override fun write(itemId: String, bytes: ByteArray): Boolean {
             if (throwOnWrite) error("disk full")
             if (failWrites) return false
+            writes++
             files[itemId] = bytes.copyOf()
             return true
         }
@@ -400,6 +591,11 @@ class OutcomeJournalTest {
 
         override fun delete(itemId: String) {
             if (throwOnDelete) error("undeletable")
+            if (silentDeletes > 0) {
+                silentDeletes--
+                return
+            }
+            deletes++
             files.remove(itemId)
         }
 
@@ -428,7 +624,7 @@ class OutcomeJournalTest {
         val delivered = mutableListOf<UploadResponse?>()
         var classifiedCount = 0
         var entryAtSettled: Boolean? = null
-        var onSettledHook: () -> Unit = {}
+        var onSettledHook: suspend () -> Unit = {}
 
         override suspend fun classify(payload: String, result: UploadResult, response: UploadResponse?): SettleResult {
             classifiedCount++
