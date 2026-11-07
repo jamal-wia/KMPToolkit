@@ -174,8 +174,9 @@ public interface UploaderEngine : Uploader {
  * @param config timing knobs; see [UploaderConfig].
  * @param logger where the engine reports what it did. Defaults to [NoopLogger]. Every delivery,
  *   retry, park and drop is logged — pass a real logger and you can reconstruct the life of any
- *   item from the log. A logger that throws (an uninitialised crash-reporting sink, say) never stops the
- *   engine: the engine swallows the exception and carries on, losing only that log line.
+ *   item from the log. A logger that throws anything, a `CancellationException` included (an uninitialised
+ *   crash-reporting sink, say), never stops the engine: the engine swallows it and carries on, losing only
+ *   that log line.
  * @param clock the wall clock backing backoff gates and leases. Substitute it in tests.
  * @param idGenerator produces each item's id. The default is a random UUID; override it if your
  *   server requires a particular idempotency-key shape.

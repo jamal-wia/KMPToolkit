@@ -1,14 +1,22 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
+import io.github.jamal_wia.kmptoolkit.uploader.spi.ConstraintProvider
+import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
+import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +24,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -58,6 +70,53 @@ class UploaderEngineStormRound3AdversarialTest {
     // --- failure bookkeeping that depends on the cause ----------------------------------------------
 
     // --- a sink that throws a CancellationException -------------------------------------------------
+
+    // --- fixer round 3, group 1 ---
+
+    @Test
+    fun `a logger sink that throws a CancellationException does not make enqueue throw`() = runTest {
+        val handler = TestHandler()
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler), CancellingSink())
+        try {
+            val id: String? = engine.enqueue(handler, "p")
+
+            assertNotNull(id, "the row committed; the caller must be told so")
+            assertEquals(1, store.items.size)
+        } finally {
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `a logger sink that throws a CancellationException does not stop the started drain`() = runTest {
+        var fail = true
+        val handler = TestHandler(
+            onExecute = { _, payload ->
+                if (fail && payload == "first") AttemptResult.Retry(IllegalStateException("x")) else AttemptResult.Success
+            },
+        )
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler), CancellingSink())
+        try {
+            engine.start()
+            runCatching { engine.enqueue(handler, "first") } // may throw from the sink; the row is what matters
+            advanceTimeBy(100.milliseconds)
+            fail = false
+            runCatching { engine.enqueue(handler, "second") }
+            advanceTimeBy(5.seconds)
+
+            assertTrue("second" in handler.payloads, "the drain died on the sink's exception: ${handler.payloads}")
+        } finally {
+            runCatching { engine.close() } // close() logs through the same sink
+        }
+    }
+
+    private class CancellingSink : Logger {
+        override val tag: String = "sink"
+        override fun isLoggable(level: LogLevel): Boolean = true
+        override fun log(level: LogLevel, throwable: Throwable?, message: () -> String) {
+            throw CancellationException("sink is gone")
+        }
+    }
 
     // --- registry storm on real threads ---------------------------------------------------------------
 
