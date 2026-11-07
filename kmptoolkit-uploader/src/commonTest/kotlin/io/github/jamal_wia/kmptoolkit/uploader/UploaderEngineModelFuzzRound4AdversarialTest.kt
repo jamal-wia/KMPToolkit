@@ -90,6 +90,7 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
         val finished: MutableSet<String> = mutableSetOf()
         val enqueued: MutableList<String> = mutableListOf()
         val currentByKey: MutableMap<String, String> = mutableMapOf()
+        val net = TestConstraint("net", satisfied = true)
         var running = 0
         var maxRunning = 0
         val violations: MutableList<String> = mutableListOf()
@@ -102,6 +103,7 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
         lateinit var handler: TestHandler
         handler = TestHandler(
             retryPolicy = FixedRetryPolicy(delayMillis = 300L),
+            constraintKeys = setOf("net"),
             ordering = { payload -> payload.substringBefore(':').takeIf { it != "free" } },
             onExecute = { context, payload ->
                 val id: String = context.id
@@ -109,6 +111,7 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
                 world.maxRunning = maxOf(world.maxRunning, world.running)
                 try {
                     if (world.running > 1) world.violate("two attempts at once ($id)")
+                    if (!world.net.satisfied.value) world.violate("attempt of $id started while its constraint was unsatisfied")
                     if (id in world.withdrawn) world.violate("attempt of $id started after its withdrawal returned")
                     if (id in world.finished) world.violate("attempt of $id started after it was delivered or dropped")
                     val key: String? = payload.substringBefore(':').takeIf { it != "free" }
@@ -118,6 +121,15 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
                             it.orderingKey == key && it.type == handler.type && it.state != UploaderItemState.PARKED
                         }
                         if (blocking != null) world.violate("$id ran while older ${blocking.id} of channel $key is still owed")
+                    }
+                    val row: UploaderItem? = world.store.find(id)
+                    if (row == null) {
+                        world.violate("attempt of $id started on a row that does not exist")
+                    } else {
+                        if (context.attempts != row.attempts) world.violate("$id: context.attempts ${context.attempts} != row ${row.attempts}")
+                        if (context.claim != row.claim + 1) world.violate("$id: context.claim ${context.claim} != row claim + 1 (${row.claim + 1})")
+                        if (context.wasDetached != (row.state == UploaderItemState.IN_FLIGHT)) world.violate("$id: wasDetached ${context.wasDetached} for a ${row.state} row")
+                        if (row.state == UploaderItemState.PARKED) world.violate("attempt of $id started on a parked row")
                     }
                     world.events += "start:$id"
                     delay(world.random.nextLong(0L, 40L).milliseconds)
@@ -148,11 +160,14 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
         val ids = SequentialIds("s$seed")
         val flakyStore = FlakyStore(store, Random(seed * 31 + 7)).also { it.failing = flaky }
         val uncertain: MutableSet<String> = mutableSetOf()
+        val wake = TestWakeScheduler()
         fun newEngine(): UploaderEngine = createUploaderEngine(
             store = flakyStore,
             handlers = listOf(handler),
             scope = backgroundScope,
+            constraintProviders = listOf(world.net),
             clock = clock,
+            wakeScheduler = wake,
             idGenerator = ids::next,
         )
         var engine: UploaderEngine = newEngine()
@@ -228,6 +243,7 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
                     }
 
                     in 71..76 -> skew += random.nextLong(0L, 6_000L)
+                    in 87..92 -> world.net.set(random.nextBoolean())
                     in 77..82 -> if (chaos) skew = maxOf(-40_000L, skew - random.nextLong(0L, 30_000L))
                     in 83..86 -> if (chaos) {
                         // the process dies and a fresh engine takes over the same queue
@@ -240,10 +256,15 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
                 }
                 advanceTimeBy(random.nextLong(1L, 700L).milliseconds)
                 clock.millis = 1_000L + testScheduler.currentTime + skew
+                if (!flaky && store.items.any { it.state != UploaderItemState.PARKED }) {
+                    // the platform wake must never be disarmed while something is owed
+                    if (!wake.armed) world.violate("work is owed but the platform wake is disarmed")
+                }
             }
 
             // Quiet world: the store recovers, time passes, executors settle what they were handed. Capped.
             flakyStore.failing = false
+            world.net.set(true)
             var rounds = 0
             while (store.items.any { it.state != UploaderItemState.PARKED } && rounds++ < 400) {
                 skew += 5_000L
@@ -262,6 +283,9 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
                 store.find(id) == null && id !in world.finished && id !in world.withdrawn && id !in uncertain
             }
             assertTrue(lost.isEmpty(), "seed $seed: items vanished without being delivered, dropped or withdrawn: $lost")
+            advanceTimeBy(1.seconds) // the last settle's trigger gets its pass
+            runCurrent()
+            if (!flaky) assertTrue(!wake.armed, "seed $seed: the queue is empty but the platform wake is still armed")
             assertEquals(emptyList(), world.violations)
             assertEquals(1, world.maxRunning.coerceAtLeast(1))
             totalStarts += world.events.count { it.startsWith("start:") }
