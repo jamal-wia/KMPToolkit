@@ -1,6 +1,5 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
-import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.e
@@ -66,7 +65,7 @@ internal class DefaultUploaderEngine(
      * The caller's logger behind a guard: a sink that throws (an uninitialised crash reporter, say) must
      * never take the drain, an enqueue or a settle down with it, so every call goes through [NonThrowingLogger].
      */
-    private val logger: Logger = NonThrowingLogger(logger)
+    private val logger: Logger = logger.nonThrowing()
 
     private val handlersByType: Map<String, UploaderHandler<*>> =
         handlers.associateBy { it.type }.also { byType ->
@@ -1100,26 +1099,3 @@ internal fun saturatingAdd(a: Long, b: Long): Long {
 /** `a * b` for non-negative operands, held at `Long.MAX_VALUE` instead of wrapping. */
 internal fun saturatingMultiply(a: Long, b: Long): Long =
     if (a != 0L && b > Long.MAX_VALUE / a) Long.MAX_VALUE else a * b
-
-/**
- * Forwards to [delegate] and swallows what it throws. The logger is consumer code the engine calls from its
- * only drain coroutine and from the caller's own coroutine in `enqueue`; neither may be broken by it.
- * Cancellation is the one exception that still propagates.
- */
-private class NonThrowingLogger(private val delegate: Logger) : Logger {
-    override val tag: String
-        get() = try { delegate.tag } catch (e: CancellationException) { throw e } catch (_: Throwable) { "" }
-
-    override fun isLoggable(level: LogLevel): Boolean =
-        try { delegate.isLoggable(level) } catch (e: CancellationException) { throw e } catch (_: Throwable) { false }
-
-    override fun log(level: LogLevel, throwable: Throwable?, message: () -> String) {
-        try {
-            delegate.log(level, throwable, message)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Throwable) {
-            // A failing sink loses the line, never the work.
-        }
-    }
-}

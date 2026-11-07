@@ -100,7 +100,8 @@ internal fun WorkManagerWakeConfig.resolveWorkName(applicationId: String): Strin
  * @param context any context; the application context is extracted internally, so passing an
  *   Activity does not leak it.
  * @param config how the work is scheduled.
- * @param logger where scheduling failures are reported. Defaults to [NoopLogger].
+ * @param logger where scheduling failures are reported. Defaults to [NoopLogger]. A logger that throws is
+ *   ignored; it never stops a wake from being armed.
  * @return a [WakeScheduler] to hand to [createUploaderEngine].
  */
 public fun createWorkManagerWakeScheduler(
@@ -112,8 +113,11 @@ public fun createWorkManagerWakeScheduler(
 internal class WorkManagerWakeScheduler(
     private val context: Context,
     private val config: WorkManagerWakeConfig,
-    private val logger: Logger,
+    logger: Logger,
 ) : WakeScheduler {
+
+    /** A logger that throws is ignored: a wake that cannot be logged is still armed. */
+    private val logger: Logger = logger.nonThrowing()
 
     private val workName: String = config.resolveWorkName(context.packageName)
 

@@ -41,7 +41,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * @param config scheduling and HTTP timing knobs; see [UploadTransportConfig].
  * @param classify maps the transport's raw [UploadResult] onto [SettleResult]. Defaults to
  *   [defaultUploadClassification].
- * @param logger where a job that could not be enqueued, or a transport failure, is reported.
+ * @param logger where a job that could not be enqueued, or a transport failure, is reported. A logger that
+ *   throws is ignored; it never stops a hand-off or a job.
  */
 public fun createWorkManagerUploadTransport(
     context: Context,
@@ -56,8 +57,11 @@ public fun createWorkManagerUploadTransport(
 internal class WorkManagerUploadTransport(
     private val context: Context,
     private val config: UploadTransportConfig,
-    private val logger: Logger,
+    logger: Logger,
 ) : UploadTransport {
+
+    /** A logger that throws is ignored: it never stops a hand-off. */
+    private val logger: Logger = logger.nonThrowing()
 
     override val leaseMillis: Long = config.leaseMillis
 

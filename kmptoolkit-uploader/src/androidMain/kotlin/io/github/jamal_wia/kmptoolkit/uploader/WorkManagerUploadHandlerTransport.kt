@@ -56,6 +56,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * @param config names, timeouts and lease — the same [UploadTransportConfig] as the classifier-based
  *   transport. Pin [UploadTransportConfig.uniqueWorkNamePrefix] and [UploadTransportConfig.workTag] if
  *   jobs enqueued by an earlier version of your app must keep matching.
+ * @param logger where hand-offs and failures are reported. A logger that throws is ignored; it never stops a
+ *   hand-off or a job.
  * @since 1.5.0
  */
 public fun createWorkManagerUploadHandlerTransport(
@@ -67,9 +69,12 @@ public fun createWorkManagerUploadHandlerTransport(
 internal class WorkManagerUploadHandlerTransport(
     private val context: Context,
     private val config: UploadTransportConfig,
-    private val logger: Logger,
+    logger: Logger,
     private val journal: OutcomeJournal = androidOutcomeJournal(context, logger),
 ) : UploadTransport {
+
+    /** A logger that throws is ignored: it never stops a hand-off or the sweep. */
+    private val logger: Logger = logger.nonThrowing()
 
     override val leaseMillis: Long = config.leaseMillis
 
@@ -79,7 +84,7 @@ internal class WorkManagerUploadHandlerTransport(
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching {
                 journal.sweep(gatewaySettle(config.engineWait))
-            }.onFailure { failure -> logger.w(failure) { "The upload outcome journal sweep failed." } }
+            }.onFailure { failure -> this@WorkManagerUploadHandlerTransport.logger.w(failure) { "The upload outcome journal sweep failed." } }
         }
     }
 

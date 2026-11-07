@@ -84,9 +84,12 @@ internal enum class ReplayOutcome {
 internal class OutcomeJournal(
     private val storage: OutcomeStorage,
     private val clock: UploaderClock = UploaderClock.System,
-    private val logger: Logger = NoopLogger,
+    logger: Logger = NoopLogger,
     private val retentionMillis: Long = RETENTION_MILLIS,
 ) {
+
+    /** A logger that throws is ignored: the journal protects an answer, and a log line must not lose it. */
+    private val logger: Logger = logger.nonThrowing()
 
     /**
      * Records [response] for [itemId], atomically. The body is held to [bodyLimit] — the handler's own

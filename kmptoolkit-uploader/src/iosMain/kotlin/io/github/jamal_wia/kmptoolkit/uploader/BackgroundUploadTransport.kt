@@ -192,6 +192,8 @@ public class BackgroundUploadConfig(
  * process-wide registration. A second call replaces that registration with the new transport and does not
  * stop the first one, which keeps the sessions it owns.
  *
+ * @param logger where hand-offs and failures are reported. A logger that throws is ignored; it never stops a
+ *   hand-off or a settlement.
  * @since 1.5.0
  */
 public fun createBackgroundUploadTransport(
@@ -286,7 +288,7 @@ internal class OnceGuard(private val action: () -> Unit) {
 internal class BackgroundSessionUploadTransport(
     private val identifierPrefix: String,
     private val config: BackgroundUploadConfig,
-    private val logger: Logger,
+    logger: Logger,
     private val journal: OutcomeJournal = iosOutcomeJournal(logger),
     private val sessionFactory: UploadSessionFactory = NsUrlUploadSessionFactory(config),
     /** How long a hand-off waits for the previous session of the same identifier to report itself invalid. */
@@ -295,10 +297,13 @@ internal class BackgroundSessionUploadTransport(
     private val onBodyWritten: (String) -> Unit = {},
 ) : UploadTransport {
 
+    /** A logger that throws is ignored: it never stops a hand-off, a settlement or the process. */
+    private val logger: Logger = logger.nonThrowing()
+
     // A failure in a settlement coroutine is logged, never allowed to terminate the process.
     private val scope: CoroutineScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, failure ->
-            logger.e(failure) { "Background upload coroutine failed." }
+            this.logger.e(failure) { "Background upload coroutine failed." }
         },
     )
 
@@ -886,12 +891,15 @@ internal class NsUrlUploadSession(private val session: NSURLSession) : UploadSes
 internal class UploadSessionDelegate(
     val itemId: String,
     private val scope: CoroutineScope,
-    private val logger: Logger,
+    logger: Logger,
     private val journal: OutcomeJournal,
     private val terminalLock: NSLock,
     private val onTerminal: (UploadSessionDelegate) -> Unit,
     private val onInvalidated: (UploadSessionDelegate) -> Unit = {},
 ) : NSObject(), NSURLSessionDataDelegateProtocol {
+
+    /** A logger that throws is ignored: it never stops a settlement. */
+    private val logger: Logger = logger.nonThrowing()
 
     // @Volatile, not StateFlow: these flags only ever go false -> true, so no read-modify-write needs to be
     // atomic and a plain volatile is enough. They are written from NSURLSession delegate callbacks
