@@ -7,7 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.WindowManager
 import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
-import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
+import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
 import java.lang.ref.WeakReference
 
 /**
@@ -19,10 +19,12 @@ import java.lang.ref.WeakReference
  *
  * @param context any `Context`; its application context is retained to track the currently
  *   resumed activity, which is whose window the flag is written to — that identity changes on
- *   every rotation, theme change and font-size change.
+ *   every rotation, theme change and font-size change. The activity tracker behind it is shared
+ *   by every `Context`-based factory of this module, so creating several controllers registers one
+ *   `ActivityLifecycleCallbacks` on the `Application`, not one each.
  */
 public fun createScreenWakeLockController(context: Context): ScreenWakeLockController =
-    createScreenWakeLockController(createActivityAccess(context.applicationContext as Application))
+    createScreenWakeLockController(SharedActivityAccess.forApplication(context.applicationContext as Application))
 
 /**
  * Creates the Android [ScreenWakeLockController] over an [ActivityAccess] you own.
@@ -93,16 +95,12 @@ internal class AndroidScreenWakeLockController(
 
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
 
-    init {
-        // Lives for as long as the controller does — there is no release() to unwind it, matching
-        // the interface's process-lifetime contract.
-        activityAccess.addOnActivityResumedListener { activity ->
-            when {
-                enabled -> applyFlag(activity, keepOn = true)
-                pushedTo?.get() === activity -> applyFlag(activity, keepOn = false)
-            }
-        }
-    }
+    // The resume listener, present only while there is something to re-apply: the flag is wanted, or
+    // it was put on a window and not yet taken off. Main thread only. There is no release() to
+    // unwind a listener that lived as long as the controller, and the tracker holds its listeners
+    // strongly, so a controller that kept one for good could never be collected, even after its
+    // owner cleared it.
+    private var subscription: ActivitySubscription? = null
 
     override fun setKeepScreenOn(enabled: Boolean) {
         requested = enabled
@@ -114,9 +112,33 @@ internal class AndroidScreenWakeLockController(
         val target: Boolean = requested
         if (enabled == target) return
         enabled = target
+        if (target) subscribeToResumes()
         // No activity means the screen is already going away. The write is not lost: pushedTo
         // still names the window carrying the flag, so its next resume applies this release.
         activityAccess.withActivity { activity -> applyFlag(activity, keepOn = target) }
+        unsubscribeWhenIdle()
+    }
+
+    /** Main thread only. Idempotent. The tracker's immediate replay is harmless: adding is idempotent. */
+    private fun subscribeToResumes() {
+        if (subscription != null) return
+        subscription = activityAccess.addOnActivityResumedListener { activity ->
+            when {
+                enabled -> applyFlag(activity, keepOn = true)
+                pushedTo?.get() === activity -> applyFlag(activity, keepOn = false)
+            }
+            unsubscribeWhenIdle()
+        }
+    }
+
+    /**
+     * Main thread only. Idle means no flag is wanted and none is left on a live window; the window
+     * a deferred release was waiting for having been collected counts as taken off.
+     */
+    private fun unsubscribeWhenIdle() {
+        if (enabled || pushedTo?.get() != null) return
+        subscription?.cancel()
+        subscription = null
     }
 
     private fun applyFlag(activity: Activity, keepOn: Boolean) {
