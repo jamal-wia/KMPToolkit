@@ -116,8 +116,8 @@ A source that can pause should re-post its current progress after `minProgressIn
 
 **Cancel and concurrent posts.** `cancel(id)` and `cancelAll()` are ordered against a post of the same id
 that is still in flight: a notification that was being built when you cancelled does not appear
-afterwards, and a progress frame that a newer frame (typically the terminal "Done") has overtaken is
-dropped (`Coalesced`) rather than shown on top of it. Posts for one id should still come from one
+afterwards, and a post that a newer one for the id (typically the terminal "Done") has overtaken is
+dropped (`Coalesced`) rather than shown on top of it. A cancelled in-flight post is `Coalesced` too. All of this holds per `Notifier` instance. Posts for one id should still come from one
 coroutine at a time; that ordering is up to the caller.
 
 **Do not build your own throttle on top.** A caller that only posts every 5% just gets a coarser bar;
@@ -314,7 +314,7 @@ the tag. What that means for an app updated in place:
 | Result | What happened | A reasonable response |
 |---|---|---|
 | `Posted` | handed to the platform | nothing |
-| `Coalesced` | suppressed as a redundant progress update | nothing |
+| `Coalesced` | suppressed as a redundant progress update, or overtaken by a `cancel` / newer post of the same id | nothing |
 | `PermissionDenied` | no runtime grant (Android 13+ / iOS) | prompt, at a moment the user expects |
 | `NotificationsDisabled` | app-level toggle is off (Android) | offer a link to system settings |
 | `ChannelBlocked` | that channel, or its group, is muted (Android 8+) | offer a link to that channel's settings |

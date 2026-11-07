@@ -31,6 +31,11 @@ public sealed interface NotificationResult {
      *
      * The notification already showing under that id is left exactly as it was. This is a success,
      * not a failure — treat it as "nothing to do".
+     *
+     * It is also what a post answers when it never reached the platform because of an ordering
+     * rule: a `cancel` of the same id landed while it was being built (nothing is showing then), or
+     * a newer post for the id — progress or not, a terminal "Done" included — overtook it. Both are
+     * per [Notifier] instance.
      */
     public data object Coalesced : NotificationResult
 

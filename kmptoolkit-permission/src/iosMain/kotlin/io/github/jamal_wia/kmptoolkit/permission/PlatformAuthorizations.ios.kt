@@ -654,7 +654,7 @@ private suspend fun <T> awaitPossiblePrompt(
     }
 }
 
-/** How long after an "always" request a system prompt has to take the app out of the active state. */
+/** How long after an "always" or when-in-use request a system prompt has to take the app out of the active state. */
 private const val PROMPT_GRACE_MILLIS: Long = 1_000
 
 private const val NANOS_PER_MILLI: Long = 1_000_000

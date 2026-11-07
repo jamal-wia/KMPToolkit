@@ -37,7 +37,7 @@ The one type shared code depends on.
 - **`cancelAll`** — removes every notification the app is showing, including ones posted by a
   previous process. Does not touch notifications scheduled for later.
 
-**Thread-safety:** safe from any thread, including concurrently for different ids. `cancel` / `cancelAll` are ordered against a post of the same id still in flight (the cancelled notification does not come back), and a progress frame overtaken by a newer one for the same id is dropped and reported as `Coalesced`.
+**Thread-safety:** safe from any thread, including concurrently for different ids. `cancel` / `cancelAll` are ordered against a post of the same id still in flight (the cancelled notification does not come back), and any post (progress or not) overtaken by a newer one for the same id, or by a `cancel`, is dropped and reported as `Coalesced`. The ordering holds per `Notifier` instance (`createNotifier` returns a new one per call).
 
 **Ordering:** the checks run permission → app-level toggle → channel → icon → coalescing, so the
 result names the first reason the user would not have seen the notification. A coalesced post never
@@ -303,7 +303,7 @@ public val NotificationResult.isPosted: Boolean
 | Case | Meaning | Platforms |
 |---|---|---|
 | `Posted` | accepted by the platform (not "drawn") | both |
-| `Coalesced` | redundant progress update, previous frame stands | both |
+| `Coalesced` | redundant progress update, previous frame stands; also a post that a `cancel` of the same id or a newer post for it overtook mid-flight (nothing is posted) | both |
 | `PermissionDenied` | no runtime grant — on iOS also an `add` rejected because authorization was revoked after the check | Android 13+, iOS |
 | `NotificationsDisabled` | app-level toggle off | Android (iOS folds this into `PermissionDenied`) |
 | `ChannelBlocked` | channel muted by the user, or its group muted (API 28+) | Android 8+ |

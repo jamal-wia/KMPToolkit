@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * | `Requesting` | request permanently denied | `AwaitingSettings` |
  * | `Requesting` | request restricted or unavailable | `Unavailable` |
  * | `Requesting` | request denied or unanswered | `Denied` |
+ * | `Requesting` | the calling coroutine is cancelled | `Idle` (nothing was decided; `refresh()` reads the real choice) |
  * | `AwaitingRationale` | `rationaleAcknowledged()` | `Requesting`, then the request outcome |
  * | `AwaitingRationale` | `rationaleDismissed()` | `Denied` |
  * | `AwaitingSettings` | `openSettings()` | `AwaitingSettings` (the app is backgrounded) |
