@@ -230,9 +230,13 @@ internal class IosDownloaderStorage(
 
     override fun tempFileState(unit: DownloadUnit): TempFileState {
         val names: UnitFileLayout.Names = names(unit)
+        // The partial file is read BEFORE the complete one: marking complete moves partial into
+        // complete, so a partial that was absent at the first read was already complete at the
+        // second. The other order can miss both files while one move lands between the reads.
+        val partialSize: Long = sizeOf("$baseDir/${names.partial}")
         return when {
             fileExists("$baseDir/${names.complete}") -> TempFileState.Complete
-            sizeOf("$baseDir/${names.partial}") > 0L -> TempFileState.Partial
+            partialSize > 0L -> TempFileState.Partial
             else -> TempFileState.None
         }
     }
@@ -242,13 +246,22 @@ internal class IosDownloaderStorage(
         val complete = "$baseDir/${names.complete}"
         if (fileExists(complete)) return
         val partial = "$baseDir/${names.partial}"
-        check(fileExists(partial)) { "No temp file to mark complete for $unit at $partial" }
+        // Idempotent under a race: a concurrent caller that moved the partial first has already
+        // done the job, so a vanished source or a lost move with the complete file in place is a
+        // success, not a failure.
+        if (!fileExists(partial)) {
+            check(fileExists(complete)) { "No temp file to mark complete for $unit at $partial" }
+            return
+        }
         val moved: Boolean = NSFileManager.defaultManager.moveItemAtPath(
             srcPath = partial,
             toPath = complete,
             error = null,
         )
-        check(moved) { "Could not mark the temp file of $unit complete" }
+        if (!moved) {
+            check(fileExists(complete)) { "Could not mark the temp file of $unit complete" }
+            return
+        }
         logger.i { "Marked the temp file of $unit complete" }
     }
 
@@ -302,8 +315,8 @@ internal class IosDownloaderStorage(
         // The extraction tree of an archive commit that a process death interrupted: nothing else
         // ever enumerates tmp/, so a unit that is then dropped would keep it forever. Skipped while
         // a commit of the unit runs (it may be extracting into this very tree, or moving it into
-        // place), or while the lock registry is momentarily busy; the next cancel or the next
-        // commit reclaims it. Under the lock the tree is only renamed away; the recursive delete
+        // place); the next cancel or the next commit reclaims it. A merely busy lock registry
+        // is retried, never taken for a running commit. Under the lock the tree is only renamed away; the recursive delete
         // runs after the lock is released so it cannot stall other units.
         UnitCommitLocks.tryDetachThenDispose(
             baseDirectory = baseDir,

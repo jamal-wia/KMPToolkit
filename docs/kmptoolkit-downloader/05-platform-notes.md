@@ -60,9 +60,9 @@ are serialized across every storage instance over the base directory in the proc
 mid-extraction leaves the tree behind; the next commit of that unit replaces it, and
 `deleteTempFile(unit)` (so `cancelDownload`) removes it — unless a commit of that unit is running in
 the process at that moment: the removal never waits for it (it would be deleting the tree the commit
-is extracting into), so it is skipped and the next cancel or commit reclaims the tree. The same
-skip happens, very rarely and for microseconds, while another unit's commit is registering or
-leaving. The tree is only renamed to `tmp/kmptoolkit-internal/trash/<random number>` under the lock and
+is extracting into), so it is skipped and the next cancel or commit reclaims the tree. Another
+unit's commit registering or leaving the lock registry never causes a skip (that probe is retried).
+The tree is only renamed to `tmp/kmptoolkit-internal/trash/<random number>` under the lock and
 deleted after it is released, so a large extraction never stalls other units' commits (the entry is
 named by a number alone, so no id's length can make the rename fail). If the process dies or the
 delete fails midway, the remainder stays in `tmp/kmptoolkit-internal/trash/`; every later

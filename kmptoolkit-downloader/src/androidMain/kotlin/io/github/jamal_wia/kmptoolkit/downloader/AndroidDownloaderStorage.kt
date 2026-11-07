@@ -145,13 +145,12 @@ internal class AndroidDownloaderStorage(
 
     override fun tempFileState(unit: DownloadUnit): TempFileState {
         val names: UnitFileLayout.Names = names(unit)
+        // The partial file is read BEFORE the complete one: marking complete renames partial into
+        // complete, so a partial that was absent at the first read was already complete at the
+        // second. The other order can miss both files while one rename lands between the reads.
+        val partialLength: Long = File(baseDir, names.partial).length() // 0 when absent
         if (File(baseDir, names.complete).exists()) return TempFileState.Complete
-        val partial = File(baseDir, names.partial)
-        return if (partial.exists() && partial.length() > 0) {
-            TempFileState.Partial
-        } else {
-            TempFileState.None
-        }
+        return if (partialLength > 0) TempFileState.Partial else TempFileState.None
     }
 
     override fun getTempFileSize(unit: DownloadUnit): Long {
@@ -164,8 +163,17 @@ internal class AndroidDownloaderStorage(
         val complete = File(baseDir, names.complete)
         if (complete.exists()) return
         val partial = File(baseDir, names.partial)
-        check(partial.exists()) { "No temp file to mark complete for $unit at ${partial.path}" }
-        check(partial.renameTo(complete)) { "Could not mark the temp file of $unit complete" }
+        // Idempotent under a race: a concurrent caller that renamed the partial first has already
+        // done the job, so a vanished source or a lost rename with the complete file in place is a
+        // success, not a failure.
+        if (!partial.exists()) {
+            check(complete.exists()) { "No temp file to mark complete for $unit at ${partial.path}" }
+            return
+        }
+        if (!partial.renameTo(complete)) {
+            check(complete.exists()) { "Could not mark the temp file of $unit complete" }
+            return
+        }
         logger.i { "Marked the temp file of $unit complete (${complete.length()} bytes)" }
     }
 
@@ -203,8 +211,8 @@ internal class AndroidDownloaderStorage(
         // The extraction tree of an archive commit that a process death interrupted: nothing else
         // ever enumerates tmp/, so a unit that is then dropped would keep it forever. Skipped while
         // a commit of the unit runs (it may be extracting into this very tree, or renaming it into
-        // place), or while the lock registry is momentarily busy; the next cancel or the next
-        // commit reclaims it. Under the lock the tree is only renamed away; the recursive delete
+        // place); the next cancel or the next commit reclaims it. A merely busy lock registry is
+        // retried, never taken for a running commit. Under the lock the tree is only renamed away; the recursive delete
         // runs after the lock is released so it cannot stall other units.
         UnitCommitLocks.tryDetachThenDispose(
             baseDirectory = baseDir.absolutePath,
@@ -215,7 +223,7 @@ internal class AndroidDownloaderStorage(
                 trash.parentFile?.mkdirs()
                 if (staging.renameTo(trash)) trash else null
             },
-            dispose = { trash: File -> trash.deleteRecursively() },
+            dispose = { trash: File -> deleteTree(trash) },
         )
         sweepTrash()
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
@@ -238,7 +246,35 @@ internal class AndroidDownloaderStorage(
      * length can make the rename into it fail.
      */
     private fun sweepTrash() {
-        File(baseDir, UnitFileLayout.TRASH_DIRECTORY).listFiles()?.forEach { entry: File -> entry.deleteRecursively() }
+        File(baseDir, UnitFileLayout.TRASH_DIRECTORY).listFiles()?.forEach { entry: File -> deleteTree(entry) }
+    }
+
+    /**
+     * Deletes [file] and everything under it, treating an entry that another thread already removed
+     * as gone. Kotlin's `deleteRecursively` walks with `FileTreeWalk`, which asserts (an
+     * `AssertionError`, live in every test JVM) when a tree vanishes under its walk; two cleanups of
+     * one tree, or a cleanup racing a recommit, must never surface that. A symbolic link is removed
+     * as a link, never followed.
+     */
+    private fun deleteTree(file: File) {
+        if (!isSymbolicLink(file)) {
+            file.listFiles()?.forEach { child: File -> deleteTree(child) }
+        }
+        file.delete()
+    }
+
+    /** The size of the files under [file]; an entry that vanished meanwhile counts as zero. */
+    private fun treeSize(file: File): Long {
+        val children: Array<File>? = file.listFiles()
+        return if (children == null) file.length() else children.sumOf { child: File -> treeSize(child) }
+    }
+
+    private fun isSymbolicLink(file: File): Boolean = try {
+        val parent: File? = file.parentFile?.canonicalFile
+        val candidate: File = if (parent == null) file else File(parent, file.name)
+        candidate.canonicalFile != candidate.absoluteFile
+    } catch (e: java.io.IOException) {
+        false
     }
 
     private fun deleteTempData(names: UnitFileLayout.Names) {
@@ -267,9 +303,7 @@ internal class AndroidDownloaderStorage(
         )
         if (!target.exists()) return 0L
         return if (target.isDirectory) {
-            target.walkBottomUp()
-                .filter { f: File -> f.isFile }
-                .sumOf { f: File -> f.length() }
+            treeSize(target)
         } else {
             target.length()
         }
@@ -279,7 +313,7 @@ internal class AndroidDownloaderStorage(
         val target = File(getResourcePath(unit))
         if (!target.exists()) return
         if (target.isDirectory) {
-            target.deleteRecursively()
+            deleteTree(target)
         } else {
             target.delete()
         }
@@ -325,7 +359,7 @@ internal class AndroidDownloaderStorage(
             // must not collide in one staging directory.
             val stagingDir = File(baseDir, names.staging)
             // Clean any leftover staging from a previous failed attempt
-            stagingDir.deleteRecursively()
+            deleteTree(stagingDir)
             try {
                 extractZip(
                     tempFile = tempFile,
@@ -347,14 +381,14 @@ internal class AndroidDownloaderStorage(
                     }
                 }
                 // Atomic swap: remove old target, rename staging to target
-                targetDir.deleteRecursively()
+                deleteTree(targetDir)
                 if (!stagingDir.renameTo(targetDir)) {
                     // Fallback: copy + delete (cross-filesystem)
                     stagingDir.copyRecursively(target = targetDir, overwrite = true)
-                    stagingDir.deleteRecursively()
+                    deleteTree(stagingDir)
                 }
             } catch (e: Exception) {
-                stagingDir.deleteRecursively()
+                deleteTree(stagingDir)
                 throw e
             }
             tempFile.delete()
