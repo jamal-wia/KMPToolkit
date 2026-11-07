@@ -265,7 +265,9 @@ to the `ActivityAccess` overloads is yours, as before.
 
 The controller subscribes to resume events only while there is something to re-apply: while the flag
 is wanted, and afterwards until a release that arrived with no activity resumed has reached the
-window that carried the flag. A controller that was cleared with `setKeepScreenOn(false)` therefore
+window that carried the flag. A window that is finishing or destroyed will never resume, so a release
+owed to it (an activity that finishes, pauses, and only then has its owner release the flag) is dropped at
+once instead of waiting for a resume that cannot come. A controller that was cleared with `setKeepScreenOn(false)` therefore
 holds no subscription and is ordinary garbage, so creating one per screen or per session is
 supported. One dropped while still `true` stays registered and keeps the screen awake, which is why
 callers must clear it.

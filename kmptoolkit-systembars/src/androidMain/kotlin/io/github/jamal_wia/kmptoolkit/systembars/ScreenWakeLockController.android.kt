@@ -132,11 +132,18 @@ internal class AndroidScreenWakeLockController(
     }
 
     /**
-     * Main thread only. Idle means no flag is wanted and none is left on a live window; the window
-     * a deferred release was waiting for having been collected counts as taken off.
+     * Main thread only. Idle means no flag is wanted and none is left on a live window. A window that
+     * is finishing or destroyed will never resume, so a release owed to it can never be delivered and
+     * its flag dies with it: it counts as taken off, exactly like one that has been collected. This is
+     * the common teardown, where the activity finishes, pauses, and only then its owner releases.
      */
     private fun unsubscribeWhenIdle() {
-        if (enabled || pushedTo?.get() != null) return
+        if (enabled) return
+        val owed: Activity? = pushedTo?.get()
+        if (owed != null) {
+            if (!owed.isFinishing && !owed.isDestroyed) return
+            pushedTo = null
+        }
         subscription?.cancel()
         subscription = null
     }
