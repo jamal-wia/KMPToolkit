@@ -54,6 +54,14 @@ internal class ProgressCoalescer(
     private val posted: MutableMap<String, Post> = mutableMapOf()
 
     /**
+     * The serial of the newest [PostTicket] issued per id, dropped by [forget] / [clear] and by
+     * [complete] for a terminal frame. A ticket whose serial is not the id's current one belongs to
+     * a frame that a cancel or a newer post has overtaken, and [isLive] says so.
+     */
+    private val latest: MutableMap<String, Long> = mutableMapOf()
+    private var nextSerial: Long = 0L
+
+    /**
      * Decides whether the notification for [id] carrying [progress] should reach the platform, and
      * **records the decision atomically** as the baseline for the next call.
      *
@@ -77,15 +85,39 @@ internal class ProgressCoalescer(
             Decision.Suppress -> null
             Decision.Reset -> {
                 posted.remove(id)
-                PostTicket(id, previous = null, recorded = null)
+                PostTicket(id, previous = null, recorded = null, serial = issue(id))
             }
 
             is Decision.Record -> {
                 val recorded = Post(bucket = decision.bucket, content = content, at = timeSource.markNow())
                 val previous: Post? = posted.put(id, recorded)
-                PostTicket(id, previous = previous, recorded = recorded)
+                PostTicket(id, previous = previous, recorded = recorded, serial = issue(id))
             }
         }
+    }
+
+    /** Lock held. Numbers a new ticket for [id] and makes it the id's newest. */
+    private fun issue(id: String): Long {
+        val serial: Long = ++nextSerial
+        latest[id] = serial
+        return serial
+    }
+
+    /**
+     * Whether [ticket]'s frame is still the newest for its id and the id was not cancelled since.
+     * The caller asks this right before the platform call, under the lock that [forget]'s caller
+     * also holds around its own platform call, so a frame that lost the race to a cancel or to a
+     * newer frame (a terminal "Done", say) is dropped instead of reappearing on top of it.
+     */
+    fun isLive(ticket: PostTicket): Boolean = lock.withLock { latest[ticket.id] == ticket.serial }
+
+    /**
+     * Marks [ticket]'s frame as shown. A terminal frame ([prepare] cleared the id) leaves nothing
+     * to protect, so the id's newest-serial entry goes too — which makes any older frame still in
+     * flight read as overtaken.
+     */
+    fun complete(ticket: PostTicket): Unit = lock.withLock {
+        if (ticket.recorded == null && latest[ticket.id] == ticket.serial) latest.remove(ticket.id)
     }
 
     /**
@@ -124,10 +156,16 @@ internal class ProgressCoalescer(
     }
 
     /** Forgets [id]'s state, so its next determinate update posts. Called when it is cancelled. */
-    fun forget(id: String): Unit = lock.withLock { posted.remove(id) }
+    fun forget(id: String): Unit = lock.withLock {
+        posted.remove(id)
+        latest.remove(id)
+    }
 
     /** Forgets every id's state. Called on [Notifier.cancelAll]. */
-    fun clear(): Unit = lock.withLock { posted.clear() }
+    fun clear(): Unit = lock.withLock {
+        posted.clear()
+        latest.clear()
+    }
 
     /**
      * A recorded decision to post. Opaque to callers: pass it to [rollback] if the post failed.
@@ -136,6 +174,7 @@ internal class ProgressCoalescer(
         internal val id: String,
         internal val previous: Post?,
         internal val recorded: Post?,
+        internal val serial: Long,
     )
 
     /** One recorded post. A plain class: [rollback] compares records by identity. */

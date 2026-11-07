@@ -43,8 +43,11 @@ public class DeviceIdProvider(
      * Always returns an id — there is no failure case for a caller to handle, because a header that
      * must be sent cannot wait for storage to recover. What can fail is the *persistence*: if the
      * store cannot be written, the returned id is still valid for this call but a later call
-     * produces a different one. An id that changes is a degraded signal, not a broken app, which is
-     * why this is not a [StorageResult].
+     * produces a different one. The same holds when the entry cannot be read *right now*
+     * ([StorageError.Unavailable], for example a keystore that is momentarily not answering): the id
+     * returned is fresh for this call and the stored one is left alone, so it is found again once the
+     * store recovers. An id that changes is a degraded signal, not a broken app, which is why this is
+     * not a [StorageResult].
      *
      * Deliberately not memoized in memory: the store is the single source of truth, so a
      * [KeyValueStorage.clear] takes effect at the very next call rather than at the next process
@@ -57,12 +60,20 @@ public class DeviceIdProvider(
      */
     @OptIn(ExperimentalUuidApi::class)
     public suspend fun current(): String = generation.withLock {
-        val stored: String? = storage.get(key).getOrNull()
+        val read: StorageResult<String?> = storage.get(key)
+        val stored: String? = read.getOrNull()
         if (stored != null && stored.isNotBlank()) return@withLock stored
 
-        // Reached when the key is absent, when the entry is unreadable, and when it holds a blank
-        // value — a store hand-edited in a debug build, or a partial restore. All three mean "there
-        // is no usable id here", and overwriting is the only way out of the last two.
+        // A transient failure is not "no id here": the stored id is probably fine and a later read
+        // will find it, so overwriting it would rotate the id on a keystore hiccup. Answer a fresh id
+        // for this call only — the documented degradation of an id that could not be persisted.
+        if (read is StorageResult.Failure && read.error is StorageError.Unavailable) {
+            return@withLock Uuid.random().toString()
+        }
+
+        // Reached when the key is absent, when the entry is permanently unreadable, and when it holds
+        // a blank value — a store hand-edited in a debug build, or a partial restore. All of them mean
+        // "there is no usable id here", and overwriting is the only way out of the last two.
         val generated: String = Uuid.random().toString()
         storage.put(key, generated)
         generated

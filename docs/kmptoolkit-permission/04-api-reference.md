@@ -205,7 +205,13 @@ public interface PermissionController {
   screen no app handles — it arrives as a status or as `false`, and is logged.
 - **Cancellation.** Cancelling the coroutine that called `request` abandons the *result*, not the
   system UI: the user's answer still reaches the OS, nothing is recorded for an unanswered dialog, and
-  the next `check` sees what happened.
+  the next `check` sees what happened. A dialog still waiting to be posted to the main thread when
+  the caller is cancelled (Android, caller off the main thread) is not shown at all.
+- **Callers on any thread.** On Android a request for a special access subscribes to the activity's
+  resume and opens the Settings screen on the main thread, so a caller on `Dispatchers.Default` or `IO`
+  returns only once the user is back, never early because of a late resume notification. `observe`
+  subscribes to request results before it first reads the status, so a request that resolves in between
+  is not missed.
 
 ## `PermissionRequestFlow`
 
@@ -244,6 +250,7 @@ reached, identical to `state.value` once it returns.
 | `Requesting` | request permanently denied | `AwaitingSettings` |
 | `Requesting` | request restricted or unavailable | `Unavailable` |
 | `Requesting` | request denied or unanswered | `Denied` |
+| `Requesting` | the calling coroutine is cancelled | `Idle` (nothing was decided; `refresh()` reads the real choice) |
 | `AwaitingRationale` | `rationaleAcknowledged()` | `Requesting`, then the request outcome |
 | `AwaitingRationale` | `rationaleDismissed()` | `Denied` |
 | `AwaitingSettings` | `openSettings()` | `AwaitingSettings` (the app is backgrounded) |
@@ -257,7 +264,7 @@ never an exception.
 `openSettings()` returns `false` both when the flow is not in `AwaitingSettings` (nothing is opened)
 and when the controller could not open a screen. It calls `controller.openSettings(permission)`.
 
-**Not thread-safe.** Drive one flow from one coroutine. It holds no platform resource.
+**Concurrent drivers.** Drive one flow from one coroutine where you can. A `refresh()` on resume racing a `start()` on tap is tolerated: each transition after a suspension publishes only if the state is still the one it started from, so a stale result never overwrites a live `Requesting` or its outcome (the newer state is returned). It holds no platform resource.
 
 ## `PermissionFlowState`
 
@@ -360,7 +367,7 @@ public class ActivityResultPermissionRequestHost(
 The default host. It launches from the `ComponentActivity` `activityAccess` reports as resumed,
 through that activity's `ActivityResultRegistry`, and re-registers on each activity that resumes
 while a request is pending — so the answer reaches the waiting request even when the activity was
-recreated meanwhile (not across process death). One request at a time: a launch while another is
+recreated meanwhile (not across process death). One request at a time (a request whose activity is finished, not recreated, ends as interrupted — an empty answer — so it cannot block the next one): a launch while another is
 pending returns `false`. A launch returns `false` with no resumed activity, or one that is not a
 `ComponentActivity`. Holds no activity.
 

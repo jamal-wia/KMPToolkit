@@ -98,6 +98,41 @@ class ActivityResultPermissionRequestHostTest {
     }
 
     @Test
+    fun `a request whose activity is finished is abandoned, and the host takes the next one`() {
+        shadowOf(application).denyPermissions(Manifest.permission.CAMERA)
+        val first: ActivityController<ComponentActivity> = resumedComponentActivity()
+        val host = ActivityResultPermissionRequestHost(access)
+        var answers: Map<String, Boolean>? = null
+        assertTrue(host.launch(listOf(Manifest.permission.CAMERA)) { answers = it })
+
+        first.get().finish()
+        first.pause().stop().destroy()
+
+        assertEquals(emptyMap(), answers, "an interrupted request ends with an empty answer")
+        resumedComponentActivity()
+        assertTrue(host.launch(listOf(Manifest.permission.CAMERA)) {}, "the host must not stay stuck on the dead request")
+    }
+
+    @Test
+    fun `a request whose activity is finished is abandoned when the next activity resumes before it is destroyed`() {
+        shadowOf(application).denyPermissions(Manifest.permission.CAMERA)
+        val first: ActivityController<ComponentActivity> = resumedComponentActivity()
+        val host = ActivityResultPermissionRequestHost(access)
+        var answers: Map<String, Boolean>? = null
+        assertTrue(host.launch(listOf(Manifest.permission.CAMERA)) { answers = it })
+
+        // The order Android uses when one screen hands over to another: the next activity resumes
+        // after the finished one paused, and only then is the finished one stopped and destroyed.
+        first.get().finish()
+        first.pause()
+        resumedComponentActivity()
+        first.stop().destroy()
+
+        assertEquals(emptyMap(), answers, "an interrupted request ends with an empty answer")
+        assertTrue(host.launch(listOf(Manifest.permission.CAMERA)) {}, "the host must not stay stuck on the dead request")
+    }
+
+    @Test
     fun `a second launch while one is pending shows nothing`() {
         resumedComponentActivity()
         val host = ActivityResultPermissionRequestHost(access)

@@ -95,6 +95,7 @@ internal class LifecycleActivityTracker(
         if (!released.compareAndSet(false, true)) return
         application.unregisterActivityLifecycleCallbacks(this)
         current.set(null)
+        listeners.forEach { registration -> registration.cancelled = true }
         listeners.clear()
     }
 
@@ -108,6 +109,9 @@ internal class LifecycleActivityTracker(
         if (!isTracked(activity)) return
         current.set(WeakReference(activity))
         listeners.forEach { registration ->
+            // The loop walks a snapshot: a listener cancelled by an earlier one in this very loop is
+            // still in it, and "cancel stops the listener from being called again" must hold for it too.
+            if (registration.cancelled) return@forEach
             registration.replayPending = false
             registration.listener(activity)
         }
@@ -158,7 +162,7 @@ internal class LifecycleActivityTracker(
     /** Main thread only, like every other delivery. */
     private fun replayCurrentTo(registration: Registration) {
         registration.replayPending = false
-        if (registration !in listeners) return
+        if (registration.cancelled || registration !in listeners) return
         current.get()?.get()?.let { activity ->
             if (!activity.isFinishing && !activity.isDestroyed) registration.listener(activity)
         }
@@ -176,7 +180,11 @@ internal class LifecycleActivityTracker(
         val listener: (Activity) -> Unit,
         @Volatile var replayPending: Boolean,
     ) : ActivitySubscription {
+        /** Set by [cancel] and [release]; checked before every call, because a dispatch iterates a snapshot. */
+        @Volatile var cancelled: Boolean = false
+
         override fun cancel() {
+            cancelled = true
             listeners.remove(this)
         }
     }

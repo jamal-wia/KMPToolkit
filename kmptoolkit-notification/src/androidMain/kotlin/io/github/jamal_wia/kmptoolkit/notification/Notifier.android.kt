@@ -89,6 +89,12 @@ internal class AndroidNotifier(
     private val notificationManager: NotificationManagerCompat =
         NotificationManagerCompat.from(context)
 
+    /**
+     * Orders a post's final "still wanted? then notify" step against [cancel] and [cancelAll].
+     * Separate from the coalescer's own lock and always taken first, so the two never invert.
+     */
+    private val postLock: NotifierLock = notifierLock()
+
     /** Foreground id to the untagged `Int` its service started with. */
     private val foregroundPlatformIds: Map<String, Int> = foregroundIds.associate { foreground: ForegroundNotificationId ->
         foreground.id to foreground.platformId
@@ -176,11 +182,23 @@ internal class AndroidNotifier(
         val ticket: ProgressCoalescer.PostTicket =
             coalescer.prepare(id, notification.progress, content) ?: return NotificationResult.Coalesced
         try {
+            // Built outside the lock: real work (PendingIntents, bitmaps).
             val built: Notification = renderer.build(id, notification, options, iconResId)
-            when (val foregroundId: Int? = foregroundPlatformIds[id]) {
-                null -> notificationManager.notify(id, TAGGED_NOTIFICATION_ID, built)
-                else -> notificationManager.notify(foregroundId, built)
+            // Decide-and-notify is one critical section with cancel()'s forget-and-cancel, so a
+            // cancel that ran while this frame was being built is not followed by the frame, and a
+            // frame overtaken by a newer one (a terminal "Done") is not shown on top of it. The
+            // lock is a blocking one because cancel() is not suspending; notify() is a short binder
+            // enqueue.
+            val shown: Boolean = postLock.withLock {
+                if (!coalescer.isLive(ticket)) return@withLock false
+                when (val foregroundId: Int? = foregroundPlatformIds[id]) {
+                    null -> notificationManager.notify(id, TAGGED_NOTIFICATION_ID, built)
+                    else -> notificationManager.notify(foregroundId, built)
+                }
+                coalescer.complete(ticket)
+                true
             }
+            if (!shown) return NotificationResult.Coalesced
         } catch (e: Throwable) {
             // Nothing reached the tray, so the frame must not stand as the baseline: a retry of the
             // same progress has to post. A no-op if cancel/clear or a newer post got there first.
@@ -207,12 +225,15 @@ internal class AndroidNotifier(
             permissions.check(CommonPermission.Notifications).isUsable
 
     override fun cancel(id: String) {
-        coalescer.forget(id)
-        when (val foregroundId: Int? = foregroundPlatformIds[id]) {
-            null -> notificationManager.cancel(id, TAGGED_NOTIFICATION_ID)
-            else -> notificationManager.cancel(foregroundId)
+        // One critical section with the decide-and-notify of an in-flight post (see postGated).
+        postLock.withLock {
+            coalescer.forget(id)
+            when (val foregroundId: Int? = foregroundPlatformIds[id]) {
+                null -> notificationManager.cancel(id, TAGGED_NOTIFICATION_ID)
+                else -> notificationManager.cancel(foregroundId)
+            }
+            sweepLegacy(id)
         }
-        sweepLegacy(id)
     }
 
     /**
@@ -230,8 +251,10 @@ internal class AndroidNotifier(
     }
 
     override fun cancelAll() {
-        coalescer.clear()
-        notificationManager.cancelAll()
+        postLock.withLock {
+            coalescer.clear()
+            notificationManager.cancelAll()
+        }
     }
 
     /**

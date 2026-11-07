@@ -32,9 +32,14 @@ internal class ScriptedPermissionController(
     /** Runs inside [request], before it resolves — a seam for holding the "dialog" open. */
     var whileRequesting: (suspend () -> Unit)? = null
 
+    /** Runs inside [check] after it read the status and before it answers — a slow platform read. */
+    var whileChecking: (suspend () -> Unit)? = null
+
     override suspend fun check(permission: Permission): PermissionStatus {
         checkCount++
-        return status
+        val answer: PermissionStatus = status
+        whileChecking?.invoke()
+        return answer
     }
 
     override suspend fun request(permission: Permission): PermissionStatus {

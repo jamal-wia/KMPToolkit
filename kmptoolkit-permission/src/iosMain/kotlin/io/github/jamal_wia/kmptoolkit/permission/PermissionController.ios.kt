@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.concurrent.AtomicReference
 import kotlin.coroutines.resume
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -102,11 +103,13 @@ internal class IosPermissionController(
 
     override fun observe(permission: Permission): Flow<PermissionStatus> =
         callbackFlow {
-            trySend(Unit)
-            val unregister: () -> Unit = addBecameActiveListener { trySend(Unit) }
-            launch {
+            // UNDISPATCHED, and before the first tick: subscribed before any status read can start on
+            // any dispatcher (the flow has no replay).
+            launch(start = CoroutineStart.UNDISPATCHED) {
                 requestsResolved.collect { resolved -> if (resolved.statusSource() == permission.statusSource()) send(Unit) }
             }
+            val unregister: () -> Unit = addBecameActiveListener { trySend(Unit) }
+            trySend(Unit)
             awaitClose { unregister() }
         }
             .conflate()

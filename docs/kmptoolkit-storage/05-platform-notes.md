@@ -109,6 +109,16 @@ chain is walked because the platform usually delivers that exception wrapped in 
 not exist below it, so on API 24–32 every decrypt failure other than an unreachable key store is
 still `Undecryptable`, as before. A failure the platform does not call transient is never remapped.
 
+The same rule protects the key itself: a transient fault never makes the module drop its cached key
+and look the alias up again, and a transient `UnrecoverableKeyException` during that lookup never
+deletes the alias. The unrecoverable-alias recovery (delete and generate) runs only on the first key
+resolution in a process. A key the platform rejects later is forgotten and looked up again once, but
+that lookup never deletes: if it hits an unrecoverable entry — which on API 24-32 a keystore fault
+also looks like, since nothing there can name a transient failure — the call fails with
+`StorageError.Unavailable` and the next process start recovers a key that really died. A read that
+hits a transient fault reports `Unavailable`; a write reports `OperationFailed`. The key and the
+stored values are kept either way, so a momentary outage costs a retry, never the stored values.
+
 ### The key is created once per process, never once per caller
 
 The key is generated on first use, and "look the alias up, generate if it is missing" is two
@@ -224,7 +234,11 @@ call from the main thread and from any number of coroutines at once:
 
 - **Android.** `SharedPreferences` reads block on a file's first load, and `commit()` writes to disk;
   both run on the I/O dispatcher. Key resolution for the secure store runs under the process-wide
-  lock described above.
+  lock described above. The resolved key is cached per alias for the whole process, not per store
+  instance, so every store over one alias uses the same key handle. A key the platform rejects
+  (`InvalidKeyException`) is dropped from that cache and looked up again once — if another instance
+  replaced an unrecoverable key meanwhile, the next use picks the new one up instead of failing until
+  the process restarts.
 - **iOS.** `NSUserDefaults` and Keychain calls go through `cfprefsd` and `securityd`, both IPC. Two
   writers adding the same Keychain item at once — two coroutines, or an app extension sharing the
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then
