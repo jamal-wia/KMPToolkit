@@ -72,7 +72,8 @@ What the engine does with it:
 2. **Run.** When the platform actually starts the upload, the transport asks
    `UploadGateway.prepareAttempt(itemId)`, which calls `prepareUpload` **again**. That is where a
    token is fresh, and where a re-run of an item that settled meanwhile finds nothing owed and uploads
-   nothing. A preparation that throws here leaves the item in flight; the lease recovers it.
+   nothing. A preparation that throws here counts as a failed attempt under the handler's retry policy, exactly as a
+   failing preparation in the drain does: it spends retry budget, so a persistent failure ends in the give-up policy.
 3. **Progress.** Each whole percent goes to `onUploadProgress` through `UploadGateway.progress`.
    Best effort, never after the item has settled.
 4. **Settle.** What the transport saw goes to `UploadGateway.complete` — with the server's

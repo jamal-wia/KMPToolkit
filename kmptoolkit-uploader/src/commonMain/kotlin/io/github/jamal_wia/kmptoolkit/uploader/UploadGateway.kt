@@ -29,8 +29,8 @@ public object UploadGateway {
      * The request for the attempt about to run for [itemId], prepared now by its handler.
      *
      * @return [UploadAttempt.Ready] to upload; [UploadAttempt.NothingOwed] when the item is gone or no
-     *   longer in flight, or when the handler dropped or parked it, or when preparing failed transiently
-     *   (the item then stays in flight until its lease expires) — in every one of those cases, upload
+     *   longer in flight, or when the handler dropped or parked it, or when preparing failed
+     *   (the failure is charged to the item as a failed attempt under its retry policy) — in every one of those cases, upload
      *   nothing; [UploadAttempt.EngineUnavailable] when no engine registered within [engineWait], or its
      *   store failed to read the item, in which case the executor should retry later rather than
      *   conclude anything.

@@ -328,6 +328,10 @@ internal class DefaultUploaderEngine(
         store.park(record.id, reason, record.state, record.claim)
 
     override suspend fun drain() {
+        // Items whose attempt threw out of `executeItem` during this call (a store write failing after the
+        // effect ran, a consumer policy throwing). A later sweep of the same call must not run the same
+        // effect again in a tight loop; an alarm retries them instead.
+        val failedThisCall: MutableSet<String> = mutableSetOf()
         while (true) {
             val active: List<UploaderItem> = store.getAllActive()
             if (active.isEmpty()) {
@@ -374,7 +378,22 @@ internal class DefaultUploaderEngine(
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, item.nextRunAtEpochMillis)
                     continue
                 }
-                executeItem(item, handler)
+                if (item.id in failedThisCall) {
+                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, nowMillis + config.minAlarmDelay.inWholeMilliseconds)
+                    continue
+                }
+                // One item's failure must not abort the pass: the items behind it would not run, no alarm
+                // would be armed for their gates, and the same row would be first again on the next trigger.
+                try {
+                    executeItem(item, handler)
+                } catch (e: CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                    logger.e(e) { "Attempt of ${item.logName} leaked a cancellation; retrying later." }
+                    failedThisCall += item.id
+                } catch (e: Throwable) {
+                    logger.e(e) { "Attempt of ${item.logName} failed outside its handler; retrying later." }
+                    failedThisCall += item.id
+                }
                 executedAny = true
             }
 
@@ -702,8 +721,8 @@ internal class DefaultUploaderEngine(
 
     /**
      * @return `null` when nothing is to be uploaded: the row is gone or no longer in flight, the
-     *   handler dropped or parked it (applied here), or preparation failed transiently (the row stays
-     *   in flight and the lease expiry recovers it).
+     *   handler dropped or parked it (applied here), or preparation failed (charged to the row as a
+     *   failed attempt, guarded by its claim).
      */
     private suspend fun prepareUploadRequest(id: String): UploadRequest? {
         val record: UploaderItem? = store.getById(id)
@@ -726,9 +745,11 @@ internal class DefaultUploaderEngine(
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
             logger.e(e) { "prepareUpload leaked a cancellation for ${record.logName}." }
+            spendAttempt(record, handler, e)
             return null
         } catch (e: Throwable) {
-            logger.e(e) { "prepareUpload failed for ${record.logName}; the lease will recover it." }
+            logger.e(e) { "prepareUpload failed for ${record.logName}." }
+            spendAttempt(record, handler, e)
             return null
         }
         return when (preparation) {
@@ -746,6 +767,24 @@ internal class DefaultUploaderEngine(
                 trigger()
                 null
             }
+        }
+    }
+
+    /**
+     * Charges a failed worker-side `prepareUpload` to the item as a failed attempt, exactly as the drain's
+     * own failed `prepareUpload` is. Without this a preparation that keeps failing in the worker would
+     * leave the row in flight until its lease ran out, again and again, with the retry budget never moving
+     * and the give-up policy never reached. Guarded by the claim the attempt was read under, so a re-hand
+     * that already superseded it wins; a store failure here only leaves the lease to recover the row.
+     */
+    private suspend fun spendAttempt(record: UploaderItem, handler: UploadHandler<Any>, cause: Throwable) {
+        try {
+            recordRetry(record, handler, cause, expectedState = UploaderItemState.IN_FLIGHT, expectedClaim = record.claim)
+            trigger()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            logger.e(e) { "Could not record the failed preparation of ${record.logName}; the lease will recover it." }
         }
     }
 
