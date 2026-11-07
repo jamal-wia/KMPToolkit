@@ -383,6 +383,8 @@ internal class VlcjVideoEngine(
         val parsed: CompletableDeferred<VlcParseStatus> = CompletableDeferred()
 
         @Volatile var player: VlcNativePlayer? = null
+        // Written by the loading thread under [lock], read by the teardown thread without it; both
+        // are blocking threads outside any coroutine, so a volatile is the whole need (D-21).
         @Volatile var nativeSession: NativeSession? = null
         @Volatile var closed: Boolean = false
         @Volatile var loaded: Boolean = false
@@ -485,8 +487,10 @@ internal class VlcjVideoEngine(
 
         /**
          * Runs on the [teardown] thread: native player first, then the media it had open. The
-         * [RuntimeHolder] may have claimed the native session already (the engine was collected
-         * while this was queued), in which case it does the work.
+         * The [RuntimeHolder] may have claimed the native session already: [dispose] queues the
+         * holder's own close of every open session right behind this task, and whichever of the two
+         * runs first wins [RuntimeHolder.claim]. (Not because the engine was collected: this queued
+         * task holds the session, and so the engine.)
          */
         fun teardown() {
             val opened: NativeSession? = nativeSession
@@ -602,6 +606,9 @@ internal class VlcjVideoEngine(
 
         private var runtime: VlcRuntime? = null
         private var disposed: Boolean = false
+        // A concurrent set: written by loading threads, emptied by the teardown thread and by the
+        // Cleaner thread, none of them coroutines and none allowed to suspend, so a Mutex does not
+        // fit; `remove` returning true is what makes [claim] an atomic one-winner guard (D-21).
         private val openSessions: MutableSet<NativeSession> = ConcurrentHashMap.newKeySet()
 
         /** Registers a native player created from this holder's libvlc instance. */
@@ -624,7 +631,10 @@ internal class VlcjVideoEngine(
          * without `release()`), then the instance, after every session teardown queued before it.
          */
         override fun run() {
-            for (session: NativeSession in openSessions.toList()) {
+            // Iterated directly, not copied with toList(): that checks the size and then reads the
+            // first element, and throws NoSuchElementException when the teardown thread claims the
+            // last session in between. The set's iterator is weakly consistent and never throws.
+            for (session: NativeSession in openSessions) {
                 teardown.execute { if (claim(session)) session.close() }
             }
             val released: VlcRuntime = synchronized(this) {

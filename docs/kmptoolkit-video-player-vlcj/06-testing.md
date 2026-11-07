@@ -63,10 +63,13 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   lands right after resolution or during discovery; nothing slow on the calling thread.
 - `VlcjVideoEngineCleanerTest` — the garbage-collection safety net: an engine dropped with a source
   loaded is collected despite a native side that holds its callbacks strongly, and then releases the
-  native player and the libvlc instance (once); an engine still referenced is neither collected nor
-  released and still receives events; `dispose` twice releases once. `VlcMediaResolverTest` also
+  native player and the libvlc instance (once), the player always before the instance, also when
+  the teardown thread lags and its own queued teardown and the Cleaner's task race for the same
+  session (the loser does nothing); an engine still referenced is neither collected nor released and
+  still receives events; `dispose` twice, or `release` then `dispose`, releases once. `VlcMediaResolverTest` also
   checks that resolving a jar asset 50 times adds no entry to the JDK's delete-on-exit list and
-  leaves no registered or temporary copy behind (the test JVM opens `java.io` for that reflection).
+  leaves no registered or temporary copy behind (the test JVM opens `java.io` for that reflection),
+  and that a copy whose delete fails stays registered for a retry.
 - `VlcjVideoPlayerFactoryTest` — the player `createVlcjVideoPlayer` builds: never throws, exposes a
   frame source, touches neither discovery nor libvlc before `prepare`; without VLC, `prepare` settles
   on `Error(VlcUnavailableException)`; a seek after completion leaves the player `Paused` with VLC not

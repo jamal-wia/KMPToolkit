@@ -124,6 +124,46 @@ class VlcMediaResolverTest {
         assertTrue(copies.none { it.exists() })
     }
 
+    @Test
+    fun `a copy that cannot be deleted stays registered and is retried by release and by the sweep`() {
+        val live: Int = AssetCopies.liveCount
+        val file: File = AssetCopies.create(".mp4")
+        // Make delete() fail the way a file held open does on Windows: a non-empty directory
+        // at the path cannot be deleted either.
+        assertTrue(file.delete())
+        assertTrue(file.mkdir())
+        val child = File(file, "held")
+        assertTrue(child.createNewFile())
+        try {
+            AssetCopies.release(file)
+            assertEquals(live + 1, AssetCopies.liveCount, "a failed delete must not be forgotten")
+            AssetCopies.sweep()
+            assertEquals(live + 1, AssetCopies.liveCount)
+            assertTrue(file.exists())
+
+            assertTrue(child.delete())
+            AssetCopies.sweep()
+            assertFalse(file.exists(), "the shutdown sweep must retry the copy")
+            AssetCopies.release(file)
+            assertEquals(live, AssetCopies.liveCount, "released once it is gone")
+        } finally {
+            child.delete()
+            file.delete()
+            AssetCopies.release(file)
+        }
+    }
+
+    @Test
+    fun `releasing a copy that is already gone forgets it`() {
+        val live: Int = AssetCopies.liveCount
+        val file: File = AssetCopies.create(".mp4")
+        assertTrue(file.delete())
+
+        AssetCopies.release(file)
+
+        assertEquals(live, AssetCopies.liveCount)
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun deleteOnExitCount(): Int {
         val hook: Class<*> = Class.forName("java.io.DeleteOnExitHook")

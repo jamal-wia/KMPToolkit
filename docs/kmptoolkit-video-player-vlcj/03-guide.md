@@ -126,7 +126,9 @@ Nothing here differs from the shared contract, but it is worth knowing what happ
   collection time is up to the JVM, so release every player you create rather than relying on it.
 - **Temporary asset copies** (an asset packed in a jar) are deleted when their source is closed. They
   are not registered with the JDK's delete-on-exit list, which would grow with every load; a single
-  shutdown hook removes any copy that was never closed.
+  shutdown hook removes any copy that was never closed. A copy that cannot be deleted when its
+  source closes (on Windows, a file the native player still holds open) stays registered, so the
+  hook retries it at exit.
 - **Nothing slow runs on the calling thread**, which is usually the UI thread. Locating and loading
   libvlc and opening the source run on `Dispatchers.IO`. Stopping and freeing a native player — which
   for a stalled network stream can take as long as libvlc's network timeout — runs on a background

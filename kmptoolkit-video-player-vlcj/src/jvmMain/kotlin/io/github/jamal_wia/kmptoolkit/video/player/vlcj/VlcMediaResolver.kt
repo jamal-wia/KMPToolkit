@@ -41,12 +41,16 @@ internal class ResolvedMedia(
  */
 internal object AssetCopies {
 
+    // A concurrent set rather than a Mutex-guarded one: it is touched from the teardown thread, from
+    // Dispatchers.IO and from a JVM shutdown hook, and neither the blocking teardown nor the hook can
+    // suspend, so no coroutine synchronization tool fits (D-21).
     private val live: MutableSet<File> = ConcurrentHashMap.newKeySet()
 
+    // A synchronized lazy installs the hook exactly once from whichever thread creates the first
+    // copy; those callers are plain blocking threads and Runtime.addShutdownHook is not suspending,
+    // so a Mutex cannot be used here (D-21).
     private val hook: Lazy<Unit> = lazy {
-        Runtime.getRuntime().addShutdownHook(
-            Thread({ live.forEach { it.delete() } }, "kmptoolkit-vlcj-asset-cleanup"),
-        )
+        Runtime.getRuntime().addShutdownHook(Thread(::sweep, "kmptoolkit-vlcj-asset-cleanup"))
     }
 
     /** How many copies have been created and not yet released. */
@@ -60,10 +64,18 @@ internal object AssetCopies {
         return file
     }
 
-    /** Forgets and deletes [file]. Idempotent. */
+    /**
+     * Deletes [file] and forgets it once it is gone. A copy that cannot be deleted yet (on Windows a
+     * file the native player still holds open) stays registered, so a later [release] or the
+     * shutdown hook retries it, as `deleteOnExit` used to. Idempotent.
+     */
     fun release(file: File) {
-        live -= file
-        file.delete()
+        if (file.delete() || !file.exists()) live -= file
+    }
+
+    /** What the shutdown hook runs: one more delete attempt for every copy still registered. */
+    fun sweep() {
+        live.forEach { it.delete() }
     }
 }
 
