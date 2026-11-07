@@ -361,15 +361,30 @@ class ProgressCoalescerTest {
     }
 
     @Test
-    fun `a rollback after clear leaves the id empty`() {
+    fun `a rollback after clear does not bring back the previous baseline`() {
         val coalescer: ProgressCoalescer = coalescer()
-        val ticket: ProgressCoalescer.PostTicket =
-            requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(40)))
+        coalescer.prepare("a", NotificationProgress.Determinate(40))
+        val inFlight: ProgressCoalescer.PostTicket =
+            requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(50)))
         coalescer.clear()
 
-        coalescer.rollback(ticket)
+        coalescer.rollback(inFlight)
 
-        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(40)) != null)
+        // An unconditional restore would bring back the 40 bucket and suppress 41.
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(41)) != null)
+    }
+
+    @Test
+    fun `a rollback after forget does not bring back the previous baseline`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.prepare("a", NotificationProgress.Determinate(40))
+        val inFlight: ProgressCoalescer.PostTicket =
+            requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(50)))
+        coalescer.forget("a")
+
+        coalescer.rollback(inFlight)
+
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(41)) != null)
     }
 
     @Test
