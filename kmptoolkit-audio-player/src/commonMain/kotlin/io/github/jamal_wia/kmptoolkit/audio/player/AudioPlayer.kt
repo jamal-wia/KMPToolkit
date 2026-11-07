@@ -143,14 +143,16 @@ public interface AudioPlayer : AutoCloseable {
     public fun seekTo(positionMs: Long)
 
     /**
-     * Moves the playhead [amountMs] later, clamped to the end of the source.
+     * Moves the playhead [amountMs] later, clamped to the end of the source. The arithmetic
+     * saturates, so `Long.MAX_VALUE` means "to the end" and never wraps around to the start.
      *
      * @param amountMs how far to skip ahead, in milliseconds.
      */
     public fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)
 
     /**
-     * Moves the playhead [amountMs] earlier, clamped to `0`.
+     * Moves the playhead [amountMs] earlier, clamped to `0`. The arithmetic saturates, so
+     * `Long.MAX_VALUE` means "to the start".
      *
      * @param amountMs how far to skip back, in milliseconds.
      */
@@ -169,6 +171,8 @@ public interface AudioPlayer : AutoCloseable {
      * Takes effect immediately while playing and is applied on the next [play] otherwise. It is
      * never an error to ask for a rate outside the range — the value is clamped, because a UI
      * offering a fixed set of speed buttons should not have to know the platform's limits.
+     * Infinities clamp to the range ends. `Float.NaN` names no rate and is ignored: the current
+     * rate stays in effect.
      *
      * @param speed rate multiplier: `1.0` is normal, `0.5` half, `2.0` double.
      */

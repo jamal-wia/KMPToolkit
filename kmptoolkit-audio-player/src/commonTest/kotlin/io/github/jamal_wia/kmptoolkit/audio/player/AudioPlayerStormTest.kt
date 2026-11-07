@@ -422,4 +422,53 @@ class AudioPlayerStormTest {
         const val ROUNDS: Int = 30
         const val OPS: Int = 120
     }
+
+    // --- arithmetic edges ---
+
+    @Test
+    fun `skipping forward by a huge amount lands on the end and not on the start`() = runTest {
+        val engine = RecordingPlaybackEngine(duration = 10_000L)
+        val player: AudioPlayer = createAudioPlayer(engine, coroutineContext = StandardTestDispatcher(testScheduler))
+        try {
+            player.prepare(sources[0])
+            player.seekTo(2_000L)
+            player.seekForward(Long.MAX_VALUE)
+            assertEquals(10_000L, engine.position, "seekForward(Long.MAX_VALUE) must clamp to the end of the source")
+            assertEquals(10_000L, player.playbackPositionFlow.value)
+            player.seekTo(2_000L)
+            player.seekBackward(Long.MIN_VALUE)
+            assertEquals(10_000L, engine.position, "a negative amount skips the other way, saturating")
+            player.seekTo(2_000L)
+            player.seekBackward(Long.MAX_VALUE)
+            assertEquals(0L, engine.position)
+            player.seekTo(2_000L)
+            player.seekForward(Long.MIN_VALUE)
+            assertEquals(0L, engine.position)
+        } finally {
+            player.release()
+        }
+    }
+
+    @Test
+    fun `a NaN speed is ignored and the rate stays inside the configured range`() = runTest {
+        val engine = RecordingPlaybackEngine()
+        val player: AudioPlayer = createAudioPlayer(engine, coroutineContext = StandardTestDispatcher(testScheduler))
+        try {
+            player.prepare(sources[0])
+            val config = AudioPlayerConfig()
+            player.setPlaybackSpeed(1.5f)
+            player.setPlaybackSpeed(Float.NaN)
+            assertEquals(1.5f, player.playbackSpeed, "NaN names no rate: the current rate stays")
+            player.setPlaybackSpeed(Float.POSITIVE_INFINITY)
+            assertEquals(config.maxPlaybackSpeed, player.playbackSpeed)
+            player.setPlaybackSpeed(Float.NEGATIVE_INFINITY)
+            assertEquals(config.minPlaybackSpeed, player.playbackSpeed)
+            player.setPlaybackSpeed(Float.NaN)
+            player.play()
+            assertTrue(!engine.appliedSpeed.isNaN(), "the engine was handed NaN as the speed")
+            assertEquals(config.minPlaybackSpeed, engine.appliedSpeed)
+        } finally {
+            player.release()
+        }
+    }
 }
