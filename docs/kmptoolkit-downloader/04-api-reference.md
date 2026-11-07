@@ -136,6 +136,20 @@ Neither carries a `group` / `unit` field — the flow you collected is the ident
 | `DownloadCancelledException` | `group: ResourceGroup`, `unit: DownloadUnit?` (null on the group surface) |
 | `DownloadFailedException` | `unit: DownloadUnit`, `error: DownloadError`, `cause: Throwable?` |
 
+## `InvalidDownloadUnitException` *(since 3.1.0)*
+
+`class InvalidDownloadUnitException(unit: DownloadUnit, reason: Reason) : IllegalArgumentException`,
+with `enum class Reason { EMPTY, INVALID_CHARACTER, ESCAPES_BASE_DIRECTORY, RESERVED_INTERNAL_PATH }`.
+A `DownloaderStorage` throws it when `unit.relativePath` can never be used safely: it is empty or
+normalizes to nothing (`EMPTY`), contains NUL (`INVALID_CHARACTER`), leaves the base directory
+(`ESCAPES_BASE_DIRECTORY`), or names something the storage manages itself, such as `tmp`,
+`tmp/expect`, `tmp/staging-…` or the unit's own temp files (`RESERVED_INTERNAL_PATH`). It has no
+message (the library carries no user-facing text); `toString` names the unit id and the reason.
+
+The engine reports it before any byte is fetched, as `DownloadFailedException` with
+`DownloadError.Unknown` whose `cause` is this exception. A `DownloadUnit.id` is never rejected: an id
+that cannot be a file name is stored under a hashed name ([`05-platform-notes.md`](05-platform-notes.md)).
+
 ## `BackgroundResourceDownloader` — **the SPI you implement**
 
 | Member | Signature |

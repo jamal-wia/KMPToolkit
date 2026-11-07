@@ -300,6 +300,23 @@ public final class io/github/jamal_wia/kmptoolkit/downloader/GroupDownloadState$
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class io/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException : java/lang/IllegalArgumentException {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;Lio/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException$Reason;)V
+	public final fun getReason ()Lio/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException$Reason;
+	public final fun getUnit ()Lio/github/jamal_wia/kmptoolkit/downloader/DownloadUnit;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException$Reason : java/lang/Enum {
+	public static final field EMPTY Lio/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException$Reason;
+	public static final field ESCAPES_BASE_DIRECTORY Lio/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException$Reason;
+	public static final field INVALID_CHARACTER Lio/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException$Reason;
+	public static final field RESERVED_INTERNAL_PATH Lio/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException$Reason;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException$Reason;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/downloader/InvalidDownloadUnitException$Reason;
+}
+
 public abstract interface class io/github/jamal_wia/kmptoolkit/downloader/ResourceFormat {
 }
 
