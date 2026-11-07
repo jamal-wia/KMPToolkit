@@ -20,7 +20,7 @@ class StrongStoreProbeRound4AdversarialTest {
     }
 
     @Test
-    fun `the in-memory store observes live, revives at the tail, reads exactly and hands out snapshots`() = runTest {
+    fun `the in-memory store observes live revives at the tail reads exactly and hands out snapshots`() = runTest {
         StrongStoreProbeRound4.observationIsLiveAndNeverCompletes(InMemoryUploaderStore())
         StrongStoreProbeRound4.insertKeepOverAParkedItemEntersAtTheTail(InMemoryUploaderStore())
         StrongStoreProbeRound4.pointReadsAreExact(InMemoryUploaderStore())

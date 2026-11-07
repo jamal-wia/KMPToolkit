@@ -32,7 +32,7 @@ class UploaderEngineLawyerRound4AdversarialTest {
     }
 
     @Test
-    fun `close stops the heartbeat, the pending alarm and every later read of the queue`() = runTest(timeout = 30.seconds) {
+    fun `close stops the heartbeat the pending alarm and every later read of the queue`() = runTest(timeout = 30.seconds) {
         val parent = Job()
         val inner = TestUploaderStore()
         val store = CountingStore(inner)

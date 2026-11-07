@@ -297,7 +297,7 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
     }
 
     @Test
-    fun `a random walk over the public operations never breaks a documented guarantee, seeds 0 to 59`() =
+    fun `a random walk over the public operations never breaks a documented guarantee seeds 0 to 59`() =
         runTest(timeout = 120.seconds) {
             for (seed in 0 until 60) walk(seed)
             // the walk must actually exercise the engine, or the invariants above prove nothing
@@ -319,6 +319,6 @@ class UploaderEngineModelFuzzRound4AdversarialTest {
         }
 
     @Test
-    fun `a random walk over the public operations never breaks a documented guarantee, seeds 60 to 199`() =
+    fun `a random walk over the public operations never breaks a documented guarantee seeds 60 to 199`() =
         runTest(timeout = 120.seconds) { for (seed in 60 until 200) walk(seed) }
 }
