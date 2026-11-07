@@ -6,8 +6,7 @@ import app.cash.sqldelight.db.SqlSchema
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.KmpToolkitUploaderDatabase
-import kotlin.concurrent.atomics.AtomicBoolean
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * The two SPI implementations `kmptoolkit-uploader` needs, over one SQLite database.
@@ -137,7 +136,6 @@ public fun createUploaderStorage(driver: SqlDriver): UploaderStorage =
  * Internal: the public surface is the interface and the factories. The class also owns the
  * confinement thread, which is why it — rather than the store — is what [close] hangs off.
  */
-@OptIn(ExperimentalAtomicApi::class)
 internal class SqlDelightUploaderStorage(
     private val driver: SqlDriver,
     private val ownsDriver: Boolean,
@@ -154,15 +152,15 @@ internal class SqlDelightUploaderStorage(
         SqlDelightTransactionRunner(driver, database, confinement)
 
     /**
-     * Atomic rather than a plain flag: [close] is documented as idempotent and callable from any
-     * thread, and two concurrent calls on a plain `var` would both get past the guard and close the
-     * driver twice.
+     * A compare-and-set flag rather than a plain `var`: [close] is documented as idempotent and callable
+     * from any thread, and two concurrent calls on a plain `var` would both get past the guard and close
+     * the driver twice.
      */
-    private val closed: AtomicBoolean = AtomicBoolean(false)
+    private val closed: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
     override fun close() {
         // A second call is a no-op first: on iOS a dead database thread's id can be reused by the caller's thread.
-        if (closed.load()) return
+        if (closed.value) return
         // Before the CAS, so a refused call does not mark the storage closed. Closing waits for the database
         // thread to run the finalizer; called from that thread — inside `inTransaction`, say — the wait would be
         // for itself, forever.
@@ -170,7 +168,7 @@ internal class SqlDelightUploaderStorage(
             "close() called on the uploader database thread (for example inside inTransaction); " +
                 "close the storage from outside any transaction"
         }
-        if (!closed.compareAndSet(expectedValue = false, newValue = true)) return
+        if (!closed.compareAndSet(expect = false, update = true)) return
         // The driver is closed from the database thread, after everything queued ahead of it has
         // run — see DatabaseConfinement.closeAfterDraining for why that ordering is not optional.
         confinement.closeAfterDraining { if (ownsDriver) driver.close() }

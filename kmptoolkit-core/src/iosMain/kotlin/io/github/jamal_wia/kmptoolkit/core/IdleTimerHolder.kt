@@ -72,6 +72,8 @@ private class CountingIdleTimerHolder(
     private val postToMain: (() -> Unit) -> Unit,
 ) : IdleTimerHolder {
 
+    // AtomicInt, not StateFlow/Mutex: acquire() and release() are non-suspending and called from any thread, and
+    // this module has no coroutines dependency.
     private val holds: AtomicInt = AtomicInt(0)
 
     // Main thread only: whether this holder currently has the flag disabled, and the value it found

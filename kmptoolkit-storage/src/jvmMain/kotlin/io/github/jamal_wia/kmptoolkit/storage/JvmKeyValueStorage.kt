@@ -120,6 +120,8 @@ internal class JvmKeyValueStorage(
     private companion object {
         const val TEMPORARY_SUFFIX: String = ".tmp"
 
+        // ConcurrentHashMap, not a Mutex-guarded map: looked up from the non-suspending constructor; JVM-only, so no
+        // Kotlin/Native constraint. The values are coroutine Mutexes.
         val LOCKS: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap()
 
         /** The canonical path — symlinks and case-insensitive spellings resolved — or the absolute one. */
