@@ -71,7 +71,9 @@ Callable from any thread. This module ships no trigger that calls them — see
 
 A [`LogSink`](../kmptoolkit-logging/04-api-reference.md#fun-interface-logsink) that delegates
 straight to `record`, so it honors this state's `minLevel` and bound. It never throws, so the
-logger's error containment never has to engage.
+logger's error containment never has to engage. A throwable that cannot render its own stack trace (its
+`toString()` or `message` throws) does not cost the event: the record keeps its message and a
+`throwableText` that names the throwable's class and says the trace was unavailable.
 
 Each call returns a new instance; all of them feed the same buffer. Install it **alongside**
 `platformLogSink()`, not instead of it:
@@ -164,7 +166,8 @@ The panel on its own, for placing inside your own bottom sheet, developer screen
 
 - **Ignores `state.isVisible`** — whether it is composed is your decision. Its close button still
   calls `hide()`, so drive your container from `isVisible` and the two stay consistent.
-- Renders records **newest first**.
+- Renders records **newest first**. While the list shows its top, a record that arrives is scrolled
+  into view at the top; a reader who has scrolled down into the history is not moved.
 - A row whose record has a `throwableText` expands to show it on tap and collapses on a second tap.
   Which row is expanded is composition-local state, not part of `LogOverlayState`, so two panels
   over the same buffer can expand different rows. The expanded row is remembered as the record itself,
