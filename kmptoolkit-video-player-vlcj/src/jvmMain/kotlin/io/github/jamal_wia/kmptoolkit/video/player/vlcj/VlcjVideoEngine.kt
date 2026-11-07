@@ -62,6 +62,11 @@ import kotlinx.coroutines.withContext
  *   unreachable is synchronous.
  * - Native calls from the caller's thread go through [lock], and every one checks the session is
  *   still open first, so no call can reach a native player after its session closed.
+ *   That barrier waits for a native call in flight, so it relies on every native call made on the
+ *   caller's thread returning at once. libvlc 3's play, pause, set_time, rate, volume and time
+ *   controls only post work to the input thread or read its state, and the blocking ones (stop,
+ *   release) run only on [teardown]. Never add a call that can block (a synchronous stop, a
+ *   set_media that releases a running input) to a caller-thread path.
  * - VLCJ delivers events on its own event thread and pictures on libvlc's video-output thread;
  *   neither may call back into libvlc (VLCJ's documented rule). Events therefore only update cached
  *   values and notify the listener; a transport call that arrives on one of those threads (a
