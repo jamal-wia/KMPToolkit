@@ -13,11 +13,15 @@ import io.github.jamal_wia.kmptoolkit.uploader.spi.WakeScheduler
 import kotlin.time.Duration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -47,6 +51,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * - **Backoff lives in the rows, not in memory.** A failed attempt persists its attempt count and
  *   its next-run gate; the drain skips gated rows and arms a one-shot alarm for the soonest one.
  *   The drain never sleeps while holding the queue, and a retry budget survives process death.
+ * - **Attempts run in a child coroutine.** The drain runs each attempt in a child of its own, so a withdrawal
+ *   ([cancel], [cancelByTag], a REPLACE) can cancel the running attempt of the item it removes.
  * - **Its own child scope.** Everything is launched in [engineScope], a child of the caller's
  *   scope, so [close] can stop the engine without cancelling a scope it does not own — while
  *   cancelling the caller's scope still stops the engine.
@@ -228,6 +234,8 @@ internal class DefaultUploaderEngine(
             wakeScheduler.scheduleWake()
         }
         // A parked item has no upload to cancel; only an upload handler's items have one at all.
+        // Whatever the handler kind, an attempt the engine is running for the superseded item is stopped.
+        superseded?.let { old -> stopAttempt(old.id) }
         superseded?.takeIf { handler is UploadHandler<*> && it.state != UploaderItemState.PARKED }
             ?.let { old -> cancelUpload(old, reason = "superseded by ${record.logName}") }
         if (inserted) {
@@ -248,6 +256,7 @@ internal class DefaultUploaderEngine(
         }
         // Row first: a transport job that starts after this finds nothing owed.
         store.deleteById(id)
+        stopAttempt(id)
         cancelUpload(record, reason = "withdrawn")
         trigger() // an emptied queue lets the drain disarm the wake
     }
@@ -256,7 +265,9 @@ internal class DefaultUploaderEngine(
         // The rows come back from the wipe itself rather than from a read made first: an item enqueued
         // and handed off between such a read and the delete would lose its row while its upload ran on —
         // after a logout wipe, under the next account. Parked items have no upload to cancel.
-        val owed: List<UploaderItem> = store.deleteByTag(tag).filter { it.state != UploaderItemState.PARKED }
+        val removed: List<UploaderItem> = store.deleteByTag(tag)
+        removed.forEach { record -> stopAttempt(record.id) }
+        val owed: List<UploaderItem> = removed.filter { it.state != UploaderItemState.PARKED }
         owed.forEach { record -> cancelUpload(record, reason = "withdrawn by tag") }
         logger.i { "Withdrew every item tagged '$tag' (${owed.size} active)." }
         trigger()
@@ -486,7 +497,7 @@ internal class DefaultUploaderEngine(
                 // One item's failure must not abort the pass: the items behind it would not run, no alarm
                 // would be armed for their gates, and the same row would be first again on the next trigger.
                 try {
-                    executeItem(item, handler)
+                    attemptUnlessMoved(item) { executeItem(item, handler) }
                     outsideFailures.update { it - item.id }
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
@@ -620,6 +631,8 @@ internal class DefaultUploaderEngine(
             handOffUpload(item, typedHandler as UploadHandler<Any>, context, payload)
             return
         }
+        // A withdrawal that landed after the attempt was admitted must stop it before any handler code runs.
+        currentCoroutineContext().ensureActive()
         val outcome: AttemptResult = try {
             typedHandler.execute(context, payload)
         } catch (e: CancellationException) {
@@ -694,6 +707,7 @@ internal class DefaultUploaderEngine(
         context: AttemptContext,
         payload: Any,
     ) {
+        currentCoroutineContext().ensureActive()
         val preparation: UploadPreparation = try {
             handler.prepareUpload(context, payload)
         } catch (e: CancellationException) {
@@ -806,6 +820,63 @@ internal class DefaultUploaderEngine(
             FailureDisposition.PARK -> logger.e { "Parked ${record.logName} after $attempts attempts ($error)." }
             FailureDisposition.DROP -> logger.e { "Dropped ${record.logName} after $attempts attempts ($error)." }
             FailureDisposition.RETRY -> logger.w { "Retry scheduled for ${record.logName} (attempt $attempts, $error)." }
+        }
+    }
+
+    /** An attempt the drain is running for one item, and whether a withdrawal has stopped it. */
+    private class RunningAttempt(val job: Job) {
+        val withdrawn: MutableStateFlow<Boolean> = MutableStateFlow(false)
+    }
+
+    /** The attempts the drain is running right now, by item id: the handshake with [stopAttempt]. */
+    private val runningAttempts: MutableStateFlow<Map<String, RunningAttempt>> = MutableStateFlow(emptyMap())
+
+    /**
+     * Stops the attempt the engine is running for [id], if any: marks it withdrawn and cancels it, without
+     * waiting for it. Called after the store call that removed the row, so that either the attempt registered
+     * before this call and is cancelled by it, or it registers afterwards and its re-read of the row finds the
+     * row gone ([attemptUnlessMoved]). Neither side takes a lock: both steps are atomic on their own.
+     */
+    private fun stopAttempt(id: String) {
+        runningAttempts.value[id]?.let { running ->
+            running.withdrawn.value = true
+            running.job.cancel()
+        }
+    }
+
+    /**
+     * Runs [block], the attempt for [item], unless the item moved since the pass read it, and cancels it when a
+     * withdrawal removes the item while it runs. The attempt registers first and re-reads its row second; a
+     * withdrawal removes the row first and looks for a registered attempt second, so one of the two always sees
+     * the other and no attempt of a removed item begins after the withdrawal returned. A withdrawn attempt
+     * records nothing: its row is gone, or a transaction that rolled the withdrawal back restored it unspent.
+     */
+    private suspend fun attemptUnlessMoved(item: UploaderItem, block: suspend () -> Unit) {
+        coroutineScope {
+            val attempt: Deferred<Unit> = async(start = CoroutineStart.LAZY) { block() }
+            val entry = RunningAttempt(attempt)
+            runningAttempts.update { it + (item.id to entry) }
+            try {
+                if (store.getById(item.id) != item) {
+                    logger.i { "Attempt of ${item.logName} skipped — the item moved since this pass read it." }
+                    return@coroutineScope
+                }
+                try {
+                    attempt.await()
+                } catch (e: CancellationException) {
+                    // close() or a cancelled scope still propagates from here.
+                    currentCoroutineContext().ensureActive()
+                    if (entry.withdrawn.value) {
+                        logger.i { "Attempt of ${item.logName} stopped — the item was withdrawn." }
+                        return@coroutineScope
+                    }
+                    throw e // a leaked cancellation: the drain's catch handles it as before
+                }
+            } finally {
+                runningAttempts.update { map -> if (map[item.id] === entry) map - item.id else map }
+                // A lazy child that never started would keep this scope waiting for it.
+                attempt.cancel()
+            }
         }
     }
 

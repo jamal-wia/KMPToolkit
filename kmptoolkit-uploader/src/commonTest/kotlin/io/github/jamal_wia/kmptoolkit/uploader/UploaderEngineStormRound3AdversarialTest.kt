@@ -398,6 +398,181 @@ class UploaderEngineStormRound3AdversarialTest {
         }
     }
 
+    // --- fixer round 3, group 6 ---
+
+    @Test
+    fun `a plain item the drain read before a logout wipe is not executed after the wipe returned`() = runTest {
+        val handler = TestHandler()
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler))
+        try {
+            engine.enqueue(handler, "account-a-message", tag = "account-a")
+
+            // The drain has read the queue; the user logs out and the wipe completes; only then does the
+            // drain act on its snapshot.
+            store.afterNextGetAllActive = { engine.cancelByTag("account-a") }
+            engine.drain()
+
+            assertEquals(emptyList(), handler.payloads, "a wiped effect was executed after cancelByTag had returned")
+            assertEquals(emptyList(), store.items)
+        } finally {
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `a plain item the drain read before its withdrawal is not executed after cancel returned`() = runTest {
+        val handler = TestHandler()
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler))
+        try {
+            val id: String = assertNotNull(engine.enqueue(handler, "withdrawn"))
+
+            store.afterNextGetAllActive = { engine.cancel(id) }
+            engine.drain()
+
+            assertEquals(emptyList(), handler.payloads, "a withdrawn effect was executed after cancel had returned")
+        } finally {
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `a plain item replaced after the drain read it never runs with the superseded payload`() = runTest {
+        val handler = TestHandler()
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler))
+        try {
+            engine.enqueue(handler, "old", uniqueKey = "draft")
+
+            store.afterNextGetAllActive = {
+                engine.enqueue(handler, "new", uniqueKey = "draft", conflictPolicy = ConflictPolicy.REPLACE)
+            }
+            engine.drain()
+
+            assertEquals(listOf("new"), handler.payloads, "the superseded payload must not be executed once REPLACE returned")
+        } finally {
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `a detached plain item delivered after the drain read its expired lease is not handed off again`() = runTest {
+        val handler = TestHandler(onExecute = { _, _ -> AttemptResult.Detached(leaseMillis = 30_000L) })
+        val engine: UploaderEngine = engineOf(backgroundScope, listOf(handler))
+        try {
+            val id: String = assertNotNull(engine.enqueue(handler, "p"))
+            engine.drain()
+            assertEquals(1, handler.payloads.size)
+            val claim: Long = assertNotNull(store.find(id)).claim
+            clock.millis += 31_000L // the lease runs out
+
+            // The drain reads the expired lease; the executor's Delivered lands before the drain re-hands.
+            store.afterNextGetAllActive = { engine.settle(id, claim, SettleResult.Delivered) }
+            engine.drain()
+
+            assertEquals(1, handler.payloads.size, "an already delivered effect was handed off a second time")
+        } finally {
+            engine.close()
+        }
+    }
+
+    private class CountingRecordFailure(private val delegate: TestUploaderStore) : UploaderStore by delegate {
+        var recorded: Int = 0
+        override suspend fun recordFailure(
+            id: String,
+            attempts: Int,
+            nextRunAtEpochMillis: Long,
+            lastError: String?,
+            expectedState: UploaderItemState,
+            expectedClaim: Long,
+            disposition: FailureDisposition,
+        ): Boolean {
+            recorded++
+            return delegate.recordFailure(id, attempts, nextRunAtEpochMillis, lastError, expectedState, expectedClaim, disposition)
+        }
+    }
+
+    @Test
+    fun `a REPLACE stops the running attempt of the superseded plain item and the replacement runs`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val running = CompletableDeferred<Unit>()
+        var sawCancellation = false
+        val handler = TestHandler(
+            onExecute = { _, payload ->
+                if (payload == "old") {
+                    running.complete(Unit)
+                    try {
+                        gate.await()
+                    } catch (e: CancellationException) {
+                        sawCancellation = true
+                        throw e
+                    }
+                }
+                AttemptResult.Success
+            },
+        )
+        val counting = CountingRecordFailure(store)
+        val engine: UploaderEngine = createUploaderEngine(
+            store = counting,
+            handlers = listOf(handler),
+            scope = backgroundScope,
+            clock = clock,
+            idGenerator = SequentialIds()::next,
+        )
+        try {
+            engine.start()
+            engine.enqueue(handler, "old", uniqueKey = "draft")
+            runCurrent()
+            assertTrue(running.isCompleted, "precondition: the attempt is running")
+
+            engine.enqueue(handler, "new", uniqueKey = "draft", conflictPolicy = ConflictPolicy.REPLACE)
+            advanceTimeBy(2.seconds)
+
+            assertTrue(sawCancellation, "the superseded item's attempt kept running")
+            assertEquals(0, counting.recorded, "the superseded attempt spent an attempt")
+            assertEquals(listOf("old", "new"), handler.payloads)
+            assertEquals(emptyList(), store.items)
+        } finally {
+            gate.complete(Unit)
+            engine.close()
+        }
+    }
+
+    @Test
+    fun `a withdrawn running attempt spends no attempt and records no error`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val running = CompletableDeferred<Unit>()
+        val handler = TestHandler(
+            onExecute = { _, _ ->
+                running.complete(Unit)
+                gate.await()
+                AttemptResult.Retry(IllegalStateException("late"))
+            },
+        )
+        val counting = CountingRecordFailure(store)
+        val engine: UploaderEngine = createUploaderEngine(
+            store = counting,
+            handlers = listOf(handler),
+            scope = backgroundScope,
+            clock = clock,
+            idGenerator = SequentialIds()::next,
+        )
+        try {
+            engine.start()
+            val id: String = assertNotNull(engine.enqueue(handler, "p"))
+            runCurrent()
+            assertTrue(running.isCompleted, "precondition: the attempt is running")
+
+            engine.cancel(id)
+            gate.complete(Unit) // a handler that ignores the withdrawal and finishes with a failure anyway
+            advanceTimeBy(2.seconds)
+
+            assertEquals(emptyList(), store.items)
+            assertEquals(0, counting.recorded, "a withdrawn attempt recorded a failure")
+        } finally {
+            gate.complete(Unit)
+            engine.close()
+        }
+    }
+
     // --- registry storm on real threads ---------------------------------------------------------------
 
     @Test

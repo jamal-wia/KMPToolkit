@@ -135,6 +135,11 @@ id?.let { uploader.cancel(it) }
 its transport. Other items are untouched, including other handlers' uploads on the same transport. It
 runs no handler hook, so clean up after it yourself — the source file, a "sending" badge.
 
+After `cancel`, `cancelByTag` or a `REPLACE` returns, no attempt of a removed item begins, even one the drain had
+already read from the queue, and an attempt the engine is already running for it is cancelled: it spends no
+attempt and records nothing. The call does not wait for that attempt, and a handler that ignores cancellation may
+still finish its effect.
+
 What it cannot do is recall bytes the server already has: an upload whose body was fully sent may
 have been accepted. Read a withdrawal as "will not be sent from now on". Send `AttemptContext.id` as
 an idempotency key so a second send of the same effect stays harmless.

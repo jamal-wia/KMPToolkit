@@ -143,7 +143,8 @@ public interface UploaderStore {
      *
      * This is the settle path's read: an executor reporting an outcome may be reporting on an item
      * that was superseded, wiped, or already settled, and `null` is the normal, expected answer in
-     * those cases — not an error.
+     * those cases — not an error. The engine also reads it once before every attempt, to be sure the item
+     * it is about to attempt was not withdrawn since the pass read the queue.
      *
      * @param id the item's [UploaderItem.id].
      * @return the item, or `null` if no row has that id.
