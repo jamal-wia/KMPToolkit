@@ -8,6 +8,8 @@ import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.concurrent.AtomicInt
 import kotlin.concurrent.Volatile
 import kotlin.time.Duration
+import kotlin.time.DurationUnit
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.cinterop.CPointer
@@ -71,39 +73,69 @@ import platform.posix.memcpy
  * @param rehandFlushWindow how long a re-hand that finds no running task waits for buffered completion
  *   events before starting the upload afresh — the previous process may have finished it without
  *   settling, and starting again would upload it twice.
- * @since 1.5.0
+ * @param requestTimeout the session's `timeoutIntervalForRequest`: an **idle** timeout — how long the
+ *   transfer may go without sending or receiving a single byte, not a bound on the whole upload. The
+ *   default, 60 seconds, is the system's own. A background session does not fail on this timeout; iOS
+ *   silently retries until [resourceTimeout] runs out. Must be positive.
+ * @param resourceTimeout the session's `timeoutIntervalForResource`: how long the whole transfer, retries
+ *   after an idle timeout included, may take before iOS fails it. The default, 7 days, is the system's
+ *   own. It therefore bounds how long an upload may be re-sent; keep [lease] below it. Must be positive.
+ * @since 1.5.0 ([requestTimeout] and [resourceTimeout] since 3.1.0)
  */
 public class BackgroundUploadConfig(
     public val sessionIdentifierPrefix: String? = null,
     public val lease: Duration = 60.minutes,
     public val rehandFlushWindow: Duration = 3.seconds,
+    public val requestTimeout: Duration = DEFAULT_REQUEST_TIMEOUT,
+    public val resourceTimeout: Duration = DEFAULT_RESOURCE_TIMEOUT,
 ) {
+    /** The constructor before [requestTimeout] and [resourceTimeout] existed; kept for binary compatibility. */
+    @Deprecated("Superseded by the constructor with requestTimeout and resourceTimeout.", level = DeprecationLevel.HIDDEN)
+    public constructor(
+        sessionIdentifierPrefix: String?,
+        lease: Duration,
+        rehandFlushWindow: Duration,
+    ) : this(sessionIdentifierPrefix, lease, rehandFlushWindow, DEFAULT_REQUEST_TIMEOUT, DEFAULT_RESOURCE_TIMEOUT)
+
     init {
         require(sessionIdentifierPrefix == null || sessionIdentifierPrefix.isNotBlank()) {
             "sessionIdentifierPrefix must be null or non-blank, was '$sessionIdentifierPrefix'."
         }
         require(lease.isPositive()) { "lease must be positive, was $lease." }
         require(!rehandFlushWindow.isNegative()) { "rehandFlushWindow must not be negative, was $rehandFlushWindow." }
+        require(requestTimeout.isPositive()) { "requestTimeout must be positive, was $requestTimeout." }
+        require(resourceTimeout.isPositive()) { "resourceTimeout must be positive, was $resourceTimeout." }
     }
 
     override fun equals(other: Any?): Boolean =
         other is BackgroundUploadConfig &&
             sessionIdentifierPrefix == other.sessionIdentifierPrefix &&
             lease == other.lease &&
-            rehandFlushWindow == other.rehandFlushWindow
+            rehandFlushWindow == other.rehandFlushWindow &&
+            requestTimeout == other.requestTimeout &&
+            resourceTimeout == other.resourceTimeout
 
     override fun hashCode(): Int {
         var result: Int = sessionIdentifierPrefix.hashCode()
         result = 31 * result + lease.hashCode()
         result = 31 * result + rehandFlushWindow.hashCode()
+        result = 31 * result + requestTimeout.hashCode()
+        result = 31 * result + resourceTimeout.hashCode()
         return result
     }
 
     override fun toString(): String =
         "BackgroundUploadConfig(sessionIdentifierPrefix=$sessionIdentifierPrefix, lease=$lease, " +
-            "rehandFlushWindow=$rehandFlushWindow)"
+            "rehandFlushWindow=$rehandFlushWindow, requestTimeout=$requestTimeout, " +
+            "resourceTimeout=$resourceTimeout)"
 
     internal companion object {
+        /** The system's `timeoutIntervalForRequest` default. */
+        val DEFAULT_REQUEST_TIMEOUT: Duration = 60.seconds
+
+        /** The system's `timeoutIntervalForResource` default. */
+        val DEFAULT_RESOURCE_TIMEOUT: Duration = 7.days
+
         const val DEFAULT_PREFIX_SUFFIX: String = ".uploader.upload."
     }
 }
@@ -380,11 +412,7 @@ internal class BackgroundSessionUploadTransport(
 
     /** A new background session for [itemId]. The caller holds [liveLock] and records it. */
     private fun createLive(itemId: String): LiveUpload {
-        val configuration: NSURLSessionConfiguration =
-            NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier(identifierPrefix + itemId)
-        configuration.allowsCellularAccess = true
-        configuration.sessionSendsLaunchEvents = true
-        configuration.discretionary = false
+        val configuration: NSURLSessionConfiguration = buildSessionConfiguration(identifierPrefix + itemId, config)
         val delegate = UploadSessionDelegate(
             itemId = itemId,
             scope = scope,
@@ -774,3 +802,15 @@ internal fun uploadResponseOf(statusCode: Int, headerFields: Map<Any?, *>?, body
 
 /** Progress is quantized against a fixed basis, so byte totals above Int range stay exact. */
 private const val PERCENT_BASIS: Long = 10_000L
+
+/** The background session configuration for [identifier], with [config]'s timeouts applied. */
+internal fun buildSessionConfiguration(identifier: String, config: BackgroundUploadConfig): NSURLSessionConfiguration {
+    val configuration: NSURLSessionConfiguration =
+        NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier(identifier)
+    configuration.allowsCellularAccess = true
+    configuration.sessionSendsLaunchEvents = true
+    configuration.discretionary = false
+    configuration.timeoutIntervalForRequest = config.requestTimeout.toDouble(DurationUnit.SECONDS)
+    configuration.timeoutIntervalForResource = config.resourceTimeout.toDouble(DurationUnit.SECONDS)
+    return configuration
+}
