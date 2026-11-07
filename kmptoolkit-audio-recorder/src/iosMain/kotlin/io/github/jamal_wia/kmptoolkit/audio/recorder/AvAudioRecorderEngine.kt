@@ -79,8 +79,8 @@ internal class AvAudioRecorderEngine(
     private val audioSession: AudioSessionHolders = AudioSessionHolders.Shared,
 ) : RecorderEngine {
 
-    // Volatile because peakDbfs() reads it from the metering coroutine while release() nulls it on
-    // the caller's thread — the one cross-thread read in this class.
+    // Volatile because delegate callbacks read it on their own thread (accepts, below) and release() may
+    // null it from the worker finishing a session, not only from the caller.
     @Volatile
     private var recorder: AVAudioRecorder? = null
     private var channelCount: Int = 1
