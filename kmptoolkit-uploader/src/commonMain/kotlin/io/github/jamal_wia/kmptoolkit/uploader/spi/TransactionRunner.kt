@@ -36,6 +36,9 @@ public interface TransactionRunner {
     /**
      * Runs [block] inside one transaction and returns its result.
      *
+     * Do not await, inside [block], another coroutine that uses the uploader or the same storage: a
+     * single-threaded implementation cannot serve it while [block] waits, and the two deadlock.
+     *
      * @param block the work to run atomically; may itself call back into the store or the uploader.
      * @return whatever [block] returned.
      */

@@ -204,6 +204,13 @@ holds the database thread and SQLite's write lock until it returns. That is bad 
 database; here it also stalls every other queue operation. Do the slow work first, then open the
 transaction — or, better, put the slow work in a handler, which is what the uploader is for.
 
+Never await, inside `inTransaction`, another coroutine that touches the uploader or this storage (an
+executor settling an item, an `observe` collector, a second `enqueue` launched elsewhere). That
+coroutine's statements queue on the database thread, which is parked inside your block waiting for it:
+a permanent deadlock of the whole queue, with no timeout and no error. Do that work before or after the
+transaction, or call the store directly from inside the block, where re-entry is free. Calling
+`storage.close()` inside the block is refused with an `IllegalStateException` for the same reason.
+
 A block that throws rolls the transaction back and the exception propagates unchanged, including
 `CancellationException`: a cancelled coroutine never leaves a half-applied transaction behind.
 

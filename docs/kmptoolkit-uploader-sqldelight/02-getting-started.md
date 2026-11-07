@@ -75,7 +75,10 @@ storage.close()
 
 `close` releases the database thread and, for a storage that opened its own file, the connection.
 Do it when the queue itself is finished with — not on a screen teardown; the queue is supposed to
-outlive the UI. Calling it twice is a no-op.
+outlive the UI. Calling it twice is a no-op. Close the engine (`engine.close()`) **first**: a started
+engine still running after `storage.close()` fails every drain and heartbeat pass. Do not call it from
+inside `inTransaction` or any code running on the database thread; that is refused with an
+`IllegalStateException`.
 
 ## Where to go from here
 

@@ -161,6 +161,13 @@ internal class SqlDelightUploaderStorage(
     private val closed: AtomicBoolean = AtomicBoolean(false)
 
     override fun close() {
+        // Before the guard, so a refused call does not mark the storage closed. Closing waits for the database
+        // thread to run the finalizer; called from that thread — inside `inTransaction`, say — the wait would be
+        // for itself, forever.
+        check(currentThreadId() != confinement.threadId) {
+            "close() called on the uploader database thread (for example inside inTransaction); " +
+                "close the storage from outside any transaction"
+        }
         if (!closed.compareAndSet(expectedValue = false, newValue = true)) return
         // The driver is closed from the database thread, after everything queued ahead of it has
         // run — see DatabaseConfinement.closeAfterDraining for why that ordering is not optional.

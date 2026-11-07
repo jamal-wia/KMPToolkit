@@ -921,4 +921,31 @@ internal class SqlDelightUploaderStoreChecks {
 
         const val WRITES_PER_CLOSE_RACE: Int = 50
     }
+
+    // ---------------------------------------------------------------------------------------
+    // close() on the database thread
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * `close()` waits for the database thread to run its finalizer, so called from that thread — inside
+     * `inTransaction` — it would wait for itself forever. It must refuse, and the refused call must not
+     * mark the storage closed.
+     */
+    suspend fun closeInsideATransactionFailsFastAndLeavesTheStorageOpen() {
+        val storage: UploaderStorage = createInMemoryUploaderStorage()
+        try {
+            // Real time: a close that waits for itself would otherwise hang, not time out.
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000L) {
+                    assertFailsWith<IllegalStateException> {
+                        storage.transactionRunner.inTransaction { storage.close() }
+                    }
+                }
+            }
+            storage.store.insertKeep(anItem("a"))
+            assertEquals(listOf("a"), storage.store.getAllActive().map { it.id })
+        } finally {
+            storage.close()
+        }
+    }
 }
