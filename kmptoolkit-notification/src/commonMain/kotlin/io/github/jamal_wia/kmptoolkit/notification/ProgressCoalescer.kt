@@ -55,11 +55,18 @@ internal class ProgressCoalescer(
     private val posted: MutableMap<String, Post> = mutableMapOf()
 
     /**
-     * The serial of the newest [PostTicket] issued per id, dropped by [forget] / [clear] and by
-     * [complete] for a terminal frame. A ticket whose serial is not the id's current one belongs to
-     * a frame that a cancel or a newer post has overtaken, and [isLive] says so.
+     * The newest [PostTicket] issued per id, dropped by [forget] / [clear], by [complete] for a
+     * terminal frame and by [pruneStale]. A ticket that is not the id's current one belongs to a
+     * frame that a cancel or a newer post has overtaken, and [isLive] says so.
      */
-    private val latest: MutableMap<String, Long> = mutableMapOf()
+    private val latest: MutableMap<String, PostTicket> = mutableMapOf()
+
+    /**
+     * Per id, the tickets issued and not yet completed or rolled back, oldest first. When the newest
+     * one fails, the newest of these takes over as the id's live frame (see [rollback]): a frame that
+     * never reached the platform has overtaken nothing.
+     */
+    private val inFlight: MutableMap<String, MutableList<PostTicket>> = mutableMapOf()
     private var nextSerial: Long = 0L
 
     /** How old a baseline must be before [pruneStale] drops it; far above any sensible rate limit. */
@@ -91,13 +98,18 @@ internal class ProgressCoalescer(
             Decision.Suppress -> null
             Decision.Reset -> {
                 posted.remove(id)
-                PostTicket(id, previous = null, recorded = null, serial = issue(id))
+                issue(id, previous = null, recorded = null)
             }
 
             is Decision.Record -> {
-                val recorded = Post(bucket = decision.bucket, content = content, at = timeSource.markNow())
-                val previous: Post? = posted.put(id, recorded)
-                PostTicket(id, previous = previous, recorded = recorded, serial = issue(id))
+                // What a rollback may restore is the last baseline that was really shown. The record
+                // currently held may belong to a post still in flight (or one that already failed), so
+                // the ticket carries that record's own shown baseline instead.
+                val held: Post? = posted[id]
+                val baseline: Post? = if (held == null || held.shown) held else held.fallback
+                val recorded = Post(bucket = decision.bucket, content = content, at = timeSource.markNow(), fallback = baseline)
+                posted[id] = recorded
+                issue(id, previous = baseline, recorded = recorded)
             }
         }
     }
@@ -110,15 +122,26 @@ internal class ProgressCoalescer(
      * enough ids are tracked for it to matter.
      */
     private fun pruneStale() {
-        if (posted.size < PRUNE_THRESHOLD || lastPrune.elapsedNow() < staleAfter / PRUNE_SPACING) return
+        if (maxOf(posted.size, latest.size) < PRUNE_THRESHOLD || lastPrune.elapsedNow() < staleAfter / PRUNE_SPACING) return
         lastPrune = timeSource.markNow()
         val iterator: MutableIterator<MutableMap.MutableEntry<String, Post>> = posted.entries.iterator()
         while (iterator.hasNext()) {
             val entry: MutableMap.MutableEntry<String, Post> = iterator.next()
             if (entry.value.at.elapsedNow() > staleAfter) {
                 latest.remove(entry.key)
+                inFlight.remove(entry.key)
                 iterator.remove()
             }
+        }
+        // Tickets with no baseline (terminal frames) and tickets whose caller never completed or
+        // rolled them back have no `posted` entry to age out with, so they age out on their own.
+        latest.values.removeAll { ticket: PostTicket -> ticket.at.elapsedNow() > staleAfter }
+        val flights: MutableIterator<MutableMap.MutableEntry<String, MutableList<PostTicket>>> =
+            inFlight.entries.iterator()
+        while (flights.hasNext()) {
+            val flight: MutableList<PostTicket> = flights.next().value
+            flight.removeAll { ticket: PostTicket -> ticket.at.elapsedNow() > staleAfter }
+            if (flight.isEmpty()) flights.remove()
         }
     }
 
@@ -129,10 +152,22 @@ internal class ProgressCoalescer(
     internal fun latestCountForTest(): Int = lock.withLock { latest.size }
 
     /** Lock held. Numbers a new ticket for [id] and makes it the id's newest. */
-    private fun issue(id: String): Long {
-        val serial: Long = ++nextSerial
-        latest[id] = serial
-        return serial
+    private fun issue(id: String, previous: Post?, recorded: Post?): PostTicket {
+        val ticket = PostTicket(id, previous, recorded, ++nextSerial, timeSource.markNow())
+        latest[id] = ticket
+        inFlight.getOrPut(id) { mutableListOf() }.add(ticket)
+        return ticket
+    }
+
+    /**
+     * Lock held. Takes [ticket] out of its id's in-flight list. A completed frame is on the tray, so
+     * every older frame still in flight is out of date and leaves with it; a failed one takes only
+     * itself.
+     */
+    private fun settle(ticket: PostTicket, completed: Boolean) {
+        val flight: MutableList<PostTicket> = inFlight[ticket.id] ?: return
+        if (completed) flight.removeAll { it.serial <= ticket.serial } else flight.remove(ticket)
+        if (flight.isEmpty()) inFlight.remove(ticket.id)
     }
 
     /**
@@ -141,7 +176,7 @@ internal class ProgressCoalescer(
      * also holds around its own platform call, so a frame that lost the race to a cancel or to a
      * newer frame (a terminal "Done", say) is dropped instead of reappearing on top of it.
      */
-    fun isLive(ticket: PostTicket): Boolean = lock.withLock { latest[ticket.id] == ticket.serial }
+    fun isLive(ticket: PostTicket): Boolean = lock.withLock { latest[ticket.id]?.serial == ticket.serial }
 
     /**
      * Marks [ticket]'s frame as shown. A terminal frame ([prepare] cleared the id) leaves nothing
@@ -149,20 +184,40 @@ internal class ProgressCoalescer(
      * flight read as overtaken.
      */
     fun complete(ticket: PostTicket): Unit = lock.withLock {
-        if (ticket.recorded == null && latest[ticket.id] == ticket.serial) latest.remove(ticket.id)
+        settle(ticket, completed = true)
+        ticket.recorded?.let { recorded: Post ->
+            recorded.shown = true
+            recorded.fallback = null
+        }
+        if (ticket.recorded == null && latest[ticket.id]?.serial == ticket.serial) latest.remove(ticket.id)
     }
 
     /**
-     * Undoes [ticket]'s record because its post failed: restores what the id held before, but only
-     * if the id still holds exactly what that ticket recorded. A [forget], a [clear], or a newer
-     * post for the id in the meantime means the record is no longer this ticket's to undo, and
-     * nothing changes. A terminal frame ([prepare] cleared the id) has nothing to restore.
+     * Undoes [ticket]'s record because its post failed.
      *
-     * Either way the id's newest-serial entry goes if it is still this ticket's: a frame that never
-     * reached the platform will never be [complete]d, so nothing else would clear it.
+     * If the ticket was the id's newest and an older frame is still in flight, that frame takes over
+     * as the live one and as the baseline: the failed frame never reached the platform, so it
+     * overtook nothing. Otherwise the id's newest-serial entry goes (a frame that never reached the
+     * platform will never be [complete]d, so nothing else would clear it) and, if the id still holds
+     * exactly what the ticket recorded, the last baseline that was actually shown is restored. A
+     * [forget], a [clear], or a newer post for the id in the meantime means the record is no longer
+     * this ticket's to undo, and nothing changes. A terminal frame ([prepare] cleared the id) has
+     * nothing to restore.
      */
     fun rollback(ticket: PostTicket): Unit = lock.withLock {
-        if (latest[ticket.id] == ticket.serial) latest.remove(ticket.id)
+        settle(ticket, completed = false)
+        if (latest[ticket.id]?.serial == ticket.serial) {
+            val promoted: PostTicket? = inFlight[ticket.id]?.lastOrNull()
+            if (promoted != null) {
+                latest[ticket.id] = promoted
+                if (ticket.recorded == null || posted[ticket.id] === ticket.recorded) {
+                    val baseline: Post? = promoted.recorded
+                    if (baseline == null) posted.remove(ticket.id) else posted[ticket.id] = baseline
+                }
+                return@withLock
+            }
+            latest.remove(ticket.id)
+        }
         val recorded: Post = ticket.recorded ?: return@withLock
         if (posted[ticket.id] !== recorded) return@withLock
         val previous: Post? = ticket.previous
@@ -195,12 +250,14 @@ internal class ProgressCoalescer(
     fun forget(id: String): Unit = lock.withLock {
         posted.remove(id)
         latest.remove(id)
+        inFlight.remove(id)
     }
 
     /** Forgets every id's state. Called on [Notifier.cancelAll]. */
     fun clear(): Unit = lock.withLock {
         posted.clear()
         latest.clear()
+        inFlight.clear()
     }
 
     /**
@@ -211,6 +268,7 @@ internal class ProgressCoalescer(
         internal val previous: Post?,
         internal val recorded: Post?,
         internal val serial: Long,
+        internal val at: TimeMark,
     )
 
     private companion object {
@@ -226,7 +284,11 @@ internal class ProgressCoalescer(
     }
 
     /** One recorded post. A plain class: [rollback] compares records by identity. */
-    internal class Post(val bucket: Int, val content: Any?, val at: TimeMark)
+    internal class Post(val bucket: Int, val content: Any?, val at: TimeMark, var fallback: Post? = null) {
+
+        /** Set once the frame reached the platform; guarded by the coalescer's lock. */
+        var shown: Boolean = false
+    }
 
     /** What [decide] concluded, kept separate from acting on it so it can also be asked about. */
     private sealed interface Decision {

@@ -111,6 +111,22 @@ class ProgressCoalescerAdversarialTest {
         assertTrue(maxLatest < 1_000, "newest-serial map peaked at $maxLatest for $ABANDONED_IDS abandoned ids")
     }
 
+    @Test
+    fun `terminal frames abandoned without complete or rollback leave nothing a later prune can miss`() {
+        val time = TestTimeSource()
+        val coalescer = ProgressCoalescer(bucketPercent = 10, minInterval = 500.milliseconds, timeSource = time)
+
+        repeat(ABANDONED_IDS) { index: Int ->
+            coalescer.prepare("done-$index", progress = null)
+            time += 1.seconds
+        }
+
+        assertTrue(
+            coalescer.latestCountForTest() < 1_000,
+            "newest-serial map holds ${coalescer.latestCountForTest()} entries for $ABANDONED_IDS abandoned terminal frames",
+        )
+    }
+
     private suspend fun runWorker(coalescer: ProgressCoalescer, worker: Int): List<String> = coroutineScope {
         val problems: MutableList<String> = mutableListOf()
         val random = Random(SEED + worker)

@@ -49,6 +49,11 @@ percentage; a changed title, body, button set or options bypasses it. The rate l
 (`minProgressInterval`) applies to every determinate frame, changed or not. A frame becomes the
 baseline later frames are judged against when it is decided, and **a post that fails is rolled back**:
 if a post returns `Failed`, retrying the same progress posts it again instead of answering `Coalesced`.
+This also holds when posts of one id overlap: a frame that failed never counts as shown, so an older
+frame of the same id that is still in flight is not dropped on its account (it only yields to a frame
+that actually reached the tray), and a retry is never judged redundant against a frame that was never
+displayed. Per-id bookkeeping of frames that were started and never finished is aged out, so it does
+not grow for the notifier's lifetime.
 
 ## Factories
 

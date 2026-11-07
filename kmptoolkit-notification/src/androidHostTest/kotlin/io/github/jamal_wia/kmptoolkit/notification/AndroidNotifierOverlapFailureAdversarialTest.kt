@@ -52,6 +52,28 @@ class AndroidNotifierOverlapFailureAdversarialTest {
         AndroidNotifier(context, permissions, renderer, ProgressCoalescer(bucketPercent = 10, minInterval = Duration.ZERO))
 
     @Test
+    fun `a newer frame that fails does not cost the older frame still in flight its place in the tray`() {
+        val renderer = ScriptedRenderer(context)
+        val notifier: Notifier = notifier(renderer)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        renderer.behaviours["old"] = {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS)) { "never released" }
+        }
+        renderer.behaviours["new"] = { throw IllegalStateException("the framework refused the newer frame") }
+        val worker: Thread = thread(name = "kmptoolkit-adversarial-old") { runBlocking { notifier.post("d", frame("old", 10)) } }
+        assertTrue(entered.await(5, TimeUnit.SECONDS), "the old frame never reached its build")
+
+        runBlocking { notifier.post("d", frame("new", 50)) }
+        release.countDown()
+        worker.join(5_000)
+
+        assertTrue(!worker.isAlive, "the old post is stuck")
+        assertEquals(listOf("old"), titles(), "nothing was shown although the older frame was still wanted")
+    }
+
+    @Test
     fun `two overlapping frames that both fail leave a retry of the older progress postable`() {
         val renderer = ScriptedRenderer(context)
         val notifier: Notifier = notifier(renderer)
@@ -76,5 +98,41 @@ class AndroidNotifierOverlapFailureAdversarialTest {
 
         assertEquals(NotificationResult.Posted, retry, "the retry was judged redundant against a frame that never reached the tray")
         assertEquals(listOf("old"), titles())
+    }
+
+    @Test
+    fun `two overlapping frames that both fail, the older failing first, leave a retry of the older progress postable`() {
+        val renderer = ScriptedRenderer(context)
+        val notifier: Notifier = notifier(renderer)
+        val oldEntered = CountDownLatch(1)
+        val oldRelease = CountDownLatch(1)
+        val newEntered = CountDownLatch(1)
+        val newRelease = CountDownLatch(1)
+        renderer.behaviours["old"] = {
+            renderer.behaviours.remove("old")
+            oldEntered.countDown()
+            check(oldRelease.await(5, TimeUnit.SECONDS)) { "never released" }
+            throw IllegalStateException("the framework refused the older frame")
+        }
+        renderer.behaviours["new"] = {
+            newEntered.countDown()
+            check(newRelease.await(5, TimeUnit.SECONDS)) { "never released" }
+            throw IllegalStateException("the framework refused the newer frame")
+        }
+        val older: Thread = thread(name = "kmptoolkit-adversarial-old") { runBlocking { notifier.post("d", frame("old", 10)) } }
+        assertTrue(oldEntered.await(5, TimeUnit.SECONDS), "the old frame never reached its build")
+        val newer: Thread = thread(name = "kmptoolkit-adversarial-new") { runBlocking { notifier.post("d", frame("new", 50)) } }
+        assertTrue(newEntered.await(5, TimeUnit.SECONDS), "the new frame never reached its build")
+
+        oldRelease.countDown()
+        older.join(5_000)
+        newRelease.countDown()
+        newer.join(5_000)
+        assertTrue(!older.isAlive && !newer.isAlive, "a post is stuck")
+        assertEquals(emptyList(), titles())
+
+        val retry: NotificationResult = runBlocking { notifier.post("d", frame("old", 10)) }
+
+        assertEquals(NotificationResult.Posted, retry, "the retry was judged redundant against a frame that never reached the tray")
     }
 }
