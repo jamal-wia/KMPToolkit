@@ -40,13 +40,24 @@ public interface BackgroundResourceDownloader {
     /**
      * Progress and terminal events for [unit]. Survives process death — on relaunch an
      * implementation reconnects to the transfer the OS kept running and replays its outcome.
+     *
+     * Replay only the outcome of the transfer currently known for [unit]. Once [enqueueDownload] is
+     * called for a unit, a terminal event of an earlier transfer must not reach a subscriber any
+     * more: the engine drops whatever a subscription delivers before it enqueues, because it can
+     * only be such a leftover, and an implementation that replays must not deliver the leftover
+     * again after the enqueue.
      */
     public fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent>
 
     /** True when a download for [unit] is enqueued or running, including across a restart. */
     public fun isDownloadInProgress(unit: DownloadUnit): Boolean
 
-    /** Cancels [unit]'s transfer. Does not delete the temp file — the engine decides that. */
+    /**
+     * Cancels [unit]'s transfer. Does not delete the temp file — the engine decides that. Once this
+     * returns, [isDownloadInProgress] is `false` for [unit] and the cancelled transfer's
+     * [BackgroundDownloadEvent.Cancelled] is not replayed to a later subscriber: a request made
+     * straight after a cancel must find a clean slate.
+     */
     public fun cancelDownload(unit: DownloadUnit)
 }
 

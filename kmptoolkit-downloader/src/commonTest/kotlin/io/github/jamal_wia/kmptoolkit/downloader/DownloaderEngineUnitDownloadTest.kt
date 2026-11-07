@@ -177,6 +177,18 @@ class DownloaderEngineUnitDownloadTest {
         assertTrue(state is UnitDownloadState.Error, "expected Error but was $state")
     }
 
+    /**
+     * Runs ensureAvailable the way a UI scope does. A cancel ends a running call with
+     * [DownloadCancelledException]; for the tests that cancel it, that is the expected outcome.
+     */
+    private suspend fun DefaultDownloaderEngine.ensureUntilCancelled(unit: DownloadUnit) {
+        try {
+            ensureAvailable(unit)
+        } catch (_: DownloadCancelledException) {
+            // expected
+        }
+    }
+
     @Test
     fun `cancelDownload sets Idle and deletes the temp file`() = runTest {
         val storage = FakeStorage()
@@ -187,16 +199,15 @@ class DownloaderEngineUnitDownloadTest {
         // touched the state at all would still pass an Idle assertion, since Idle is also the
         // untouched default. Waits specifically for the fake's real 0.1f progress, not the
         // Downloading(0f) placeholder ensureAvailable sets before enqueuing.
-        val downloadJob = backgroundScope.launch { engine.ensureAvailable(asset) }
+        val downloadJob = backgroundScope.launch { engine.ensureUntilCancelled(asset) }
         assertEquals(
             UnitDownloadState.Downloading(0.1f),
             engine.unitDownloadStateFlow(asset).first { it == UnitDownloadState.Downloading(0.1f) },
         )
 
         engine.cancelDownload(asset)
-        // cancelDownload dispatches the state write onto the engine's own scope (it isn't suspend) —
-        // give that a turn to run before observing.
-        launch { }.join()
+        // The running call owns the temp file and removes it when it sees the cancel; let it run.
+        testScheduler.runCurrent()
 
         assertTrue(downloader.cancelCalled)
         assertTrue(storage.tempFileDeletedFor.contains(asset))
@@ -342,13 +353,13 @@ class DownloaderEngineUnitDownloadTest {
 
         assertFalse(engine.hasActiveUnitDownload(), "nothing has ever asked to download yet")
 
-        val downloadJob = backgroundScope.launch { engine.ensureAvailable(asset) }
+        val downloadJob = backgroundScope.launch { engine.ensureUntilCancelled(asset) }
         engine.unitDownloadStateFlow(asset).first { it == UnitDownloadState.Downloading(0.1f) }
         assertTrue(engine.hasActiveUnitDownload(), "a unit is actively Downloading")
 
         engine.cancelDownload(asset)
-        // cancelDownload dispatches the state write onto the engine's own scope — give it a turn.
-        launch { }.join()
+        // The cancel is synchronous; let the running call finish its own cleanup.
+        testScheduler.runCurrent()
         assertFalse(engine.hasActiveUnitDownload(), "cancelling returns the unit to Idle")
         downloadJob.cancel()
     }
@@ -360,8 +371,8 @@ class DownloaderEngineUnitDownloadTest {
         val downloader = MultiUnitStallingDownloader()
         val engine = engine(storage, downloader, this)
 
-        val jobA = backgroundScope.launch { engine.ensureAvailable(asset) }
-        val jobB = backgroundScope.launch { engine.ensureAvailable(second) }
+        val jobA = backgroundScope.launch { engine.ensureUntilCancelled(asset) }
+        val jobB = backgroundScope.launch { engine.ensureUntilCancelled(second) }
         engine.unitDownloadStateFlow(asset).first { it == UnitDownloadState.Downloading(0.1f) }
         engine.unitDownloadStateFlow(second).first { it == UnitDownloadState.Downloading(0.1f) }
         assertTrue(engine.hasActiveUnitDownload())
@@ -454,10 +465,12 @@ class DownloaderEngineUnitDownloadTest {
     private class SucceedingDownloader(
         private val expectedUnit: DownloadUnit,
     ) : BackgroundResourceDownloader {
-        override fun enqueueDownload(unit: DownloadUnit) = Unit
+        private val gate = EnqueueGate()
+        override fun enqueueDownload(unit: DownloadUnit) = gate.enqueued()
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) = Unit
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             check(unit.id == expectedUnit.id) { "unexpected unit $unit" }
             emit(BackgroundDownloadEvent.Progress(unit = unit, fraction = 0.5f))
             emit(BackgroundDownloadEvent.FileReady(unit = unit))
@@ -471,14 +484,17 @@ class DownloaderEngineUnitDownloadTest {
     ) : BackgroundResourceDownloader {
         var enqueueCount: Int = 0
             private set
+        private val gate = EnqueueGate()
 
         override fun enqueueDownload(unit: DownloadUnit) {
             enqueueCount++
+            gate.enqueued()
         }
 
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) = Unit
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             check(unit.id == expectedUnit.id) { "unexpected unit $unit" }
             emit(BackgroundDownloadEvent.Progress(unit = unit, fraction = 0.5f))
             emit(BackgroundDownloadEvent.FileReady(unit = unit))
@@ -489,10 +505,12 @@ class DownloaderEngineUnitDownloadTest {
         private val expectedUnit: DownloadUnit,
         private val message: String,
     ) : BackgroundResourceDownloader {
-        override fun enqueueDownload(unit: DownloadUnit) = Unit
+        private val gate = EnqueueGate()
+        override fun enqueueDownload(unit: DownloadUnit) = gate.enqueued()
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) = Unit
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             check(unit.id == expectedUnit.id) { "unexpected unit $unit" }
             emit(BackgroundDownloadEvent.Error(unit = unit, message = message))
         }
@@ -502,13 +520,16 @@ class DownloaderEngineUnitDownloadTest {
         var cancelCalled: Boolean = false
             private set
 
-        override fun enqueueDownload(unit: DownloadUnit) = Unit
+        private val gate = EnqueueGate()
+
+        override fun enqueueDownload(unit: DownloadUnit) = gate.enqueued()
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) {
             cancelCalled = true
         }
 
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             emit(BackgroundDownloadEvent.Progress(unit = unit, fraction = 0.1f))
             awaitCancellation()
         }
@@ -519,13 +540,16 @@ class DownloaderEngineUnitDownloadTest {
     private class MultiUnitStallingDownloader : BackgroundResourceDownloader {
         val cancelledUnits: MutableSet<DownloadUnit> = mutableSetOf()
 
-        override fun enqueueDownload(unit: DownloadUnit) = Unit
+        private val gate = EnqueueGate()
+
+        override fun enqueueDownload(unit: DownloadUnit) = gate.enqueued()
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) {
             cancelledUnits += unit
         }
 
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             emit(BackgroundDownloadEvent.Progress(unit = unit, fraction = 0.1f))
             awaitCancellation()
         }
@@ -535,10 +559,12 @@ class DownloaderEngineUnitDownloadTest {
         private val unitA: DownloadUnit,
         private val unitB: DownloadUnit,
     ) : BackgroundResourceDownloader {
-        override fun enqueueDownload(unit: DownloadUnit) = Unit
+        private val gate = EnqueueGate()
+        override fun enqueueDownload(unit: DownloadUnit) = gate.enqueued()
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) = Unit
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             val fraction: Float = when (unit) {
                 unitA -> 0.3f
                 unitB -> 0.7f

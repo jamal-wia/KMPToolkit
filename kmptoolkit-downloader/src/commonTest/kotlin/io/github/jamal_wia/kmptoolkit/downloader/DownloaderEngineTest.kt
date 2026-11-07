@@ -224,8 +224,10 @@ class DownloaderEngineTest {
     ) : BackgroundResourceDownloader {
         val enqueuedIds: MutableList<String> = mutableListOf()
         val cancelledIds: MutableList<String> = mutableListOf()
+        private val gate = EnqueueGate()
 
         override fun enqueueDownload(unit: DownloadUnit) {
+            gate.enqueued()
             enqueuedIds += unit.id
         }
 
@@ -235,6 +237,8 @@ class DownloaderEngineTest {
         }
 
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            // A transfer already running has no enqueue to wait for.
+            if (!inProgress) gate.awaitEnqueue()
             storage.markAvailable(unit)
             emit(BackgroundDownloadEvent.FileReady(unit = unit))
         }
@@ -245,10 +249,12 @@ class DownloaderEngineTest {
         vararg fractions: Pair<DownloadUnit, Float>,
     ) : BackgroundResourceDownloader {
         private val byUnit: Map<String, Float> = fractions.associate { it.first.id to it.second }
-        override fun enqueueDownload(unit: DownloadUnit) = Unit
+        private val gate = EnqueueGate()
+        override fun enqueueDownload(unit: DownloadUnit) = gate.enqueued()
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) = Unit
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             emit(BackgroundDownloadEvent.Progress(unit = unit, fraction = byUnit.getValue(unit.id)))
             awaitCancellation()
         }
@@ -283,11 +289,13 @@ class DownloaderEngineTest {
         private val storage: FakeStorage,
         private val unitToFlip: DownloadUnit,
     ) : BackgroundResourceDownloader {
-        override fun enqueueDownload(unit: DownloadUnit) = Unit
+        private val gate = EnqueueGate()
+        override fun enqueueDownload(unit: DownloadUnit) = gate.enqueued()
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) = Unit
 
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             emit(BackgroundDownloadEvent.Progress(unit = unit, fraction = 0.5f))
             // Unit is now committed on disk (as a self-committing downloader does before the engine
             // catches up) — subsequent progress events are stale and must not reach the shade.

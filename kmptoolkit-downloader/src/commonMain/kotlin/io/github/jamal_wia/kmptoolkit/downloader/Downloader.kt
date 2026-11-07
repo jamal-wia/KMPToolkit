@@ -58,7 +58,12 @@ public interface Downloader {
      */
     public suspend fun ensureAvailable(group: ResourceGroup)
 
-    /** Cancels [group]'s in-progress download, if any. Safe to call when none is running. */
+    /**
+     * Cancels [group]'s in-progress download, if any. Safe to call when none is running. A call of
+     * [ensureAvailable] that is running (or queued) for the group ends with
+     * [DownloadCancelledException], whatever it was doing: waiting for a transfer, sitting out a
+     * retry backoff or committing.
+     */
     public fun cancelDownload(group: ResourceGroup)
 
     /**
@@ -85,7 +90,12 @@ public interface Downloader {
      */
     public suspend fun ensureAvailable(unit: DownloadUnit)
 
-    /** Cancels [unit]'s in-progress or enqueued download, if any. Safe when none is active. */
+    /**
+     * Cancels [unit]'s in-progress or enqueued download, if any. Safe when none is active.
+     * Synchronous: the transfer is cancelled and the state is [UnitDownloadState.Idle] when this
+     * returns, so an [ensureAvailable] made right after it starts a new transfer. A call that is
+     * running (or queued) for the unit ends with [DownloadCancelledException].
+     */
     public fun cancelDownload(unit: DownloadUnit)
 
     /**

@@ -116,19 +116,23 @@ class DownloaderEngineClassificationTest {
     }
 
     private class ErrorDownloader(private val message: String) : BackgroundResourceDownloader {
-        override fun enqueueDownload(unit: DownloadUnit) = Unit
+        private val gate = EnqueueGate()
+        override fun enqueueDownload(unit: DownloadUnit) = gate.enqueued()
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) = Unit
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             emit(BackgroundDownloadEvent.Error(unit = unit, message = message))
         }
     }
 
     private class StallAfterProgressDownloader : BackgroundResourceDownloader {
-        override fun enqueueDownload(unit: DownloadUnit) = Unit
+        private val gate = EnqueueGate()
+        override fun enqueueDownload(unit: DownloadUnit) = gate.enqueued()
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
         override fun cancelDownload(unit: DownloadUnit) = Unit
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            gate.awaitEnqueue()
             emit(BackgroundDownloadEvent.Progress(unit = unit, fraction = 0.1f))
             awaitCancellation()
         }

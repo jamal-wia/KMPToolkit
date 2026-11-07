@@ -63,9 +63,11 @@ class DownloaderEnginePortFailureTest {
         var enqueueCount: Int = 0
             private set
         val cancelled: MutableList<String> = mutableListOf()
+        private val gate = EnqueueGate()
 
         override fun enqueueDownload(unit: DownloadUnit) {
             enqueueCount++
+            gate.enqueued()
             enqueueThrows?.let { throw it }
         }
 
@@ -80,6 +82,7 @@ class DownloaderEnginePortFailureTest {
 
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
             observeThrows?.let { throw it }
+            gate.awaitEnqueue()
             script(unit)
         }
     }
@@ -128,14 +131,17 @@ class DownloaderEnginePortFailureTest {
     fun `an enqueue that throws on a retry ends the same way`() = runTest {
         val cause = PortException("cannot start the service")
         var enqueues = 0
+        val gate = EnqueueGate()
         val downloader = object : BackgroundResourceDownloader {
             override fun enqueueDownload(unit: DownloadUnit) {
+                gate.enqueued()
                 if (++enqueues > 1) throw cause
             }
 
             override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
             override fun cancelDownload(unit: DownloadUnit) = Unit
             override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+                gate.awaitEnqueue()
                 emit(BackgroundDownloadEvent.Error(unit, "connection reset"))
             }
         }

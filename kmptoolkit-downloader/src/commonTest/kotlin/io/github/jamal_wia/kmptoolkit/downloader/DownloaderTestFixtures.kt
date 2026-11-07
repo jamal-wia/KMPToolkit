@@ -7,7 +7,11 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 
@@ -99,6 +103,17 @@ internal class TestDownloadDispatchers(scope: TestScope) : DownloadDispatchers {
 }
 
 /**
+ * Like [TestDownloadDispatchers], but the engine's own coroutines are queued rather than run at
+ * once — for the tests about what happens between a call and the work it schedules.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+internal class StandardTestDownloadDispatchers(scope: TestScope) : DownloadDispatchers {
+    private val dispatcher: CoroutineDispatcher = StandardTestDispatcher(scope.testScheduler)
+    override val io: CoroutineDispatcher = dispatcher
+    override val default: CoroutineDispatcher = dispatcher
+}
+
+/**
  * A storage with no real bytes, driven by sets of unit ids: enough for the engine tests that care
  * about what the engine decides, not about how a storage holds bytes. [commitFailure] makes every
  * commit throw it; [deletedTempFiles] records every delete in order.
@@ -151,6 +166,29 @@ internal class SetStorage(
 }
 
 /**
+ * Makes a test downloader's events start only once the engine has enqueued, as a real transfer's do.
+ * The engine drops whatever a subscription delivers before it enqueues (a replay of an earlier
+ * attempt), so a double that emitted on subscription would have its events discarded. Each
+ * subscription waits for its own enqueue: the n-th [awaitEnqueue] returns once n enqueues happened.
+ */
+internal class EnqueueGate {
+    private val enqueues: MutableStateFlow<Int> = MutableStateFlow(0)
+    private var subscriptions: Int = 0
+
+    fun enqueued() {
+        enqueues.update { it + 1 }
+    }
+
+    suspend fun awaitEnqueue() {
+        awaitEnqueues(++subscriptions)
+    }
+
+    suspend fun awaitEnqueues(count: Int) {
+        enqueues.first { it >= count }
+    }
+}
+
+/**
  * A [BackgroundResourceDownloader] whose every attempt is scripted. An attempt is one subscription
  * to [observeProgress] (the engine subscribes once per attempt, before or after the enqueue), so the
  * script is indexed by subscriptions, never by enqueues. [enqueueTimes] records the virtual time of
@@ -171,7 +209,10 @@ internal class ScriptedAttemptsDownloader(
         private set
     val enqueueCount: Int get() = enqueueTimes.size
 
+    private val gate = EnqueueGate()
+
     override fun enqueueDownload(unit: DownloadUnit) {
+        gate.enqueued()
         log += "enqueue"
         enqueueTimes += clock()
         check(enqueueTimes.size <= maxEnqueues) { "retry loop: more than $maxEnqueues enqueues" }
@@ -185,6 +226,9 @@ internal class ScriptedAttemptsDownloader(
     override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
         log += "subscribe"
         val attempt: Int = subscriptions++
+        // A transfer already running (inProgress) has produced its events without an enqueue; the
+        // retry that follows it enqueues, so the n-th enqueue belongs to the (n+1)-th subscription.
+        if (!inProgress || attempt > 0) gate.awaitEnqueues(if (inProgress) attempt else attempt + 1)
         script(attempt, unit)
     }
 }

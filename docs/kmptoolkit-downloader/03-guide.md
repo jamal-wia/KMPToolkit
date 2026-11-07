@@ -31,6 +31,14 @@ through a `MutableSharedFlow` without replay. And on an `Error` or a stall it fi
 temp file: a `Complete` one means the transfer finished and only its `FileReady` went missing, so the
 engine commits it instead of re-downloading or deleting it.
 
+Two more rules follow from that order. What a subscription delivers *before* the engine enqueues is
+dropped — it can only be a replay of an earlier attempt — so a replaying downloader must not
+replay a terminal event of a finished transfer once a new `enqueueDownload` has been called. And
+when the engine *attaches* to a transfer that was running, it checks again after subscribing: a
+transfer that ended in between (and whose event a downloader without replay dropped) is committed
+if its temp file is complete and started again otherwise. An event flow that completes without a
+terminal event fails the unit at once as `DownloadError.Unknown`; it is not waited out as a stall.
+
 Two invariants make the rest of this document make sense:
 
 - **Nothing about an in-flight download is persisted by the engine except the stall counter.** "Is
@@ -214,7 +222,10 @@ throws inside an attempt (`enqueueDownload` — on Android 12+ a foreground serv
 start from the background — `isDownloadInProgress`, the event flow, the `DownloadStateStore`) ends
 the unit as a `DownloadFailedException` carrying that exception as its `cause`, with
 `DownloadError.Unknown` (the host's own message) as the error, the state flow at `Error` and the
-notifier told. The group is never left at `Downloading`. The temp file stays.
+notifier told, and the group is not left at `Downloading`. The temp file stays. This covers the
+transfer itself (the port calls above, the commit, the unit's hash). A `DownloaderStorage` that
+you implement and that throws while the engine only *plans* a call (`isResourceAvailable`,
+`tempFileState`) is not caught: that exception reaches the caller as it is.
 
 The per-unit path has **no retry loop** — one stall surfaces directly as `Error`.
 
@@ -255,14 +266,24 @@ Three distinct operations:
 
 - **`cancelDownload(group)`** — cancels each unit, clears stall counts, deletes temp files, drops
   the notification, resets the group to `Idle`. Safe from any thread.
-- **`cancelDownload(unit)`** — non-suspend; the state reset is dispatched onto the engine's own
-  scope, so a caller that must observe the reset synchronously should await the flow rather than
-  read it on the next line.
+- **`cancelDownload(unit)`** — the same for one unit. Synchronous like the group overload: the
+  transfer is cancelled and the state is `Idle` when it returns, so a request made on the next
+  line starts a fresh transfer instead of racing a cancel that is still on its way. (That relies
+  on the port: after its `cancelDownload`, `isDownloadInProgress` must be `false` and the cancelled
+  transfer's `Cancelled` must not be replayed to the next subscriber.)
 - **`cancelAllDownloads()`** — the **logout** entry point: cancels every group-level and per-unit
-  download. It is `suspend` and awaits every per-unit reset directly, unlike the fire-and-forget
-  `cancelDownload(unit)` overload — going through that overload instead lost the state write to a
-  scope-cancellation race in the codebase this module draws from, kept here as documentation of why
-  the suspend version exists.
+  download, then the engine's own coroutines (a notification-shade Retry).
+
+**A cancel reaches a call that is already running.** Each `cancelDownload` marks the group (or the
+unit) as cancelled, and every `ensureAvailable` that was started before it ends with
+`DownloadCancelledException`: at once if it is waiting for a transfer or sitting out a retry
+backoff, otherwise at its next step — before the next unit, before a transfer is started, after a
+commit in flight. The running call removes the temp files itself (the commit reads them, so the
+cancel never deletes them behind a running call), publishes `Idle` and removes the notification.
+A commit that had already succeeded leaves its resource in place and the call still reports the
+cancel. A request made after the cancel is not affected. This is how a cancel or a logout stops a
+call that is not a child of the engine's own scope (one a screen launched), and what keeps a retry
+backoff from re-enqueueing a download the user cancelled.
 
 What logout does **not** do: it cancels transfers, it never deletes committed resources. Deleting
 is a cache-management concern via `DownloaderStorage.deleteResource`.
