@@ -51,18 +51,21 @@ internal class IosAlarmScheduler(
 ) : AlarmScheduler {
 
     override suspend fun schedule(alarm: ScheduledAlarm): AlarmScheduleResult {
-        if (center.isAuthorizationDenied()) {
-            return AlarmScheduleResult.Failed(AlarmFailure.NotificationPermissionDenied)
-        }
-
         // iOS keeps only the soonest-firing 64 pending requests and silently discards the rest,
         // reporting no error from `add`. Refuse up front instead of claiming `Exact` for a request
         // that may never fire. A request that replaces an already-pending identifier does not grow
-        // the pending set, so it is not counted. The check and the add run under a process-wide
-        // lock (createAlarmScheduler returns a new instance per call), so concurrent schedule calls
-        // cannot all read the same count; requests added by code outside this library are still
-        // not serialised with it.
+        // the pending set, so it is not counted. The whole call - authorization check, cap check
+        // and add - is one critical section under a process-wide lock (createAlarmScheduler returns
+        // a new instance per call), and so are cancel and cancelAll: concurrent calls for one id
+        // apply whole, one after the other, exactly as the contract says. Without it a cancel that
+        // ran while schedule was still awaiting the authorization status removed nothing and the
+        // alarm was armed right after. Requests added by code outside this library are still not
+        // serialised with it.
         return scheduleLock.withLock {
+            if (center.isAuthorizationDenied()) {
+                return@withLock AlarmScheduleResult.Failed(AlarmFailure.NotificationPermissionDenied)
+            }
+
             val otherPending: Int = center.pendingIdentifiers().count { it != alarm.id }
             if (otherPending >= PENDING_REQUEST_CAP) {
                 return@withLock AlarmScheduleResult.Failed(
@@ -88,12 +91,12 @@ internal class IosAlarmScheduler(
     }
 
     override suspend fun cancel(id: String) {
-        center.remove(listOf(id))
+        scheduleLock.withLock { center.remove(listOf(id)) }
     }
 
     override suspend fun cancelAll(ids: Collection<String>) {
         if (ids.isEmpty()) return
-        center.remove(ids.toList())
+        scheduleLock.withLock { center.remove(ids.toList()) }
     }
 
     private fun contentFor(alarm: ScheduledAlarm): UNMutableNotificationContent =
@@ -128,7 +131,10 @@ internal class IosAlarmScheduler(
         soundFileName?.let { UNNotificationSound.soundNamed(it) } ?: UNNotificationSound.defaultSound
 }
 
-/** Serialises the cap check with the add across every scheduler instance in the process. */
+/**
+ * Serialises every schedule, cancel and cancelAll - the cap check with the add, and a cancel with a
+ * schedule of the same id - across every scheduler instance in the process.
+ */
 private val scheduleLock: Mutex = Mutex()
 
 /** The most pending local notifications iOS keeps per app; anything beyond is silently discarded. */
