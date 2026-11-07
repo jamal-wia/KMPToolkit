@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicReference
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], shadows = [AndroidAlarmSchedulerLongRunInvariantsAdversarialTest.ModalShadowAlarmManager::class])
-class AndroidAlarmSchedulerLongRunInvariantsAdversarialTest {
+open class AndroidAlarmSchedulerLongRunInvariantsAdversarialTest {
 
     private val context: Context = RuntimeEnvironment.getApplication()
     private val shadowAlarmManager: ShadowAlarmManager = shadowOf(context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
@@ -158,3 +158,13 @@ class AndroidAlarmSchedulerLongRunInvariantsAdversarialTest {
         const val STEPS: Int = 40
     }
 }
+
+/** The same runs on the oldest supported level (no exact-alarm permission check, no immutable-flag quirks). */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [24], shadows = [AndroidAlarmSchedulerLongRunInvariantsAdversarialTest.ModalShadowAlarmManager::class])
+class AndroidAlarmSchedulerLongRunInvariantsApi24AdversarialTest : AndroidAlarmSchedulerLongRunInvariantsAdversarialTest()
+
+/** The same runs where exact alarms need a permission the test grants and revokes. */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [31], shadows = [AndroidAlarmSchedulerLongRunInvariantsAdversarialTest.ModalShadowAlarmManager::class])
+class AndroidAlarmSchedulerLongRunInvariantsApi31AdversarialTest : AndroidAlarmSchedulerLongRunInvariantsAdversarialTest()
