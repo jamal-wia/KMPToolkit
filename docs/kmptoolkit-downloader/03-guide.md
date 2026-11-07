@@ -211,10 +211,13 @@ Three things make it work:
   with no progress.
 - **The failure counter is persisted** through `DownloadStateStore` — worthless if it reset with the
   process, since a crash loop would otherwise retry forever.
-- **Error classification is one keyword-matching function** turning your
-  `BackgroundResourceDownloader`'s raw platform strings into a `DownloadError`. It has to be
-  string-based — what a failing transfer reports differs per platform and per layer — so it is
-  confined to one place and everything downstream is typed.
+- **Error classification is one text-matching function** turning your
+  `BackgroundResourceDownloader`'s raw platform strings into a `DownloadError`. It reads a stated
+  HTTP status (`HTTP 503`, `status 404`) first — a status beats words such as "unauthorized" or
+  "forbidden" in the same message — and falls back to wording only when none is stated. It has to
+  be string-based — what a failing transfer reports differs per platform and per layer — so it is
+  confined to one place and everything downstream is typed. The phrasing a downloader should use
+  is in [`07-background-downloader.md`](07-background-downloader.md).
 
 **When your own code throws.** The ports are host code. A `DownloadNotifier` that throws is logged
 and ignored — a failed notification never fails the download it describes. Anything else that
@@ -272,7 +275,8 @@ Three distinct operations:
   on the port: after its `cancelDownload`, `isDownloadInProgress` must be `false` and the cancelled
   transfer's `Cancelled` must not be replayed to the next subscriber.)
 - **`cancelAllDownloads()`** — the **logout** entry point: cancels every group-level and per-unit
-  download, then the engine's own coroutines (a notification-shade Retry).
+  download the engine tracks (each as above, so every running `ensureAvailable` ends with
+  `DownloadCancelledException`), then the engine's own coroutines (a notification-shade Retry).
 
 **A cancel reaches a call that is already running.** Each `cancelDownload` marks the group (or the
 unit) as cancelled, and every `ensureAvailable` that was started before it ends with

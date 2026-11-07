@@ -15,7 +15,7 @@ The interface consumers depend on.
 | `downloadState` | `fun downloadState(group: ResourceGroup): StateFlow<GroupDownloadState>` | One flow per declared group. Throws `IllegalArgumentException` for an undeclared group. |
 | `ensureAvailable` | `suspend fun ensureAvailable(group: ResourceGroup)` | Returns at once if already available; concurrent calls share one download. |
 | `cancelDownload` | `fun cancelDownload(group: ResourceGroup)` | Safe from any thread. Also ends a running `ensureAvailable(group)` with `DownloadCancelledException`. |
-| `cancelAllDownloads` | `suspend fun cancelAllDownloads()` | Cancels every group- and unit-level download. The logout entry point. |
+| `cancelAllDownloads` | `suspend fun cancelAllDownloads()` | Cancels every group- and unit-level download, and ends every running `ensureAvailable` with `DownloadCancelledException` (also one a screen launched, outside the engine's scope). The logout entry point. |
 | `retryDownload` | `fun retryDownload(group: ResourceGroup)` | Non-suspend; skipped if the group's download is already managed. |
 | `ensureAvailable` | `suspend fun ensureAvailable(unit: DownloadUnit)` | Concurrent calls for the SAME unit share one download. |
 | `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` | Non-suspend and synchronous: the transfer is cancelled and the state is `Idle` on return. Also ends a running `ensureAvailable(unit)` with `DownloadCancelledException`. |
