@@ -273,8 +273,13 @@ reclaiming it) is let go at its destroy, and the answer is picked up from the re
 it resumes. An activity that another live one covered while the dialog was up stays registered until
 the request ends, since the answer goes to the registry the dialog was started from; every
 registration, including one the registry handed a waiting answer to during registration, is dropped
-when the request ends. A request ends when the user answers, when that activity is finished
-(destroyed, or another activity resumes over it), or at process death. A caller that is cancelled
+when the request ends. A request ends when the user answers, when the activity the dialog was shown
+from (or its recreated instance) is finished (destroyed, or another activity resumes over it), or at
+process death. Only that activity decides it: another activity of the app that opens and finishes
+while the dialog is up (a trampoline or deep-link screen) never ends the request, and the activity the
+dialog came from finishing behind another live one does. An origin the system destroyed for
+recreation and that is never recreated leaves the request pending until the answer arrives; with a
+dialog up the only recreation that happens is a configuration change, which recreates it at once. A caller that is cancelled
 while the dialog is up does **not** withdraw it: the system dialog cannot be taken back, so the
 request stays pending until the user answers, the answer is then discarded, and a launch in that
 window returns `false` like any launch while one is pending.
