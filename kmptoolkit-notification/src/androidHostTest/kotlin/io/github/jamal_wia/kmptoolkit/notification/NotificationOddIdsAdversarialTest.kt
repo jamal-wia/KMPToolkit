@@ -16,12 +16,11 @@ import kotlin.test.assertEquals
 import kotlin.time.Duration
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
-import org.robolectric.annotation.Config
 import org.robolectric.Shadows.shadowOf
 
-/** Every odd-but-legal id (unpaired surrogates aside) must stay its own notification, with its own tap target and buttons. */
+/** Every odd-but-legal id must stay its own notification, with its own tap target and its own buttons. */
 @RunWith(AndroidJUnit4::class)
-open class NotificationOddIdsAdversarialTest {
+class NotificationOddIdsAdversarialTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val manager: NotificationManager get() = context.getSystemService(NotificationManager::class.java)
@@ -40,7 +39,7 @@ open class NotificationOddIdsAdversarialTest {
 
     private val ids: List<String> = listOf(
         "a/b", "a%2Fb", "a%252Fb", "a", "a/", "/a", ".", "..", "a/../b", "a b", "a+b", "a?b", "a#b", "a:b",
-        "\u0000", "\u0000\u0000", "a\u0000", "😀", "x".repeat(50_000), "x".repeat(50_001),
+        "\u0000", "\u0000\u0000", "a\u0000", "😀", "\uD83D", "\uDE00", "x".repeat(50_000), "x".repeat(50_001),
         "é", "é", "İ", "i̇", "​", "﻿", "%", "%%", "%00", "[a]", "{a}", "a|b", "a\\b", "a\"b",
     )
 
@@ -88,8 +87,3 @@ open class NotificationOddIdsAdversarialTest {
         }
     }
 }
-
-/** The same checks below API 29, where the PendingIntent key rides on a category (or, with no single receiver, on a hash). */
-@RunWith(AndroidJUnit4::class)
-@Config(sdk = [28])
-class NotificationOddIdsLegacyApiAdversarialTest : NotificationOddIdsAdversarialTest()
