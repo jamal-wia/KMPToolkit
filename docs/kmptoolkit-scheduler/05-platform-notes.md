@@ -144,7 +144,7 @@ Practical consequences:
   a year of reminders.
 
   Verification status: the pre-check is verified by unit tests against a fake notification center
-  only. Confirming the OS behavior on a real device (schedule 65) is still outstanding.
+  only. Confirming the OS behavior on a real device (schedule 65) is still outstanding, as is confirming that a completed add is immediately visible in the pending list, which the lock relies on.
 - **Delivery is at the requested time**, subject to the usual system discretion (Focus modes,
   Scheduled Summary, Do Not Disturb can delay or bundle the *presentation*).
 - **The text is frozen.** Language changes after scheduling do not update pending notifications;
