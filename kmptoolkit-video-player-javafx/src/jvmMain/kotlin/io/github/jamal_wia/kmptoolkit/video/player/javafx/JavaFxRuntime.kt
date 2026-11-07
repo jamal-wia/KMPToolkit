@@ -27,6 +27,8 @@ internal class ToolkitJavaFxRuntime(
     private val onFxThread: () -> Boolean = { FxThread.isCurrent() },
 ) : JavaFxRuntime {
 
+    // Volatile (started, failure): read on the lock-free fast path (which the FX thread must take
+    // without the monitor), written under it.
     @Volatile
     private var started: Boolean = false
     @Volatile

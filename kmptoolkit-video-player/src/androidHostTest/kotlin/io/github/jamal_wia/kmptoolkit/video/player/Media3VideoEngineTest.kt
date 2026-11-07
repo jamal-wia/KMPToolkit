@@ -261,6 +261,55 @@ class Media3VideoEngineTest {
     }
 
     @Test
+    fun `a refresh that already passed its queued check does not undo a seek published after it`() {
+        // The looper's refresh checks that nothing is queued, then reads the player. Here a seek from
+        // another thread lands exactly between the two: the player's position getter, on its first
+        // armed call, runs engine.seekTo(target) on a second thread and joins it. That call counts
+        // itself, publishes the target and posts; it never waits for the looper.
+        var armed = false
+        var seekFromOtherThread: (() -> Unit)? = null
+        val racingEngine = Media3VideoEngine(
+            context = context,
+            looper = Looper.getMainLooper(),
+            playerFactory = { playerContext: Context, looper: Looper ->
+                val delegate: ExoPlayer = androidx.media3.test.utils.TestExoPlayerBuilder(playerContext)
+                    .setLooper(looper)
+                    .build()
+                object : ExoPlayer by delegate {
+                    override fun getCurrentPosition(): Long {
+                        if (armed) {
+                            armed = false
+                            seekFromOtherThread?.invoke()
+                        }
+                        return delegate.currentPosition
+                    }
+                }
+            },
+            mediaSourceFactory = { _, _ -> Media3TestSupport.fakeSource() },
+        )
+        seekFromOtherThread = {
+            val worker = kotlin.concurrent.thread { racingEngine.seekTo(3_000L) }
+            worker.join(5_000L)
+            check(!worker.isAlive) { "seekTo blocked: it must not wait for the looper" }
+        }
+        try {
+            runSuspending { racingEngine.load(source) }.getOrThrow()
+            ShadowLooper.idleMainLooper()
+            offLooper { racingEngine.positionMs() } // posts a refresh from the polling thread
+            armed = true
+
+            shadowOf(Looper.getMainLooper()).runOneTask() // the refresh: its player read triggers the seek
+
+            assertFalse(armed, "the refresh never read the player, so the race was not exercised")
+            assertEquals(3_000L, offLooper { racingEngine.positionMs() })
+        } finally {
+            racingEngine.release()
+            racingEngine.dispose()
+            ShadowLooper.idleMainLooper()
+        }
+    }
+
+    @Test
     fun `start and pause drive playWhenReady`() {
         loadOrThrow()
         engine.start()

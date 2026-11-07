@@ -2,8 +2,6 @@ package io.github.jamal_wia.kmptoolkit.video.player
 
 import kotlin.concurrent.Volatile
 import kotlin.concurrent.atomics.AtomicInt
-import kotlin.concurrent.atomics.AtomicLong
-import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.concurrent.atomics.decrementAndFetch
 import kotlin.concurrent.atomics.incrementAndFetch
@@ -16,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -106,9 +106,11 @@ internal class AvPlayerVideoEngine(
 
     /** One loaded source: its AVFoundation objects, observers, and the values the getters return. */
     private class Session(val asset: AVURLAsset, val item: AVPlayerItem) {
-        val durationMs: AtomicLong = AtomicLong(0L)
-        val positionMs: AtomicLong = AtomicLong(0L)
-        val bufferedPositionMs: AtomicLong = AtomicLong(0L)
+        // Cells (MutableStateFlow, nothing collects them): written on the main thread (and by seekTo on
+        // the caller's thread), read by the synchronous getters from the player's polling thread (D-21, D-24).
+        val durationMs: MutableStateFlow<Long> = MutableStateFlow(0L)
+        val positionMs: MutableStateFlow<Long> = MutableStateFlow(0L)
+        val bufferedPositionMs: MutableStateFlow<Long> = MutableStateFlow(0L)
 
         /**
          * The target of a seek AVPlayer has not finished yet. `seekToTime` completes asynchronously
@@ -127,11 +129,16 @@ internal class AvPlayerVideoEngine(
         var hasFailed: Boolean = false
     }
 
-    private val session: AtomicReference<Session?> = AtomicReference(null)
+    // A cell (MutableStateFlow, nothing collects it): release() is non-suspending and may run on any
+    // thread; swapping first is what stops every main-thread callback of the old session. Session
+    // compares by identity (D-21, D-24).
+    private val session: MutableStateFlow<Session?> = MutableStateFlow(null)
 
     /** Hosts the per-session monitor; its jobs are cancelled per session, never the scope. */
     private val mainScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    // Volatile (listener, speed, volume, looping): set through the synchronous SPI from any thread and
+    // read on the main thread by dispatched blocks and observers (D-21).
     @Volatile
     private var listener: VideoPlaybackEngineListener? = null
 
@@ -183,7 +190,7 @@ internal class AvPlayerVideoEngine(
             val asset = AVURLAsset(uRL = url, options = options)
             val item = AVPlayerItem(asset = asset)
             val loading = Session(asset, item)
-            session.store(loading)
+            session.value = loading
             try {
                 if (managesAudioSession) activateAudioSession()
                 observeNotifications(loading)
@@ -193,9 +200,9 @@ internal class AvPlayerVideoEngine(
                 awaitReadyToPlay(loading)
                 refresh(loading)
                 // The first refresh reports the picture size; a listener may release in response.
-                check(session.load() === loading) { "The engine was released while loading" }
+                check(session.value === loading) { "The engine was released while loading" }
                 loading.monitor = mainScope.launch {
-                    while (isActive && session.load() === loading) {
+                    while (isActive && session.value === loading) {
                         delay(MONITOR_INTERVAL_MS)
                         refresh(loading)
                     }
@@ -212,7 +219,7 @@ internal class AvPlayerVideoEngine(
 
     override fun start() {
         onMain {
-            val current: Session = session.load() ?: return@onMain
+            val current: Session = session.value ?: return@onMain
             val avPlayer: AVPlayer = player
             avPlayer.play()
             // Right after play() the player is usually still waiting to reach its rate, so the rate
@@ -224,19 +231,19 @@ internal class AvPlayerVideoEngine(
 
     override fun pause() {
         onMain {
-            val current: Session = session.load() ?: return@onMain
+            val current: Session = session.value ?: return@onMain
             player.pause()
             refresh(current)
         }
     }
 
     override fun seekTo(positionMs: Long) {
-        val current: Session = session.load() ?: return
+        val current: Session = session.value ?: return
         // Answer the polled getter with the target at once: the seek itself completes later.
         val seek: PendingSeekSlot.Token = current.pendingSeek.begin(positionMs)
-        current.positionMs.store(positionMs)
+        current.positionMs.value = positionMs
         onMain {
-            if (session.load() !== current) return@onMain
+            if (session.value !== current) return@onMain
             seekPlayer(current, seek)
         }
     }
@@ -278,16 +285,16 @@ internal class AvPlayerVideoEngine(
         this.looping = looping
     }
 
-    override fun durationMs(): Long = session.load()?.durationMs?.load() ?: 0L
+    override fun durationMs(): Long = session.value?.durationMs?.value ?: 0L
 
-    override fun positionMs(): Long = session.load()?.positionMs?.load() ?: 0L
+    override fun positionMs(): Long = session.value?.positionMs?.value ?: 0L
 
-    override fun bufferedPositionMs(): Long = session.load()?.bufferedPositionMs?.load() ?: 0L
+    override fun bufferedPositionMs(): Long = session.value?.bufferedPositionMs?.value ?: 0L
 
     override fun release() {
         // The swap comes first and is atomic: from here on no callback of that session passes its
         // "still current" check, whichever thread release() was called from.
-        val released: Session = session.exchange(null) ?: return
+        val released: Session = session.getAndUpdate { null } ?: return
         onMain { tearDown(released) }
     }
 
@@ -297,7 +304,7 @@ internal class AvPlayerVideoEngine(
      */
     private suspend fun awaitReadyToPlay(loading: Session) {
         while (true) {
-            check(session.load() === loading) { "The engine was released while loading" }
+            check(session.value === loading) { "The engine was released while loading" }
             when (loading.item.status) {
                 AVPlayerItemStatusReadyToPlay -> return
                 AVPlayerItemStatusFailed -> throw itemFailure(loading.item.error)
@@ -308,13 +315,13 @@ internal class AvPlayerVideoEngine(
 
     /** Main thread: re-reads the item, updates the cached values, reports what changed. */
     private fun refresh(current: Session) {
-        if (session.load() !== current) return
+        if (session.value !== current) return
         val item: AVPlayerItem = current.item
 
         val positionMs: Long = current.pendingSeek.targetMs ?: item.currentTime().toMillis()
-        current.durationMs.store(item.duration.toMillis())
-        current.positionMs.store(positionMs)
-        current.bufferedPositionMs.store(bufferedEndMs(item.loadedRangesMs(), positionMs))
+        current.durationMs.value = item.duration.toMillis()
+        current.positionMs.value = positionMs
+        current.bufferedPositionMs.value = bufferedEndMs(item.loadedRangesMs(), positionMs)
 
         val size: VideoSize? = item.presentationSize.useContents { videoSizeOrNull(width, height) }
         if (size != current.videoSize) {
@@ -353,10 +360,10 @@ internal class AvPlayerVideoEngine(
     }
 
     private fun onPlayedToEnd(current: Session) {
-        if (session.load() !== current) return
+        if (session.value !== current) return
         if (looping) {
             val seek: PendingSeekSlot.Token = current.pendingSeek.begin(0L)
-            current.positionMs.store(0L)
+            current.positionMs.value = 0L
             seekPlayer(current, seek)
             val avPlayer: AVPlayer = player
             avPlayer.play()
@@ -368,7 +375,7 @@ internal class AvPlayerVideoEngine(
     }
 
     private fun reportFailure(current: Session, error: NSError?) {
-        if (session.load() !== current || current.hasFailed) return
+        if (session.value !== current || current.hasFailed) return
         current.hasFailed = true
         ifCurrent(current) { onFailed(itemFailure(error)) }
     }
@@ -443,7 +450,7 @@ internal class AvPlayerVideoEngine(
      * each call, because a listener reacting to an earlier callback may have released the engine.
      */
     private inline fun ifCurrent(current: Session, call: VideoPlaybackEngineListener.() -> Unit) {
-        if (session.load() === current) listener?.call()
+        if (session.value === current) listener?.call()
     }
 
     private fun CValue<CMTime>.toMillis(): Long = secondsToMillis(CMTimeGetSeconds(this))

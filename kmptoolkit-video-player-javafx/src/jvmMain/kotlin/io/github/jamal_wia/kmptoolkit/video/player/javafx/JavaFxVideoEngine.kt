@@ -49,8 +49,13 @@ internal class JavaFxVideoEngine(
         require(readyTimeoutMs > 0L) { "readyTimeoutMs must be positive, was $readyTimeoutMs" }
     }
 
+    // A monitor, not a Mutex: it is taken on the JavaFX application thread (every Sink callback) and by
+    // the synchronous SPI calls, none of which can suspend (D-21). Fields marked volatile are written
+    // under it or on the FX thread, read without it by the getters.
     private val lock = Any()
 
+    // Volatile (listener, volume, speed, looping): set through the synchronous SPI from any thread and
+    // read on the FX thread and by the getters (D-21).
     @Volatile
     private var listener: VideoPlaybackEngineListener? = null
 

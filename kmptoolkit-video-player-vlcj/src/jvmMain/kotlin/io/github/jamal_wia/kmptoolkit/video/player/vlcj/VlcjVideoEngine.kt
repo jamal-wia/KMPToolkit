@@ -19,7 +19,6 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
@@ -94,11 +93,17 @@ internal class VlcjVideoEngine(
     private val nanoTime: () -> Long = System::nanoTime,
 ) : VideoPlaybackEngine, VideoFrameSource {
 
+    // Monitors, not Mutexes: they are taken on VLC's native event and video-output threads (JNA
+    // callbacks), on VLCJ's task thread and by the synchronous SPI, none of which can suspend (D-21).
+    // Volatile fields are written under them or on one VLC thread and read unlocked by the getters.
     private val lock = Any()
     private val listenerLock = Any()
     private val frameLock = Any()
 
-    /** True on VLC's event and video-output threads while this engine handles a callback. */
+    /**
+     * True on VLC's event and video-output threads while this engine handles a callback. A
+     * ThreadLocal: those are native threads with no coroutine context to carry this marker.
+     */
     private val onVlcThread: ThreadLocal<Boolean> = ThreadLocal.withInitial { false }
 
     // Captures only constructor parameters, never `this`: it is the Cleaner's action.
@@ -294,14 +299,16 @@ internal class VlcjVideoEngine(
      * it made would otherwise be orphaned until JVM exit.
      */
     private suspend fun resolveMedia(source: VideoSource, loader: ClassLoader): ResolvedMedia {
-        val result: AtomicReference<ResolvedMedia?> = AtomicReference(null)
+        // A plain local is enough: withContext resumes only after its block finished, and that
+        // completion happens-before the resumption, whether it returns or throws a late cancellation.
+        var resolved: ResolvedMedia? = null
         try {
-            withContext(Dispatchers.IO) { result.set(resolve(source, loader)) }
+            withContext(Dispatchers.IO) { resolved = resolve(source, loader) }
         } catch (error: Throwable) {
-            result.get()?.discard()
+            resolved?.discard()
             throw error
         }
-        return checkNotNull(result.get())
+        return checkNotNull(resolved)
     }
 
     /** Runs [block] under [lock] with the current session, if there is one and it is still open. */
@@ -379,6 +386,8 @@ internal class VlcjVideoEngine(
     /** One loaded source on its own native media player. */
     private inner class Session(val media: ResolvedMedia) {
 
+        // One-shot CAS: closeSession is reached from the synchronous release()/dispose() as well as
+        // from load (D-21).
         val closing: AtomicBoolean = AtomicBoolean(false)
         val parsed: CompletableDeferred<VlcParseStatus> = CompletableDeferred()
 
@@ -621,6 +630,8 @@ internal class VlcjVideoEngine(
         fun claim(session: NativeSession): Boolean = openSessions.remove(session)
 
         /** The libvlc instance, created on first use. Blocking; call off the main thread. */
+        // Monitor: shared with the Cleaner action (run), which cannot suspend, and creating libvlc
+        // blocks anyway (D-21).
         @Synchronized
         fun acquire(): VlcRuntime {
             check(!disposed) { "The engine was disposed" }

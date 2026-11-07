@@ -19,6 +19,9 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.compareAndSet
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
@@ -86,6 +89,8 @@ internal class Media3VideoEngine(
     private val queued: AtomicInteger = AtomicInteger(0)
     private val playerDispatcher: CoroutineDispatcher = HandlerDispatcher(::post)
 
+    // Volatile: set through the non-suspending SPI from any thread, read in ExoPlayer callbacks on the
+    // looper (D-21).
     @Volatile
     private var listener: VideoPlaybackEngineListener? = null
 
@@ -93,6 +98,7 @@ internal class Media3VideoEngine(
     @Volatile
     private var player: ExoPlayer? = null
 
+    // Volatile: dispose() is non-suspending and called off the looper; obtainPlayer() reads it there.
     @Volatile
     private var disposed: Boolean = false
 
@@ -106,9 +112,20 @@ internal class Media3VideoEngine(
     private var loaded: Boolean = false
     private var lastBuffering: Boolean = false
 
-    /** Timing answers for other threads. Replaced whole, never mutated, so a reader sees one moment. */
-    @Volatile
-    private var snapshot: Snapshot = Snapshot.EMPTY
+    /**
+     * Timing answers for other threads. Replaced whole, never mutated, so a reader sees one moment.
+     *
+     * A [MutableStateFlow] only as an atomic cell (nothing collects it; D-21, D-25): the SPI getters
+     * are synchronous and answer from any thread without waiting for the looper. It holds a
+     * [SnapshotCell], a plain class that compares by identity, because [Snapshot] is a data class and
+     * the looper's refresh needs a compare-and-set that fails when *any* other publish happened since
+     * it read, even one that left a value-equal snapshot.
+     */
+    private val snapshotCell: MutableStateFlow<SnapshotCell> = MutableStateFlow(SnapshotCell(Snapshot.EMPTY))
+    private val snapshot: Snapshot get() = snapshotCell.value.snapshot
+
+    // At most one refresh posted at a time, set from whichever thread polls; a non-suspending CAS is
+    // all it needs.
     private val refreshPosted: AtomicBoolean = AtomicBoolean(false)
 
     private val playerListener: Player.Listener = object : Player.Listener {
@@ -160,7 +177,7 @@ internal class Media3VideoEngine(
         }
 
         override fun onEvents(player: Player, events: Player.Events) {
-            refreshSnapshotUnlessQueued()
+            refreshSnapshotUnlessSuperseded()
         }
     }
 
@@ -199,14 +216,19 @@ internal class Media3VideoEngine(
     override fun pause() {
         // Freeze the extrapolated playhead now, so the position read right after this call — from
         // whatever thread — is where playback stopped rather than where it would have got to.
-        val frozen: Snapshot = snapshot
-        snapshot = frozen.copy(positionMs = frozen.extrapolatedPosition(), atRealtimeMs = now(), advancing = false)
-        onPlayerThread { player?.pause() }
+        onPlayerThread(
+            publish = {
+                publishSnapshot { frozen: Snapshot ->
+                    frozen.copy(positionMs = frozen.extrapolatedPosition(), atRealtimeMs = now(), advancing = false)
+                }
+            },
+        ) { player?.pause() }
     }
 
     override fun seekTo(positionMs: Long) {
-        snapshot = snapshot.copy(positionMs = positionMs, atRealtimeMs = now())
-        onPlayerThread { player?.seekTo(positionMs) }
+        onPlayerThread(
+            publish = { publishSnapshot { it.copy(positionMs = positionMs, atRealtimeMs = now()) } },
+        ) { player?.seekTo(positionMs) }
     }
 
     override fun setSpeed(speed: Float) {
@@ -230,7 +252,7 @@ internal class Media3VideoEngine(
     override fun bufferedPositionMs(): Long = currentSnapshot().bufferedPositionMs
 
     override fun release() {
-        snapshot = Snapshot.EMPTY
+        snapshotCell.value = SnapshotCell(Snapshot.EMPTY)
         onPlayerThread {
             pendingLoad?.cancel()
             pendingLoad = null
@@ -272,7 +294,7 @@ internal class Media3VideoEngine(
         current.playWhenReady = false
         current.stop()
         current.clearMediaItems()
-        snapshot = Snapshot.EMPTY
+        snapshotCell.value = SnapshotCell(Snapshot.EMPTY)
     }
 
     private fun reportBuffering(isBuffering: Boolean) {
@@ -283,8 +305,13 @@ internal class Media3VideoEngine(
 
     /** Looper thread only. */
     private fun refreshSnapshot() {
+        snapshotCell.value = SnapshotCell(readPlayerSnapshot())
+    }
+
+    /** Looper thread only. The player's own timing, as a [Snapshot]. */
+    private fun readPlayerSnapshot(): Snapshot {
         val current: ExoPlayer? = player
-        snapshot = if (current == null || !loaded) {
+        return if (current == null || !loaded) {
             Snapshot.EMPTY
         } else {
             Snapshot(
@@ -299,13 +326,25 @@ internal class Media3VideoEngine(
     }
 
     /**
-     * [refreshSnapshot], unless calls are still queued: the player then describes the moment before
-     * them, and would put its pre-seek playhead (or its still-playing state) over what [seekTo] and
-     * [pause] already published. The refresh that follows the last queued call's own events
-     * replaces this one. Looper thread only.
+     * Refreshes the [snapshot] from the player unless a [seekTo] or [pause] is, or becomes, newer than
+     * what the player can describe: it then holds the moment before that call, and would put its
+     * pre-seek playhead (or its still-playing state) over what the call already published.
+     *
+     * The cell is read first, then [queued], then the player; the result is published only if the cell
+     * is still the one read. A call that counted itself in [queued] before the check suppresses the
+     * refresh; a call that published after the read makes the compare-and-set fail. Either way the
+     * call's snapshot survives, and the refresh that follows the call's own player events replaces it.
+     * Writers must therefore keep the order count in [queued], then publish. Looper thread only.
      */
-    private fun refreshSnapshotUnlessQueued() {
-        if (queued.get() == 0) refreshSnapshot()
+    private fun refreshSnapshotUnlessSuperseded() {
+        val seen: SnapshotCell = snapshotCell.value
+        if (queued.get() != 0) return
+        snapshotCell.compareAndSet(seen, SnapshotCell(readPlayerSnapshot()))
+    }
+
+    /** Replaces the [snapshot] with [transform] of it, atomically with respect to other publishes. */
+    private inline fun publishSnapshot(crossinline transform: (Snapshot) -> Snapshot) {
+        snapshotCell.update { cell: SnapshotCell -> SnapshotCell(transform(cell.snapshot)) }
     }
 
     /**
@@ -316,22 +355,33 @@ internal class Media3VideoEngine(
      */
     private fun currentSnapshot(): Snapshot {
         if (Looper.myLooper() === looper && queued.get() == 0) {
-            refreshSnapshot()
+            // Not refreshSnapshot(): a seek or pause from another thread can be counted and published
+            // between the check above and the read of the player.
+            refreshSnapshotUnlessSuperseded()
         } else if (refreshPosted.compareAndSet(false, true)) {
             handler.post {
                 refreshPosted.set(false)
-                refreshSnapshotUnlessQueued()
+                refreshSnapshotUnlessSuperseded()
             }
         }
         return snapshot
     }
 
-    /** Runs [block] on the looper thread after every call made before it — see the class KDoc. */
-    private inline fun onPlayerThread(crossinline block: () -> Unit) {
+    /**
+     * Runs [block] on the looper thread after every call made before it — see the class KDoc.
+     *
+     * [publish] updates the [snapshot] for this call. It runs after the call is counted in [queued]
+     * and before it is posted, which is the order [refreshSnapshotUnlessSuperseded] relies on to never
+     * overwrite it.
+     */
+    private inline fun onPlayerThread(crossinline publish: () -> Unit = {}, crossinline block: () -> Unit) {
         if (Looper.myLooper() === looper && queued.get() == 0) {
+            publish()
             guarded(block)
         } else {
-            post { guarded(block) }
+            queued.incrementAndGet()
+            publish()
+            enqueueCounted { guarded(block) }
         }
     }
 
@@ -342,6 +392,11 @@ internal class Media3VideoEngine(
      */
     private fun post(task: Runnable) {
         queued.incrementAndGet()
+        enqueueCounted(task)
+    }
+
+    /** Posts [task] for a call already counted in [queued]. */
+    private fun enqueueCounted(task: Runnable) {
         handler.post {
             queued.decrementAndGet()
             task.run()
@@ -359,6 +414,9 @@ internal class Media3VideoEngine(
             // The player is gone or not in a state to take the call; there is nothing to apply it to.
         }
     }
+
+    /** Identity box for a [Snapshot]: deliberately not a data class, see [snapshotCell]. */
+    private class SnapshotCell(val snapshot: Snapshot)
 
     /**
      * Timing as of [atRealtimeMs]. While [advancing], the playhead moves at [speed] from [positionMs].
