@@ -400,12 +400,19 @@ handle it:
 
   ```kotlin
   // In your downloader, one coroutine per running unit; stops when the task finishes or is
-  // cancelled. lastFraction is written on the URLSession delegate queue and read here: keep it in
-  // an atomic cell, not a plain var.
-  private val lastFraction = atomic(0f) // or an AtomicReference / MutableStateFlow per unit
+  // cancelled. Keep the last fraction per unit: two units can be in flight at once, and one
+  // unit's fraction emitted as another's would push the engine's progress mark past what really
+  // happened. The map is written on the URLSession delegate queue and read here, so update it
+  // atomically (the same pattern as the thread-safe sample above).
+  private val lastFractions = MutableStateFlow<Map<String, Float>>(emptyMap())
+
+  // In the delegate callback: lastFractions.update { it + (unit.id to fraction) }
+  // When the task ends:       lastFractions.update { it - unit.id }
 
   while (taskIsStillListedBySystem(unit)) {
-      events.tryEmit(BackgroundDownloadEvent.Progress(unit, lastFraction.value))
+      events.tryEmit(
+          BackgroundDownloadEvent.Progress(unit, lastFractions.value[unit.id] ?: 0f),
+      )
       delay(60.seconds)
   }
   ```
