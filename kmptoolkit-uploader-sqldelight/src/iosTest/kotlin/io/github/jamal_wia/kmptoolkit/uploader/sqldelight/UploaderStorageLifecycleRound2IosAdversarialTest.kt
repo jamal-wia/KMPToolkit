@@ -126,4 +126,83 @@ class UploaderStorageLifecycleRound2IosAdversarialTest {
             removeAll(path)
         }
     }
+
+    @Test
+    fun `recreateOnCorruption does not let a dead write-ahead log leak the old queue into the new file`() = runTest {
+        val config = UploaderDatabaseConfig(
+            "com.example.r2.wal-${uniqueDatabaseName("ios")}",
+            recreateOnCorruption = true,
+        )
+        val path: String = DatabaseFileContext.databasePath(uploaderDatabaseFileName(config.name!!), null)
+        removeAll(path)
+        try {
+            val live: UploaderStorage = createUploaderStorage(config)
+            val walSnapshot: ByteArray
+            try {
+                live.store.insertKeep(anItem("old-1"))
+                live.store.insertKeep(anItem("old-2"))
+                walSnapshot = read("$path-wal")
+            } finally {
+                live.close()
+            }
+            assertTrue(walSnapshot.isNotEmpty(), "setup: the rows are not in a write-ahead log, so this scenario cannot arise")
+
+            // The crash image: the log the dead process left, next to a main file that is no database.
+            removeAll(path)
+            write(path, ByteArray(4_096) { (it * 17).toByte() })
+            write("$path-wal", walSnapshot)
+
+            val storage: UploaderStorage = createUploaderStorage(config)
+            try {
+                assertEquals(emptyList(), storage.store.getAllActive().map { it.id }, "the recreated queue must be empty")
+                storage.store.insertKeep(anItem("fresh"))
+            } finally {
+                storage.close()
+            }
+            val reopened: UploaderStorage = createUploaderStorage(config)
+            try {
+                assertEquals(listOf("fresh"), reopened.store.getAllActive().map { it.id }, "the recreated file did not stay consistent")
+            } finally {
+                reopened.close()
+            }
+        } finally {
+            removeAll(path)
+        }
+    }
+
+    @Test
+    fun `recreateOnCorruption heals a file damaged below a valid header by the next launch at the latest`() = runTest {
+        val config = UploaderDatabaseConfig(
+            "com.example.r2.interior.optin-${uniqueDatabaseName("ios")}",
+            recreateOnCorruption = true,
+        )
+        val path: String = DatabaseFileContext.databasePath(uploaderDatabaseFileName(config.name!!), null)
+        removeAll(path)
+        try {
+            seed(config, 600)
+            damageBelowTheFirstPage(path)
+
+            // The first launch meets the damage on its first read (the open itself only reads the header).
+            runCatching { createUploaderStorage(config) }.getOrNull()?.let { first ->
+                try {
+                    runCatching { first.store.getAllActive() }
+                } finally {
+                    first.close()
+                }
+            }
+
+            // The next launch: the documented outcome of the option is a working, empty queue.
+            val second: UploaderStorage = createUploaderStorage(config)
+            try {
+                val rows: List<String> = second.store.getAllActive().map { it.id }
+                assertEquals(emptyList(), rows, "the damaged queue was neither recreated nor readable")
+                second.store.insertKeep(anItem("after-restart"))
+                assertEquals(listOf("after-restart"), second.store.getAllActive().map { it.id })
+            } finally {
+                second.close()
+            }
+        } finally {
+            removeAll(path)
+        }
+    }
 }

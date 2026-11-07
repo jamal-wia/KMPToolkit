@@ -55,7 +55,7 @@ The default contract is the same on both platforms: a file that is not a usable 
 | | Android | iOS |
 |---|---|---|
 | Default | Android's own handler would delete the file and recreate it, so the factory installs a callback that throws instead | `NativeSqliteDriver` never deletes a file; the first statement fails and the factory reports it |
-| `recreateOnCorruption = true` | The framework's own handler deletes the file and reopens | The factory deletes the file with SQLiter's `DatabaseFileContext` and opens again, but only when the failure message says the file is not a database or is malformed |
+| `recreateOnCorruption = true` | The framework's own handler deletes the file and reopens | The factory probes the opened file with `PRAGMA quick_check` (a file damaged below a valid header opens fine and would fail on every later read), and when the open or the probe fails with a message saying the file is not a database or is malformed it deletes the file together with its `-wal`, `-shm` and `-journal` files and opens again, so a dead write-ahead log cannot bring the old queue back |
 
 One difference remains: Android decides what counts as corruption (the framework raises
 `SQLiteDatabaseCorruptException`), while on iOS the factory recognises SQLite's "file is not a
