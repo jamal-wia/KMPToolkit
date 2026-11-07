@@ -222,7 +222,44 @@ uncommitted state your own transaction has written so far.
 
 Nothing platform-specific escapes. A SQLite failure — a full disk, a corrupt file, a database that
 cannot be opened — arrives as `UploaderStorageException`, carrying the `UploaderStorageOperation` that
-was running and the platform cause.
+was running and the platform cause. A corrupt database file is by default never deleted for you (see
+`createUploaderStorage(context, config)` in the API reference): the open fails and the file stays as found.
+
+### A corrupt database at launch
+
+Opening the queue is the one place a corrupt file shows up, so handle it where you create the storage,
+once per launch. On both platforms the default is the same: `createUploaderStorage` throws
+`UploaderStorageException` with `operation == UploaderStorageOperation.OPEN`, and the file is byte for
+byte what it was. Nothing the queue still owed is lost until you decide it is.
+
+```kotlin
+val storage: UploaderStorage = try {
+    createUploaderStorage(context)
+} catch (failure: UploaderStorageException) {
+    if (failure.operation != UploaderStorageOperation.OPEN) throw failure
+    // Report it (crash reporter, a "could not start uploads" state), then choose:
+    // keep the file for inspection and run without a queue, or give up on its contents.
+    reportStorageFailure(failure)
+    throw failure
+}
+```
+
+`OPEN` also covers causes that are not corruption (a failed migration, a full disk, a locked file),
+and retrying is then the right move; in those cases the file is never deleted either way.
+
+If losing the queue is acceptable — for example because every effect is cheap to recreate from your
+own data — opt in to starting afresh instead of handling the failure:
+
+```kotlin
+val storage: UploaderStorage = createUploaderStorage(
+    context,
+    UploaderDatabaseConfig(recreateOnCorruption = true),
+)
+```
+
+With `recreateOnCorruption = true` a file recognised as corrupt is deleted and an empty queue opened,
+which is how 3.0.0 always behaved. Every effect that was still queued in that file is gone, with no
+signal to the app. Other open failures still throw.
 
 It is thrown rather than returned because `UploaderStore` has no result type, and swallowing a failed
 write would be worse than throwing: the engine would believe an effect is queued that is not, and

@@ -1,6 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabaseCorruptException
+import androidx.sqlite.db.SupportSQLiteDatabase
 import app.cash.sqldelight.driver.android.AndroidSqliteDriver
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.KmpToolkitUploaderDatabase
 import java.util.concurrent.Executors
@@ -31,6 +33,14 @@ import kotlinx.coroutines.runBlocking
  * @param config which file to open. The default names it after the app's own package — see
  *   [UploaderDatabaseConfig].
  * @return a storage that owns its driver and closes it in [UploaderStorage.close].
+ * A file that is not a database (corruption, a truncated write) is by default **never deleted or
+ * recreated**: the open fails with [UploaderStorageException] and the file stays exactly as found.
+ * Android's own behavior would silently delete it and start an empty queue, dropping every effect
+ * still owed. The app decides — typically by reporting it, then `Context.deleteDatabase` with the file
+ * name `"<name>.kmptoolkit.uploader.db"` (`<name>` being [UploaderDatabaseConfig.name], or the package
+ * name by default) to start afresh — or opts in to the old behavior with
+ * [UploaderDatabaseConfig.recreateOnCorruption], which deletes the file and opens an empty queue.
+ *
  * @throws UploaderStorageException if the file cannot be opened, created or migrated.
  */
 public fun createUploaderStorage(
@@ -45,10 +55,33 @@ public fun createUploaderStorage(
                 schema = KmpToolkitUploaderDatabase.Schema,
                 context = applicationContext,
                 name = uploaderDatabaseFileName(name),
+                callback = if (config.recreateOnCorruption) {
+                    // The framework's own handling: it deletes the corrupt file and opens a new one.
+                    AndroidSqliteDriver.Callback(KmpToolkitUploaderDatabase.Schema)
+                } else {
+                    NonDestructiveCallback()
+                },
             ),
         )
     }
     return standaloneStorage(driver)
+}
+
+/**
+ * The schema callback with Android's destructive corruption handling removed.
+ *
+ * The framework's default (`DefaultDatabaseErrorHandler`) deletes a database file it finds corrupt and
+ * lets the open continue on a fresh empty one, so a damaged file silently dropped every queued effect.
+ * Throwing from [onCorruption] instead fails the open, which [mapFailures] reports as
+ * [UploaderStorageException], and leaves the file for the app to deal with. It is a
+ * `SQLiteException`, so the framework closes the half-opened database before it propagates.
+ */
+private class NonDestructiveCallback : AndroidSqliteDriver.Callback(KmpToolkitUploaderDatabase.Schema) {
+    override fun onCorruption(db: SupportSQLiteDatabase) {
+        throw SQLiteDatabaseCorruptException(
+            "The uploader database file is corrupt; it was left untouched (path: ${db.path}).",
+        )
+    }
 }
 
 /**

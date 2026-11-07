@@ -67,6 +67,13 @@ callbacks on the main looper. That is why the module needs no main dispatcher an
 publishes `Ready` — is no longer lost: the engine forwards it to the player as a playback failure, and
 the player lets `Error` win over a `Ready` that was about to be published.
 
+**A late callback of a replaced source** — the platform reads a `MediaPlayer`'s listener on the main
+looper while a new `load` or `release` clears it on another thread, so a completion or error of the
+previous source's `MediaPlayer` can still arrive after the engine let go of it. The engine fences every
+steady-state callback by the handle that raised it and drops one from a player that is no longer its
+current one, so it can neither complete nor fail the source that replaced it. The iOS engine fences the
+same way with a generation counter.
+
 **Playback speed** is applied via `PlaybackParams`, available since API 23. The module's `minSdk` is
 24, so there is no fallback path. The rate is pushed only while playing: assigning `playbackParams`
 to a paused `MediaPlayer` starts playback on several API levels.

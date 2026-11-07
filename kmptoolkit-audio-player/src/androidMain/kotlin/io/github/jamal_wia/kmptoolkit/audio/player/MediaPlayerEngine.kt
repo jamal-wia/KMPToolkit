@@ -5,6 +5,8 @@ import android.content.res.AssetFileDescriptor
 import android.media.MediaPlayer
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -25,10 +27,10 @@ internal class MediaPlayerEngine(
     private val context: Context,
 ) : PlaybackEngine {
 
-    // Volatile: published from Dispatchers.IO during load, read by transport calls on the caller's
-    // thread and cleared by release() wherever that runs.
-    @Volatile
-    private var mediaPlayer: MediaPlayer? = null
+    // The live handle: published from Dispatchers.IO during load, read by transport calls on the
+    // caller's thread, by the platform's callbacks (as the fence below) and cleared by release()
+    // wherever that runs. A state holder rather than a @Volatile field (D-21/D-24).
+    private val mediaPlayer: MutableStateFlow<MediaPlayer?> = MutableStateFlow(null)
     private var listener: PlaybackEngineListener? = null
 
     override fun setListener(listener: PlaybackEngineListener?) {
@@ -49,7 +51,7 @@ internal class MediaPlayerEngine(
                 // still running — withContext then discards its result — cannot orphan the handle:
                 // the catch below releases whatever is published.
                 MediaPlayer().also { created: MediaPlayer ->
-                    mediaPlayer = created
+                    mediaPlayer.value = created
                     created.attachSource(source)
                 }
             }
@@ -65,7 +67,7 @@ internal class MediaPlayerEngine(
                     // later check that could miss it. Cancelled (superseded, caller cancelled,
                     // unloaded): drop it, nobody failed and the cancel path reports Idle.
                     if (continuation.isActive) continuation.resumeWithException(error)
-                    else if (!continuation.isCancelled) listener?.onFailed(error)
+                    else if (!continuation.isCancelled && isCurrent(player)) listener?.onFailed(error)
                     true
                 }
                 player.prepareAsync()
@@ -81,9 +83,12 @@ internal class MediaPlayerEngine(
         // than before prepareAsync() keeps a load failure out of onFailed(): the exception above is
         // the single, already-awaited report of it.
         player.setOnPreparedListener(null)
-        player.setOnCompletionListener { listener?.onCompleted() }
+        // Fenced by handle: the platform reads a player's listener on the main looper while load()
+        // or release() clears it on another thread, so a callback of a player the engine has already
+        // replaced can still arrive. Unfenced it would complete or fail the source that replaced it.
+        player.setOnCompletionListener { if (isCurrent(player)) listener?.onCompleted() }
         player.setOnErrorListener { _, what: Int, extra: Int ->
-            listener?.onFailed(mediaPlayerError(what, extra))
+            if (isCurrent(player)) listener?.onFailed(mediaPlayerError(what, extra))
             true
         }
     }
@@ -117,8 +122,7 @@ internal class MediaPlayerEngine(
     } ?: 0L
 
     override fun release() {
-        val player: MediaPlayer = mediaPlayer ?: return
-        mediaPlayer = null
+        val player: MediaPlayer = mediaPlayer.getAndUpdate { null } ?: return
         player.setOnPreparedListener(null)
         player.setOnCompletionListener(null)
         player.setOnErrorListener(null)
@@ -153,13 +157,16 @@ internal class MediaPlayerEngine(
      * what lets the player above stay a pure state machine, as [PlaybackEngine] requires.
      */
     private inline fun <T> withPlayer(block: (MediaPlayer) -> T): T? {
-        val player: MediaPlayer = mediaPlayer ?: return null
+        val player: MediaPlayer = mediaPlayer.value ?: return null
         return try {
             block(player)
         } catch (_: IllegalStateException) {
             null
         }
     }
+
+    /** Whether [player] is still the engine's live handle, i.e. not replaced or released since. */
+    private fun isCurrent(player: MediaPlayer): Boolean = mediaPlayer.value === player
 
     private fun mediaPlayerError(what: Int, extra: Int): IOException =
         IOException("MediaPlayer failed: what=$what extra=$extra")
