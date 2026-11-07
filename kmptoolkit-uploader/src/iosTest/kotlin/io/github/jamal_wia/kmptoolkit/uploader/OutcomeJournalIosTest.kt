@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import platform.Foundation.NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication
+import platform.Foundation.NSDataWritingFileProtectionMask
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileProtectionCompleteUntilFirstUserAuthentication
 import platform.Foundation.NSFileProtectionKey
@@ -136,8 +137,11 @@ class OutcomeJournalIosTest {
     fun `the storage asks for the first-unlock class on every entry and on the directory`() {
         // The simulator reports no class, so what the code asks for is checked directly: removing the option
         // from the write or the attribute from the directory turns this red, which no device default can hide.
-        assertTrue(
-            IosOutcomeStorage.WRITE_OPTIONS and NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication != 0uL,
+        // The protection values are an enumeration in a masked field, not flags: only the masked value
+        // equal to first-unlock proves the class (an AND would also pass for Complete).
+        assertEquals(
+            NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication,
+            IosOutcomeStorage.WRITE_OPTIONS and NSDataWritingFileProtectionMask,
             "entries are written with the first-unlock protection option",
         )
         assertEquals(
