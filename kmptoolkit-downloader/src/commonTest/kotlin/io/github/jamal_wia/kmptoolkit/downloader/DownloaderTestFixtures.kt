@@ -94,3 +94,55 @@ internal class TestDownloadDispatchers(scope: TestScope) : DownloadDispatchers {
     override val io: CoroutineDispatcher = dispatcher
     override val default: CoroutineDispatcher = dispatcher
 }
+
+/**
+ * A storage with no real bytes, driven by sets of unit ids: enough for the engine tests that care
+ * about what the engine decides, not about how a storage holds bytes. [commitFailure] makes every
+ * commit throw it; [deletedTempFiles] records every delete in order.
+ */
+internal class SetStorage(
+    available: Set<String> = emptySet(),
+    partial: Set<String> = emptySet(),
+    complete: Set<String> = emptySet(),
+    private val commitFailure: Exception? = null,
+) : DownloaderStorage {
+    private val availableIds: MutableSet<String> = available.toMutableSet()
+    private val tempStates: MutableMap<String, TempFileState> = mutableMapOf<String, TempFileState>().apply {
+        partial.forEach { put(it, TempFileState.Partial) }
+        complete.forEach { put(it, TempFileState.Complete) }
+    }
+    val deletedTempFiles: MutableList<String> = mutableListOf()
+    var commitCount: Int = 0
+        private set
+
+    fun setTempState(unit: DownloadUnit, state: TempFileState) {
+        if (state == TempFileState.None) tempStates.remove(unit.id) else tempStates[unit.id] = state
+    }
+
+    override fun isResourceAvailable(unit: DownloadUnit): Boolean = unit.id in availableIds
+    override fun tempFileState(unit: DownloadUnit): TempFileState = tempStates[unit.id] ?: TempFileState.None
+    override fun getTempFileSize(unit: DownloadUnit): Long = 0L
+    override fun beginTempFile(unit: DownloadUnit, expectedSha256: Sha256?) = Unit
+    override fun markTempFileComplete(unit: DownloadUnit) {
+        tempStates[unit.id] = TempFileState.Complete
+    }
+
+    override suspend fun commitResource(unit: DownloadUnit) {
+        commitCount++
+        commitFailure?.let { throw it }
+        tempStates.remove(unit.id)
+        availableIds += unit.id
+    }
+
+    override fun deleteTempFile(unit: DownloadUnit) {
+        deletedTempFiles += unit.id
+        tempStates.remove(unit.id)
+    }
+
+    override fun getResourcePath(unit: DownloadUnit): String = ""
+    override fun getTempFilePath(unit: DownloadUnit): String = ""
+    override fun getResourceSize(unit: DownloadUnit): Long = 0L
+    override fun deleteResource(unit: DownloadUnit) {
+        availableIds.remove(unit.id)
+    }
+}

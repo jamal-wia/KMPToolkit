@@ -30,12 +30,14 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Thrown when no [BackgroundDownloadEvent] arrives within [DefaultDownloaderEngine.STALL_TIMEOUT].
- * Not a [CancellationException] — it must not interfere with structured concurrency.
+ * Thrown when no [BackgroundDownloadEvent] arrives within the stall timeout. Not a
+ * [CancellationException] — it must not interfere with structured concurrency.
+ *
+ * Deliberately carries nothing about the unit: a unit's `toString()` is host-defined text and the
+ * engine never reads an error back out of a message it built itself — a stall is reported as
+ * [DownloadError.Timeout] directly, see [toDownloadError].
  */
-private class DownloadResourceStallException(
-    unit: DownloadUnit,
-) : RuntimeException("Download stalled for $unit — no events received")
+private class DownloadResourceStallException : RuntimeException("Download stalled — no events received")
 
 /**
  * The engine: everything about *getting* a resource that is the same regardless of which resource
@@ -394,7 +396,8 @@ internal class DefaultDownloaderEngine(
                     }
                     clearStallCount(unit)
                     logger.e { "Download failed for $unit: $errorMessage" }
-                    val downloadError: DownloadError = errorMessage.toDownloadError()
+                    val downloadError: DownloadError =
+                        if (result.stalled) DownloadError.Timeout else errorMessage.toDownloadError()
                     groupState.value = GroupDownloadState.Error(error = downloadError)
                     notifier.showError(group = group, error = downloadError)
                     safeDeleteTempFile(unit)
@@ -407,6 +410,8 @@ internal class DefaultDownloaderEngine(
     private data class DownloadAttemptResult(
         val terminalEvent: BackgroundDownloadEvent.Terminal,
         val madeProgress: Boolean,
+        /** True when [terminalEvent] is the engine's own stall error, not one the downloader sent. */
+        val stalled: Boolean,
     )
 
     /**
@@ -432,6 +437,7 @@ internal class DefaultDownloaderEngine(
         progressScale: Float,
     ): DownloadAttemptResult {
         var madeProgress = false
+        var stalled = false
 
         val terminalEvent: BackgroundDownloadEvent.Terminal = try {
             backgroundDownloader.observeProgress(unit)
@@ -457,15 +463,16 @@ internal class DefaultDownloaderEngine(
                     emit(event)
                     // Resets on each upstream emission; fires only if no new event arrives.
                     delay(STALL_TIMEOUT)
-                    throw DownloadResourceStallException(unit)
+                    throw DownloadResourceStallException()
                 }
                 .filterIsInstance<BackgroundDownloadEvent.Terminal>()
                 .first()
         } catch (e: DownloadResourceStallException) {
-            logger.e(e) { e.message.orEmpty() }
+            logger.e(e) { "${e.message.orEmpty()} for $unit" }
             backgroundDownloader.cancelDownload(unit)
-            // Return as Error so the retry loop in downloadUnitWithRetry can handle it.
-            // This is a transport timeout — surface as such for the user-facing UI.
+            stalled = true
+            // Return as Error so the retry loop in downloadUnitWithRetry can handle it. Flagged as
+            // a stall so it is reported as a timeout without reading the text back.
             BackgroundDownloadEvent.Error(
                 unit = unit,
                 message = e.message ?: "Download stalled (timeout)",
@@ -481,6 +488,7 @@ internal class DefaultDownloaderEngine(
         return DownloadAttemptResult(
             terminalEvent = terminalEvent,
             madeProgress = madeProgress,
+            stalled = stalled,
         )
     }
 
@@ -751,6 +759,7 @@ internal class DefaultDownloaderEngine(
             backgroundDownloader.enqueueDownload(unit)
         }
 
+        var stalled = false
         val terminalEvent: BackgroundDownloadEvent.Terminal = try {
             backgroundDownloader.observeProgress(unit)
                 .onEach { event: BackgroundDownloadEvent ->
@@ -761,20 +770,26 @@ internal class DefaultDownloaderEngine(
                 .transformLatest { event: BackgroundDownloadEvent ->
                     emit(event)
                     delay(STALL_TIMEOUT)
-                    throw DownloadResourceStallException(unit)
+                    throw DownloadResourceStallException()
                 }
                 .filterIsInstance<BackgroundDownloadEvent.Terminal>()
                 .first()
         } catch (e: DownloadResourceStallException) {
-            logger.e(e) { e.message.orEmpty() }
+            logger.e(e) { "${e.message.orEmpty()} for $unit" }
             backgroundDownloader.cancelDownload(unit)
+            stalled = true
             BackgroundDownloadEvent.Error(
                 unit = unit,
                 message = e.message ?: "Download stalled (timeout)",
             )
         }
 
-        settleUnitDownload(unit = unit, stateFlow = stateFlow, terminalEvent = terminalEvent)
+        settleUnitDownload(
+            unit = unit,
+            stateFlow = stateFlow,
+            terminalEvent = terminalEvent,
+            stalled = stalled,
+        )
     }
 
     /**
@@ -786,6 +801,7 @@ internal class DefaultDownloaderEngine(
         unit: DownloadUnit,
         stateFlow: MutableStateFlow<UnitDownloadState>,
         terminalEvent: BackgroundDownloadEvent.Terminal,
+        stalled: Boolean,
     ) {
         when (terminalEvent) {
             is BackgroundDownloadEvent.FileReady -> markCompleteOnFileReady(unit)
@@ -798,7 +814,8 @@ internal class DefaultDownloaderEngine(
 
             is BackgroundDownloadEvent.Error -> {
                 clearStallCount(unit)
-                val downloadError: DownloadError = terminalEvent.message.toDownloadError()
+                val downloadError: DownloadError =
+                    if (stalled) DownloadError.Timeout else terminalEvent.message.toDownloadError()
                 stateFlow.value = UnitDownloadState.Error(downloadError)
                 safeDeleteTempFile(unit)
                 throw DownloadFailedException(unit = unit, error = downloadError)
@@ -891,34 +908,44 @@ internal class DefaultDownloaderEngine(
 }
 
 /**
+ * An HTTP status as a downloader words it: `HTTP 503`, `HTTP error: 500`, `HTTP/1.1 404`,
+ * `status 502`, `status code: 410`. The status word must start a word and the digits must follow it
+ * directly (only `error` / `status` / `code` and separators in between), so a three-digit run inside
+ * a URL (`https://cdn/assets/40123.zip`), an id or a byte count is never taken for a status.
+ */
+private val HTTP_STATUS: Regex =
+    Regex("\\b(?:http(?:/\\d(?:\\.\\d)?)?|status)(?:\\s+(?:error|status|code)){0,2}\\s*[:=]?\\s*(\\d{3})\\b")
+
+/**
  * Classifies a platform-emitted [BackgroundDownloadEvent.Error.message] into a [DownloadError].
  *
  * The platform contract yields only a string — what a failing transfer reports differs per platform
- * and per layer — so this has to keyword-match. Everything downstream is typed, which is the point:
- * the string handling is confined to this one function.
+ * and per layer — so this has to match text. Everything downstream is typed, which is the point: the
+ * string handling is confined to this one function.
+ *
+ * A status is read only where a downloader states it (see [HTTP_STATUS], and
+ * `docs/kmptoolkit-downloader/07-background-downloader.md` for the phrasing to use): 404 and 410 are
+ * [DownloadError.NotFound], 401 and 403 [DownloadError.Unauthorized], 5xx [DownloadError.Server].
+ * Any other status (416, 429, ...) is [DownloadError.Unknown] with the raw text. A bare number
+ * elsewhere in the message means nothing. The engine's own stall never comes through here — it is
+ * [DownloadError.Timeout] directly.
  */
-/** `http 503`, `http error: 500`, `status 502` — a 5xx wherever a downloader put it in its message. */
-private val SERVER_STATUS: Regex = Regex("(?:http|status)\\D{0,10}(5\\d\\d)\\b")
-
 private fun String.toDownloadError(): DownloadError {
     val lowered: String = lowercase()
+    val status: Int? = HTTP_STATUS.find(lowered)?.groupValues?.get(1)?.toIntOrNull()
     return when {
-        "404" in lowered || "not found" in lowered -> DownloadError.NotFound
+        status == 404 || status == 410 -> DownloadError.NotFound
 
-        "401" in lowered ||
-            "403" in lowered ||
+        status == 401 || status == 403 ||
             "unauthorized" in lowered ||
             "forbidden" in lowered -> DownloadError.Unauthorized
 
-        // Both a typical Android and a typical iOS downloader phrase a status failure as
-        // "HTTP <code> ..." / "HTTP error: <code>", never as a bare leading digit — so match the
-        // code where it actually appears, and hand it through so a host can show it.
-        SERVER_STATUS.containsMatchIn(lowered) ->
-            DownloadError.Server(statusCode = SERVER_STATUS.find(lowered)?.groupValues?.get(1)?.toIntOrNull())
+        status != null && status in 500..599 -> DownloadError.Server(statusCode = status)
+
+        status != null -> DownloadError.Unknown(this)
 
         "timeout" in lowered ||
-            "timed out" in lowered ||
-            "stalled" in lowered -> DownloadError.Timeout
+            "timed out" in lowered -> DownloadError.Timeout
 
         "unable to resolve" in lowered ||
             "no address" in lowered ||

@@ -64,6 +64,12 @@ public sealed class BackgroundDownloadEvent {
      * differs per platform and per layer (an HTTP status line, an `NSError` description, a socket
      * message), and normalizing it at the source would mean every implementation re-deriving the
      * same taxonomy. The engine classifies it into a [DownloadError] once, in one place.
+     *
+     * An HTTP failure is recognized only when the message states the status as `HTTP <code>` or
+     * `status <code>` (for example `HTTP 404`, `HTTP error: 503`): 404 and 410 become
+     * [DownloadError.NotFound], 401 and 403 [DownloadError.Unauthorized], 5xx [DownloadError.Server],
+     * any other status [DownloadError.Unknown]. A number anywhere else in the text (an id, a URL, a
+     * byte count) is never read as a status.
      */
     public data class Error(
         override val unit: DownloadUnit,
