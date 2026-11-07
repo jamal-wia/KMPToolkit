@@ -54,4 +54,47 @@ internal object UnitCommitLocks {
             }
         }
     }
+
+    /**
+     * Runs [action] only when no commit of [unitId] under [baseDirectory] holds or awaits the unit,
+     * and returns whether it ran. Never suspends and never waits, so a caller that cannot suspend
+     * ([DownloaderStorage.deleteTempFile]) and that may itself hold another lock cannot deadlock
+     * against a commit. It also returns false when the registry is merely busy for a moment (a
+     * commit of any unit registering or leaving, another call of this function), so a `false`
+     * means "not now", never "nothing to do".
+     *
+     * A commit registers its entry under [registryLock], so holding the registry for the whole of
+     * [action] keeps every commit of every unit from starting until it returns: the unit is
+     * excluded without registering an entry of its own (which could not be removed again without
+     * suspending). [action] must therefore be O(1) and must not suspend; slow work belongs in
+     * [tryDetachThenDispose].
+     */
+    fun tryWithUnitLock(baseDirectory: String, unitId: String, action: () -> Unit): Boolean {
+        if (!registryLock.tryLock()) return false
+        try {
+            if ((baseDirectory to unitId) in entries) return false
+            action()
+            return true
+        } finally {
+            registryLock.unlock()
+        }
+    }
+
+    /**
+     * [tryWithUnitLock] for slow cleanup: [detach] runs under the lock and must only make the
+     * unit's data unreachable for commits (an atomic rename), returning a handle to it or null when
+     * there was nothing; [dispose] then runs after the registry is released, so a recursive delete
+     * never stalls other units' commits or makes their cancels skip. Returns whether [detach] ran.
+     */
+    fun <T : Any> tryDetachThenDispose(
+        baseDirectory: String,
+        unitId: String,
+        detach: () -> T?,
+        dispose: (T) -> Unit,
+    ): Boolean {
+        var detached: T? = null
+        val ran: Boolean = tryWithUnitLock(baseDirectory, unitId) { detached = detach() }
+        detached?.let(dispose)
+        return ran
+    }
 }

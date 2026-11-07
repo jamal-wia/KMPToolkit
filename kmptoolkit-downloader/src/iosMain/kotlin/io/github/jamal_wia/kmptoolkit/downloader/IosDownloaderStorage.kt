@@ -24,6 +24,7 @@ import platform.CoreCrypto.CC_SHA256_DIGEST_LENGTH
 import platform.CoreCrypto.CC_SHA256_Final
 import platform.CoreCrypto.CC_SHA256_Init
 import platform.CoreCrypto.CC_SHA256_Update
+import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
@@ -193,6 +194,23 @@ internal class IosDownloaderStorage(
         // Data first, record last: a crash in between leaves an orphan record, which reads as no
         // temp file at all and is overwritten by the next beginTempFile.
         deleteTempData(unit)
+        // The extraction tree of an archive commit that a process death interrupted: nothing else
+        // ever enumerates tmp/, so a unit that is then dropped would keep it forever. Skipped while
+        // a commit of the unit runs (it may be extracting into this very tree, or moving it into
+        // place), or while the lock registry is momentarily busy; the next cancel or the next
+        // commit reclaims it. Under the lock the tree is only renamed away; the recursive delete
+        // runs after the lock is released so it cannot stall other units.
+        UnitCommitLocks.tryDetachThenDispose(
+            baseDirectory = baseDir,
+            unitId = unit.id,
+            detach = {
+                val trash = "$baseDir/tmp/trash/${unit.id}-${Random.nextLong().toULong()}"
+                createParentDirectory(trash)
+                if (rename("$baseDir/tmp/staging-${unit.id}", trash) == 0) trash else null
+            },
+            dispose = { trash: String -> NSFileManager.defaultManager.removeItemAtPath(trash, error = null) },
+        )
+        sweepTrash()
         // Safe to call from cleanup paths, so it never throws. But a data file that survived must
         // keep its record: with the record gone, the next attempt would commit that complete file
         // unchecked.
@@ -202,6 +220,19 @@ internal class IosDownloaderStorage(
         }
         remove(expectationPath(unit))
         remove(stagedExpectationPath(unit))
+    }
+
+    /**
+     * Deletes whatever `tmp/trash/` still holds: a detached extraction tree whose delete a process
+     * kill or an I/O error cut short. No commit ever uses a path under it, so it needs no lock, and
+     * a sweep racing another thread's delete of the same tree is harmless. A dedicated directory,
+     * not a name prefix in `tmp/`, so that a unit whose id starts with `trash-` keeps its temp file.
+     */
+    private fun sweepTrash() {
+        val trashDir = "$baseDir/tmp/trash"
+        NSFileManager.defaultManager.contentsOfDirectoryAtPath(trashDir, error = null).orEmpty().forEach { name ->
+            NSFileManager.defaultManager.removeItemAtPath("$trashDir/$name", error = null)
+        }
     }
 
     private fun deleteTempData(unit: DownloadUnit) {
