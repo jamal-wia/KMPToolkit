@@ -72,6 +72,42 @@ class VideoPlayerConcurrentPrepareAdversarialTest {
         }
 
     @Test
+    fun `callers that prepare then are cancelled while others keep preparing leave no load open and the player usable`() =
+        runTest(timeout = 60.seconds) {
+            withContext(Dispatchers.Default) {
+                withTimeout(REAL_BUDGET) {
+                    repeat(ROUNDS) { round: Int ->
+                        val engine = ExclusiveLoadEngine()
+                        val player: VideoPlayer = createVideoPlayer(
+                            engine = engine,
+                            coroutineContext = Dispatchers.Default,
+                        )
+                        val start = CompletableDeferred<Unit>()
+                        val callers: List<Deferred<Unit>> = List(CALLERS) { index: Int ->
+                            async {
+                                start.await()
+                                player.prepare(VideoSource.Remote("https://example.test/$round/$index.mp4"))
+                            }
+                        }
+                        start.complete(Unit)
+                        // Cancel every third caller while loads are in flight: cancellation mid-load.
+                        callers.filterIndexed { i: Int, _ -> i % 3 == 0 }.forEach { it.cancel() }
+                        callers.forEach { runCatching { it.await() } }
+
+                        assertEquals(0, engine.openLoads.load(), "round $round: a load is still open in the engine")
+                        // At most one: when the last caller to arrive is cancelled, every earlier load was
+                        // superseded before it reached the engine and zero loads is legitimate.
+                        assertTrue(engine.maxConcurrentLoads.load() <= 1, "round $round: loads overlapped")
+                        // The player must still be usable: a fresh prepare reaches Ready.
+                        player.prepare(VideoSource.Remote("https://example.test/$round/final.mp4"))
+                        assertIs<VideoPlayerState.Ready>(player.stateFlow.value, "round $round: after a fresh prepare")
+                        player.release()
+                    }
+                }
+            }
+        }
+
+    @Test
     fun `release racing 32 concurrent prepare calls disposes once and starts no load after it`() =
         runTest(timeout = 60.seconds) {
             withContext(Dispatchers.Default) {

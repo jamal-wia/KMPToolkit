@@ -174,6 +174,10 @@ internal class EngineVideoPlayer(
             throw cancellation
         } finally {
             load.job.complete()
+            // Finished is transitive: a load that was superseded and cancelled while still waiting
+            // for the one it replaced must not report finished before that one has, or the load
+            // queued behind it would start while the first is still unwinding in the engine.
+            withContext(NonCancellable) { previous?.finished?.join() }
             load.finished.complete()
         }
 
