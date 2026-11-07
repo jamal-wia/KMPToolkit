@@ -28,6 +28,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -132,7 +133,7 @@ class RecorderStormTest {
         override fun resume(): Unit = driven { if (!open.load()) callsWithoutHandle.incrementAndFetch() }
         override fun peakDbfs(): Float? = driven {
             busy()
-            null
+            if (open.load()) -20f else null
         }
 
         override fun stop(): Unit = driven {
@@ -436,6 +437,47 @@ class RecorderStormTest {
             awaitTrue("seed $seed: handle freed at the end") { !engine.open.load() }
             assertEquals(0, engine.overlaps.load(), "seed $seed: overlapping engine calls")
         }
+    }
+
+    @Test
+    fun `metering stops once the last collector leaves however the collectors came and went`() = storm {
+        repeat(ROUNDS) { round: Int ->
+            val seed: Long = 32_452_843L * round + 13L
+            val fs = StormFs()
+            val engine = StormEngine(onPrepared = { fs.create(it) }, busyMicros = 100L)
+            val config = AudioRecorderConfig(minimumFreeSpaceBytes = 0L, levelUpdateInterval = 1.milliseconds)
+            val recorder: DefaultAudioRecorder = recorder(engine, fs, config)
+            recordingStart(recorder, "/data/meter-$round.m4a", seed)
+            val churn: List<Job> = (0 until 6).map { w: Int ->
+                val own = Random(seed + w)
+                launch(Dispatchers.Default) {
+                    repeat(60) {
+                        val watcher: Job = launch(Dispatchers.Default) {
+                            if (own.nextBoolean()) recorder.level.collect { } else recorder.levelSamples.collect { }
+                        }
+                        jitter(own)
+                        watcher.cancel()
+                    }
+                }
+            }
+            churn.joinAll()
+            // Everyone left. Whatever sample was in flight finishes; after that the engine is not asked again.
+            delay(30L)
+            val before: Int = engine.totalCalls.load()
+            delay(40L)
+            assertEquals(before, engine.totalCalls.load(), "seed $seed: the meter kept sampling with nobody collecting")
+            assertEquals(0f, recorder.level.value, "seed $seed: level did not return to zero")
+            // And it comes back for the next collector.
+            val sampled: Float? = withTimeoutOrNull(2.seconds) { recorder.levelSamples.first() }
+            assertTrue(sampled != null, "seed $seed: the meter never restarted for a new collector")
+            assertTrue(recorder.stop().isSuccess, "seed $seed")
+            recorder.release()
+        }
+    }
+
+    private suspend fun recordingStart(recorder: DefaultAudioRecorder, path: String, seed: Long) {
+        assertTrue(recorder.prepare(path).isSuccess, "seed $seed: prepare")
+        assertTrue(recorder.start().isSuccess, "seed $seed: start")
     }
 
     @Test
