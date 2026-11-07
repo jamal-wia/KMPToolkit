@@ -192,11 +192,15 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   dies between the answer and the settlement, the next run **replays the file instead of uploading
   again**: the Android worker checks it before preparing the attempt, the iOS transport in a re-hand
   (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
-  created. The file is deleted just before the engine commits the settlement, so a retry that is
-  re-handed at once never meets it; if the commit fails it is written back, so the answer is not lost, and one replay per item runs at a time in a process. A replayed response reaches `classify` and
+  created. On Android the entry carries the attempt it answers and is deleted only after the engine commit
+  returned, so a death or stop before the commit leaves it for the next run, and a leftover of an attempt that was
+  already settled is recognised and dropped instead of replaying into the retry. On iOS the file is deleted just
+  before the engine commits the settlement and written back if the commit does not land (a process death in that
+  instant uploads again: at least once). One replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
-  file; so does the 7-day expiry. A file of an unknown format version, or an unreadable one, is ignored
-  and deleted. Nothing is journaled for a transport failure (there is no response), a write that fails
+  file; so does the 7-day expiry. A file of an unknown format version or a damaged one is ignored and
+  deleted. On Android a file that exists but cannot be read is waited for over 3 runs of the job and then given
+  up (the item uploads again, at least once); iOS treats it as absent and uploads, for now. Nothing is journaled for a transport failure (there is no response), a write that fails
   leaves the behaviour of 3.0 (a re-upload after a lease expiry), and the legacy classifier transport
   has no journal.
 - **`Set-Cookie`.** Headers repeated under one name are joined with `", "`; that cannot be undone for a

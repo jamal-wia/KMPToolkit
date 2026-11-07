@@ -278,6 +278,11 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
 }
 ```
 
+`onSettled` runs at most once, after the row was committed, in the process that committed it: a stop of the
+platform job or a process death right after the commit can skip it, and nothing calls it later. Do not make it
+the only place that deletes the uploaded source file. Reconcile leftover files when your app starts, or free the
+file in `onDelivered` (at least once, before the commit) where that fits.
+
 `prepareUpload` runs again when the platform actually starts the upload, so the token is fresh and a
 job re-run for an item that settled meanwhile uploads nothing. On Android the platform job stores only
 the item id; an iOS background session needs the request up front and uses the one prepared at

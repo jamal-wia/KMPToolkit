@@ -57,6 +57,7 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
     }
 
     override suspend fun onSettled(payload: AvatarUpload, attempts: Int, result: SettleResult) {
+        // At most once: a stop right after the commit skips it, so also sweep leftover files at app start.
         if (result is SettleResult.Delivered) File(payload.path).delete()
     }
 }
@@ -128,9 +129,18 @@ backup-excluded Application Support directory on iOS). If the process dies in be
 worker at the start of `doWork`, the iOS transport in a hand-off, in `handleEvents` and once at
 creation (on iOS only a re-hand is owed a replay). The file holds the body only up to the handler's
 `maxResponseBodyBytes` (on iOS, after a brief window in which the whole captured body is on disk; see
-[`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted just before the engine commits the settlement, on `cancel`, and after 7 days; if the commit
-fails (a store error) the file is written back, and a stop of the job cannot separate the delete from the
-commit. An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
+[`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted on `cancel` and after 7 days, and
+when the settlement is done:
+
+- **Android** entries carry the attempt they answer and are deleted only after the commit lands. A death or a stop
+  anywhere before the commit is durable leaves the entry, and the next run settles it. A leftover from an attempt
+  that was already settled (a delete that failed after the commit) is recognised by its attempt, dropped, and the
+  job uploads. An unreadable entry is waited for over 3 runs, then given up and the item uploads again (at least
+  once). A status received while the job is stopped during the response body is journaled and settled by the re-run.
+- **iOS** entries are deleted just before the commit and written back if it does not land; a process death in that
+  microsecond window uploads again (at least once).
+
+An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
 briefly on disk; see [`05-platform-notes.md`](05-platform-notes.md#the-servers-response). Your own
 transport has no journal: keep your own record if it needs one.
 

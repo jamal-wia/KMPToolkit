@@ -546,6 +546,29 @@ class UploaderLifecycleChaosRound2AdversarialTest {
         assertEquals(1, handler.delivered.size, "2 s flush bound plus margin elapsed, the settlement is still behind the hook")
     }
 
+    // R2-S5 (rewritten per the documentation decision): onSettled runs at most once, in the process that committed
+    @Test
+    fun `a job stopped while the commit is written settles the item once and never runs onSettled twice`() {
+        serve()
+        val holder = CompletableDeferred<kotlinx.coroutines.Job>()
+        val backing = TestUploaderStore()
+        val handler = ChaosHandler(onSettledHook = { withContext(Dispatchers.IO) { } })
+        startEngine(StoppingStore(backing, holder), handler)
+        val running: Deferred<ListenableWorker.Result> = uploads.async { worker().build().doWork() }
+        holder.complete(running)
+        runBlocking { withTimeout(15_000L) { running.join() } }
+        val rerun: ListenableWorker.Result = runWorker()
+        assertIs<ListenableWorker.Result.Success>(rerun)
+        assertEquals(1, connections.get(), "the commit landed: the re-run uploads nothing")
+        assertEquals(1, handler.delivered.size)
+        assertNull(backing.find("item-1"), "the row is committed")
+        assertTrue(
+            handler.settled.get() in 0..1,
+            "onSettled runs at most once; a stop right after the commit may skip it, and nothing calls it later: ${handler.settled.get()}",
+        )
+        assertTrue(journalFiles().isEmpty(), "no journal file is left: ${journalFiles()}")
+    }
+
     private companion object {
         const val CREATED: String = "HTTP/1.1 201 Created\r\nLocation: /jobs/1\r\nContent-Length: 12\r\nConnection: close\r\n\r\n{\"job\":\"j1\"}"
     }
