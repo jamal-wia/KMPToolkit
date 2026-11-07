@@ -68,4 +68,40 @@ class UploaderStorageFactoryAndroidTest {
 
     private fun databasesDirectory(): File =
         File(application().applicationInfo.dataDir, "databases")
+
+    @Test
+    fun `recreateOnCorruption replaces a corrupt file with an empty working queue`() = runTest {
+        val config = UploaderDatabaseConfig("com.example.recreate", recreateOnCorruption = true)
+        val file = application().getDatabasePath(uploaderDatabaseFileName(config.name!!))
+        file.parentFile?.mkdirs()
+        val garbage = ByteArray(4_096) { (it * 31).toByte() }
+        file.writeBytes(garbage)
+
+        val storage: UploaderStorage = createUploaderStorage(application(), config)
+        try {
+            assertEquals(emptyList(), storage.store.getAllActive().map { it.id }, "the new queue must be empty")
+            storage.store.insertKeep(anItem("fresh"))
+            assertEquals(listOf("fresh"), storage.store.getAllActive().map { it.id })
+        } finally {
+            storage.close()
+        }
+        assertTrue(!garbage.contentEquals(file.readBytes()), "the corrupt bytes are still there")
+        application().deleteDatabase(file.name)
+    }
+
+    @Test
+    fun `without recreateOnCorruption a corrupt file fails the open and is left byte for byte`() = runTest {
+        val config = UploaderDatabaseConfig("com.example.keepcorrupt")
+        val file = application().getDatabasePath(uploaderDatabaseFileName(config.name!!))
+        file.parentFile?.mkdirs()
+        val garbage = ByteArray(4_096) { (it * 17).toByte() }
+        file.writeBytes(garbage)
+
+        val failure: Throwable? = runCatching { createUploaderStorage(application(), config) }.exceptionOrNull()
+
+        assertTrue(failure is UploaderStorageException, "got $failure")
+        assertEquals(UploaderStorageOperation.OPEN, failure.operation)
+        assertTrue(garbage.contentEquals(file.readBytes()), "the corrupt file was touched")
+        application().deleteDatabase(file.name)
+    }
 }
