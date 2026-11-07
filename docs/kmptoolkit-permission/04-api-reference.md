@@ -190,7 +190,11 @@ public interface PermissionController {
   nothing to show) it returns that status at once.
 - **`request(permissions)`** — one entry per distinct permission, in iteration order. On Android every
   runtime permission that can still prompt shares one system dialog; background location and
-  background body sensors never join it. Everything else is requested in order, one at a time.
+  background body sensors never join it. Entries that stand for one Android permission on the
+  running API level (a Bluetooth scan below API 31 is location) are one request with one answer, so
+  the user is never asked the same thing twice in a call. A batch waits for an activity at most once
+  (when the app is in the background after a refusal), not once per permission. Everything else is
+  requested in order, one at a time.
 - **Requests are serialized.** A request made while another is in flight — through the same
   controller — waits for it, so two prompts never overlap. That includes a request cancelled while
   its system dialog is still up: the dialog cannot be taken back, so the next request waits (at most
@@ -319,7 +323,9 @@ Every collaborator but `context` and `storage` has a default:
   [guide](03-guide.md#a-kiosk-lock-task-app).
 - **`config`** — see `AndroidPermissionConfig`.
 - **`logger`** — where an undeclared permission, a dialog that could not be shown, an unreadable flag
-  and a launcher failure are reported.
+  and a launcher failure are reported. A flag the storage cannot read, write or remove is treated as
+  not set and logged as a warning once per flag, so a storage that is down is visible without a line
+  on every check.
 
 ### `AndroidPermissionConfig` (Android only)
 
