@@ -130,8 +130,21 @@ does not use) offers opportunistic background execution, not a wall-clock trigge
 
 Practical consequences:
 
-- **Roughly 64 pending local notifications per app.** Requests past the cap are refused — you get
-  `Failed(PlatformError(...))`. Schedule a rolling window rather than a year of reminders.
+- **At most 64 pending local notifications per app.** iOS itself keeps only the soonest-firing 64
+  and silently discards the rest — `addNotificationRequest` reports no error (Apple documents this
+  on the `UILocalNotification` page, and the behavior has carried over to `UserNotifications`).
+  Because the OS never says so, `IosAlarmScheduler` checks before adding: it reads the pending
+  requests and, if 64 *other* identifiers are already pending, returns
+  `Failed(PlatformError(...))` without adding. Re-scheduling an identifier that is already pending
+  replaces it and is not counted, so it still succeeds at the cap. The count covers every pending local
+  notification of the app, including ones created by your own code or another library, not only this
+  scheduler's. The check and the add run under a process-wide lock, so concurrent `schedule` calls
+  through this library cannot overshoot; notifications added by code outside it are not serialised
+  with it and can still push the total past 64. Schedule a rolling window rather than
+  a year of reminders.
+
+  Verification status: the pre-check is verified by unit tests against a fake notification center
+  only. Confirming the OS behavior on a real device (schedule 65) is still outstanding, as is confirming that a completed add is immediately visible in the pending list, which the lock relies on.
 - **Delivery is at the requested time**, subject to the usual system discretion (Focus modes,
   Scheduled Summary, Do Not Disturb can delay or bundle the *presentation*).
 - **The text is frozen.** Language changes after scheduling do not update pending notifications;

@@ -175,9 +175,12 @@ manifest, and only you know which alarms are still wanted after however long the
   "cancel all mine" on Android.
 - **Assuming an alarm survives force-stop or reboot.** Neither is true on Android. Reconcile at
   startup and re-arm at boot.
-- **Scheduling hundreds of alarms on iOS.** Roughly 64 pending local notifications per app, then
-  requests are refused — you get `Failed(PlatformError(...))`. Schedule a rolling window, not a
-  year of reminders.
+- **Scheduling hundreds of alarms on iOS.** At most 64 pending local notifications per app: iOS
+  keeps the soonest 64 and silently drops the rest, so the scheduler refuses a 65th new identifier
+  with `Failed(PlatformError(...))` instead of reporting `Exact`. The count includes every pending local
+  notification of the app, not only this scheduler's. Schedule a rolling window, not a year of
+  reminders (see [`05-platform-notes.md`](05-platform-notes.md) for the source and verification
+  status).
 - **Localizing at fire time on iOS.** There is no fire time on iOS. Re-schedule on language change.
 
 ## Read next
