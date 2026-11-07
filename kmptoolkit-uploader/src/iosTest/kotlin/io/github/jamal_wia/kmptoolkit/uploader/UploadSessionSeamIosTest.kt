@@ -214,6 +214,58 @@ class UploadSessionSeamIosTest {
         assertEquals(2, h.created.size, "claimed at once, on the caller's thread")
     }
 
+    // --- review M1: a cancel while the hand-off waits for its predecessor ---------------------------------
+
+    @Test
+    fun `a cancel while a hand-off waits for its predecessor keeps the withdrawn item from uploading`() = runTest {
+        val itemId: String = newItem()
+        val h: Harness = harness()
+        h.transport.launch(itemId, isRehandOff = false, request = request())
+        val first: FakeSession = h.created.single()
+        first.terminalError()
+        h.transport.launch(itemId, isRehandOff = false, request = request()) // deferred behind the predecessor
+        assertEquals(1, h.created.size)
+
+        h.transport.cancel(itemId)
+        assertEquals(1, h.created.size, "cancel must not open an orphan session beside the invalidating one")
+        first.delegate.reportInvalidated()
+        withContext(Dispatchers.Default) { delay(500L) }
+
+        assertEquals(1, h.created.size, "the withdrawn item must not get a new session")
+        assertTrue(h.created.drop(1).all { it.tasksCreated == 0 })
+    }
+
+    @Test
+    fun `a cancel while the predecessor is silent still withdraws the deferred hand-off after the bounded wait`() = runTest {
+        val itemId: String = newItem()
+        val h: Harness = harness(invalidationWait = 300.milliseconds)
+        h.transport.launch(itemId, isRehandOff = false, request = request())
+        h.created.single().terminalError()
+        h.transport.launch(itemId, isRehandOff = false, request = request())
+
+        h.transport.cancel(itemId)
+        withContext(Dispatchers.Default) { delay(900L) } // the wait timed out meanwhile
+
+        assertTrue(h.created.drop(1).all { it.tasksCreated == 0 }, "no task for a withdrawn item")
+    }
+
+    @Test
+    fun `a launch after the cancel is not blocked by it`() = runTest {
+        val itemId: String = newItem()
+        val h: Harness = harness()
+        h.transport.launch(itemId, isRehandOff = false, request = request())
+        val first: FakeSession = h.created.single()
+        first.terminalError()
+        h.transport.launch(itemId, isRehandOff = false, request = request())
+        h.transport.cancel(itemId)
+
+        h.transport.launch(itemId, isRehandOff = false, request = request()) // a fresh enqueue of the same id
+        first.delegate.reportInvalidated()
+
+        until { h.created.size == 2 }
+        until { h.created[1].tasksCreated == 1 }
+    }
+
     // --- #11: the drained callback runs once -------------------------------------------------------------
 
     @Test

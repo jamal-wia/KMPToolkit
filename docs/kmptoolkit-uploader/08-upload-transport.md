@@ -234,7 +234,8 @@ A session is replaced only once its predecessor has reported itself invalid: inv
 only requests it, and two live background sessions with one identifier are undefined. A hand-off that
 finds the previous session of its item still invalidating waits for `didBecomeInvalidWithError` (at
 most two seconds) before it opens the next one, so a retry right after a failed attempt starts a
-moment late rather than on an overlapping session.
+moment late rather than on an overlapping session. A `cancel` during that wait withdraws the deferred
+hand-off, so the item is not uploaded afterwards, and opens no second session beside the invalidating one.
 
 A background session takes the whole request when the task is created, so on iOS the request is the
 one `prepareUpload` returned at hand-off, not one prepared when the transfer starts, and

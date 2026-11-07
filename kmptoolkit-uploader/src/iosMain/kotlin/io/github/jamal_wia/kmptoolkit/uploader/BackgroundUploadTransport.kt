@@ -295,6 +295,13 @@ internal class BackgroundSessionUploadTransport(
      */
     private val invalidating: MutableMap<String, UploadSessionDelegate> = mutableMapOf()
 
+    /**
+     * Hand-offs deferred behind an invalidating predecessor, per item, each as an identity token. A [cancel] clears
+     * the item's entry, so a deferred hand-off that wakes afterwards finds its token gone and starts nothing.
+     * Read and written under [liveLock] only.
+     */
+    private val pendingHandOffs: MutableMap<String, MutableList<Any>> = mutableMapOf()
+
     override val leaseMillis: Long = config.lease.inWholeMilliseconds
 
     init {
@@ -319,10 +326,15 @@ internal class BackgroundSessionUploadTransport(
         handOff(itemId, isRehandOff, request)
     }
 
-    private fun handOff(itemId: String, isRehandOff: Boolean, request: UploadRequest) {
-        val live: LiveUpload = when (val claim: HandOffClaim = claimForHandOff(itemId)) {
+    private fun handOff(itemId: String, isRehandOff: Boolean, request: UploadRequest, deferredToken: Any? = null) {
+        val live: LiveUpload = when (val claim: HandOffClaim = claimForHandOff(itemId, deferredToken)) {
             HandOffClaim.Joined -> {
                 logger.i { "Upload hand-off joins the live session — item=$itemId" }
+                return
+            }
+
+            HandOffClaim.Withdrawn -> {
+                logger.i { "A deferred hand-off was cancelled before it started — item=$itemId" }
                 return
             }
 
@@ -334,7 +346,7 @@ internal class BackgroundSessionUploadTransport(
                         logger.w { "The previous session was not reported invalid in time; continuing — item=$itemId" }
                         forgetInvalidating(itemId, claim.predecessor)
                     }
-                    handOff(itemId, isRehandOff, request)
+                    handOff(itemId, isRehandOff, request, claim.token)
                 }
                 return
             }
@@ -363,12 +375,20 @@ internal class BackgroundSessionUploadTransport(
         val orphan: LiveUpload?
         liveLock.lock()
         try {
+            // Withdraws every hand-off still waiting for a predecessor's invalidation.
+            pendingHandOffs.remove(itemId)
             val live: LiveUpload? = liveUploads.remove(itemId)
             if (live != null) {
                 // Cancelled tasks still report completion; marked first, they settle nothing and spend no
                 // retry budget.
                 live.delegate.cancelled = true
                 live.session.invalidateAndCancel()
+                removeTemporaryBody(itemId)
+                orphan = null
+            } else if (invalidating.containsKey(itemId)) {
+                // The slot is empty because this process's own session for the item is still invalidating
+                // (invalidateAndCancel already cancelled its tasks): no earlier-process task can sit under the
+                // identifier, so no orphan session is opened beside the one being invalidated.
                 removeTemporaryBody(itemId)
                 orphan = null
             } else {
@@ -465,9 +485,15 @@ internal class BackgroundSessionUploadTransport(
      *   [releaseIfIdle] no longer invalidates it from under the hand-off, and checks its tasks exactly as
      *   it would a session of its own — rejoining one still running, or starting afresh.
      */
-    private fun claimForHandOff(itemId: String): HandOffClaim {
+    private fun claimForHandOff(itemId: String, deferredToken: Any?): HandOffClaim {
         liveLock.lock()
         try {
+            if (deferredToken != null) {
+                // A cancel since this hand-off was deferred removed its token.
+                val pending: MutableList<Any>? = pendingHandOffs[itemId]
+                if (pending == null || !pending.remove(deferredToken)) return HandOffClaim.Withdrawn
+                if (pending.isEmpty()) pendingHandOffs.remove(itemId)
+            }
             val existing: LiveUpload? = liveUploads[itemId]
             if (existing != null && !existing.delegate.terminalDelivered) {
                 if (existing.handedOff) return HandOffClaim.Joined
@@ -475,7 +501,11 @@ internal class BackgroundSessionUploadTransport(
                 return HandOffClaim.Claimed(existing)
             }
             // A replacement session must not open before its predecessor reported itself invalid.
-            invalidating[itemId]?.let { predecessor -> return HandOffClaim.AwaitPredecessor(predecessor) }
+            invalidating[itemId]?.let { predecessor ->
+                val token = Any()
+                pendingHandOffs.getOrPut(itemId) { mutableListOf() }.add(token)
+                return HandOffClaim.AwaitPredecessor(predecessor, token)
+            }
             val live: LiveUpload = createLive(itemId)
             live.handedOff = true
             liveUploads[itemId] = live
@@ -494,7 +524,10 @@ internal class BackgroundSessionUploadTransport(
         class Claimed(val live: LiveUpload) : HandOffClaim
 
         /** The slot is free, but [predecessor]'s invalidation is still pending: wait, then claim again. */
-        class AwaitPredecessor(val predecessor: UploadSessionDelegate) : HandOffClaim
+        class AwaitPredecessor(val predecessor: UploadSessionDelegate, val token: Any) : HandOffClaim
+
+        /** A [cancel] arrived while this hand-off was deferred: start nothing. */
+        data object Withdrawn : HandOffClaim
     }
 
     private fun forgetInvalidating(itemId: String, delegate: UploadSessionDelegate) {
