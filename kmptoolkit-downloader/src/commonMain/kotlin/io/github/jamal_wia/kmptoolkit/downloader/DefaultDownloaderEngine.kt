@@ -26,7 +26,9 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
@@ -538,7 +540,8 @@ internal class DefaultDownloaderEngine(
      * [BackgroundResourceDownloader.enqueueDownload] is called, and buffers everything after that.
      *
      * Uses **inactivity timeout** (stall detection) instead of a fixed wall-clock timeout:
-     * - [transformLatest] restarts the inner block on each new event, cancelling the previous
+     * - The timer is armed at subscription, so a transfer silent from the start stalls too.
+     *   [transformLatest] restarts the inner block on each new event, cancelling the previous
      *   [delay]. A repeated [BackgroundDownloadEvent.Progress] restarts it like any other event.
      * - If no event arrives within [DownloaderConfig.stallTimeout], the delay completes and throws
      *   [DownloadResourceStallException]; the transfer is cancelled and the attempt ends as a stall.
@@ -571,11 +574,15 @@ internal class DefaultDownloaderEngine(
             if (enqueue) backgroundDownloader.enqueueDownload(unit)
             val terminalEvent: BackgroundDownloadEvent.Terminal = try {
                 events.receiveAsFlow()
-                    .onEach { event: BackgroundDownloadEvent ->
+                    .map<BackgroundDownloadEvent, BackgroundDownloadEvent?> { it }
+                    // A null first element arms the stall timer at subscription, so a transfer
+                    // that never emits anything is stalled after the timeout like any other.
+                    .onStart { emit(null) }
+                    .onEach { event: BackgroundDownloadEvent? ->
                         if (event is BackgroundDownloadEvent.Progress) onProgress(event)
                     }
-                    .transformLatest { event: BackgroundDownloadEvent ->
-                        emit(event)
+                    .transformLatest { event: BackgroundDownloadEvent? ->
+                        if (event != null) emit(event)
                         // Resets on each upstream emission; fires only if no new event arrives.
                         delay(config.stallTimeout)
                         throw DownloadResourceStallException()

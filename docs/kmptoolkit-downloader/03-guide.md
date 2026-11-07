@@ -194,8 +194,11 @@ policy.
 
 Three things make it work:
 
-- **Stall detection is an inactivity timeout, not a wall clock.** A slow-but-progressing large
-  transfer never trips it; a dead connection does. The timeout is 5 minutes unless you pass a
+- **Stall detection is an inactivity timeout, not a wall clock.** It is armed when the engine
+  subscribes to the attempt, so a transfer that never emits anything stalls too. A slow-but-progressing
+  large transfer never trips it; a dead connection does. A transfer the OS legitimately holds
+  silent (iOS waiting for connectivity) must re-emit its current `Progress`, `0` included, now and
+  then, or the host sets `stallTimeout = Duration.INFINITE`. The timeout is 5 minutes unless you pass a
   `DownloaderConfig(stallTimeout = …)` to `createDownloader` (`Duration.INFINITE` turns it off). A stall re-enters the table above as an `Error`
   with no progress.
 - **The failure counter is persisted** through `DownloadStateStore` — worthless if it reset with the

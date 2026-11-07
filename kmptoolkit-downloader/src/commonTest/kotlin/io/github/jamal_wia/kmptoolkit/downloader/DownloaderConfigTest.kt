@@ -167,4 +167,60 @@ class DownloaderConfigTest {
 
         assertEquals(GroupDownloadState.Idle, downloader.downloadState(group).value)
     }
+
+    // -- The timer is armed at subscription -----------------------------------------------------
+
+    @Test
+    fun `a transfer that is silent from the start is stalled after the stall timeout`() = runTest {
+        val downloader = ScriptedAttemptsDownloader { _, _ -> delay(Duration.INFINITE) }
+
+        val thrown: DownloadFailedException = assertFailsWith {
+            build(DownloaderConfig(stallTimeout = 10.seconds), downloader).ensureAvailable(model)
+        }
+
+        assertEquals(DownloadError.Timeout, thrown.error)
+        assertEquals(10.seconds.inWholeMilliseconds, testScheduler.currentTime)
+        assertEquals(listOf("model"), downloader.cancelledUnits)
+    }
+
+    @Test
+    fun `a keep-alive Progress of zero prevents a stall but is not progress`() = runTest {
+        val storage = SetStorage()
+        val downloader = ScriptedAttemptsDownloader { _, unit ->
+            repeat(30) {
+                delay(60.seconds)
+                emit(BackgroundDownloadEvent.Progress(unit, 0f))
+            }
+            storage.setTempState(unit, TempFileState.Complete)
+            emit(BackgroundDownloadEvent.FileReady(unit))
+        }
+        val engine: Downloader = createDownloader(
+            storage = storage,
+            backgroundDownloader = downloader,
+            groups = listOf(group),
+            stateStore = stateStore,
+            config = DownloaderConfig(stallTimeout = 2.minutes),
+            dispatchers = TestDownloadDispatchers(this),
+        )
+
+        engine.ensureAvailable(group)
+
+        assertEquals(1, downloader.enqueueCount)
+        assertEquals(GroupDownloadState.Completed, engine.downloadState(group).value)
+    }
+
+    @Test
+    fun `a keep-alive that then errors is still bounded at three attempts`() = runTest {
+        val downloader = ScriptedAttemptsDownloader { _, unit ->
+            delay(60.seconds)
+            emit(BackgroundDownloadEvent.Progress(unit, 0f))
+            emit(BackgroundDownloadEvent.Error(unit, "connection reset"))
+        }
+
+        assertFailsWith<DownloadFailedException> {
+            build(DownloaderConfig(stallTimeout = 2.minutes), downloader).ensureAvailable(group)
+        }
+
+        assertEquals(3, downloader.enqueueCount)
+    }
 }
