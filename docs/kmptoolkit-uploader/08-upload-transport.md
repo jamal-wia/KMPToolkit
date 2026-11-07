@@ -168,8 +168,9 @@ registered to prepare or settle, so an outcome is never dropped, and `Result.suc
 The response is read in the same attempt, before the connection is dropped: headers without the status
 line, and the body from `errorStream` for a status of 400 and above (no stream is an empty body) or
 `inputStream` below it, at most 1 MiB. The body stays in the process — it is never put into
-`WorkManager`'s data. Reading the body is bounded by the read timeout in total (and stops when the job
-is cancelled), and a body that cannot be read completely — the connection broke, or the time ran out —
+`WorkManager`'s data. Reading the body stops once the read timeout has passed in total (at most one more
+read timeout for a read already waiting) or, between reads, when the job is cancelled, and a body that
+cannot be read completely — the connection broke, or the time ran out —
 is reported as truncated with the bytes read so far, not as a transport failure. A `WorkManager` worker has about 10 minutes and this module does not call
 `setForeground`, so keep the upload and the server's answer short.
 

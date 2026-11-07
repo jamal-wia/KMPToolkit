@@ -207,7 +207,7 @@ class UploadResponseCaptureTest {
     }
 
     @Test
-    fun `a server that rejects before the body ends still gives its status and body`() {
+    fun `a server that rejects before the body ends still gives its status and a response`() {
         val source: java.io.File = java.io.File(context.cacheDir, "late.bin").apply { writeBytes(ByteArray(4 * 1024 * 1024) { 1 }) }
         try {
             thread(isDaemon = true) {
@@ -229,7 +229,11 @@ class UploadResponseCaptureTest {
             // Whether the write fails first is up to the socket stack; either way a received 413 must
             // never be read as a retryable transport failure.
             assertEquals(UploadResult.Completed(413), outcome.result)
-            assertNotNull(outcome.response).let { assertEquals(413, it.statusCode) }
+            val response: UploadResponse = assertNotNull(outcome.response)
+            assertEquals(413, response.statusCode)
+            // Either the stack read the whole body, or the reset left it unreadable and that is flagged.
+            val body: String = response.body().decodeToString()
+            assertTrue(body == "too big" || (body.isEmpty() && response.isBodyTruncated), "body=$body truncated=${response.isBodyTruncated}")
         } finally {
             source.delete()
         }
