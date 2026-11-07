@@ -236,6 +236,9 @@ provider as it comes:
   app, decides whether the alert appears: never for an app without location authorization (the
   decorator does not request it — that stays your call), and not again after the user dismissed it.
   `PROMPTED` means asked, not shown; re-check `isLocationEnabled()` when the app becomes active.
+  At most one such request is kept at a time: for an app that is not yet authorized CoreLocation may
+  never answer it, and a prompt made while one is still pending changes nothing instead of retaining
+  one more manager per call.
 
 ## The location settings screen and tasks (Android)
 
