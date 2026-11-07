@@ -23,6 +23,8 @@ internal object SharedActivityAccess {
 
     private var slot: Pair<Application, ActivityAccess>? = null
 
+    // Synchronized: called from non-suspending factories on any thread, and creating the access registers
+    // lifecycle callbacks - a side effect a CAS retry could run twice.
     /** The shared access for [application], created and registered on first use. */
     @Synchronized
     fun forApplication(application: Application): ActivityAccess {

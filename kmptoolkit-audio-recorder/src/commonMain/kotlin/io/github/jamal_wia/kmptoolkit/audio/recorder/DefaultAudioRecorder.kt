@@ -2,8 +2,6 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import io.github.jamal_wia.kmptoolkit.core.StateMachineLock
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import kotlin.concurrent.atomics.AtomicReference
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -80,7 +78,7 @@ import kotlinx.coroutines.withContext
  *   brief handover (an assistant taking the microphone for a moment) must not.
  * @param freeSpacePollInterval how often the free-space watchdog looks, at most, while recording.
  */
-@OptIn(ToolkitInternalApi::class, ExperimentalAtomicApi::class)
+@OptIn(ToolkitInternalApi::class)
 internal class DefaultAudioRecorder(
     private val engine: RecorderEngine,
     private val fileSystem: RecordingFileSystem,
@@ -170,12 +168,12 @@ internal class DefaultAudioRecorder(
      * When the free-space watchdog last looked, for the session: set by `start()`, cleared by
      * `prepare()`, and deliberately *not* reset by `resume()` — a ticker only lives from one
      * start/resume to the next pause, so a mark kept by the ticker itself would restart on every
-     * resume and a user who pauses more often than the poll interval would never be checked. An
-     * atomic rather than a plain guarded field because the ticker claims a poll with a
-     * compare-and-set, off the lock, so two tickers (one just cancelled, one just started) can
-     * never both poll for the same interval.
+     * resume and a user who pauses more often than the poll interval would never be checked. A
+     * MutableStateFlow used for its compareAndSet rather than a plain guarded field, because the
+     * ticker claims a poll with a compare-and-set, off the lock, so two tickers (one just cancelled,
+     * one just started) can never both poll for the same interval.
      */
-    private val lastSpaceCheck: AtomicReference<TimeMark?> = AtomicReference(null)
+    private val lastSpaceCheck: MutableStateFlow<TimeMark?> = MutableStateFlow(null)
 
     // --- prepare ---
 
@@ -299,7 +297,7 @@ internal class DefaultAudioRecorder(
         discardPreparedButUnusedFile(current)
         engine.release()
         resetTiming()
-        lastSpaceCheck.store(null)
+        lastSpaceCheck.value = null
         session++
         _state.value = RecorderState.Preparing
         return Begin.Go(session)
@@ -331,7 +329,7 @@ internal class DefaultAudioRecorder(
         segmentStart = mark
         _elapsed.value = Duration.ZERO
         // The poll interval counts from the moment capture began, once per recording.
-        lastSpaceCheck.store(timeSource.markNow())
+        lastSpaceCheck.value = timeSource.markNow()
         startTicker(base = Duration.ZERO, mark = mark, outputPath = current.outputPath)
         startMeter()
         _state.value = RecorderState.Recording(current.outputPath)
@@ -909,7 +907,7 @@ internal class DefaultAudioRecorder(
 
     /** Whether a free-space poll is due; if so, this caller owns it and the interval restarts. */
     private fun claimSpaceCheck(): Boolean {
-        val last: TimeMark = lastSpaceCheck.load() ?: return false
+        val last: TimeMark = lastSpaceCheck.value ?: return false
         if (last.elapsedNow() < freeSpacePollInterval) return false
         return lastSpaceCheck.compareAndSet(last, timeSource.markNow())
     }

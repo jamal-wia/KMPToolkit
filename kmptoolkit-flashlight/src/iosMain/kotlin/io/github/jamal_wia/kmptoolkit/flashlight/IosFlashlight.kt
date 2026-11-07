@@ -69,6 +69,7 @@ private object ProcessTorch {
      * The torch the blink loop switches, found once per [IosFlashlight.start] rather than on every
      * switch: a discovery session per toggle would run several times a second on a fast pattern. A
      * `stop` keeps switching the one last found, which is the torch a running pattern lit.
+     * Volatile: written on the caller's thread, read by the blink loop on Dispatchers.Default.
      */
     @Volatile
     var blinkingDevice: AVCaptureDevice? = null
