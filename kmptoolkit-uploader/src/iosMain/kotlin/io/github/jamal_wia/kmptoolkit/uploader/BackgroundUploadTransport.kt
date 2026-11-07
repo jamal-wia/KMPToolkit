@@ -938,7 +938,8 @@ internal class UploadSessionDelegate(
 
     /**
      * Progress goes through one conflated channel and one forwarder, so fractions reach the handler in order
-     * and the forwarder is joined before the settlement — never a progress call after the item settled.
+     * and the forwarder is joined for at most [PROGRESS_FLUSH_TIMEOUT] before the settlement; a hook still
+     * running then is cancelled and no longer awaited, so it cannot hold up the settlement.
      */
     private val fractions: Channel<Float> = Channel(Channel.CONFLATED)
     internal val forwarder: Job = scope.launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
@@ -1064,7 +1065,9 @@ internal class UploadSessionDelegate(
         invalidate()
         scope.launch {
             fractions.close()
-            forwarder.join()
+            // The forwarder runs in the transport scope, not as a child of this coroutine, so cancelling it
+            // without a further join is enough.
+            if (withTimeoutOrNull(PROGRESS_FLUSH_TIMEOUT) { forwarder.join() } == null) forwarder.cancel()
             val landed: Boolean = when {
                 wasCancelled -> true
                 response != null && journaled -> {
@@ -1137,6 +1140,9 @@ internal fun uploadResponseOf(statusCode: Int, headerFields: Map<Any?, *>?, body
 
 /** Progress is quantized against a fixed basis, so byte totals above Int range stay exact. */
 private const val PERCENT_BASIS: Long = 10_000L
+
+/** How long the settlement waits for [UploadHandler.onUploadProgress] to drain after the transfer ended. */
+private val PROGRESS_FLUSH_TIMEOUT: Duration = 2.seconds
 
 /** The background session configuration for [identifier], with [config]'s timeouts applied. */
 internal fun buildSessionConfiguration(identifier: String, config: BackgroundUploadConfig): NSURLSessionConfiguration {
