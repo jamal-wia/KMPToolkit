@@ -279,4 +279,28 @@ class OutcomeJournalChurnAdversarialTest {
         assertIs<JournalEntry.Valid>(journal.inspect("big"))
         assertEquals(1, fileCount())
     }
+
+    /** A storage whose first reads fail, as an I/O error on a just-written file would. */
+    private class FlakyReadStorage(private val delegate: OutcomeStorage, var failReads: Int) : OutcomeStorage by delegate {
+        override fun read(itemId: String): ByteArray? {
+            if (failReads > 0) {
+                failReads--
+                throw java.io.IOException("input/output error")
+            }
+            return delegate.read(itemId)
+        }
+    }
+
+    @Test
+    fun `an entry that cannot be read back right after it was written is not reported as already handled`() = runBlocking {
+        val journal = OutcomeJournal(FlakyReadStorage(storage(), failReads = 1), clock = { nowMillis })
+        assertTrue(journal.record("a", response()))
+        var settled = 0
+
+        val landed: Boolean = journal.settleRecorded("a", response()) { _, _, onSettling -> settled++; onSettling(); true }
+
+        assertEquals(1, settled, "the answer the worker holds in memory is settled")
+        assertTrue(landed)
+        assertEquals(0, fileCount(), "a landed settlement leaves nothing on disk")
+    }
 }

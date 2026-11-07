@@ -43,6 +43,9 @@ internal sealed interface JournalEntry {
     /** An entry existed but was expired, of an unknown format version or unreadable; it was deleted. */
     data object Discarded : JournalEntry
 
+    /** An entry may exist, but reading it failed; nothing is known about it and nothing was deleted. */
+    data object Unreadable : JournalEntry
+
     /** A usable [response], written at [writtenAtMillis]. */
     class Valid(val response: UploadResponse, val writtenAtMillis: Long) : JournalEntry
 }
@@ -105,7 +108,10 @@ internal class OutcomeJournal(
         }
     }
 
-    /** Reads the entry of [itemId]; an entry that cannot be used is deleted and reported as [JournalEntry.Discarded]. */
+    /**
+     * Reads the entry of [itemId]; an entry that cannot be used is deleted and reported as [JournalEntry.Discarded],
+     * one whose read failed is [JournalEntry.Unreadable] and is left as it is.
+     */
     fun inspect(itemId: String): JournalEntry {
         if (!isJournalableId(itemId)) return JournalEntry.Absent
         val bytes: ByteArray = try {
@@ -113,7 +119,7 @@ internal class OutcomeJournal(
         } catch (failure: Exception) {
             if (failure is CancellationException) throw failure
             logger.w(failure) { "Could not read the journaled upload outcome — item=$itemId" }
-            null
+            return JournalEntry.Unreadable
         } ?: return JournalEntry.Absent
         val decoded: DecodedOutcome = OutcomeCodec.decode(bytes)
         if (decoded !is DecodedOutcome.Ok) {
@@ -162,15 +168,19 @@ internal class OutcomeJournal(
      * left to settle. Deleted once the engine commits or [settle] returned `true`; a settlement that fails
      * after `onSettling` deleted it puts the entry back, with its original write time.
      *
-     * @return whether the outcome landed (or was already handled).
+     * @return whether the outcome landed, or a replayer had already handled the entry; an entry that cannot
+     *   be read back is settled from [response].
      */
     suspend fun settleRecorded(itemId: String, response: UploadResponse, settle: OutcomeSettle): Boolean =
         OutcomeReplayLocks.withItem(itemId) {
-            val entry: JournalEntry = inspect(itemId)
-            if (entry !is JournalEntry.Valid) {
-                true
-            } else {
-                settleKeeping(itemId, entry, response, settle)
+            when (val entry: JournalEntry = inspect(itemId)) {
+                is JournalEntry.Valid -> settleKeeping(itemId, entry, response, settle)
+                // The sweep or a replayer handled and deleted it (or it was never there to settle).
+                JournalEntry.Absent, JournalEntry.Discarded -> true
+                // The answer is still held in memory: a failed read must not make it look handled. The item
+                // lock is held for the whole call, so nothing else settles it meanwhile, and there is no
+                // readable entry to delete before the commit. A file that remains is deleted once it landed.
+                JournalEntry.Unreadable -> settle(itemId, response) { }.also { landed -> if (landed) delete(itemId) }
             }
         }
 
@@ -187,7 +197,7 @@ internal class OutcomeJournal(
     suspend fun replay(itemId: String, settle: OutcomeSettle): ReplayOutcome =
         OutcomeReplayLocks.withItem(itemId) {
             when (val entry: JournalEntry = inspect(itemId)) {
-                JournalEntry.Absent -> ReplayOutcome.NoEntry
+                JournalEntry.Absent, JournalEntry.Unreadable -> ReplayOutcome.NoEntry
                 JournalEntry.Discarded -> ReplayOutcome.Discarded
                 is JournalEntry.Valid -> {
                     logger.i { "Replaying the journaled upload outcome — item=$itemId, status=${entry.response.statusCode}" }
