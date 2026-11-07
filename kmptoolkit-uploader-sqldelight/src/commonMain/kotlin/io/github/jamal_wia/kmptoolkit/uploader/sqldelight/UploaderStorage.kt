@@ -161,7 +161,9 @@ internal class SqlDelightUploaderStorage(
     private val closed: AtomicBoolean = AtomicBoolean(false)
 
     override fun close() {
-        // Before the guard, so a refused call does not mark the storage closed. Closing waits for the database
+        // A second call is a no-op first: on iOS a dead database thread's id can be reused by the caller's thread.
+        if (closed.value) return
+        // Before the CAS, so a refused call does not mark the storage closed. Closing waits for the database
         // thread to run the finalizer; called from that thread — inside `inTransaction`, say — the wait would be
         // for itself, forever.
         check(currentThreadId() != confinement.threadId) {
