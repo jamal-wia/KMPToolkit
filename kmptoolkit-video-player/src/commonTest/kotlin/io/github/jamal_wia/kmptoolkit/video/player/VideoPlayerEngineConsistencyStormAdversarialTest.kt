@@ -103,7 +103,7 @@ class VideoPlayerEngineConsistencyStormAdversarialTest {
     }
 
     @Test
-    fun `storms of transport, settings, callbacks and loads keep the engine contract and the state describes the engine`() =
+    fun `storms of transport and settings and callbacks and loads keep the engine contract and the state describes the engine`() =
         runTest {
             withContext(Dispatchers.Default) {
                 withTimeout(30.seconds) { repeat(SEEDS) { seed: Int -> runSeed(seed) } }
