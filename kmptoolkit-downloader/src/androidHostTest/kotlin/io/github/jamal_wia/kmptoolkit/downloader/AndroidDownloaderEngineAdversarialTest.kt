@@ -222,6 +222,9 @@ class AndroidDownloaderEngineAdversarialTest {
                 assertTrue(outcome.isSuccess, "round $round: caller $index failed with ${outcome.exceptionOrNull()}")
             }
             assertContentEquals(payload, File(storageA.getResourcePath(unit)).readBytes(), "round $round: the file is whole")
+            assertEquals(TempFileState.None, storageA.tempFileState(unit), "round $round")
+            assertEquals(TempFileState.None, storageB.tempFileState(unit), "round $round")
+            assertEquals(emptyList(), filesUnder(File(root, "tmp")), "round $round: no temp file or record is left")
             assertTrue(storageB.isResourceAvailable(unit), "round $round")
         }
     }
@@ -262,6 +265,70 @@ class AndroidDownloaderEngineAdversarialTest {
                 "round $round",
             )
         }
+    }
+
+    /**
+     * The race of the test above made deterministic: the unit is committed by "the other engine"
+     * (a second storage instance) while this engine's own transfer is in flight, and this
+     * engine's transfer then finishes too. Its temp file must not outlive the call.
+     */
+    private class LateTransferService(
+        private val storage: DownloaderStorage,
+        private val otherEngineStorage: DownloaderStorage,
+        private val bytes: ByteArray,
+    ) : BackgroundResourceDownloader {
+        private val events: MutableSharedFlow<BackgroundDownloadEvent> =
+            MutableSharedFlow(extraBufferCapacity = 16)
+
+        override fun enqueueDownload(unit: DownloadUnit) {
+            File(otherEngineStorage.getTempFilePath(unit)).apply { parentFile!!.mkdirs() }.writeBytes(bytes)
+            otherEngineStorage.markTempFileComplete(unit)
+            runBlocking { otherEngineStorage.commitResource(unit) }
+            File(storage.getTempFilePath(unit)).writeBytes(bytes)
+            storage.markTempFileComplete(unit)
+            events.tryEmit(BackgroundDownloadEvent.FileReady(unit))
+        }
+
+        override fun isDownloadInProgress(unit: DownloadUnit): Boolean = false
+        override fun cancelDownload(unit: DownloadUnit) = Unit
+        override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> =
+            events.filter { it.unit.id == unit.id }
+    }
+
+    @Test
+    fun `a unit another engine committed first leaves no temp file of this engine's transfer`() {
+        val payload: ByteArray = ByteArray(1024) { index: Int -> (index % 251).toByte() }
+        val group = Group("catalogue")
+        val unit = FileUnit("model", group).also { group.units = listOf(it) }
+        val storage: DownloaderStorage = createDownloaderStorage(context, config)
+        val other: DownloaderStorage = createDownloaderStorage(context, config)
+        val engine: Downloader = engine(storage, LateTransferService(storage, other, payload), group)
+
+        runBlocking {
+            withTimeoutOrNull(10_000) { engine.ensureAvailable(unit) } ?: error("ensureAvailable never returned")
+        }
+
+        assertContentEquals(payload, File(storage.getResourcePath(unit)).readBytes())
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertEquals(emptyList(), filesUnder(File(root, "tmp")), "no temp file or record is left")
+    }
+
+    @Test
+    fun `a group unit another engine committed first leaves no temp file of this engine's transfer`() {
+        val payload: ByteArray = ByteArray(1024) { index: Int -> (index % 251).toByte() }
+        val group = Group("catalogue")
+        val unit = FileUnit("model", group).also { group.units = listOf(it) }
+        val storage: DownloaderStorage = createDownloaderStorage(context, config)
+        val other: DownloaderStorage = createDownloaderStorage(context, config)
+        val engine: Downloader = engine(storage, LateTransferService(storage, other, payload), group)
+
+        runBlocking {
+            withTimeoutOrNull(10_000) { engine.ensureAvailable(group) } ?: error("ensureAvailable never returned")
+        }
+
+        assertContentEquals(payload, File(storage.getResourcePath(unit)).readBytes())
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertEquals(emptyList(), filesUnder(File(root, "tmp")), "no temp file or record is left")
     }
 
     private companion object {

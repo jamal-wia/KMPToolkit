@@ -188,7 +188,8 @@ throws `ResourceIntegrityException(message, cause)` — after deleting the temp 
 fail a check; the engine answers that with one fresh download. Commits of one unit are mutually
 exclusive across every storage instance over the same base directory in the process, and a commit
 that finds the resource already committed by a concurrent one (no complete file, resource
-available) returns normally without touching anything.
+available) returns normally without touching anything. When the engine itself finds the resource already committed and a transfer of its own left a
+complete temp file behind, it deletes that file instead of leaving it on disk.
 
 `beginTempFile(unit, expectedSha256)` is called by the party that owns the writer, exactly when it
 is about to write from byte 0, and replaces whatever transfer was there: afterwards `tempFileState`
