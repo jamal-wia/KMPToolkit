@@ -189,5 +189,7 @@ category effects, codec support. Those need a device or a simulator, and no fake
 them — [`05-platform-notes.md`](05-platform-notes.md) lists what each platform actually does.
 
 The module's own tests take the same split: the state machine, the release contract, clamping and
-cancellation are covered in `commonTest`; the two engines are thin enough to be verified by reading
-them against that document.
+cancellation are covered in `commonTest`, including stress runs on real threads. `androidHostTest`
+(Robolectric, test scope only) drives the Android engine against `ShadowMediaPlayer` to check that a
+load cancelled mid-preparation releases its `MediaPlayer`; the engines are otherwise thin enough to be
+verified by reading them against that document.
