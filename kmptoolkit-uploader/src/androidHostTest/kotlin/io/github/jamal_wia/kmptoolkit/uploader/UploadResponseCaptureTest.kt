@@ -162,6 +162,80 @@ class UploadResponseCaptureTest {
     }
 
     @Test
+    fun `the bytes read before a body breaks are kept`() {
+        answer(http("200 OK", emptyList(), "0123456789".encodeToByteArray(), declaredLength = 100))
+
+        val response: UploadResponse = assertNotNull(capture().response)
+
+        assertEquals("0123456789", response.body().decodeToString())
+        assertTrue(response.isBodyTruncated)
+    }
+
+    @Test
+    fun `a body that trickles in is cut at the total read deadline and the status still lands`() {
+        thread(isDaemon = true) {
+            server.accept().use { socket ->
+                val input = socket.getInputStream()
+                val seen = StringBuilder()
+                val buffer = ByteArray(4 * 1024)
+                while (!seen.endsWith("0\r\n\r\n")) {
+                    val read: Int = runCatching { input.read(buffer) }.getOrDefault(-1)
+                    if (read < 0) break
+                    seen.append(String(buffer, 0, read, Charsets.ISO_8859_1))
+                }
+                val out = socket.getOutputStream()
+                runCatching {
+                    out.write("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n".toByteArray())
+                    out.flush()
+                    repeat(100) {
+                        out.write(1)
+                        out.flush()
+                        Thread.sleep(50)
+                    }
+                }
+            }
+        }
+        val startedAt: Long = System.currentTimeMillis()
+
+        val outcome: MultipartOutcome = performMultipartUploadCapturing(request(), 5_000, readTimeoutMillis = 500)
+
+        assertTrue(System.currentTimeMillis() - startedAt < 4_000, "the read must stop at the deadline, not follow the trickle")
+        assertEquals(UploadResult.Completed(200), outcome.result)
+        val response: UploadResponse = assertNotNull(outcome.response)
+        assertTrue(response.isBodyTruncated)
+        assertTrue(response.body().size < 100)
+    }
+
+    @Test
+    fun `a server that rejects before the body ends still gives its status and body`() {
+        val source: java.io.File = java.io.File(context.cacheDir, "late.bin").apply { writeBytes(ByteArray(4 * 1024 * 1024) { 1 }) }
+        try {
+            thread(isDaemon = true) {
+                server.accept().use { socket ->
+                    // Answers without reading the request, then closes with the body still unread.
+                    socket.getOutputStream().write(http("413 Payload Too Large", emptyList(), "too big".encodeToByteArray()))
+                    socket.getOutputStream().flush()
+                }
+            }
+            val outcome: MultipartOutcome = performMultipartUploadCapturing(
+                UploadRequest(
+                    url = "http://127.0.0.1:${server.localPort}/upload",
+                    fields = listOf(UploadField.File("file", "late.bin", "application/octet-stream", source.path)),
+                ),
+                5_000,
+                5_000,
+            )
+
+            // Whether the write fails first is up to the socket stack; either way a received 413 must
+            // never be read as a retryable transport failure.
+            assertEquals(UploadResult.Completed(413), outcome.result)
+            assertNotNull(outcome.response).let { assertEquals(413, it.statusCode) }
+        } finally {
+            source.delete()
+        }
+    }
+
+    @Test
     fun `the status-only variant reads no response`() {
         answer(http("201 Created", emptyList(), "ignored".encodeToByteArray()))
 
@@ -188,7 +262,7 @@ class UploadResponseCaptureTest {
     // --- Through the worker and the engine ---------------------------------------------------------
 
     @Test
-    fun `the worker delivers a 201 body to onDelivered and a 4xx body to classify`() = runTest {
+    fun `the worker delivers a 201 body to onDelivered`() = runTest {
         val handler = CapturingHandler()
         val store = TestUploaderStore()
         val started: UploaderEngine = start(store, handler, backgroundScope)

@@ -229,11 +229,12 @@ truncated=false)` — never headers or body, which may hold tokens or personal d
 
 - The constructor copies the body once and `body()` copies on every read.
 - Headers whose names differ only in case are merged, values joined with `", "`. That is lossy for
-  `Set-Cookie`; do not read cookies from here. The engine keeps at most 64 KiB of header text.
+  `Set-Cookie`; do not read cookies from here. The engine keeps at most 64 K characters of header names and values.
 - A response with no body, or a `204`, has an empty `body()`.
 - `isBodyTruncated` is `true` when at least one received body byte is missing from `body()` — over the
   handler's `maxResponseBodyBytes` (limit `0` with any body counts), or a body a transport could not
-  read completely. It never causes a retry.
+  read completely — the connection broke or the read timed out — in which case `body()` may be shorter
+  than the limit, even empty. It never causes a retry.
 
 ## `UploadRequest` / `UploadField`
 

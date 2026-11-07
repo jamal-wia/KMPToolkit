@@ -86,7 +86,7 @@ internal fun performMultipartUploadCapturing(
         val status: Int = connection.responseCode
         MultipartOutcome(
             UploadResult.Completed(status),
-            if (captureResponse) readResponse(connection, status) else null,
+            if (captureResponse) readResponse(connection, status, isCancelled, readTimeoutMillis) else null,
         )
     } catch (e: CancellationException) {
         throw e
@@ -102,7 +102,7 @@ internal fun performMultipartUploadCapturing(
             // the response carries what the server did say and an empty, truncated body.
             MultipartOutcome(
                 UploadResult.Completed(lateStatus),
-                if (captureResponse) readResponse(connection, lateStatus) else null,
+                if (captureResponse) readResponse(connection, lateStatus, isCancelled, readTimeoutMillis) else null,
             )
         } else {
             MultipartOutcome(UploadResult.TransportFailure(e.message ?: e::class.simpleName), null)
@@ -117,7 +117,12 @@ internal fun performMultipartUploadCapturing(
  * body from `errorStream` for a 4xx/5xx — `null` when the server sent none — or `inputStream` otherwise.
  * A body that fails to read is reported as truncated rather than thrown.
  */
-private fun readResponse(connection: HttpURLConnection, status: Int): UploadResponse {
+private fun readResponse(
+    connection: HttpURLConnection,
+    status: Int,
+    isCancelled: () -> Boolean,
+    deadlineMillis: Int,
+): UploadResponse {
     val headers: Map<String, String> = runCatching {
         buildMap {
             connection.headerFields.forEach { (name, values) ->
@@ -125,46 +130,56 @@ private fun readResponse(connection: HttpURLConnection, status: Int): UploadResp
             }
         }
     }.getOrDefault(emptyMap())
-    var body = ByteArray(0)
-    var truncated = false
+    var read = ReadBody(ByteArray(0), cut = false)
     try {
         val stream: InputStream? = if (status >= HTTP_BAD_REQUEST) connection.errorStream else connection.inputStream
         if (stream != null) {
-            stream.use { input ->
-                val read: ReadBody = readAtMost(input, MAX_RESPONSE_BODY_BYTES)
-                body = read.bytes
-                truncated = read.cut
-            }
+            read = stream.use { input -> readAtMost(input, MAX_RESPONSE_BODY_BYTES, isCancelled, deadlineMillis) }
             // A server that closes early may end a fixed-length body without any error on some stacks:
             // fewer bytes than it declared is an incomplete body. Skipped when the stack decoded the
             // body (a content encoding), where the declared length is not the decoded one.
             val declared: Long? = connection.getHeaderField("Content-Length")?.trim()?.toLongOrNull()
-            if (declared != null && connection.contentEncoding == null && body.size < declared && !truncated) {
-                truncated = true
+            if (declared != null && connection.contentEncoding == null && read.bytes.size < declared && !read.cut) {
+                read = ReadBody(read.bytes, cut = true)
             }
         }
     } catch (e: Exception) {
-        // Incomplete is all that is known; the status stands, so the outcome is still a received answer.
-        truncated = true
+        // No stream to read from: the status stands, the body is unknown.
+        read = ReadBody(read.bytes, cut = true)
     }
-    return UploadResponse(status, headers, body, truncated)
+    return UploadResponse(status, headers, read.bytes, read.cut)
 }
 
 private class ReadBody(val bytes: ByteArray, val cut: Boolean)
 
-/** Reads [limit] bytes of [input], and one more to learn whether there was more. */
-private fun readAtMost(input: InputStream, limit: Int): ReadBody {
+/**
+ * Reads [limit] bytes of [input], and one more to learn whether there was more. Stops with what it has —
+ * flagged as cut — when [isCancelled] reads `true`, when reading takes longer than [deadlineMillis] in
+ * total (the per-read timeout alone would let a slow trickle hold the thread for as long as the server
+ * likes, past the worker's own limit), or when the stream fails.
+ */
+private fun readAtMost(input: InputStream, limit: Int, isCancelled: () -> Boolean, deadlineMillis: Int): ReadBody {
     val collected = ByteArrayOutputStream()
     val buffer = ByteArray(COPY_BUFFER_BYTES)
+    val startedAt: Long = System.nanoTime()
     var remaining: Int = limit + 1
-    while (remaining > 0) {
-        val read: Int = input.read(buffer, 0, minOf(buffer.size, remaining))
-        if (read < 0) break
-        collected.write(buffer, 0, read)
-        remaining -= read
+    var interrupted = false
+    try {
+        while (remaining > 0) {
+            if (isCancelled() || (System.nanoTime() - startedAt) / NANOS_PER_MILLI > deadlineMillis) {
+                interrupted = true
+                break
+            }
+            val read: Int = input.read(buffer, 0, minOf(buffer.size, remaining))
+            if (read < 0) break
+            collected.write(buffer, 0, read)
+            remaining -= read
+        }
+    } catch (e: Exception) {
+        interrupted = true
     }
     val all: ByteArray = collected.toByteArray()
-    return if (all.size > limit) ReadBody(all.copyOf(limit), true) else ReadBody(all, false)
+    return if (all.size > limit) ReadBody(all.copyOf(limit), true) else ReadBody(all, interrupted)
 }
 
 private fun writeMultipartBody(
@@ -215,3 +230,4 @@ private fun writeMultipartBody(
 
 private const val HTTP_BAD_REQUEST: Int = 400
 private const val COPY_BUFFER_BYTES: Int = 8 * 1024
+private const val NANOS_PER_MILLI: Long = 1_000_000L

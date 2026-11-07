@@ -11,11 +11,14 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * - **Headers** are exposed with lowercase names. Several headers whose names differ only in case are
  *   merged, their values joined with `", "`. That join is lossy for `Set-Cookie`, whose values may
  *   themselves contain commas: do not read cookies from here. The total size of the headers a
- *   transport hands to the engine is capped (64 KiB); entries beyond the cap are dropped.
+ *   transport hands to the engine is capped at 64 K characters of names and values; entries beyond the
+ *   cap are dropped.
  * - **The body** is copied on construction and [body] returns a fresh copy. It is never `null`: no body,
  *   or a `204`, is an empty array. It holds at most the handler's [UploadHandler.maxResponseBodyBytes]
  *   (never more than 1 MiB); when the server sent more, the rest was discarded and [isBodyTruncated]
- *   is `true`.
+ *   is `true`. [isBodyTruncated] is also `true` when the transport could not read the body completely —
+ *   the connection broke, or the read took too long — in which case the body may be shorter than the
+ *   limit, even empty, while the status and headers are those the server sent.
  * - [toString] never prints headers or body — they may hold tokens or personal data.
  *
  * Code that receives a response where [UploadResult] is [UploadResult.Completed] can rely on
@@ -24,7 +27,8 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * @param statusCode the HTTP status code.
  * @param headers response headers; names are lowercased, names that differ only in case are merged.
  * @param body the response body, or its prefix; copied.
- * @param isBodyTruncated whether at least one received body byte is missing from [body].
+ * @param isBodyTruncated whether the body is incomplete: at least one received byte is missing from [body],
+ *   or the transport could not read the body completely.
  * @since 3.1.0
  */
 public class UploadResponse(
