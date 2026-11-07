@@ -114,7 +114,8 @@ decoder writes straight into memory without a render-and-read-back step.
   order the calls were made from whichever threads made them (a call made on that thread runs at
   once only when nothing queued from another thread is still waiting to run); the position, duration and buffered position the core module polls are cached there, so polling never
   blocks. Opening a source (`new Media(uri)`, which may block on the network) runs on
-  `Dispatchers.IO`.
+  `Dispatchers.IO`. A seek still queued behind a newer seek is skipped, because the newer one
+  decides the position.
 - **Where events come from.** State callbacks and frames are produced on the JavaFX application
   thread; the core module's flows make that invisible to collectors.
 

@@ -17,6 +17,8 @@ import javafx.scene.paint.Color
 import javafx.util.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -82,6 +84,10 @@ internal class FxPlayback private constructor(
     private var refreshUntilNanos: Long = 0L
     private var looping: Boolean = false
     private var atEnd: Boolean = false
+
+    // The ticket of the newest seekTo: taken on the caller's thread before posting, read on the FX thread
+    // (D-24: a value shared between threads, in a module with a coroutines dependency).
+    private val latestSeek: MutableStateFlow<Long> = MutableStateFlow(0L)
     private var buffering: Boolean = false
     private var reportedSize: VideoSize? = null
     private var failed: Boolean = false
@@ -152,13 +158,20 @@ internal class FxPlayback private constructor(
         if (!disposed) player.pause()
     }
 
-    fun seekTo(positionMs: Long): Unit = FxThread.post {
-        if (!disposed) {
-            atEnd = false
-            player.seek(Duration.millis(positionMs.toDouble()))
-            refreshPicture()
+    fun seekTo(positionMs: Long) {
+        val ticket: Long = latestSeek.updateAndGet { it + 1 }
+        FxThread.post {
+            // A newer seek is queued behind this one and overrides its position: skip the native work.
+            // The newer ticket is taken before its block is posted, and FxThread.post runs a block inline
+            // only when nothing is queued, so a block that sees a newer ticket always has that newer
+            // block still behind it. onSeekApplied still answers every seek, a skipped one included.
+            if (!disposed && ticket == latestSeek.value) {
+                atEnd = false
+                player.seek(Duration.millis(positionMs.toDouble()))
+                refreshPicture()
+            }
+            sink.onSeekApplied()
         }
-        sink.onSeekApplied()
     }
 
     fun setSpeed(speed: Float): Unit = FxThread.post {
