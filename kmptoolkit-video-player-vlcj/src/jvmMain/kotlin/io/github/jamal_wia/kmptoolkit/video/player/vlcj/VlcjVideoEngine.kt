@@ -487,7 +487,7 @@ internal class VlcjVideoEngine(
 
         /**
          * Runs on the [teardown] thread: native player first, then the media it had open. The
-         * The [RuntimeHolder] may have claimed the native session already: [dispose] queues the
+         * [RuntimeHolder] may have claimed the native session already: [dispose] queues the
          * holder's own close of every open session right behind this task, and whichever of the two
          * runs first wins [RuntimeHolder.claim]. (Not because the engine was collected: this queued
          * task holds the session, and so the engine.)
@@ -606,9 +606,9 @@ internal class VlcjVideoEngine(
 
         private var runtime: VlcRuntime? = null
         private var disposed: Boolean = false
-        // A concurrent set: written by loading threads, emptied by the teardown thread and by the
-        // Cleaner thread, none of them coroutines and none allowed to suspend, so a Mutex does not
-        // fit; `remove` returning true is what makes [claim] an atomic one-winner guard (D-21).
+        // A concurrent set: written by loading threads, read by the Cleaner thread or the dispose()
+        // caller (which only iterate it and queue claim tasks), emptied by the teardown thread.
+        // None of them is a coroutine or may suspend, so a Mutex does not fit; `remove` returning true is what makes [claim] an atomic one-winner guard (D-21).
         private val openSessions: MutableSet<NativeSession> = ConcurrentHashMap.newKeySet()
 
         /** Registers a native player created from this holder's libvlc instance. */

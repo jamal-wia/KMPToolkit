@@ -66,8 +66,9 @@ internal object AssetCopies {
 
     /**
      * Deletes [file] and forgets it once it is gone. A copy that cannot be deleted yet (on Windows a
-     * file the native player still holds open) stays registered, so a later [release] or the
-     * shutdown hook retries it, as `deleteOnExit` used to. Idempotent.
+     * file the native player still holds open) stays registered, so the shutdown hook
+     * retries it, as `deleteOnExit` used to ([release] itself is reached once per copy, through
+     * `discard()`). Idempotent.
      */
     fun release(file: File) {
         if (file.delete() || !file.exists()) live -= file

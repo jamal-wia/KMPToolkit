@@ -46,7 +46,7 @@ class VlcjVideoEngineCleanerTest {
             queue += command
         }
 
-        fun hasPending(): Boolean = queue.isNotEmpty()
+        fun pendingCount(): Int = queue.size
 
         /** Runs the queued tasks in submission order, including any queued meanwhile. */
         fun runAll() {
@@ -165,8 +165,12 @@ class VlcjVideoEngineCleanerTest {
         val reference: WeakReference<VlcjVideoEngine> = loadAndDrop(deferred)
 
         assertTrue(awaitCleared(reference))
-        // The Cleaner may run a moment after the reference clears; wait for its tasks.
-        assertTrue(awaitTrue { deferred.hasPending() }, "the Cleaner must queue the teardown")
+        // The Cleaner queues the session's close first and the instance release a moment later;
+        // draining after only the first would leave the second queued and never run. Wait for both.
+        assertTrue(
+            awaitTrue { deferred.pendingCount() >= 2 },
+            "the Cleaner must queue the session close and the instance release",
+        )
         deferred.runAll()
 
         assertPlayerFreedBeforeInstance()
