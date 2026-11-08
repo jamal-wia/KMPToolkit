@@ -101,7 +101,9 @@ private class AndroidSystemBarsController(
             // main thread applies inline, before the posted one runs. The posted block then lands
             // last. Applied as captured, it would leave the window showing a configuration the
             // controller no longer holds until the next resume.
-            activity.runOnUiThread { apply(activity, currentConfig) }
+            //
+            // A release() that ran after the write was queued wins: the write is dropped.
+            activity.runOnUiThread { if (!isReleased) apply(activity, currentConfig) }
         }
     }
 

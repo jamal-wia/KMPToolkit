@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.hardwarekeys
 
 import android.app.Dialog
+import android.view.Window
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.runner.RunWith
@@ -44,9 +45,11 @@ class DialogWindowInstallationRetentionTest {
 
         val first = acquireInstallation(window) { false }
         val second = acquireInstallation(window) { true }
-        assertSame(first, second)
+        val layer: Window.Callback = window.callback
+        assertTrue(layer is KeyInterceptingWindowCallback, "the window is decorated")
+        assertSame(original, layer.delegate, "one layer, none stacked")
         releaseInstallation(window, first)
-        assertSame(first, window.callback)
+        assertSame(layer, window.callback)
         releaseInstallation(window, second)
 
         assertSame(original, window.callback)
@@ -56,7 +59,7 @@ class DialogWindowInstallationRetentionTest {
     fun `a release does not clobber a decorator installed after ours`() {
         val window = newDialog().window!!
         val ours = acquireInstallation(window) { false }
-        val later = KeyInterceptingWindowCallback(window.callback) { false }
+        val later = object : Window.Callback by window.callback {}
         window.callback = later
 
         releaseInstallation(window, ours)
@@ -68,12 +71,13 @@ class DialogWindowInstallationRetentionTest {
     fun `acquiring again after a full release decorates afresh`() {
         val window = newDialog().window!!
         val first = acquireInstallation(window) { false }
+        val firstLayer: Window.Callback = window.callback
         releaseInstallation(window, first)
 
-        val second = acquireInstallation(window) { false }
+        acquireInstallation(window) { false }
 
-        assertFalse(first === second)
+        assertFalse(window.callback === firstLayer)
         assertNotNull(window.callback)
-        assertTrue(window.callback === second)
+        assertTrue(window.callback is KeyInterceptingWindowCallback)
     }
 }

@@ -102,4 +102,13 @@ class LanguageDirectionTest {
         // The escape hatch for a language this module gets wrong for a consumer's purposes.
         assertTrue(AppLanguage(code = "ar", isLtr = true).isLtr)
     }
+
+    @Test
+    fun `regional languages with a right-to-left default script are right-to-left`() {
+        assertFalse(AppLanguage("arz").isLtr)
+        assertFalse(AppLanguage("azb-IR").isLtr)
+        assertTrue(isRightToLeft("pnb"))
+        // An explicit script still decides, even over a right-to-left default language.
+        assertFalse(isRightToLeft("pnb-Latn"))
+    }
 }

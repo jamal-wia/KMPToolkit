@@ -35,7 +35,8 @@ fun `centers the map once a fix arrives`() = runTest {
 ```
 
 `emit` updates both `getCurrentLocation()`'s next answer and every live `observeLocation()`
-collector at once — they read from the same backing `StateFlow`.
+collector at once — they read from the same backing replay-1 flow, and an equal fix (or a
+second `null`) is delivered again, as on a real provider.
 
 ## Starting from a known fix
 
@@ -117,4 +118,4 @@ returning to your app.
 - **It is not thread-safe**, unlike the real providers: `openSettingsCount`, `promptCount`,
   `locationEnabled` and `servicePromptAnswer` are plain fields. Drive it from one thread, or one
   test coroutine, and assert after the work under test has finished. `emit` alone is backed by a
-  `StateFlow` and may be called from anywhere.
+  replay-1 `SharedFlow` and may be called from anywhere.

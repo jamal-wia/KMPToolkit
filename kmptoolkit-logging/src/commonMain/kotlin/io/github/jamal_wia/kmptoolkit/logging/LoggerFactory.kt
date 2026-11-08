@@ -59,8 +59,9 @@ internal expect fun restoreInterruptFlag()
  *   execute, so a broken log destination must not turn into a crash in unrelated code — and there
  *   is nowhere to report the failure to that is not itself a sink. A sink's `InterruptedException`
  *   (a blocking write woken by the caller's interrupt) is contained too, but the interrupt flag that
- *   throw cleared is set on the caller's thread again once every sink has had the event (JVM and
- *   Android), so a worker or blocking section that logs still sees its interrupt.
+ *   throw cleared is set on the caller's thread again once every sink has had the event, or as the
+ *   logger rethrows an Error a later sink raised (JVM and Android), so a worker or blocking section
+ *   that logs still sees its interrupt.
  * - **An exception from the message lambda is *not* swallowed** and propagates to the caller. That
  *   is a defect in the calling code, not in a log destination, and hiding it would make it
  *   unfindable.
@@ -100,33 +101,37 @@ private class TagLogger(
         // cancelling sink costs the sinks after it nothing.
         var cancellation: CancellationException? = null
         var interrupted = false
-        sinks.forEach { sink ->
-            @Suppress("TooGenericExceptionCaught", "SwallowedException")
-            try {
-                sink.log(level, tag, text, throwable)
-            } catch (e: CancellationException) {
-                // Never absorbed: a sink that touches a cancellable API inside a cancelled
-                // coroutine must not have that cancellation eaten here, or logging would silently
-                // break the caller's structured concurrency — the exact opposite of the guarantee
-                // this catch exists to provide.
-                if (cancellation == null) cancellation = e
-            } catch (e: Throwable) {
-                // Deliberate: see createLoggerFactory's KDoc. A failing destination must not
-                // propagate into the caller, and must not cost the other sinks their event. That
-                // includes the Errors a broken or unfinished sink raises for its own reasons: an
-                // AssertionError, a TODO() sink's NotImplementedError, a NoSuchMethodError from a
-                // mismatched logging library.
-                //
-                // Any other Error is rethrown: it means the process is already in trouble
-                // (StackOverflowError from a sink that logs into itself, OutOfMemoryError) and
-                // swallowing it would turn a loud, findable bug into an invisible one.
-                if (!e.isContainedSinkFailure()) throw e
-                if (e.isInterruptSignal()) interrupted = true
+        try {
+            sinks.forEach { sink ->
+                @Suppress("TooGenericExceptionCaught", "SwallowedException")
+                try {
+                    sink.log(level, tag, text, throwable)
+                } catch (e: CancellationException) {
+                    // Never absorbed: a sink that touches a cancellable API inside a cancelled
+                    // coroutine must not have that cancellation eaten here, or logging would silently
+                    // break the caller's structured concurrency — the exact opposite of the guarantee
+                    // this catch exists to provide.
+                    if (cancellation == null) cancellation = e
+                } catch (e: Throwable) {
+                    // Deliberate: see createLoggerFactory's KDoc. A failing destination must not
+                    // propagate into the caller, and must not cost the other sinks their event. That
+                    // includes the Errors a broken or unfinished sink raises for its own reasons: an
+                    // AssertionError, a TODO() sink's NotImplementedError, a NoSuchMethodError from a
+                    // mismatched logging library.
+                    //
+                    // Any other Error is rethrown: it means the process is already in trouble
+                    // (StackOverflowError from a sink that logs into itself, OutOfMemoryError) and
+                    // swallowing it would turn a loud, findable bug into an invisible one.
+                    if (!e.isContainedSinkFailure()) throw e
+                    if (e.isInterruptSignal()) interrupted = true
+                }
             }
+        } finally {
+            // After the loop, not inside it: restoring at once would make every later blocking sink
+            // throw straight away and lose its event. And in a finally, so an Error a later sink
+            // raises still carries the flag back to the caller.
+            if (interrupted) restoreInterruptFlag()
         }
-        // After the loop, not inside it: restoring at once would make every later blocking sink
-        // throw straight away and lose its event.
-        if (interrupted) restoreInterruptFlag()
         cancellation?.let { throw it }
     }
 }

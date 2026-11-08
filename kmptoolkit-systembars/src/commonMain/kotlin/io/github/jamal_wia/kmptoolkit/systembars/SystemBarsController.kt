@@ -92,8 +92,10 @@ public interface SystemBarsController {
      * a host that tears down its whole object graph without ending the process. Idempotent; the
      * controller must not be used afterwards.
      *
-     * Does not repaint: the window is left showing the last applied configuration while
-     * [config] reports the defaults.
+     * Does not repaint: the window keeps the last applied configuration while [config] reports the
+     * defaults. A window write already queued to the main thread when [release] is called is dropped,
+     * and the controller never touches the window afterwards; a write already running on the main
+     * thread at that moment may still finish.
      */
     public fun release()
 }

@@ -35,18 +35,16 @@ consumes it, to the `PhoneWindow` fallback that implements system behaviour such
 ### One interception per window
 
 Calling the effect twice in the same dialog window — an app-wide dialog wrapper plus a shared component
-that calls it too — installs one wrapper, not two, so the interceptor runs once per key event.
+that calls it too — consults the policy once per key event, even when another decorator forced a second wrapper.
 
-The effects in one window share that wrapper and each holds a share of it: it stays in force until
-the last of them leaves composition, whichever one entered first, and only then is the window's
-original callback restored (and still not over a decorator someone else installed afterwards).
-
-The share count lives on the wrapper itself, found again through `window.callback`, or, when another
-decorator was layered on top of it, through a registry that holds both the window and the wrapper
-weakly. A window whose effect was never disposed (an abandoned composition) is therefore collectable
-together with its own wrapper, instead of being pinned by a global entry whose value reaches the
-window back through the dialog. On the listener path the same rule holds per view: effects composed
-on one view share one platform listener, which the last of them removes.
+Each window has one record of which effects currently hold it and which policy each read, shared by
+every wrapper the effects ever put on that window, plus a dispatch guard: while one wrapper is
+consulting the policy for a key, the others only forward it. The record refers to interceptors only,
+never to the window or a wrapper, and it lives in a weak map keyed by the window, so a window whose
+effect was never disposed (an abandoned composition) is still collectable. On the listener path the
+same rule holds per view: effects composed on one view share one platform listener, which the last of
+them removes; the listener asks the shared record, so the policy in force follows the effects composed
+on that view.
 
 ### The back key
 
