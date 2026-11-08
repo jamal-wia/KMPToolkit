@@ -63,7 +63,7 @@ deterministic.
 | `var loadFailure: Throwable?` | Make the next `prepare` fail with exactly this cause. Set back to `null` to let the next one succeed. |
 | `var loadDelayMs: Long` | Give the test a window in which to cancel the coroutine that called `prepare`. |
 | `advancePositionTo(ms)` / `advancePositionBy(ms)` | Move the playhead, as playback would between two polls; `advancePositionBy` saturates, so a huge amount lands on `durationMs`. `0` = unknown: `advancePositionBy` is not clamped then; neither call produces a negative position. A load, failed or not, stops what was playing before it. |
-| `completePlayback()` | Play to the end: playhead to `durationMs`, then `onCompleted`. |
+| `completePlayback()` | Play to the end: playhead to `durationMs`, then `onCompleted`. On an unknown length (`0`) the playhead stays where it is, as on the real engines, and the player completes there. |
 | `failPlayback(cause)` | Fail *after* a successful load — a stream that dies mid-track, or right after `load` returned (the player then ends in `Error`, not `Ready`). Not meant to be called while a load is still running. |
 | `val positionMs`, `val isPlaying`, `val appliedSpeed` | Assert what the player asked the platform to do. |
 | `val loadedSources` | Every source passed to `load`, in order, including ones that then failed. |

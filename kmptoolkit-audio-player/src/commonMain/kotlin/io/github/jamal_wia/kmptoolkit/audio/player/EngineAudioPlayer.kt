@@ -314,9 +314,11 @@ private class EngineAudioPlayer(
         val current: PlayerState = _stateFlow.value
         if (released || !current.isPlayable) return@submit
         stopPositionUpdates()
-        val duration: Long = freshDuration(current.duration ?: 0L)
-        _playbackPositionFlow.value = duration
-        _stateFlow.value = PlayerState.Completed(duration)
+        val known: Long = freshDuration(current.duration ?: 0L)
+        // A source of unknown length that played to its end has a length now: where it ended.
+        val end: Long = if (known > 0L) known else engine.positionMs().takeIf { it > 0L } ?: _playbackPositionFlow.value
+        _playbackPositionFlow.value = end
+        _stateFlow.value = PlayerState.Completed(end)
     }
 
     // Preparing counts as well: the engine installs its steady-state error callback when its load
@@ -379,6 +381,8 @@ private class EngineAudioPlayer(
             // Once the playhead has moved off the end, "completed" is no longer a true description
             // of the player — Paused is, and it is the state play() resumes from correctly.
             is PlayerState.Completed -> PlayerState.Paused(duration, target)
+            // A Ready player picks up a length the platform learned since the load.
+            is PlayerState.Ready -> PlayerState.Ready(duration)
             else -> current
         }
     }

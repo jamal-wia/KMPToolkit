@@ -65,4 +65,14 @@ class FakePlaybackEngineUnknownLengthTest {
 
         assertEquals(10_000L, engine.positionMs())
     }
+
+    @Test
+    fun `completePlayback on an unknown length leaves the playhead where it is`() {
+        val engine = FakePlaybackEngine(durationMs = 0L)
+        engine.advancePositionTo(45_000L)
+
+        engine.completePlayback()
+
+        assertEquals(45_000L, engine.positionMs())
+    }
 }

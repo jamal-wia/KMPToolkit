@@ -10,7 +10,8 @@ package io.github.jamal_wia.kmptoolkit.audio.player
  * Positions and durations are milliseconds throughout. A duration of `0` means the platform has not
  * reported one yet (live streams, or a source whose header has not been parsed); it is not an error
  * on its own. A length the platform reports later replaces it; once a length is known for the loaded
- * source, no state reverts it to `0`.
+ * source, no state reverts it to `0`. A source of unknown length that plays to its end completes with the
+ * position where it ended as its length.
  */
 public sealed interface PlayerState {
 
@@ -54,7 +55,8 @@ public sealed interface PlayerState {
      * Playback reached the end of the source. The source stays loaded, so [AudioPlayer.replay] or a
      * seek followed by [AudioPlayer.play] works without preparing again.
      *
-     * @property duration total length in milliseconds.
+     * @property duration total length in milliseconds; for a source whose length was unknown, the
+     *   position where it ended.
      */
     public data class Completed(val duration: Long) : PlayerState
 

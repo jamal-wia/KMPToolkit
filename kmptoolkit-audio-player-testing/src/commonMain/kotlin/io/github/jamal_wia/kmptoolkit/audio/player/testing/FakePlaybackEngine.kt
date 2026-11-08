@@ -162,14 +162,15 @@ public class FakePlaybackEngine(
     }
 
     /**
-     * Reports that the source played to its end: moves the playhead to [durationMs] and calls
+     * Reports that the source played to its end: moves the playhead to [durationMs] when that is known (on
+     * an unknown length, `0`, it stays where it is, as on the real engines) and calls
      * [PlaybackEngineListener.onCompleted].
      *
      * Does nothing when no listener is attached — which is the case after the player has been
      * released, so a test can use this to check that a late completion is ignored.
      */
     public fun completePlayback() {
-        positionMs = durationMs
+        if (durationMs > 0L) positionMs = durationMs
         isPlaying = false
         listener?.onCompleted()
     }
