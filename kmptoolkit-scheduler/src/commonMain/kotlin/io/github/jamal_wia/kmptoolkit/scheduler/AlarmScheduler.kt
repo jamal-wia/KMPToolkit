@@ -25,9 +25,11 @@ public interface AlarmScheduler {
      *
      * On Android, if the platform refuses to cancel the replaced alarm, that alarm stays armed and
      * may still fire; the call still reports the new alarm, and the next successful `schedule` or a
-     * [cancel] of the id retires it. Once four such refusals pile up for one id without a successful
-     * schedule or cancel in between, this answers [AlarmScheduleResult.Failed] with
-     * [AlarmFailure.PlatformError] without changing anything until [cancel] is called for the id.
+     * [cancel] of the id retires it. Each such refusal leaves the replaced alarm holding one of the
+     * id's four slots. After three replacements in a row whose cancel was refused, with no successful
+     * `schedule` or [cancel] of the id in between, every slot is held, and this answers
+     * [AlarmScheduleResult.Failed] with [AlarmFailure.PlatformError] without changing anything until
+     * [cancel] is called for the id.
      *
      * A [ScheduledAlarm.fireAtEpochMillis] already in the past is legal and never throws: Android
      * fires such an alarm as soon as it is armed, iOS clamps the trigger to one second from now.
@@ -45,6 +47,9 @@ public interface AlarmScheduler {
      * Never throws for a platform refusal: on Android a `SecurityException` or `IllegalStateException`
      * from `AlarmManager` is caught and logged, and the alarm may then stay armed. A failed cancel is
      * not reported, because this call returns nothing.
+     *
+     * It only removes an alarm that has not fired yet. What a fired alarm left on screen stays: on iOS
+     * the delivered notification stays in Notification Centre, on Android whatever your handler posted.
      */
     public suspend fun cancel(id: String)
 
@@ -56,7 +61,7 @@ public interface AlarmScheduler {
      * you want a clean slate, pass every id you know about.
      *
      * Like [cancel], it never throws for a platform refusal; a refusal on one id does not stop the
-     * ids after it.
+     * ids after it. Like [cancel], it removes only alarms that have not fired yet.
      */
     public suspend fun cancelAll(ids: Collection<String>)
 }

@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.scheduler
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.sync.Mutex
@@ -146,7 +147,7 @@ internal class AndroidAlarmScheduler(
      * A slot that is already occupied is never written to: writing it would rewrite, with
      * `FLAG_UPDATE_CURRENT`, the extras of an alarm that stays armed if the replacement is then
      * refused. Slots stay occupied only after a refused retirement, so all of them are taken only
-     * after [AlarmIntents.SLOT_COUNT] - 1 such refusals in a row, with no successful schedule or
+     * after [AlarmIntents.SLOT_COUNT] - 1 replacements in a row whose retirement was refused, with no successful schedule or
      * cancel of the id in between. Then the replacement is refused without touching anything
      * ([AlarmScheduleResult.Failed], documented in 04-api-reference.md): the armed alarm stays exactly
      * as it was, and `cancel(id)` (which retires every slot) lets the id schedule again.
@@ -157,7 +158,8 @@ internal class AndroidAlarmScheduler(
             .toMap()
         val targetSlot: Int = SLOTS.firstOrNull { it !in occupied }
             ?: return AlarmScheduleResult.Failed(AlarmFailure.PlatformError(SATURATED_MESSAGE))
-        val retired: List<PendingIntent> = occupied.values.toList()
+        // Not a slot and never counted toward saturation: an alarm armed by 3.0.x under the old URI.
+        val retired: List<PendingIntent> = occupied.values.toList() + listOfNotNull(resolveLegacy(alarm.id))
         val pendingIntent: PendingIntent = PendingIntent.getBroadcast(
             context,
             AlarmIntents.requestCode(alarm.id, targetSlot),
@@ -190,6 +192,17 @@ internal class AndroidAlarmScheduler(
         AlarmIntents.cancelIntent(context, id, keys),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
     )
+
+    /** An alarm armed by 3.0.x for an id with an unpaired surrogate (old lossy URI); see [AlarmIntents.legacyCancelIntent]. */
+    private fun resolveLegacy(id: String): PendingIntent? {
+        val intent: Intent = AlarmIntents.legacyCancelIntent(context, id, keys) ?: return null
+        return PendingIntent.getBroadcast(
+            context,
+            AlarmIntents.requestCode(id, 0),
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
+        )
+    }
 
     private fun armIn(manager: AlarmManager, alarm: ScheduledAlarm, pendingIntent: PendingIntent): AlarmScheduleResult {
         if (!canScheduleExact(manager)) {
@@ -225,6 +238,15 @@ internal class AndroidAlarmScheduler(
                 } catch (refusal: RuntimeException) {
                     logCancelFailure(id, refusal)
                 }
+            }
+            try {
+                val legacy: PendingIntent? = resolveLegacy(id)
+                if (legacy != null) {
+                    manager.cancel(legacy)
+                    legacy.cancel()
+                }
+            } catch (refusal: RuntimeException) {
+                logCancelFailure(id, refusal)
             }
         }
     }
