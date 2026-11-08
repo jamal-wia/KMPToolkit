@@ -7,6 +7,7 @@ import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -42,16 +43,18 @@ class AndroidDownloaderTempStateRound3Test {
         val unit = FileUnit("model", group).also { group.units = listOf(it) }
         val writerStorage: DownloaderStorage = AndroidDownloaderStorage(context, config, NoopLogger)
         val readerStorage: DownloaderStorage = AndroidDownloaderStorage(context, config, NoopLogger)
-        val live = AtomicBoolean(false)
+        // Odd = a temp file exists. A counter, not a flag: a reader descheduled for a whole writer iteration must not
+        // mistake the next iteration's file for the one it saw before (ABA).
+        val epoch = AtomicLong(0)
         val done = AtomicBoolean(false)
         val none = AtomicInteger()
         val samples = AtomicInteger()
         val reader = thread(name = "reader") {
             while (!done.get()) {
-                val before: Boolean = live.get()
+                val before: Long = epoch.get()
                 val state: TempFileState = readerStorage.tempFileState(unit)
-                val after: Boolean = live.get()
-                if (before && after) {
+                val after: Long = epoch.get()
+                if (before == after && before % 2L == 1L) {
                     samples.incrementAndGet()
                     if (state == TempFileState.None) none.incrementAndGet()
                 }
@@ -61,10 +64,10 @@ class AndroidDownloaderTempStateRound3Test {
             repeat(4000) {
                 writerStorage.beginTempFile(unit, null)
                 File(writerStorage.getTempFilePath(unit)).apply { parentFile!!.mkdirs() }.writeBytes(ByteArray(16))
-                live.set(true)
+                epoch.incrementAndGet()
                 writerStorage.markTempFileComplete(unit)
                 Thread.yield()
-                live.set(false)
+                epoch.incrementAndGet()
                 writerStorage.deleteTempFile(unit)
             }
             done.set(true)
