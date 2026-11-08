@@ -19,8 +19,9 @@ import kotlinx.coroutines.flow.Flow
  *
  * These invariants are what the engine relies on. An implementation that breaks one does not fail
  * loudly — it loses or duplicates a delivery under a race, which is exactly the failure mode this
- * module exists to prevent. `kmptoolkit-uploader-testing` ships `AbstractUploaderStoreContractTest`,
- * which asserts all of them; extend it rather than trusting a read-through.
+ * module exists to prevent. `kmptoolkit-uploader-testing` ships `UploaderStoreContract`,
+ * which asserts all of them (durability across a restart excepted, which no in-process check can see); run it
+ * rather than trusting a read-through.
  *
  * ### Durability
  * Every write must be durable before the call returns. An item survives process death from the

@@ -121,7 +121,7 @@ engine.settle(first.id, first.claim, SettleResult.Failed()) // superseded: chang
 
 ## Testing your own store
 
-If you implemented `UploaderStore`, run the contract against it. One test gets you forty-six invariants:
+If you implemented `UploaderStore`, run the contract against it. One test gets you fifty-eight checks, covering every invariant the `UploaderStore` KDoc states except durability:
 
 ```kotlin
 class MyUploaderStoreTest {
@@ -154,6 +154,13 @@ private val contract = UploaderStoreContract { MyUploaderStore(freshDatabase()) 
 It is deliberately not a JUnit base class: `kotlin.test`'s JVM annotations are typealiases to a
 framework's own, so publishing one would put JUnit on the compile classpath of every consumer,
 including their iOS build.
+
+Since 3.1.0 the contract also checks what a mutated store used to slip past it: exact tag and unique-key matching,
+verbatim payloads, whole-row equality after every guarded write, absolute attempts/gates/leases, insertion order
+under falling creation times, a live observation that never completes, the tail revival of a parked key, exact
+point reads, snapshot lists and the one-winner races of concurrent claims and keeps. The new checks are additive
+public functions of `UploaderStoreContract`; a store that passed the old 46 may now fail one of them, which is the
+check doing its job.
 
 **What the contract cannot check** is durability across a process restart — no in-process check can
 observe that. If your store buffers writes anywhere, prove that separately; the engine's central

@@ -22,7 +22,7 @@ import kotlinx.coroutines.sync.withLock
  *   a driver and a temp directory. Against this one they are a `runTest` block.
  * - **Being a reference implementation.** It is the shortest complete answer to
  *   `docs/kmptoolkit-uploader/07-custom-store.md`, and passes
- *   [AbstractUploaderStoreContractTest] unmodified.
+ *   [UploaderStoreContract] unmodified.
  *
  * It is *not* a fake in the loose sense: it implements the SPI contract exactly, including
  * insertion ordering, the parked-conflict rule, the compare-and-sets in [recordFailure],
