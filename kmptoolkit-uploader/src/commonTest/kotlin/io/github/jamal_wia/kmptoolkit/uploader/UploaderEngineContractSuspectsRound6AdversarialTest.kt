@@ -80,6 +80,37 @@ class UploaderEngineContractSuspectsRound6AdversarialTest {
     private fun TestScope.scopeOn(parent: Job): CoroutineScope = CoroutineScope(StandardTestDispatcher(testScheduler) + parent)
 
     @Test
+    fun `an upload whose claim was still being written when close returned is not launched after close returned`() =
+        runTest {
+            val parent = Job()
+            try {
+                val inner = TestUploaderStore()
+                val gate = CompletableDeferred<Unit>()
+                val entered = CompletableDeferred<Unit>()
+                val store = SlowClaimStore(inner, entered, gate)
+                val transport = Transport()
+                val handler = UploadingHandler(transport)
+                val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), TestClock(1_000L))
+                val id: String = engine.enqueue(handler, "x")!!
+                engine.start()
+                runCurrent()
+                assertTrue(entered.isCompleted, "the drain is inside the claim")
+
+                engine.close() // the documented promise starts here: "nothing is claimed or launched after close returns"
+                gate.complete(Unit) // the store's claim write now finishes, as a store that never notices cancellation does
+                runCurrent()
+
+                assertEquals(
+                    emptyList(),
+                    transport.events,
+                    "close() had returned before the launch; row=${inner.find(id)?.state}",
+                )
+            } finally {
+                parent.cancel()
+            }
+        }
+
+    @Test
     fun `an effect that returned Detached as close landed is told to the next engine as a possible earlier executor`() =
         runTest {
             val parent1 = Job()

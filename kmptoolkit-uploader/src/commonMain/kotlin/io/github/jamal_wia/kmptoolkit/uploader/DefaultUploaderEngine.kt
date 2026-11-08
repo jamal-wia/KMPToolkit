@@ -849,26 +849,37 @@ internal class DefaultUploaderEngine(
             logger.e { "Parked ${item.logName} — non-positive transport lease." }
             return
         }
-        val leaseUntil: Long = saturatingAdd(clock.nowEpochMillis(), clampLease(lease))
+        // P3: the lease is this hand-off's ownership token, unique among the unresolved claims of the item.
+        val leaseUntil: Long = ClaimsInDoubt.reserve(item.id, saturatingAdd(clock.nowEpochMillis(), clampLease(lease)))
         // Claimed only in the state and claim this pass read the item in. Between that read and here a
         // detached executor of an earlier attempt may have settled it — parked on a permanent failure,
         // or back to pending under a backoff gate — and an unguarded claim would revive it and upload it
         // again. A claim that misses launches nothing; the next pass sees the row as it now is.
         val claimed: Boolean = try {
-            store.markInFlight(
-                id = item.id,
-                leaseUntilEpochMillis = leaseUntil,
-                expectedState = item.state,
-                expectedClaim = item.claim,
-            )
-        } catch (e: Throwable) {
-            // The claim's outcome is unknown: a store that hops threads reports a close() (or a withdrawal)
-            // after the write committed. A claim left in place with no launch behind it would strand the
-            // item for a whole lease, so it is released to what this pass read. The release is guarded by the
-            // claim just written: it misses when the claim never committed, when the row was withdrawn, and
-            // when a rolled-back withdrawal restored the row with an older claim.
-            releaseClaim(item, context.claim)
-            throw e
+            val written: Boolean = try {
+                store.markInFlight(
+                    id = item.id,
+                    leaseUntilEpochMillis = leaseUntil,
+                    expectedState = item.state,
+                    expectedClaim = item.claim,
+                )
+            } catch (e: Throwable) {
+                // The claim's outcome is unknown: a store that hops threads reports a close() (or a withdrawal)
+                // after the write committed. A claim left in place with no launch behind it would strand the
+                // item for a whole lease, so it is released to what this pass read, once the row proves the
+                // claim is this hand-off's (P3).
+                releaseOwnClaim(item, context.claim, leaseUntil)
+                throw e
+            }
+            if (written && isClosed) {
+                // P4: a claim that finished after close() is released, never launched.
+                releaseOwnClaim(item, context.claim, leaseUntil)
+                logger.i { "Hand-off of ${item.logName} abandoned — the engine closed while its claim was written." }
+                return // the drain sees the close at its next check
+            }
+            written
+        } finally {
+            ClaimsInDoubt.drop(item.id, leaseUntil)
         }
         if (!claimed) {
             logger.i { "Hand-off of ${item.logName} skipped — the item moved since this pass read it." }
@@ -903,14 +914,23 @@ internal class DefaultUploaderEngine(
     }
 
     /**
-     * Puts the row of a hand-off whose claim write ended by throwing back to the state [item] was read in, so a
-     * claim that committed without a launch behind it does not strand the item for a lease. Non-cancellable; a
-     * release that fails is logged and swallowed (the lease is the fallback, as for a process killed in the same
-     * window).
+     * Puts the row of a hand-off whose claim was written, or may have been, back to the state [item] was read in, so
+     * a claim without a launch behind it does not strand the item for a lease. Rule P3: the release is made only
+     * after a read shows the row `IN_FLIGHT` under [claim] **and** [leaseUntil], the lease this hand-off wrote and
+     * reserved in [ClaimsInDoubt]; the claim number alone is shared by every engine that read the same row, so it
+     * cannot tell this claim from a replacement engine's. Non-cancellable; a release that fails is logged and
+     * swallowed (the lease is the fallback, as for a process killed in the same window).
      */
-    private suspend fun releaseClaim(item: UploaderItem, claim: Long) {
+    private suspend fun releaseOwnClaim(item: UploaderItem, claim: Long, leaseUntil: Long) {
         try {
             withContext(NonCancellable) {
+                val row: UploaderItem? = store.getById(item.id)
+                if (row == null || row.state != UploaderItemState.IN_FLIGHT ||
+                    row.claim != claim || row.leaseUntilEpochMillis != leaseUntil
+                ) {
+                    logger.i { "Not releasing ${item.logName}: the row is not this hand-off's claim." }
+                    return@withContext
+                }
                 if (item.state == UploaderItemState.IN_FLIGHT) {
                     // A re-hand of an expired lease: the lease is already over, so the next pass re-hands at once
                     // and still knows the previous executor may have run.
