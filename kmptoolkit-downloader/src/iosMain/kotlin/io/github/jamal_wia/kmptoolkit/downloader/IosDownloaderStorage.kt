@@ -493,6 +493,8 @@ internal class IosDownloaderStorage(
                     val entries: List<String> = NSFileManager.defaultManager
                         .contentsOfDirectoryAtPath(stagingDir, error = null)
                         ?.filterIsInstance<String>()
+                        // An empty directory never counts as the single root.
+                        ?.filter { name: String -> !isEmptyDirectory("$stagingDir/$name") }
                         ?: emptyList()
                     if (entries.size == 1) {
                         val nestedDir = "$stagingDir/${entries[0]}"
@@ -702,6 +704,10 @@ internal class IosDownloaderStorage(
     // Reads the ZIP file via POSIX fread in chunks instead of loading the entire archive into
     // memory. This prevents OOM on a large archive.
 
+    /** True when [path] is a directory with nothing in it. */
+    private fun isEmptyDirectory(path: String): Boolean =
+        NSFileManager.defaultManager.contentsOfDirectoryAtPath(path, error = null)?.isEmpty() == true
+
     /**
      * Extracts a ZIP archive at [filePath] into [targetDir] using streaming I/O.
      *
@@ -759,9 +765,20 @@ internal class IosDownloaderStorage(
                     fseek(zipFile, extraFieldLength.toLong().convert(), SEEK_CUR)
                 }
 
-                // Skip directories
+                // A directory entry has no data. It is created (an empty directory is part of the
+                // tree) under the same zip-slip rule as files.
                 if (fileName.endsWith("/")) {
                     fseek(zipFile, compressedSize.convert(), SEEK_CUR)
+                    if (fileName.contains("..")) {
+                        logger.d { "Skipping suspicious entry: $fileName" }
+                    } else {
+                        NSFileManager.defaultManager.createDirectoryAtPath(
+                            path = "$targetDir/$fileName",
+                            withIntermediateDirectories = true,
+                            attributes = null,
+                            error = null,
+                        )
+                    }
                     continue
                 }
 

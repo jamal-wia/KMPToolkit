@@ -370,8 +370,9 @@ internal class AndroidDownloaderStorage(
                 // (e.g., entries like "pages/page001.webp" instead of "page001.webp"),
                 // causing files to land in staging/pages/ instead of staging/.
                 if (!File(stagingDir, unit.archiveMarker()).exists()) {
+                    // An empty directory never counts as the single root.
                     val subdirs: Array<File> =
-                        stagingDir.listFiles { f: File -> f.isDirectory } ?: emptyArray()
+                        stagingDir.listFiles { f: File -> f.isDirectory && !f.list().isNullOrEmpty() } ?: emptyArray()
                     if (subdirs.size == 1) {
                         val nestedDir: File = subdirs[0]
                         logger.i { "Detected nested directory '${nestedDir.name}', moving contents up" }
@@ -522,7 +523,16 @@ internal class AndroidDownloaderStorage(
         ).use { zipStream: ZipInputStream ->
             var entry: ZipEntry? = zipStream.nextEntry
             while (entry != null) {
-                if (!entry.isDirectory) {
+                if (entry.isDirectory) {
+                    // An empty directory is part of the tree. A `./` or `/` entry is the target itself.
+                    val outputDir = File(dir, entry.name)
+                    if (outputDir.canonicalPath != dir.canonicalPath) {
+                        require(outputDir.canonicalPath.startsWith(dir.canonicalPath + File.separator)) {
+                            "ZIP entry attempts path traversal: ${entry.name}"
+                        }
+                        outputDir.mkdirs()
+                    }
+                } else {
                     val entryName: String = entry.name
                     val outputFile = File(dir, entryName)
                     // Zip slip protection

@@ -110,7 +110,7 @@ deep inside a reader — is what this exists to prevent.
 The point of the self-check: nobody hardcodes an expected row count anywhere in this library — the
 file states its own expected size. Which table and which key are the host's domain knowledge —
 values on the format, not anything the library assumes. Both shipped storage implementations carry
-zip-slip protection during extraction.
+zip-slip protection during extraction. Empty directories in the archive are created too.
 
 ### A stated hash — `DownloadUnit.sha256`
 

@@ -11,6 +11,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
@@ -142,6 +143,46 @@ class AndroidDownloaderArchiveRound4Test {
                 File(root, "files").deleteRecursively()
             }
             assertEquals(emptyList(), problems)
+            assertEquals("keep", sentinel.readText())
+        }
+    }
+
+    @Test
+    fun `an empty directory entry of an archive exists after extraction`() = runBlocking {
+        withTimeout(30_000) {
+            val storage: DownloaderStorage = storage()
+            val unit = TestUnit("e1", "pages/e1", Group("g"), ResourceFormat.ZipArchive("ok.txt"))
+            stage(storage, unit, zip("ok.txt" to "1", "cache/" to null, "deep/er/" to null))
+            storage.commitResource(unit)
+            val target = File(storage.getResourcePath(unit))
+            assertTrue(File(target, "cache").isDirectory, "empty directory 'cache/' was not extracted")
+            assertTrue(File(target, "deep/er").isDirectory, "empty directory 'deep/er/' was not extracted")
+        }
+    }
+
+    @Test
+    fun `an empty directory beside the single root never counts as a root`() = runBlocking {
+        withTimeout(30_000) {
+            val storage: DownloaderStorage = storage()
+            val unit = TestUnit("e2", "pages/e2", Group("g"), ResourceFormat.ZipArchive("ok.txt"))
+            stage(storage, unit, zip("pages/ok.txt" to "1", "pages/p.webp" to "x", "cache/" to null))
+            storage.commitResource(unit)
+            assertTrue(storage.isResourceAvailable(unit))
+            val target = File(storage.getResourcePath(unit))
+            assertEquals("x", File(target, "p.webp").readText())
+            assertTrue(File(target, "cache").isDirectory, "empty directory 'cache/' was not extracted")
+        }
+    }
+
+    @Test
+    fun `a directory entry that climbs out of the extraction fails the commit and creates nothing outside`() = runBlocking {
+        withTimeout(30_000) {
+            val storage: DownloaderStorage = storage()
+            val unit = TestUnit("e3", "pages/e3", Group("g"), ResourceFormat.ZipArchive("ok.txt"))
+            stage(storage, unit, zip("ok.txt" to "1", "../../../evil/" to null))
+            assertFailsWith<IllegalArgumentException> { storage.commitResource(unit) }
+            assertFalse(File(context.filesDir, "evil").exists(), "a directory was created outside the base")
+            assertFalse(File(root, "tmp/staging-e3").exists())
             assertEquals("keep", sentinel.readText())
         }
     }
