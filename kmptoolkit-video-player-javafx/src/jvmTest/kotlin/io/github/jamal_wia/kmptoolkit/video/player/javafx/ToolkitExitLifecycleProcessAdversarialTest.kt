@@ -76,4 +76,15 @@ class ToolkitExitLifecycleProcessAdversarialTest {
         assertEquals("RuntimeUnavailable", result["reload"], "$result")
         assertTrue(result.getValue("reloadMs").toLong() < 1_000L, "a reload after the exit waited: $result")
     }
+
+    @Test
+    fun `a load that JavaFX never answers ends within about two seconds of the implicit exit, not at its ready timeout`() {
+        assumeJavaFxMedia()
+        val result: Map<String, String> = runChild("implicit-during-load")
+        assertTrue(result["crashed"] == null, "$result")
+        // Where JavaFX reports an error at once the load is over before the window closes: nothing to judge.
+        if (result["endedBeforeClose"] == "true") return
+        assertEquals("RuntimeUnavailable", result["outcome"], "$result")
+        assertTrue(result.getValue("afterCloseMs").toLong() < 6_000L, "the load outlived the implicit exit: $result")
+    }
 }
