@@ -141,19 +141,21 @@ internal class SqlDelightUploaderStore(
                     expectedClaim = expectedClaim,
                 ).value
 
-                FailureDisposition.RETRY, FailureDisposition.PARK -> queries.recordFailure(
-                    state = if (disposition == FailureDisposition.PARK) {
-                        UploaderItemState.PARKED.name
-                    } else {
-                        UploaderItemState.PENDING.name
-                    },
-                    attempts = attempts.toLong(),
-                    nextRunAt = nextRunAtEpochMillis,
-                    lastError = lastError,
-                    id = id,
-                    expectedState = expectedState.name,
-                    expectedClaim = expectedClaim,
-                ).value
+                FailureDisposition.RETRY, FailureDisposition.PARK -> database.transactionWithResult {
+                    queries.recordFailure(
+                        state = if (disposition == FailureDisposition.PARK) {
+                            UploaderItemState.PARKED.name
+                        } else {
+                            UploaderItemState.PENDING.name
+                        },
+                        attempts = attempts.toLong(),
+                        nextRunAt = nextRunAtEpochMillis,
+                        lastError = fittedLastError(id, lastError),
+                        id = id,
+                        expectedState = expectedState.name,
+                        expectedClaim = expectedClaim,
+                    ).value
+                }
             }
             changed > 0L
         }
@@ -185,13 +187,26 @@ internal class SqlDelightUploaderStore(
     ): Boolean = onDatabaseThread(confinement, UploaderStorageOperation.PARK) {
         mapFailures(UploaderStorageOperation.PARK) {
             // Guarded like markInFlight: the WHERE clause is the guard, the affected-row count the answer.
-            queries.park(
-                lastError = lastError,
-                id = id,
-                expectedState = expectedState.name,
-                expectedClaim = expectedClaim,
-            ).value > 0L
+            database.transactionWithResult {
+                queries.park(
+                    lastError = fittedLastError(id, lastError),
+                    id = id,
+                    expectedState = expectedState.name,
+                    expectedClaim = expectedClaim,
+                ).value > 0L
+            }
         }
+    }
+
+    /**
+     * [lastError] cut to what the row of [id] has room for, so a failure text written after the insert can never
+     * take a row past the limit the insert enforced. Read inside the transaction that writes it, so the room is
+     * computed from the very row the update then changes.
+     */
+    private fun fittedLastError(id: String, lastError: String?): String? {
+        if (lastError == null) return null
+        val row: UploaderItem = queries.selectById(id).executeAsOneOrNull()?.toUploaderItem() ?: return lastError
+        return row.fitLastError(lastError)
     }
 
     override suspend fun deleteById(id: String): Unit = onDatabaseThread(confinement, UploaderStorageOperation.DELETE_BY_ID) {

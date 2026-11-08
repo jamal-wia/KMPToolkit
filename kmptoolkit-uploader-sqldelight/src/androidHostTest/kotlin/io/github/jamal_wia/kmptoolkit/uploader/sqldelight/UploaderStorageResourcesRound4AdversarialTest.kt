@@ -43,7 +43,7 @@ class UploaderStorageResourcesRound4AdversarialTest {
     )
 
     @Test
-    fun `a row at the limit is accepted, readable and still readable after a failure text is written`() = runTest {
+    fun `a row at the limit is accepted readable and still readable after a failure text is written`() = runTest {
         val store = open().store
         val payload = "x".repeat(MAX_ROW_TEXT_BYTES - 2 - 1) // id "a" and type "t" take two bytes
         assertEquals(true, store.insertKeep(item("a", payload)))
@@ -55,7 +55,23 @@ class UploaderStorageResourcesRound4AdversarialTest {
     }
 
     @Test
-    fun `a duplicate id fails typed and leaves the storage usable, for keep, replace and keyless inserts`() = runTest {
+    fun `a failure text written after the insert keeps the row within the documented megabyte`() = runTest {
+        val store = open().store
+        val payload = "x".repeat(MAX_ROW_TEXT_BYTES - 100)
+        store.insertKeep(item("a", payload))
+
+        // The documentation says the text columns of one row, last error included, may hold at most 1 MiB together.
+        val rejected: Boolean = runCatching {
+            store.recordFailure("a", 1, 0L, "e".repeat(4_096), UploaderItemState.PENDING, 0L, FailureDisposition.RETRY)
+        }.isFailure
+        val row: UploaderItem = assertNotNull(store.getById("a"))
+        val total: Int = utf8Length(row.id) + utf8Length(row.type) + utf8Length(row.payload) + utf8Length(row.lastError)
+
+        assertTrue(rejected || total <= MAX_ROW_TEXT_BYTES, "the row holds $total bytes of text, over the documented $MAX_ROW_TEXT_BYTES")
+    }
+
+    @Test
+    fun `a duplicate id fails typed and leaves the storage usable for keep replace and keyless inserts`() = runTest {
         val store = open().store
         assertEquals(true, store.insertKeep(item("dup")))
 

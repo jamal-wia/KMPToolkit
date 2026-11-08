@@ -236,7 +236,9 @@ The text columns of one row (payload, id, type, unique key, ordering key, tag an
 Android reads a row through a `CursorWindow` of about 2 MiB: a bigger row can be written but never read back, and
 because the queue is read as a whole, that one row would make every item unreadable and impossible to withdraw.
 The same limit holds on every platform so the queue behaves alike. Keep a large payload elsewhere (a file) and
-queue a reference to it. The engine itself bounds the failure text it stores to about 4096 characters.
+queue a reference to it. The engine itself bounds the failure text it stores to about 4096 characters. The bound also holds for later writes:
+a failure text or park reason written after the insert is cut (on a character boundary, or dropped) to whatever room
+the rest of the row leaves, so a row accepted at the limit never grows past it.
 
 A storage used after `close()` fails with `UploaderStorageException` whose cause is an `IllegalStateException`,
 never with a `CancellationException`.

@@ -41,6 +41,8 @@ public interface UploaderStorage : AutoCloseable {
      * together). An insert over the limit is refused with an [UploaderStorageException]: a row that large cannot
      * be read back on Android (its `CursorWindow` holds about 2 MiB), and since the queue is read as a whole it
      * would make every item unreadable. Keep a large payload elsewhere, in a file, and queue a reference to it.
+     * A failure text written after the insert (a retry or a park) is cut to the room the rest of the row leaves, so the
+     * limit holds for every write.
      */
     public val store: UploaderStore
 
