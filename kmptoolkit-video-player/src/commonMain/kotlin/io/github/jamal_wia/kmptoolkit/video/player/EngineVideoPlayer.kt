@@ -162,6 +162,8 @@ internal class EngineVideoPlayer(
         MutableStateFlow(NORMAL_PLAYBACK_SPEED.coerceIn(config.minPlaybackSpeed, config.maxPlaybackSpeed))
     override val playbackSpeedFlow: StateFlow<Float> = _playbackSpeedFlow.asStateFlow()
 
+    override val playbackSpeedRange: ClosedFloatingPointRange<Float> = config.minPlaybackSpeed..config.maxPlaybackSpeed
+
     private val _volumeFlow: MutableStateFlow<Float> = MutableStateFlow(FULL_VOLUME)
     override val volumeFlow: StateFlow<Float> = _volumeFlow.asStateFlow()
 

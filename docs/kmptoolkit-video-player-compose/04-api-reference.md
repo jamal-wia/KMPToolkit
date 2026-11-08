@@ -204,7 +204,7 @@ public fun VideoControlsScope.DefaultVideoControls(
     textStyle: TextStyle = VideoControlsDefaults.ControlTextStyle,
     onFullscreenClick: (() -> Unit)? = null,
     isFullscreen: Boolean = false,
-    speeds: List<Float> = VideoControlsDefaults.Speeds,
+    speeds: List<Float> = VideoControlsDefaults.Speeds, // entries outside player.playbackSpeedRange are not offered
     seekStepMs: Long = DEFAULT_SEEK_AMOUNT_MS,
     showSeekButtons: Boolean = true,
     showMuteButton: Boolean = true,
@@ -220,7 +220,7 @@ and the seek-forward button; along the bottom, the position (the drag position w
 `VideoSeekBar`, the duration, `MuteButton`, `SpeedButton` and — only when `onFullscreenClick` is
 not `null` — `FullscreenButton`. Always, while buffering or `Preparing`: a `BufferingIndicator` in
 the centre in place of the centre button. Transport controls are disabled while the state is not
-playable (`Idle`, `Preparing`, `Error`); mute is always enabled.
+playable (`Idle`, `Preparing`, `Error`); mute is always enabled. `speeds` entries outside the player's `playbackSpeedRange` are not offered (the player would clamp them and the button could not advance past them); when none is inside the range, its two bounds are offered.
 
 ## Building blocks
 
