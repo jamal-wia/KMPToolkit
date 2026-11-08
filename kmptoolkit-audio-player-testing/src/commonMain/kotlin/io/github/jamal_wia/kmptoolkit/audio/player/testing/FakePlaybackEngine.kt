@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
  * ```
  *
  * @param durationMs duration reported for any loaded source; see [durationMs].
+ * @throws IllegalArgumentException if [durationMs] is negative.
  */
 public class FakePlaybackEngine(
     durationMs: Long = DEFAULT_DURATION_MS,
@@ -41,9 +42,16 @@ public class FakePlaybackEngine(
 
     /**
      * Duration reported for the loaded source, in milliseconds. Writable so a test can model a
-     * source whose length the platform never reports (`0`) as well as a normal one.
+     * source whose length the platform never reports (`0`, meaning "unknown", not "zero length") as well
+     * as a normal one.
+     *
+     * @throws IllegalArgumentException when set to a negative value; the engine contract never reports one.
      */
-    public var durationMs: Long = durationMs
+    public var durationMs: Long = durationMs.also { require(it >= 0L) { "durationMs must be >= 0, was $it" } }
+        set(value) {
+            require(value >= 0L) { "durationMs must be >= 0, was $value" }
+            field = value
+        }
 
     /** Current playhead position, in milliseconds. Moved by seeks and by [advancePositionTo]. */
     public var positionMs: Long = 0L
@@ -127,17 +135,21 @@ public class FakePlaybackEngine(
     }
 
     /**
-     * Moves the playhead, as real playback would between two position polls.
+     * Moves the playhead, as real playback would between two position polls. A negative position is
+     * floored at `0`. The position is not clamped to [durationMs]: a platform that reports a few
+     * milliseconds past the end is real, and a test may want to put the playhead anywhere.
      *
      * @param positionMs new position in milliseconds.
      */
     public fun advancePositionTo(positionMs: Long) {
-        this.positionMs = positionMs
+        this.positionMs = positionMs.coerceAtLeast(0L)
     }
 
     /**
-     * Moves the playhead forward by [amountMs], never past [durationMs]. The sum saturates, so an
-     * amount as large as [Long.MAX_VALUE] lands on the end instead of wrapping around.
+     * Moves the playhead forward by [amountMs], never past [durationMs] while that is known. The sum
+     * saturates both ways, so an amount as large as [Long.MAX_VALUE] lands on the end instead of
+     * wrapping around, and a negative amount floors at `0`. While [durationMs] is `0` (unknown) the
+     * playhead is not clamped to it and simply moves.
      *
      * @param amountMs how far to advance, in milliseconds.
      */
@@ -145,7 +157,8 @@ public class FakePlaybackEngine(
         val sum: Long = positionMs + amountMs
         // Overflow happened exactly when a positive amount produced a sum below the old position.
         val saturated: Long = if (amountMs > 0L && sum < positionMs) Long.MAX_VALUE else sum
-        positionMs = saturated.coerceAtMost(durationMs)
+        val floored: Long = saturated.coerceAtLeast(0L)
+        positionMs = if (durationMs > 0L) floored.coerceAtMost(durationMs) else floored
     }
 
     /**
