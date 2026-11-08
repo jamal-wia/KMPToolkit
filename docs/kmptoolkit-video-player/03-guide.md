@@ -278,7 +278,8 @@ The player takes ownership of the engine: it installs itself as the listener, an
 - **Calling `play()` right after `prepare()` without checking the state.** `prepare` can end in
   `Error`, and `play()` there is a no-op.
 - **Treating `duration == 0` as an error.** It means the platform has not reported a length — normal
-  for a live stream.
+  for a live stream. A source of unknown length that plays to its end completes with the position
+  where it ended as its length (`Completed(duration = end)`), so a progress or "watched" check still works.
 - **Keying "watched" on `Completed` with `RepeatMode.One`.** A looping player never completes.
 - **Releasing a shared player from one of its screens.** `release()` is permanent; use `unload()` for
   a player you do not own.

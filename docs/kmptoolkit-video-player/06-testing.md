@@ -61,7 +61,7 @@ Nothing moves on its own — there is no wall clock inside.
 | `var videoSizeOnLoad: VideoSize?` | Report a picture size while loading, as platforms do. |
 | `advancePositionTo(ms)` / `advancePositionBy(ms)` | Move the playhead, as playback would between polls. `advancePositionBy` stops at a known duration and saturates instead of wrapping around. |
 | `var bufferedPositionMs` | Set what the next poll reads as buffered. |
-| `completePlayback()` | Play to the end: `Completed` — or, when the player asked for looping, back to `0` with no completion, like a real engine. |
+| `completePlayback()` | Play to the end: `Completed` — or, when the player asked for looping, back to `0` with no completion, like a real engine. The playhead moves to `durationMs` when that is known; on an unknown length (`0`) it stays where it is, as on the real engines. |
 | `failPlayback(cause)` | Fail after a successful load — a stream that dies mid-video. |
 | `reportBuffering(isBuffering)` | Stall or resume. |
 | `reportVideoSize(size)` | Report or change the picture size (`null`: no picture). |

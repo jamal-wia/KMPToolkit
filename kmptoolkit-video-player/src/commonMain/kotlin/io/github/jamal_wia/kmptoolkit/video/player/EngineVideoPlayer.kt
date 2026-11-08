@@ -258,13 +258,14 @@ internal class EngineVideoPlayer(
 
     override fun stop(): Unit = gate.exclusive {
         if (released) return@exclusive
-        if (!_stateFlow.value.isPlayable) return@exclusive
+        val current: VideoPlayerState = _stateFlow.value
+        if (!current.isPlayable) return@exclusive
 
         engine.pause()
         stopPositionUpdates()
         engine.seekTo(0L)
         _playbackPositionFlow.value = 0L
-        _stateFlow.value = VideoPlayerState.Ready(engine.durationMs())
+        _stateFlow.value = VideoPlayerState.Ready(freshDuration(current.duration ?: 0L))
     }
 
     override fun seekTo(positionMs: Long): Unit = gate.exclusive { seekToLocked(positionMs) }
@@ -350,8 +351,9 @@ internal class EngineVideoPlayer(
     // detached it — is stale and must not resurrect state.
 
     override fun onCompleted(): Unit = gate.submit {
-        if (released || !_stateFlow.value.isPlayable) return@submit
-        val duration: Long = engine.durationMs()
+        val current: VideoPlayerState = _stateFlow.value
+        if (released || !current.isPlayable) return@submit
+        val known: Long = freshDuration(current.duration ?: 0L)
         if (_repeatModeFlow.value == RepeatMode.One) {
             // An engine should loop on its own and never report this while looping, but the mode can
             // change just as the platform posts the end. Completed is never reached in One: start
@@ -359,14 +361,16 @@ internal class EngineVideoPlayer(
             engine.seekTo(0L)
             engine.start()
             _playbackPositionFlow.value = 0L
-            _stateFlow.value = VideoPlayerState.Playing(duration = duration, currentPosition = 0L)
+            _stateFlow.value = VideoPlayerState.Playing(duration = known, currentPosition = 0L)
             startPositionUpdates()
             return@submit
         }
         stopPositionUpdates()
         _isBufferingFlow.value = false
-        _playbackPositionFlow.value = duration
-        _stateFlow.value = VideoPlayerState.Completed(duration)
+        // A source of unknown length that played to its end has a length now: where it ended.
+        val end: Long = if (known > 0L) known else engine.positionMs().takeIf { it > 0L } ?: _playbackPositionFlow.value
+        _playbackPositionFlow.value = end
+        _stateFlow.value = VideoPlayerState.Completed(end)
     }
 
     override fun onFailed(cause: Throwable): Unit = gate.submit {
@@ -414,7 +418,7 @@ internal class EngineVideoPlayer(
         val current: VideoPlayerState = _stateFlow.value
         if (!current.isPlayable || current is VideoPlayerState.Playing) return
 
-        val duration: Long = engine.durationMs()
+        val duration: Long = freshDuration(current.duration ?: 0L)
         // A seek onto the end of a completed source leaves Paused with the playhead at the end, which
         // is the end just the same.
         val atEnd: Boolean = duration > 0L && engine.positionMs() >= duration
@@ -428,7 +432,7 @@ internal class EngineVideoPlayer(
         engine.start()
         engine.setSpeed(_playbackSpeedFlow.value)
         _stateFlow.value = VideoPlayerState.Playing(
-            duration = engine.durationMs(),
+            duration = duration,
             currentPosition = engine.positionMs(),
         )
         startPositionUpdates()
@@ -439,7 +443,7 @@ internal class EngineVideoPlayer(
         val current: VideoPlayerState = _stateFlow.value
         if (!current.isPlayable) return
 
-        val duration: Long = engine.durationMs()
+        val duration: Long = freshDuration(current.duration ?: 0L)
         // A length of 0 means the platform has not reported one yet (a live stream, a header not parsed).
         // An absolute seek still clamps to 0..0 then, but a relative skip has no end to clamp to: moving
         // from 30 s by +/-5 s must not land on 0, so its target goes to the engine, which knows better.
@@ -452,13 +456,13 @@ internal class EngineVideoPlayer(
         _playbackPositionFlow.value = target
 
         _stateFlow.value = when (current) {
-            is VideoPlayerState.Playing ->
-                current.copy(duration = freshDuration(current.duration, duration), currentPosition = target)
-            is VideoPlayerState.Paused ->
-                current.copy(duration = freshDuration(current.duration, duration), currentPosition = target)
+            is VideoPlayerState.Playing -> current.copy(duration = duration, currentPosition = target)
+            is VideoPlayerState.Paused -> current.copy(duration = duration, currentPosition = target)
+            // A Ready player picks up a length the platform learned since the load.
+            is VideoPlayerState.Ready -> VideoPlayerState.Ready(duration)
             // Once the playhead has moved off the end, Paused is the true description — and the
             // state play() resumes from correctly.
-            is VideoPlayerState.Completed -> VideoPlayerState.Paused(current.duration, target)
+            is VideoPlayerState.Completed -> VideoPlayerState.Paused(duration, target)
             else -> current
         }
     }

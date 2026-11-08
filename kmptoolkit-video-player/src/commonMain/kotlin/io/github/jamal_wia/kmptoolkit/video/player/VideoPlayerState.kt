@@ -11,7 +11,10 @@ package io.github.jamal_wia.kmptoolkit.video.player
  *
  * Every case carries data rather than a message: [Error] holds the [Throwable] that caused it, not a
  * sentence to show a user. Positions and durations are milliseconds; a duration of `0` means the
- * platform has not reported one (a live stream, or a header not parsed yet), not an error.
+ * platform has not reported one (a live stream, or a header not parsed yet), not an error. A length the
+ * platform reports later replaces it; once a length is known for the loaded source, no state reverts it
+ * to `0`. A source of unknown length that plays to its end completes with the position where it ended as
+ * its length.
  */
 public sealed interface VideoPlayerState {
 
@@ -57,7 +60,8 @@ public sealed interface VideoPlayerState {
      * loaded, so [VideoPlayer.replay] works without preparing again. Never reached while
      * [RepeatMode.One] is in effect — the source starts over instead.
      *
-     * @property duration total length in milliseconds.
+     * @property duration total length in milliseconds; for a source whose length was unknown, the
+     *   position where it ended.
      */
     public data class Completed(val duration: Long) : VideoPlayerState
 

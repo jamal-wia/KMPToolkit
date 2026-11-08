@@ -29,7 +29,7 @@ any thread.
 | Member | Initial | Contract |
 |---|---|---|
 | `stateFlow: StateFlow<VideoPlayerState>` | `Idle` | The transport state. |
-| `playbackPositionFlow: StateFlow<Long>` | `0` | Playhead, refreshed every `positionUpdateIntervalMs` while `Playing`; set directly by seeks, `stop()` and completion (to the duration); `0` after `prepare`, `unload`, `release`. |
+| `playbackPositionFlow: StateFlow<Long>` | `0` | Playhead, refreshed every `positionUpdateIntervalMs` while `Playing`; set directly by seeks, `stop()` and completion (to the length, or, on a source of unknown length, to where it ended); `0` after `prepare`, `unload`, `release`. |
 | `bufferedPositionFlow: StateFlow<Long>` | `0` | Buffered-ahead position. Polled with the playhead while `Playing`, snapshotted when a load finishes and on `pause()`; `0` when nothing is loaded and after a playback failure. |
 | `isBufferingFlow: StateFlow<Boolean>` | `false` | Whether a **loaded** source is stalled waiting for data. Independent of `stateFlow` (a stalled stream is still `Playing`). Not shown while preparing (a stall of the just-loaded source that the engine reports before `Ready` is published is kept and shown with `Ready`); `false` when idle, on completion and on failure; a stall the engine reports after the end is ignored while the state is `Completed`. |
 | `videoSizeFlow: StateFlow<VideoSize?>` | `null` | Displayed picture size once the platform reports one — usually while `Preparing`. Kept on `Completed`; `null` again when a new `prepare` starts, on a failure, `unload`, `release`. |
@@ -62,7 +62,7 @@ Every call below is **ignored** unless the state `isPlayable`, and ignored entir
 | `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts polling, applies the speed. Ignored while already `Playing`. From `Completed`, or with the playhead on the end of the source, it starts over from `0`. |
 | `fun pause()` | `Playing` → `Paused(duration, position)`, stops polling. Ignored in any other state. |
 | `fun stop()` | Any playable → `Ready(duration)` with the playhead at `0`; the source stays loaded. |
-| `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`, `Ready` stays `Ready`. |
+| `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`, `Ready` stays `Ready` (picking up a length learned since the load). |
 | `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`, saturating instead of overflowing. On a source of unknown length (`duration` `0`) there is no end to clamp to: the target is `position + amountMs` floored at `0`, not `0`. |
 | `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`, saturating instead of overflowing; on a source of unknown length the target is floored at `0` only. |
 | `fun replay()` | Seek to `0` and play, from any playable state. |
@@ -113,7 +113,7 @@ public sealed interface VideoPlayerState
 | `Completed` | `duration` | Played to the end with `RepeatMode.Off`; the source stays loaded. |
 | `Error` | `cause: Throwable` | Load or playback failed. **No display string.** |
 
-A `duration` of `0` means the platform has not reported one (a live stream), not an error. A length the platform reports later replaces it at the next position update, pause or seek; a later `0` never overwrites a known length.
+A `duration` of `0` means the platform has not reported one (a live stream), not an error. A length the platform reports later replaces it at the next position update, pause or seek; once a length is known for the loaded source, no state reverts it to `0` (only a new `prepare` starts from the engine's value again). A source of unknown length that plays to its end completes with the position where it ended as its length: `Completed(duration = end)` with `playbackPositionFlow` left at `end`; that length then counts as known (`replay` and `stop` keep it, an absolute seek clamps to `0..end`). If the end is still `0`, it is `Completed(0)`.
 
 | Extension | Returns |
 |---|---|
