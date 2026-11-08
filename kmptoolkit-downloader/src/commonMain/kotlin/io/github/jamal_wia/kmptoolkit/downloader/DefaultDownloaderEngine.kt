@@ -1617,9 +1617,11 @@ internal class DefaultDownloaderEngine(
  * `status 502`, `status code: 410`. The status word must start a word and the digits must follow it
  * directly (only `error` / `status` / `code` and separators in between), so a three-digit run inside
  * a URL (`https://cdn/assets/40123.zip`), an id or a byte count is never taken for a status.
+ * Written so no whitespace run can be split between two quantifiers: matching stays linear in the
+ * message length.
  */
 private val HTTP_STATUS: Regex =
-    Regex("\\b(?:http(?:/\\d(?:\\.\\d)?)?|status)(?:\\s+(?:error|status|code)){0,2}\\s*[:=]?\\s*(\\d{3})\\b")
+    Regex("\\b(?:http(?:/\\d(?:\\.\\d)?)?|status)(?:\\s+(?:error|status|code)){0,2}\\s*(?:[:=]\\s*)?(\\d{3})\\b")
 
 /**
  * Classifies a platform-emitted [BackgroundDownloadEvent.Error.message] into a [DownloadError].

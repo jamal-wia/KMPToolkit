@@ -101,4 +101,32 @@ class DownloaderEngineClassifierRound4Test {
         classify(message)
         assertTrue(started.elapsedNow().inWholeMilliseconds < 2_000, "took ${started.elapsedNow()}")
     }
+
+    @Test
+    fun `a message with a long run of whitespace after the word status classifies in bounded time`() = runTest {
+        for (word in listOf("status", "http")) {
+            val message: String = word + " ".repeat(40_000) + "x"
+            val started = TimeSource.Monotonic.markNow()
+            assertTrue(classify(message) is DownloadError.Unknown)
+            assertTrue(started.elapsedNow().inWholeMilliseconds < 2_000, "$word: took ${started.elapsedNow()}")
+        }
+    }
+
+    @Test
+    fun `whitespace on both sides of a separator classifies in bounded time`() = runTest {
+        val message: String = "status code" + " ".repeat(40_000) + ":" + " ".repeat(40_000) + "x"
+        val started = TimeSource.Monotonic.markNow()
+        assertTrue(classify(message) is DownloadError.Unknown)
+        assertTrue(started.elapsedNow().inWholeMilliseconds < 2_000, "took ${started.elapsedNow()}")
+    }
+
+    @Test
+    fun `separators around a status keep their documented reading`() = runTest {
+        assertEquals(DownloadError.NotFound, classify("status : 404"))
+        assertEquals(DownloadError.NotFound, classify("status=404"))
+        assertEquals(DownloadError.NotFound, classify("HTTP error :\t404"))
+        assertEquals(DownloadError.Server(503), classify("http\n:\n503"))
+        // One separator only, as before the rewrite.
+        assertTrue(classify("status ::404") is DownloadError.Unknown)
+    }
 }
