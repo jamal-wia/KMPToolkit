@@ -293,7 +293,8 @@ updates from **both** tracked providers at once and forwards whichever reports f
 
 `getCurrentLocation()` first answers with the freshest cached fix of any enabled tracked provider;
 only when there is none does it request a single fix from the provider `getBestProvider(...)`
-picks.
+picks. Freshest means youngest by the fix's `elapsedRealtimeNanos` (the platform's monotonic clock),
+not by its `time`, which jumps when the device clock is corrected.
 
 Every `LocationListener` callback is implemented, so a provider switched on or off while a
 collection is live is safe on every supported API level (24+).

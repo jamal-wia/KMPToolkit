@@ -278,9 +278,20 @@ internal class AndroidLocationProvider(
         // Only providers that are switched on: the platform may keep handing out the last fix of a
         // disabled provider, and a collection that starts after the user turned location off must
         // begin on `null` (the same rule onProviderDisabled applies), not on a stale position.
-        providers.filter { provider -> service.isProviderEnabled(provider) }
-            .mapNotNull { provider -> service.lastKnownLocation(provider) }
-            .maxByOrNull { location -> location.time }
+        freshest(
+            providers.filter { provider -> service.isProviderEnabled(provider) }
+                .mapNotNull { provider -> service.lastKnownLocation(provider) },
+        )
+
+    // Location.time is wall-clock and jumps when the clock is corrected; elapsedRealtimeNanos is the
+    // platform's monotonic stamp. A fix without one (0: a test fixture) makes the whole comparison
+    // fall back to time, so stamps from two different clocks are never compared.
+    private fun freshest(fixes: List<Location>): Location? =
+        if (fixes.all { fix -> fix.elapsedRealtimeNanos > 0L }) {
+            fixes.maxByOrNull { fix -> fix.elapsedRealtimeNanos }
+        } else {
+            fixes.maxByOrNull { fix -> fix.time }
+        }
 
     @SuppressLint("MissingPermission")
     private suspend fun requestSingleUpdate(
