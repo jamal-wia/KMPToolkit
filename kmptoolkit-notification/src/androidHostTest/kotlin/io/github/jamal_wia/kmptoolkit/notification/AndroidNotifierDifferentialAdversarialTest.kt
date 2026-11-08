@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.notification
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.permission.CommonPermission
@@ -32,7 +33,7 @@ import org.robolectric.shadows.ShadowNotificationManager
  * Every result and the whole tray are compared after every step.
  */
 @RunWith(AndroidJUnit4::class)
-@Config(shadows = [AndroidNotifierDifferentialAdversarialTest.RefusingShadowNotificationManager::class])
+@Config(sdk = [24, 29, 32, 34], shadows = [AndroidNotifierDifferentialAdversarialTest.RefusingShadowNotificationManager::class])
 class AndroidNotifierDifferentialAdversarialTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
@@ -92,7 +93,9 @@ class AndroidNotifierDifferentialAdversarialTest {
                 in 5..6 -> { log.append("cancelAll "); notifier.cancelAll(); baseline.clear(); unknownBaseline.clear(); tray.clear() }
                 in 7..9 -> { log.append("RESTART "); notifier = newNotifier(); baseline.clear(); unknownBaseline.clear() }
                 else -> {
-                    val mood: Mood = when (random.nextInt(20)) { 0, 1 -> Mood.REFUSE; 2 -> Mood.PERMISSION_DENIED; 3 -> Mood.DISABLED; else -> Mood.NORMAL }
+                    val rawMood: Mood = when (random.nextInt(20)) { 0, 1 -> Mood.REFUSE; 2 -> Mood.PERMISSION_DENIED; 3 -> Mood.DISABLED; else -> Mood.NORMAL }
+                    // Below API 33 there is no runtime permission to lack: the answer of the controller is ignored.
+                    val mood: Mood = if (rawMood == Mood.PERMISSION_DENIED && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) Mood.NORMAL else rawMood
                     val raw: Int? = listOf(null, -5, 0, 3, 9, 10, 11, 24, 25, 49, 50, 99, 100, 140)[random.nextInt(14)]
                     val indeterminate: Boolean = raw == null && random.nextBoolean()
                     val progress: NotificationProgress? = when {
@@ -107,7 +110,7 @@ class AndroidNotifierDifferentialAdversarialTest {
                     val frameBucket: Int? = if (determinate) bucketOf(raw!!, bucketPercent) else null
                     permissions.setStatus(
                         CommonPermission.Notifications,
-                        if (mood == Mood.PERMISSION_DENIED) PermissionStatus.PermanentlyDenied else PermissionStatus.Granted,
+                        if (rawMood == Mood.PERMISSION_DENIED) PermissionStatus.PermanentlyDenied else PermissionStatus.Granted,
                     )
                     shadowOf(manager).setNotificationsEnabled(mood != Mood.DISABLED)
                     RefusingShadowNotificationManager.refusing.set(mood == Mood.REFUSE)
@@ -202,8 +205,8 @@ class AndroidNotifierDifferentialAdversarialTest {
 
     @Test
     fun `results and tray follow the published coalescing rules over random lifecycles`() {
-        val failures: List<String> = (0 until 3000).mapNotNull { run(it) }
-        assertEquals(emptyList(), failures.take(3), "${failures.size} of 3000 seeds diverged")
+        val failures: List<String> = (0 until 1500).mapNotNull { run(it) }
+        assertEquals(emptyList(), failures.take(3), "${failures.size} of 1500 seeds diverged")
     }
 
     /** While [refusing], `notify` throws. */

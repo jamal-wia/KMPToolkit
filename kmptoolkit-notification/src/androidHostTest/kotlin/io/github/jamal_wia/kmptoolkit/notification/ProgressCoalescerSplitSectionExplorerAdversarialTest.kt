@@ -21,6 +21,7 @@ class ProgressCoalescerSplitSectionExplorerAdversarialTest {
     private enum class Verdict { ACCEPT, REFUSE, ACCEPT_ABANDONED, REFUSE_ABANDONED }
 
     private class Frame(
+        val id: String,
         val percent: Int?,
         val content: String,
         val useClaim: Boolean,
@@ -37,11 +38,12 @@ class ProgressCoalescerSplitSectionExplorerAdversarialTest {
         val progress: NotificationProgress? get() = percent?.let { NotificationProgress.Determinate(it) }
     }
 
-    private fun run(order: Order, seed: Int): String? {
+    private fun run(order: Order, seed: Int, ids: List<String> = listOf("d")): String? {
         val random = Random(seed)
         val coalescer = ProgressCoalescer(bucketPercent = 10, minInterval = Duration.ZERO)
         val frames: List<Frame> = List(4) {
             Frame(
+                id = ids[random.nextInt(ids.size)],
                 percent = listOf(0, 5, 10, 25, 55, 100, null)[random.nextInt(7)],
                 content = "c${random.nextInt(2)}",
                 useClaim = random.nextInt(3) == 0,
@@ -50,7 +52,7 @@ class ProgressCoalescerSplitSectionExplorerAdversarialTest {
             )
         }
         // possible tray states: null = nothing; Pair(bucket or -1 for terminal, content)
-        var tray: Set<Pair<Int, String>?> = setOf(null)
+        val tray: MutableMap<String, Set<Pair<Int, String>?>> = ids.associateWith { setOf<Pair<Int, String>?>(null) }.toMutableMap()
         fun descOf(f: Frame): Pair<Int, String> = (f.bucket ?: -1) to f.content
         var openSection: Frame? = null
         var cancels = 0
@@ -59,9 +61,9 @@ class ProgressCoalescerSplitSectionExplorerAdversarialTest {
         fun stepFrame(f: Frame) {
             // Steps: 0 claim (optional), 1 prepare, 2 build (may fail), 3 live check, 4 complete, 5 verdict
             when (f.step) {
-                0 -> { if (f.useClaim) f.claim = coalescer.claim("d"); f.step = 1; log.append("C${frames.indexOf(f)} ") }
+                0 -> { if (f.useClaim) f.claim = coalescer.claim(f.id); f.step = 1; log.append("C${frames.indexOf(f)} ") }
                 1 -> {
-                    f.ticket = coalescer.prepare("d", f.progress, f.content, f.claim)
+                    f.ticket = coalescer.prepare(f.id, f.progress, f.content, f.claim)
                     log.append("P${frames.indexOf(f)}${if (f.ticket == null) "x" else ""} ")
                     if (f.ticket == null) { f.finished = true; f.claim?.let { coalescer.release(it) } } else f.step = 2
                 }
@@ -83,12 +85,12 @@ class ProgressCoalescerSplitSectionExplorerAdversarialTest {
                     openSection = null
                     f.handedOver = true
                     if (order == Order.ANDROID) {
-                        if (accepted) { coalescer.complete(f.ticket!!, acknowledged = true); tray = setOf(descOf(f)) }
+                        if (accepted) { coalescer.complete(f.ticket!!, acknowledged = true); tray[f.id] = setOf(descOf(f)) }
                         else coalescer.rollback(f.ticket!!)
                         f.finished = true; f.claim?.let { coalescer.release(it) }
                     } else {
                         coalescer.complete(f.ticket!!)
-                        if (unknown) tray = tray + descOf(f) else if (accepted) tray = setOf(descOf(f))
+                        if (unknown) tray[f.id] = tray.getValue(f.id) + descOf(f) else if (accepted) tray[f.id] = setOf(descOf(f))
                         f.pendingVerdict = true
                         f.claim?.let { coalescer.release(it) }
                         f.step = 5
@@ -119,8 +121,14 @@ class ProgressCoalescerSplitSectionExplorerAdversarialTest {
             // a cancel or cancelAll sometimes
             if (cancels < 2 && random.nextInt(9) == 0) {
                 cancels++
-                if (random.nextBoolean()) coalescer.forget("d") else coalescer.clear()
-                tray = setOf(null)
+                if (random.nextBoolean()) {
+                    val victim: String = ids[random.nextInt(ids.size)]
+                    coalescer.forget(victim)
+                    tray[victim] = setOf(null)
+                } else {
+                    coalescer.clear()
+                    ids.forEach { tray[it] = setOf(null) }
+                }
                 log.append(if (cancels > 0) "X " else "")
                 continue
             }
@@ -129,12 +137,12 @@ class ProgressCoalescerSplitSectionExplorerAdversarialTest {
         }
         check(frames.all { it.finished }) { "schedule did not finish" }
 
-        for (percent in listOf(0, 5, 10, 25, 55)) for (content in listOf("c0", "c1")) {
-            if (coalescer.wouldSuppress("d", NotificationProgress.Determinate(percent), content)) {
+        for (id in ids) for (percent in listOf(0, 5, 10, 25, 55)) for (content in listOf("c0", "c1")) {
+            if (coalescer.wouldSuppress(id, NotificationProgress.Determinate(percent), content)) {
                 val d: Pair<Int, String> = (percent / 10 * 10) to content
-                if (tray.any { it != d }) {
-                    return "seed $seed order $order: frame ($percent%, $content) is called redundant but the tray may show $tray; " +
-                        "frames ${frames.map { "${it.percent}/${it.content}/${it.verdict}/fail=${it.buildFails}" }}; steps $log"
+                if (tray.getValue(id).any { it != d }) {
+                    return "seed $seed order $order id $id: frame ($percent%, $content) is called redundant but the tray may show ${tray[id]}; " +
+                        "frames ${frames.map { "${it.id}/${it.percent}/${it.content}/${it.verdict}/fail=${it.buildFails}" }}; steps $log"
                 }
             }
         }
@@ -151,5 +159,17 @@ class ProgressCoalescerSplitSectionExplorerAdversarialTest {
     fun `ios order, a redundant verdict always matches the tray`() {
         val failures = (0 until 120_000).mapNotNull { run(Order.IOS, it) }
         assertTrue(failures.isEmpty(), "${failures.size} of 120000 schedules; first: ${failures.firstOrNull()}")
+    }
+
+    @Test
+    fun `android order, two ids never leak into each other`() {
+        val failures = (0 until 100_000).mapNotNull { run(Order.ANDROID, it, listOf("d", "e")) }
+        assertTrue(failures.isEmpty(), "${failures.size} of 100000 schedules; first: ${failures.firstOrNull()}")
+    }
+
+    @Test
+    fun `ios order, two ids never leak into each other`() {
+        val failures = (0 until 100_000).mapNotNull { run(Order.IOS, it, listOf("d", "e")) }
+        assertTrue(failures.isEmpty(), "${failures.size} of 100000 schedules; first: ${failures.firstOrNull()}")
     }
 }
