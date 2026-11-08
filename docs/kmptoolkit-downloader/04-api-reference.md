@@ -168,7 +168,9 @@ that cannot be a file name is stored under a hashed name ([`05-platform-notes.md
 | `isDownloadInProgress` | `fun isDownloadInProgress(unit: DownloadUnit): Boolean` |
 | `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` |
 
-`BackgroundDownloadEvent`: `Progress(unit, fraction: Float)`, and the terminals
+`BackgroundDownloadEvent`: `Progress(unit, fraction: Float)` (`fraction` is expected in 0..1; the engine
+ignores NaN and infinity and clamps any other value into 0..1 before it reaches a state flow or the
+notifier), and the terminals
 `FileReady(unit)`, `Error(unit, message: String)`, `Cancelled(unit)`. See
 [`07-background-downloader.md`](07-background-downloader.md).
 

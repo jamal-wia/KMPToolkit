@@ -62,6 +62,10 @@ interface BackgroundResourceDownloader {
 
 ## How the engine uses your flow
 
+Report `Progress` fractions in 0..1. The engine clamps a value outside the range and ignores NaN and
+infinity entirely, so an unknown total is not a reason to emit a fraction: stay quiet until the length
+is known.
+
 For every attempt the engine **subscribes to `observeProgress(unit)` first** and only then calls
 `enqueueDownload(unit)`. An event you emit while enqueueing — a file that turns out to be whole, a
 failure to begin — therefore reaches it even through a `MutableSharedFlow` without replay. The

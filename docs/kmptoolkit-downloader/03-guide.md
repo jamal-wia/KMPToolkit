@@ -215,6 +215,8 @@ fixes that. The engine has no rule for a 416; see
 that restarts and re-reports where it already was, or reports `0`, has not moved. A repeated
 `Progress` still proves the transfer is alive — it restarts the stall timer — but it is not
 progress, so a downloader that repeats one value and then fails is stopped after three attempts.
+A fraction outside 0..1 is clamped into it, and a non-finite one (NaN, infinity) is ignored: it is
+never published and never counts as progress.
 Before every re-enqueue the engine waits 2 s, doubling per failure of the call up to 30 s.
 
 A commit whose bytes fail a check — a `sha256` or recorded-hash mismatch, a database that does not
