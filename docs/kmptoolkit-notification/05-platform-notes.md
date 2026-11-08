@@ -139,7 +139,7 @@ usage-description string.
   missing is still created, because the platform drops a notification on a channel that does not
   exist without a word.
 - **The 2.x sweep cache is bounded.** The first post of an id also removes the untagged notification
-  a 2.x version would have shown for it (a migration aid, gone in 4.0). The ids already swept are
+  a 2.x version would have shown for it (a migration aid, gone in a future major release). The ids already swept are
   remembered only to skip a repeated binder call; `cancel` and `cancelAll` drop them and the set is
   capped at 256, so forgetting one costs a single harmless `cancel`, and posting under many fresh ids
   does not make the notifier grow.

@@ -29,5 +29,5 @@ internal const val SQLITE_META_VALUE_SQL: String = "SELECT value FROM meta WHERE
 /** `SELECT COUNT(*)` over [name] used as a name: quoted, every `"` doubled. */
 internal fun countRowsSql(name: String): String = "SELECT COUNT(*) FROM \"${name.replace("\"", "\"\"")}\""
 
-/** The verbatim form 3.0.0 used: [text] is SQL text. // 4.0: drop the verbatim fallback */
+/** The verbatim form 3.0.0 used: [text] is SQL text. // future major release: drop the verbatim fallback */
 internal fun countRowsVerbatimSql(text: String): String = "SELECT COUNT(*) FROM $text"

@@ -305,7 +305,7 @@ the tag. What that means for an app updated in place:
   under a different key. The 3.x notifier therefore also removes the old untagged copy: `cancel(id)`
   cancels the hashed `Int` 2.x used for that id, and the first `post(id)` of each id in a process does
   the same, so an update does not leave the 2.x copy showing next to the new one. `cancelAll` clears
-  everything, old and new. This sweep is a migration aid for the 3.x line and goes in 4.0; a 2.x
+  everything, old and new. This sweep is a migration aid for the 3.x line and goes in a future major release; a 2.x
   notification still showing by then needs `cancelAll`.
 - **The sweep skips a `platformId` of your `foregroundIds`**, so if you keep a service's old number
   by choosing `notificationIdOf`'s 2.x value as its `platformId`, the live notification is not

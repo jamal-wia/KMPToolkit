@@ -52,7 +52,7 @@ internal object AlarmIntents {
      * Like [cancelIntent], but for the data URI 3.0.x wrote: plain `appendPath`, which turns every
      * unpaired surrogate into `?`. `null` for an id without one (its URI never changed, so slot 0 of
      * [cancelIntent] already finds the old alarm). Alarms armed by 3.0.x for an id with an unpaired
-     * surrogate used the lossy `appendPath` URI. Drop in 4.0.0.
+     * surrogate used the lossy `appendPath` URI. Drop in a future major release.
      *
      * The request code of that alarm was `id.hashCode()`, which is [requestCode] of slot 0.
      */

@@ -130,8 +130,8 @@ final class io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db/UploaderItemQu
 }
 
 final class io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig { // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig|null[0]
+    constructor <init>(kotlin/String? = ...) // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.<init>|<init>(kotlin.String?){}[0]
     constructor <init>(kotlin/String? = ..., kotlin/Boolean = ...) // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.<init>|<init>(kotlin.String?;kotlin.Boolean){}[0]
-    constructor <init>(kotlin/String?) // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.<init>|<init>(kotlin.String?){}[0]
 
     final val name // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.name|{}name[0]
         final fun <get-name>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.name.<get-name>|<get-name>(){}[0]
@@ -140,8 +140,8 @@ final class io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseC
 
     final fun component1(): kotlin/String? // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.component1|component1(){}[0]
     final fun component2(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.component2|component2(){}[0]
+    final fun copy(kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.copy|copy(kotlin.String?){}[0]
     final fun copy(kotlin/String? = ..., kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.copy|copy(kotlin.String?;kotlin.Boolean){}[0]
-    final fun copy(kotlin/String?): io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.copy|copy(kotlin.String?){}[0]
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader.sqldelight/UploaderDatabaseConfig.toString|toString(){}[0]

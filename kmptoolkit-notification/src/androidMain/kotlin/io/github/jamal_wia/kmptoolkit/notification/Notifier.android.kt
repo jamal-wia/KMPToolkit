@@ -292,7 +292,7 @@ internal class AndroidNotifier(
      * next to the one it now posts nor finds that copy beyond the reach of [cancel].
      *
      * Skipped when that `Int` is one of [foregroundPlatformIds]: there it is a live notification of
-     * this version, not a leftover. A migration aid for the 3.x line only; it goes in 4.0.
+     * this version, not a leftover. A migration aid for the 3.x line only; it goes in a future major release.
      *
      * @return `false` when the platform refused the removal (logged, never thrown: the sweep is a
      *   side job and must not decide the outcome of a post or a cancel); `true` otherwise.
