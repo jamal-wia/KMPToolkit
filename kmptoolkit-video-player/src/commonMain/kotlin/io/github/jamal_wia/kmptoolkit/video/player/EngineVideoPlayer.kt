@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -40,6 +41,19 @@ import kotlinx.coroutines.withContext
  * state, calls the engine and writes the state without another interleaving. API calls wait for the
  * lock; engine callbacks and poll ticks never wait, they are handed to the thread holding it (see
  * [StateMachineLock] for why). Everything marked "guarded" below is touched only under that lock.
+ *
+ * ### Dropped sources
+ *
+ * Whether a report belongs to the source the player now shows is not read off the published state;
+ * two facts the player sets itself decide it. [engineHoldsSource] says whether the engine may still
+ * hold a source (so a [prepare] frees it, whatever state it left the player in), and [sourceEpoch] is
+ * bumped each time the player tells the engine to drop its source (and when a newer source begins).
+ * Every listener method stamps the epoch on the reporting thread and the queued action is dropped when
+ * the epoch has moved, so a report of a dropped source can never become the next [prepare]'s outcome,
+ * including one the engine made from inside the `release()` that dropped it. The one window left is a
+ * report whose call started before `release()` returned but whose thread had not yet read the epoch;
+ * the engine contract rules it out (a call already running on another thread has returned before
+ * `release` returns).
  *
  * Internal rather than private so the platform accessors (`media3PlayerOrNull`,
  * `avPlayerOrNull`, `frameSourceOrNull`) can reach [engine].
@@ -86,6 +100,20 @@ internal class EngineVideoPlayer(
      */
     private var preparingFailure: Throwable? = null
     private var preparingBuffering: Boolean = false
+
+    /**
+     * Whether the engine may hold a source: set when [prepare] hands a load to it (a load that fails
+     * or is cancelled may still leave something behind), cleared whenever the player calls
+     * `engine.release()`. The start of a [prepare] releases iff this is set. Guarded.
+     */
+    private var engineHoldsSource: Boolean = false
+
+    /**
+     * Bumped after every `engine.release()` the player makes and when a new source begins; a report
+     * stamped with an older value belongs to a dropped source. Written under the lock, read without it:
+     * a [MutableStateFlow] only as an atomic cell (D-21, D-24).
+     */
+    private val sourceEpoch: MutableStateFlow<Long> = MutableStateFlow(0L)
 
     /**
      * Set once by [release]; writes are guarded. A [MutableStateFlow] only as an atomic cell (D-21,
@@ -149,8 +177,6 @@ internal class EngineVideoPlayer(
         // handle of our own, so a later prepare/unload/release can cancel just this load.
         val load = Load(Job(parent = currentCoroutineContext()[Job]))
         val previous: Load? = currentLoad.getAndUpdate { load }
-        // A predecessor still in flight when this call replaced it may have got as far as the engine.
-        val replacedInFlight: Boolean = previous?.finished?.isCompleted == false
         try {
             previous?.let {
                 previous.job.cancel()
@@ -159,16 +185,10 @@ internal class EngineVideoPlayer(
             val started: Boolean = gate.exclusive {
                 if (!isCurrent(load)) return@exclusive false
                 stopPositionUpdates()
-                // A source that is still loaded keeps reporting until the engine is told to drop it;
-                // free it first, so what arrives while this load runs belongs to this load. That is
-                // the whole tagging of events with the load they belong to: after release the engine
-                // is silent (its contract), and the next load starts on a released engine, so nothing
-                // a replaced load left in the engine can ever be read as this load's outcome. A load
-                // that this one replaced may have got as far as the engine without publishing (state
-                // still Preparing), so a predecessor replaced in flight counts as much as a playable state;
-                // release is idempotent.
-                if (_stateFlow.value.isPlayable || replacedInFlight) engine.release()
+                // Free whatever the engine still holds (see "Dropped sources"); a new source begins either way.
+                if (engineHoldsSource) freeEngineSource() else sourceEpoch.update { it + 1 }
                 resetSourceFlows()
+                engineHoldsSource = true
                 _stateFlow.value = VideoPlayerState.Preparing
                 true
             }
@@ -203,7 +223,7 @@ internal class EngineVideoPlayer(
                 // here while the engine is already released and disposed, and nothing of it may be
                 // called after dispose.
                 if (isCurrent(load)) {
-                    engine.release()
+                    freeEngineSource()
                     resetSourceFlows()
                     _stateFlow.value = VideoPlayerState.Idle
                 }
@@ -350,9 +370,14 @@ internal class EngineVideoPlayer(
     // arriving when nothing is loaded — posted by the platform just before an unload or release
     // detached it — is stale and must not resurrect state.
 
-    override fun onCompleted(): Unit = gate.submit {
+    override fun onCompleted() {
+        val stamp: Long = sourceEpoch.value
+        gate.submit { if (stamp == sourceEpoch.value) completedLocked() }
+    }
+
+    private fun completedLocked() {
         val current: VideoPlayerState = _stateFlow.value
-        if (released || !current.isPlayable) return@submit
+        if (released || !current.isPlayable) return
         val known: Long = freshDuration(current.duration ?: 0L)
         if (_repeatModeFlow.value == RepeatMode.One) {
             // An engine should loop on its own and never report this while looping, but the mode can
@@ -363,7 +388,7 @@ internal class EngineVideoPlayer(
             _playbackPositionFlow.value = 0L
             _stateFlow.value = VideoPlayerState.Playing(duration = known, currentPosition = 0L)
             startPositionUpdates()
-            return@submit
+            return
         }
         stopPositionUpdates()
         _isBufferingFlow.value = false
@@ -373,14 +398,19 @@ internal class EngineVideoPlayer(
         _stateFlow.value = VideoPlayerState.Completed(end)
     }
 
-    override fun onFailed(cause: Throwable): Unit = gate.submit {
-        if (released) return@submit
+    override fun onFailed(cause: Throwable) {
+        val stamp: Long = sourceEpoch.value
+        gate.submit { if (stamp == sourceEpoch.value) failedLocked(cause) }
+    }
+
+    private fun failedLocked(cause: Throwable) {
+        if (released) return
         if (_stateFlow.value == VideoPlayerState.Preparing) {
             // Between the engine's load and prepare's publishing Ready: kept for prepare's last step.
             if (preparingFailure == null) preparingFailure = cause
-            return@submit
+            return
         }
-        if (!_stateFlow.value.isPlayable) return@submit
+        if (!_stateFlow.value.isPlayable) return
         stopPositionUpdates()
         _isBufferingFlow.value = false
         _videoSizeFlow.value = null
@@ -388,26 +418,36 @@ internal class EngineVideoPlayer(
         _stateFlow.value = VideoPlayerState.Error(cause)
     }
 
-    override fun onBufferingChanged(isBuffering: Boolean): Unit = gate.submit {
+    override fun onBufferingChanged(isBuffering: Boolean) {
+        val stamp: Long = sourceEpoch.value
+        gate.submit { if (stamp == sourceEpoch.value) bufferingChangedLocked(isBuffering) }
+    }
+
+    private fun bufferingChangedLocked(isBuffering: Boolean) {
         // Buffering is reported for a loaded source only, so a stale report cannot leave an idle
         // player "buffering". One that arrives while prepare still publishes the load is kept for
         // its last step (the engine reports each change once).
-        if (released) return@submit
+        if (released) return
         if (_stateFlow.value == VideoPlayerState.Preparing) {
             preparingBuffering = isBuffering
-            return@submit
+            return
         }
         val current: VideoPlayerState = _stateFlow.value
         // A stall after the end describes nothing the viewer waits for: Completed is never buffering.
-        if (!current.isPlayable || current is VideoPlayerState.Completed) return@submit
+        if (!current.isPlayable || current is VideoPlayerState.Completed) return
         _isBufferingFlow.value = isBuffering
     }
 
-    override fun onVideoSizeChanged(size: VideoSize?): Unit = gate.submit {
+    override fun onVideoSizeChanged(size: VideoSize?) {
+        val stamp: Long = sourceEpoch.value
+        gate.submit { if (stamp == sourceEpoch.value) videoSizeChangedLocked(size) }
+    }
+
+    private fun videoSizeChangedLocked(size: VideoSize?) {
         // Unlike buffering, the size is usually learned while preparing, so it is accepted then too.
-        if (released) return@submit
+        if (released) return
         val current: VideoPlayerState = _stateFlow.value
-        if (current != VideoPlayerState.Preparing && !current.isPlayable) return@submit
+        if (current != VideoPlayerState.Preparing && !current.isPlayable) return
         _videoSizeFlow.value = size
     }
 
@@ -507,7 +547,7 @@ internal class EngineVideoPlayer(
         val abandoned: Load? = currentLoad.getAndUpdate { placeholder }
         abandoned?.job?.cancel()
         val freeEngine: () -> Unit = {
-            engine.release()
+            freeEngineSource()
             if (dispose) engine.dispose()
             placeholder.finished.complete()
         }
@@ -518,6 +558,18 @@ internal class EngineVideoPlayer(
             // Completes on whichever thread finishes the abandoned prepare; back under the lock
             // from there, like every other engine call.
             unwinding.invokeOnCompletion { gate.submit(freeEngine) }
+        }
+    }
+
+    /**
+     * Lock held. The only way the player frees the engine's source; every report made before this is stale.
+     */
+    private fun freeEngineSource() {
+        try {
+            engine.release()
+        } finally {
+            engineHoldsSource = false
+            sourceEpoch.update { it + 1 }
         }
     }
 

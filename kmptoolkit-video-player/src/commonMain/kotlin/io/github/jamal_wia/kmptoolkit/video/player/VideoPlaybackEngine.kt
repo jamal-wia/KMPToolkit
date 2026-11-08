@@ -18,7 +18,9 @@ package io.github.jamal_wia.kmptoolkit.video.player
  * - **[load] honors cancellation**, throws to report failure, and leaves nothing playable behind in
  *   either case. The player never runs two loads at once.
  * - **Never call the listener after [release]**, including callbacks already queued on a platform
- *   thread.
+ *   thread; a call already running on another thread has returned before [release] returns. The player
+ *   drops every report of a source it has told the engine to drop, but cannot see a call that has not
+ *   yet reached it.
  * - **Transport and settings calls tolerate the wrong state** — swallow the platform's
  *   "illegal state" rather than throwing.
  * - **[durationMs], [positionMs] and [bufferedPositionMs] return `0` when unknown** and are cheap:

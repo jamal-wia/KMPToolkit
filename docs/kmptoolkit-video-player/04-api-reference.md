@@ -50,6 +50,7 @@ resets the playhead, buffered position, buffering and picture size.
   `CancellationException` propagates.
 - **A newer `prepare` replaces this one** — the older load is cancelled and fully unwound before the
   newer one starts; the replaced call returns normally without writing any state.
+- **Frees the previous source first, whatever state it left the player in** (including `Error`), so a source that failed during playback is released before the next load.
 - On success, pushes the current volume (or `0f` if muted), repeat mode and speed to the platform.
 - After `release()`: sets `Error(VideoPlayerReleasedException)` and loads nothing.
 
@@ -297,7 +298,7 @@ public interface VideoPlaybackEngineListener {
 
 Failures while loading are thrown from `load` instead. An engine must not call the listener after
 `release()`, including callbacks already queued on a platform thread. The player drops reports that
-arrive when no source is loaded, so a late one cannot resurrect a state.
+arrive when no source is loaded, so a late one cannot resurrect a state. It also drops every report of a source it has since told the engine to drop (an `unload`, a `release`, or the start of a newer `prepare`), including one the engine made while that `release()` was running, so a report of the old source can never become the next `prepare`'s outcome. A call already running on another thread must have returned before `release()` returns.
 
 **Threading.** The player calls the engine from whichever thread a transition runs on — the app's,
 the polling coroutine's, or the thread an event was reported on — but never two calls at once; an

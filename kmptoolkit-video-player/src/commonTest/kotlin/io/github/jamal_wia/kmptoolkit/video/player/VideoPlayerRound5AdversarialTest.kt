@@ -86,6 +86,188 @@ class VideoPlayerRound5AdversarialTest {
         assertEquals(8_000L, player.playbackPositionFlow.value)
     }
 
+    // --- A source the engine still holds, speaking to the next prepare ---
+
+    private class ManualDispatcher : CoroutineDispatcher() {
+        private val queue: ArrayDeque<Runnable> = ArrayDeque()
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            queue.addLast(block)
+        }
+        fun runAll() {
+            while (queue.isNotEmpty()) queue.removeFirst().run()
+        }
+    }
+
+    /** Hops threads inside load like Media3; speaks only while a source is held, like a real engine. */
+    private class HoppingEngine(private val hop: CoroutineDispatcher) : VideoPlaybackEngine {
+        var attached: VideoPlaybackEngineListener? = null
+        var held: Boolean = false
+        var releases: Int = 0
+        override fun setListener(listener: VideoPlaybackEngineListener?) { attached = listener }
+        override suspend fun load(source: VideoSource) {
+            withContext(hop) { held = false }
+            withContext(hop) { held = true }
+        }
+        fun fail(cause: Throwable) { if (held) attached?.onFailed(cause) }
+        fun stall(value: Boolean) { if (held) attached?.onBufferingChanged(value) }
+        override fun start() = Unit
+        override fun pause() = Unit
+        override fun seekTo(positionMs: Long) = Unit
+        override fun setSpeed(speed: Float) = Unit
+        override fun setVolume(volume: Float) = Unit
+        override fun setLooping(looping: Boolean) = Unit
+        override fun durationMs(): Long = 10_000L
+        override fun positionMs(): Long = 0L
+        override fun bufferedPositionMs(): Long = 0L
+        override fun release() { releases++; held = false }
+    }
+
+    private fun hoppingTest(body: suspend TestScope.(HoppingEngine, ManualDispatcher, VideoPlayer) -> Unit): TestResult = runTest {
+        val hop = ManualDispatcher()
+        val engine = HoppingEngine(hop)
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(), StandardTestDispatcher(testScheduler))
+        try {
+            body(engine, hop, player)
+        } finally {
+            player.release()
+        }
+    }
+
+    private suspend fun TestScope.prepareToReady(hop: ManualDispatcher, player: VideoPlayer) {
+        val call = launch { player.prepare(VideoSource.Asset("a.mp4")) }
+        repeat(4) {
+            runCurrent()
+            hop.runAll()
+        }
+        runCurrent()
+        call.join()
+        assertIs<VideoPlayerState.Ready>(player.stateFlow.value)
+    }
+
+    @Test
+    fun `a source that failed in playback is freed before the next prepare so it cannot fail that one too`() =
+        hoppingTest { engine, hop, player ->
+            prepareToReady(hop, player)
+            player.play()
+            engine.fail(IllegalStateException("A died"))
+            assertIs<VideoPlayerState.Error>(player.stateFlow.value)
+            val callB = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+                player.prepare(VideoSource.Asset("b.mp4"))
+            }
+            // The engine still holds A's failed source in the window before B's load resets it.
+            engine.fail(IllegalStateException("A died again"))
+            repeat(4) {
+                runCurrent()
+                hop.runAll()
+            }
+            runCurrent()
+            callB.join()
+            assertEquals(VideoPlayerState.Ready(10_000L), player.stateFlow.value, "B was reported as ${player.stateFlow.value}")
+        }
+
+    @Test
+    fun `a stall of a source that failed in playback is not shown for the next prepare`() =
+        hoppingTest { engine, hop, player ->
+            prepareToReady(hop, player)
+            player.play()
+            engine.fail(IllegalStateException("A died"))
+            val callB = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+                player.prepare(VideoSource.Asset("b.mp4"))
+            }
+            engine.stall(true)
+            repeat(4) {
+                runCurrent()
+                hop.runAll()
+            }
+            runCurrent()
+            callB.join()
+            assertIs<VideoPlayerState.Ready>(player.stateFlow.value)
+            assertEquals(false, player.isBufferingFlow.value, "B shows A's stall")
+        }
+
+    /**
+     * Fires [fire] from inside release(): an event the platform queued on another thread before it
+     * was told to drop the source, which the player can only apply after the transition that called
+     * release() has finished.
+     */
+    private class ReleaseEchoEngine(private val inner: RecordingVideoPlaybackEngine) : VideoPlaybackEngine by inner {
+        var fire: ((VideoPlaybackEngineListener) -> Unit)? = null
+        override fun release() {
+            // Before the engine is released, so the report is not an event "after release".
+            val action = fire
+            fire = null
+            if (action != null) inner.listener?.let(action)
+            inner.release()
+        }
+    }
+
+    @Test
+    fun `a failure of the old source queued while the engine drops it does not fail the next prepare`() = runTest {
+        val inner = RecordingVideoPlaybackEngine()
+        val engine = ReleaseEchoEngine(inner)
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(), StandardTestDispatcher(testScheduler))
+        try {
+            player.prepare(source)
+            player.play()
+            engine.fire = { it.onFailed(IllegalStateException("A died")) }
+            player.prepare(VideoSource.Asset("b.mp4"))
+            assertEquals(VideoPlayerState.Ready(10_000L), player.stateFlow.value, "B was reported as ${player.stateFlow.value}")
+        } finally {
+            player.release()
+        }
+    }
+
+    @Test
+    fun `a stall of the old source queued while the engine drops it is not shown for the next prepare`() = runTest {
+        val inner = RecordingVideoPlaybackEngine()
+        val engine = ReleaseEchoEngine(inner)
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(), StandardTestDispatcher(testScheduler))
+        try {
+            player.prepare(source)
+            player.play()
+            engine.fire = { it.onBufferingChanged(true) }
+            player.prepare(VideoSource.Asset("b.mp4"))
+            assertIs<VideoPlayerState.Ready>(player.stateFlow.value)
+            assertEquals(false, player.isBufferingFlow.value, "B shows A's stall")
+        } finally {
+            player.release()
+        }
+    }
+
+    @Test
+    fun `a picture size of the old source queued while the engine drops it is not kept for the next prepare`() = runTest {
+        val inner = RecordingVideoPlaybackEngine()
+        val engine = ReleaseEchoEngine(inner)
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(), StandardTestDispatcher(testScheduler))
+        try {
+            player.prepare(source)
+            player.play()
+            engine.fire = { it.onVideoSizeChanged(VideoSize(1920, 1080)) }
+            player.prepare(VideoSource.Asset("b.mp4"))
+            assertEquals(null, player.videoSizeFlow.value, "B shows A's picture size")
+        } finally {
+            player.release()
+        }
+    }
+
+    @Test
+    fun `control - unload drops the same queued failure`() = runTest {
+        val inner = RecordingVideoPlaybackEngine()
+        val engine = ReleaseEchoEngine(inner)
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(), StandardTestDispatcher(testScheduler))
+        try {
+            player.prepare(source)
+            player.play()
+            engine.fire = { it.onFailed(IllegalStateException("A died")) }
+            player.unload()
+            assertEquals(VideoPlayerState.Idle, player.stateFlow.value)
+            player.prepare(VideoSource.Asset("b.mp4"))
+            assertIs<VideoPlayerState.Ready>(player.stateFlow.value)
+        } finally {
+            player.release()
+        }
+    }
+
     @Test
     fun `replay after an unknown-length completion keeps the end as the length until the platform reports one`() = playerTest(
         engine = RecordingVideoPlaybackEngine(duration = 0L),
