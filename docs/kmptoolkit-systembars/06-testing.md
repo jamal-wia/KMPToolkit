@@ -56,7 +56,8 @@ class of bug this module exists to remove.
 
 `applied` is an ordered list of every configuration that would have reached a window, and it records
 nothing for a mutation that left the effective configuration unchanged — so it also catches a screen
-that thrashes the bars on every recomposition.
+that thrashes the bars on every recomposition. After `release()` nothing more is recorded, as the real
+controller never touches the window again, while `config` keeps following writes as it does there.
 
 ## Asserting when your code keeps the screen awake
 

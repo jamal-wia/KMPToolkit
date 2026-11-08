@@ -42,6 +42,7 @@ public class RecordingSystemBarsController(
     private var base: SystemBarsConfig = initialConfig
     private var overrides: List<Layer> = emptyList()
     private var nextId: Long = 1L
+    private var released: Boolean = false
 
     private val state: MutableStateFlow<SystemBarsConfig> = MutableStateFlow(initialConfig)
     override val config: StateFlow<SystemBarsConfig> = state.asStateFlow()
@@ -53,7 +54,8 @@ public class RecordingSystemBarsController(
      *
      * A mutation that leaves the effective configuration unchanged records nothing, matching the
      * real controller — which is what makes this list usable for asserting that a screen does not
-     * thrash the window.
+     * thrash the window. After [release] nothing more is recorded, as the real controller never touches
+     * the window again, while [config] keeps following writes as it does there.
      */
     public val applied: List<SystemBarsConfig> get() = mutableApplied.toList()
 
@@ -79,6 +81,7 @@ public class RecordingSystemBarsController(
     override fun release() {
         base = SystemBarsConfig()
         overrides = emptyList()
+        released = true
         // `state` moves, `applied` does not: tearing the controller down is not a window write. The
         // real controller resets its stack without touching the platform, because the window this
         // controller spoke for is going away — `applied` would otherwise show consumers a push that
@@ -118,7 +121,8 @@ public class RecordingSystemBarsController(
         }
         if (effective == state.value) return
         state.value = effective
-        mutableApplied += effective
+        // The state follows misuse after release(), the platform does not: the real controller's rule.
+        if (!released) mutableApplied += effective
     }
 }
 
