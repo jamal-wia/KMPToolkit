@@ -42,11 +42,14 @@ internal abstract class LayeredSystemBarsController(
      *   currently in [overrides] would reset it every time the stack drained, and a handle whose
      *   layer had already been released would then match the next layer pushed and release or
      *   overwrite someone else's.
+     * @param released set by [release] in the same atomic step that wipes the stack: from then on the
+     *   controller never touches the platform again, whatever write was queued before it.
      */
     internal data class Layers(
         val base: SystemBarsConfig,
         val overrides: List<Layer>,
         val nextId: Long = 1L,
+        val released: Boolean = false,
     ) {
         /** Base with every live override folded on top, oldest first, so the newest layer wins. */
         val effective: SystemBarsConfig
@@ -79,6 +82,13 @@ internal abstract class LayeredSystemBarsController(
     protected abstract fun applyToPlatform(config: SystemBarsConfig)
 
     /**
+     * `true` once [release] has run. A platform write that was queued (for instance to the main
+     * thread) before the release checks this when it runs and does nothing.
+     */
+    protected val isReleased: Boolean
+        get() = layers.value.released
+
+    /**
      * Pushes the current configuration onto the platform unconditionally, bypassing the
      * "nothing changed" check.
      *
@@ -88,6 +98,7 @@ internal abstract class LayeredSystemBarsController(
      * everything has to be applied again.
      */
     protected fun reapplyToPlatform() {
+        if (isReleased) return
         applyToPlatform(currentConfig)
     }
 
@@ -119,7 +130,7 @@ internal abstract class LayeredSystemBarsController(
         // dead afterwards, and restarting the sequence would let one of them alias a later layer.
         // Atomic with the other transitions: a push that wins its CAS meanwhile keeps its id counted.
         layers.update { current ->
-            Layers(base = SystemBarsConfig(), overrides = emptyList(), nextId = current.nextId)
+            Layers(base = SystemBarsConfig(), overrides = emptyList(), nextId = current.nextId, released = true)
         }
     }
 
@@ -166,8 +177,10 @@ internal abstract class LayeredSystemBarsController(
                 // Read back rather than using `next`: under two writers the freshest value is the
                 // one worth applying, and applying a value already superseded only to have the
                 // other writer apply it again is wasted platform work.
-                val effective: SystemBarsConfig = layers.value.effective
-                if (effective != current.effective) applyToPlatform(effective)
+                val latest: Layers = layers.value
+                val effective: SystemBarsConfig = latest.effective
+                // A released controller is detached: state keeps following misuse, the platform does not.
+                if (!latest.released && effective != current.effective) applyToPlatform(effective)
                 return
             }
         }

@@ -96,6 +96,7 @@ private class IosSystemBarsControllerImpl(
         // invalidations go together: they are two answers to the same configuration change, and
         // UIKit tracks them separately, so asking for only one leaves the other stale.
         onMainThread {
+            if (isReleased) return@onMainThread
             hostViewController?.let { host ->
                 host.setNeedsStatusBarAppearanceUpdate()
                 host.setNeedsUpdateOfHomeIndicatorAutoHidden()
