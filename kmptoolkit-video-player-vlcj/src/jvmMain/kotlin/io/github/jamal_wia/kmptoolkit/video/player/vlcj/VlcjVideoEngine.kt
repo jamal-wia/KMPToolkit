@@ -234,11 +234,16 @@ internal class VlcjVideoEngine(
     // call runs last applies the last value set.
 
     override fun setSpeed(speed: Float) {
+        // The player clamps into a finite range; this is the boundary guard for any other caller.
+        // Checked before the value is stored, so a re-apply (after load, at Playing) never resurrects it.
+        if (!speed.isFinite() || speed <= 0f) return
         this.speed = speed
         withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
     }
 
     override fun setVolume(volume: Float) {
+        // NaN is not a volume and would make volumePercent throw; out-of-range values are clamped there.
+        if (volume.isNaN()) return
         this.volume = volume
         withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
     }
