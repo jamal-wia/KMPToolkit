@@ -37,7 +37,7 @@ class UploaderEngineLoggerDifferentialRound5AdversarialTest {
             0 -> throw IllegalStateException("crash reporter not initialised")
             1 -> throw NotImplementedError("no sink")
             2 -> throw CancellationException("sink was cancelled")
-            else -> throw StackOverflowError()
+            else -> throw Error("a sink that fails with an Error")
         }
 
         override val tag: String get() = boom()
