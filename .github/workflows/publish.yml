@@ -34,15 +34,29 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
 
+      # The wrapper downloads its distribution through services.gradle.org, which redirects to GitHub
+      # Releases and fails whenever that service does. The macos-26 image ships Gradle preinstalled;
+      # use it when it is exactly the wrapper's version, and fall back to the wrapper otherwise.
+      - name: Pick the Gradle launcher
+        run: |
+          want=$(sed -n 's#^distributionUrl=.*/gradle-\(.*\)-bin\.zip$#\1#p' gradle/wrapper/gradle-wrapper.properties)
+          have=$(command -v gradle >/dev/null && gradle --version 2>/dev/null | sed -n 's/^Gradle //p' | head -1 || true)
+          echo "wrapper: $want, preinstalled: ${have:-none}"
+          if [ -n "$want" ] && [ "$have" = "$want" ]; then
+            echo "GRADLE=gradle" >> "$GITHUB_ENV"
+          else
+            echo "GRADLE=./gradlew" >> "$GITHUB_ENV"
+          fi
+
       # Root-level task names (no module prefix) so this step never needs editing as
       # kmptoolkit-* modules are added — Gradle runs the task in every subproject that has it.
       - name: Check public API surface
-        run: ./gradlew checkKotlinAbi --no-configuration-cache
+        run: $GRADLE checkKotlinAbi --no-configuration-cache
 
       # No test step: the full test suite is run locally before a release is cut (RELEASING.md step 1),
       # so the workflow only publishes.
       - name: Publish to Maven Central
-        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+        run: $GRADLE publishAndReleaseToMavenCentral --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
