@@ -13,6 +13,8 @@ import io.github.jamal_wia.kmptoolkit.video.player.createVideoPlayer
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.assertEquals
 
@@ -27,7 +29,8 @@ import kotlin.test.assertEquals
 class AbandonedCompositionAdversarialTest {
 
     private class CountingEngine : VideoPlaybackEngine {
-        var disposeCount: Int = 0
+        // Read from the test thread while the dispose may run on the player's own: an atomic cell.
+        val disposed: AtomicInteger = AtomicInteger(0)
         var attached: VideoPlaybackEngineListener? = null
 
         override fun setListener(listener: VideoPlaybackEngineListener?) {
@@ -46,8 +49,22 @@ class AbandonedCompositionAdversarialTest {
         override fun bufferedPositionMs(): Long = 0L
         override fun release() = Unit
         override fun dispose() {
-            disposeCount++
+            disposed.incrementAndGet()
         }
+    }
+
+    /**
+     * The dispose count once the engine has been disposed, or `0` after a bounded wait. A release defers
+     * the engine's disposal until a load still unwinding on the composition's own dispatcher (here
+     * `Dispatchers.Default`, the bare recomposer has none) has finished, so it can land a moment after
+     * `dispose()` returned: the guarantee is "released when it leaves", not "before dispose() returns".
+     */
+    private fun CountingEngine.awaitDisposed(): Int {
+        val deadline: Long = System.nanoTime() + TimeUnit.SECONDS.toNanos(5L)
+        while (disposed.get() == 0 && System.nanoTime() < deadline) Thread.sleep(5L)
+        // Let a wrong second dispose show up too.
+        Thread.sleep(50L)
+        return disposed.get()
     }
 
     private class NoApplier : AbstractApplier<Unit>(Unit) {
@@ -75,7 +92,7 @@ class AbandonedCompositionAdversarialTest {
         composition.dispose()
         recomposer.close()
 
-        assertEquals(1, engines[0].disposeCount, "the abandoned composition's player was never released")
+        assertEquals(1, engines[0].awaitDisposed(), "the abandoned composition's player was never released")
     }
 
     @Test
@@ -95,6 +112,6 @@ class AbandonedCompositionAdversarialTest {
         recomposer.close()
 
         assertEquals(1, engines.size)
-        assertEquals(1, engines[0].disposeCount, "an applied composition's player must be released when it leaves")
+        assertEquals(1, engines[0].awaitDisposed(), "an applied composition's player must be released when it leaves")
     }
 }
