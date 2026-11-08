@@ -109,7 +109,6 @@ library:
 - Never commit directly to `main`. Each release is prepared on its own release branch
   (`release/x.y.z`), cut from `main`; every change happens on its own task branch, created from that
   release branch and merged back into it. The release branch is merged into `main` to publish it.
-  There is no `develop` branch.
 - Stage only the files you actually changed, by explicit path. Never `git add -A` / `git add .` /
   `git commit -a`.
 - Commit messages: a concise imperative subject line, body only when the change needs explaining.
