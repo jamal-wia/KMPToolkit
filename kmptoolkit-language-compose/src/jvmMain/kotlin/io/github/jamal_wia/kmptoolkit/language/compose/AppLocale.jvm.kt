@@ -20,7 +20,9 @@ internal actual fun PlatformAppLocale(language: AppLanguage, content: @Composabl
     // Like iOS it has no configuration to provide and no reactive invalidation: a string resource is
     // resolved when its call composes. So the composition itself is the invalidation — keying on the
     // code rebuilds the subtree under the new language, at the cost of its remembered state.
-    val targetTag: String? = language.code ?: getSystemLanguageCode()
+    // An underscore in a code means a hyphen (the language module's rule: `ar_EG` is `ar-EG`); the
+    // module's own helper is internal, so the one-line replacement is repeated here.
+    val targetTag: String? = (language.code ?: getSystemLanguageCode())?.replace('_', '-')
     if (targetTag != null && Locale.getDefault() != Locale.forLanguageTag(targetTag)) {
         applyLanguageGlobally(language)
     }

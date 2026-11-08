@@ -47,9 +47,9 @@ public interface AppLanguageCatalog {
     /**
      * The supported language whose [AppLanguage.code] is [code], or `null` if there is none.
      *
-     * Matching ignores case and applies the JDK's legacy language-code remaps, so a platform
-     * reporting Indonesian as the obsolete `"in"` still finds your `"id"` entry. Region and script
-     * subtags are compared as given — pass a bare language tag if that is what you want matched.
+     * Matching ignores case, reads `_` as `-`, and applies the JDK's legacy language-code remaps, so a
+     * platform reporting Indonesian as the obsolete `"in"` still finds your `"id"` entry. Region and
+     * script subtags are compared as given — pass a bare language tag if that is what you want matched.
      */
     public fun byCode(code: String): AppLanguage?
 
@@ -98,7 +98,7 @@ public interface AppLanguageCatalog {
  * Creates an [AppLanguageCatalog] over [supported].
  *
  * @param supported the languages your app offers. Must be non-empty, must not contain
- *   [AppLanguage.System], and must not repeat a code. Copied: mutating the list afterwards does not
+ *   [AppLanguage.System], and must not repeat a code (`ar_EG` and `ar-EG` are the same code). Copied: mutating the list afterwards does not
  *   change the catalog.
  * @param fallback the language to serve a device whose own language you do not offer. Must be one of
  *   [supported]; defaults to the first, so listing your default language first is enough.
@@ -131,43 +131,32 @@ private class DefaultAppLanguageCatalog(
             "supported must not contain AppLanguage.System — it is a mode, not a language"
         }
         val codes: List<String> = supported.mapNotNull { it.code }
-        require(codes.distinctBy(::normalize).size == codes.size) {
+        require(codes.distinctBy(::canonicalTag).size == codes.size) {
             "supported must not repeat a language code: $codes"
         }
         require(fallback in supported) { "fallback must be one of supported: $fallback" }
-        require(codes.none { normalize(it) == normalize(systemId) }) {
+        require(codes.none { canonicalTag(it) == canonicalTag(systemId) }) {
             "systemId '$systemId' collides with a supported language code"
         }
     }
 
     private val byNormalizedCode: Map<String, AppLanguage> =
-        supported.associateBy { normalize(it.code.orEmpty()) }
+        supported.associateBy { canonicalTag(it.code.orEmpty()) }
 
-    override fun byCode(code: String): AppLanguage? = byNormalizedCode[normalize(code)]
+    override fun byCode(code: String): AppLanguage? = byNormalizedCode[canonicalTag(code)]
 
     override fun idOf(language: AppLanguage): String = language.code ?: systemId
 
     override fun fromId(id: String?): AppLanguage {
-        if (id == null || normalize(id) == normalize(systemId)) return AppLanguage.System
+        if (id == null || canonicalTag(id) == canonicalTag(systemId)) return AppLanguage.System
         return byCode(id) ?: AppLanguage.System
     }
 
     override fun resolveSystemLanguage(): AppLanguage {
         val tag: String = systemLanguageCode() ?: return fallback
-        return byCode(tag) ?: byCode(tag.substringBefore('-')) ?: fallback
+        return byCode(tag) ?: byCode(canonicalTag(tag).substringBefore('-')) ?: fallback
     }
 
     override fun resolve(language: AppLanguage): AppLanguage =
         if (language.code == null) resolveSystemLanguage() else language
-}
-
-/**
- * Case-folds a language tag and undoes the legacy ISO-639 codes the JVM still reports for three
- * languages, so `"in"` matches an `"id"` entry rather than silently falling through to the fallback.
- */
-private fun normalize(tag: String): String = when (val lowered: String = tag.lowercase()) {
-    "in" -> "id"
-    "iw" -> "he"
-    "ji" -> "yi"
-    else -> lowered
 }

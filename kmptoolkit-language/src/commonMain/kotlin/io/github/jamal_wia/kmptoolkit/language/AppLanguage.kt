@@ -12,7 +12,8 @@ package io.github.jamal_wia.kmptoolkit.language
  *
  * @property code BCP-47 / ISO language tag passed to platform locale APIs (`"en"`, `"ar"`,
  *   `"pt-BR"`, …), or `null` to mean [System] — follow the device's own language rather than any one
- *   fixed language.
+ *   fixed language. An underscore is read as a hyphen (`ar_EG` is `ar-EG`), for direction, matching
+ *   and the platform locale alike; the code itself is kept as given.
  * @property isLtr `false` only for a language that reads right-to-left (Arabic, Hebrew, Persian,
  *   Urdu, …). Meaningless when [code] is `null`: a "follow system" selection has no fixed direction
  *   of its own. [getSystemLanguageCode] tells you what the device is actually set to when you need

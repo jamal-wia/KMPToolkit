@@ -21,7 +21,9 @@ package io.github.jamal_wia.kmptoolkit.language
  * wrong for your purposes or does not know about — see [isRightToLeft] for exactly what it knows.
  *
  * @param code BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, `"az-Arab"`, …). Never `null`:
- *   "follow the device" is [AppLanguage.System], which has no direction of its own to derive.
+ *   "follow the device" is [AppLanguage.System], which has no direction of its own to derive. An
+ *   underscore is read as a hyphen (`ar_EG` is `ar-EG`), for direction, matching and the platform
+ *   locale alike; the code itself is kept as given.
  */
 public fun AppLanguage(code: String): AppLanguage =
     AppLanguage(code = code, isLtr = !isRightToLeft(code))
