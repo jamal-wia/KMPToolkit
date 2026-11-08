@@ -255,7 +255,8 @@ val transport: UploadTransport = createBackgroundUploadTransport(
 
 One background `NSURLSession` per item, its identifier the prefix plus the item id. The system daemon
 `nsurlsessiond` keeps uploading after the app is suspended or killed. The multipart body is written to
-a temporary file — background uploads must come from a file — streamed from the source files in
+a temporary file — background uploads must come from a file, named after the item id, or after a hash of it when
+the id is not a plain file name — streamed from the source files in
 chunks, so a large recording is never held in memory, and removed when the upload completes.
 
 The delegate accumulates the response body as the session delivers it (at most 1 MiB, converted once

@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import platform.CoreCrypto.CC_SHA256
 import platform.Foundation.NSBundle
 import platform.Foundation.NSData
 import platform.Foundation.NSError
@@ -818,7 +819,44 @@ private fun removeFile(path: String) {
     NSFileManager.defaultManager.removeItemAtPath(path, error = null)
 }
 
-internal fun temporaryBodyPath(itemId: String): String = NSTemporaryDirectory() + "/kmptoolkit_upload_$itemId.tmp"
+internal fun temporaryBodyPath(itemId: String): String = NSTemporaryDirectory() + "/" + temporaryBodyFileName(itemId)
+
+/**
+ * The name of the temporary body file of [itemId]. The id is the consumer's (`idGenerator`) and may be anything, so
+ * an id that is not a plain file name — empty, longer than [MAX_PLAIN_ID_CHARS], a character outside
+ * `[A-Za-z0-9._-]`, `.` or `..` — is named after the SHA-256 of its UTF-8 bytes instead: fixed length, never a path
+ * separator, and deterministic, so every path that removes the file finds it without state. A canonical UUID (the
+ * default id) keeps the name it always had, so a file written by an earlier version is still removed. The `~` cannot
+ * occur in a plain name, so the two name spaces are disjoint.
+ */
+internal fun temporaryBodyFileName(itemId: String): String =
+    if (isPlainFileNameId(itemId)) {
+        "kmptoolkit_upload_$itemId.tmp"
+    } else {
+        "kmptoolkit_upload_~${sha256Hex(itemId.encodeToByteArray())}.tmp"
+    }
+
+private const val MAX_PLAIN_ID_CHARS: Int = 200
+
+private fun isPlainFileNameId(itemId: String): Boolean =
+    itemId.length in 1..MAX_PLAIN_ID_CHARS && itemId != "." && itemId != ".." && itemId.all { c ->
+        c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '.' || c == '_' || c == '-'
+    }
+
+private const val SHA256_DIGEST_BYTES: Int = 32
+
+@OptIn(ExperimentalForeignApi::class)
+private fun sha256Hex(bytes: ByteArray): String {
+    val digest = UByteArray(SHA256_DIGEST_BYTES)
+    digest.usePinned { out ->
+        if (bytes.isEmpty()) {
+            CC_SHA256(null, 0u, out.addressOf(0))
+        } else {
+            bytes.usePinned { input -> CC_SHA256(input.addressOf(0), bytes.size.convert(), out.addressOf(0)) }
+        }
+    }
+    return digest.joinToString("") { it.toString(16).padStart(2, '0') }
+}
 
 private const val COPY_CHUNK_BYTES: Int = 64 * 1024
 

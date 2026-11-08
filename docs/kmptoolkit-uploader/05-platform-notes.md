@@ -249,3 +249,7 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   a wake or a replay is never stopped by a log line.
 - **Ids** are `java.util.UUID` on Android and `NSUUID` on iOS, both canonical UUID strings. Override
   `idGenerator` if your server wants a different idempotency-key shape.
+  Any id works on both platforms. The outcome journal names its file after the id, so an item whose id it
+  cannot use as a file name — empty, `.` or `..`, containing `/`, `\`, a space or a control character, or
+  longer than 200 characters — is uploaded and settled normally but its answer is not journaled: a process
+  death between the answer and the settlement uploads it again (at least once).
