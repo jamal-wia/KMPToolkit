@@ -116,6 +116,14 @@ internal class EngineVideoPlayer(
     private val sourceEpoch: MutableStateFlow<Long> = MutableStateFlow(0L)
 
     /**
+     * Bumped, after the engine call, by every transition that moves the playhead to a position that is
+     * not the end (a seek away from the end, [stop], the rewind of a play from the end). A completion
+     * stamps it on the reporting thread and is dropped when it moved: it described a playhead the
+     * transition has since left. Written under the lock, read without it, like [sourceEpoch].
+     */
+    private val transportEpoch: MutableStateFlow<Long> = MutableStateFlow(0L)
+
+    /**
      * Set once by [release]; writes are guarded. A [MutableStateFlow] only as an atomic cell (D-21,
      * D-24): [isReleased] is read without the lock by the platform accessors on the main thread, which
      * must not wait behind a transition and must see a [release] that has returned.
@@ -284,6 +292,7 @@ internal class EngineVideoPlayer(
         engine.pause()
         stopPositionUpdates()
         engine.seekTo(0L)
+        transportEpoch.update { it + 1 }
         _playbackPositionFlow.value = 0L
         _stateFlow.value = VideoPlayerState.Ready(freshDuration(current.duration ?: 0L))
     }
@@ -371,8 +380,9 @@ internal class EngineVideoPlayer(
     // detached it — is stale and must not resurrect state.
 
     override fun onCompleted() {
-        val stamp: Long = sourceEpoch.value
-        gate.submit { if (stamp == sourceEpoch.value) completedLocked() }
+        val source: Long = sourceEpoch.value
+        val transport: Long = transportEpoch.value
+        gate.submit { if (source == sourceEpoch.value && transport == transportEpoch.value) completedLocked() }
     }
 
     private fun completedLocked() {
@@ -382,12 +392,24 @@ internal class EngineVideoPlayer(
         if (_repeatModeFlow.value == RepeatMode.One) {
             // An engine should loop on its own and never report this while looping, but the mode can
             // change just as the platform posts the end. Completed is never reached in One: start
-            // over, which is what the platform would have done.
-            engine.seekTo(0L)
-            engine.start()
-            _playbackPositionFlow.value = 0L
-            _stateFlow.value = VideoPlayerState.Playing(duration = known, currentPosition = 0L)
-            startPositionUpdates()
+            // over, which is what the platform would have done, but only a source that was playing.
+            // A paused one is rewound and stays paused (the looping platform would have wrapped to 0
+            // just before the pause); a Ready or Completed one has nothing to restart.
+            when (current) {
+                is VideoPlayerState.Playing -> {
+                    engine.seekTo(0L)
+                    engine.start()
+                    _playbackPositionFlow.value = 0L
+                    _stateFlow.value = VideoPlayerState.Playing(duration = known, currentPosition = 0L)
+                    startPositionUpdates()
+                }
+                is VideoPlayerState.Paused -> {
+                    engine.seekTo(0L)
+                    _playbackPositionFlow.value = 0L
+                    _stateFlow.value = VideoPlayerState.Paused(duration = known, currentPosition = 0L)
+                }
+                else -> Unit
+            }
             return
         }
         stopPositionUpdates()
@@ -467,6 +489,7 @@ internal class EngineVideoPlayer(
             // means the same thing by "play a completed source" (AVPlayer sits at the end without
             // completing again).
             engine.seekTo(0L)
+            transportEpoch.update { it + 1 }
             _playbackPositionFlow.value = 0L
         }
         engine.start()
@@ -493,6 +516,8 @@ internal class EngineVideoPlayer(
             positionMs.coerceIn(0L, maxOf(0L, duration))
         }
         engine.seekTo(target)
+        // A seek onto the end does not make an earlier completion stale; a seek anywhere else does.
+        if (duration <= 0L || target < duration) transportEpoch.update { it + 1 }
         _playbackPositionFlow.value = target
 
         _stateFlow.value = when (current) {

@@ -27,6 +27,9 @@ package io.github.jamal_wia.kmptoolkit.video.player
  *   they are polled from the player's coroutine context, so an engine whose platform object is
  *   confined to one thread answers from values it caches on that thread.
  * - **[setLooping]** makes the platform restart the source at its end without reporting completion.
+ * - **A completion** describes the playhead when it was reported: one reported while a seek away from the
+ *   end is being applied is dropped as stale. Do not report it synchronously from inside [seekTo]
+ *   unless the seek lands on the end.
  * - **Any method may be called from any thread** — the app's, the polling coroutine's, or the thread
  *   an event was reported on — though never two at once: the player serializes its calls. An engine
  *   whose platform object is confined to one thread marshals onto it.
