@@ -127,7 +127,7 @@ Changes as a result of an operation, or when the system ends a recording (to `In
 ### `elapsed: StateFlow<Duration>`
 
 Time recorded into the current file, for a timer. Advances only in `Recording`, republished every
-`config.durationUpdateInterval`. Freezes on `pause`, continues on `resume`, holds the final duration
+`config.durationUpdateInterval` (only the `elapsed` cadence; the free-space watchdog keeps its own). Freezes on `pause`, continues on `resume`, holds the final duration
 after `stop`, resets to `ZERO` on `prepare`, `cancel`, and `release`. When the system ends the
 recording it freezes at the moment the event was observed and stays there while `state` is
 `Interrupted`. For `MicrophoneSilenced` that moment is when the silencing began, which is up to the
@@ -452,7 +452,7 @@ public sealed interface InterruptionReason {
 |---|---|---|
 | `AudioSessionInterrupted` | the audio session was taken by the system: a call, Siri, an alarm, another app; also the app having been suspended without the `audio` background mode | iOS |
 | `MicrophoneSilenced` | the OS kept the recorder running but silenced its input — a call, another app with priority, or capture from the background without a microphone foreground service — and it stayed silenced for about 400 ms. `elapsed` is frozen at the moment the silencing began. Not raised from `Paused`; not detectable on API 24–28 | Android 10+ |
-| `StorageLow` | free space fell below the reserve the library keeps for finalizing (polled at most every two seconds while recording, counted from the start of the recording, not from each resume), or `MediaRecorder` reported `MAX_FILESIZE_REACHED`. That is usually the size limit set at prepare, but the platform has a limit of its own too: MPEG-4 recording stops at the largest file the volume can hold (about 4 GiB on FAT32, reached through `directoryPath` on removable storage), which is reported the same way. Switched off by `minimumFreeSpaceBytes = 0` | both |
+| `StorageLow` | free space fell below the reserve the library keeps for finalizing (polled every two seconds while recording, at most four apart, independent of `durationUpdateInterval`, counted from the start of the recording, not from each resume), or `MediaRecorder` reported `MAX_FILESIZE_REACHED`. That is usually the size limit set at prepare, but the platform has a limit of its own too: MPEG-4 recording stops at the largest file the volume can hold (about 4 GiB on FAT32, reached through `directoryPath` on removable storage), which is reported the same way. Switched off by `minimumFreeSpaceBytes = 0` | both |
 | `EngineDied(platformCode)` | the media service died or reported an error: Android `MEDIA_ERROR_SERVER_DIED` / `MEDIA_RECORDER_ERROR_UNKNOWN`, iOS encode error or a recorder that finished unsuccessfully, an `AVAudioSession` media-services reset | both |
 
 `EngineDied.platformCode` is the platform's own number, and `null` where it has none. Android: the

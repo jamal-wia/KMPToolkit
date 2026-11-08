@@ -194,7 +194,8 @@ wins, a running `stop()`/`cancel()` wins over an event, `elapsed` frozen, `level
   tell a recorder that its input was taken. Earlier versions of these notes suggested watching it —
   do not.
 - **Free space.** `setMaxFileSize(usable − reserve)` is set at prepare as a backstop, and free space
-  is also polled at most every two seconds while recording. Below the reserve the recording is
+  is also polled every two seconds while recording (at most four apart), independent of
+  `durationUpdateInterval`. Below the reserve the recording is
   finalized as `Interrupted(StorageLow)` while there is still room to close the file. The reserve is
   half of `minimumFreeSpaceBytes`, but at least 2 MiB (an MPEG-4 file's index grows with the
   recording and a very long one needs a few hundred kilobytes, so 2 MiB is a margin) and never more
@@ -241,7 +242,8 @@ wins, a running `stop()`/`cancel()` wins over an event, `elapsed` frozen, `level
   confirmed on a device**. The library calls it and reports `Interrupted` if it returns; if the
   file turns out to be unplayable the honest outcome is `RecordingLost`, and no API change is
   needed — only this note.
-- **Free space** is polled from `NSFileSystemFreeSize` at most every two seconds, counted per
+- **Free space** is polled from `NSFileSystemFreeSize` every two seconds (at most four apart, independent of
+  `durationUpdateInterval`), counted per
   recording rather than per resume, and ends the recording as `Interrupted(StorageLow)` below the
   reserve, exactly as on Android; there is no platform size limit to set, so the poll is the only
   protection.

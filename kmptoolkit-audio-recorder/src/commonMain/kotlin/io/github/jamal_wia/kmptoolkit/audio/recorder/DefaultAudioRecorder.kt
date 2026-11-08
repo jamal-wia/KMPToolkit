@@ -949,7 +949,10 @@ internal class DefaultAudioRecorder(
      *
      * The free-space watchdog lives in the same loop rather than in a coroutine of its own: one
      * coroutine per recording is all this module launches while recording, and the poll rides on
-     * the tick that is already waking up.
+     * the wake-up that is already there. When the timer's interval is longer than the watchdog's,
+     * the loop wakes at the watchdog's interval instead and publishes `elapsed` only once a full
+     * timer interval has passed, so `durationUpdateInterval` never decides how often the disk is
+     * looked at (successive polls are at most two watchdog intervals apart).
      */
     private fun startTicker(base: Duration, mark: TimeMark, outputPath: String) {
         stopTicker()
@@ -958,13 +961,24 @@ internal class DefaultAudioRecorder(
         val reserve: Long? = freeSpaceReserve
         val directory: String? = if (reserve == null) null else fileSystem.parentOf(outputPath)
         tickerJob = scope.launch {
+            var sincePublish: Duration = Duration.ZERO
             while (true) {
-                delay(config.durationUpdateInterval)
+                // With the watchdog on, the loop wakes at least every freeSpacePollInterval even when
+                // the timer's interval is longer, so a coarse durationUpdateInterval never slows the
+                // poll down; the step never overshoots the next publish, so elapsed does not drift.
+                val untilPublish: Duration = config.durationUpdateInterval - sincePublish
+                val step: Duration =
+                    if (reserve != null && directory != null) minOf(untilPublish, freeSpacePollInterval) else untilPublish
+                delay(step)
+                sincePublish += step
                 val tick: Duration = base + mark.elapsedNow()
                 // Do not publish a tick computed before a stopTicker() that has already landed;
                 // the transition that cancelled us has the authoritative value.
                 ensureActive()
-                gate.submit { if (epoch == tickerEpoch) _elapsed.value = tick }
+                if (sincePublish >= config.durationUpdateInterval) {
+                    sincePublish = Duration.ZERO
+                    gate.submit { if (epoch == tickerEpoch) _elapsed.value = tick }
+                }
                 if (reserve != null && directory != null && claimSpaceCheck()) {
                     val free: Long = fileSystem.freeSpaceBytes(directory)
                     // -1 is "the platform could not tell", which is not "low".
