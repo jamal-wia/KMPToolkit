@@ -22,8 +22,9 @@ class ObserveAliasedControlsTest {
     private val application: Application = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun `observing calendar agrees with check after the write-only entry was granted`() = runTest(UnconfinedTestDispatcher()) {
-        shadowOf(application).denyPermissions(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
+    fun `observing calendar sees the pair completed through the write-only entry`() = runTest(UnconfinedTestDispatcher()) {
+        shadowOf(application).grantPermissions(Manifest.permission.READ_CALENDAR)
+        shadowOf(application).denyPermissions(Manifest.permission.WRITE_CALENDAR)
         val host = object : RecordingHost(answers = { it == Manifest.permission.WRITE_CALENDAR }) {
             override fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean {
                 shadowOf(application).grantPermissions(Manifest.permission.WRITE_CALENDAR)
@@ -40,11 +41,13 @@ class ObserveAliasedControlsTest {
         val collection = launch(start = CoroutineStart.UNDISPATCHED) {
             controller.observe(CommonPermission.Calendar).collect { seen += it }
         }
+        assertEquals(listOf<PermissionStatus>(PermissionStatus.NotDetermined), seen, "premise: calendar not yet held")
 
         controller.request(CommonPermission.CalendarWriteOnly)
 
-        // On Android only the read-and-write grant is `Granted`: a write-only grant leaves `Calendar` where it was.
-        assertEquals(controller.check(CommonPermission.Calendar), seen.last(), "observer behind check: $seen")
+        assertEquals(PermissionStatus.Granted, controller.check(CommonPermission.Calendar))
+        // Calendar asks for more than the write-only entry: only an intersection re-read reaches it before the next resume.
+        assertEquals(listOf(PermissionStatus.NotDetermined, PermissionStatus.Granted), seen)
         collection.cancel()
     }
 
