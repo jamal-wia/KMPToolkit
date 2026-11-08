@@ -33,6 +33,9 @@ class FxThreadSilentExitTest {
     fun `a toolkit that drops its blocks is reported as exited once the probe stayed silent, and recovers when it answers`() {
         val dropped: MutableList<Runnable> = CopyOnWriteArrayList()
         val real: (Runnable) -> Unit = FxThread.runLater
+        val realImplicit: () -> Boolean = FxThread.implicitExitPossible
+        // An exit that gives no message needs implicit exit on; the test toolkit has it switched off.
+        FxThread.implicitExitPossible = { true }
         FxThread.runLater = { dropped += it }
         try {
             // First sight: the probe has only just been issued, the silence is not yet proven.
@@ -48,6 +51,7 @@ class FxThreadSilentExitTest {
             assertTrue(dropped.size == 1, "at most one probe is outstanding, saw ${dropped.size}")
         } finally {
             FxThread.runLater = real
+            FxThread.implicitExitPossible = realImplicit
             // The toolkit was alive all along: the blocks that were held back now run and answer.
             dropped.forEach { Platform.runLater(it) }
             val done = CountDownLatch(1)
@@ -55,5 +59,45 @@ class FxThreadSilentExitTest {
             assertTrue(done.await(5L, TimeUnit.SECONDS), "the FX thread did not drain")
         }
         assertFalse(FxThread.hasExited(), "a toolkit whose probe finally ran is alive again")
+    }
+
+    @Test
+    fun `a probe queued behind the engine's own long block is not silence`() {
+        val realImplicit: () -> Boolean = FxThread.implicitExitPossible
+        FxThread.implicitExitPossible = { true }
+        try {
+            FxThread.post { Thread.sleep(2_600L) }
+            val deadline: Long = System.nanoTime() + 3_000_000_000L
+            var calls = 0
+            while (System.nanoTime() < deadline) {
+                assertFalse(FxThread.hasExited(), "call $calls while the engine's own block runs")
+                calls++
+                if (calls >= 200) break
+            }
+        } finally {
+            FxThread.implicitExitPossible = realImplicit
+            drain()
+        }
+    }
+
+    @Test
+    fun `a host block that keeps the thread silent for 2 s is taken for an exit only while implicit exit is possible`() {
+        val realImplicit: () -> Boolean = FxThread.implicitExitPossible
+        FxThread.implicitExitPossible = { true }
+        try {
+            Platform.runLater { Thread.sleep(2_600L) }
+            assertTrue(FxThread.hasExited(), "app work for 2 s with implicit exit on looks like an exit")
+            drain()
+            assertFalse(FxThread.hasExited(), "the thread answered again")
+        } finally {
+            FxThread.implicitExitPossible = realImplicit
+            drain()
+        }
+    }
+
+    private fun drain() {
+        val done = CountDownLatch(1)
+        Platform.runLater { done.countDown() }
+        assertTrue(done.await(10L, TimeUnit.SECONDS), "the FX thread did not drain")
     }
 }

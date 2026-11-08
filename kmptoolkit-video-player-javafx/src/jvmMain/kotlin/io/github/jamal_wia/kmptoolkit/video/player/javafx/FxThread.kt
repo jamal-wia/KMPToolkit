@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import javafx.application.Platform
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 
 /** The JavaFX application thread: starting the toolkit, and getting work onto that thread. */
 internal object FxThread {
@@ -41,15 +42,40 @@ internal object FxThread {
      * the thread dying; after the last two OpenJFX gives no signal at all, and `runLater` silently
      * drops what it is given. A block that has stayed unanswered for [EXIT_SILENCE_MS] therefore
      * counts as an exited toolkit, until it does run (a busy thread that recovers is alive again).
-     * At most one probe is outstanding, so a dead toolkit costs one block, never a backlog.
+     * Silence counts only while an implicit exit is possible at all and no engine block is running
+     * on the FX thread, and it is measured from the later of the probe's issue time and the last
+     * start or end of an engine block (see [hasExited]). At most one probe is outstanding, so a dead
+     * toolkit costs one block, never a backlog.
      */
     private class Probe {
         val issuedAtNanos: Long = System.nanoTime()
         // A latch: [hasExited] is plain synchronous code and must be able to wait for it (D-21).
         val answered: CountDownLatch = CountDownLatch(1)
-
-        fun silentMs(): Long = (System.nanoTime() - issuedAtNanos) / NANOS_PER_MILLI
     }
+
+    /**
+     * Engine blocks running on the FX thread now, and when one last started or ended
+     * (`System.nanoTime`); null until one has. One immutable snapshot, so a reader never combines
+     * two separate reads.
+     */
+    private class OwnWork(val running: Int, val lastEdgeNanos: Long?)
+
+    // A state flow, not atomics (D-21/D-24): written on the FX thread at the edges of every counted
+    // block, read by hasExited on any thread. One snapshot, so "nothing running" and "last edge" are
+    // always read together.
+    private val ownWork: MutableStateFlow<OwnWork> = MutableStateFlow(OwnWork(0, null))
+
+    /** Milliseconds [p] has been silent: from the later of its issue and the last own-block edge. */
+    private fun silentMs(p: Probe): Long {
+        val now: Long = System.nanoTime()
+        val edge: Long? = ownWork.value.lastEdgeNanos
+        val sinceIssue: Long = now - p.issuedAtNanos
+        val since: Long = if (edge == null) sinceIssue else minOf(sinceIssue, now - edge)
+        return since / NANOS_PER_MILLI
+    }
+
+    private fun provenSilent(p: Probe): Boolean =
+        ownWork.value.running == 0 && silentMs(p) >= EXIT_SILENCE_MS
 
     private val probe: MutableStateFlow<Probe?> = MutableStateFlow(null)
 
@@ -88,6 +114,23 @@ internal object FxThread {
     // Volatile: a test swaps it on its own thread while engines read it on theirs.
     @Volatile
     internal var startup: (Runnable) -> Unit = { Platform.startup(it) }
+
+    /**
+     * Whether an implicit exit can happen at all: `Platform.isImplicitExit()`. A seam so a test can
+     * simulate a host that keeps it on.
+     */
+    // Volatile: a test swaps it on its own thread while engines read it on theirs.
+    @Volatile
+    internal var implicitExitPossible: () -> Boolean = { Platform.isImplicitExit() }
+
+    /** [implicitExitPossible], answering true (the conservative old behaviour) when it cannot tell. */
+    private fun implicitExitPossibleSafely(): Boolean = try {
+        implicitExitPossible()
+    } catch (e: LinkageError) {
+        true
+    } catch (e: Exception) {
+        true
+    }
 
     /**
      * Starts the toolkit, or confirms an already running one accepts work.
@@ -141,11 +184,16 @@ internal object FxThread {
      * `Platform.startup` then throws at once without side effects, with the exit message after
      * `Platform.exit()`. An implicit exit (the last window closed) and a dead toolkit give no
      * message: a dead [toolkitThread] answers at once, and otherwise a [Probe] that the FX thread
-     * leaves unanswered for [EXIT_SILENCE_MS]. With [wait], waits up to that long for the answer, so
-     * a live idle toolkit answers in well under a millisecond and a stalled or exited one in at most
-     * [EXIT_SILENCE_MS], once: the next call finds the same probe already old. Without it, never
-     * waits. Never waits on the FX thread itself, which is alive by being there. Called before the
-     * toolkit was ever initialised it would start it.
+     * leaves unanswered for [EXIT_SILENCE_MS]. Silence counts only while an implicit exit is
+     * possible (without it OpenJFX ends only by `Platform.exit()` or with its thread, both seen
+     * above, so a silent thread is a busy one) and never while the FX thread runs one of the
+     * engine's own blocks; it is measured from the later of the probe's issue and the last start or
+     * end of such a block. With [wait], waits at most [EXIT_SILENCE_MS] in total for the answer, so
+     * a live idle toolkit answers in well under a millisecond and an exited one in at most that
+     * long, once: the next call finds the same probe already old. Own work that stretched the
+     * silence leaves the answer "not proven", which means not exited. Without [wait], never waits.
+     * Never waits on the FX thread itself, which is alive by being there. Called before the toolkit
+     * was ever initialised it would start it.
      */
     fun hasExited(wait: Boolean = true): Boolean {
         try {
@@ -156,12 +204,15 @@ internal object FxThread {
         val thread: Thread? = toolkitThread.value
         if (thread != null && !thread.isAlive) return true
         if (isCurrent()) return false
+        // PlatformImpl.notifyFinishListeners ends the toolkit silently only when implicit exit is on;
+        // otherwise a silent thread is a busy one.
+        if (!implicitExitPossibleSafely()) return false
         val outstanding: Probe = currentProbe()
         if (wait) {
-            val remainingMs: Long = EXIT_SILENCE_MS - outstanding.silentMs()
+            val remainingMs: Long = EXIT_SILENCE_MS - silentMs(outstanding)
             if (remainingMs > 0L) outstanding.answered.await(remainingMs, TimeUnit.MILLISECONDS)
         }
-        return outstanding.answered.count != 0L && outstanding.silentMs() >= EXIT_SILENCE_MS
+        return outstanding.answered.count != 0L && provenSilent(outstanding)
     }
 
     /** Whether the caller is the FX application thread; false where JavaFX cannot even load. */
@@ -220,7 +271,14 @@ internal object FxThread {
             runLater(
                 Runnable {
                     queued.decrementAndGet()
-                    block()
+                    // Counted only once it starts running, never at enqueue: after an exit runLater
+                    // drops blocks, and a dropped block must never look like work in progress.
+                    ownWork.update { OwnWork(it.running + 1, System.nanoTime()) }
+                    try {
+                        block()
+                    } finally {
+                        ownWork.update { OwnWork(it.running - 1, System.nanoTime()) }
+                    }
                 },
             )
         } catch (e: IllegalStateException) {

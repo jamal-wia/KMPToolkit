@@ -367,6 +367,8 @@ internal class FxPlayback private constructor(
                     coroutineScope {
                         // The toolkit can end at any moment, by implicit exit as well as
                         // Platform.exit(); the wait then ends at once instead of at the timeout.
+                        // Silence is not taken for an exit while the FX thread runs this load's own
+                        // construction (see FxThread.hasExited).
                         val exitWatch: Job = launch {
                             while (true) {
                                 delay(EXIT_POLL_MS)
