@@ -111,7 +111,7 @@ public interface AppLanguageCatalog {
  */
 public fun createAppLanguageCatalog(
     supported: List<AppLanguage>,
-    fallback: AppLanguage = supported.first(),
+    fallback: AppLanguage = requireNotNull(supported.firstOrNull()) { "supported must not be empty" },
     systemId: String = "system",
     systemLanguageCode: () -> String? = ::getSystemLanguageCode,
 ): AppLanguageCatalog =
