@@ -79,12 +79,13 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
     }
 
     /**
-     * The key two commits (or a commit and a cancel) of the same unit must share. Folded to lowercase
-     * on a case-insensitive volume, where `Model` and `model` are one file; over-serializing two
+     * The key two commits (or a commit and a cancel) of the same unit must share. Folded through
+     * uppercase then lowercase on a case-insensitive volume (the full case mapping: `ß`/`ss`,
+     * `ſ`/`s`, the sigma forms), where `Model` and `model` are one file; over-serializing two
      * distinct ids is harmless. Unicode normalization variants are not folded (no `Normalizer` in
      * common code), which the platform notes document.
      */
-    fun lockKey(unit: DownloadUnit): String = if (caseInsensitive) unit.id.lowercase() else unit.id
+    fun lockKey(unit: DownloadUnit): String = if (caseInsensitive) foldCase(unit.id) else unit.id
 
     /** A new entry's path under the trash directory. The id is not part of it, so its length never matters. */
     fun trashEntry(number: ULong): String = "$TRASH_DIRECTORY/$number"
@@ -204,7 +205,14 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
     private fun reject(reason: InvalidDownloadUnitException.Reason): PathInspection =
         PathInspection.Rejected(reason)
 
-    private fun fold(segment: String): String = if (caseInsensitive) segment.lowercase() else segment
+    /**
+     * Folds a path segment on a case-insensitive volume through uppercase then lowercase, the full case
+     * mapping: `ß` and `ss`, `ſ` (long s) and `s`, and the sigma forms each end up equal, as the
+     * volume treats them. Unicode normalization variants are not folded.
+     */
+    private fun fold(segment: String): String = if (caseInsensitive) foldCase(segment) else segment
+
+    private fun foldCase(text: String): String = text.uppercase().lowercase()
 
     companion object {
         private const val TMP: String = "tmp"
