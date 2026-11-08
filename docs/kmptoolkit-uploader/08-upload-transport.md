@@ -195,8 +195,11 @@ val transport: UploadTransport = createWorkManagerUploadHandlerTransport(
 )
 ```
 
-One WorkManager job per item, unique-keyed by item id with `ExistingWorkPolicy.KEEP`: a re-hand while
-the job is alive joins it, and after a dead job it re-enqueues. The job's input data is the item id
+One WorkManager job per item, unique-keyed by item id: a hand-off while the item's job is still serving it is
+absorbed, and that job serves it before it returns; a hand-off after the job finished serving replaces it with a
+fresh one (`ExistingWorkPolicy.REPLACE`), so a retry is never left waiting for the lease because WorkManager still
+reported the old job running. Hand-offs are tracked per process; across processes the lease is the bound. The
+job's input data is the item id
 plus timeouts — nothing of the request, so no token at rest in WorkManager's database and no 10 KB
 `Data` limit to fit under. `UploadHandlerWorker` prepares through the gateway, streams the multipart
 body from disk over `HttpURLConnection`, reads the response, and settles. It returns `Result.retry()` when no engine is
