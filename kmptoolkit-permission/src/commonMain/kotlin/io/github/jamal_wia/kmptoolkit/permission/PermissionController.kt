@@ -24,6 +24,9 @@ import kotlinx.coroutines.flow.Flow
  *   on every frame, from a synchronous callback — collects [observe] into a `StateFlow` with
  *   `stateIn` rather than blocking on [check].
  * - **[request] shows the system UI at most once**, and returns only after it has been answered.
+ *   On Android, system UI is put on screen only while an activity of the app is resumed; a request
+ *   made in between - just after a previous answer, or before the first resume - waits up to a second
+ *   for one.
  *   When the current status is [PermissionStatus.Granted], [PermissionStatus.PermanentlyDenied],
  *   [PermissionStatus.Restricted] or [PermissionStatus.Unavailable] it shows nothing and returns that
  *   status, because the OS would show nothing either.
