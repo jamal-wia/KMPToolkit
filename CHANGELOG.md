@@ -11,8 +11,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [4.0.0]
 
-Source compatible with 3.0.x and binary compatible apart from the one recompilation case named under
-Breaking; the behavior changes of this release are listed there.
+Source compatible with 3.0.x, except for implementations of the opt-in `ToolkitInheritanceApi` interface
+`VideoPlayer`, which must implement the new abstract `playbackSpeedRange` (see Added), and binary
+compatible apart from the one recompilation case named under Breaking; the behavior changes of this
+release are listed there.
 
 ### Breaking
 
