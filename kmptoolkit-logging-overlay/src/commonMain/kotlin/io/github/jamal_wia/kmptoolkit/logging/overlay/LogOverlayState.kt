@@ -8,6 +8,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.time.TimeSource
 
+// Limits of the stack-trace rendering of a throwable (see describeThrowable): nesting depth and total nodes.
+private const val MAX_RENDERED_THROWABLE_DEPTH: Int = 64
+private const val MAX_RENDERED_THROWABLES: Int = 1024
+
 /** Records retained by default — enough to read back a screen's worth of history, small enough to forget about. */
 public const val DEFAULT_MAX_RECORDS: Int = 200
 
@@ -79,9 +83,13 @@ public class LogOverlayState(
      */
     public fun record(level: LogLevel, tag: String, message: String, throwable: Throwable? = null) {
         if (level < minLevel) return
-        val elapsedMillis: Long = startMark.elapsedNow().inWholeMilliseconds
         val throwableText: String? = throwable?.let(::describeThrowable)
         _records.update { current ->
+            // Read inside the transform: a record that wins its compare-and-set after another one read
+            // the list after that one's commit, so its stamp is never smaller; read outside, a writer
+            // that loses a round keeps an older stamp. A clock read is no side effect on shared state,
+            // so the lambda stays safe to re-run.
+            val elapsedMillis: Long = startMark.elapsedNow().inWholeMilliseconds
             // Derived from the list rather than a separate counter so the lambda stays pure: under
             // contention `update` re-runs it, and a counter incremented here would skip ids.
             val record = LogRecord(
@@ -103,13 +111,61 @@ public class LogOverlayState(
     // A throwable whose own toString()/message throws (a message built lazily from a null field) makes
     // stackTraceToString() throw. The sink promises never to throw and the message is still worth
     // showing, so the record keeps a placeholder naming the class instead of losing the event.
+    //
+    // A throwable whose cause graph is deeper or larger than the limits below is not handed to
+    // stackTraceToString(): its trace dump recurses once per cause and would overflow the stack, and
+    // nothing here catches a StackOverflowError (or any Error) to contain it. The graph is measured
+    // iteratively first, and an over-limit one is summarised, also iteratively.
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun describeThrowable(throwable: Throwable): String =
         try {
-            throwable.stackTraceToString()
+            if (isWithinRenderLimits(throwable)) throwable.stackTraceToString() else summarize(throwable)
         } catch (failure: Exception) {
             "${throwable::class.simpleName ?: "Throwable"} (stack trace unavailable: ${failure::class.simpleName ?: "Exception"})"
         }
+
+    /** Whether the cause/suppressed graph under [root] stays within the depth and node limits. Never recurses. */
+    private fun isWithinRenderLimits(root: Throwable): Boolean {
+        val visited: HashSet<Throwable> = hashSetOf(root)
+        val pending: ArrayDeque<Pair<Throwable, Int>> = ArrayDeque()
+        pending.addLast(root to 0)
+        while (pending.isNotEmpty()) {
+            val (node: Throwable, depth: Int) = pending.removeFirst()
+            val children: List<Throwable> = listOfNotNull(node.cause) + node.suppressedExceptions
+            for (child: Throwable in children) {
+                if (!visited.add(child)) continue
+                if (depth + 1 > MAX_RENDERED_THROWABLE_DEPTH || visited.size > MAX_RENDERED_THROWABLES) return false
+                pending.addLast(child to depth + 1)
+            }
+        }
+        return true
+    }
+
+    /** The throwable's own text, its first [MAX_RENDERED_THROWABLE_DEPTH] causes and a count of the rest; no frames. */
+    private fun summarize(root: Throwable): String {
+        val seen: HashSet<Throwable> = hashSetOf(root)
+        val lines: MutableList<String> = mutableListOf(root.toString())
+        var next: Throwable? = root.cause
+        var shown = 0
+        while (next != null && shown < MAX_RENDERED_THROWABLE_DEPTH && seen.add(next)) {
+            lines += "Caused by: $next"
+            shown++
+            next = next.cause
+        }
+        var more = 0
+        while (next != null && more <= MAX_RENDERED_THROWABLES && seen.add(next)) {
+            more++
+            next = next.cause
+        }
+        if (more > 0) {
+            lines += if (more > MAX_RENDERED_THROWABLES) {
+                "... more than $MAX_RENDERED_THROWABLES more causes not shown"
+            } else {
+                "... $more more causes not shown"
+            }
+        }
+        return lines.joinToString("\n")
+    }
 
     /** Drops every retained record. Id numbering restarts at `1` for the next recorded event. */
     public fun clear(): Unit = _records.update { emptyList() }
@@ -141,7 +197,9 @@ public class LogOverlayState(
      * ```
      *
      * The returned sink honors this state's [minLevel] (through [record]) and never throws, which
-     * satisfies the `LogSink` contract without the logger's error containment having to kick in.
+     * satisfies the `LogSink` contract without the logger's error containment having to kick in. A
+     * throwable whose cause chain is too deep to render (more than 64 nested causes) is recorded as
+     * its first 64 causes, without stack frames.
      * Each call returns a new sink instance; they are interchangeable, since all of them delegate
      * to this same state.
      */
