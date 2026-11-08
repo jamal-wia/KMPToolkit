@@ -116,8 +116,9 @@ fun onLanguagePicked(picked: SupportedLanguage) {
 
 ## 7. "Follow system"
 
-The catalog resolves it — matching the device's language against your list, falling back to the
-primary subtag (`pt-BR` → `pt`), then to your fallback language:
+The catalog resolves it — matching the device's language against your list, truncating the tag one
+subtag at a time (`zh-Hans-CN` → `zh-Hans` → `zh`, `pt-BR` → `pt`), taking a same-language,
+same-script entry (`pt-BR` → your `pt-PT`), then your fallback language:
 
 ```kotlin
 val effective: AppLanguage = catalog.resolve(language.language)
