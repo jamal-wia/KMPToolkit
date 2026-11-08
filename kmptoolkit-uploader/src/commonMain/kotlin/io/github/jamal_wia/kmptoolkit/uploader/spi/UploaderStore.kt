@@ -74,6 +74,13 @@ import kotlinx.coroutines.flow.Flow
  * never conflicts with anything — every keyless enqueue appends. See [insertKeep] for the exact
  * per-state behavior.
  *
+ * ### Cancellation
+ * A call may throw a `CancellationException` when its caller is cancelled, before its write or **after it has
+ * committed** (a store that switches to a database dispatcher reports the caller's cancellation when the call
+ * returns). It may also not notice the cancellation at all. Both kinds are allowed; nothing is required of a
+ * store, and the engine never relies on either: a write it must see through (a withdrawal, the release of an
+ * interrupted claim) it makes non-cancellable on its own side.
+ *
  * ### Nothing here interprets a payload
  * [UploaderItem.payload] is an opaque string and [UploaderItem.tag] is an opaque label. A store stores
  * and returns them unchanged; it never parses, validates, or acts on either.

@@ -135,7 +135,10 @@ public interface UploaderEngine : Uploader {
      * paths are exactly where there is no coroutine left to launch in.
      *
      * It does **not** cancel the [CoroutineScope] you provided, which is yours, and it does not
-     * touch the queue: everything owed is still owed, and a freshly constructed engine picks it up.
+     * touch the queue: everything owed is still owed, and a freshly constructed engine picks it up. An attempt
+     * running at close is cancelled and records nothing, apart from the delete of a `Success`, and nothing is
+     * claimed or launched after [close] returns. A hand-off interrupted while its claim was being written is
+     * released to the state it was read in, so the next engine starts it at once instead of after the lease.
      * After [close] the engine is permanently inert — [enqueue] still persists (the store is
      * independent) but nothing will drain it. Construct a new engine rather than reusing a closed
      * one.

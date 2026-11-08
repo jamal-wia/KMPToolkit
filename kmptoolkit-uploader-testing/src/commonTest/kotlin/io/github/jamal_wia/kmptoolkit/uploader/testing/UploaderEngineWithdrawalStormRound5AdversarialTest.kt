@@ -171,6 +171,14 @@ class UploaderEngineWithdrawalStormRound5AdversarialTest {
     private fun coroutineScopeOf(job: Job): CoroutineScope = CoroutineScope(Dispatchers.Default + job)
 
     @Test
+    fun `withdrawals racing the drain over a hopping store leave no upload running without its row`() = realTest(120) {
+        repeat(25) { iteration ->
+            val orphaned: List<String> = stormOnce { HoppingStore(it) }
+            assertEquals(emptyList(), orphaned, "iteration $iteration: withdrawn uploads left running")
+        }
+    }
+
+    @Test
     fun `withdrawals racing the drain over the plain store leave no upload running without its row`() = realTest(120) {
         repeat(25) { iteration ->
             val orphaned: List<String> = stormOnce { it }
