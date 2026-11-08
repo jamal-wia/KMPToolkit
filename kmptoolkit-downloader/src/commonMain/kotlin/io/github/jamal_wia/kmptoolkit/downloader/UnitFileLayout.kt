@@ -224,7 +224,7 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
         const val INTERNAL_DIRECTORY: String = "$TMP/$INTERNAL_NAME"
 
         /**
-         * One-time per-base marker, `fresh` or `upgraded`, written before 3.1.0's first write under
+         * One-time per-base marker, `fresh` or `upgraded`, written before 4.0.0's first write under
          * `tmp/`; its modification time is the moment after which no file can be a 3.0.0 temp file.
          */
         const val LEGACY_LAYOUT_MARKER: String = "$INTERNAL_DIRECTORY/legacy-layout"

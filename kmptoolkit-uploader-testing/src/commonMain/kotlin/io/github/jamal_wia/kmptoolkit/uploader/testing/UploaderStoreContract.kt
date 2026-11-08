@@ -759,7 +759,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * Insertion order is not creation order: items inserted with falling creation times still come back
      * in the order they were inserted, as they would after a wall clock stepped backwards.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun insertionOrderIgnoresCreationTime() {
         val store: UploaderStore = createStore()
@@ -776,7 +776,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * Payloads come back byte for byte: no trimming, case folding, normalization or truncation, from both
      * [UploaderStore.getById] and [UploaderStore.getAllActive].
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun valuesRoundTripVerbatim() {
         val store: UploaderStore = createStore()
@@ -805,7 +805,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * [UploaderStore.deleteByTag] matches a tag exactly: not by case, prefix, suffix or wildcard (`%`, `_`),
      * so one account's wipe never removes another account's rows. The empty tag is a tag of its own.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun tagsAreMatchedExactly() {
         val store: UploaderStore = createStore()
@@ -829,7 +829,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * The dedup identity compares the unique key exactly: keys differing in case, spacing or a wildcard
      * character are different keys, an identical key conflicts.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun uniqueKeysAreMatchedExactly() {
         val store: UploaderStore = createStore()
@@ -846,7 +846,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * [UploaderStore.markInFlight], [UploaderStore.recordFailure] and [UploaderStore.park], so a store that
      * clears a tag, a key or the creation time, or loses the last error across a hand-off, is caught.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun guardedWritesChangeOnlyTheirOwnFields() {
         val store: UploaderStore = createStore()
@@ -875,7 +875,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * Attempts, backoff gate and lease are stored as the absolute values passed in, never added to or
      * compared with the old ones: a gate or a lease may legitimately move earlier.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun attemptsGatesAndLeasesAreStoredAsGiven() {
         val store: UploaderStore = createStore()
@@ -896,7 +896,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * [UploaderStore.observeByType] is live: it emits again after every change (a new row, a hand-off, a
      * park, items in every state) and never completes.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun observeByTypeIsLiveAndNeverCompletes() {
         val store: UploaderStore = createStore()
@@ -933,7 +933,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * [UploaderStore.insertKeep] over a PARKED item with the same identity deletes the parked row and
      * inserts the new one at the tail: it is not revived in place at the old position.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun insertKeepOverAParkedItemEntersAtTheTail() {
         val store: UploaderStore = createStore()
@@ -949,7 +949,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     /**
      * [UploaderStore.getById] matches the whole id: not a prefix, another case, or a wildcard pattern.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun getByIdMatchesTheWholeId() {
         val store: UploaderStore = createStore()
@@ -966,7 +966,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     /**
      * A list already returned by [UploaderStore.getAllActive] does not change when the store does.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun aListHandedOutIsASnapshot() {
         val store: UploaderStore = createStore()
@@ -981,7 +981,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
      * Concurrent [UploaderStore.markInFlight] calls on one row under the same expected claim: exactly one
      * applies. This is the compare-and-set the engine's claim protocol stands on.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun concurrentClaimsOfOneRowHaveExactlyOneWinner() {
         val store: UploaderStore = createStore()
@@ -998,7 +998,7 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     /**
      * Concurrent [UploaderStore.insertKeep] calls for one dedup identity: exactly one inserts.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun concurrentKeepsOfOneKeyHaveExactlyOneWinner() {
         val store: UploaderStore = createStore()

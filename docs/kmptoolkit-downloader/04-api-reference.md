@@ -47,7 +47,7 @@ fun createDownloader(
 Only `storage`, `backgroundDownloader`, `groups` and `stateStore` have no sensible default. Returns
 a `Downloader` ready to use immediately — there is no separate `start()`.
 
-*Since 3.1.0* there is a second overload that takes a `DownloaderConfig`, placed right after
+*Since 4.0.0* there is a second overload that takes a `DownloaderConfig`, placed right after
 `stateStore` and required there, so a call written for the first overload — by position or by name —
 can never resolve to it:
 
@@ -67,7 +67,7 @@ fun createDownloader(
 
 The first overload behaves exactly like the second with `DownloaderConfig()`.
 
-## `DownloaderConfig` *(since 3.1.0)*
+## `DownloaderConfig` *(since 4.0.0)*
 
 ```kotlin
 class DownloaderConfig(stallTimeout: Duration = DownloaderConfig.DEFAULT_STALL_TIMEOUT) {
@@ -147,7 +147,7 @@ Neither carries a `group` / `unit` field — the flow you collected is the ident
 | `DownloadCancelledException` | `group: ResourceGroup`, `unit: DownloadUnit?` (null on the group surface) |
 | `DownloadFailedException` | `unit: DownloadUnit`, `error: DownloadError`, `cause: Throwable?` |
 
-## `InvalidDownloadUnitException` *(since 3.1.0)*
+## `InvalidDownloadUnitException` *(since 4.0.0)*
 
 `class InvalidDownloadUnitException(unit: DownloadUnit, reason: Reason) : IllegalArgumentException`,
 with `enum class Reason { EMPTY, INVALID_CHARACTER, ESCAPES_BASE_DIRECTORY, RESERVED_INTERNAL_PATH }`.

@@ -163,7 +163,7 @@ while the app is dead waits for its lease and is sent again: forward
 [`08-upload-transport.md`](08-upload-transport.md#the-relaunch-hook--required). Background sessions
 need no `Info.plist` entry and no background mode.
 
-Two timeouts shape a background upload, both configurable since 3.1.0 on `BackgroundUploadConfig`:
+Two timeouts shape a background upload, both configurable since 4.0.0 on `BackgroundUploadConfig`:
 `requestTimeout` (60 s) is an **idle** timeout, reset whenever data moves, and `resourceTimeout`
 (7 days) bounds the whole transfer. A background session does not fail on an idle timeout; iOS retries
 the upload silently until `resourceTimeout` runs out, so that value bounds re-uploads, and a server that
@@ -172,7 +172,7 @@ works for a long time before answering should reply `202` with a job id instead.
 
 ## The server's response
 
-Since 3.1.0 the handler transports hand an `UploadHandler` the response — status, headers and the start
+Since 4.0.0 the handler transports hand an `UploadHandler` the response — status, headers and the start
 of the body — in `classify` and `onDelivered`. What differs by platform:
 
 - **Android.** `UploadHandlerWorker` reads the response in the same attempt, before the connection is

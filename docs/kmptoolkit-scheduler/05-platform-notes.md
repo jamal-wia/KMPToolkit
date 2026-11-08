@@ -139,9 +139,9 @@ class an alarm was armed for (typically: moving from an app's own receiver onto 
 alarm still fires but reaches nothing. Re-arm on `ACTION_MY_PACKAGE_REPLACED` in that release.
 
 Ids with an unpaired surrogate (for example an id cut from text in the middle of an emoji) get a
-different data URI since 3.1.0, so two such ids that differ only in those characters are now two
+different data URI since 4.0.0, so two such ids that differ only in those characters are now two
 alarms. An alarm armed for such an id by 3.0.x is still found: `schedule` retires it once the new
-alarm is armed, and `cancel` / `cancelAll` remove it. The lookup uses the old URI, so in 3.1.0 it may
+alarm is armed, and `cancel` / `cancelAll` remove it. The lookup uses the old URI, so in 4.0.0 it may
 also retire a 3.0.x alarm that 3.0.x already treated as the same alarm.
 
 At fire time your `AlarmHandler` runs inside `goAsync()`, which keeps the process alive for roughly

@@ -80,7 +80,7 @@ loudly the first time it is used rather than half-working. There is no separate 
 returned `Downloader` is ready immediately.
 
 To tune the engine — today, how long a silent transfer is tolerated before it counts as stalled
-(5 minutes by default) — use the overload that takes a `DownloaderConfig` (since 3.1.0), which sits
+(5 minutes by default) — use the overload that takes a `DownloaderConfig` (since 4.0.0), which sits
 right after `stateStore`:
 
 ```kotlin

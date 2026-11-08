@@ -155,7 +155,7 @@ class DownloaderConfigTest {
 
     @Test
     fun `the overload without a config still takes a notifier as its fifth positional argument`() = runTest {
-        // Source compatibility: this call, as written before 3.1.0, must keep resolving to the
+        // Source compatibility: this call, as written before 4.0.0, must keep resolving to the
         // existing overload, never to the one whose fifth parameter is the config.
         val downloader: Downloader = createDownloader(
             SetStorage(),

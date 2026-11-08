@@ -245,7 +245,7 @@ public fun createDownloader(
  * @param config the engine's settings. Required here — a separate overload rather than a new
  *   defaulted parameter, so no existing call can resolve to this one and the existing overload's
  *   signature is unchanged.
- * @since 3.1.0
+ * @since 4.0.0
  */
 public fun createDownloader(
     storage: DownloaderStorage,

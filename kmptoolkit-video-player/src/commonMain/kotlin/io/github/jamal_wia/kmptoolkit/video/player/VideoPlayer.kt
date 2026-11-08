@@ -54,7 +54,7 @@ public interface VideoPlayer : AutoCloseable {
      * The configured [VideoPlayerConfig.minPlaybackSpeed]`..`[VideoPlayerConfig.maxPlaybackSpeed]; every
      * value of [playbackSpeedFlow] lies in it. Lets a speed menu offer only rates the player accepts.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public val playbackSpeedRange: ClosedFloatingPointRange<Float>
 

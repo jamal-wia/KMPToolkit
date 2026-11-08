@@ -33,7 +33,7 @@ any thread.
 | `bufferedPositionFlow: StateFlow<Long>` | `0` | Buffered-ahead position. Polled with the playhead while `Playing`, snapshotted when a load finishes and on `pause()`; `0` when nothing is loaded and after a playback failure. |
 | `isBufferingFlow: StateFlow<Boolean>` | `false` | Whether a **loaded** source is stalled waiting for data. Independent of `stateFlow` (a stalled stream is still `Playing`). Not shown while preparing (a stall of the just-loaded source that the engine reports before `Ready` is published is kept and shown with `Ready`); `false` when idle, on completion and on failure; a stall the engine reports after the end is ignored while the state is `Completed`. |
 | `videoSizeFlow: StateFlow<VideoSize?>` | `null` | Displayed picture size once the platform reports one — usually while `Preparing`. Kept on `Completed`; `null` again when a new `prepare` starts, on a failure, `unload`, `release`. |
-| `playbackSpeedRange: ClosedFloatingPointRange<Float>` | the configured `minPlaybackSpeed..maxPlaybackSpeed` | Not a flow: fixed for the player's life. Every value of `playbackSpeedFlow` lies in it. *(since 3.1.0)* |
+| `playbackSpeedRange: ClosedFloatingPointRange<Float>` | the configured `minPlaybackSpeed..maxPlaybackSpeed` | Not a flow: fixed for the player's life. Every value of `playbackSpeedFlow` lies in it. *(since 4.0.0)* |
 | `playbackSpeedFlow: StateFlow<Float>` | `1.0`, clamped into the configured range | Rate in effect, clamped to the configured range — the initial value too, so a range that excludes `1.0` starts at its nearest bound. |
 | `volumeFlow: StateFlow<Float>` | `1.0` | Output volume in `0f..1f`, independent of mute. |
 | `isMutedFlow: StateFlow<Boolean>` | `false` | Whether output is muted. |

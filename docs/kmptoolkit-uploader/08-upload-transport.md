@@ -15,7 +15,7 @@ There are two ways to use it, and for new code the first is the one to pick.
 | Progress | whole percents to the handler | none |
 | A failed hand-off | retried under the handler's policy | logged and swallowed; the lease recovers it |
 | Hooks | `onDelivered`, `onSettled`, `onUploadProgress` | none |
-| Server's response (status, headers, body) | yes, since 3.1.0 | status only |
+| Server's response (status, headers, body) | yes, since 4.0.0 | status only |
 
 Both are exactly `AttemptResult.Detached` plus a settlement underneath — the contract in
 [`03-guide.md`](03-guide.md#detached-delivery-for-work-that-outlives-an-attempt). Neither adds a
@@ -312,15 +312,15 @@ or the lease — for that.
 `timeoutIntervalForRequest` and `timeoutIntervalForResource`. The defaults are the system's own values,
 so behaviour is unchanged unless you set them; both must be positive and finite.
 
-**Swift and the three-parameter constructor.** Before 3.1.0 the configuration had three parameters.
+**Swift and the three-parameter constructor.** Before 4.0.0 the configuration had three parameters.
 Swift has no default arguments, so Swift code that calls
-`BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` keeps compiling in 3.1.0:
+`BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:)` keeps compiling in 4.0.0:
 that initializer is still exported (deprecated, with the system timeouts). Move to the five-argument
 initializer to set the timeouts. In Kotlin the new constructor's defaults make `BackgroundUploadConfig()`
 and every call that leaves a parameter out or names a timeout resolve to it; only a call that supplies
 exactly the three old arguments (positionally or by name) and no timeout lands on the deprecated
 overload, with a warning. That overload has no default arguments, unlike in 3.0.0: a library compiled
-against 3.0.0 that calls it with arguments omitted must be recompiled against 3.1.0.
+against 3.0.0 that calls it with arguments omitted must be recompiled against 4.0.0.
 
 - **`requestTimeout` is an idle timeout.** Apple's documentation describes it as how long a task waits
   for additional data to arrive before giving up, with the timer reset whenever new data arrives. It is

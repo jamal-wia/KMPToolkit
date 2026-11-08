@@ -159,7 +159,7 @@ It is deliberately not a JUnit base class: `kotlin.test`'s JVM annotations are t
 framework's own, so publishing one would put JUnit on the compile classpath of every consumer,
 including their iOS build.
 
-Since 3.1.0 the contract also checks what a mutated store used to slip past it: exact tag and unique-key matching,
+Since 4.0.0 the contract also checks what a mutated store used to slip past it: exact tag and unique-key matching,
 verbatim payloads, whole-row equality after every guarded write, absolute attempts/gates/leases, insertion order
 under falling creation times, a live observation that never completes, the tail revival of a parked key, exact
 point reads, snapshot lists and the one-winner races of concurrent claims and keeps. The new checks are additive

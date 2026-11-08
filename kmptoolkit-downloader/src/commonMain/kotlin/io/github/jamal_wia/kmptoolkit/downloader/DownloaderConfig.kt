@@ -21,7 +21,7 @@ import kotlin.time.Duration.Companion.minutes
  *   transport; on iOS the only bound left is then the background session's
  *   `timeoutIntervalForResource`, 7 days by default. Must be positive. Defaults to
  *   [DEFAULT_STALL_TIMEOUT].
- * @since 3.1.0
+ * @since 4.0.0
  */
 public class DownloaderConfig(
     public val stallTimeout: Duration = DEFAULT_STALL_TIMEOUT,
@@ -48,7 +48,7 @@ public class DownloaderConfig(
          * minutes — generous, since even at 1 KB/s with 8 KB chunks a progress event arrives every
          * few seconds.
          *
-         * @since 3.1.0
+         * @since 4.0.0
          */
         public val DEFAULT_STALL_TIMEOUT: Duration = 5.minutes
     }

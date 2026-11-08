@@ -53,7 +53,7 @@ public interface ActivityAccess {
      * The default runs [block] with [withActivity]'s activity only, so an implementation of your own that
      * knows one window keeps compiling and behaves as before.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public fun forEachResumedActivity(block: (Activity) -> Unit) {
         withActivity(block)
