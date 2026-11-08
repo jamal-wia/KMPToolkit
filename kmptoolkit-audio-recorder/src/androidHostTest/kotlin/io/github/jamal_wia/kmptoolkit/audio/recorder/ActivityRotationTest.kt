@@ -6,10 +6,14 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.lang.ref.WeakReference
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,8 +25,14 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.Shadows
 
-/** A plain screen that is rotated. */
-class RecorderRotationProbeActivity : Activity()
+/**
+ * A plain screen that is rotated. [lastSeen] is what the collectors write instead of touching the
+ * activity from a worker thread (`setTitle` throws `CalledFromWrongThreadException` on action-bar themes).
+ */
+class RecorderRotationProbeActivity : Activity() {
+    @Volatile
+    var lastSeen: String? = null
+}
 
 /**
  * A recorder owned by something that outlives the screen records through ten recreations of that screen,
@@ -40,6 +50,7 @@ class ActivityRotationTest {
         val controller = Robolectric.buildActivity(RecorderRotationProbeActivity::class.java).setup()
         val recorder: AudioRecorder = createAudioRecorder(controller.get())
         val generations: MutableList<WeakReference<Activity>> = mutableListOf()
+        val failures: CopyOnWriteArrayList<Throwable> = CopyOnWriteArrayList()
         try {
             runBlocking {
                 withTimeout(60_000) {
@@ -47,14 +58,20 @@ class ActivityRotationTest {
                     check(recorder.start().isSuccess)
                     var lastElapsed = recorder.elapsed.value
                     repeat(10) { round: Int ->
-                        val screen: Activity = controller.get()
+                        val screen: RecorderRotationProbeActivity = controller.get()
                         generations += WeakReference(screen)
-                        val collectors = CoroutineScope(Job() + Dispatchers.Default)
-                        collectors.launch { recorder.state.collect { screen.title = "$it" } }
-                        collectors.launch { recorder.elapsed.collect { screen.title = "$it" } }
-                        collectors.launch { recorder.level.collect { screen.title = "$it" } }
-                        collectors.launch { recorder.levelSamples.collect { screen.title = "$it" } }
+                        val collectors = CoroutineScope(
+                            Job() + Dispatchers.Default +
+                                CoroutineExceptionHandler { _, failure: Throwable -> failures += failure },
+                        )
+                        collectors.launch { recorder.state.collect { screen.lastSeen = "$it" } }
+                        collectors.launch { recorder.elapsed.collect { screen.lastSeen = "$it" } }
+                        collectors.launch { recorder.level.collect { screen.lastSeen = "$it" } }
+                        collectors.launch { recorder.levelSamples.collect { screen.lastSeen = "$it" } }
                         delay(130L)
+                        val seenDeadline = TimeSource.Monotonic.markNow() + 5.seconds
+                        while (screen.lastSeen == null && !seenDeadline.hasPassedNow()) delay(10L)
+                        assertTrue(screen.lastSeen != null, "round $round: the collectors never ran")
                         val state: RecorderState = recorder.state.value
                         assertTrue(state is RecorderState.Recording, "round $round: state $state")
                         val elapsed = recorder.elapsed.value
@@ -74,6 +91,7 @@ class ActivityRotationTest {
             recorder.release()
         }
         assertEquals(RecorderState.Released, recorder.state.value)
+        assertTrue(failures.isEmpty(), "a collector crashed: $failures")
         controller.pause().stop().destroy()
         var alive = generations.size
         repeat(80) {

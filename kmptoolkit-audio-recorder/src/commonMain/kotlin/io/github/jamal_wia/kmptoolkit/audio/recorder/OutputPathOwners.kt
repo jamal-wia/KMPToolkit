@@ -28,7 +28,8 @@ internal class OutputPathClaim
  * attempt is still running, or when it ends without a session (it failed, was refused, or its caller
  * was cancelled), [release] hands the path back to the claim it displaced, which may still be a live
  * recorder with a file to clean up. The attempt that succeeds calls [commit], which forgets the
- * displaced claims for good. Why a plain stack would be wrong: a newer recorder that succeeded must
+ * displaced claims for good, and the commit counts even when a newer attempt is still running
+ * (engines finish in any order). Why a plain stack would be wrong: a newer recorder that succeeded must
  * never hand the path back, or recorder B records, stops and is released, an older recorder A
  * becomes the owner again, and `A.release()` from a prepared state deletes B's finished recording.
  *
@@ -106,18 +107,24 @@ internal object OutputPathOwners {
     }
 
     /**
-     * Makes the takeover of [path] by [claim] final: the claims it displaced are forgotten, so nothing
-     * ever hands the path back to them. Called when [claim] becomes a recorder's session. A no-op if
-     * [claim] is no longer the owner.
+     * Makes the takeover of [path] by [claim] final, whether [claim] owns the path or was itself
+     * displaced by a newer attempt that is still running: every claim older than [claim] is forgotten,
+     * so nothing ever hands the path back to them. A newer pending claim stays on top, and if it ends
+     * without a session the path goes back to [claim], a live session that must still be able to delete
+     * its own file. Called when [claim] becomes a recorder's session. A no-op if [claim] holds no entry
+     * on the path or has nothing older left to forget.
      */
     fun commit(path: String, claim: OutputPathClaim) {
         val key: String = ownershipKey(path)
         slots.update { map: Map<String, Slot> ->
             val slot: Slot? = map[key]
-            if (slot == null || slot.owner !== claim || slot.displaced.isEmpty()) {
+            if (slot == null) {
                 map
+            } else if (slot.owner === claim) {
+                if (slot.displaced.isEmpty()) map else map + (key to Slot(claim, emptyList(), slot.deleting))
             } else {
-                map + (key to Slot(claim, emptyList(), slot.deleting))
+                val index: Int = slot.displaced.indexOf(claim)
+                if (index <= 0) map else map + (key to Slot(slot.owner, slot.displaced.drop(index), slot.deleting))
             }
         }
     }

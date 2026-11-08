@@ -6,12 +6,14 @@ import android.media.PlaybackParams
 import android.os.Looper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.lang.ref.WeakReference
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,8 +41,14 @@ class ParamsShadowMediaPlayer : ShadowMediaPlayer() {
     fun setPlaybackParams(params: PlaybackParams) = Unit
 }
 
-/** A plain screen that is rotated. */
-class PlayerRotationProbeActivity : Activity()
+/**
+ * A plain screen that is rotated. [lastSeen] is what the collectors write instead of touching the
+ * activity from a worker thread (`setTitle` throws `CalledFromWrongThreadException` on action-bar themes).
+ */
+class PlayerRotationProbeActivity : Activity() {
+    @Volatile
+    var lastSeen: String? = null
+}
 
 /**
  * An application-scoped player outlives ten recreations of the screen that created it, while every
@@ -62,6 +70,7 @@ class ActivityRotationTest {
         val player: AudioPlayer = createAudioPlayer(controller.get())
         val generations: MutableList<WeakReference<Activity>> = mutableListOf()
         val observed: MutableList<PlayerState> = mutableListOf()
+        val failures: CopyOnWriteArrayList<Throwable> = CopyOnWriteArrayList()
         try {
             runBlocking {
                 withTimeout(60_000) {
@@ -76,12 +85,18 @@ class ActivityRotationTest {
                     player.play()
 
                     repeat(10) { round: Int ->
-                        val screen: Activity = controller.get()
+                        val screen: PlayerRotationProbeActivity = controller.get()
                         generations += WeakReference(screen)
-                        val collectors = CoroutineScope(Job() + Dispatchers.Default)
-                        collectors.launch { player.stateFlow.collect { state: PlayerState -> screen.title = "$state"; observed += state } }
-                        collectors.launch { player.playbackPositionFlow.collect { position: Long -> screen.title = "$position" } }
+                        val collectors = CoroutineScope(
+                            Job() + Dispatchers.Default +
+                                CoroutineExceptionHandler { _, failure: Throwable -> failures += failure },
+                        )
+                        collectors.launch { player.stateFlow.collect { state: PlayerState -> screen.lastSeen = "$state"; observed += state } }
+                        collectors.launch { player.playbackPositionFlow.collect { position: Long -> screen.lastSeen = "$position" } }
                         delay(25L)
+                        val seenDeadline = TimeSource.Monotonic.markNow() + 5.seconds
+                        while (screen.lastSeen == null && !seenDeadline.hasPassedNow()) delay(10L)
+                        assertTrue(screen.lastSeen != null, "round $round: the collectors never ran")
                         assertTrue(player.stateFlow.value is PlayerState.Playing, "round $round: state ${player.stateFlow.value}")
                         collectors.coroutineContext[Job]!!.cancel()
                         collectors.coroutineContext[Job]!!.join()
@@ -94,6 +109,7 @@ class ActivityRotationTest {
             player.release()
         }
         assertEquals(PlayerState.Idle, player.stateFlow.value)
+        assertTrue(failures.isEmpty(), "a collector crashed: $failures")
         controller.pause().stop().destroy()
         var alive = generations.size
         repeat(80) {
