@@ -1232,14 +1232,22 @@ internal class DefaultUploaderEngine(
         val preparation: UploadPreparation = try {
             handler.prepareUpload(context, payload)
         } catch (e: CancellationException) {
+            // P5: a real cancellation of the worker is rethrown here, never charged.
             currentCoroutineContext().ensureActive()
             logger.e(e) { "prepareUpload leaked a cancellation for ${record.logName}." }
             spendAttempt(record, handler, e)
             return null
         } catch (e: Throwable) {
+            // P5: a failure that arrives after the worker was stopped is that stop's, not the item's.
+            currentCoroutineContext().ensureActive()
             logger.e(e) { "prepareUpload failed for ${record.logName}." }
             spendAttempt(record, handler, e)
             return null
+        }
+        // P5: a handler that swallowed the worker's cancellation and answered anyway claims, deletes and parks nothing.
+        if (!currentCoroutineContext().isActive) {
+            logger.i { "Upload attempt for ${record.logName} abandoned — its worker was cancelled while the upload was prepared." }
+            currentCoroutineContext().ensureActive()
         }
         return when (preparation) {
             is UploadPreparation.Proceed -> {

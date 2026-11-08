@@ -250,4 +250,9 @@ class UploaderEngineContractSuspectsRound6AdversarialTest {
         }
     }
 
+    @Test
+    fun `a worker stopped while its handler prepares the upload is not charged an attempt on a store that does not notice`() =
+        runTest {
+            assertEquals(0, workerPrepareCancelled { it }, "a cancelled preparation recorded a failed attempt")
+        }
 }
