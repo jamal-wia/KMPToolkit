@@ -18,7 +18,7 @@ public data class AppLanguage(
 | Member | Contract |
 |---|---|
 | `code` | BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, …), or `null` for [`System`](#system) |
-| `isLtr` | `false` only for a right-to-left language. Meaningless when `code` is `null` |
+| `isLtr` | `false` only for a right-to-left language, including regional languages whose default script is right-to-left (`arz`, `ary`, `apc`, `azb`, `pnb`, `skr`, `mzn`, `glk`, `lrc`, `bgn`, `rhg`, ...). Meaningless when `code` is `null` |
 | `System` | Follows the device's own language. `isLtr` on this instance is a placeholder (`true`), never meant to be read — see [`03-guide.md`](03-guide.md#resolving-follow-system) |
 
 No display name, no flag, no fixed language list. See [`01-overview.md`](01-overview.md#what-this-module-deliberately-does-not-carry).

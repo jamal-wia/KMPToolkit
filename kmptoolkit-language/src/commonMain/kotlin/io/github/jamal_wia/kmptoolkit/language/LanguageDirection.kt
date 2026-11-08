@@ -38,7 +38,10 @@ public fun AppLanguage(code: String): AppLanguage =
  *
  * What it knows is the set of right-to-left scripts and languages in actual use for user interfaces,
  * not every script ever encoded: the right-to-left scripts `Arab`, `Hebr`, `Thaa`, `Syrc`, `Nkoo`,
- * `Adlm`, `Mand`, `Samr`, `Rohg`, `Yezi`, `Mend`, and the languages that default to one of them.
+ * `Adlm`, `Mand`, `Samr`, `Rohg`, `Yezi`, `Mend`, and the languages that default to one of them,
+ * including regional languages whose default script is right-to-left (Egyptian Arabic `arz`, South
+ * Azerbaijani `azb`, Western Punjabi `pnb`, ...), checked against the Android platform's
+ * likely-subtags data in the tests.
  * Anything it does not recognise is reported left-to-right, which is the safe direction to be wrong
  * in: an unexpected language renders in the majority layout rather than mirrored. If you need a
  * language it does not cover, pass `isLtr` explicitly.
@@ -106,11 +109,48 @@ private val RIGHT_TO_LEFT_LANGUAGES: Set<String> = setOf(
     "he", "iw", // Hebrew, modern and legacy
     "ks", // Kashmiri
     "nqo", // N'Ko
-    "prs", // Dari
+    "prs", // Dari (the platform's likely-subtags data reports it left-to-right; Dari is Persian, written in Arabic script)
     "ps", // Pashto
     "sd", // Sindhi
     "syr", // Syriac
     "ug", // Uyghur
     "ur", // Urdu
     "yi", "ji", // Yiddish, modern and legacy
+    // Regional languages whose default script is right-to-left; each one is reported right-to-left by the
+    // Android platform's likely-subtags data (RtlDefaultScriptLanguagesTest).
+    "azb", // South Azerbaijani, default script Arabic
+    "pnb", // Western Punjabi, default script Arabic
+    "skr", // Saraiki, default script Arabic
+    "mzn", // Mazanderani, default script Arabic
+    "glk", // Gilaki, default script Arabic
+    "lrc", // Northern Luri, default script Arabic
+    "bgn", // Western Balochi, default script Arabic
+    "bal", // Balochi, default script Arabic
+    "bqi", // Bakhtiari, default script Arabic
+    "luz", // Southern Luri, default script Arabic
+    "sdh", // Southern Kurdish, default script Arabic
+    "brh", // Brahui, default script Arabic
+    "khw", // Khowar, default script Arabic
+    "hno", // Northern Hindko, default script Arabic
+    "bft", // Balti, default script Arabic
+    "trw", // Torwali, default script Arabic
+    "rhg", // Rohingya, default script Hanifi Rohingya
+    "arz", // Egyptian Arabic, default script Arabic
+    "ary", // Moroccan Arabic, default script Arabic
+    "apc", // North Levantine Arabic, default script Arabic
+    "ajp", // South Levantine Arabic, default script Arabic
+    "aeb", // Tunisian Arabic, default script Arabic
+    "arq", // Algerian Arabic, default script Arabic
+    "acm", // Mesopotamian Arabic, default script Arabic
+    "ayp", // North Mesopotamian Arabic, default script Arabic
+    "afb", // Gulf Arabic, default script Arabic
+    "apd", // Sudanese Arabic, default script Arabic
+    "ars", // Najdi Arabic, default script Arabic
+    "acq", // Ta'izzi-Adeni Arabic, default script Arabic
+    "ayl", // Libyan Arabic, default script Arabic
+    "shu", // Chadian Arabic, default script Arabic
+    "ssh", // Shihhi Arabic, default script Arabic
+    "abv", // Baharna Arabic, default script Arabic
+    "ayh", // Hadrami Arabic, default script Arabic
+    "adf", // Dhofari Arabic, default script Arabic
 )
