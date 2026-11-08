@@ -233,6 +233,8 @@ Breaking; the behavior changes of this release are listed there.
   now completes that write: the item is queued and its wake armed. A caller cancelled before the
   write starts still writes nothing. `UploaderStore` states that a call may report its caller's
   cancellation before or after its write commits, or not at all.
+- `kmptoolkit-uploader`: `InMemoryUploaderStore` never notices a cancelled caller, also when calls
+  contend for its lock; before, a contended call could be refused before writing.
 - `kmptoolkit-uploader`: `UploaderItem.lastError` is truncated to about 4096 characters.
 - `kmptoolkit-uploader` (Android): a progress hook still running 2 s after the transfer is cancelled
   is no longer awaited (Android and iOS), so a hook that ignores cancellation cannot hold up the
@@ -260,18 +262,22 @@ Breaking; the behavior changes of this release are listed there.
   when `AudioPlayer.release()` takes effect during a load; that the iOS video player leaves
   `AVAudioSession` active after `release()`; the iOS `hostViewController` retain cycle of
   `kmptoolkit-systembars` and one wake-lock controller per screen.
-- Docs, later review: that a `kmptoolkit-uploader` `onSettled` runs at most once and only for an
-  applied settlement, that there is one upload job per item, and what an unreadable journal entry
-  waits for; that `DownloadUnit.tempExtension` is part of the temp file's name and must be the same
-  for every instance of one id; that a desktop store file that cannot be parsed fails every
-  operation and is never replaced; that `kmptoolkit-scheduler` `cancel` and `cancelAll` remove only
-  alarms that have not fired yet, what a refused cancel leaves behind, and that
-  `AlarmFailure.PlatformError.message` may be a library diagnostic; that
-  `AlarmSchedulerConfig.alarmIdKey` and `alarmTypeKey` must stay stable across app versions; that an
-  `ActivityAccess` must outlive the controllers built on it, and that a special-access permission
-  request can return before the user leaves Settings when another window of the app is recreated;
-  that logging sinks must not log through their own factory; and that `uninstall()` of the
-  hardware-key policy leaves a window already composed with the policy it read.
+- Docs, later review: that a withdrawal or enqueue whose store write has started waits for that
+  write whatever the caller's timeout (only the store bounds it), that `close()` does not wait for a
+  running attempt, so a handler that ignores cancellation can see its item run again by the next
+  engine, as after a process kill, and that `UploaderStore.markInFlight` should store the lease
+  exactly; that a `kmptoolkit-uploader` `onSettled` runs at most once and only for an applied
+  settlement, that there is one upload job per item, and what an unreadable journal entry waits for;
+  that `DownloadUnit.tempExtension` is part of the temp file's name and must be the same for every
+  instance of one id; that a desktop store file that cannot be parsed fails every operation and is
+  never replaced; that `kmptoolkit-scheduler` `cancel` and `cancelAll` remove only alarms that have
+  not fired yet, what a refused cancel leaves behind, and that `AlarmFailure.PlatformError.message`
+  may be a library diagnostic; that `AlarmSchedulerConfig.alarmIdKey` and `alarmTypeKey` must stay
+  stable across app versions; that an `ActivityAccess` must outlive the controllers built on it, and
+  that a special-access permission request can return before the user leaves Settings when another
+  window of the app is recreated; that logging sinks must not log through their own factory; and
+  that `uninstall()` of the hardware-key policy leaves a window already composed with the policy it
+  read.
 - Internal: synchronization in `kmptoolkit-activity`, `kmptoolkit-audio-player`,
   `kmptoolkit-audio-recorder`, `kmptoolkit-flashlight`, `kmptoolkit-permission`,
   `kmptoolkit-scheduler`, `kmptoolkit-uploader`, `kmptoolkit-uploader-sqldelight` and
@@ -295,7 +301,6 @@ Breaking; the behavior changes of this release are listed there.
   left subscribed without a handle (the exception still reaches the caller). With two windows of the
   app resumed at once (split screen, freeform), the access no longer reports no activity after the
   later window pauses; it answers with the window that is still resumed.
-<!-- TODO(4.0.0 release notes): kmptoolkit-activity entries from the last activity/permission review round are still missing (fixer report pending); add them, then delete this comment. -->
 - `kmptoolkit-audio-player`: a cancelled middle prepare could let the next load (or unload's engine
   release) start while an earlier load was still unwinding; an error reported right after prepared is no
   longer lost (`Error` wins over `Ready`); an Android error that arrives after a load was cancelled no
@@ -570,7 +575,13 @@ Breaking; the behavior changes of this release are listed there.
   33, the device-policy, rationale or protection-level lookup) no longer escapes `check`, `request`
   or `observe`; it reads as the status the platform cannot contradict (notifications off, not
   restricted, rationale unknown, unknown permission) and is logged once.
-<!-- TODO(4.0.0 release notes): kmptoolkit-permission entries from the last activity/permission review round are still missing (fixer report pending); add them, then delete this comment. -->
+- `kmptoolkit-permission` (Android): a request made right after another one was answered (from a
+  caller on `Dispatchers.Main.immediate` such as `viewModelScope`, in the same coroutine or in one
+  batch) now shows its dialog, role or device-admin screen instead of reporting that it could not be
+  shown, and a special-access request made that way no longer returns before the user has left for
+  Settings and come back. The controller waits (up to a second, once per call) for an activity of
+  the app to be resumed before it puts system UI on screen, so in a backgrounded app a request can
+  now take up to a second to be reported as not shown.
 - `kmptoolkit-scheduler` (iOS): `schedule` no longer reports `Exact` for a request iOS would silently
   discard past its 64-pending-notification cap; with 64 other requests pending it returns
   `Failed(PlatformError)` and adds nothing (re-scheduling a pending id still succeeds). The check and
@@ -619,7 +630,6 @@ Breaking; the behavior changes of this release are listed there.
   the same window. A released controller never writes to the window again, queued writes included.
 - `kmptoolkit-systembars-testing`: `RecordingSystemBarsController` records no platform write after
   `release()`, matching the real controller; `config` still follows later writes.
-<!-- TODO(4.0.0 release notes): kmptoolkit-systembars entries from the last activity/permission review round are still missing (fixer report pending); add them, then delete this comment. -->
 - `kmptoolkit-uploader`: an upload whose answer arrived but whose settlement was lost no longer uploads
   again. The Android and iOS handler transports write the completed outcome (status, headers, capped
   body) to a small file before settling and delete it once the engine has the answer; a worker restart,
@@ -678,12 +688,17 @@ Breaking; the behavior changes of this release are listed there.
   cancelled right after its launch, also over a store that switches dispatchers (the SQLDelight
   one). An item that settled or was withdrawn while its handler prepared the upload is no longer
   uploaded.
-- `kmptoolkit-uploader`: an attempt cancelled by a withdrawal or by `close()` records nothing even
-  when its handler answers the cancellation with `Retry`, `Park`, `Drop` or `Detached` (a `Success`
-  still removes the row, since the effect happened). After `close()`, an engine whose
-  `prepareUpload` ignored the cancellation no longer claims or launches the upload, and a `close()`
-  while an upload's claim was being written no longer leaves the item in flight for a whole lease:
-  the claim is released and the next engine starts it at once.
+- `kmptoolkit-uploader`: an attempt cancelled by a withdrawal or by `close()` records nothing when
+  its handler answers the cancellation with `Retry`, `Park` or `Drop`. A `Success` is always
+  recorded, even when `close()` lands while the delivered item's row is being removed, so the next
+  engine does not run the effect again. A `Detached` answer given just as `close()` lands is
+  recorded under its lease (unless the item was withdrawn): the next engine waits for it and then
+  re-hands it with `wasDetached = true`, instead of running it at once as a first attempt. After
+  `close()`, an engine whose `prepareUpload` ignored the cancellation, or whose claim finished after
+  `close()` returned, no longer launches the upload; the claim is released, but only if the row
+  still carries that exact lease, so the late release of a closed engine never resets a claim a
+  replacement engine made on the same item (which let the item upload twice). A `close()` while a
+  claim was being written no longer leaves the item in flight for a whole lease.
 - `kmptoolkit-uploader`: a `Logger` that throws (a `CancellationException` or anything else) no
   longer breaks `enqueue`, `close` or the drain, nor the Android and iOS transports, wake schedulers
   or the outcome journal. A `ConstraintProvider` whose flow fails when collected no longer reaches
@@ -738,7 +753,12 @@ Breaking; the behavior changes of this release are listed there.
   `isBodyTruncated = true`, as on Android, instead of a transport failure, so an accepted file is no
   longer uploaded again. An item whose id is not a plain file name (it contains `/`, for instance,
   or is very long) now uploads; before, writing its temporary body failed on every attempt.
-<!-- TODO(4.0.0 release notes): kmptoolkit-uploader entries from the last uploader engine review round are still missing (fixer report pending); add them, then delete this comment. -->
+- `kmptoolkit-uploader`: a worker stopped while `prepareUpload` ran is no longer charged a failed
+  attempt, whatever kind of store is used.
+- `kmptoolkit-uploader`: a `cancel` whose store delete fails leaves an item that is still queued,
+  together with its running attempt and upload, untouched, and throws; calling it again withdraws
+  the item. A `REPLACE` enqueue stops and cancels the superseded item before it arms the wake, so a
+  `WakeScheduler` that throws (against its contract) no longer leaves that upload running.
 - `kmptoolkit-uploader-sqldelight`: `UploaderStorage.close()` called on the database thread throws
   instead of deadlocking, and a second `close()` is always a no-op (also on iOS, where a thread id can
   be reused). The transaction-await deadlock and the close order are documented.
@@ -818,7 +838,6 @@ Breaking; the behavior changes of this release are listed there.
   longer throws on a NaN volume), and a `VideoSource.Asset` whose class loader returns a `file:` URL
   that is not percent-encoded (a space, a non-ASCII character or `%` in the path) plays instead of
   failing with `URISyntaxException` or `IllegalArgumentException`.
-<!-- TODO(4.0.0 release notes): kmptoolkit-video-player-javafx entries from the last desktop video review round: confirm against the final report (still being finished); then delete this comment. -->
 - `kmptoolkit-video-player-testing`: `FakeVideoPlaybackEngine.advancePositionBy` saturates instead
   of wrapping around, and the `releaseCount` documentation names the release on a re-prepare.
 - `kmptoolkit-video-player-vlcj`: the engine no longer overwrites a seek target with libvlc's pre-seek
@@ -845,7 +864,6 @@ Breaking; the behavior changes of this release are listed there.
   instead of handing libvlc a rate it does not play (the clock could stand still while the player
   reported `Playing`), and a seek target is capped so libvlc's microsecond conversion cannot
   overflow (a skip far past the end of a source of unknown length was ignored by libvlc).
-<!-- TODO(4.0.0 release notes): kmptoolkit-video-player-vlcj entries from the last desktop video review round: confirm against the final report (still being finished); then delete this comment. -->
 
 ## [3.0.0]
 
