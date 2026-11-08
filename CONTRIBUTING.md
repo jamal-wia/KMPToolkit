@@ -16,7 +16,8 @@ compatibility, branching, testing, documentation).
 
 ## Making a change
 
-1. Branch from `develop` (never commit directly to `main` or `develop`).
+1. Branch from the current release branch (`release/x.y.z`, cut from `main`); never commit directly
+   to `main`.
 2. Make the change. Every public symbol needs KDoc; every behavioral change needs a matching update
    to that module's `docs/<module>/` (see `.claude/CLAUDE.md` § Documentation is mandatory).
 3. Add tests. See `.claude/CLAUDE.md` § Tests — cases are derived from requirements, not from what the
