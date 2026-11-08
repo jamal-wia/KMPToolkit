@@ -213,7 +213,7 @@ player.playbackSpeedFlow.value   // 1.5f — the clamped value in effect
 ```
 
 Clamped to `VideoPlayerConfig`'s `minPlaybackSpeed..maxPlaybackSpeed` (`0.25f..3.0f` by default),
-never rejected; `NaN` is ignored. `player.playbackSpeedRange` is that configured range, for a speed menu that should offer only rates the player accepts. The rate a player starts with (`1.0`) is clamped the same way, so a range such as `2f..3f` starts at `2f`. As in the audio player, the rate reaches the platform only while
+never rejected; `NaN` is ignored. `player.playbackSpeedRange` is that configured range, for a speed menu that should offer only rates the player accepts. The rate a player starts with (`1.0`) is clamped the same way, so a range such as `2f..3f` starts at `2f`. An engine may play only part of a very wide range: the VLC engine plays 1/32..32 and uses the nearest bound outside it. As in the audio player, the rate reaches the platform only while
 playing, on every `play()` and when a source loads — on `AVPlayer` a non-zero rate on a paused player
 starts it.
 

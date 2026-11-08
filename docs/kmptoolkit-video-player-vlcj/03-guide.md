@@ -73,6 +73,9 @@ never does: `1f` means the same on every platform, and amplification clips.
 Volume and rate are re-applied each time output starts, because VLC only accepts them once its
 audio output exists. A volume set while nothing plays is not lost.
 
+The VLC engine plays rates from 1/32 to 32 (libvlc's range) and uses the nearest bound outside it;
+`playbackSpeedFlow` still shows the speed that was asked for.
+
 ## Buffering and buffered position
 
 - `isBufferingFlow` follows VLC's cache-fill events: `true` while the cache refills during playback,

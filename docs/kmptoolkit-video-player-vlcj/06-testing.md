@@ -61,6 +61,24 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   stop → release on the teardown thread; `release` from inside a callback; a new load silencing the
   old source; the temporary asset copy deleted after its player is released, and when a cancellation
   lands right after resolution or during discovery; nothing slow on the calling thread.
+- `VlcjSetTimeInputLockAdversarialTest` — a model of libvlc 3, whose `set_time` waits for the event callback
+  that is running (measured against libvlc 3.0.21): a seek, and the pending seek applied at Playing,
+  never wait for a callback that waits for the engine; `release` from inside a callback while another
+  thread's seek waits for it neither deadlocks nor frees the player under the seek; a seek in flight
+  against a release on another thread frees the player only after the seek returned and starts nothing
+  after `release` returned; a clock reading taken while a seek arrives from a VLC thread does not
+  replace its target; a listener called from the load's size report that calls back into the engine never
+  waits for a native call whose callback waits for the listener lock.
+- `VlcjReplayAfterEndAdversarialTest` — VLCJ resets an ended media with a stop on its task thread (libvlc
+  ignores a `play` until then): a restart made from another thread right after the end, and one made from
+  inside the completion callback, both reach libvlc behind that reset.
+- `VlcjRateRangeAdversarialTest` — libvlc 3 plays rates from 1/32 to 32 only: a speed below that reaches libvlc
+  as 1/32, one above as 32, and one in range unchanged.
+- `VlcjBoundaryAdversarialTest` — hostile inputs at the engine's edge: a NaN volume and a rate that is not finite
+  and positive never reach libvlc, the playhead stays where a source of unknown length ended, and a seek target
+  beyond what libvlc's microsecond conversion can hold is capped instead of wrapping.
+- `VlcjResolverUnencodedUrlAdversarialTest` — a `VideoSource.Asset` whose class loader returns a `file:` URL that
+  is not percent-encoded (a space, a non-ASCII character or `%` in the path) resolves to that file.
 - `VlcjVideoEngineCleanerTest` — the garbage-collection safety net: an engine dropped with a source
   loaded is collected despite a native side that holds its callbacks strongly, and then releases the
   native player and the libvlc instance (once), the player always before the instance, also when
