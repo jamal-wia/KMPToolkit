@@ -49,8 +49,9 @@ The build machine needs:
 6. **Create a GitHub Release** against the merged commit on `main`, tagged `x.y.z` (no `v` prefix,
    matching `kmptoolkit.version`). This is a manual, human action — the assistant does not create
    GitHub releases (see `.claude/CLAUDE.md` § Publishing).
-7. **The `publish.yml` workflow fires automatically** on the release. It runs `checkKotlinAbi`, the test
-   suite, then `publishAndReleaseToMavenCentral` for every module.
+7. **The `publish.yml` workflow fires automatically** on the release. It runs `checkKotlinAbi`, then
+   `publishAndReleaseToMavenCentral` for every module. It does not run the tests: step 1 is the only
+   test gate, so do not skip it.
 8. **Monitor the deployment** in the [Central Portal](https://central.sonatype.com/publishing) —
    `automaticRelease = true` means a successful build publishes without a manual "release" click,
    but validation failures (missing POM fields, unsigned artifacts) still show up there first.
