@@ -117,8 +117,9 @@ internal class FxPlayback private constructor(
         media.setOnError { fail(media.error ?: player.error) }
         player.setOnEndOfMedia {
             // Fired at the end of every cycle, including while cycleCount is INDEFINITE and JavaFX
-            // is already starting the next one — that is not an end.
-            if (looping) return@setOnEndOfMedia
+            // is already starting the next one — that is not an end. A handler JavaFX queued before
+            // dispose() can still run after it, and must then do nothing.
+            if (disposed || looping) return@setOnEndOfMedia
             atEnd = true
             // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
             // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
@@ -212,6 +213,15 @@ internal class FxPlayback private constructor(
         stopPulse()
         ready.cancel()
         view.mediaPlayer = null
+        // OpenJFX race: MediaPlayer.dispose() sets DISPOSED, but a status update its native side had
+        // already queued (onPlaying / onPause) can run afterwards and overwrite it, after which the
+        // guards in seek() and pause() pass on a player whose native half is gone. A queued
+        // end-of-media then loops (seek -> NullPointerException on the FX thread) or reaches our
+        // handler. With one cycle and no handler an already queued end takes the plain non-looping
+        // branch, which never seeks. Plain property writes on a player that is not yet disposed. Do
+        // not "simplify" this away.
+        player.onEndOfMedia = null
+        player.cycleCount = 1
         player.dispose()
         image = null
         scratch = null
@@ -367,6 +377,8 @@ internal class FxPlayback private constructor(
                     coroutineScope {
                         // The toolkit can end at any moment, by implicit exit as well as
                         // Platform.exit(); the wait then ends at once instead of at the timeout.
+                        // Silence is not taken for an exit while the FX thread runs this load's own
+                        // construction (see FxThread.hasExited).
                         val exitWatch: Job = launch {
                             while (true) {
                                 delay(EXIT_POLL_MS)

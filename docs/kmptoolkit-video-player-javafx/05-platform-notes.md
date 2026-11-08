@@ -114,10 +114,15 @@ decoder writes straight into memory without a render-and-read-back step.
   `RuntimeUnavailable` instead of waiting for the ready timeout. An explicit `Platform.exit()` is
   seen at once. An implicit exit and a dead JavaFX thread give OpenJFX's own API no signal, so they
   are seen through the thread (where it ends with the toolkit) or through a heartbeat block that the
-  JavaFX thread has not run for 2 s; the first call or load after such an exit therefore takes up to
+  JavaFX thread has not run for 2 s. Silence counts only while an implicit exit is possible at all
+  (implicit exit on; never when the engine started the toolkit, since it switches implicit exit
+  off), and never while the JavaFX thread is running the engine's own work, such as building a
+  player on a cold start. A thread kept busy for 2 s by the app's own work while implicit exit is on
+  is still taken for an exited one until it answers: that load fails with `RuntimeUnavailable`,
+  which is not remembered, and the next load works. The first call or load after such an exit therefore takes up to
   2 s to fail, later ones fail at once, and a thread that was only stalled and then recovers counts
   as running again. A load in flight when the toolkit ends fails within about 2 s as well. Where
-  JavaFX is hosted on a thread that outlives it (inside Swing or SWT), the heartbeat is the only
+  JavaFX is hosted on a thread that outlives it (inside Swing or SWT), the heartbeat, with implicit exit on, is the only
   signal.
 - **Where work happens.** Every `MediaPlayer` call runs on the JavaFX application thread, in the
   order the calls were made from whichever threads made them (a call made on that thread runs at
@@ -150,6 +155,8 @@ decoder writes straight into memory without a render-and-read-back step.
 - **Playback speed.** On macOS, `MediaPlayer.play()` starts the native player at normal speed
   whatever rate JavaFX holds, so a speed set while paused would be lost; the engine applies the rate
   again after every `play()`.
+  A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
+  passes one).
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from
   `bufferProgressTime`, which is meaningful for progressive HTTP sources (for a local file expect it
   to cover the whole duration).

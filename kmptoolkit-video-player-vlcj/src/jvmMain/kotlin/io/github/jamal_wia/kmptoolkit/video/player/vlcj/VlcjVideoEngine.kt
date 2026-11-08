@@ -234,11 +234,16 @@ internal class VlcjVideoEngine(
     // call runs last applies the last value set.
 
     override fun setSpeed(speed: Float) {
+        // The player clamps into a finite range; this is the boundary guard for any other caller.
+        // Checked before the value is stored, so a re-apply (after load, at Playing) never resurrects it.
+        if (!speed.isFinite() || speed <= 0f) return
         this.speed = speed
         withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
     }
 
     override fun setVolume(volume: Float) {
+        // NaN is not a volume and would make volumePercent throw; out-of-range values are clamped there.
+        if (volume.isNaN()) return
         this.volume = volume
         withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
     }
@@ -262,7 +267,8 @@ internal class VlcjVideoEngine(
         // A seek still queued (RepeatMode.One restarts from the end this way) outranks "ended".
         val inFlight: Long? = synchronized(lock) { if (s.seeksInFlight > 0) s.seekTargetMs else null }
         if (inFlight != null) return inFlight
-        if (s.ended) return durationMs()
+        // An unknown length (0) is not an end position.
+        if (s.ended) return if (s.lengthMs > 0L) durationMs() else s.timeMs.coerceAtLeast(0L)
         if (s.started && !onVlcThread.get()) {
             withOpenSession { open ->
                 // The seek target stands until libvlc reports a time near it (see holdsSeekTarget).
@@ -293,7 +299,9 @@ internal class VlcjVideoEngine(
 
     /**
      * Releases, then frees the libvlc instance — after every native player, on the [teardown]
-     * thread. Final and idempotent: a [load] after it throws.
+     * thread. Final and idempotent: a [load] after it throws. Waits while another thread is still
+     * creating libvlc (the monitor [RuntimeHolder.acquire] holds); the player calls this only after
+     * every load has unwound, so through the player it never waits.
      */
     override fun dispose() {
         release()
@@ -577,7 +585,8 @@ internal class VlcjVideoEngine(
                 return@onVlcCallback
             }
             s.ended = true
-            s.timeMs = s.lengthMs
+            // An unknown length (0) is not an end position: the last reported time stays.
+            if (s.lengthMs > 0L) s.timeMs = s.lengthMs
             notify(s) { it.onCompleted() }
         }
 

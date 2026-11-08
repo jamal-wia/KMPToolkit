@@ -30,6 +30,7 @@ internal object ExitLifecycleMain {
                 "implicit" -> implicit()
                 "implicit-immediate" -> implicitImmediate()
                 "callback" -> callback()
+                "implicit-during-load" -> implicitDuringLoad()
                 else -> error("unknown scenario")
             }
         } catch (e: Throwable) {
@@ -196,5 +197,52 @@ internal object ExitLifecycleMain {
         val reloadBegun: Long = System.nanoTime()
         println("RESULT reload=${load(engine)}")
         println("RESULT reloadMs=${ms(reloadBegun)}")
+    }
+
+    /**
+     * A load of a source JavaFX never reports ready (garbage in an .mp4 name; on macOS it answers
+     * neither READY nor an error) is in flight with a 20 s ready timeout when the host's last window
+     * closes and its implicit exit takes the toolkit down.
+     */
+    private fun implicitDuringLoad() {
+        val warm = JavaFxVideoEngine(readyTimeoutMs = 4_000L)
+        println("RESULT firstLoad=${load(warm)}")
+        val shown = CountDownLatch(1)
+        val stageRef = java.util.concurrent.atomic.AtomicReference<javafx.stage.Stage?>(null)
+        Platform.runLater {
+            val stage = javafx.stage.Stage()
+            stage.scene = javafx.scene.Scene(javafx.scene.Group(), 50.0, 50.0)
+            stage.show()
+            stageRef.set(stage)
+            shown.countDown()
+        }
+        check(shown.await(10L, TimeUnit.SECONDS)) { "the host window did not show" }
+        val garbage: java.io.File = java.io.File.createTempFile("kmptoolkit-garbage", ".mp4").apply {
+            deleteOnExit()
+            writeBytes(ByteArray(4_096) { (it * 31 + 7).toByte() })
+        }
+        val engine = JavaFxVideoEngine(readyTimeoutMs = 20_000L)
+        val outcome = java.util.concurrent.atomic.AtomicReference<String>("pending")
+        val endedAt = java.util.concurrent.atomic.AtomicLong(0L)
+        val begun: Long = System.nanoTime()
+        val loader = thread {
+            outcome.set(
+                try {
+                    runBlocking { withTimeout(40_000L) { engine.load(VideoSource.File(garbage.path)) } }
+                    "ok"
+                } catch (e: Throwable) {
+                    e::class.simpleName ?: "?"
+                },
+            )
+            endedAt.set(System.nanoTime())
+        }
+        Thread.sleep(1_000L)
+        val closedAt: Long = System.nanoTime()
+        Platform.runLater { stageRef.get()?.close() }
+        loader.join(45_000L)
+        println("RESULT outcome=${outcome.get()}")
+        println("RESULT endedBeforeClose=${endedAt.get() != 0L && endedAt.get() < closedAt}")
+        println("RESULT afterCloseMs=${if (endedAt.get() == 0L) -1L else (endedAt.get() - closedAt) / 1_000_000L}")
+        println("RESULT totalMs=${ms(begun)}")
     }
 }
