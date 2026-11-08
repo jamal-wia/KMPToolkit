@@ -64,10 +64,53 @@ class UploaderEngineContractGapsRound6AdversarialTest {
 
     private fun TestScope.scopeOn(parent: Job): CoroutineScope = CoroutineScope(StandardTestDispatcher(testScheduler) + parent)
 
+    @Test
+    fun `a cancel that failed in the store changed nothing so the upload it was asked to withdraw still runs`() =
+        runTest {
+            val parent = Job()
+            try {
+                val inner = TestUploaderStore(
+                    listOf(
+                        UploaderItem(
+                            id = "u1", type = "r6.upload", payload = "p", schemaVersion = 1, uniqueKey = null, orderingKey = null,
+                            tag = null, state = UploaderItemState.IN_FLIGHT, attempts = 0, nextRunAtEpochMillis = 0L,
+                            createdAtEpochMillis = 0L, lastError = null, leaseUntilEpochMillis = 100_000_000L, claim = 1L,
+                        ),
+                    ),
+                )
+                val transport = Transport()
+                val handler = UploadingHandler(transport)
+                val engine: UploaderEngine = testEngine(FailingDeleteStore(inner), listOf(handler), scopeOn(parent), TestClock(1_000L))
+                assertFailsWith<IllegalStateException> { engine.cancel("u1") }
+                assertNotNull(inner.find("u1"))
+                assertEquals(emptyList(), transport.events, "the row is still in flight under a lease, but its upload was cancelled")
+            } finally {
+                parent.cancel()
+            }
+        }
+
     private class ThrowingWake : WakeScheduler {
         override fun scheduleWake(): Unit = throw IllegalStateException("WorkManager is not initialised")
         override fun cancelWake(): Unit = Unit
     }
+
+    @Test
+    fun `a replace whose wake scheduler throws still stops and cancels the item it superseded`() =
+        runTest {
+            val parent = Job()
+            try {
+                val inner = TestUploaderStore()
+                val transport = Transport()
+                val handler = UploadingHandler(transport)
+                val engine: UploaderEngine = testEngine(inner, listOf(handler), scopeOn(parent), TestClock(1_000L), wakeScheduler = ThrowingWake())
+                val old: String? = runCatching { engine.enqueue(handler, "a", uniqueKey = "k") }.getOrNull()
+                val ids: List<String> = inner.items.map { it.id }
+                runCatching { engine.enqueue(handler, "b", uniqueKey = "k", conflictPolicy = ConflictPolicy.REPLACE) }
+                assertEquals(listOf("cancel:${ids.single()}"), transport.events, "the superseded upload was left running; first enqueue returned $old")
+            } finally {
+                parent.cancel()
+            }
+        }
 
     /** A claim that waits where it cannot be interrupted and then reports the cancelled caller without having written. */
     private class LateRefusedClaimStore(
