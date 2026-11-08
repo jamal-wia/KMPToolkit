@@ -40,7 +40,7 @@ class VideoPlayerSiblingGapsAdversarialTest {
     }
 
     @Test
-    fun `the rate pushed to the engine is always inside the configured range, also the initial one`() = playerTest(
+    fun `the rate pushed to the engine is always inside the configured range even for the initial one`() = playerTest(
         config = VideoPlayerConfig(minPlaybackSpeed = 2.0f, maxPlaybackSpeed = 3.0f),
     ) { engine, player ->
         // playbackSpeedFlow: "Rate in effect, already clamped to the configured range".
