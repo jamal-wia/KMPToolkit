@@ -51,12 +51,12 @@ class JavaFxPlayerStormAdversarialTest {
         assertTrue(done.await(seconds, TimeUnit.SECONDS), "the FX thread did not drain within $seconds s")
     }
 
-    private fun drive(player: VideoPlayer, random: Random, deadlineNanos: Long) {
+    private fun drive(player: VideoPlayer, random: Random, deadlineNanos: Long, assets: List<String> = listOf(TestClip.ASSET)) {
         while (System.nanoTime() < deadlineNanos) {
             when (random.nextInt(12)) {
                 0, 1 -> runBlocking {
                     try {
-                        withTimeout(6_000L) { player.prepare(VideoSource.Asset(TestClip.ASSET)) }
+                        withTimeout(6_000L) { player.prepare(VideoSource.Asset(assets.random(random))) }
                     } catch (e: Exception) {
                         // A superseded, unloaded or timed-out prepare is an outcome, not a failure of the test.
                     }
@@ -168,5 +168,24 @@ class JavaFxPlayerStormAdversarialTest {
             engine.release()
             drainFxThread()
         }
+    }
+
+    @Test
+    fun `eight players alternating a video and an audio only source under the same storm end clean`() {
+        val players: List<VideoPlayer> = List(8) {
+            createVideoPlayer(JavaFxVideoEngine(readyTimeoutMs = 10_000L), VideoPlayerConfig(positionUpdateIntervalMs = 10L), Dispatchers.Default)
+        }
+        val deadline: Long = System.nanoTime() + 5_000_000_000L
+        val assets: List<String> = listOf(TestClip.ASSET, "silence-8khz-1s.wav")
+        val drivers = players.mapIndexed { n, player -> thread(name = "mixed-$n") { drive(player, Random(n * 17L + 3), deadline, assets) } }
+        drivers.forEach { it.join(30_000L) }
+        assertTrue(drivers.none { it.isAlive }, "a driver thread hung")
+        val releasers = players.map { thread { it.release() } }
+        releasers.forEach { it.join(15_000L) }
+        assertTrue(releasers.none { it.isAlive }, "a release hung")
+        drainFxThread()
+        Thread.sleep(300L)
+        drainFxThread()
+        assertEquals(emptyList(), errors.toList(), "uncaught exceptions during the storm")
     }
 }
