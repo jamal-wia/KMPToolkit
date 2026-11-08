@@ -196,7 +196,7 @@ The map has one entry per distinct permission, in your order. On Android every r
 the batch that can still show a dialog shares **one** system dialog — the user sees "Allow camera?"
 and "Allow microphone?" back to back, without your app in between — and everything else (special
 accesses, roles, background location, an entry already decided) is then requested one by one, in
-order. On iOS there is no shared dialog: each prompt follows the previous one.
+order, and each step waits for the app to be back on screen before it asks. On iOS there is no shared dialog: each prompt follows the previous one.
 
 Use a batch where the permissions belong to one feature and one explanation covers them all. Where
 each needs its own explanation, drive a `PermissionRequestFlow` per permission instead — that is why
