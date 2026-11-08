@@ -177,7 +177,7 @@ internal class AndroidAlarmScheduler(
                 stale.cancel()
             } catch (refusal: RuntimeException) {
                 // The new alarm is armed; reporting a failure for it would be a lie. The old one may
-                // fire once more, and the next schedule or cancel of the id clears it.
+                // fire once more, and the next successful schedule or a cancel of the id clears it.
                 logCancelFailure(alarm.id, refusal)
             }
         }
@@ -212,7 +212,7 @@ internal class AndroidAlarmScheduler(
     override suspend fun cancel(id: String) {
         val manager: AlarmManager = alarmManager ?: return
         platformCalls.withLock {
-            // Each slot on its own, so a refusal for the first does not skip the second.
+            // Each slot on its own, so a refusal for one does not skip the others.
             for (slot: Int in SLOTS) {
                 try {
                     // FLAG_NO_CREATE resolves the PendingIntent armed earlier — matched on request code,

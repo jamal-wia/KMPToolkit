@@ -117,6 +117,22 @@ What breaks delivery entirely:
 - **Aggressive OEM battery management** (Xiaomi, Huawei, Samsung and others) can suppress alarms for
   apps the user has not whitelisted. Nothing in the Android API can override it.
 
+### A refused cancel
+
+When a `schedule` replaces an alarm, the new alarm is armed first and the old one is cancelled
+after. If `AlarmManager` refuses that cancel (a `SecurityException` or `IllegalStateException`,
+logged), `schedule` still reports the new alarm, and the old one stays armed and may fire once more.
+`cancel(id)` is the same: a refusal is logged and the alarm may stay armed.
+
+- An id owns four `PendingIntent` slots. The new alarm goes into a slot the id does not occupy, and a
+  retirement the platform refused leaves its slot occupied.
+- When all four slots are occupied (three refused retirements in a row, with no successful
+  `schedule` or `cancel` of the id in between), a further `schedule` of that id answers
+  `Failed(PlatformError)` and changes nothing: the armed alarm stays exactly as it was. A healthy
+  `schedule` does not recover it, because the newest alarm cannot be told from the stale ones.
+- Recovery is `cancel(id)`, then `schedule` again. Between the two calls no alarm is armed for that
+  id, and if `cancel` is refused again the id stays saturated.
+
 What does **not** break delivery: an **app update**. Android keeps a package's alarms when the
 package is replaced. They are addressed to a receiver class, though — so if the update removed the
 class an alarm was armed for (typically: moving from an app's own receiver onto this module's), the

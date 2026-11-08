@@ -19,8 +19,15 @@ public interface AlarmScheduler {
     /**
      * Arms [alarm], replacing any pending alarm with the same [ScheduledAlarm.id].
      *
-     * Replacement is by id on both platforms, so calling this twice with one id leaves exactly one
-     * alarm armed, at the later call's time — there is no way to accidentally stack duplicates.
+     * Replacement is by id on both platforms, so calling this twice with one id replaces the first
+     * alarm with the second, at the later call's time: duplicates never come from calling this
+     * twice, only from platform refusals (below).
+     *
+     * On Android, if the platform refuses to cancel the replaced alarm, that alarm stays armed and
+     * may still fire; the call still reports the new alarm, and the next successful `schedule` or a
+     * [cancel] of the id retires it. Once four such refusals pile up for one id without a successful
+     * schedule or cancel in between, this answers [AlarmScheduleResult.Failed] with
+     * [AlarmFailure.PlatformError] without changing anything until [cancel] is called for the id.
      *
      * A [ScheduledAlarm.fireAtEpochMillis] already in the past is legal and never throws: Android
      * fires such an alarm as soon as it is armed, iOS clamps the trigger to one second from now.
