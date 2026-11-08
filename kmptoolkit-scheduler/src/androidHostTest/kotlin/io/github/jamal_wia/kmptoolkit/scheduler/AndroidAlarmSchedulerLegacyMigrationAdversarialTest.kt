@@ -21,7 +21,7 @@ import org.robolectric.shadows.ShadowAlarmManager
 /**
  * An app updated from a version that armed alarms with the plain `Uri.Builder.appendPath(id)` data URI: the
  * alarm armed before the update must still be replaced by `schedule(id)` and removed by `cancel(id)` ("Re-scheduling
- * the same id replaces the pending alarm", "cancel takes this value"), for an ordinary id (ids with an unpaired surrogate changed their URI, see the suspect copy).
+ * the same id replaces the pending alarm", "cancel takes this value"), for every id the contract allows.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -62,5 +62,23 @@ class AndroidAlarmSchedulerLegacyMigrationAdversarialTest {
         assertEquals(listOf("new"), titles())
         runBlocking { scheduler.cancel("reminder-1") }
         assertEquals(emptyList(), titles())
+    }
+
+    @Test
+    fun `an id with an unpaired surrogate armed by the earlier version is replaced`() {
+        val id = "task\uD800"
+        armAsEarlierVersion(id, "old")
+        val scheduler: AlarmScheduler = AndroidAlarmScheduler(context, keys)
+        assertIs<AlarmScheduleResult.Exact>(runBlocking { scheduler.schedule(alarm(id, "new")) })
+        assertEquals(listOf("new"), titles(), "the alarm armed before the update stayed armed next to the replacement")
+    }
+
+    @Test
+    fun `an id with an unpaired surrogate armed by the earlier version is cancelled`() {
+        val id = "task\uD800"
+        armAsEarlierVersion(id, "old")
+        val scheduler: AlarmScheduler = AndroidAlarmScheduler(context, keys)
+        runBlocking { scheduler.cancel(id) }
+        assertEquals(emptyList(), titles(), "cancel(id) could not find the alarm armed before the update")
     }
 }

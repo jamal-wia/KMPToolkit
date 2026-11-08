@@ -48,6 +48,21 @@ internal object AlarmIntents {
     fun cancelIntent(context: Context, id: String, keys: AlarmIntentKeys): Intent =
         Intent(context, AlarmReceiver::class.java).apply { data = alarmUri(id, keys.intentScheme) }
 
+    /**
+     * Like [cancelIntent], but for the data URI 3.0.x wrote: plain `appendPath`, which turns every
+     * unpaired surrogate into `?`. `null` for an id without one (its URI never changed, so slot 0 of
+     * [cancelIntent] already finds the old alarm). Alarms armed by 3.0.x for an id with an unpaired
+     * surrogate used the lossy `appendPath` URI. Drop in 4.0.0.
+     *
+     * The request code of that alarm was `id.hashCode()`, which is [requestCode] of slot 0.
+     */
+    fun legacyCancelIntent(context: Context, id: String, keys: AlarmIntentKeys): Intent? {
+        if (!id.hasUnpairedSurrogate()) return null
+        return Intent(context, AlarmReceiver::class.java).apply {
+            data = Uri.Builder().scheme(keys.intentScheme).appendPath(id).build()
+        }
+    }
+
     /** Rebuilds the alarm at fire time, or `null` if the intent is not one of ours. */
     fun fromIntent(intent: Intent, keys: AlarmIntentKeys): ScheduledAlarm? {
         val id: String = intent.getStringExtra(keys.idKey)?.takeIf { it.isNotBlank() } ?: return null
