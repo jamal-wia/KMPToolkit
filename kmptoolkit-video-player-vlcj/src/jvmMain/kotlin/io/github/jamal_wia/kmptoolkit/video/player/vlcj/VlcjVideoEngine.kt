@@ -692,9 +692,23 @@ internal class VlcjVideoEngine(
                 }
                 return@onVlcCallback
             }
-            s.ended = true
-            // An unknown length (0) is not an end position: the last reported time stays.
-            if (s.lengthMs > 0L) s.timeMs = s.lengthMs
+            // `ended` and the ordering marker are set in one [lock] region, before the listener hears
+            // of the end, so no caller can see `ended` without also seeing a call waiting on the task
+            // thread: its restart is then submitted behind the marker. The marker does no work; it
+            // only orders. VLCJ 4.12.1 resets an ended media itself: EventApi registers
+            // ResetMediaEventHandler before any listener of ours (so, as NativeEventManager raises
+            // events to its CopyOnWriteArrayList in registration order, it runs first) and on
+            // `finished` submits `controls().stop()` to the task thread; libvlc 3.0.21 ignores a
+            // play() on an ended player until then, and that stop would stop a play() that overtook
+            // it (probe order2.c). Not copied to error(): after an error the core needs a new
+            // prepare, which is a new session.
+            synchronized(lock) {
+                if (!isOpen(s)) return@synchronized
+                s.ended = true
+                // An unknown length (0) is not an end position: the last reported time stays.
+                if (s.lengthMs > 0L) s.timeMs = s.lengthMs
+                enqueueLocked(s) { null }
+            }
             notify(s) { it.onCompleted() }
         }
 

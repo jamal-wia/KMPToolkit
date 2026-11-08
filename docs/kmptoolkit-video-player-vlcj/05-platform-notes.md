@@ -101,7 +101,9 @@ from the app runs at once when nothing is waiting on the task thread, and is que
 otherwise; every call's own checks (not started yet, already at the end) are made when it runs,
 against what the calls before it left. So a `pause()` made right after such a restart always wins
 over it, and a seek made as output starts is never undone by the seek that was pending until then.
-Volume and speed are applied from their latest values whenever they are applied.
+Volume and speed are applied from their latest values whenever they are applied. A restart made right
+after a source ended, from any thread, is queued behind VLCJ's own reset of the ended media, without
+which libvlc would ignore it.
 
 No call into libvlc is made while holding a lock that VLC's event thread can wait for: libvlc 3 makes a
 seek wait for an event callback that is running, so a seek can never hang against an event, and

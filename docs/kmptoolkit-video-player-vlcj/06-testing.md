@@ -68,6 +68,9 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   against a release on another thread frees the player only after the seek returned and starts nothing
   after `release` returned; a clock reading taken while a seek arrives from a VLC thread does not
   replace its target.
+- `VlcjReplayAfterEndAdversarialTest` — VLCJ resets an ended media with a stop on its task thread (libvlc
+  ignores a `play` until then): a restart made from another thread right after the end, and one made from
+  inside the completion callback, both reach libvlc behind that reset.
 - `VlcjVideoEngineCleanerTest` — the garbage-collection safety net: an engine dropped with a source
   loaded is collected despite a native side that holds its callbacks strongly, and then releases the
   native player and the libvlc instance (once), the player always before the instance, also when
