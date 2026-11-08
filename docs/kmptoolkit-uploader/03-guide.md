@@ -153,7 +153,7 @@ A caller that is cancelled does not stop a withdrawal halfway. A caller cancelle
 nothing; once the call has begun removing rows, cancelling its caller changes nothing: the removal, the stop of the
 running attempt and the cancel of the upload complete together, and the call may return normally. That is what
 makes the logout wipe safe when the screen's `viewModelScope` is cleared while `cancelByTag` runs: no upload of the
-wiped account keeps running. (A `REPLACE` enqueue follows the same rule.)
+wiped account keeps running. (A `REPLACE` enqueue follows the same rule.) So does any `enqueue`: one whose caller is cancelled while its write is in progress still queues its item.
 
 What it cannot do is recall bytes the server already has: an upload whose body was fully sent may
 have been accepted. Read a withdrawal as "will not be sent from now on". Send `AttemptContext.id` as

@@ -37,8 +37,10 @@ public interface Uploader {
      *   [UploaderEngine.settle] — or `null` when [ConflictPolicy.KEEP] left an already-queued item in
      *   place and nothing was inserted.
      *
-     * A caller cancelled before the write starts writes nothing; once it has started, cancelling the caller does
-     * not interrupt it (see [ConflictPolicy.REPLACE] for what that means for a superseded item).
+     * A caller cancelled before the write starts writes nothing and arms no wake. Once the write has started,
+     * cancelling the caller does not interrupt it: the write completes, the item is queued as a normal pending
+     * item with its wake armed, and the call may return normally (see [ConflictPolicy.REPLACE] for what that
+     * means for a superseded item).
      */
     public suspend fun <P : Any> enqueue(
         handler: UploaderHandler<P>,
