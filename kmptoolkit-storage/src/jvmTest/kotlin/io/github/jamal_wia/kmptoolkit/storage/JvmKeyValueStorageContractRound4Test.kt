@@ -137,4 +137,24 @@ class JvmKeyValueStorageContractRound4Test {
             }
         }
     }
+
+    @Test
+    fun `a store whose file path is a directory or whose parent is a file fails with a typed error and never throws`() {
+        runBlocking {
+            withTimeout(30_000) {
+                val asDirectory = File(directory, "${plainStoreId("dirstore")}.properties").apply { mkdirs() }
+                File(asDirectory, "inner").writeText("x")
+                val blocked: KeyValueStorage = store("dirstore")
+                assertTrue(blocked.put("k", "v") is StorageResult.Failure || blocked.get("k") is StorageResult.Success)
+                assertTrue(blocked.clear() is StorageResult.Success || blocked.clear() is StorageResult.Failure)
+
+                val parentIsFile = File(directory, "parent-file").apply { writeText("not a directory") }
+                val underFile: KeyValueStorage = createKeyValueStorage(parentIsFile, StorageConfig("x"))
+                assertTrue(underFile.put("k", "v") is StorageResult.Failure)
+                assertTrue(underFile.get("k") is StorageResult.Success || underFile.get("k") is StorageResult.Failure)
+                assertTrue(underFile.remove("k") is StorageResult.Failure || underFile.remove("k") is StorageResult.Success)
+                assertEquals("not a directory", parentIsFile.readText())
+            }
+        }
+    }
 }

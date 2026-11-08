@@ -127,4 +127,22 @@ class AndroidSecureStorageRound4Test {
             }
         }
     }
+
+    @Test
+    fun `a device id over an undecryptable entry is replaced once and then stable`() {
+        val name: String = uniqueName("secure_devid")
+        val preferences: SharedPreferences =
+            context.getSharedPreferences(secureStoreId(name), Context.MODE_PRIVATE)
+        preferences.edit().putString(DeviceIdProvider.DEFAULT_KEY, "garbage that is not ciphertext").commit()
+        val storage: SecureKeyValueStorage = secure(name, preferences)
+        val provider = DeviceIdProvider(storage)
+        runBlocking {
+            withTimeout(30_000) {
+                val first: String = provider.current()
+                assertEquals(first, provider.current(), "the id was not persisted over the undecryptable entry")
+                assertEquals(first, storage.get(DeviceIdProvider.DEFAULT_KEY).getOrNull())
+                assertEquals(first, DeviceIdProvider(secure(name, coldPreferences(secureStoreId(name)))).current())
+            }
+        }
+    }
 }
