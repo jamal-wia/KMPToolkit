@@ -73,6 +73,9 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   inside the completion callback, both reach libvlc behind that reset.
 - `VlcjRateRangeAdversarialTest` — libvlc 3 plays rates from 1/32 to 32 only: a speed below that reaches libvlc
   as 1/32, one above as 32, and one in range unchanged.
+- `VlcjBoundaryAdversarialTest` — hostile inputs at the engine's edge: a NaN volume and a rate that is not finite
+  and positive never reach libvlc, the playhead stays where a source of unknown length ended, and a seek target
+  beyond what libvlc's microsecond conversion can hold is capped instead of wrapping.
 - `VlcjVideoEngineCleanerTest` — the garbage-collection safety net: an engine dropped with a source
   loaded is collected despite a native side that holds its callbacks strongly, and then releases the
   native player and the libvlc instance (once), the player always before the instance, also when

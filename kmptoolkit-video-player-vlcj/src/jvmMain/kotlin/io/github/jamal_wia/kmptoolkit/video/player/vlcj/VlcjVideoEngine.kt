@@ -204,7 +204,10 @@ internal class VlcjVideoEngine(
     }
 
     override fun seekTo(positionMs: Long) {
-        val target: Long = positionMs.coerceAtLeast(0L)
+        // libvlc takes microseconds: above Long.MAX_VALUE / 1000 its ms-to-us conversion wraps and the
+        // seek is ignored (probe time2.c). The core passes a relative skip on, unclamped, when the
+        // duration is unknown, so a huge target can arrive here.
+        val target: Long = positionMs.coerceIn(0L, MAX_SEEK_MS)
         val s: Session = session ?: return
         if (!s.loaded) return
         inOrder(s, atCall = {
@@ -830,6 +833,7 @@ internal class VlcjVideoEngine(
         private const val FULL_CACHE_PERCENT = 100f
         private const val MIN_VLC_RATE = 1f / 32f
         private const val MAX_VLC_RATE = 32f
+        private const val MAX_SEEK_MS = Long.MAX_VALUE / 1_000L
 
         /** How long a seek's target is held after `setTime` ran, if libvlc reports no time near it. */
         private const val SEEK_HOLD_NANOS = 500_000_000L
