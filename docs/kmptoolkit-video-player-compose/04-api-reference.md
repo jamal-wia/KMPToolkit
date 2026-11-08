@@ -114,7 +114,8 @@ The picture only. Never changes the player's state; never releases it.
 
 - **Size**: both dimensions bounded → the bounds. One unbounded → derived from
   `videoSizeFlow`'s aspect ratio, or the minimum constraint until it is known. Both unbounded → the
-  minimum constraints.
+  minimum constraints. Any side is capped at 32 766 px, so a picture of an extreme shape (a 1:10000
+  strip) lays out, clipped, instead of throwing out of measure.
 - **Picture**: sized by `scaleMode` inside those bounds, centred, clipped to them. The ratio is
   `videoSizeFlow`'s — the display shape, so an anamorphic source is right on every platform; on
   desktop each frame is stretched over that picture box, and only while no size is known is a
