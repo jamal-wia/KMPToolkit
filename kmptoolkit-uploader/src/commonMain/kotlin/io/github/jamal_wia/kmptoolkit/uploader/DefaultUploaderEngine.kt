@@ -710,33 +710,49 @@ internal class DefaultUploaderEngine(
         } catch (e: Throwable) {
             AttemptResult.Retry(e)
         }
-        settleCancelledAttempt(item, outcome)
-        applyOutcome(item, handler, outcome)
+        recordOutcome(item, handler, outcome, attempt)
     }
 
     /**
-     * Called with what a handler answered once its call returned. When the attempt was cancelled meanwhile (a
-     * withdrawal, or `close()` / a cancelled scope) the answer is not recorded, whatever it is: a handler that
-     * swallowed the cancellation and says Retry, Park, Drop or Detached is describing an attempt that was
-     * interrupted, and the next pass reaches the same verdict by itself — a transaction that rolled the
-     * withdrawal back restored the row unspent. The one exception is [AttemptResult.Success]: its effect
-     * happened, and running it again is worse than recording something, so its row is deleted (a no-op when
-     * the row is already gone). Does nothing for an attempt that is still active; otherwise ends by throwing
-     * the cancellation.
+     * Called with what a handler answered once its call returned; records it by rule P2 of the class KDoc. A
+     * `Success` (its effect happened) and a `Detached` (its executor was started) are facts, so they are recorded
+     * under `NonCancellable` whether or not the attempt is still active, which a `close()` landing meanwhile
+     * cannot interrupt. A `Detached` of a **withdrawn** attempt is the one exception: the withdrawal told its
+     * handler to stop the executor. Every other answer of a cancelled attempt is not recorded: the next pass
+     * reaches the same verdict by itself, and a transaction that rolled a withdrawal back restored the row
+     * unspent. Ends by throwing the cancellation when the attempt was cancelled.
      */
-    private suspend fun settleCancelledAttempt(item: UploaderItem, outcome: AttemptResult) {
-        if (currentCoroutineContext().isActive) return
-        if (outcome is AttemptResult.Success) {
-            try {
-                withContext(NonCancellable) { deleteAfterEffect(item.id) }
-                logger.i { "Delivered ${item.logName} while it was being cancelled; its row is removed." }
-            } catch (e: Throwable) {
-                logger.e(e) { "Confirming the delivery of ${item.logName} failed while it was being cancelled." }
-            }
-        } else {
-            logger.i { "Attempt of ${item.logName} was cancelled; its answer ($outcome) is not recorded." }
+    private suspend fun recordOutcome(
+        item: UploaderItem,
+        handler: UploaderHandler<*>,
+        outcome: AttemptResult,
+        attempt: RunningAttempt,
+    ) {
+        val cancelled: Boolean = !currentCoroutineContext().isActive
+        when {
+            // P2: the effect happened, so its row is removed whatever happens to the attempt.
+            outcome is AttemptResult.Success -> recordFact(item, cancelled, "delivered") { applyOutcome(item, handler, outcome) }
+            // P2: the executor was started, so the row is claimed under its lease (unless the attempt was withdrawn).
+            outcome is AttemptResult.Detached && !attempt.withdrawn.value ->
+                recordFact(item, cancelled, "detached") { applyOutcome(item, handler, outcome) }
+
+            cancelled -> logger.i { "Attempt of ${item.logName} was cancelled; its answer ($outcome) is not recorded." }
+            else -> applyOutcome(item, handler, outcome)
         }
         currentCoroutineContext().ensureActive()
+    }
+
+    /**
+     * Runs [write] under `NonCancellable`. A failure of a live attempt propagates (the drain backs off, and a
+     * failed delete is already remembered as delivered); one of an attempt that was being cancelled is logged.
+     */
+    private suspend fun recordFact(item: UploaderItem, cancelled: Boolean, what: String, write: suspend () -> Unit) {
+        try {
+            withContext(NonCancellable) { write() }
+        } catch (e: Throwable) {
+            if (!cancelled) throw e
+            logger.e(e) { "Recording that ${item.logName} was $what failed while its attempt was being cancelled." }
+        }
     }
 
     private suspend fun applyOutcome(
