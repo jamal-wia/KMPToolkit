@@ -456,11 +456,13 @@ internal class AndroidDownloaderStorage(
     /**
      * Verifies a committed-to-be [ResourceFormat.SqliteDatabase] before it is moved into place.
      *
-     * Opening it is the baseline check — bytes that are not a database fail here. When the format
+     * The file must start with the 16-byte SQLite header and be at least 100 bytes long (an empty or cut body
+     * fails). Opening it is the next check — bytes that are not a database fail here. When the format
      * also names a table and a `meta` key, the real row count must match the count the file itself
      * declares, which catches a truncated download that still happens to parse. Which table and
      * which key those are is the host's own domain knowledge, which is why they are values on the
-     * unit's [ResourceFormat.SqliteDatabase] rather than anything this library assumes.
+     * unit's [ResourceFormat.SqliteDatabase] rather than anything this library assumes: the table is used as a
+     * name (resolved through `sqlite_master` and quoted) and the key is bound as a parameter.
      *
      * Deletes the temp file and throws [ResourceIntegrityException] on any failure: nothing invalid
      * may reach the final path, not even momentarily.
@@ -477,8 +479,13 @@ internal class AndroidDownloaderStorage(
                     if (table == null || metaKey == null) {
                         null
                     } else {
-                        queryInt(db, "SELECT COUNT(*) FROM $table") to
-                            queryText(db, "SELECT value FROM meta WHERE key = '$metaKey'")?.toIntOrNull()
+                        // The table is a name: resolved through sqlite_master and quoted. A value that names no table
+                        // is used as SQL text, as 3.0.0 did (a pre-quoted or schema-qualified name keeps working).
+                        // 4.0: drop the verbatim fallback
+                        val stored: String? = queryText(db, SQLITE_RESOLVE_TABLE_SQL, table)
+                        val countSql: String = if (stored != null) countRowsSql(stored) else countRowsVerbatimSql(table)
+                        queryInt(db, countSql) to
+                            queryText(db, SQLITE_META_VALUE_SQL, metaKey)?.toIntOrNull()
                     }
                 }
         } catch (e: SQLiteException) {
@@ -492,6 +499,7 @@ internal class AndroidDownloaderStorage(
         if (declaredCount == null || actualCount != declaredCount) {
             tempFile.delete()
             throw ResourceIntegrityException(
+        requireSqliteHeader(tempFile)
                 "Downloaded resource failed integrity check: " +
                     "$actualCount rows, meta declares $declaredCount",
             )
@@ -502,8 +510,8 @@ internal class AndroidDownloaderStorage(
         db.rawQuery(sql, null).use { cursor -> return if (cursor.moveToFirst()) cursor.getInt(0) else -1 }
     }
 
-    private fun queryText(db: SQLiteDatabase, sql: String): String? {
-        db.rawQuery(sql, null).use { cursor -> return if (cursor.moveToFirst()) cursor.getString(0) else null }
+    private fun queryText(db: SQLiteDatabase, sql: String, argument: String): String? {
+        db.rawQuery(sql, arrayOf(argument)).use { cursor -> return if (cursor.moveToFirst()) cursor.getString(0) else null }
     }
 
     private fun moveFile(tempFile: File, destinationPath: String) {
@@ -524,6 +532,19 @@ internal class AndroidDownloaderStorage(
         }
         logger.i { "Saved resource to $destinationPath (${destination.length()} bytes)" }
     }
+    /** Deletes [tempFile] and throws when it does not start with the 16-byte SQLite header or is shorter than 100 bytes. */
+    private fun requireSqliteHeader(tempFile: File) {
+        val length: Long = tempFile.length()
+        val head = ByteArray(SQLITE_HEADER_READ_SIZE)
+        val read: Int = FileInputStream(tempFile).use { input: FileInputStream -> input.read(head) }
+        if (read < head.size || !hasSqliteHeader(head, length)) {
+            tempFile.delete()
+            throw ResourceIntegrityException(
+                "Downloaded resource failed integrity check: not a valid database (no SQLite header)",
+            )
+        }
+    }
+
 
     /**
      * Extracts [tempFile] into [targetDir]. Every entry is extracted or the call fails: an archive that cannot be

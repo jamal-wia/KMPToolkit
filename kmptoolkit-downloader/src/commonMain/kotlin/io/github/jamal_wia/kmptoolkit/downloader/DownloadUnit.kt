@@ -127,8 +127,9 @@ public sealed interface ResourceFormat {
      * A SQLite database, verified before it counts as committed: a truncated or corrupt download
      * fails at commit rather than surfacing later as an unreadable file deep inside a reader.
      *
-     * The file is always opened and its schema read, which alone rejects bytes that are not a
-     * database (opening by itself does not: SQLite reads the header lazily). A unit whose
+     * The file must be at least 100 bytes long and start with the 16-byte SQLite header (a file without it, an
+     * empty or cut body, fails the commit), and it is always opened and its schema read, which alone rejects bytes
+     * that are not a database (opening by itself does not: SQLite reads the header lazily). A unit whose
      * schema states its own expected size can ask for more: give [rowCountTable] and
      * [declaredRowCountMetaKey] and the row count of that table must equal the value stored under
      * that key in a `meta(key, value)` table. Which table and which key those are is the host's
@@ -137,6 +138,10 @@ public sealed interface ResourceFormat {
     public data class SqliteDatabase(
         public val rowCountTable: String? = null,
         public val declaredRowCountMetaKey: String? = null,
+     *
+     * [rowCountTable] is a table or view name, used as a name (any characters: a keyword or a name with spaces
+     * works); a value that names no table is used as SQL text, as in 3.0.0 — kept for compatibility, do not rely
+     * on it. [declaredRowCountMetaKey] is a value bound as a parameter, never escaped by the host.
     ) : ResourceFormat
 }
 

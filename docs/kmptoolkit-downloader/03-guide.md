@@ -108,11 +108,12 @@ deep inside a reader — is what this exists to prevent.
 |---|---|
 | `Opaque` | Move into place; existence is the only possible check |
 | `ZipArchive(availabilityMarker)` | Extract into a staging directory, swap into place, delete the archive; the marker file is what proves completeness, since an interrupted extraction also leaves a directory behind |
-| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Open it and read its schema — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself |
+| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Require the 16-byte SQLite header (an empty or cut body fails), open it and read its schema — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself |
 
 The point of the self-check: nobody hardcodes an expected row count anywhere in this library — the
 file states its own expected size. Which table and which key are the host's domain knowledge —
-values on the format, not anything the library assumes. Both shipped storage implementations carry
+values on the format, not anything the library assumes: the table is used as a name (a keyword or a name with
+spaces works) and the key as a bound value, never as SQL text. Both shipped storage implementations carry
 zip-slip protection during extraction. Empty directories in the archive are created too. Every entry
 is extracted or the commit fails; none is skipped. An archive that cannot be extracted as delivered — a
 truncated or corrupt entry (size or CRC-32 mismatch), an entry name that leaves the extraction

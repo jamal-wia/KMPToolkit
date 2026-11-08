@@ -181,4 +181,37 @@ class AndroidApiMatrixRound6Test {
             assertTrue(problems.isEmpty(), problems.joinToString("\n"))
         }
     }
+
+    @Test
+    fun `a zero byte file is not a database`() = runBlocking {
+        withTimeout(30_000) {
+            val storage: DownloaderStorage = storage()
+            val unit = Unit6("db-empty", ResourceFormat.SqliteDatabase())
+            stage(storage, unit, ByteArray(0))
+
+            val failure: Throwable? = runCatching { storage.commitResource(unit) }.exceptionOrNull()
+
+            assertTrue(failure is ResourceIntegrityException, "an empty body committed as a database: $failure")
+            assertEquals(TempFileState.None, storage.tempFileState(unit))
+            assertFalse(storage.isResourceAvailable(unit))
+        }
+    }
+
+    @Test
+    fun `a file of the header and zeros that is one byte short of 100 is not a database and an opaque empty file still commits`() = runBlocking {
+        withTimeout(30_000) {
+            val storage: DownloaderStorage = storage()
+            val header: ByteArray = "SQLite format 3\u0000".encodeToByteArray()
+            val short = Unit6("db-short", ResourceFormat.SqliteDatabase())
+            stage(storage, short, header + ByteArray(99 - header.size))
+            val failure: Throwable? = runCatching { storage.commitResource(short) }.exceptionOrNull()
+            assertTrue(failure is ResourceIntegrityException, "a 99-byte body committed as a database: $failure")
+            assertEquals(TempFileState.None, storage.tempFileState(short))
+
+            val opaque = Unit6("opaque-empty", ResourceFormat.Opaque)
+            stage(storage, opaque, ByteArray(0))
+            storage.commitResource(opaque)
+            assertTrue(storage.isResourceAvailable(opaque))
+        }
+    }
 }

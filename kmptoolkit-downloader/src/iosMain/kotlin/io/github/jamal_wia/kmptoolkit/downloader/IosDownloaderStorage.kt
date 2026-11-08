@@ -619,11 +619,13 @@ internal class IosDownloaderStorage(
     /**
      * Verifies a committed-to-be [ResourceFormat.SqliteDatabase] before it is moved into place.
      *
-     * Opening it is the baseline check — bytes that are not a database fail here. When the format
+     * The file must start with the 16-byte SQLite header and be at least 100 bytes long (an empty or cut body
+     * fails). Opening it is the next check — bytes that are not a database fail here. When the format
      * also names a table and a `meta` key, the real row count must match the count the file itself
      * declares, which catches a truncated download that still happens to parse. Which table and
      * which key those are is the host's own domain knowledge, which is why they are values on the
-     * unit's [ResourceFormat.SqliteDatabase] rather than anything this library assumes.
+     * unit's [ResourceFormat.SqliteDatabase] rather than anything this library assumes: the table is used as a
+     * name (resolved through `sqlite_master` and quoted) and the key is bound as a parameter.
      *
      * Deletes the temp file and throws [ResourceIntegrityException] on any failure: nothing invalid
      * may reach the final path, not even momentarily.
@@ -640,10 +642,13 @@ internal class IosDownloaderStorage(
                 if (table == null || metaKey == null) {
                     null
                 } else {
-                    val actual: Int = queryInt(connection, "SELECT COUNT(*) FROM $table") ?: -1
-                    val declared: Int? =
-                        queryText(connection, "SELECT value FROM meta WHERE key = '$metaKey'")
-                            ?.toIntOrNull()
+                    // The table is a name: resolved through sqlite_master and quoted. A value that names no table
+                    // is used as SQL text, as 3.0.0 did (a pre-quoted or schema-qualified name keeps working).
+                    // 4.0: drop the verbatim fallback
+                    val stored: String? = queryText(connection, SQLITE_RESOLVE_TABLE_SQL, table)
+                    val countSql: String = if (stored != null) countRowsSql(stored) else countRowsVerbatimSql(table)
+                    val actual: Int = queryInt(connection, countSql) ?: -1
+                    val declared: Int? = queryText(connection, SQLITE_META_VALUE_SQL, metaKey)?.toIntOrNull()
                     actual to declared
                 }
             } finally {
@@ -659,6 +664,7 @@ internal class IosDownloaderStorage(
         val (actualCount: Int, declaredCount: Int?) = counts ?: return
         if (declaredCount == null || actualCount != declaredCount) {
             NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
+        requireSqliteHeader(tempFilePath)
             throw ResourceIntegrityException(
                 "Downloaded resource failed integrity check: " +
                     "$actualCount rows, meta declares $declaredCount",
@@ -675,7 +681,7 @@ internal class IosDownloaderStorage(
         }
     }
 
-    private fun queryText(connection: SQLiteConnection, sql: String): String? {
+    private fun queryText(connection: SQLiteConnection, sql: String, argument: String): String? {
         val statement: SQLiteStatement = connection.prepare(sql)
         return try {
             if (statement.step()) statement.getText(0) else null
@@ -696,6 +702,28 @@ internal class IosDownloaderStorage(
         // is never missing, not even for a moment. The old remove-then-move removed it first, and a
         // commit whose source was already gone then deleted a committed resource and failed.
         if (rename(tempFilePath, destinationPath) != 0) {
+    /** Deletes the file and throws when it does not start with the 16-byte SQLite header or is shorter than 100 bytes. */
+    private fun requireSqliteHeader(tempFilePath: String) {
+        val head = ByteArray(SQLITE_MIN_BYTES)
+        val file: CPointer<FILE>? = fopen(tempFilePath, "rb")
+        val read: Int = if (file == null) {
+            0
+        } else {
+            try {
+                readExact(file, head, head.size)
+            } finally {
+                fclose(file)
+            }
+        }
+        // `read` is capped at 100: all hasSqliteHeader needs to know is whether the file is shorter than that.
+        if (!hasSqliteHeader(head, read.toLong())) {
+            NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
+            throw ResourceIntegrityException(
+                "Downloaded resource failed integrity check: not a valid database (no SQLite header)",
+            )
+        }
+    }
+
             // Only the fallback below removes the destination, so it must first be sure the source
             // is still there to replace it with.
             check(fileExists(tempFilePath)) {
@@ -708,6 +736,7 @@ internal class IosDownloaderStorage(
             if (!copied) {
                 NSFileManager.defaultManager.removeItemAtPath(destinationPath, error = null)
                 throw IllegalStateException("Could not move the downloaded file to $destinationPath")
+            statement.bindText(1, argument)
             }
             NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
         }
@@ -1100,3 +1129,4 @@ private const val METHOD_DEFLATED: Int = 8
 private const val ZIP64_MARKER: Long = 0xFFFFFFFFL
 private const val MASK_32: Long = 0xFFFFFFFFL
 private const val DESCRIPTOR_SIGNATURE: Long = 0x08074B50L
+private const val SQLITE_MIN_BYTES: Int = 100
