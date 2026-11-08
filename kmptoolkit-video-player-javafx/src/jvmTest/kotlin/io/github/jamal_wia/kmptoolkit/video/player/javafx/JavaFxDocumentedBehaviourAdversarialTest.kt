@@ -84,4 +84,31 @@ class JavaFxDocumentedBehaviourAdversarialTest {
         val status: String = runBlocking { withTimeout(5_000L) { checkNotNull(engine.inspectPlayback()).status } }
         assertEquals("PLAYING", status)
     }
+
+    @Test
+    fun `switching looping off in the second cycle completes at the end of that cycle`() {
+        engine.setLooping(true)
+        engine.start()
+        // 3 s clip: after 4.2 s it is about 1.2 s into its second cycle.
+        Thread.sleep(4_200L)
+        assertEquals(0, listener.events.count { it == EngineEvent.Completed }, "Completed while looping")
+        engine.setLooping(false)
+        awaitTrue(timeoutMs = 6_000L, message = { "no Completed after looping was switched off in the second cycle" }) {
+            listener.events.contains(EngineEvent.Completed)
+        }
+        Thread.sleep(1_200L)
+        assertEquals(1, listener.events.count { it == EngineEvent.Completed }, "Completed more than once")
+    }
+
+    @Test
+    fun `switching looping on after Completed and starting again loops without a second Completed`() {
+        engine.start()
+        awaitTrue(timeoutMs = 10_000L, message = { "Completed was not reported" }) { listener.events.contains(EngineEvent.Completed) }
+        engine.setLooping(true)
+        engine.start()
+        Thread.sleep(4_500L)
+        assertEquals(1, listener.events.count { it == EngineEvent.Completed }, "Completed was reported again while looping")
+        val status: String = runBlocking { withTimeout(5_000L) { checkNotNull(engine.inspectPlayback()).status } }
+        assertEquals("PLAYING", status)
+    }
 }
