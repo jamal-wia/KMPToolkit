@@ -65,7 +65,9 @@ public interface PlaybackEngine {
     public fun pause()
 
     /**
-     * Moves the playhead. The caller has already clamped [positionMs] to `0..`[durationMs].
+     * Moves the playhead. [positionMs] is never negative. It is clamped to `0..`[durationMs] while the
+     * length is known; while [durationMs] is `0` a relative skip passes its target unclamped, up to
+     * [Long.MAX_VALUE]. An engine whose platform takes a narrower type must saturate, not truncate.
      *
      * @param positionMs target position in milliseconds.
      */

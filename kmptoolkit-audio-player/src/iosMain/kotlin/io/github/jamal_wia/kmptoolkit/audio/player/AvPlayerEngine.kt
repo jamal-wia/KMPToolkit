@@ -107,7 +107,9 @@ internal class AvPlayerEngine(
         val current: AVPlayer = player ?: return
         current.seekToTime(
             CMTimeMakeWithSeconds(
-                seconds = positionMs / MILLIS_PER_SECOND,
+                // Saturated: a relative skip in a source of unknown length can arrive up to Long.MAX_VALUE,
+                // at the edge of CMTime's Int64 value; an invalid CMTime is a needless risk.
+                seconds = positionMs.coerceIn(0L, MAX_SEEK_MS) / MILLIS_PER_SECOND,
                 preferredTimescale = CM_TIME_TIMESCALE,
             )
         )
@@ -206,6 +208,7 @@ internal class AvPlayerEngine(
 
     private companion object {
         const val MILLIS_PER_SECOND: Double = 1000.0
+        const val MAX_SEEK_MS: Long = Int.MAX_VALUE.toLong()
 
         /** `CMTime` timescale of 1/1000 s, i.e. millisecond resolution. */
         const val CM_TIME_TIMESCALE: Int = 1000

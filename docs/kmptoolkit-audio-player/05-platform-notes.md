@@ -58,6 +58,8 @@ means `src/main/assets/sounds/chime.mp3`. The file must be stored uncompressed f
 to be openable — audio formats already are, so this only bites for something like a `.wav` inside a
 zip.
 
+**Seek range.** `MediaPlayer.seekTo` takes an `Int`, so the engine saturates the target to `0..Int.MAX_VALUE` rather than truncating it: a skip past the end of a source whose length is not known yet asks for the platform's own far end, never a wrapped-around earlier position. The iOS engine saturates to the same ceiling before building its `CMTime`.
+
 **Threading.** The `MediaPlayer` is created on `Dispatchers.IO`, which does blocking `setDataSource`
 work off the main thread and — because that thread has no `Looper` — makes the platform deliver its
 callbacks on the main looper. That is why the module needs no main dispatcher and therefore no

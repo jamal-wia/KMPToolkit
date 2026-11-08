@@ -226,7 +226,7 @@ The platform seam. Implement it to back `AudioPlayer` with something other than 
 | `fun setListener(listener: PlaybackEngineListener?)` | Installs or (with `null`) detaches the event sink. |
 | `suspend fun load(source: AudioSource)` | Loads and suspends until playable. **Throws to report failure**, leaving nothing playable behind. Must honor cancellation and leave nothing loaded when cancelled; must work again after `release()`. Never called while a previous `load` is still running. |
 | `fun start()` / `fun pause()` | Start/suspend output. Must tolerate arriving in an unexpected platform state. |
-| `fun seekTo(positionMs: Long)` | Move the playhead; the caller has already clamped the value. |
+| `fun seekTo(positionMs: Long)` | Move the playhead. Never negative; clamped to `0..durationMs` while the length is known. While `durationMs()` is `0` a relative skip passes its target unclamped, up to `Long.MAX_VALUE`: an engine whose platform takes a narrower type must saturate, not truncate. |
 | `fun setSpeed(speed: Float)` | Set the rate; the caller has already clamped the value. |
 | `fun durationMs(): Long` / `fun positionMs(): Long` | Cheap; return `0` when unknown, never negative. |
 | `fun release()` | Free everything. **Must be idempotent**, and safe after a failed `load`. |
