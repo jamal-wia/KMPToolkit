@@ -289,7 +289,7 @@ internal class VlcjVideoEngine(
         if (inFlight != null) return inFlight
         // An unknown length (0) is not an end position.
         if (s.ended) return if (s.lengthMs > 0L) durationMs() else s.timeMs.coerceAtLeast(0L)
-        if (s.started && !onVlcThread.get()) {
+        if (s.started && !inCallbackContext()) {
             synchronized(s.nativeCalls) {
                 // The seek target stands until libvlc reports a time near it (see holdsSeekTarget).
                 val player: VlcNativePlayer? = synchronized(lock) {
@@ -361,6 +361,14 @@ internal class VlcjVideoEngine(
         }
     }
 
+    /**
+     * Whether this thread must not wait for [Session.nativeCalls]: one of VLC's own threads, or a
+     * thread inside a listener call ([listenerLock] held, e.g. the load's size report). A callback
+     * that a native call waits for, on libvlc's input thread or raised synchronously on the calling
+     * thread, may be waiting for [listenerLock], so waiting for that call here would be a cycle.
+     */
+    private fun inCallbackContext(): Boolean = onVlcThread.get() || Thread.holdsLock(listenerLock)
+
     /** [lock] held. Whether [s] is the current session and still open. */
     private fun isOpen(s: Session): Boolean = session === s && !s.closed
 
@@ -379,13 +387,14 @@ internal class VlcjVideoEngine(
      * and made at once, inside [Session.nativeCalls], with [lock] released around the native work: the
      * monitor keeps the order and the teardown barrier, [lock] stays free for the callbacks (libvlc 3
      * makes `set_time` wait for a running one). Otherwise it is submitted to VLCJ's task thread, one
-     * thread, first in first out, behind what is waiting, and decided when it starts. A VLC thread
-     * only counts and submits, under [lock] alone: it must not call into libvlc, and must never wait
+     * thread, first in first out, behind what is waiting, and decided when it starts. A VLC thread, or
+     * a thread inside a listener call (see [inCallbackContext]), only counts and submits, under
+     * [lock] alone: it must not call into libvlc, and must never wait
      * for `nativeCalls`. The count is changed only under [lock] and decremented inside `nativeCalls`,
      * so a caller sees it above 0 until the earlier call has actually run.
      */
     private fun inOrder(s: Session, atCall: () -> Unit = {}, decide: () -> Plan?) {
-        if (onVlcThread.get()) {
+        if (inCallbackContext()) {
             synchronized(lock) {
                 if (!isOpen(s)) return
                 atCall()
@@ -447,7 +456,7 @@ internal class VlcjVideoEngine(
         //     (releasing from inside a callback is supported). Nor from inside a listener call
         //     (listenerLock held): the callback that set_time waits for could be waiting for it. The
         //     teardown thread waits for the call in flight in both cases, before it frees anything.
-        if (!onVlcThread.get() && !Thread.holdsLock(listenerLock)) synchronized(s.nativeCalls) {}
+        if (!inCallbackContext()) synchronized(s.nativeCalls) {}
         s.parsed.cancel()
         // 3. No frame of this session can be published after this block (see publishFrame).
         synchronized(frameLock) { frameFlow.value = null }
@@ -494,8 +503,9 @@ internal class VlcjVideoEngine(
          * because libvlc's callbacks take [lock], and libvlc 3's `set_time` waits for a running
          * callback: a native call must never be made under a monitor a callback can wait for.
          *
-         * - Taken only off VLC's threads (callers, VLCJ's task thread, the teardown thread, the
-         *   load's IO thread); callbacks never take it.
+         * - Taken only off VLC's threads and never by a thread holding [listenerLock] (callers, VLCJ's
+         *   task thread, the teardown thread, the load's IO thread outside a listener call); callbacks
+         *   never take it.
          * - Lock order is `nativeCalls`, then [lock]; nothing that holds [lock] or [listenerLock]
          *   waits for it.
          * - Every native call on this session's player is made inside it and outside [lock].

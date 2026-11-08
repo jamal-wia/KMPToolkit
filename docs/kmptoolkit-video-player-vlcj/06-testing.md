@@ -67,7 +67,8 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   thread's seek waits for it neither deadlocks nor frees the player under the seek; a seek in flight
   against a release on another thread frees the player only after the seek returned and starts nothing
   after `release` returned; a clock reading taken while a seek arrives from a VLC thread does not
-  replace its target.
+  replace its target; a listener called from the load's size report that calls back into the engine never
+  waits for a native call whose callback waits for the listener lock.
 - `VlcjReplayAfterEndAdversarialTest` — VLCJ resets an ended media with a stop on its task thread (libvlc
   ignores a `play` until then): a restart made from another thread right after the end, and one made from
   inside the completion callback, both reach libvlc behind that reset.

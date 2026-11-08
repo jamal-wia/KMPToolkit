@@ -50,6 +50,12 @@ class VlcjSetTimeInputLockAdversarialTest {
     @Volatile private var timeGate: CountDownLatch? = null
     @Volatile private var timeAnswer: Long = -1L
 
+    /** The size parsing reports; null leaves the load without a size report. */
+    @Volatile private var parsedSize: VideoSize? = null
+
+    /** Runs inside [ModelPlayer.play], on the calling thread, like a libvlc event raised synchronously. */
+    @Volatile private var onPlay: () -> Unit = {}
+
     @AfterTest
     fun tearDown() {
         inputThread.shutdownNow()
@@ -62,9 +68,10 @@ class VlcjSetTimeInputLockAdversarialTest {
             inputThread.execute { fire { parsed(VlcParseStatus.DONE) } }
             return true
         }
-        override fun parsedInfo(): VlcParsedInfo = VlcParsedInfo(durationMs = 10_000L, trackCount = 1, videoSize = null)
+        override fun parsedInfo(): VlcParsedInfo = VlcParsedInfo(durationMs = 10_000L, trackCount = 1, videoSize = parsedSize)
         override fun play() {
             events += "play"
+            onPlay()
         }
         override fun pause() {
             events += "pause"
@@ -280,5 +287,46 @@ class VlcjSetTimeInputLockAdversarialTest {
         assertEquals(500L, reading, "the clock reading replaced the seek's target")
         assertEquals(500L, engine.positionMs())
         engine.dispose()
+    }
+
+    @Test
+    fun `a listener called from the load's size report never waits for a native call whose callback waits for the listener lock`() {
+        parsedSize = VideoSize(64, 48)
+        val engine = VlcjVideoEngine(vlcArgs = emptyList(), discover = { true }, createRuntime = { runtime })
+        val errors: MutableList<String> = CopyOnWriteArrayList()
+        val previous: Thread.UncaughtExceptionHandler? = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e -> errors += "${t.name}: $e" }
+        try {
+            val inPlay = CountDownLatch(1)
+            // libvlc raises some events on the calling thread: the callback runs inside play() on the
+            // transport thread and waits for the listener lock, which the load's thread holds.
+            onPlay = {
+                inPlay.countDown()
+                callbacks!!.buffering(50f)
+            }
+            lateinit var transport: Thread
+            engine.setListener(object : VideoPlaybackEngineListener {
+                override fun onCompleted() = Unit
+                override fun onFailed(cause: Throwable) = Unit
+                override fun onBufferingChanged(isBuffering: Boolean) = Unit
+                override fun onVideoSizeChanged(size: VideoSize?) {
+                    transport = thread(name = "transport", isDaemon = true) { engine.start() }
+                    inPlay.await(5L, TimeUnit.SECONDS)
+                    engine.pause()
+                    engine.positionMs()
+                }
+            })
+            val loader = thread(name = "loader", isDaemon = true) {
+                runBlocking { engine.load(VideoSource.File(TestClip.file.path)) }
+            }
+            loader.join(5_000L)
+            assertFalse(loader.isAlive, "the load is stuck in the listener call: $events")
+            transport.join(5_000L)
+            assertFalse(transport.isAlive, "the transport thread is stuck on the listener lock: $events")
+            assertEquals(emptyList(), errors.toList())
+            engine.dispose()
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous)
+        }
     }
 }
