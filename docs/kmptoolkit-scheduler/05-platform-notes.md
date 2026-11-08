@@ -181,6 +181,10 @@ Practical consequences:
   re-schedule them.
 - **A trigger in the past is clamped** to one second from now, because iOS rejects a non-positive
   interval outright. A missed reminder therefore appears immediately rather than throwing.
+- **`cancel` removes pending requests only.** A notification already delivered stays in Notification
+  Centre. To clear it too (for example on logout), call
+  `UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:)` with the same ids;
+  the request identifier is the alarm id verbatim.
 - `Exact` on iOS means "the OS accepted the request for that instant" — it is not the same
   guarantee as an Android exact alarm, because it is a presentation, not an execution.
 

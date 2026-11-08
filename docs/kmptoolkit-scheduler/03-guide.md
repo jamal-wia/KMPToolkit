@@ -179,7 +179,9 @@ manifest, and only you know which alarms are still wanted after however long the
   key names is read with the new ones when it fires, finds no id or type, and is dropped without a
   trace. Keep both stable, like the scheme.
 - **Expecting `cancelAll()` to clear everything.** It cancels exactly the ids you pass. There is no
-  "cancel all mine" on Android.
+  "cancel all mine" on Android. Like `cancel`, it removes only alarms that have not fired yet: on iOS a
+  notification already delivered stays in Notification Centre (see the iOS notes in
+  [`05-platform-notes.md`](05-platform-notes.md) for how to clear it, for example on logout).
 - **Assuming an alarm survives force-stop or reboot.** Neither is true on Android. Reconcile at
   startup and re-arm at boot.
 - **Scheduling hundreds of alarms on iOS.** At most 64 pending local notifications per app: iOS

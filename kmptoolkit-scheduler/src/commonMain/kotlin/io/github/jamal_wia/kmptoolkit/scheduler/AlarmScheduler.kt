@@ -47,6 +47,9 @@ public interface AlarmScheduler {
      * Never throws for a platform refusal: on Android a `SecurityException` or `IllegalStateException`
      * from `AlarmManager` is caught and logged, and the alarm may then stay armed. A failed cancel is
      * not reported, because this call returns nothing.
+     *
+     * It only removes an alarm that has not fired yet. What a fired alarm left on screen stays: on iOS
+     * the delivered notification stays in Notification Centre, on Android whatever your handler posted.
      */
     public suspend fun cancel(id: String)
 
@@ -58,7 +61,7 @@ public interface AlarmScheduler {
      * you want a clean slate, pass every id you know about.
      *
      * Like [cancel], it never throws for a platform refusal; a refusal on one id does not stop the
-     * ids after it.
+     * ids after it. Like [cancel], it removes only alarms that have not fired yet.
      */
     public suspend fun cancelAll(ids: Collection<String>)
 }
