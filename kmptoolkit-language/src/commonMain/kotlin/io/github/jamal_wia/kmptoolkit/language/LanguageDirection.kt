@@ -21,7 +21,9 @@ package io.github.jamal_wia.kmptoolkit.language
  * wrong for your purposes or does not know about — see [isRightToLeft] for exactly what it knows.
  *
  * @param code BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, `"az-Arab"`, …). Never `null`:
- *   "follow the device" is [AppLanguage.System], which has no direction of its own to derive.
+ *   "follow the device" is [AppLanguage.System], which has no direction of its own to derive. An
+ *   underscore is read as a hyphen (`ar_EG` is `ar-EG`), for direction, matching and the platform
+ *   locale alike; the code itself is kept as given.
  */
 public fun AppLanguage(code: String): AppLanguage =
     AppLanguage(code = code, isLtr = !isRightToLeft(code))
@@ -58,8 +60,7 @@ public fun isRightToLeft(code: String): Boolean {
     // language, because a language written in a script it does not default to follows the script. The
     // search stops there: a four-letter subtag inside a `-u-` extension (`ar-u-nu-latn`, a numbering
     // system) or after `-x-` (private use) is not a script and never decides the direction.
-    var position = 1
-    while (position < subtags.size && position <= MAX_EXTLANGS && subtags[position].isExtlang()) position++
+    val position: Int = positionAfterExtlangs(subtags)
     val script: String? = subtags.getOrNull(position)?.takeIf { subtag -> subtag.isScriptSubtag() }
     if (script != null) return script.lowercase() in RIGHT_TO_LEFT_SCRIPTS
 
@@ -72,7 +73,14 @@ private const val SCRIPT_TAG_LENGTH: Int = 4
 /** BCP-47 allows at most three extended language subtags (three letters each) after the language. */
 private const val MAX_EXTLANGS: Int = 3
 
-private fun String.isScriptSubtag(): Boolean = length == SCRIPT_TAG_LENGTH && all(Char::isLetter)
+/** The index of the subtag after the language and its optional three-letter extlangs: where a script would be. */
+internal fun positionAfterExtlangs(subtags: List<String>): Int {
+    var position = 1
+    while (position < subtags.size && position <= MAX_EXTLANGS && subtags[position].isExtlang()) position++
+    return position
+}
+
+internal fun String.isScriptSubtag(): Boolean = length == SCRIPT_TAG_LENGTH && all(Char::isLetter)
 
 private fun String.isExtlang(): Boolean = length == 3 && all(Char::isLetter)
 

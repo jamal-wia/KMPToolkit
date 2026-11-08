@@ -20,6 +20,8 @@ consumes it, to the `PhoneWindow` fallback that implements system behaviour such
   otherwise. This is the only point that runs ahead of the `PhoneWindow` fallback: an
   `OnUnhandledKeyEventListener` runs too late, because `DecorView` lets `PhoneWindow` handle the key
   and reports it handled, and an `OnKeyListener` fires only while its view holds focus.
+  A dialog window whose callback another component set to `null` is left alone: there is nothing to wrap,
+  and the policy does not act in that window until an effect enters it again with a callback in place.
 - **Windows without a callback** (a focusable `Popup`, which is a bare view added to the
   `WindowManager`). There is no callback to wrap, and here `ViewRootImpl` does offer unhandled keys
   to `View.OnUnhandledKeyEventListener` before falling back. The effect adds one through

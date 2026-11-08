@@ -47,9 +47,9 @@ public interface AppLanguageCatalog {
     /**
      * The supported language whose [AppLanguage.code] is [code], or `null` if there is none.
      *
-     * Matching ignores case and applies the JDK's legacy language-code remaps, so a platform
-     * reporting Indonesian as the obsolete `"in"` still finds your `"id"` entry. Region and script
-     * subtags are compared as given — pass a bare language tag if that is what you want matched.
+     * Matching ignores case, reads `_` as `-`, ignores extensions (`-u-...`, `-x-...`) and applies the
+     * JDK's legacy language-code remaps to the language subtag, so a platform reporting Indonesian as
+     * the obsolete `"in"` still finds your `"id"` entry. Region and script subtags must otherwise match.
      */
     public fun byCode(code: String): AppLanguage?
 
@@ -75,9 +75,18 @@ public interface AppLanguageCatalog {
     /**
      * The supported language that best matches the device's own language right now.
      *
-     * The device tag is matched whole first, then on its primary subtag — so a device set to
-     * `pt-BR` is served your `pt-BR` if you offer it and your `pt` otherwise — and [fallback] if
-     * neither matches.
+     * The device tag is looked up whole, then truncated one subtag at a time (`zh-Hans-CN`, `zh-Hans`,
+     * `zh`), so a device set to `pt-BR` is served your `pt-BR` if you offer it and your `pt` otherwise.
+     * For Chinese the script is inferred from the region when the tag has none (`zh-TW` is looked up as
+     * `zh-Hant`, `zh-SG` and a bare `zh` as `zh-Hans`). When nothing is found, an entry of the same
+     * language and the same script is taken (`pt-BR` is served your `pt-PT`, `zh-Hans-CN` your `zh-CN`;
+     * the device's own region first, else the first one listed), and only then [fallback]. A script is
+     * never crossed: a Traditional device is never served a Simplified entry. Extensions such as
+     * Android 14's `-u-mu-celsius` regional preferences are ignored.
+     *
+     * No likely-subtag data is bundled except the Chinese script, and no CLDR parent locales: a device
+     * `sr-RS` is not matched to a `sr-Latn` entry, and `es-MX` against `es-ES` and `es-419` takes the
+     * first listed, not `es-419`. Offer explicit tags, or a bare language as the catch-all.
      *
      * Re-read on every call, never cached: a device language change must take effect without your
      * app restarting.
@@ -98,7 +107,7 @@ public interface AppLanguageCatalog {
  * Creates an [AppLanguageCatalog] over [supported].
  *
  * @param supported the languages your app offers. Must be non-empty, must not contain
- *   [AppLanguage.System], and must not repeat a code. Copied: mutating the list afterwards does not
+ *   [AppLanguage.System], and must not repeat a code (`ar_EG` and `ar-EG` are the same code). Copied: mutating the list afterwards does not
  *   change the catalog.
  * @param fallback the language to serve a device whose own language you do not offer. Must be one of
  *   [supported]; defaults to the first, so listing your default language first is enough.
@@ -111,7 +120,7 @@ public interface AppLanguageCatalog {
  */
 public fun createAppLanguageCatalog(
     supported: List<AppLanguage>,
-    fallback: AppLanguage = supported.first(),
+    fallback: AppLanguage = requireNotNull(supported.firstOrNull()) { "supported must not be empty" },
     systemId: String = "system",
     systemLanguageCode: () -> String? = ::getSystemLanguageCode,
 ): AppLanguageCatalog =
@@ -131,43 +140,63 @@ private class DefaultAppLanguageCatalog(
             "supported must not contain AppLanguage.System — it is a mode, not a language"
         }
         val codes: List<String> = supported.mapNotNull { it.code }
-        require(codes.distinctBy(::normalize).size == codes.size) {
+        require(codes.distinctBy(::canonicalTag).size == codes.size) {
             "supported must not repeat a language code: $codes"
         }
         require(fallback in supported) { "fallback must be one of supported: $fallback" }
-        require(codes.none { normalize(it) == normalize(systemId) }) {
+        require(codes.none { canonicalTag(it) == canonicalTag(systemId) }) {
             "systemId '$systemId' collides with a supported language code"
         }
     }
 
     private val byNormalizedCode: Map<String, AppLanguage> =
-        supported.associateBy { normalize(it.code.orEmpty()) }
+        supported.associateBy { canonicalTag(it.code.orEmpty()) }
 
-    override fun byCode(code: String): AppLanguage? = byNormalizedCode[normalize(code)]
+    override fun byCode(code: String): AppLanguage? = byNormalizedCode[canonicalTag(code)]
 
     override fun idOf(language: AppLanguage): String = language.code ?: systemId
 
     override fun fromId(id: String?): AppLanguage {
-        if (id == null || normalize(id) == normalize(systemId)) return AppLanguage.System
+        if (id == null || canonicalTag(id) == canonicalTag(systemId)) return AppLanguage.System
         return byCode(id) ?: AppLanguage.System
     }
 
+    private val parsedSupported: List<Pair<AppLanguage, LanguageTag>> =
+        supported.map { language -> language to parseLanguageTag(language.code.orEmpty()) }
+
     override fun resolveSystemLanguage(): AppLanguage {
-        val tag: String = systemLanguageCode() ?: return fallback
-        return byCode(tag) ?: byCode(tag.substringBefore('-')) ?: fallback
+        val device: LanguageTag = parseLanguageTag(systemLanguageCode() ?: return fallback)
+        if (device.language.isEmpty()) return fallback
+        // 1. Lookup: the device tag whole, then truncated one subtag at a time down to the bare language.
+        lookupCandidates(device).firstNotNullOfOrNull { candidate -> byNormalizedCode[candidate] }?.let { return it }
+        // 2. Same language and same script: the entry of the device's region, else the first one listed.
+        val siblings: List<Pair<AppLanguage, LanguageTag>> = parsedSupported.filter { (_, tag) ->
+            tag.language == device.language && tag.effectiveScript == device.effectiveScript
+        }
+        val sibling: AppLanguage? =
+            (siblings.firstOrNull { (_, tag) -> device.region != null && tag.region == device.region } ?: siblings.firstOrNull())
+                ?.first
+        // 3. Nothing offered speaks it.
+        return sibling ?: fallback
+    }
+
+    /**
+     * The canonical tags to try, first hit wins: [device] whole; for Chinese without an explicit script, its
+     * truncations with the script its region implies inserted after the language (`zh-tw` is tried as
+     * `zh-hant-tw`, `zh-hant`), longest first and without the bare language; then the truncations of [device]
+     * itself, longest first, ending with the bare language (`zh-hans-cn`, `zh-hans`, `zh`).
+     */
+    private fun lookupCandidates(device: LanguageTag): Set<String> {
+        val candidates: MutableSet<String> = linkedSetOf(device.canonical)
+        val inferredScript: String? = device.effectiveScript
+        if (device.language == "zh" && device.script == null && inferredScript != null) {
+            val withScript: List<String> = listOf(device.language, inferredScript) + device.subtags.drop(1)
+            for (length: Int in withScript.size downTo 2) candidates += withScript.take(length).joinToString("-")
+        }
+        for (length: Int in device.subtags.size downTo 1) candidates += device.subtags.take(length).joinToString("-")
+        return candidates
     }
 
     override fun resolve(language: AppLanguage): AppLanguage =
         if (language.code == null) resolveSystemLanguage() else language
-}
-
-/**
- * Case-folds a language tag and undoes the legacy ISO-639 codes the JVM still reports for three
- * languages, so `"in"` matches an `"id"` entry rather than silently falling through to the fallback.
- */
-private fun normalize(tag: String): String = when (val lowered: String = tag.lowercase()) {
-    "in" -> "id"
-    "iw" -> "he"
-    "ji" -> "yi"
-    else -> lowered
 }

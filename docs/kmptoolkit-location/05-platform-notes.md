@@ -291,6 +291,13 @@ at the cost of a slower cold fix than network-based positioning. `observeLocatio
 updates from **both** tracked providers at once and forwards whichever reports first, so losing one
 (GPS indoors, say) does not silence the flow as long as the other is still enabled.
 
+`getCurrentLocation()` first answers with the freshest cached fix of any enabled tracked provider;
+only when there is none does it request a single fix from the provider `getBestProvider(...)`
+picks.
+
+Every `LocationListener` callback is implemented, so a provider switched on or off while a
+collection is live is safe on every supported API level (24+).
+
 ## Update throttling and the single-fix timeout
 
 `LocationProviderConfig.minUpdateDistanceMeters` and `minUpdateIntervalMillis` map directly onto

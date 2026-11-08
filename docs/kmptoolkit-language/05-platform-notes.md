@@ -145,7 +145,9 @@ from `NSUserDefaults`' `NSGlobalDomain`, which the per-app override does not tou
 back to `NSLocale.preferredLanguages` when the global value is unavailable (some simulator
 configurations). This mirrors the exact problem `Resources.getSystem()` solves on Android — see
 above — and for the same reason: resolving `AppLanguage.System` needs the device's actual preference,
-not whatever this app has already forced onto itself.
+not whatever this app has already forced onto itself. It reports script-qualified tags such as
+`zh-Hans-CN`; the catalog's matching handles them (see `AppLanguageCatalog.resolveSystemLanguage`).
+Android 14+ may also append `-u-` regional preferences to the tag; those extensions are ignored there too.
 
 ### No activity-recreation equivalent
 

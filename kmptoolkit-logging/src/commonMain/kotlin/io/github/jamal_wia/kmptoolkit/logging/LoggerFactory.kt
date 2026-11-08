@@ -34,6 +34,12 @@ internal expect fun Throwable.isLinkageError(): Boolean
  */
 internal expect fun Throwable.isInterruptSignal(): Boolean
 
+/**
+ * Whether the current thread's interrupt flag is set right now, read without clearing it; `false` where the
+ * platform has no such flag.
+ */
+internal expect fun isCurrentThreadInterrupted(): Boolean
+
 /** Re-raises the current thread's interrupt flag where the platform has one; a no-op elsewhere. */
 internal expect fun restoreInterruptFlag()
 
@@ -57,11 +63,13 @@ internal expect fun restoreInterruptFlag()
  *   there is no re-entrancy guard, so it recurses until the stack overflows and that error reaches
  *   the caller. A logging call is not part of the behavior a caller is trying to
  *   execute, so a broken log destination must not turn into a crash in unrelated code — and there
- *   is nowhere to report the failure to that is not itself a sink. A sink's `InterruptedException`
- *   (a blocking write woken by the caller's interrupt) is contained too, but the interrupt flag that
- *   throw cleared is set on the caller's thread again once every sink has had the event, or as the
- *   logger rethrows an Error a later sink raised (JVM and Android), so a worker or blocking section
- *   that logs still sees its interrupt.
+ *   is nowhere to report the failure to that is not itself a sink. The logger never clears the
+ *   caller's interrupt status: a thread that was interrupted when it logged is still interrupted
+ *   afterwards, however a sink handled or wrapped the interrupt, so a worker or blocking section that
+ *   logs still sees its interrupt. A sink's bare `InterruptedException` raised by an interrupt that
+ *   arrived during the write has the flag set again too, once every sink has had the event, or as the
+ *   logger rethrows an Error a later sink raised (JVM and Android). A wrapped one cannot be told apart
+ *   from another thread's interrupt and is contained like any exception.
  * - **An exception from the message lambda is *not* swallowed** and propagates to the caller. That
  *   is a defect in the calling code, not in a log destination, and hiding it would make it
  *   unfindable.
@@ -101,6 +109,10 @@ private class TagLogger(
         // cancelling sink costs the sinks after it nothing.
         var cancellation: CancellationException? = null
         var interrupted = false
+        // The caller's own interrupt, if it had one: a sink's blocking write is woken by it and the throw
+        // clears the flag, however the sink then rethrows (bare, wrapped in a RuntimeException, inside an
+        // ExecutionException). The logger never clears an interrupt the caller had.
+        val interruptedOnEntry: Boolean = isCurrentThreadInterrupted()
         try {
             sinks.forEach { sink ->
                 @Suppress("TooGenericExceptionCaught", "SwallowedException")
@@ -130,7 +142,7 @@ private class TagLogger(
             // After the loop, not inside it: restoring at once would make every later blocking sink
             // throw straight away and lose its event. And in a finally, so an Error a later sink
             // raises still carries the flag back to the caller.
-            if (interrupted) restoreInterruptFlag()
+            if (interrupted || interruptedOnEntry) restoreInterruptFlag()
         }
         cancellation?.let { throw it }
     }

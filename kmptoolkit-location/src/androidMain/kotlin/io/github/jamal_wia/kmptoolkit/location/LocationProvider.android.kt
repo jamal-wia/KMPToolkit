@@ -8,6 +8,7 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Looper
 import android.provider.Settings
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
@@ -149,7 +150,12 @@ internal class AndroidLocationProvider(
         val service: LocationManager = manager ?: return null
         return try {
             val provider: String = bestEnabledProvider(service) ?: return null
-            val cached: Location? = service.getLastKnownLocation(provider)
+            // The freshest cache across the enabled tracked providers (plus the one getBestProvider
+            // named, in case it is neither), the same rule observeLocation seeds with: the GPS provider
+            // being on without a fix must not hide a fix the network provider already holds.
+            val cached: Location? = updatesSource?.let { source: LocationUpdatesSource ->
+                freshestLastKnownLocation(source, (TRACKED_PROVIDERS + provider).distinct())
+            }
             if (cached != null) return cached.toCoordinates()
             // No cached fix — fall back to a fresh single shot, capped so a device with no signal
             // cannot suspend this call forever.
@@ -177,10 +183,19 @@ internal class AndroidLocationProvider(
             return@callbackFlow
         }
 
+        // Every LocationListener method is implemented: on API 24-29 the three legacy callbacks are
+        // abstract (defaults only from API 30) and the platform calls them, so a missing one is an
+        // AbstractMethodError on the main thread.
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 trySend(location.toCoordinates())
             }
+
+            override fun onProviderEnabled(provider: String) = Unit
+
+            @Deprecated("Deprecated in Java")
+            @Suppress("OVERRIDE_DEPRECATION")
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
 
             override fun onProviderDisabled(provider: String) {
                 // Only report "no signal" once every tracked provider is off; another one may
@@ -272,11 +287,22 @@ internal class AndroidLocationProvider(
         service: LocationManager,
         provider: String,
     ): GeoCoordinates? = suspendCancellableCoroutine { continuation ->
+        // Every LocationListener method is implemented: on API 24-29 the three legacy callbacks are
+        // abstract (defaults only from API 30) and the platform calls them, so a missing one is an
+        // AbstractMethodError on the main thread.
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 service.removeUpdates(this)
                 if (continuation.isActive) continuation.resume(location.toCoordinates())
             }
+
+            override fun onProviderEnabled(provider: String) = Unit
+
+            @Deprecated("Deprecated in Java")
+            @Suppress("OVERRIDE_DEPRECATION")
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
+
+            override fun onProviderDisabled(provider: String) = Unit
         }
         service.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
         continuation.invokeOnCancellation { service.removeUpdates(listener) }

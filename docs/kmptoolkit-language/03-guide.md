@@ -90,10 +90,16 @@ val effective: AppLanguage = catalog.resolve(holder.language)
 ```
 
 It matches the device's language — read fresh on every call, so a device language change takes
-effect without a restart — against your supported list: the whole tag first, then its primary
-subtag, then your fallback. That middle step matters more than it looks: platforms report a full tag
-like `"pt-BR"` or `"zh-Hans-CN"`, and an app offering a bare `"pt"` or `"zh"` would otherwise fall
-through to its fallback for every regional variant it does not enumerate individually.
+effect without a restart — against your supported list: the whole tag first, then the tag truncated
+one subtag at a time, then a same-language, same-script entry, then your fallback. The truncation
+matters more than it looks: platforms report a full tag like `"pt-BR"` or `"zh-Hans-CN"`, and an app
+offering a bare `"pt"` or `"zh"` would otherwise fall through to its fallback for every regional
+variant it does not enumerate individually. An app offering the usual Chinese pair `"zh-Hans"` and
+`"zh-Hant"` is matched too: `zh-Hans-CN` finds `zh-Hans`, and a region-only `zh-TW` (the script is
+inferred for Chinese) finds `zh-Hant`. Android 14 may append `-u-` regional preferences
+(`en-US-u-mu-celsius`); extensions are ignored. A script is never crossed, and no likely-subtag data
+exists beyond Chinese (a device `sr-RS` is not matched to a `sr-Latn` entry): offer explicit tags, or a
+bare language as the catch-all.
 
 `getSystemLanguageCode()` is still there if you need the raw device tag for something else — an
 analytics property, a request header. It reports the device's own language independent of whatever

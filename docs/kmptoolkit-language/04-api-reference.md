@@ -17,7 +17,7 @@ public data class AppLanguage(
 
 | Member | Contract |
 |---|---|
-| `code` | BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, …), or `null` for [`System`](#system) |
+| `code` | BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, …), or `null` for [`System`](#system). An underscore is read as a hyphen (`ar_EG` is `ar-EG`), for direction, matching and the platform locale alike; the code itself is kept as given |
 | `isLtr` | `false` only for a right-to-left language, including regional languages whose default script is right-to-left (`arz`, `ary`, `apc`, `azb`, `pnb`, `skr`, `mzn`, `glk`, `lrc`, `bgn`, `rhg`, ...). Meaningless when `code` is `null` |
 | `System` | Follows the device's own language. `isLtr` on this instance is a placeholder (`true`), never meant to be read — see [`03-guide.md`](03-guide.md#resolving-follow-system) |
 
@@ -43,10 +43,10 @@ public interface AppLanguageCatalog {
 | `supported` | The languages you passed, in the order you passed them, copied at construction. Never contains `System` |
 | `fallback` | Served to a device whose language you do not offer. Always an element of `supported` |
 | `systemId` | The persisted identity of `AppLanguage.System` |
-| `byCode(code)` | The supported language with that code, or `null`. Case-insensitive, and applies the JDK's legacy code remaps (`in`→`id`, `iw`→`he`, `ji`→`yi`) |
+| `byCode(code)` | The supported language with that code, or `null`. Case-insensitive, reads `_` as `-`, ignores extensions (`-u-...`, `-x-...`) and applies the JDK's legacy code remaps (`in`→`id`, `iw`→`he`, `ji`→`yi`) to the language subtag; region and script subtags must otherwise match |
 | `idOf(language)` | The string to persist: the language's `code`, or `systemId` when that is `null` |
 | `fromId(id)` | The language a persisted id denotes. An unknown or `null` id resolves to `System` rather than failing |
-| `resolveSystemLanguage()` | The supported language best matching the device right now — whole tag, then primary subtag (`pt-BR` → `pt`), then `fallback`. Re-read on every call, never cached |
+| `resolveSystemLanguage()` | The supported language best matching the device right now — the tag looked up whole, then truncated one subtag at a time (`zh-Hans-CN` → `zh-Hans` → `zh`, `pt-BR` → `pt`); the Chinese script inferred from the region (`zh-TW` → `zh-Hant`, `zh-SG` and bare `zh` → `zh-Hans`); then a same-language, same-script entry (`pt-BR` → your `pt-PT`, `zh-Hans-CN` → your `zh-CN`), the device's region first, else the first listed; then `fallback`. A script is never crossed. `-u-`/`-x-` extensions are ignored. No likely-subtag data beyond Chinese: `sr-RS` is not matched to `sr-Latn`, and `es-MX` against `es-ES` and `es-419` takes the first listed. Re-read on every call, never cached |
 | `resolve(language)` | `language` itself, or `resolveSystemLanguage()` when its `code` is `null`. A language outside `supported` is returned unchanged |
 
 ### `createAppLanguageCatalog`

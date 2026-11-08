@@ -13,7 +13,8 @@ import kotlin.test.assertEquals
  * The recording controller against a naive oracle written from the documented layering rules: overrides
  * stack, the newest wins a shared axis, an override claims only the axes it names, an update keeps the
  * layer's position, a release restores what is underneath at that moment, a released or torn-down handle
- * is dead for good, `applied` records only real changes, and `release()` moves `config` but never `applied`.
+ * is dead for good, `applied` records only real changes, and `release()` moves `config` but never `applied`
+ * (and after it nothing more is recorded, while `config` keeps following writes, as on the real controller).
  */
 class RecordingControllerOracleFuzzTest {
 
@@ -44,6 +45,7 @@ class RecordingControllerOracleFuzzTest {
             val dead = mutableListOf<Pair<SystemBarsOverrideHandle, SystemBarsOverride>>()
             val expectedApplied = mutableListOf<SystemBarsConfig>()
             var effective = base
+            var released = false
             val log = StringBuilder()
             repeat(60) { step ->
                 var teardown = false
@@ -55,11 +57,11 @@ class RecordingControllerOracleFuzzTest {
                     5 -> { controller.updateBaseConfig { it.copy(statusBarIcons = SystemBarIconStyle.LightIcons) }; base = base.copy(statusBarIcons = SystemBarIconStyle.LightIcons); log.append("ubase ") }
                     6 -> if (dead.isNotEmpty()) { val (h, _) = dead[r.nextInt(dead.size)]; h.update(randomOverride(r)); h.release(); log.append("dead ") }
                     else -> if (r.nextInt(6) == 0) {
-                        controller.release(); layers.forEach { dead += it.handle to it.override }; layers.clear(); base = SystemBarsConfig(); teardown = true; log.append("TEARDOWN ")
+                        controller.release(); layers.forEach { dead += it.handle to it.override }; layers.clear(); base = SystemBarsConfig(); teardown = true; released = true; log.append("TEARDOWN ")
                     }
                 }
                 val now = fold(base, layers)
-                if (!teardown && now != effective) expectedApplied += now
+                if (!teardown && !released && now != effective) expectedApplied += now
                 effective = now
                 assertEquals(now, controller.config.value, "seed $seed step $step ($log): config")
                 assertEquals(layers.size, controller.activeOverrideCount, "seed $seed step $step ($log): layers")

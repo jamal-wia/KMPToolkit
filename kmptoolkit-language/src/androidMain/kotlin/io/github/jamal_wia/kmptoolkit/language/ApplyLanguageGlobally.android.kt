@@ -29,7 +29,7 @@ public actual fun getSystemLanguageCode(): String? {
 
 /** The locale to run under for this language — the device's own when it is [AppLanguage.System]. */
 internal fun AppLanguage.resolveLocale(): Locale =
-    code?.let(Locale::forLanguageTag) ?: systemLocale()
+    platformTag()?.let(Locale::forLanguageTag) ?: systemLocale()
 
 private fun systemLocale(): Locale {
     val locales: LocaleList = Resources.getSystem().configuration.locales
