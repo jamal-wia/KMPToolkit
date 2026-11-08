@@ -181,7 +181,8 @@ class AndroidDownloaderArchiveRound4Test {
             val storage: DownloaderStorage = storage()
             val unit = TestUnit("e3", "pages/e3", Group("g"), ResourceFormat.ZipArchive("ok.txt"))
             stage(storage, unit, zip("ok.txt" to "1", "../../../evil/" to null))
-            assertFailsWith<IllegalArgumentException> { storage.commitResource(unit) }
+            assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
+            assertEquals(TempFileState.None, storage.tempFileState(unit))
             assertFalse(File(context.filesDir, "evil").exists(), "a directory was created outside the base")
             assertFalse(File(root, "tmp/staging-e3").exists())
             assertEquals("keep", sentinel.readText())

@@ -118,7 +118,8 @@ public sealed interface ResourceFormat {
      * A ZIP archive: committing extracts it into [DownloadUnit.relativePath] as a directory (with
      * zip-slip protection) and deletes the archive. [availabilityMarker] is a file the extraction
      * is known to produce — its presence is what proves a directory resource is complete, since an
-     * interrupted extraction also leaves a directory behind.
+     * interrupted extraction also leaves a directory behind. Every entry is extracted, or the commit fails
+     * with [ResourceIntegrityException]; an entry that would land outside the directory fails the commit.
      */
     public data class ZipArchive(public val availabilityMarker: String) : ResourceFormat
 

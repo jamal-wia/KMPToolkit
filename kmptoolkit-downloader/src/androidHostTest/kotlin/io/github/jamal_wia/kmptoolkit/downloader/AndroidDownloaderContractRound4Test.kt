@@ -154,7 +154,7 @@ class AndroidDownloaderContractRound4Test {
     // -- A replacing commit that fails never takes the committed resource away ----------------------
 
     @Test
-    fun `a corrupt archive keeps the committed archive, removes its staging and keeps its own temp file`() = runBlocking {
+    fun `a corrupt archive keeps the committed archive, removes its staging and deletes its own temp file`() = runBlocking {
         withTimeout(30_000) {
             val storage: DownloaderStorage = storage()
             val unit: TestUnit = archive("a2")
@@ -163,12 +163,12 @@ class AndroidDownloaderContractRound4Test {
             val good: ByteArray = zip("ok.txt" to "2", "new.bin" to "x".repeat(10_000))
             stage(storage, unit, good.copyOf(good.size / 2))
 
-            assertFailsWith<Exception> { storage.commitResource(unit) }
+            assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
 
             assertTrue(storage.isResourceAvailable(unit))
             assertEquals("old", File(storage.getResourcePath(unit), "old.bin").readText())
             assertFalse(File(root, "tmp/staging-a2").exists(), "staging of the failed extraction is still there")
-            assertEquals(TempFileState.Complete, storage.tempFileState(unit))
+            assertEquals(TempFileState.None, storage.tempFileState(unit))
         }
     }
 
@@ -213,6 +213,28 @@ class AndroidDownloaderContractRound4Test {
     }
 
     @Test
+    fun `a truncated archive fails the engine with Corrupted after exactly two transfers and leaves nothing`() = runBlocking {
+        withTimeout(60_000) {
+            val storage: DownloaderStorage = storage()
+            val group = Group("g")
+            val unit: TestUnit = archive("a5", group)
+            group.units = listOf(unit)
+            val whole: ByteArray = zip("ok.txt" to "1", "big.bin" to "x".repeat(10_000))
+            val service = Service(storage, whole.copyOf(whole.size / 2))
+            val engine: Downloader = engine(storage, service, group)
+
+            val failure: Throwable? = runCatching { engine.ensureAvailable(unit) }.exceptionOrNull()
+
+            assertTrue(failure is DownloadFailedException, "$failure")
+            assertTrue(failure.error is DownloadError.Corrupted, "${failure.error}")
+            assertEquals(2, service.enqueues.get())
+            assertFalse(engine.isAvailable(unit))
+            assertFalse(File(root, "tmp/staging-a5").exists())
+            assertEquals(TempFileState.None, storage.tempFileState(unit))
+        }
+    }
+
+    @Test
     fun `zip entries that climb out of the target fail the commit and write nothing outside`() = runBlocking {
         withTimeout(30_000) {
             val storage: DownloaderStorage = storage()
@@ -223,7 +245,11 @@ class AndroidDownloaderContractRound4Test {
             )
             for (name in names) {
                 stage(storage, unit, zip("ok.txt" to "1", name to "evil"))
-                runCatching { storage.commitResource(unit) }
+                val failure: Throwable? = runCatching { storage.commitResource(unit) }.exceptionOrNull()
+                if (failure != null) {
+                    assertTrue(failure is ResourceIntegrityException, "$name failed with $failure")
+                    assertEquals(TempFileState.None, storage.tempFileState(unit), "$name left its temp file")
+                }
                 assertFalse(File(context.filesDir, "evil.txt").exists(), "$name escaped to filesDir")
                 assertFalse(File(root, "evil.txt").exists(), "$name escaped to the base")
                 assertFalse(File(root, "tmp/evil.txt").exists(), "$name escaped to tmp")

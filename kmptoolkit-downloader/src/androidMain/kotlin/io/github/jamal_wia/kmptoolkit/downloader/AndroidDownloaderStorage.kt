@@ -12,13 +12,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.EOFException
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.FilterInputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.RandomAccessFile
 import kotlin.random.Random
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
+import java.util.zip.ZipException
 import java.util.zip.ZipInputStream
 
 /**
@@ -363,6 +368,7 @@ internal class AndroidDownloaderStorage(
             deleteTree(stagingDir)
             try {
                 extractZip(
+                    unit = unit,
                     tempFile = tempFile,
                     targetDir = stagingDir.absolutePath,
                 )
@@ -385,7 +391,6 @@ internal class AndroidDownloaderStorage(
                 // The tree must be what the unit declares before anything at the final path is touched:
                 // a directory without its marker is not "ready", and it must not replace one that is.
                 if (!File(stagingDir, unit.archiveMarker()).exists()) {
-                    tempFile.delete()
                     throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
                 }
                 // Atomic swap: remove old target, rename staging to target
@@ -395,6 +400,12 @@ internal class AndroidDownloaderStorage(
                     stagingDir.copyRecursively(target = targetDir, overwrite = true)
                     deleteTree(stagingDir)
                 }
+            } catch (e: ResourceIntegrityException) {
+                // Bytes that are not what the unit declares: the temp file is worthless, and one fresh download
+                // is the fix. Everything above ran before the committed resource was touched.
+                tempFile.delete()
+                deleteTree(stagingDir)
+                throw e
             } catch (e: Exception) {
                 deleteTree(stagingDir)
                 throw e
@@ -514,54 +525,107 @@ internal class AndroidDownloaderStorage(
         logger.i { "Saved resource to $destinationPath (${destination.length()} bytes)" }
     }
 
-    private fun extractZip(tempFile: File, targetDir: String) {
+    /**
+     * Extracts [tempFile] into [targetDir]. Every entry is extracted or the call fails: an archive that cannot be
+     * read as delivered (a cut or corrupt entry, a size or CRC-32 mismatch, an unsupported method, an encrypted
+     * entry, a name that leaves [targetDir] or holds a NUL) throws [ResourceIntegrityException]. Only the READ side
+     * is classified that way; a failure to write (a full disk) stays the plain [IOException] it is.
+     */
+    private fun extractZip(unit: DownloadUnit, tempFile: File, targetDir: String) {
         logger.i { "Extracting ZIP to $targetDir..." }
         val dir = File(targetDir)
         dir.mkdirs()
+        val dirPath: String = dir.canonicalPath
 
         // Single reusable buffer for all entries to minimize allocations — a large archive with
         // hundreds of small files can otherwise trigger OOM once the app is backgrounded and heap
         // is tight.
         val copyBuffer = ByteArray(WRITE_BUFFER_SIZE)
+        val observed = EofObservingStream(FileInputStream(tempFile).buffered())
 
-        ZipInputStream(
-            FileInputStream(tempFile).buffered()
-        ).use { zipStream: ZipInputStream ->
-            var entry: ZipEntry? = zipStream.nextEntry
+        ZipInputStream(observed).use { zipStream: ZipInputStream ->
+            var entry: ZipEntry? = readingArchive(unit) { zipStream.nextEntry }
             while (entry != null) {
+                val entryName: String = entry.name
+                // canonicalPath would throw a plain IOException for a NUL, which is not a storage failure.
+                if (entryName.indexOf('\u0000') >= 0) {
+                    throw ResourceIntegrityException("Archive of $unit has an entry name with a NUL character")
+                }
+                // The canonical file, so `a/../x` is written as `x` (the lexical result) and a climbing name fails.
+                val output: File = File(dir, entryName).canonicalFile
                 if (entry.isDirectory) {
                     // An empty directory is part of the tree. A `./` or `/` entry is the target itself.
-                    val outputDir = File(dir, entry.name)
-                    if (outputDir.canonicalPath != dir.canonicalPath) {
-                        require(outputDir.canonicalPath.startsWith(dir.canonicalPath + File.separator)) {
-                            "ZIP entry attempts path traversal: ${entry.name}"
-                        }
-                        outputDir.mkdirs()
+                    if (output.path != dirPath) {
+                        requireInside(unit, output, dirPath, entryName)
+                        output.mkdirs()
                     }
                 } else {
-                    val entryName: String = entry.name
-                    val outputFile = File(dir, entryName)
                     // Zip slip protection
-                    require(
-                        outputFile.canonicalPath.startsWith(
-                            dir.canonicalPath + File.separator
-                        )
-                    ) {
-                        "ZIP entry attempts path traversal: $entryName"
-                    }
-                    outputFile.parentFile?.mkdirs()
-                    FileOutputStream(outputFile).use { output: FileOutputStream ->
+                    requireInside(unit, output, dirPath, entryName)
+                    output.parentFile?.mkdirs()
+                    FileOutputStream(output).use { out: FileOutputStream ->
                         var bytesRead: Int
-                        while (zipStream.read(copyBuffer).also { bytesRead = it } != -1) {
-                            output.write(copyBuffer, 0, bytesRead)
+                        while (readingArchive(unit) { zipStream.read(copyBuffer) }.also { bytesRead = it } != -1) {
+                            out.write(copyBuffer, 0, bytesRead)
                         }
                     }
                     logger.d { "Extracted: $entryName" }
                 }
-                zipStream.closeEntry()
-                entry = zipStream.nextEntry
+                readingArchive(unit) { zipStream.closeEntry() }
+                entry = readingArchive(unit) { zipStream.nextEntry }
             }
         }
+        // ZipInputStream ends the walk silently on a short remainder; one that starts like a local header is a cut archive.
+        if (observed.sawEof) rejectCutHeader(unit, tempFile)
         logger.i { "ZIP extraction complete" }
+    }
+
+    private fun requireInside(unit: DownloadUnit, output: File, dirPath: String, entryName: String) {
+        if (!output.path.startsWith(dirPath + File.separator)) {
+            throw ResourceIntegrityException("Archive of $unit has an entry that attempts path traversal: $entryName")
+        }
+    }
+
+    /** Runs a read of the archive, turning what a broken archive makes `java.util.zip` throw into [ResourceIntegrityException]. */
+    private inline fun <T> readingArchive(unit: DownloadUnit, read: () -> T): T = try {
+        read()
+    } catch (e: ZipException) {
+        throw ResourceIntegrityException("Archive of $unit cannot be extracted: ${e.message}", e)
+    } catch (e: EOFException) {
+        throw ResourceIntegrityException("Archive of $unit cannot be extracted: ${e.message ?: "unexpected end of archive"}", e)
+    }
+
+    /**
+     * Fails when the last bytes of [tempFile], fewer than a local header, begin with the local header signature:
+     * the archive was cut inside the header of an entry, which ZipInputStream reads as the end of the entries.
+     */
+    private fun rejectCutHeader(unit: DownloadUnit, tempFile: File) {
+        val tail: ByteArray = RandomAccessFile(tempFile, "r").use { file: RandomAccessFile ->
+            val length: Int = minOf(LOCAL_HEADER_SIZE - 1L, file.length()).toInt()
+            file.seek(file.length() - length)
+            ByteArray(length).also { file.readFully(it) }
+        }
+        for (start: Int in 0..tail.size - 4) {
+            if (tail[start] == 0x50.toByte() && tail[start + 1] == 0x4B.toByte() &&
+                tail[start + 2] == 0x03.toByte() && tail[start + 3] == 0x04.toByte()
+            ) {
+                throw ResourceIntegrityException("Archive of $unit ends inside a local file header")
+            }
+        }
+    }
+
+    /** Remembers whether a read of the archive hit its end: the signal that the walk ended at the end of the file. */
+    private class EofObservingStream(input: InputStream) : FilterInputStream(input) {
+        var sawEof: Boolean = false
+            private set
+
+        override fun read(): Int = super.read().also { if (it == -1) sawEof = true }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            super.read(buffer, offset, length).also { if (it == -1 && length > 0) sawEof = true }
+    }
+
+    private companion object {
+        const val LOCAL_HEADER_SIZE: Int = 30
     }
 }

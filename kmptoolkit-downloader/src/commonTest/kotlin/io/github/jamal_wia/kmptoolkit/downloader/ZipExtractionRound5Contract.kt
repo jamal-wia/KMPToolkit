@@ -20,6 +20,9 @@ import kotlinx.coroutines.test.runTest
  */
 @OptIn(ExperimentalEncodingApi::class)
 abstract class ZipExtractionRound5Contract {
+    // Archives ZIP_I .. ZIP_Q were generated offline by a script kept out of the repository (local headers, central
+    // directory and end record written by hand; the deliberate defects are named by the tests that use them).
+
 
     protected abstract fun newStorage(): DownloaderStorage
     protected abstract fun writeFile(path: String, bytes: ByteArray)
@@ -54,6 +57,15 @@ abstract class ZipExtractionRound5Contract {
     private fun text(storage: DownloaderStorage, unit: DownloadUnit, entry: String): String? =
         readFile(storage.getResourcePath(unit) + "/" + entry)?.decodeToString()
 
+    /** The commit failed as an archive that cannot be extracted as delivered: integrity failure, nothing left behind. */
+    private suspend fun assertRejected(storage: DownloaderStorage, unit: DownloadUnit) {
+        assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
+        assertEquals(TempFileState.None, storage.tempFileState(unit), "the worthless temp file must be deleted")
+        val base: String = storage.getResourcePath(unit).substringBeforeLast('/').substringBeforeLast('/')
+        assertFalse(pathExists("$base/tmp/staging-${unit.id}"), "no staging directory may stay behind")
+        assertFalse(storage.isResourceAvailable(unit), "a rejected archive must not be available")
+    }
+
     @Test
     fun `entries written with a data descriptor are all extracted`() = runTest {
         // The way a streaming writer (java.util.zip.ZipOutputStream) lays out DEFLATED entries: the
@@ -86,10 +98,7 @@ abstract class ZipExtractionRound5Contract {
         val unit = ArchiveUnit("method")
         commit(storage, unit, Base64.decode(ZIP_C))
 
-        val failure: Throwable? = runCatching { storage.commitResource(unit) }.exceptionOrNull()
-
-        assertTrue(failure != null, "the commit must not report success for an archive it could not extract")
-        assertFalse(storage.isResourceAvailable(unit), "a tree missing an entry must not be available")
+        assertRejected(storage, unit)
     }
 
     @Test
@@ -98,10 +107,7 @@ abstract class ZipExtractionRound5Contract {
         val unit = ArchiveUnit("truncated")
         commit(storage, unit, Base64.decode(ZIP_D))
 
-        val failure: Throwable? = runCatching { storage.commitResource(unit) }.exceptionOrNull()
-
-        assertTrue(failure != null, "the commit must not report success for a half-written archive")
-        assertFalse(storage.isResourceAvailable(unit), "a half-written archive must not be available")
+        assertRejected(storage, unit)
     }
 
     @Test
@@ -122,12 +128,10 @@ abstract class ZipExtractionRound5Contract {
         val unit = ArchiveUnit("slip")
         commit(storage, unit, Base64.decode(ZIP_F))
 
-        val failure: Throwable? = runCatching { storage.commitResource(unit) }.exceptionOrNull()
+        assertRejected(storage, unit)
 
         val base: String = storage.getResourcePath(unit).substringBeforeLast('/').substringBeforeLast('/')
         assertFalse(pathExists("$base/tmp/evil.txt"), "an entry must never leave the extraction tree")
-        assertTrue(failure != null, "an archive with a traversal entry must not commit")
-        assertFalse(storage.isResourceAvailable(unit))
     }
 
     @Test
@@ -167,6 +171,104 @@ abstract class ZipExtractionRound5Contract {
 
         assertEquals("marker\n", text(storage, unit, "marker.txt"))
         storage.deleteTempFile(unit)
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+    }
+
+    @Test
+    fun `a STORED entry with a data descriptor fails the commit`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("storeddesc")
+        commit(storage, unit, Base64.decode(ZIP_I))
+
+        assertRejected(storage, unit)
+    }
+
+    @Test
+    fun `a STORED entry with one data byte flipped fails the commit`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("crcflip")
+        commit(storage, unit, Base64.decode(ZIP_J))
+
+        assertRejected(storage, unit)
+    }
+
+    @Test
+    fun `a DEFLATED entry whose declared size is off by one fails the commit`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("sizeoff")
+        commit(storage, unit, Base64.decode(ZIP_K))
+
+        assertRejected(storage, unit)
+    }
+
+    @Test
+    fun `an archive cut inside the header of the second entry fails the commit`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("cutheader")
+        commit(storage, unit, Base64.decode(ZIP_L))
+
+        assertRejected(storage, unit)
+    }
+
+    @Test
+    fun `an archive cut inside a data descriptor fails the commit`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("cutdesc")
+        commit(storage, unit, Base64.decode(ZIP_M))
+
+        assertRejected(storage, unit)
+    }
+
+    @Test
+    fun `a name that climbs and comes back extracts under its normalized name`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("normalized")
+        commit(storage, unit, Base64.decode(ZIP_N))
+
+        storage.commitResource(unit)
+
+        assertEquals("inner\n", text(storage, unit, "inner.txt"))
+    }
+
+    @Test
+    fun `a name that climbs out of the extraction directory after coming back fails the commit`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("climb")
+        commit(storage, unit, Base64.decode(ZIP_O))
+
+        assertRejected(storage, unit)
+    }
+
+    @Test
+    fun `an entry flagged as encrypted fails the commit`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("encrypted")
+        commit(storage, unit, Base64.decode(ZIP_P))
+
+        assertRejected(storage, unit)
+    }
+
+    @Test
+    fun `a data descriptor with a wrong CRC fails the commit`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("desccrc")
+        commit(storage, unit, Base64.decode(ZIP_Q))
+
+        assertRejected(storage, unit)
+    }
+
+    @Test
+    fun `a replacing archive that is cut short keeps the committed one`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("replacecut")
+        commit(storage, unit, Base64.decode(ZIP_B))
+        storage.commitResource(unit)
+        commit(storage, unit, Base64.decode(ZIP_D))
+
+        assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
+
+        assertTrue(storage.isResourceAvailable(unit), "the committed archive must survive")
+        assertEquals("marker\n", text(storage, unit, "marker.txt"))
         assertEquals(TempFileState.None, storage.tempFileState(unit))
     }
 
@@ -305,5 +407,43 @@ abstract class ZipExtractionRound5Contract {
     private val ZIP_H: String =
         "UEsDBBQAAAAAAAAAIQBufmAJBgAAAAYAAAAJAAAAb3RoZXIudHh0b3RoZXIKUEsBAhQAFAAAAAAAAAAhAG5+YAkGAAAABgAAAAkAAAAAAAAAAA" +
         "AAAAAAAAAAAG90aGVyLnR4dFBLBQYAAAAAAQABADcAAAAtAAAAAAA="
+
+    private val ZIP_I: String =
+        "UEsDBBQACAAAAAAAIQAAAAAAAAAAAAAAAAAKAAAAbWFya2VyLnR4dG1hcmtlcgpQSwcIqBZQaAcAAAAHAAAAUEsBAhQAFAAIAAAAAAAhAKgWUG" +
+        "gHAAAABwAAAAoAAAAAAAAAAAAAAAAAAAAAAG1hcmtlci50eHRQSwUGAAAAAAEAAQA4AAAAPwAAAAAA"
+
+    private val ZIP_J: String =
+        "UEsDBBQAAAAAAAAAIQCoFlBoBwAAAAcAAAAKAAAAbWFya2VyLnR4dG1hcmtlcgpQSwMEFAAAAAAAAAAhAIzODhBAAAAAQAAAAAgAAABkYXRhLm" +
+        "JpbgABAgMEBQYHCAn1CwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9QSwECFAAUAAAAAAAAACEA" +
+        "qBZQaAcAAAAHAAAACgAAAAAAAAAAAAAAAAAAAAAAbWFya2VyLnR4dFBLAQIUABQAAAAAAAAAIQCMzg4QQAAAAEAAAAAIAAAAAAAAAAAAAAAAAC" +
+        "8AAABkYXRhLmJpblBLBQYAAAAAAgACAG4AAACVAAAAAAA="
+
+    private val ZIP_K: String =
+        "UEsDBBQAAAAIAAAAIQCoFlBoCQAAAAgAAAAKAAAAbWFya2VyLnR4dMtNLMpOLeICAFBLAQIUABQAAAAIAAAAIQCoFlBoCQAAAAgAAAAKAAAAAA" +
+        "AAAAAAAAAAAAAAAABtYXJrZXIudHh0UEsFBgAAAAABAAEAOAAAADEAAAAAAA=="
+
+    private val ZIP_L: String =
+        "UEsDBBQAAAAAAAAAIQCoFlBoBwAAAAcAAAAKAAAAbWFya2VyLnR4dG1hcmtlcgpQSwMEFAAAAAAA"
+
+    private val ZIP_M: String =
+        "UEsDBBQACAAIAAAAIQAAAAAAAAAAAAAAAAAKAAAAbWFya2VyLnR4dMtNLMpOLeICAFBLBwioFg=="
+
+    private val ZIP_N: String =
+        "UEsDBBQAAAAAAAAAIQCoFlBoBwAAAAcAAAAKAAAAbWFya2VyLnR4dG1hcmtlcgpQSwMEFAAAAAAAAAAhAIxNAtAGAAAABgAAAA4AAABhLy4uL2" +
+        "lubmVyLnR4dGlubmVyClBLAQIUABQAAAAAAAAAIQCoFlBoBwAAAAcAAAAKAAAAAAAAAAAAAAAAAAAAAABtYXJrZXIudHh0UEsBAhQAFAAAAAAA" +
+        "AAAhAIxNAtAGAAAABgAAAA4AAAAAAAAAAAAAAAAALwAAAGEvLi4vaW5uZXIudHh0UEsFBgAAAAACAAIAdAAAAGEAAAAAAA=="
+
+    private val ZIP_O: String =
+        "UEsDBBQAAAAAAAAAIQCoFlBoBwAAAAcAAAAKAAAAbWFya2VyLnR4dG1hcmtlcgpQSwMEFAAAAAAAAAAhAB8I6kYCAAAAAgAAAAkAAABhLy4uLy" +
+        "4uL3h4ClBLAQIUABQAAAAAAAAAIQCoFlBoBwAAAAcAAAAKAAAAAAAAAAAAAAAAAAAAAABtYXJrZXIudHh0UEsBAhQAFAAAAAAAAAAhAB8I6kYC" +
+        "AAAAAgAAAAkAAAAAAAAAAAAAAAAALwAAAGEvLi4vLi4veFBLBQYAAAAAAgACAG8AAABYAAAAAAA="
+
+    private val ZIP_P: String =
+        "UEsDBBQAAQAAAAAAIQCoFlBoBwAAAAcAAAAKAAAAbWFya2VyLnR4dG1hcmtlcgpQSwECFAAUAAEAAAAAACEAqBZQaAcAAAAHAAAACgAAAAAAAA" +
+        "AAAAAAAAAAAAAAbWFya2VyLnR4dFBLBQYAAAAAAQABADgAAAAvAAAAAAA="
+
+    private val ZIP_Q: String =
+        "UEsDBBQACAAIAAAAIQAAAAAAAAAAAAAAAAAKAAAAbWFya2VyLnR4dMtNLMpOLeICAFBLBwipFlBoCQAAAAcAAABQSwECFAAUAAgACAAAACEAqB" +
+        "ZQaAkAAAAHAAAACgAAAAAAAAAAAAAAAAAAAAAAbWFya2VyLnR4dFBLBQYAAAAAAQABADgAAABBAAAAAAA="
     }
 }
