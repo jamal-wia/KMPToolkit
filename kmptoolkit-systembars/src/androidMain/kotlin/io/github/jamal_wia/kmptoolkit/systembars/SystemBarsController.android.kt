@@ -12,7 +12,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.jamal_wia.kmptoolkit.activity.ActivityAccess
 import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
-import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 
 /**
  * Creates the Android [SystemBarsController].
@@ -20,7 +19,9 @@ import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
  * @param context any `Context`; its application context is retained to track the currently
  *   resumed activity, which the controller needs to reach the window it styles — the bars belong
  *   to whichever activity is resumed *now*, and that identity changes on every rotation, theme
- *   change and font-size change.
+ *   change and font-size change. The activity tracker behind it is shared by every `Context`-based
+ *   factory of this module and is never unregistered, so creating and releasing controllers
+ *   repeatedly leaves one `ActivityLifecycleCallbacks` on the `Application`, not one per cycle.
  * **Call this from `Application.onCreate`, before any activity resumes.** The controller learns which
  * window to style from the activity-resumed callback, and Android offers no way to ask which activity
  * resumed before the callback was registered — so a controller created later, such as a lazy DI
@@ -35,7 +36,7 @@ public fun createSystemBarsController(
     context: Context,
     initialConfig: SystemBarsConfig = SystemBarsConfig(),
 ): SystemBarsController = createSystemBarsController(
-    activityAccess = createActivityAccess(context.applicationContext as Application),
+    activityAccess = SharedActivityAccess.forApplication(context.applicationContext as Application),
     initialConfig = initialConfig,
 )
 
@@ -52,7 +53,9 @@ public fun createSystemBarsController(
  * The [ActivityAccess] is yours: this controller does not release it, so one instance can back
  * several controllers, and [SystemBarsController.release] leaves it registered. It has to exist
  * before the first activity resumes — create it, and this controller, in `Application.onCreate`;
- * see the other overload for why.
+ * see the other overload for why. The access must outlive the controller: release the controller
+ * before you `release()` the access, because a controller over a released access can no longer reach
+ * any window.
  *
  * @param activityAccess where the window to style comes from.
  * @param initialConfig the base configuration to start from, before your theme sets one.
@@ -98,7 +101,9 @@ private class AndroidSystemBarsController(
             // main thread applies inline, before the posted one runs. The posted block then lands
             // last. Applied as captured, it would leave the window showing a configuration the
             // controller no longer holds until the next resume.
-            activity.runOnUiThread { apply(activity, currentConfig) }
+            //
+            // A release() that ran after the write was queued wins: the write is dropped.
+            activity.runOnUiThread { if (!isReleased) apply(activity, currentConfig) }
         }
     }
 

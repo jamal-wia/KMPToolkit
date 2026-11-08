@@ -15,11 +15,11 @@ import android.os.Bundle
  */
 internal object AlarmIntents {
 
-    private const val EXTRA_FIRE_AT = "kmptoolkit_alarm_fire_at"
-    private const val EXTRA_TITLE = "kmptoolkit_alarm_title"
-    private const val EXTRA_BODY = "kmptoolkit_alarm_body"
-    private const val EXTRA_CHANNEL = "kmptoolkit_alarm_channel"
-    private const val EXTRA_PAYLOAD = "kmptoolkit_alarm_payload"
+    private const val EXTRA_FIRE_AT = AlarmExtraNames.FIRE_AT
+    private const val EXTRA_TITLE = AlarmExtraNames.TITLE
+    private const val EXTRA_BODY = AlarmExtraNames.BODY
+    private const val EXTRA_CHANNEL = AlarmExtraNames.CHANNEL
+    private const val EXTRA_PAYLOAD = AlarmExtraNames.PAYLOAD
 
     /**
      * The explicit-component broadcast intent carrying the whole alarm.
@@ -48,6 +48,21 @@ internal object AlarmIntents {
     fun cancelIntent(context: Context, id: String, keys: AlarmIntentKeys): Intent =
         Intent(context, AlarmReceiver::class.java).apply { data = alarmUri(id, keys.intentScheme) }
 
+    /**
+     * Like [cancelIntent], but for the data URI 3.0.x wrote: plain `appendPath`, which turns every
+     * unpaired surrogate into `?`. `null` for an id without one (its URI never changed, so slot 0 of
+     * [cancelIntent] already finds the old alarm). Alarms armed by 3.0.x for an id with an unpaired
+     * surrogate used the lossy `appendPath` URI. Drop in a future major release.
+     *
+     * The request code of that alarm was `id.hashCode()`, which is [requestCode] of slot 0.
+     */
+    fun legacyCancelIntent(context: Context, id: String, keys: AlarmIntentKeys): Intent? {
+        if (!id.hasUnpairedSurrogate()) return null
+        return Intent(context, AlarmReceiver::class.java).apply {
+            data = Uri.Builder().scheme(keys.intentScheme).appendPath(id).build()
+        }
+    }
+
     /** Rebuilds the alarm at fire time, or `null` if the intent is not one of ours. */
     fun fromIntent(intent: Intent, keys: AlarmIntentKeys): ScheduledAlarm? {
         val id: String = intent.getStringExtra(keys.idKey)?.takeIf { it.isNotBlank() } ?: return null
@@ -70,10 +85,72 @@ internal object AlarmIntents {
      * distinctness is carried by the data URI above — so any stable `Int` derived from the id will
      * do.
      */
-    fun requestCode(id: String): Int = id.hashCode()
+    fun requestCode(id: String): Int = requestCode(id, slot = 0)
+
+    /**
+     * How many `PendingIntent` slots an id owns. One slot holds the armed alarm; the others are what
+     * a replacement can be built in without touching it, and what a retirement the platform refused
+     * leaves occupied. More than two, so a single refused retirement (a restarting system server)
+     * does not take away the free slot the next replacement needs.
+     */
+    const val SLOT_COUNT: Int = 4
+
+    /**
+     * Request code of one of an alarm's [SLOT_COUNT] `PendingIntent` slots. A replacement is armed in
+     * a slot no alarm occupies, so a replacement the platform refuses has not touched an alarm that
+     * stays armed; slot `0` is the code every earlier version used, so an alarm armed before an
+     * update is found there.
+     */
+    fun requestCode(id: String, slot: Int): Int = id.hashCode() + slot
 
     private fun alarmUri(id: String, scheme: String): Uri =
-        Uri.Builder().scheme(scheme).appendPath(id).build()
+        Uri.Builder().scheme(scheme).appendLosslessPath(id).build()
+
+    /**
+     * `Uri.Builder.appendPath`, except that it cannot merge two different ids into one path.
+     * `Uri.encode` writes UTF-8, which has no form for an unpaired surrogate, so it turns each into
+     * `?` and two ids that differ only in such characters (equal hash codes included) would be one
+     * `PendingIntent`. An id without one is appended exactly as `appendPath` would (alarms armed by
+     * an earlier version stay found); an id with one gets each unpaired surrogate as `%u` and its four
+     * hex digits, a form no `Uri.encode` output contains because `%` is always followed by two hex
+     * digits there.
+     */
+    private fun Uri.Builder.appendLosslessPath(segment: String): Uri.Builder {
+        if (!segment.hasUnpairedSurrogate()) return appendPath(segment)
+        val encoded = StringBuilder()
+        var index = 0
+        while (index < segment.length) {
+            val char: Char = segment[index]
+            val paired: Boolean = char.isHighSurrogate() && index + 1 < segment.length && segment[index + 1].isLowSurrogate()
+            if (paired) {
+                encoded.append(Uri.encode(segment.substring(index, index + 2)))
+                index += 2
+            } else if (char.isSurrogate()) {
+                encoded.append("%u").append(char.code.toString(HEX_RADIX).padStart(HEX_DIGITS, '0').uppercase())
+                index += 1
+            } else {
+                encoded.append(Uri.encode(char.toString()))
+                index += 1
+            }
+        }
+        return appendEncodedPath(encoded.toString())
+    }
+
+    private fun String.hasUnpairedSurrogate(): Boolean {
+        var index = 0
+        while (index < length) {
+            val char: Char = this[index]
+            when {
+                char.isHighSurrogate() && index + 1 < length && this[index + 1].isLowSurrogate() -> index += 2
+                char.isSurrogate() -> return true
+                else -> index += 1
+            }
+        }
+        return false
+    }
+
+    private const val HEX_RADIX: Int = 16
+    private const val HEX_DIGITS: Int = 4
 
     /** Intent extras carry no `Map`, but they do carry a `Bundle`. */
     private fun Map<String, String>.toBundle(): Bundle = Bundle().also { bundle ->

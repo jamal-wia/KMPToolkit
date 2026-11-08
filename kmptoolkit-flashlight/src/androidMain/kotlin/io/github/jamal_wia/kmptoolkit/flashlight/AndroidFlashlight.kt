@@ -78,6 +78,7 @@ private object ProcessTorch {
     /**
      * What the loop switches — set by each [AndroidFlashlight.start] before it starts its pattern. A
      * `stop` keeps switching the one last set, which is the torch a running pattern lit.
+     * Volatile: written on the caller's thread, read by the blink loop on Dispatchers.Default.
      */
     @Volatile
     var target: TorchTarget? = null

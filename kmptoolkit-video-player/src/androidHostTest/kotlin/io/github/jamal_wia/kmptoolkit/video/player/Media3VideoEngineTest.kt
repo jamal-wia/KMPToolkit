@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.video.player
 
 import android.content.Context
+import android.os.Looper
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -17,6 +18,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.Media3TestSupport.runSuspendi
 import kotlinx.coroutines.Job
 import org.junit.After
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowLooper
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -242,6 +244,69 @@ class Media3VideoEngineTest {
         }
 
         assertEquals(3_000L, position)
+    }
+
+    @Test
+    fun `a position refresh posted before a seek from another thread does not undo it`() {
+        loadOrThrow()
+        ShadowLooper.idleMainLooper()
+        offLooper {
+            engine.positionMs() // posts a refresh behind nothing, from the polling thread
+            engine.seekTo(3_000L) // publishes its target and queues the seek behind that refresh
+        }
+
+        shadowOf(Looper.getMainLooper()).runOneTask() // the refresh, with the seek still queued
+
+        assertEquals(3_000L, offLooper { engine.positionMs() })
+    }
+
+    @Test
+    fun `a refresh that already passed its queued check does not undo a seek published after it`() {
+        // The looper's refresh checks that nothing is queued, then reads the player. Here a seek from
+        // another thread lands exactly between the two: the player's position getter, on its first
+        // armed call, runs engine.seekTo(target) on a second thread and joins it. That call counts
+        // itself, publishes the target and posts; it never waits for the looper.
+        var armed = false
+        var seekFromOtherThread: (() -> Unit)? = null
+        val racingEngine = Media3VideoEngine(
+            context = context,
+            looper = Looper.getMainLooper(),
+            playerFactory = { playerContext: Context, looper: Looper ->
+                val delegate: ExoPlayer = androidx.media3.test.utils.TestExoPlayerBuilder(playerContext)
+                    .setLooper(looper)
+                    .build()
+                object : ExoPlayer by delegate {
+                    override fun getCurrentPosition(): Long {
+                        if (armed) {
+                            armed = false
+                            seekFromOtherThread?.invoke()
+                        }
+                        return delegate.currentPosition
+                    }
+                }
+            },
+            mediaSourceFactory = { _, _ -> Media3TestSupport.fakeSource() },
+        )
+        seekFromOtherThread = {
+            val worker = kotlin.concurrent.thread { racingEngine.seekTo(3_000L) }
+            worker.join(5_000L)
+            check(!worker.isAlive) { "seekTo blocked: it must not wait for the looper" }
+        }
+        try {
+            runSuspending { racingEngine.load(source) }.getOrThrow()
+            ShadowLooper.idleMainLooper()
+            offLooper { racingEngine.positionMs() } // posts a refresh from the polling thread
+            armed = true
+
+            shadowOf(Looper.getMainLooper()).runOneTask() // the refresh: its player read triggers the seek
+
+            assertFalse(armed, "the refresh never read the player, so the race was not exercised")
+            assertEquals(3_000L, offLooper { racingEngine.positionMs() })
+        } finally {
+            racingEngine.release()
+            racingEngine.dispose()
+            ShadowLooper.idleMainLooper()
+        }
     }
 
     @Test

@@ -108,6 +108,26 @@ body that repeats the percentage (as in the example above) is posted at most eve
 `minProgressInterval`, not on every step. Keep posting as progress arrives: the next frame after the
 interval carries the latest text.
 
+**A source that stalls shows its last posted frame.** Frames suppressed by the bucket or the rate limit
+are dropped, not retried later: the notifier has no timer of its own. If a source posts 10%, then
+20-40% inside `minProgressInterval`, and then goes silent, the bar stays at 10% for the whole stall.
+A source that can pause should re-post its current progress after `minProgressInterval`. A terminal or
+100% frame is never suppressed, so a finished run always ends correctly.
+
+**Cancel and concurrent posts.** `cancel(id)` and `cancelAll()` are ordered against a post of the same id
+that is still in flight: a notification that was being built when you cancelled does not appear
+afterwards, and a post that a newer one for the id (typically the terminal "Done") has overtaken is
+dropped (`Coalesced`) rather than shown on top of it. A cancelled in-flight post is `Coalesced` too. A post counts as in flight from the moment `post` is
+called, including while it still waits for the permission check. All of this holds per `Notifier` instance. Posts for one id should still come from one
+coroutine at a time; that ordering is up to the caller.
+
+**Abandoned runs.** A run that ends without a terminal frame and without a `cancel` (a failed
+download, a notification the user swiped away: the library is never told about a swipe) leaves its
+bar position behind. The notifier forgets such a position by itself once the id has been quiet for
+far longer than any sensible rate limit (the larger of 120 times `minProgressInterval` and ten
+minutes), so an app that posts under a fresh id per run does not accumulate state. The only visible
+effect is that a very late frame for a forgotten id is posted, like the first frame of any run.
+
 **Do not build your own throttle on top.** A caller that only posts every 5% just gets a coarser bar;
 the module is already bounding the rate.
 
@@ -285,7 +305,7 @@ the tag. What that means for an app updated in place:
   under a different key. The 3.x notifier therefore also removes the old untagged copy: `cancel(id)`
   cancels the hashed `Int` 2.x used for that id, and the first `post(id)` of each id in a process does
   the same, so an update does not leave the 2.x copy showing next to the new one. `cancelAll` clears
-  everything, old and new. This sweep is a migration aid for the 3.x line and goes in 4.0; a 2.x
+  everything, old and new. This sweep is a migration aid for the 3.x line and goes in a future major release; a 2.x
   notification still showing by then needs `cancelAll`.
 - **The sweep skips a `platformId` of your `foregroundIds`**, so if you keep a service's old number
   by choosing `notificationIdOf`'s 2.x value as its `platformId`, the live notification is not
@@ -302,7 +322,7 @@ the tag. What that means for an app updated in place:
 | Result | What happened | A reasonable response |
 |---|---|---|
 | `Posted` | handed to the platform | nothing |
-| `Coalesced` | suppressed as a redundant progress update | nothing |
+| `Coalesced` | suppressed as a redundant progress update, or overtaken by a `cancel` / newer post of the same id | nothing |
 | `PermissionDenied` | no runtime grant (Android 13+ / iOS) | prompt, at a moment the user expects |
 | `NotificationsDisabled` | app-level toggle is off (Android) | offer a link to system settings |
 | `ChannelBlocked` | that channel, or its group, is muted (Android 8+) | offer a link to that channel's settings |

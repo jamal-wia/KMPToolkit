@@ -4,7 +4,18 @@ import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.ChannelResult
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Every invariant [UploaderStore] promises, as runnable checks — so a store implementation can prove
@@ -103,6 +114,18 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
             ::observeByTypeIncludesParked,
             ::observeByTypeEmitsEmptyForAnUnknownType,
             ::clearAllEmptiesTheStore,
+            ::insertionOrderIgnoresCreationTime,
+            ::valuesRoundTripVerbatim,
+            ::tagsAreMatchedExactly,
+            ::uniqueKeysAreMatchedExactly,
+            ::guardedWritesChangeOnlyTheirOwnFields,
+            ::attemptsGatesAndLeasesAreStoredAsGiven,
+            ::observeByTypeIsLiveAndNeverCompletes,
+            ::insertKeepOverAParkedItemEntersAtTheTail,
+            ::getByIdMatchesTheWholeId,
+            ::aListHandedOutIsASnapshot,
+            ::concurrentClaimsOfOneRowHaveExactlyOneWinner,
+            ::concurrentKeepsOfOneKeyHaveExactlyOneWinner,
         )
         checks.forEach { check -> check() }
         return checks.size
@@ -733,6 +756,297 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
     }
 
     /**
+     * Insertion order is not creation order: items inserted with falling creation times still come back
+     * in the order they were inserted, as they would after a wall clock stepped backwards.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun insertionOrderIgnoresCreationTime() {
+        val store: UploaderStore = createStore()
+        val createdAt: List<Long> = listOf(100L, 50L, 75L, 0L, 60L)
+        createdAt.forEachIndexed { index, time ->
+            store.insertKeep(item(id = "c$index", createdAtEpochMillis = time))
+        }
+        val expected: List<String> = createdAt.indices.map { "c$it" }
+        val actual: List<String> = store.getAllActive().map { it.id }
+        expect(actual == expected) { "getAllActive must be in insertion order, not creation time order; got $actual" }
+    }
+
+    /**
+     * Payloads come back byte for byte: no trimming, case folding, normalization or truncation, from both
+     * [UploaderStore.getById] and [UploaderStore.getAllActive].
+     *
+     * @since 4.0.0
+     */
+    public suspend fun valuesRoundTripVerbatim() {
+        val store: UploaderStore = createStore()
+        val payloads: List<String> = listOf(
+            "  lead and trail \r\n\t",
+            "MiXeD CaSe",
+            "e\u0301 vs \u00E9",
+            "\uD83D\uDE00 emoji",
+            "line1\nline2\r\nline3",
+            "x".repeat(LARGE_PAYLOAD_LENGTH),
+            "'; DROP TABLE kmptoolkit_uploader_item; --",
+            "",
+        )
+        payloads.forEachIndexed { index, payload ->
+            store.insertKeep(item(id = "p$index", tag = "Tag $index", uniqueKey = "Key $index").copy(payload = payload))
+            val stored: UploaderItem? = store.getById("p$index")
+            expect(stored?.payload == payload) { "payload #$index changed on the way through" }
+            expect(stored != null && stored.tag == "Tag $index" && stored.uniqueKey == "Key $index") {
+                "tag and unique key #$index must be stored as written (case and spaces included)"
+            }
+        }
+        expect(store.getAllActive().map { it.payload } == payloads) { "getAllActive changed a payload" }
+    }
+
+    /**
+     * [UploaderStore.deleteByTag] matches a tag exactly: not by case, prefix, suffix or wildcard (`%`, `_`),
+     * so one account's wipe never removes another account's rows. The empty tag is a tag of its own.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun tagsAreMatchedExactly() {
+        val store: UploaderStore = createStore()
+        val tags: List<Pair<String, String?>> = listOf(
+            "t1" to "acct", "t2" to "acct2", "t3" to "Acct", "t4" to "acct%", "t5" to "acct_", "t6" to "",
+            "t7" to null, "t8" to "acc", "t9" to " acct", "t10" to "a\\b", "t11" to "a\\\\b",
+        )
+        tags.forEach { (id, tag) -> store.insertKeep(item(id = id, tag = tag)) }
+
+        fun idsOf(removed: List<UploaderItem>): List<String> = removed.map { it.id }
+        expect(idsOf(store.deleteByTag("acct")) == listOf("t1")) { "tag 'acct' must match only itself" }
+        expect(idsOf(store.deleteByTag("")) == listOf("t6")) { "the empty tag must match only the empty tag" }
+        expect(idsOf(store.deleteByTag("acct%")) == listOf("t4")) { "a percent sign in a tag is not a wildcard" }
+        expect(idsOf(store.deleteByTag("acct_")) == listOf("t5")) { "an underscore in a tag is not a wildcard" }
+        expect(idsOf(store.deleteByTag("a\\b")) == listOf("t10")) { "a backslash in a tag is not an escape" }
+        val left: List<String> = store.getAllActive().map { it.id }
+        expect(left == listOf("t2", "t3", "t7", "t8", "t9", "t11")) { "every other tag must survive; left $left" }
+    }
+
+    /**
+     * The dedup identity compares the unique key exactly: keys differing in case, spacing or a wildcard
+     * character are different keys, an identical key conflicts.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun uniqueKeysAreMatchedExactly() {
+        val store: UploaderStore = createStore()
+        val keys: List<String> = listOf("K", "k", "K ", "K%", "K_", "e\u0301", "\u00E9", "")
+        keys.forEachIndexed { index, key ->
+            expect(store.insertKeep(item(id = "k$index", uniqueKey = key))) { "unique key '$key' was taken for another key" }
+        }
+        expect(!store.insertKeep(item(id = "dup", uniqueKey = "K"))) { "an identical unique key must conflict" }
+        expect(store.getAllActive().size == keys.size) { "a conflicting insertKeep must not add a row" }
+    }
+
+    /**
+     * Every guarded write changes the fields it documents and nothing else: whole rows are compared after
+     * [UploaderStore.markInFlight], [UploaderStore.recordFailure] and [UploaderStore.park], so a store that
+     * clears a tag, a key or the creation time, or loses the last error across a hand-off, is caught.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun guardedWritesChangeOnlyTheirOwnFields() {
+        val store: UploaderStore = createStore()
+        val original: UploaderItem = item(
+            id = "a", uniqueKey = "U", orderingKey = "O", tag = "T", createdAtEpochMillis = 77L,
+        ).copy(schemaVersion = 3)
+        store.insertKeep(original)
+
+        claim(store, "a", 500L)
+        expectRow(store, "markInFlight changed more than state, lease and claim",
+            original.copy(state = UploaderItemState.IN_FLIGHT, leaseUntilEpochMillis = 500L, claim = 1L))
+        val failed: Boolean = store.recordFailure("a", 4, 99L, "err", UploaderItemState.IN_FLIGHT, 1L, FailureDisposition.RETRY)
+        expect(failed) { "recordFailure must apply under the claim the row holds" }
+        val afterFailure: UploaderItem = original.copy(attempts = 4, nextRunAtEpochMillis = 99L, lastError = "err", claim = 2L)
+        expectRow(store, "recordFailure changed more than state, attempts, gate, error, lease and claim", afterFailure)
+        rehandFromPending(store, "a", fromClaim = 2L, lease = 600L)
+        expectRow(store, "a second markInFlight must keep the attempts, the gate and the last error",
+            afterFailure.copy(state = UploaderItemState.IN_FLIGHT, leaseUntilEpochMillis = 600L, claim = 3L))
+        val parked: Boolean = store.park("a", "why", UploaderItemState.IN_FLIGHT, 3L)
+        expect(parked) { "park must apply under the claim the row holds" }
+        expectRow(store, "park changed more than state, error, lease and claim",
+            afterFailure.copy(state = UploaderItemState.PARKED, lastError = "why", claim = 4L))
+    }
+
+    /**
+     * Attempts, backoff gate and lease are stored as the absolute values passed in, never added to or
+     * compared with the old ones: a gate or a lease may legitimately move earlier.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun attemptsGatesAndLeasesAreStoredAsGiven() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a", attempts = 3, nextRunAtEpochMillis = 5_000L))
+        val failed: Boolean = store.recordFailure("a", 1, 100L, "e", UploaderItemState.PENDING, 0L, FailureDisposition.RETRY)
+        expect(failed) { "recordFailure must apply to a PENDING row under claim 0" }
+        val stored: UploaderItem? = store.getById("a")
+        expect(stored?.attempts == 1) { "attempts are the absolute value passed in; got ${stored?.attempts}" }
+        expect(stored?.nextRunAtEpochMillis == 100L) {
+            "the gate is the value passed in, even an earlier one; got ${stored?.nextRunAtEpochMillis}"
+        }
+        rehandFromPending(store, "a", fromClaim = 1L, lease = 10L)
+        rehand(store, "a", fromClaim = 2L, to = 5L)
+        expect(store.getById("a")?.leaseUntilEpochMillis == 5L) { "the lease is the value passed in, even an earlier one" }
+    }
+
+    /**
+     * [UploaderStore.observeByType] is live: it emits again after every change (a new row, a hand-off, a
+     * park, items in every state) and never completes.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun observeByTypeIsLiveAndNeverCompletes() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "o1", type = "observed"))
+        coroutineScope {
+            val emissions: Channel<List<UploaderItem>> = Channel(Channel.UNLIMITED)
+            val collector: Job = launch(Dispatchers.Default) {
+                store.observeByType("observed").collect { emissions.trySend(it) }
+                emissions.close() // the flow completed, which a live observation must not
+            }
+            try {
+                withContext(Dispatchers.Default) {
+                    awaitEmission(emissions, "the first emission") { rows -> rows.map { it.id } == listOf("o1") }
+                    store.insertKeep(item(id = "o2", type = "observed"))
+                    awaitEmission(emissions, "a row inserted after the first emission") { rows ->
+                        rows.map { it.id } == listOf("o1", "o2")
+                    }
+                    claim(store, "o1", 1L)
+                    awaitEmission(emissions, "an IN_FLIGHT item (observeByType includes every state)") { rows ->
+                        rows.map { it.state } == listOf(UploaderItemState.IN_FLIGHT, UploaderItemState.PENDING)
+                    }
+                    parkNow(store, "o2", "x")
+                    awaitEmission(emissions, "a PARKED item") { rows ->
+                        rows.map { it.state } == listOf(UploaderItemState.IN_FLIGHT, UploaderItemState.PARKED)
+                    }
+                }
+            } finally {
+                collector.cancel()
+            }
+        }
+    }
+
+    /**
+     * [UploaderStore.insertKeep] over a PARKED item with the same identity deletes the parked row and
+     * inserts the new one at the tail: it is not revived in place at the old position.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun insertKeepOverAParkedItemEntersAtTheTail() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a", uniqueKey = "k"))
+        store.insertKeep(item(id = "b"))
+        parkNow(store, "a", "x")
+        expect(store.insertKeep(item(id = "c", uniqueKey = "k"))) { "insertKeep must replace a parked holder of the key" }
+        val ids: List<String> = store.getAllActive().map { it.id }
+        expect(ids == listOf("b", "c")) { "the replacement must enter at the tail; got $ids" }
+        expect(store.getById("a") == null) { "the parked row must be gone after it was replaced" }
+    }
+
+    /**
+     * [UploaderStore.getById] matches the whole id: not a prefix, another case, or a wildcard pattern.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun getByIdMatchesTheWholeId() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "item-1"))
+        store.insertKeep(item(id = "item-10"))
+        store.deleteById("item-1")
+        expect(store.getById("item-1") == null) { "getById matched another id by prefix" }
+        expect(store.getById("item") == null) { "getById matched a prefix of an id" }
+        expect(store.getById("ITEM-10") == null) { "getById must be case-sensitive" }
+        expect(store.getById("item-1%") == null) { "a percent sign in an id is not a wildcard" }
+        expect(store.getById("item-10")?.id == "item-10") { "getById must find the exact id" }
+    }
+
+    /**
+     * A list already returned by [UploaderStore.getAllActive] does not change when the store does.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun aListHandedOutIsASnapshot() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        val before: List<UploaderItem> = store.getAllActive()
+        store.insertKeep(item(id = "b"))
+        store.deleteById("a")
+        expect(before.map { it.id } == listOf("a")) { "a list already handed out changed afterwards" }
+    }
+
+    /**
+     * Concurrent [UploaderStore.markInFlight] calls on one row under the same expected claim: exactly one
+     * applies. This is the compare-and-set the engine's claim protocol stands on.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun concurrentClaimsOfOneRowHaveExactlyOneWinner() {
+        val store: UploaderStore = createStore()
+        store.insertKeep(item(id = "a"))
+        val winners: Int = withContext(Dispatchers.Default) {
+            (1..CONCURRENT_CALLS).map { who ->
+                async { store.markInFlight("a", 1_000L + who, UploaderItemState.PENDING, 0L) }
+            }.awaitAll().count { it }
+        }
+        expect(winners == 1) { "$winners concurrent claims of one row applied; exactly one must" }
+        expect(store.getById("a")?.claim == 1L) { "the claim must have advanced exactly once" }
+    }
+
+    /**
+     * Concurrent [UploaderStore.insertKeep] calls for one dedup identity: exactly one inserts.
+     *
+     * @since 4.0.0
+     */
+    public suspend fun concurrentKeepsOfOneKeyHaveExactlyOneWinner() {
+        val store: UploaderStore = createStore()
+        val winners: Int = withContext(Dispatchers.Default) {
+            (1..CONCURRENT_CALLS).map { who ->
+                async { store.insertKeep(item(id = "k$who", uniqueKey = "same")) }
+            }.awaitAll().count { it }
+        }
+        expect(winners == 1) { "$winners concurrent insertKeep calls for one key inserted; exactly one must" }
+        expect(store.getAllActive().size == 1) { "one key must hold exactly one row" }
+    }
+
+    /** Waits for an emission that satisfies [matches], failing the contract if the flow ends or stalls. */
+    private suspend fun awaitEmission(
+        emissions: Channel<List<UploaderItem>>,
+        what: String,
+        matches: (List<UploaderItem>) -> Boolean,
+    ) {
+        val found: Boolean? = withTimeoutOrNull(OBSERVE_TIMEOUT_SECONDS.seconds) {
+            var result: Boolean? = null
+            while (result == null) {
+                val next: ChannelResult<List<UploaderItem>> = emissions.receiveCatching()
+                result = when {
+                    next.isClosed -> false
+                    matches(next.getOrThrow()) -> true
+                    else -> null
+                }
+            }
+            result
+        }
+        when (found) {
+            true -> Unit
+            false -> throw UploaderStoreContractViolation("observeByType completed while waiting for $what; it must never complete")
+            null -> throw UploaderStoreContractViolation("observeByType did not emit $what within $OBSERVE_TIMEOUT_SECONDS s")
+        }
+    }
+
+    private suspend fun expectRow(store: UploaderStore, message: String, expected: UploaderItem) {
+        val actual: UploaderItem? = store.getById(expected.id)
+        expect(actual == expected) { "$message; expected $expected, got $actual" }
+    }
+
+    private suspend fun rehandFromPending(store: UploaderStore, id: String, fromClaim: Long, lease: Long) {
+        val applied: Boolean = store.markInFlight(id, lease, UploaderItemState.PENDING, fromClaim)
+        expect(applied) { "markInFlight must claim a PENDING item expected under its current claim" }
+    }
+
+    /**
      * Builds an item with defaults, so a check names only the fields it cares about.
      *
      * Public because a store with extra requirements — a foreign key, a non-null column your schema
@@ -797,6 +1111,14 @@ public class UploaderStoreContract(private val createStore: () -> UploaderStore)
         const val RAPID_INSERT_COUNT: Int = 20
 
         const val DEFAULT_TYPE: String = "contract.type"
+
+        /** Large enough to catch a store that truncates, small enough for a store with a row limit. */
+        const val LARGE_PAYLOAD_LENGTH: Int = 300_000
+
+        const val CONCURRENT_CALLS: Int = 8
+
+        /** Real time an observation may take to show a change; a correct store takes milliseconds. */
+        const val OBSERVE_TIMEOUT_SECONDS: Int = 5
     }
 }
 

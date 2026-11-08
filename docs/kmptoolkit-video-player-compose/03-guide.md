@@ -229,7 +229,9 @@ one by one.
 - **Pause in background.** At `ON_STOP` of `LocalLifecycleOwner`, a playing player is paused
   (`pauseOnBackground = false` to opt out). It does **not** resume on return — resuming on its own
   is rarely wanted, and the paused state already shows the play button. To resume, observe the
-  lifecycle and call `player.play()` yourself.
+  lifecycle and call `player.play()` yourself. The same goes for `VideoPlayer(source = …, autoPlay = true)`:
+  a source that finishes loading while the app is in the background is left `Ready`, not started.
+  `rememberVideoPlayer` alone does not know the lifecycle and still starts when `autoPlay` is set.
 - **Release.** Only players the composable created are released (`VideoPlayer(source = …)`,
   `rememberVideoPlayer`). A player you pass in is yours.
 

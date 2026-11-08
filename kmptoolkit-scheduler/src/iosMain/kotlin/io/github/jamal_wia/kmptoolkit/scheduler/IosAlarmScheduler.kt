@@ -1,6 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.scheduler
 
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import platform.Foundation.NSDate
 import platform.Foundation.NSError
 import platform.Foundation.timeIntervalSince1970
@@ -33,7 +35,7 @@ import kotlin.coroutines.resume
 public fun createAlarmScheduler(
     soundResolver: AlarmSoundResolver = AlarmSoundResolver { null },
     config: AlarmSchedulerConfig = AlarmSchedulerConfig(),
-): AlarmScheduler = IosAlarmScheduler(soundResolver, config)
+): AlarmScheduler = IosAlarmScheduler(soundResolver, config, SystemNotificationCenter)
 
 /**
  * `UNUserNotificationCenter` implementation.
@@ -45,37 +47,56 @@ public fun createAlarmScheduler(
 internal class IosAlarmScheduler(
     private val soundResolver: AlarmSoundResolver,
     private val config: AlarmSchedulerConfig,
+    private val center: NotificationCenterPort,
 ) : AlarmScheduler {
 
-    private val center: UNUserNotificationCenter
-        get() = UNUserNotificationCenter.currentNotificationCenter()
-
     override suspend fun schedule(alarm: ScheduledAlarm): AlarmScheduleResult {
-        val notificationCenter: UNUserNotificationCenter = center
-        if (notificationCenter.isAuthorizationDenied()) {
-            return AlarmScheduleResult.Failed(AlarmFailure.NotificationPermissionDenied)
-        }
+        // iOS keeps only the soonest-firing 64 pending requests and silently discards the rest,
+        // reporting no error from `add`. Refuse up front instead of claiming `Exact` for a request
+        // that may never fire. A request that replaces an already-pending identifier does not grow
+        // the pending set, so it is not counted. The whole call - authorization check, cap check
+        // and add - is one critical section under a process-wide lock (createAlarmScheduler returns
+        // a new instance per call), and so are cancel and cancelAll: concurrent calls for one id
+        // apply whole, one after the other, exactly as the contract says. Without it a cancel that
+        // ran while schedule was still awaiting the authorization status removed nothing and the
+        // alarm was armed right after. Requests added by code outside this library are still not
+        // serialised with it.
+        return scheduleLock.withLock {
+            if (center.isAuthorizationDenied()) {
+                return@withLock AlarmScheduleResult.Failed(AlarmFailure.NotificationPermissionDenied)
+            }
 
-        val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
-            identifier = alarm.id,
-            content = contentFor(alarm),
-            trigger = triggerFor(alarm.fireAtEpochMillis),
-        )
-        val error: NSError? = notificationCenter.add(request)
-        return if (error == null) {
-            AlarmScheduleResult.Exact
-        } else {
-            AlarmScheduleResult.Failed(AlarmFailure.PlatformError(error.localizedDescription))
+            val otherPending: Int = center.pendingIdentifiers().count { it != alarm.id }
+            if (otherPending >= PENDING_REQUEST_CAP) {
+                return@withLock AlarmScheduleResult.Failed(
+                    AlarmFailure.PlatformError(
+                        "iOS keeps at most $PENDING_REQUEST_CAP pending local notifications per " +
+                            "app; cancel one before scheduling another",
+                    ),
+                )
+            }
+
+            val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
+                identifier = alarm.id,
+                content = contentFor(alarm),
+                trigger = triggerFor(alarm.fireAtEpochMillis),
+            )
+            val error: NSError? = center.add(request)
+            if (error == null) {
+                AlarmScheduleResult.Exact
+            } else {
+                AlarmScheduleResult.Failed(AlarmFailure.PlatformError(error.localizedDescription))
+            }
         }
     }
 
     override suspend fun cancel(id: String) {
-        center.removePendingNotificationRequestsWithIdentifiers(listOf(id))
+        scheduleLock.withLock { center.remove(listOf(id)) }
     }
 
     override suspend fun cancelAll(ids: Collection<String>) {
         if (ids.isEmpty()) return
-        center.removePendingNotificationRequestsWithIdentifiers(ids.toList())
+        scheduleLock.withLock { center.remove(ids.toList()) }
     }
 
     private fun contentFor(alarm: ScheduledAlarm): UNMutableNotificationContent =
@@ -108,22 +129,64 @@ internal class IosAlarmScheduler(
     /** A bundled custom sound by name, or the platform default when the channel resolves to none. */
     private fun toSound(soundFileName: String?): UNNotificationSound =
         soundFileName?.let { UNNotificationSound.soundNamed(it) } ?: UNNotificationSound.defaultSound
+}
 
-    /** `addNotificationRequest`, awaited: the returned [NSError] is `null` on success. */
-    private suspend fun UNUserNotificationCenter.add(request: UNNotificationRequest): NSError? =
-        suspendCancellableCoroutine { continuation ->
-            addNotificationRequest(request) { error -> continuation.resume(error) }
-        }
+/**
+ * Serialises every schedule, cancel and cancelAll - the cap check with the add, and a cancel with a
+ * schedule of the same id - across every scheduler instance in the process.
+ */
+private val scheduleLock: Mutex = Mutex()
 
+/** The most pending local notifications iOS keeps per app; anything beyond is silently discarded. */
+internal const val PENDING_REQUEST_CAP: Int = 64
+
+/**
+ * The slice of `UNUserNotificationCenter` the scheduler uses, so the cap pre-check can be tested
+ * against a fake center without an app bundle or an authorization state.
+ */
+internal interface NotificationCenterPort {
     /**
      * Denied is the only status worth refusing on. `NotDetermined` and `Provisional` are not: the
      * app may still ask, and provisional authorization does deliver quietly — refusing either would
      * throw away an alarm the OS would have honored.
      */
-    private suspend fun UNUserNotificationCenter.isAuthorizationDenied(): Boolean =
+    suspend fun isAuthorizationDenied(): Boolean
+
+    /** Identifiers of every request currently pending. */
+    suspend fun pendingIdentifiers(): List<String>
+
+    /** `addNotificationRequest`, awaited: the returned [NSError] is `null` on success. */
+    suspend fun add(request: UNNotificationRequest): NSError?
+
+    /** Removes the pending requests with these identifiers. */
+    suspend fun remove(ids: List<String>)
+}
+
+/** The real center. */
+internal object SystemNotificationCenter : NotificationCenterPort {
+    private val center: UNUserNotificationCenter
+        get() = UNUserNotificationCenter.currentNotificationCenter()
+
+    override suspend fun isAuthorizationDenied(): Boolean =
         suspendCancellableCoroutine { continuation ->
-            getNotificationSettingsWithCompletionHandler { settings: UNNotificationSettings? ->
+            center.getNotificationSettingsWithCompletionHandler { settings: UNNotificationSettings? ->
                 continuation.resume(settings?.authorizationStatus == UNAuthorizationStatusDenied)
             }
         }
+
+    override suspend fun pendingIdentifiers(): List<String> =
+        suspendCancellableCoroutine { continuation ->
+            center.getPendingNotificationRequestsWithCompletionHandler { requests: List<*>? ->
+                continuation.resume(requests.orEmpty().mapNotNull { (it as? UNNotificationRequest)?.identifier })
+            }
+        }
+
+    override suspend fun add(request: UNNotificationRequest): NSError? =
+        suspendCancellableCoroutine { continuation ->
+            center.addNotificationRequest(request) { error -> continuation.resume(error) }
+        }
+
+    override suspend fun remove(ids: List<String>) {
+        center.removePendingNotificationRequestsWithIdentifiers(ids)
+    }
 }

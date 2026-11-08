@@ -195,6 +195,22 @@ final class io.github.jamal_wia.kmptoolkit.downloader/DownloadFailedException : 
         final fun <get-unit>(): io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit // io.github.jamal_wia.kmptoolkit.downloader/DownloadFailedException.unit.<get-unit>|<get-unit>(){}[0]
 }
 
+final class io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig { // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig|null[0]
+    constructor <init>(kotlin.time/Duration = ...) // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig.<init>|<init>(kotlin.time.Duration){}[0]
+
+    final val stallTimeout // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig.stallTimeout|{}stallTimeout[0]
+        final fun <get-stallTimeout>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig.stallTimeout.<get-stallTimeout>|<get-stallTimeout>(){}[0]
+
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig.Companion|null[0]
+        final val DEFAULT_STALL_TIMEOUT // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig.Companion.DEFAULT_STALL_TIMEOUT|{}DEFAULT_STALL_TIMEOUT[0]
+            final fun <get-DEFAULT_STALL_TIMEOUT>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig.Companion.DEFAULT_STALL_TIMEOUT.<get-DEFAULT_STALL_TIMEOUT>|<get-DEFAULT_STALL_TIMEOUT>(){}[0]
+    }
+}
+
 final class io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig { // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig|null[0]
     constructor <init>(kotlin/String = ...) // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig.<init>|<init>(kotlin.String){}[0]
 
@@ -206,6 +222,30 @@ final class io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig { 
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException : kotlin/IllegalArgumentException { // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit, io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason) // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.<init>|<init>(io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit;io.github.jamal_wia.kmptoolkit.downloader.InvalidDownloadUnitException.Reason){}[0]
+
+    final val reason // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.reason|{}reason[0]
+        final fun <get-reason>(): io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.reason.<get-reason>|<get-reason>(){}[0]
+    final val unit // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.unit|{}unit[0]
+        final fun <get-unit>(): io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.unit.<get-unit>|<get-unit>(){}[0]
+
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.toString|toString(){}[0]
+
+    final enum class Reason : kotlin/Enum<io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason> { // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason|null[0]
+        enum entry EMPTY // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.EMPTY|null[0]
+        enum entry ESCAPES_BASE_DIRECTORY // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.ESCAPES_BASE_DIRECTORY|null[0]
+        enum entry INVALID_CHARACTER // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.INVALID_CHARACTER|null[0]
+        enum entry RESERVED_INTERNAL_PATH // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH|null[0]
+
+        final val entries // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.entries|#static{}entries[0]
+            final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason> // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.entries.<get-entries>|<get-entries>#static(){}[0]
+
+        final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.valueOf|valueOf#static(kotlin.String){}[0]
+        final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason> // io.github.jamal_wia.kmptoolkit.downloader/InvalidDownloadUnitException.Reason.values|values#static(){}[0]
+    }
 }
 
 final class io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException : kotlin/RuntimeException { // io.github.jamal_wia.kmptoolkit.downloader/ResourceIntegrityException|null[0]
@@ -466,4 +506,5 @@ final object io.github.jamal_wia.kmptoolkit.downloader/DownloaderRegistry { // i
 
 final fun (io.github.jamal_wia.kmptoolkit.downloader/DownloadUnit).io.github.jamal_wia.kmptoolkit.downloader/archiveMarker(): kotlin/String // io.github.jamal_wia.kmptoolkit.downloader/archiveMarker|archiveMarker@io.github.jamal_wia.kmptoolkit.downloader.DownloadUnit(){}[0]
 final fun io.github.jamal_wia.kmptoolkit.downloader/createDownloader(io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage, io.github.jamal_wia.kmptoolkit.downloader/BackgroundResourceDownloader, kotlin.collections/List<io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup>, io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadStateStore, io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadNotifier = ..., kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadDispatchers = ..., io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.downloader/Downloader // io.github.jamal_wia.kmptoolkit.downloader/createDownloader|createDownloader(io.github.jamal_wia.kmptoolkit.downloader.DownloaderStorage;io.github.jamal_wia.kmptoolkit.downloader.BackgroundResourceDownloader;kotlin.collections.List<io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup>;io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore;io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadNotifier;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers;io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]
+final fun io.github.jamal_wia.kmptoolkit.downloader/createDownloader(io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage, io.github.jamal_wia.kmptoolkit.downloader/BackgroundResourceDownloader, kotlin.collections/List<io.github.jamal_wia.kmptoolkit.downloader/ResourceGroup>, io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadStateStore, io.github.jamal_wia.kmptoolkit.downloader/DownloaderConfig, io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadNotifier = ..., kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.downloader.spi/DownloadDispatchers = ..., io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.downloader/Downloader // io.github.jamal_wia.kmptoolkit.downloader/createDownloader|createDownloader(io.github.jamal_wia.kmptoolkit.downloader.DownloaderStorage;io.github.jamal_wia.kmptoolkit.downloader.BackgroundResourceDownloader;kotlin.collections.List<io.github.jamal_wia.kmptoolkit.downloader.ResourceGroup>;io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore;io.github.jamal_wia.kmptoolkit.downloader.DownloaderConfig;io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadNotifier;kotlin.Boolean;io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers;io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]
 final fun io.github.jamal_wia.kmptoolkit.downloader/createDownloaderStorage(io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorageConfig = ..., io.github.jamal_wia.kmptoolkit.logging/Logger = ...): io.github.jamal_wia.kmptoolkit.downloader/DownloaderStorage // io.github.jamal_wia.kmptoolkit.downloader/createDownloaderStorage|createDownloaderStorage(io.github.jamal_wia.kmptoolkit.downloader.DownloaderStorageConfig;io.github.jamal_wia.kmptoolkit.logging.Logger){}[0]

@@ -3,7 +3,9 @@ package io.github.jamal_wia.kmptoolkit.scheduler
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.Build
+import android.util.Log
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -73,8 +75,13 @@ public fun createAlarmScheduler(
  * **Call this from `Application.onCreate`**, exactly as the list overload: an alarm that fires into a
  * process where no scheduler has been created yet is dropped, provider or not.
  *
+ * The provider is held for the life of the process (the alarm receiver is built by the system with no
+ * arguments, so it has nowhere else to find it), and the latest scheduler created wins. It must not
+ * capture an `Activity` or any other UI object.
+ *
  * @param context any context; the application context is taken from it.
- * @param handlerProvider returns the handlers to choose from, one per [ScheduledAlarm.type].
+ * @param handlerProvider returns the handlers to choose from, one per [ScheduledAlarm.type]; lives for
+ *   the whole process, so it must not capture UI objects.
  * @param config identifiers this module writes into intents; see [AlarmSchedulerConfig].
  */
 public fun createAlarmScheduler(
@@ -92,8 +99,11 @@ public fun createAlarmScheduler(
  * `AlarmManager` implementation.
  *
  * Each alarm becomes a broadcast `PendingIntent` targeting [AlarmReceiver], distinct per
- * [ScheduledAlarm.id] through a per-id data URI, so re-scheduling one id replaces its alarm
- * (`FLAG_UPDATE_CURRENT`) instead of stacking a second one, and two ids never collapse into one.
+ * [ScheduledAlarm.id] through a per-id data URI, so re-scheduling one id replaces its alarm instead
+ * of stacking a second one, and two ids never collapse into one. An id owns a few `PendingIntent`
+ * slots (request codes): a replacement is built in a slot no alarm occupies and the old slots are
+ * retired only once the new alarm is armed, so a replacement the platform refuses leaves the armed
+ * alarm, and the extras it will deliver, exactly as they were.
  *
  * Exact scheduling is attempted whenever the OS allows it and degrades to an inexact alarm — never
  * to no alarm — when it does not. Both outcomes are reported through [AlarmScheduleResult]; see
@@ -111,28 +121,90 @@ internal class AndroidAlarmScheduler(
     override suspend fun schedule(alarm: ScheduledAlarm): AlarmScheduleResult {
         val manager: AlarmManager = alarmManager
             ?: return AlarmScheduleResult.Failed(AlarmFailure.SchedulerUnavailable)
-        return try {
-            platformCalls.withLock { arm(manager, alarm) }
-        } catch (refusal: IllegalStateException) {
-            // AlarmManager refuses in ways a caller cannot prevent: since Android 12 an app holding
-            // too many alarms at once (the limit is 500) gets an IllegalStateException from every
-            // set call, inexact ones included. "Never throws for a platform refusal" is the contract,
-            // so the refusal becomes a result the caller can act on instead of a crash.
-            AlarmScheduleResult.Failed(AlarmFailure.PlatformError(refusal.message))
-        } catch (refusal: SecurityException) {
-            // The exact path already downgrades on this; the inexact one has nothing to fall back to.
-            AlarmScheduleResult.Failed(AlarmFailure.PlatformError(refusal.message))
+        // The guard sits inside the lock and around the non-suspending arm only: a cancellation of
+        // the coroutine while it waits for the lock is a CancellationException (an
+        // IllegalStateException), and must reach the caller rather than become a Failed.
+        return platformCalls.withLock {
+            try {
+                arm(manager, alarm)
+            } catch (refusal: RuntimeException) {
+                // AlarmManager refuses in ways a caller cannot prevent: since Android 12 an app holding
+                // too many alarms at once (the limit is 500) gets an IllegalStateException from every
+                // set call, inexact ones included; a revoked right is a SecurityException, a system
+                // server that is restarting under the app a plain RuntimeException. "Never throws for
+                // a platform refusal" is the contract, so every one of them becomes a result the
+                // caller can act on instead of a crash.
+                AlarmScheduleResult.Failed(AlarmFailure.PlatformError(refusal.message))
+            }
         }
     }
 
+    /**
+     * Arms [alarm] in a slot no alarm of its id occupies, then retires every other slot. A failure
+     * before the new alarm is armed leaves every occupied slot untouched (and drops the
+     * `PendingIntent` this call created, which would otherwise be a leftover with no alarm).
+     *
+     * A slot that is already occupied is never written to: writing it would rewrite, with
+     * `FLAG_UPDATE_CURRENT`, the extras of an alarm that stays armed if the replacement is then
+     * refused. Slots stay occupied only after a refused retirement, so all of them are taken only
+     * after [AlarmIntents.SLOT_COUNT] - 1 replacements in a row whose retirement was refused, with no successful schedule or
+     * cancel of the id in between. Then the replacement is refused without touching anything
+     * ([AlarmScheduleResult.Failed], documented in 04-api-reference.md): the armed alarm stays exactly
+     * as it was, and `cancel(id)` (which retires every slot) lets the id schedule again.
+     */
     private fun arm(manager: AlarmManager, alarm: ScheduledAlarm): AlarmScheduleResult {
+        val occupied: Map<Int, PendingIntent> = SLOTS
+            .mapNotNull { slot: Int -> resolve(alarm.id, slot)?.let { slot to it } }
+            .toMap()
+        val targetSlot: Int = SLOTS.firstOrNull { it !in occupied }
+            ?: return AlarmScheduleResult.Failed(AlarmFailure.PlatformError(SATURATED_MESSAGE))
+        // Not a slot and never counted toward saturation: an alarm armed by 3.0.x under the old URI.
+        val retired: List<PendingIntent> = occupied.values.toList() + listOfNotNull(resolveLegacy(alarm.id))
         val pendingIntent: PendingIntent = PendingIntent.getBroadcast(
             context,
-            AlarmIntents.requestCode(alarm.id),
+            AlarmIntents.requestCode(alarm.id, targetSlot),
             AlarmIntents.toIntent(context, alarm, keys),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val result: AlarmScheduleResult = try {
+            armIn(manager, alarm, pendingIntent)
+        } catch (refusal: RuntimeException) {
+            pendingIntent.cancel()
+            throw refusal
+        }
+        // Each retirement on its own, so a refusal for one does not skip the others.
+        for (stale: PendingIntent in retired) {
+            try {
+                manager.cancel(stale)
+                stale.cancel()
+            } catch (refusal: RuntimeException) {
+                // The new alarm is armed; reporting a failure for it would be a lie. The old one may
+                // fire once more, and the next successful schedule or a cancel of the id clears it.
+                logCancelFailure(alarm.id, refusal)
+            }
+        }
+        return result
+    }
 
+    private fun resolve(id: String, slot: Int): PendingIntent? = PendingIntent.getBroadcast(
+        context,
+        AlarmIntents.requestCode(id, slot),
+        AlarmIntents.cancelIntent(context, id, keys),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
+    )
+
+    /** An alarm armed by 3.0.x for an id with an unpaired surrogate (old lossy URI); see [AlarmIntents.legacyCancelIntent]. */
+    private fun resolveLegacy(id: String): PendingIntent? {
+        val intent: Intent = AlarmIntents.legacyCancelIntent(context, id, keys) ?: return null
+        return PendingIntent.getBroadcast(
+            context,
+            AlarmIntents.requestCode(id, 0),
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
+        )
+    }
+
+    private fun armIn(manager: AlarmManager, alarm: ScheduledAlarm, pendingIntent: PendingIntent): AlarmScheduleResult {
         if (!canScheduleExact(manager)) {
             manager.armInexact(alarm, pendingIntent)
             return AlarmScheduleResult.Inexact(InexactReason.EXACT_ALARM_PERMISSION_MISSING)
@@ -153,23 +225,45 @@ internal class AndroidAlarmScheduler(
     override suspend fun cancel(id: String) {
         val manager: AlarmManager = alarmManager ?: return
         platformCalls.withLock {
-            // FLAG_NO_CREATE resolves the PendingIntent armed earlier — matched on component and data
-            // URI, extras ignored — without creating one if there is none.
-            val existing: PendingIntent? = PendingIntent.getBroadcast(
-                context,
-                AlarmIntents.requestCode(id),
-                AlarmIntents.cancelIntent(context, id, keys),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
-            )
-            if (existing != null) {
-                manager.cancel(existing)
-                existing.cancel()
+            // Each slot on its own, so a refusal for one does not skip the others.
+            for (slot: Int in SLOTS) {
+                try {
+                    // FLAG_NO_CREATE resolves the PendingIntent armed earlier — matched on request code,
+                    // component and data URI, extras ignored — without creating one if there is none.
+                    val existing: PendingIntent? = resolve(id, slot)
+                    if (existing != null) {
+                        manager.cancel(existing)
+                        existing.cancel()
+                    }
+                } catch (refusal: RuntimeException) {
+                    logCancelFailure(id, refusal)
+                }
+            }
+            try {
+                val legacy: PendingIntent? = resolveLegacy(id)
+                if (legacy != null) {
+                    manager.cancel(legacy)
+                    legacy.cancel()
+                }
+            } catch (refusal: RuntimeException) {
+                logCancelFailure(id, refusal)
             }
         }
     }
 
+    /**
+     * `cancel` never throws: it is a teardown call, often made on logout or from a `finally`, and
+     * AlarmManager offers no recoverable failure there. The refusal is logged and the alarm may stay
+     * armed — the caller cannot learn that, because `cancel` returns nothing.
+     */
+    private fun logCancelFailure(id: String, failure: RuntimeException) {
+        Log.w(LOG_TAG, "The platform refused to cancel alarm '$id'; it may still be armed.", failure)
+    }
+
     override suspend fun cancelAll(ids: Collection<String>) {
-        ids.forEach { cancel(it) }
+        // A snapshot: each cancel may suspend, and a caller's collection that changes meanwhile
+        // must not break the iteration half way and leave the later ids armed.
+        ids.toList().forEach { cancel(it) }
     }
 
     /**
@@ -186,12 +280,19 @@ internal class AndroidAlarmScheduler(
 
     private companion object {
 
+        const val LOG_TAG: String = "KmpToolkitScheduler"
+
+        const val SATURATED_MESSAGE: String =
+            "Every PendingIntent slot of this alarm id is held by an alarm the platform refused to cancel; " +
+                "nothing was changed. Call cancel(id) to free them."
+        val SLOTS: List<Int> = (0 until AlarmIntents.SLOT_COUNT).toList()
+
         /**
          * Serializes every arm and cancel in the process, across every scheduler instance.
          *
-         * Arming is two platform calls — resolving the id's `PendingIntent`, which with
-         * `FLAG_UPDATE_CURRENT` rewrites the extras it carries, then handing it to `AlarmManager` with a
-         * time — and cancelling is two more. Two schedules of one id interleaving those steps arm one
+         * Arming is several platform calls — resolving the id's slots, creating the new slot's
+         * `PendingIntent`, which with `FLAG_UPDATE_CURRENT` rewrites the extras it carries, handing it
+         * to `AlarmManager` with a time, and retiring the old slot — and cancelling is as many. Two schedules of one id interleaving those steps arm one
          * call's time carrying the other call's content, which is neither alarm the callers asked for.
          * Cancelling takes the same lock, so a cancel and a schedule of one id also apply whole, one
          * after the other, instead of interleaving. Each `createAlarmScheduler` call makes a new instance and

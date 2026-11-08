@@ -19,6 +19,9 @@ import kotlinx.coroutines.withContext
  *
  * The first read of a file blocks until `SharedPreferences` has loaded it from disk, which is why
  * reads move to [dispatcher] too.
+ *
+ * A value that ends in a line break is stored with one U+E000 appended and read back without it,
+ * because the framework's XML writer indents after a trailing line break; see `TrailingLineBreak.kt`.
  */
 internal class AndroidKeyValueStorage(
     private val preferences: SharedPreferences,
@@ -27,7 +30,7 @@ internal class AndroidKeyValueStorage(
 
     override suspend fun get(key: String): StorageResult<String?> = withContext(dispatcher) {
         try {
-            StorageResult.Success(preferences.getString(key, null))
+            StorageResult.Success(preferences.getString(key, null)?.let(::decodeFromPreferences))
         } catch (error: ClassCastException) {
             // The file holds this key with a non-String type — another component wrote it, or the
             // app used to. Not recoverable by reading again, and not a value this store can return.
@@ -37,8 +40,10 @@ internal class AndroidKeyValueStorage(
         }
     }
 
-    override suspend fun put(key: String, value: String): StorageResult<Unit> =
-        commit(StorageOperation.PUT, key) { it.putString(key, value) }
+    override suspend fun put(key: String, value: String): StorageResult<Unit> {
+        unpairedSurrogateFailure(key, value)?.let { return it }
+        return commit(StorageOperation.PUT, key) { it.putString(key, encodeForPreferences(value)) }
+    }
 
     override suspend fun remove(key: String): StorageResult<Unit> =
         commit(StorageOperation.REMOVE, key) { it.remove(key) }

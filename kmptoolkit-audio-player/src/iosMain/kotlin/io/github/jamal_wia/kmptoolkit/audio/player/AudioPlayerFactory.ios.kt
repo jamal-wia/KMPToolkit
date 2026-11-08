@@ -24,9 +24,16 @@ import kotlin.coroutines.CoroutineContext
  *   playback category and activates it while loading. Left `true` because without it playback is
  *   silent under the ringer switch and stops at screen lock, which is almost never what a caller
  *   wants. Set it to `false` when the app configures the session itself — that setting is
- *   process-wide, and an app mixing recording with playback must own it. See
+ *   process-wide, and an app mixing recording with playback must own it. [AudioPlayer.release]
+ *   and [AudioPlayer.unload] never deactivate the session, because other audio of the app may be
+ *   using it: an app that wants other apps' audio to resume deactivates it itself (with
+ *   `NotifyOthersOnDeactivation`) or passes `false`. See
  *   `docs/kmptoolkit-audio-player/05-platform-notes.md`.
- * @param coroutineContext context for the position-polling coroutine. A [kotlinx.coroutines.Job] in it
+ * @param coroutineContext context for the position-polling coroutine. The default is
+ *   [Dispatchers.Main], so that `AVPlayer` — which documents no thread safety and which this engine
+ *   creates on the main thread — is read from the same thread that drives it; call the transport
+ *   functions from the main thread too. Position updates now need a free main thread (a running
+ *   main run loop); pass `Dispatchers.Default` to restore the 3.0 behavior. A [kotlinx.coroutines.Job] in it
  *   is ignored: the player runs under a job of its own, so releasing it never cancels a job that
  *   belongs to the caller.
  * @return a player in [PlayerState.Idle].
@@ -36,7 +43,7 @@ public fun createAudioPlayer(
     assetBundle: NSBundle = NSBundle.mainBundle,
     assetSubdirectories: List<String> = emptyList(),
     managesAudioSession: Boolean = true,
-    coroutineContext: CoroutineContext = Dispatchers.Default,
+    coroutineContext: CoroutineContext = Dispatchers.Main,
 ): AudioPlayer = createAudioPlayer(
     engine = AvPlayerEngine(
         assetBundle = assetBundle,

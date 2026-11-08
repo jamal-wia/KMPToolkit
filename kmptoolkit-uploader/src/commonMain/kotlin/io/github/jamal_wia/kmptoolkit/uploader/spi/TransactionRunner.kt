@@ -21,6 +21,9 @@ package io.github.jamal_wia.kmptoolkit.uploader.spi
  *   separate transaction, the two halves can commit independently and the guarantee is gone.
  * - **Cancellation.** If the calling coroutine is cancelled inside [block], the transaction rolls
  *   back and `CancellationException` propagates. A half-applied transaction is never left behind.
+ * - **Withdrawals are not transactional.** The engine's `cancel`, `cancelByTag` and `REPLACE` cancel a running
+ *   upload or attempt at once; a rollback of the enclosing transaction restores the row but cannot undo that.
+ *   The restored item stays queued and its upload resumes no later than when its lease expires.
  * - **Concurrency.** May be called from several coroutines at once. Serializing writers is a
  *   normal implementation (most embedded databases have a single writer anyway).
  * - **No suspension across the boundary that your database forbids.** [block] is suspending
@@ -35,6 +38,9 @@ public interface TransactionRunner {
 
     /**
      * Runs [block] inside one transaction and returns its result.
+     *
+     * Do not await, inside [block], another coroutine that uses the uploader or the same storage: a
+     * single-threaded implementation cannot serve it while [block] waits, and the two deadlock.
      *
      * @param block the work to run atomically; may itself call back into the store or the uploader.
      * @return whatever [block] returned.

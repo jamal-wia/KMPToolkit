@@ -1,13 +1,18 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.text.Normalizer
+import java.util.Locale
 import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineDispatcher
@@ -24,7 +29,9 @@ import kotlinx.coroutines.withContext
  * small values — and it is what makes a write durable when the call returns.
  *
  * Nothing throws: an unreadable or corrupted file, a path the file system rejects, and a denied
- * security check all arrive as [StorageError.OperationFailed].
+ * security check all arrive as [StorageError.OperationFailed]. A file that cannot be parsed,
+ * including one that is not valid UTF-8, fails every operation on it, writes included, and is never
+ * replaced: its other values may still be recoverable by hand. [KeyValueStorage.clear] is the way out.
  *
  * The file I/O runs on [dispatcher], never on the caller's thread.
  */
@@ -33,17 +40,24 @@ internal class JvmKeyValueStorage(
     private val dispatcher: CoroutineDispatcher,
 ) : KeyValueStorage {
 
-    /** Shared by every instance over the same canonical path, so their read-modify-write cycles never interleave. */
-    private val lock: Mutex = LOCKS.computeIfAbsent(lockKey(file)) { Mutex() }
+    /**
+     * Shared by every instance whose path is the same file on a volume that folds case or Unicode
+     * normalization (macOS, Windows), so their read-modify-write cycles never interleave. On a
+     * case-sensitive volume two such spellings are two files that share one lock.
+     */
+    private val lock: Mutex = LOCKS.computeIfAbsent(jvmStorageLockKey(file)) { Mutex() }
 
     override suspend fun get(key: String): StorageResult<String?> = guarded(StorageOperation.GET, key) {
         load().getProperty(key)
     }
 
-    override suspend fun put(key: String, value: String): StorageResult<Unit> = guarded(StorageOperation.PUT, key) {
-        val properties: Properties = load()
-        properties.setProperty(key, value)
-        write(properties)
+    override suspend fun put(key: String, value: String): StorageResult<Unit> {
+        unpairedSurrogateFailure(key, value)?.let { return it }
+        return guarded(StorageOperation.PUT, key) {
+            val properties: Properties = load()
+            properties.setProperty(key, value)
+            write(properties)
+        }
     }
 
     override suspend fun remove(key: String): StorageResult<Unit> = guarded(StorageOperation.REMOVE, key) {
@@ -56,7 +70,7 @@ internal class JvmKeyValueStorage(
         Files.deleteIfExists(file.toPath())
         // A process killed between creating a temporary file and renaming it leaves that file behind.
         file.absoluteFile.parentFile
-            ?.listFiles { sibling -> sibling.name.startsWith(file.name) && sibling.name.endsWith(TEMPORARY_SUFFIX) }
+            ?.listFiles { sibling -> isOwnTemporary(sibling.name) }
             ?.forEach { leftover -> Files.deleteIfExists(leftover.toPath()) }
     }
 
@@ -79,10 +93,26 @@ internal class JvmKeyValueStorage(
         }
     }
 
+    /**
+     * Exactly the shape [File.createTempFile] gives this store's writer: the file name, a run of digits,
+     * the suffix. A looser prefix match would also take another store's temporary file whose own file
+     * name merely starts with this one's.
+     */
+    private fun isOwnTemporary(name: String): Boolean {
+        if (!name.startsWith(file.name) || !name.endsWith(TEMPORARY_SUFFIX)) return false
+        val middle: String = name.substring(file.name.length, name.length - TEMPORARY_SUFFIX.length)
+        return middle.isNotEmpty() && middle.all { it in '0'..'9' }
+    }
+
     private fun load(): Properties {
         val properties = Properties()
         if (file.isFile) {
-            file.reader(StandardCharsets.UTF_8).use(properties::load)
+            // Strict: a byte that is not UTF-8 is an error (a MalformedInputException, an IOException),
+            // never a replacement character that the next write would store for good.
+            val decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+            InputStreamReader(FileInputStream(file), decoder).use(properties::load)
         }
         return properties
     }
@@ -120,15 +150,41 @@ internal class JvmKeyValueStorage(
     private companion object {
         const val TEMPORARY_SUFFIX: String = ".tmp"
 
+        // ConcurrentHashMap, not a Mutex-guarded map: looked up from the non-suspending constructor; JVM-only, so no
+        // Kotlin/Native constraint. The values are coroutine Mutexes.
         val LOCKS: ConcurrentHashMap<String, Mutex> = ConcurrentHashMap()
-
-        /** The canonical path — symlinks and case-insensitive spellings resolved — or the absolute one. */
-        fun lockKey(file: File): String = try {
-            file.canonicalPath
-        } catch (_: IOException) {
-            file.absoluteFile.normalize().path
-        } catch (_: SecurityException) {
-            file.absoluteFile.normalize().path
-        }
     }
+}
+
+/**
+ * The key of the lock shared by every store over one file: the canonical path (or the absolute one),
+ * Unicode-normalized (NFC) and folded through the full case mapping (lowercase, uppercase, lowercase, then
+ * NFC again, because case mapping can leave a decomposed sequence): `ß`, the capital sharp s `ẞ` and `ss`,
+ * the Greek sigma forms, the long s `ſ` and `s`, the Kelvin sign and `k` each get one key. Two paths whose
+ * uppercase forms after lowercasing are equal always get the same key. The formula was checked against the
+ * full case-folding table of the Unicode version of the JDK it was written on: no group of code points that
+ * fold to one string is split by it (over-folding, joining names a volume keeps apart, only costs parallelism). Folded always, never probed: a case-sensitive volume
+ * only loses some parallelism between `Settings` and `settings` (two files behind one lock; the
+ * guarded block never suspends and never nests another lock, so nothing can deadlock), while a
+ * volume that folds case would otherwise lose keys, because the canonical path of a file that does
+ * not exist yet keeps the spelling it was given. Probing the volume would need file I/O in a
+ * constructor. A volume with a folding table of its own could still treat two names whose capitals
+ * differ as one file; no such case is known for APFS or NTFS.
+ */
+internal fun jvmStorageLockKey(file: File): String {
+    val path: String = try {
+        file.canonicalPath
+    } catch (_: IOException) {
+        file.absoluteFile.normalize().path
+    } catch (_: SecurityException) {
+        file.absoluteFile.normalize().path
+    }
+    val composed: String = Normalizer.normalize(path, Normalizer.Form.NFC)
+    // Lowercase first, so the capital sharp s becomes ß (uppercasing leaves it alone). Then the full mapping turns ß
+    // into SS, every sigma into Σ and ſ into S, so spellings with the same capitals get the same key; lowercase
+    // then gives one form.
+    return Normalizer.normalize(
+        composed.lowercase(Locale.ROOT).uppercase(Locale.ROOT).lowercase(Locale.ROOT),
+        Normalizer.Form.NFC,
+    )
 }

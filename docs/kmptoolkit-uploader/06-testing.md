@@ -47,6 +47,11 @@ val uploader = FakeUploader { call -> if (call.uniqueKey == "already-queued") nu
 Withdrawals are recorded too: `cancelled` lists the ids passed to `cancel`, `cancelledByTag` the tags
 passed to `cancelByTag`.
 
+`FakeUploader` is safe to use from several threads: every call, read and `trigger()` is atomic, and the
+result function runs outside any lock, so it may call back into the fake. `MutableUploaderClock` and
+`RecordingWakeScheduler` are thread-safe too (the engine calls both from the caller's thread and from its drain at once);
+`RecordingUploadTransport` is not.
+
 ## Testing with the real engine
 
 For anything about delivery, run the engine over `InMemoryUploaderStore`:
@@ -72,6 +77,10 @@ fun `a failing effect is retried with a backoff gate`() = runTest {
     assertTrue(item.nextRunAtEpochMillis > 0L)
 }
 ```
+
+`InMemoryUploaderStore` never notices a cancelled caller, even when calls contend for its lock, whereas a store that hops to a database thread does,
+even after its write committed. The engine is built for both, so a test against the in-memory store pins the
+SPI invariants, not cancellation timing.
 
 Three habits make these tests deterministic:
 
@@ -116,7 +125,7 @@ engine.settle(first.id, first.claim, SettleResult.Failed()) // superseded: chang
 
 ## Testing your own store
 
-If you implemented `UploaderStore`, run the contract against it. One test gets you forty-six invariants:
+If you implemented `UploaderStore`, run the contract against it. One test gets you fifty-eight checks, covering every invariant the `UploaderStore` KDoc states except durability:
 
 ```kotlin
 class MyUploaderStoreTest {
@@ -149,6 +158,13 @@ private val contract = UploaderStoreContract { MyUploaderStore(freshDatabase()) 
 It is deliberately not a JUnit base class: `kotlin.test`'s JVM annotations are typealiases to a
 framework's own, so publishing one would put JUnit on the compile classpath of every consumer,
 including their iOS build.
+
+Since 4.0.0 the contract also checks what a mutated store used to slip past it: exact tag and unique-key matching,
+verbatim payloads, whole-row equality after every guarded write, absolute attempts/gates/leases, insertion order
+under falling creation times, a live observation that never completes, the tail revival of a parked key, exact
+point reads, snapshot lists and the one-winner races of concurrent claims and keeps. The new checks are additive
+public functions of `UploaderStoreContract`; a store that passed the old 46 may now fail one of them, which is the
+check doing its job.
 
 **What the contract cannot check** is durability across a process restart — no in-process check can
 observe that. If your store buffers writes anywhere, prove that separately; the engine's central
@@ -213,6 +229,26 @@ fun `a 401 refreshes the token and retries`() = runTest {
 }
 ```
 
+To test code that reads the server's answer — the job id in `onDelivered`, a validation error in
+`classify` — complete the launch with an `UploadResponse` instead of a bare status:
+
+```kotlin
+val response = UploadResponse(
+    statusCode = 202,
+    headers = mapOf("Location" to "/jobs/42"),
+    body = """{"jobId":"42"}""".encodeToByteArray(),
+    isBodyTruncated = false,
+)
+UploadGateway.complete(itemId, response)
+
+assertEquals("42", avatars.jobIdOf(avatar.id))
+```
+
+`complete(itemId, UploadResult.Completed(202))` still works but leaves the handler's `response`
+`null`; `complete(itemId, UploadResult.TransportFailure("offline"))` is the case where the server never
+answered. The engine applies the handler's `maxResponseBodyBytes` to the body you pass, so a test can
+also check what the handler does with a truncated one. An unknown id is a no-op.
+
 `RecordingUploadTransport.cancels` lists the ids the engine cancelled, so a test of a withdrawal or a
 `REPLACE` can assert that only the intended upload was stopped.
 
@@ -229,4 +265,5 @@ by tag and by `REPLACE` (including one racing a hand-off, and two handlers shari
 cancellation, transient store failures, and the start/close lifecycle. `androidHostTest` pins the
 merged-manifest permission set and the derived WorkManager work name, cancels one item's job while
 another's stays queued, and runs a real socket to check that a cancelled transfer never sends a
-complete body.
+complete body and that the response — status, headers, the error stream's body, the 1 MiB ceiling —
+is read.

@@ -49,8 +49,13 @@ internal class JavaFxVideoEngine(
         require(readyTimeoutMs > 0L) { "readyTimeoutMs must be positive, was $readyTimeoutMs" }
     }
 
+    // A monitor, not a Mutex: it is taken on the JavaFX application thread (every Sink callback) and by
+    // the synchronous SPI calls, none of which can suspend (D-21). Fields marked volatile are written
+    // under it or on the FX thread, read without it by the getters.
     private val lock = Any()
 
+    // Volatile (listener, volume, speed, looping): set through the synchronous SPI from any thread and
+    // read on the FX thread and by the getters (D-21).
     @Volatile
     private var listener: VideoPlaybackEngineListener? = null
 
@@ -123,11 +128,16 @@ internal class JavaFxVideoEngine(
     }
 
     override fun setSpeed(speed: Float) {
+        // The player clamps into a finite range; this is the boundary guard for any other caller.
+        // Checked before the value is stored, so a re-apply after the load never resurrects it.
+        if (!speed.isFinite() || speed <= 0f) return
         this.speed = speed
         activePlayback()?.setSpeed(speed)
     }
 
     override fun setVolume(volume: Float) {
+        // Out-of-range values stay (JavaFX clamps volume itself); NaN is not a volume.
+        if (volume.isNaN()) return
         this.volume = volume
         activePlayback()?.setVolume(volume)
     }

@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -480,6 +481,20 @@ class PermissionRequestFlowTest {
     }
 
     @Test
+    fun `start from limited re-checks and stays limited without asking to widen the grant`() = runTest {
+        val controller = ScriptedPermissionController(status = PermissionStatus.Limited)
+        val flow: PermissionRequestFlow = flowFor(controller)
+        assertEquals(PermissionFlowState.Limited, flow.start())
+        val checksBefore: Int = controller.checkCount
+
+        assertEquals(PermissionFlowState.Limited, flow.start())
+
+        assertEquals(checksBefore + 1, controller.checkCount, "start() from Limited did not re-check")
+        assertEquals(0, controller.requestCount, "start() from Limited asked to widen the grant")
+        assertEquals(PermissionFlowState.Limited, flow.state.value)
+    }
+
+    @Test
     fun `start on a restricted or unavailable permission lands on unavailable without a dialog`() = runTest {
         listOf(PermissionStatus.Restricted, PermissionStatus.Unavailable).forEach { status ->
             val controller = ScriptedPermissionController(status = status)
@@ -525,5 +540,42 @@ class PermissionRequestFlowTest {
 
         assertTrue(flow.openSettings())
         assertEquals(listOf<Permission>(CommonPermission.Camera), controller.openedSettings)
+    }
+
+    // --- cancellation and concurrent drivers ---------------------------------------------------
+
+    @Test
+    fun `a caller cancelled while the dialog is up returns the flow to idle and it can start again`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val controller = ScriptedPermissionController(requestOutcome = PermissionStatus.Granted)
+        controller.whileRequesting = { gate.await() }
+        val flow: PermissionRequestFlow = flowFor(controller)
+
+        val running = launch { flow.start() }
+        runCurrent()
+        assertEquals(PermissionFlowState.Requesting, flow.state.value)
+        running.cancelAndJoin()
+
+        assertEquals(PermissionFlowState.Idle, flow.state.value)
+        controller.whileRequesting = null
+        assertEquals(PermissionFlowState.Granted, flow.start())
+        assertEquals(2, controller.requestCount)
+    }
+
+    @Test
+    fun `a refresh that was reading the status does not overwrite a start that finished meanwhile`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val controller = ScriptedPermissionController(status = PermissionStatus.NotDetermined)
+        val flow: PermissionRequestFlow = flowFor(controller)
+        controller.whileChecking = { gate.await() }
+
+        val refreshing = launch { flow.refresh() }
+        runCurrent()
+        controller.whileChecking = null
+        assertEquals(PermissionFlowState.Granted, flow.start())
+        gate.complete(Unit)
+        refreshing.join()
+
+        assertEquals(PermissionFlowState.Granted, flow.state.value, "the stale refresh overwrote the outcome")
     }
 }

@@ -26,6 +26,14 @@ Scenarios in roughly increasing order of subtlety.
 
 Three states, and only two ways out of the queue: a confirmed delivery, or a decision.
 
+Delivery is at-least-once: a process that dies between a successful send and the deletion of the row sends again
+on the next launch. Within one process an effect whose handler succeeded but whose row could not be deleted is
+never run again; the engine retries only the delete, with a growing backoff. An attempt that fails outside its
+handler (a store write failing, say) backs off the same way instead of repeating at the alarm floor.
+
+A payload is small: it is stored as text in the queue's row, and the SQLDelight store refuses a row over 1 MiB. Queue a
+reference to large data (a file path, a record id) rather than the data itself.
+
 ## Deduplicating an effect
 
 A unique key makes an effect idempotent at the *queue* level, before it ever reaches the network.
@@ -83,6 +91,10 @@ override val retryPolicy: RetryPolicy = ExponentialBackoffRetryPolicy(
 )
 ```
 
+A retry is never re-run inside the pass that failed it, even when the policy returns `0`: its next try waits for the
+next trigger or alarm (at least `minAlarmDelay` away). Prefer a positive floor anyway. `ExponentialBackoffRetryPolicy`
+saturates at `maxDelayMillis`, so a huge `baseDelayMillis` can never wrap a delay around to zero.
+
 Backoff is a pure function of the item's **persisted** attempt count, so a budget survives a
 restart rather than resetting to zero on every launch. Jitter matters more than it looks: without
 it, everything queued while a device was in a tunnel retries in lockstep and hits your server as one
@@ -107,7 +119,9 @@ override val constraintKeys: Set<String> = setOf("network", "socket_connected")
 ```
 
 All named constraints must hold. The engine also *subscribes*: a `false → true` transition triggers
-a drain, so effects fire on the transition rather than on the next heartbeat.
+a drain, so effects fire on the transition rather than on the next heartbeat. A flow that fails when
+collected ends its subscription with a logged error (never an uncaught exception); its items are still checked
+on every pass, so the transition latency becomes the heartbeat interval.
 
 A key with no registered provider is treated as satisfied and logged as an error. Failing open is
 deliberate — a typo that silently freezes a queue forever is much harder to notice than one extra
@@ -127,6 +141,28 @@ id?.let { uploader.cancel(it) }
 `cancel` removes the item in any state and, for an `UploadHandler`'s item, cancels that one upload on
 its transport. Other items are untouched, including other handlers' uploads on the same transport. It
 runs no handler hook, so clean up after it yourself — the source file, a "sending" badge.
+
+After `cancel`, `cancelByTag` or a `REPLACE` returns, no attempt of a removed item begins, even one the drain had
+already read from the queue, and an attempt the engine is already running for it is cancelled: it spends no
+attempt and records nothing, whatever its handler answers to the cancellation: a `Retry`, `Park`, `Drop` or
+`Detached` returned from a swallowed cancellation is not written down (an attempt cancelled by `close()` still
+records its `Detached`, see the close section). A `Success` is the
+exception: its effect happened, so its row is deleted. The call does not wait for that attempt, and a handler that ignores cancellation
+may still finish its effect.
+
+A caller that is cancelled does not stop a withdrawal halfway. A caller cancelled before the call starts removes
+nothing; once the call has begun removing rows, cancelling its caller changes nothing: the removal, the stop of the
+running attempt and the cancel of the upload complete together, and the call may return normally. That is what
+makes the logout wipe safe when the screen's `viewModelScope` is cleared while `cancelByTag` runs: no upload of the
+wiped account keeps running. (A `REPLACE` enqueue follows the same rule.) So does any `enqueue`: one whose caller is cancelled while its write is in progress still queues its item.
+
+The price: once the store write of a withdrawal or an enqueue has started, the call waits for that write whatever the
+caller's timeout, and a store call that never returns holds the call with it. The store is the only bound, so set a busy
+or statement timeout on your database.
+
+If `cancel` throws, check nothing: either the item is gone with its attempt and upload stopped, or it is still queued
+with its attempt and upload untouched. Call `cancel` again. Only when the engine could not even read the row back are
+the attempt and upload stopped with the row possibly still queued (it resumes when its lease runs out).
 
 What it cannot do is recall bytes the server already has: an upload whose body was fully sent may
 have been accepted. Read a withdrawal as "will not be sent from now on". Send `AttemptContext.id` as
@@ -253,10 +289,20 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
             ),
         )
 
-    override suspend fun classify(payload: AvatarUpload, result: UploadResult): SettleResult =
-        defaultUploadClassification(result)
+    // classify is optional: without an override defaultUploadClassification(result) decides.
+
+    override suspend fun onDelivered(payload: AvatarUpload, response: UploadResponse?) {
+        // The server answered 202 with a job id. Idempotent: this may run twice for one item.
+        val jobId: String? = response?.header("location") ?: response?.let { parseJobId(it.body()) }
+        if (jobId != null) avatars.saveJobId(payload.id, jobId)
+    }
 }
 ```
+
+`onSettled` runs at most once, after the row was committed, in the process that committed it: a stop of the
+platform job or a process death right after the commit can skip it, and nothing calls it later. Do not make it
+the only place that deletes the uploaded source file. Reconcile leftover files when your app starts, or free the
+file in `onDelivered` (at least once, before the commit) where that fits.
 
 `prepareUpload` runs again when the platform actually starts the upload, so the token is fresh and a
 job re-run for an item that settled meanwhile uploads nothing. On Android the platform job stores only
@@ -265,6 +311,68 @@ hand-off. Register the engine in `UploaderEngineRegistry`: the transport settles
 which finds the engine there. See [`08-upload-transport.md`](08-upload-transport.md) for the full
 contract, the hooks, the iOS relaunch hook your app delegate must forward, and the older
 classifier-based Android transport.
+
+### Reading what the server answered
+
+Since 4.0.0 an `UploadHandler` sees the server's answer. `classify(payload, result, response)` and
+`onDelivered(payload, response)` receive an `UploadResponse`: `statusCode`, `headers` (lowercase names,
+`header(name)` is case-insensitive), `body()` — a copy of the first bytes of the body, never `null`,
+empty for a `204` — and `isBodyTruncated`. `response` is `null` only when the server never answered
+(`UploadResult.TransportFailure`). Whenever it is not `null`, `result` is
+`UploadResult.Completed(response.statusCode)`.
+
+**The recommended recipe: `202` plus a job id.** Keep the upload request short and the server's work
+asynchronous:
+
+1. The client sends the file with an `Idempotency-Key` header equal to `AttemptContext.id` (the item
+   id — stable across every retry of the item).
+2. The server stores the file, answers `202 Accepted` at once and puts a job id in the body or in a
+   `Location` header. A repeated request with the same key returns the same job.
+3. `classify` decides on the **status** and nothing else for the common cases;
+   `onDelivered` reads the job id and persists it, keyed by the payload's own id, then your app polls
+   or is pushed the result.
+
+```kotlin
+override suspend fun classify(payload: AvatarUpload, result: UploadResult, response: UploadResponse?): SettleResult =
+    when {
+        response?.statusCode == 422 -> SettleResult.Drop("rejected: ${errorField(response)}")
+        else -> defaultUploadClassification(result)
+    }
+
+private fun errorField(response: UploadResponse): String =
+    runCatching { json.decodeFromString<ApiError>(response.body().decodeToString()).field }
+        .getOrDefault("unknown") // a malformed body is a missing detail, never an exception
+
+override suspend fun onDelivered(payload: AvatarUpload, response: UploadResponse?) {
+    val jobId: String = response?.header("location")?.substringAfterLast('/') ?: return
+    avatars.saveJobId(avatarId = payload.id, jobId = jobId) // an upsert: it may run twice
+}
+```
+
+Rules that keep this safe:
+
+- **`classify` must not throw because a body is malformed.** A throw settles the item as `Failed`, and a
+  delivered upload would then be sent again. Decide on the status; read the body defensively, as extra
+  detail.
+- **Parse and persist in `onDelivered`, idempotently.** It runs before the row is removed, and it may
+  run twice (a settle that did not land is retried). Key the write by something of the payload. An
+  exception there is logged and does not stop the settlement — so the response is **lost**. Keep that
+  code simple, and let it fail rarely.
+- **`isBodyTruncated` on a 2xx.** The body is cut at `maxResponseBodyBytes` (default 64 KiB, at most
+  1 MiB, `0` for none). Never parse a truncated prefix: raise the limit, or decide in `classify` from
+  the status and a header (`Location`) that is not cut. Truncation never causes a retry.
+- **Do not do long synchronous work in the upload response.** A server that holds the connection while
+  it processes a file ties the answer to a read timeout, a 10-minute Android worker limit and an iOS
+  daemon that may be killed with the app; `202` and a job id avoid all three.
+- **`Set-Cookie` cannot be read from `headers`.** Values of a header repeated under one name are joined
+  with `", "`, which is lossy for cookies.
+- **Platform limits:** an iOS force-quit cancels background transfers; an Android upload runs in a
+  `WorkManager` worker, which has about 10 minutes; a body that reached iOS while the app was dead
+  arrives only if `BackgroundUploadRelaunch.handleEvents` is wired. The legacy
+  `createWorkManagerUploadTransport` is status-only. See [`05-platform-notes.md`](05-platform-notes.md).
+
+A handler written for 3.0 — overriding the two-argument `classify` and the one-argument `onDelivered` —
+keeps working unchanged: the new hooks call them by default.
 
 ## Draining on demand
 
@@ -275,6 +383,9 @@ uploader.awaitDrained(60.seconds)        // suspend until the queue is empty, fo
 
 `trigger()` is for "the user pulled to refresh" or "a push told us to sync". You do not need it
 after an enqueue.
+
+A drain pass that fails as a whole (a locked database, say) retries itself: after `minAlarmDelay`, then with a
+delay that doubles on every consecutive failure, at most `heartbeatInterval`. A pass that succeeds resets it.
 
 `drain()` exists too, but calling it on a started engine breaks single-flight. It is for tests and
 diagnostics.
@@ -289,6 +400,13 @@ Stops the drain, the heartbeat, the alarm and the constraint subscriptions, and 
 slot if this engine holds it. It does not cancel the scope you provided and does not touch the
 queue — everything owed is still owed, and a freshly constructed engine picks it up. Cancelling your
 own scope stops the engine just as effectively.
+
+An attempt running at close is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, so the next engine starts the item at once.
+The owner may build the next engine right after `close()` returns: a closed engine's late release of a claim writes
+nothing when the row shows another engine's claim.
+
+`close()` does not wait for a running attempt; one that ignores its cancellation may still be running when a new engine
+starts the same item, so a handler that does not honour cancellation can see its item run twice, as after a process kill.
 
 ## Logging
 

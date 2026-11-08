@@ -17,19 +17,45 @@ package io.github.jamal_wia.kmptoolkit.downloader
  * [id] is the identity that crosses boundaries a typed reference cannot: an Android `Intent` extra,
  * an iOS background-session identifier, a persisted stall-count key. It must be stable across app
  * versions (it is written to disk and read back) and unique within the host's catalogue.
+ *
+ * Any string is accepted as an [id]; one that is not a plain file name (it contains `/` or NUL, or a
+ * name derived from it would pass 255 bytes) is stored under a hashed name by the shipped storages,
+ * so it never collides with another unit or leaves `tmp/`. Prefer `[A-Za-z0-9._-]`, and keep ids
+ * unique ignoring case (and, on iOS, Unicode normalization): an iOS volume may treat `Model` and
+ * `model` as one file. A [relativePath] that cannot be used safely is rejected with
+ * [InvalidDownloadUnitException].
  */
 public interface DownloadUnit {
 
-    /** Stable, unique identity — survives serialization to an Intent extra / session id / storage key. */
+    /**
+     * Stable, unique identity — survives serialization to an Intent extra / session id / storage key.
+     * Unique ignoring case; see the type's documentation for ids that are not plain file names.
+     */
     public val id: String
 
     /** Opaque path handed to the host's URL resolver. This library never parses or composes it. */
     public val apiPath: String
 
-    /** Where the committed resource lives, relative to the platform's resource base directory. */
+    /**
+     * Where the committed resource lives, relative to the platform's resource base directory, used
+     * as written once `.`, `..` and empty segments are resolved lexically: `files/x/../a.bin` is
+     * `files/a.bin` whether or not `x` exists, and `..` never climbs out through a symbolic link.
+     *
+     * The shipped storages reject, with [InvalidDownloadUnitException], a path that is empty or
+     * normalizes to nothing, contains NUL, leaves the base directory (`../x`), or names something
+     * the storage manages itself (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`,
+     * `tmp/staging-…`, or this unit's own temp files). Any other path under `tmp/` works but is
+     * reserved for the storage and logs a warning.
+     */
     public val relativePath: String
 
-    /** Extension of the in-progress temp file. Only cosmetic — the temp name is derived from [id]. */
+    /**
+     * Extension of the in-progress temp file. Carries no meaning of its own, but it is part of the
+     * temp file's name (`tmp/<id>.<ext>`), so every instance of one id must return the same value:
+     * instances that differ see different temp files, while the expected-hash record is shared by id.
+     * An extension that is not one plain name (it contains `/` or NUL, or is long) is replaced by `tmp`
+     * in the hashed name the shipped storages then use.
+     */
     public val tempExtension: String get() = "tmp"
 
     /**
@@ -92,7 +118,12 @@ public sealed interface ResourceFormat {
      * A ZIP archive: committing extracts it into [DownloadUnit.relativePath] as a directory (with
      * zip-slip protection) and deletes the archive. [availabilityMarker] is a file the extraction
      * is known to produce — its presence is what proves a directory resource is complete, since an
-     * interrupted extraction also leaves a directory behind.
+     * interrupted extraction also leaves a directory behind. Every entry is extracted, or the commit fails
+     * with [ResourceIntegrityException]; an entry that would land outside the directory fails the commit.
+     *
+     * The archive must end with its end of central directory record (a comment cut short is tolerated; an archive cut
+     * anywhere before the record, its central directory included, fails), and entry names are read as UTF-8 whether
+     * or not the archive sets the UTF-8 flag: a name that is not valid UTF-8 fails the commit.
      */
     public data class ZipArchive(public val availabilityMarker: String) : ResourceFormat
 
@@ -100,12 +131,17 @@ public sealed interface ResourceFormat {
      * A SQLite database, verified before it counts as committed: a truncated or corrupt download
      * fails at commit rather than surfacing later as an unreadable file deep inside a reader.
      *
-     * The file is always opened and its schema read, which alone rejects bytes that are not a
-     * database (opening by itself does not: SQLite reads the header lazily). A unit whose
+     * The file must be at least 100 bytes long and start with the 16-byte SQLite header (a file without it, an
+     * empty or cut body, fails the commit), and it is always opened and its schema read, which alone rejects bytes
+     * that are not a database (opening by itself does not: SQLite reads the header lazily). A unit whose
      * schema states its own expected size can ask for more: give [rowCountTable] and
      * [declaredRowCountMetaKey] and the row count of that table must equal the value stored under
      * that key in a `meta(key, value)` table. Which table and which key those are is the host's
      * domain knowledge, which is why they are values here rather than anything the library assumes.
+     *
+     * [rowCountTable] is a table or view name, used as a name (any characters: a keyword or a name with spaces
+     * works); a value that names no table is used as SQL text, as in 3.0.0 — kept for compatibility, do not rely
+     * on it. [declaredRowCountMetaKey] is a value bound as a parameter, never escaped by the host.
      */
     public data class SqliteDatabase(
         public val rowCountTable: String? = null,

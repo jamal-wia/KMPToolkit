@@ -103,6 +103,9 @@ both platforms, record `M4A` and transcode, or use `AudioRecord` directly.
 - **Directory creation** uses `File.mkdirs()` and then checks `isDirectory && canWrite()`. A
   `SecurityException` from a path outside the sandbox is exactly the "not writable" answer, so it is
   reported as `DirectoryNotWritable`, not thrown.
+- **iOS directory and file checks.** A `directoryPath` that is a regular file, not a directory, is reported as
+  `DirectoryNotWritable` too. A failed `prepareToRecord()` deletes nothing inside the engine: the recorder removes
+  the file only when this attempt created it and still owns the path.
 - **Scoped storage.** The default output is app-private (`Context.getFilesDir()`), which needs no
   storage permission. Pointing `RecordingStorage.directoryPath` at shared storage is your call, and
   brings that platform's permission rules with it.
@@ -191,7 +194,8 @@ wins, a running `stop()`/`cancel()` wins over an event, `elapsed` frozen, `level
   tell a recorder that its input was taken. Earlier versions of these notes suggested watching it —
   do not.
 - **Free space.** `setMaxFileSize(usable − reserve)` is set at prepare as a backstop, and free space
-  is also polled at most every two seconds while recording. Below the reserve the recording is
+  is also polled every two seconds while recording (at most four apart), independent of
+  `durationUpdateInterval`. Below the reserve the recording is
   finalized as `Interrupted(StorageLow)` while there is still room to close the file. The reserve is
   half of `minimumFreeSpaceBytes`, but at least 2 MiB (an MPEG-4 file's index grows with the
   recording and a very long one needs a few hundred kilobytes, so 2 MiB is a margin) and never more
@@ -238,7 +242,8 @@ wins, a running `stop()`/`cancel()` wins over an event, `elapsed` frozen, `level
   confirmed on a device**. The library calls it and reports `Interrupted` if it returns; if the
   file turns out to be unplayable the honest outcome is `RecordingLost`, and no API change is
   needed — only this note.
-- **Free space** is polled from `NSFileSystemFreeSize` at most every two seconds, counted per
+- **Free space** is polled from `NSFileSystemFreeSize` every two seconds (at most four apart, independent of
+  `durationUpdateInterval`), counted per
   recording rather than per resume, and ends the recording as `Interrupted(StorageLow)` below the
   reserve, exactly as on Android; there is no platform size limit to set, so the poll is the only
   protection.
@@ -288,6 +293,16 @@ linear in decibels between; `NaN` reads as silence.
   `peakPowerForChannel` are called only while `level` or `levelSamples` is collected. The value
   published is the maximum of `peakPowerForChannel` over the configured channel count, already in
   dBFS.
+- **Sampling is serialized with the transitions.** Each `peakDbfs()` call runs under the recorder's
+  lock, behind the meter's epoch, so it can never overlap the `stop()` or `release()` that ends the
+  session — `AVAudioRecorder` documents no thread safety. The call is cheap enough that running it
+  on whichever thread holds the lock costs nothing noticeable.
+- **`release()` is synchronous.** It stops the platform recorder, frees the engine and, on iOS,
+  deactivates the audio session (blocking IPC) inline on the calling thread, unless a finalizer or an
+  in-flight `prepare()` already owns the engine. That is the price of returning with the microphone
+  actually free, which a consumer that creates a new recorder right away depends on; expect tens of
+  milliseconds on the main thread. No other thread can be left waiting on the recorder's lock
+  meanwhile.
 - **Peak, not average.** iOS also offers `averagePowerForChannel`. It is not used, because
   Android's reading is a peak, and the same voice would otherwise draw a visibly different bar on
   each platform.
@@ -304,7 +319,9 @@ Everything else, because it lives in common code and is covered by one shared su
 both targets: the transition table, permission and storage pre-checks, path generation, elapsed-time
 accounting across pause and resume, the dBFS-to-`0f..1f` mapping and subscription-driven metering of
 `level` and `levelSamples`, deletion of abandoned files, retention of completed ones, cancellation
-of an in-flight `prepare`, release idempotency, the fact that no public method throws, and
+of an in-flight `prepare` (including the ownership fence that stops a released recorder's late
+`prepare` tail from deleting the file of a newer recorder that reuses the same explicit path),
+release idempotency, the fact that no public method throws, and
 everything that follows an event once the engine has reported it: the debounce of a silenced input,
 the free-space watchdog, which state each event produces, that a running `stop()`/`cancel()` wins,
 and that a `release()` during a finalization leaves the platform recorder to it. Only the mapping of

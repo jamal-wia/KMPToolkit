@@ -2,8 +2,6 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import io.github.jamal_wia.kmptoolkit.core.StateMachineLock
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import kotlin.concurrent.atomics.AtomicReference
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -18,6 +16,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -49,13 +49,21 @@ import kotlinx.coroutines.withContext
  * blocks a platform callback thread. Everything marked "guarded" below is touched only under it.
  *
  * Slow work never runs while holding the lock, because a callback or a main-thread call could be
- * waiting for it. Finalizing a long container (`engine.stop()`) is the slow call: the operation or
+ * waiting for it — with one deliberate exception, [release], which is synchronous by contract and
+ * finishes the engine inline on the caller's thread (the platform stop, the engine release and, on
+ * iOS, the audio-session IPC) unless a finalizer or an in-flight `prepare` owns it. Nothing can
+ * wait on the lock meanwhile: every other entry point is the same caller's own thread or `submit`,
+ * which never blocks. Finalizing a long container (`engine.stop()`) is the slow call: the operation or
  * event that wins the lock records in [finalizing] that the session is being finished by it,
  * releases the lock, does the slow call on [workerContext], and takes the lock again to publish
  * the outcome. Events that arrive meanwhile see the marker and are dropped, so a `stop()` is never
  * reported as a failure and a `cancel()` never as a saved recording; `release()` arriving meanwhile
  * flips the state to `Released` and leaves `engine.release()` to the finalizer, so the engine is
- * never driven from two threads.
+ * never driven from two threads. An in-flight `prepare()` has the same ownership: while the state
+ * is `Preparing` the engine's `prepare` runs on the worker, so `release()` flips the state and
+ * leaves the engine to `prepare`'s own tail, which undoes the preparation when it sees `released`;
+ * a `release()` that landed before the worker started is seen by a check under the lock, so the
+ * microphone is never opened for a recorder that is already gone.
  *
  * Every `prepare()` starts a new session ([session]); engine events carry the session they were
  * registered with and a stale one is dropped, which keeps an event from one recording from ending
@@ -72,7 +80,7 @@ import kotlinx.coroutines.withContext
  *   brief handover (an assistant taking the microphone for a moment) must not.
  * @param freeSpacePollInterval how often the free-space watchdog looks, at most, while recording.
  */
-@OptIn(ToolkitInternalApi::class, ExperimentalAtomicApi::class)
+@OptIn(ToolkitInternalApi::class)
 internal class DefaultAudioRecorder(
     private val engine: RecorderEngine,
     private val fileSystem: RecordingFileSystem,
@@ -148,6 +156,14 @@ internal class DefaultAudioRecorder(
      */
     private var finalizing: Finalization? = null
 
+    /**
+     * The claim this recorder keeps on its session's output path from a successful `prepare()` until
+     * the session's file is deleted or the next `prepare()` / `release()` lets go (see
+     * [OutputPathOwners]). Every deletion of a session file goes through it, so a recorder never
+     * deletes a file a newer recorder has since taken over on the same explicit path. Lock held.
+     */
+    private var sessionClaim: OutputPathClaim? = null
+
     private var tickerJob: Job? = null
     private var tickerEpoch: Long = 0
     private var meterJob: Job? = null
@@ -162,16 +178,28 @@ internal class DefaultAudioRecorder(
      * When the free-space watchdog last looked, for the session: set by `start()`, cleared by
      * `prepare()`, and deliberately *not* reset by `resume()` — a ticker only lives from one
      * start/resume to the next pause, so a mark kept by the ticker itself would restart on every
-     * resume and a user who pauses more often than the poll interval would never be checked. An
-     * atomic rather than a plain guarded field because the ticker claims a poll with a
-     * compare-and-set, off the lock, so two tickers (one just cancelled, one just started) can
-     * never both poll for the same interval.
+     * resume and a user who pauses more often than the poll interval would never be checked. A
+     * MutableStateFlow used for its compareAndSet rather than a plain guarded field, because the
+     * ticker claims a poll with a compare-and-set, off the lock, so two tickers (one just cancelled,
+     * one just started) can never both poll for the same interval.
      */
-    private val lastSpaceCheck: AtomicReference<TimeMark?> = AtomicReference(null)
+    private val lastSpaceCheck: MutableStateFlow<TimeMark?> = MutableStateFlow(null)
 
     // --- prepare ---
 
     override suspend fun prepare(outputPath: String?): RecorderResult<String> {
+        // One claim per call, dropped whatever way the call ends (see OutputPathOwners).
+        val claim = OutputPathClaim()
+        try {
+            return prepareClaiming(outputPath, claim)
+        } finally {
+            // A successful prepare handed the claim to the session (sessionClaim); any other way
+            // out drops it.
+            if (gate.exclusive { sessionClaim !== claim }) OutputPathOwners.release(claim)
+        }
+    }
+
+    private suspend fun prepareClaiming(outputPath: String?, claim: OutputPathClaim): RecorderResult<String> {
         var token: Long
         while (true) {
             when (val step: Begin<RecorderResult<String>, Long> = gate.exclusive { beginPrepare() }) {
@@ -184,50 +212,88 @@ internal class DefaultAudioRecorder(
             }
         }
 
-        if (!engine.hasRecordAudioPermission()) return failPrepare(RecorderError.PermissionDenied)
-        if (!engine.supportsFormat(config.format)) {
-            return failPrepare(RecorderError.UnsupportedFormat(config.format))
-        }
+        val path: String
+        val storage: StorageCheck
+        try {
+            if (!engine.hasRecordAudioPermission()) return failPrepare(RecorderError.PermissionDenied)
+            if (!engine.supportsFormat(config.format)) {
+                return failPrepare(RecorderError.UnsupportedFormat(config.format))
+            }
 
-        val path: String = outputPath ?: generateOutputPath()
-        // Guarded before the filesystem is touched: NSURL.fileURLWithPath raises on a blank path,
-        // and Kotlin/Native cannot catch an Objective-C exception, so an unchecked blank string
-        // would kill the process instead of producing a RecorderError.
-        if (path.isBlank() || !path.startsWith(PATH_SEPARATOR)) {
-            return failPrepare(RecorderError.DirectoryNotWritable(path))
-        }
-        val directory: String = fileSystem.parentOf(path)
-            ?: return failPrepare(RecorderError.DirectoryNotWritable(path))
-        val storage: StorageCheck = try {
-            withContext(workerContext) {
+            path = outputPath ?: generateOutputPath()
+            // Guarded before the filesystem is touched: NSURL.fileURLWithPath raises on a blank path,
+            // and Kotlin/Native cannot catch an Objective-C exception, so an unchecked blank string
+            // would kill the process instead of producing a RecorderError.
+            if (path.isBlank() || !path.startsWith(PATH_SEPARATOR)) {
+                return failPrepare(RecorderError.DirectoryNotWritable(path))
+            }
+            val directory: String = fileSystem.parentOf(path)
+                ?: return failPrepare(RecorderError.DirectoryNotWritable(path))
+            // Before the file is looked at: from here on this call is the path's owner until a later
+            // recorder takes the path over, and only the owner's tail may delete (undoPreparation).
+            OutputPathOwners.claim(path, claim)
+            storage = withContext(workerContext) {
+                // Before ensureWritableDirectory and the engine touch anything: undoPreparation
+                // deletes only a file this call created.
+                val existed: Boolean = fileSystem.exists(path)
                 if (!fileSystem.ensureWritableDirectory(directory)) {
-                    StorageCheck(RecorderError.DirectoryNotWritable(directory), null)
+                    StorageCheck(RecorderError.DirectoryNotWritable(directory), null, existed)
                 } else {
-                    checkFreeSpace(directory)
+                    checkFreeSpace(directory, existed)
                 }
             }
         } catch (cancellation: CancellationException) {
+            // A CancellationException while the caller is still active can only be the worker context
+            // refusing the hop (a closed executor), the same case runFinalization calls hopLost.
+            if (currentCoroutineContext().isActive) {
+                return failPrepare(RecorderError.EngineFailure(RecorderOperation.PREPARE, cancellation))
+            }
             // Nothing is open yet, so there is nothing to undo — but Preparing must not outlive the
             // call: every operation, prepare included, is illegal from it, so a recorder left there
             // could never be used again.
             // Released is terminal: a release() that landed meanwhile keeps its state.
             gate.exclusive { if (!released) _state.value = RecorderState.Idle }
             throw cancellation
+        } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
+            // A platform call before the engine ran threw (an unresolvable app directory, a
+            // filesystem error). Failure is a value here too: left alone, the state would stay
+            // Preparing and every later operation but release() would be refused.
+            return failPrepare(RecorderError.EngineFailure(RecorderOperation.PREPARE, failure))
         }
         storage.error?.let { error -> return failPrepare(error) }
+
+        // A release() that already landed must not be followed by the microphone opening. The check
+        // is under the lock; what slips in after it is covered by release() leaving the engine to
+        // the tail below while the state is Preparing.
+        gate.exclusive { if (released) releasedFailure(RecorderOperation.PREPARE) else null }
+            ?.let { return it }
 
         val prepareFailure: Throwable?
         try {
             prepareFailure = runOnWorker { engine.prepare(path, config, storage.maxFileSizeBytes) }
         } catch (cancellation: CancellationException) {
             // Leave nothing half-open behind: the caller's coroutine is going away, and a native
-            // recorder holding the microphone plus a zero-byte file would outlive it.
-            gate.exclusive {
-                undoPreparation(path)
-                // Released is terminal: a release() that landed meanwhile keeps its state.
-                if (!released) _state.value = RecorderState.Idle
+            // recorder holding the microphone plus a zero-byte file would outlive it. The block may even
+            // have finished on the worker before the resume was refused, so this runs either way.
+            //
+            // A CancellationException while the caller is still active can only be the worker context
+            // refusing the hop (a closed executor), the same case runFinalization calls hopLost: that
+            // is a failure to report, not a cancellation to rethrow.
+            val callerCancelled: Boolean = !currentCoroutineContext().isActive
+            val refused: RecorderResult.Failure? = gate.exclusive {
+                undoPreparation(path, storage.pathExisted, claim)
+                when {
+                    callerCancelled -> {
+                        // Released is terminal: a release() that landed meanwhile keeps its state.
+                        if (!released) _state.value = RecorderState.Idle
+                        null
+                    }
+                    released -> releasedFailure(RecorderOperation.PREPARE)
+                    else -> fail(RecorderError.EngineFailure(RecorderOperation.PREPARE, cancellation))
+                }
             }
-            throw cancellation
+            if (refused == null) throw cancellation
+            return refused
         }
 
         return gate.exclusive {
@@ -236,11 +302,11 @@ internal class DefaultAudioRecorder(
             // resurrect a dead recorder, which would both overwrite Released and leak the handle
             // release() could not reach because the engine had not been assigned yet.
             if (released) {
-                undoPreparation(path)
+                undoPreparation(path, storage.pathExisted, claim)
                 return@exclusive releasedFailure(RecorderOperation.PREPARE)
             }
             if (prepareFailure != null) {
-                undoPreparation(path)
+                undoPreparation(path, storage.pathExisted, claim)
                 return@exclusive fail(
                     RecorderError.EngineFailure(RecorderOperation.PREPARE, prepareFailure)
                 )
@@ -248,6 +314,9 @@ internal class DefaultAudioRecorder(
             // Listeners go on only now: nothing the engine reports while preparing can end a
             // recording that does not exist yet.
             engine.setEventListener(listenerFor(token))
+            sessionClaim = claim
+            // The only place a claim becomes a session: the takeover of the path is final from here.
+            OutputPathOwners.commit(path, claim)
             _state.value = RecorderState.Ready(path)
             RecorderResult.Success(path)
         }
@@ -273,9 +342,10 @@ internal class DefaultAudioRecorder(
         // up. A Completed or Interrupted file belongs to the caller and is deliberately left alone,
         // as is the one a failed stop or a lost recording left behind.
         discardPreparedButUnusedFile(current)
+        dropSessionClaim()
         engine.release()
         resetTiming()
-        lastSpaceCheck.store(null)
+        lastSpaceCheck.value = null
         session++
         _state.value = RecorderState.Preparing
         return Begin.Go(session)
@@ -298,7 +368,8 @@ internal class DefaultAudioRecorder(
             engine.start()
         } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
             engine.release()
-            fileSystem.delete(current.outputPath)
+            deleteOwned(current.outputPath, sessionClaim)
+            dropSessionClaim()
             return@exclusive fail(RecorderError.EngineFailure(RecorderOperation.START, failure))
         }
 
@@ -307,7 +378,7 @@ internal class DefaultAudioRecorder(
         segmentStart = mark
         _elapsed.value = Duration.ZERO
         // The poll interval counts from the moment capture began, once per recording.
-        lastSpaceCheck.store(timeSource.markNow())
+        lastSpaceCheck.value = timeSource.markNow()
         startTicker(base = Duration.ZERO, mark = mark, outputPath = current.outputPath)
         startMeter()
         _state.value = RecorderState.Recording(current.outputPath)
@@ -446,9 +517,11 @@ internal class DefaultAudioRecorder(
                 plan.finalization,
                 releasesEngine = plan.holdsEngine,
                 slow = { if (plan.engineActive) stopEngineQuietly() },
-                afterRelease = { fileSystem.delete(plan.path) },
+                afterRelease = { deleteOwned(plan.path, plan.finalization.claim) },
             ) { _: Throwable? ->
                 resetTiming()
+                // The file is gone, so the path is nobody's: a later recorder starts from scratch.
+                dropSessionClaim()
                 if (!released) _state.value = RecorderState.Idle
             }
         }
@@ -502,8 +575,9 @@ internal class DefaultAudioRecorder(
             // gone. The exception is a session some operation is already finishing off the lock:
             // that finalizer owns the engine and frees it when it is done, so the engine is never
             // driven from two threads at once.
-            if (finalizing == null) {
-                // Only here: a finalizer owns the engine and beginFinalize already detached the
+            if (finalizing == null && current != RecorderState.Preparing) {
+                // Not while Preparing either: engine.prepare() is running on the worker, and prepare's
+                // own tail undoes the preparation when it sees `released`. Only here: a finalizer owns the engine and beginFinalize already detached the
                 // listener, so touching it now would be a second thread driving the engine.
                 engine.setEventListener(null)
                 if (current.isActive) stopEngineQuietly()
@@ -512,6 +586,7 @@ internal class DefaultAudioRecorder(
                 // holds nothing and can never be cleaned up later, because prepare() — the only
                 // thing that discards it — can no longer run on a released recorder.
                 discardPreparedButUnusedFile(current)
+                dropSessionClaim()
             }
             resetTiming()
             _state.value = RecorderState.Released
@@ -599,9 +674,10 @@ internal class DefaultAudioRecorder(
                         finalization,
                         releasesEngine = true,
                         slow = {},
-                        afterRelease = { fileSystem.delete(finalization.path) },
+                        afterRelease = { deleteOwned(finalization.path, finalization.claim) },
                     ) { _: Throwable? ->
                         resetTiming()
+                        dropSessionClaim()
                         if (!released) {
                             _state.value = RecorderState.Failed(RecorderError.RecordingLost(reason))
                         }
@@ -650,7 +726,7 @@ internal class DefaultAudioRecorder(
             }
         }
         engine.setEventListener(null)
-        val finalization = Finalization(path, _elapsed.value)
+        val finalization = Finalization(path, _elapsed.value, sessionClaim)
         finalizing = finalization
         return finalization
     }
@@ -658,12 +734,16 @@ internal class DefaultAudioRecorder(
     /** Publishes the end of a finalization. Lock held. */
     private fun endFinalize(finalization: Finalization) {
         finalizing = null
+        // A released recorder has no later prepare() or release() to let go of its claim.
+        if (released) dropSessionClaim()
         finalization.done.complete(Unit)
     }
 
     private class Finalization(
         val path: String,
         val duration: Duration,
+        /** The session's path claim at the moment it was taken over; deletions are fenced by it. */
+        val claim: OutputPathClaim?,
     ) {
         val done: CompletableDeferred<Unit> = CompletableDeferred()
     }
@@ -707,7 +787,9 @@ internal class DefaultAudioRecorder(
      *
      * Callers run non-cancellable. The only thing that can still escape the hop is a cancellation
      * of the hop itself — a dispatcher that was shut down; it is treated as a failure of [slow],
-     * and the engine is released on the spot, because the hop may never have got to it.
+     * and both the engine release and [afterRelease] run on the spot, under the lock, because the hop
+     * may never have got to them. If it did run before its resume was refused, the repeats are harmless:
+     * releasing is idempotent and the fenced delete is a no-op once the first one ended the claim.
      */
     private suspend fun <R> runFinalization(
         finalization: Finalization,
@@ -735,7 +817,10 @@ internal class DefaultAudioRecorder(
         val hopLost: Boolean = failure is CancellationException
         return gate.exclusive {
             try {
-                if (hopLost && releasesEngine) engine.release()
+                if (hopLost) {
+                    if (releasesEngine) engine.release()
+                    afterRelease()
+                }
                 publish(failure)
             } finally {
                 endFinalize(finalization)
@@ -774,21 +859,39 @@ internal class DefaultAudioRecorder(
      * and neither waits on I/O of any consequence — deleting a file that was opened and never
      * written to. Lock held.
      */
-    private fun undoPreparation(path: String) {
+    private fun undoPreparation(path: String, pathExisted: Boolean, claim: OutputPathClaim) {
         engine.release()
-        fileSystem.delete(path)
+        // A file that was already at an explicit outputPath is the caller's: a failed or cancelled
+        // attempt must not delete it. (The platform may already have truncated it; that is documented.)
+        // Nor may a tail whose path a newer recorder has taken over: by now the file there may be
+        // that recorder's finished recording, not the one this attempt created.
+        if (!pathExisted) OutputPathOwners.deleteIfOwner(path, claim) { fileSystem.delete(path) }
     }
 
     private fun discardPreparedButUnusedFile(current: RecorderState) {
-        if (current is RecorderState.Ready) fileSystem.delete(current.outputPath)
+        if (current is RecorderState.Ready) deleteOwned(current.outputPath, sessionClaim)
     }
 
-    private fun checkFreeSpace(directory: String): StorageCheck {
-        if (config.minimumFreeSpaceBytes == 0L) return StorageCheck(null, null)
+    /**
+     * Deletes a session file only while [claim] still owns its path: a newer recorder that took the
+     * same explicit path over owns whatever is there now. No claim means nothing to delete.
+     */
+    private fun deleteOwned(path: String, claim: OutputPathClaim?) {
+        if (claim != null) OutputPathOwners.deleteIfOwner(path, claim) { fileSystem.delete(path) }
+    }
+
+    /** Lets go of the session's path claim. Lock held. */
+    private fun dropSessionClaim() {
+        sessionClaim?.let { claim: OutputPathClaim -> OutputPathOwners.release(claim) }
+        sessionClaim = null
+    }
+
+    private fun checkFreeSpace(directory: String, existed: Boolean): StorageCheck {
+        if (config.minimumFreeSpaceBytes == 0L) return StorageCheck(null, null, existed)
         val available: Long = fileSystem.freeSpaceBytes(directory)
         // A platform that cannot answer reports -1; refusing to record on an unknown is worse than
         // letting the recording fail later, so an unknown is treated as "enough".
-        if (available < 0) return StorageCheck(null, null)
+        if (available < 0) return StorageCheck(null, null, existed)
         if (available < config.minimumFreeSpaceBytes) {
             return StorageCheck(
                 RecorderError.InsufficientStorage(
@@ -797,6 +900,7 @@ internal class DefaultAudioRecorder(
                     availableBytes = available,
                 ),
                 null,
+                existed,
             )
         }
         // The platform's own size limit, as a backstop for a disk that fills faster than the
@@ -807,10 +911,10 @@ internal class DefaultAudioRecorder(
         // throws for anything up to 1 KiB, and that RuntimeException would surface as a misleading
         // EngineFailure(PREPARE). The backstop is only a backstop; the free-space watchdog still
         // applies, and prepare() keeps failing only when free space is below the minimum.
-        return StorageCheck(null, limit.takeIf { it >= MIN_MAX_FILE_SIZE_BYTES })
+        return StorageCheck(null, limit.takeIf { it >= MIN_MAX_FILE_SIZE_BYTES }, existed)
     }
 
-    private class StorageCheck(val error: RecorderError?, val maxFileSizeBytes: Long?)
+    private class StorageCheck(val error: RecorderError?, val maxFileSizeBytes: Long?, val pathExisted: Boolean)
 
     private fun generateOutputPath(): String {
         val storage: RecordingStorage = config.storage
@@ -845,7 +949,10 @@ internal class DefaultAudioRecorder(
      *
      * The free-space watchdog lives in the same loop rather than in a coroutine of its own: one
      * coroutine per recording is all this module launches while recording, and the poll rides on
-     * the tick that is already waking up.
+     * the wake-up that is already there. When the timer's interval is longer than the watchdog's,
+     * the loop wakes at the watchdog's interval instead and publishes `elapsed` only once a full
+     * timer interval has passed, so `durationUpdateInterval` never decides how often the disk is
+     * looked at (successive polls are at most two watchdog intervals apart).
      */
     private fun startTicker(base: Duration, mark: TimeMark, outputPath: String) {
         stopTicker()
@@ -854,19 +961,35 @@ internal class DefaultAudioRecorder(
         val reserve: Long? = freeSpaceReserve
         val directory: String? = if (reserve == null) null else fileSystem.parentOf(outputPath)
         tickerJob = scope.launch {
+            var sincePublish: Duration = Duration.ZERO
             while (true) {
-                delay(config.durationUpdateInterval)
+                // With the watchdog on, the loop wakes at least every freeSpacePollInterval even when
+                // the timer's interval is longer, so a coarse durationUpdateInterval never slows the
+                // poll down; the step never overshoots the next publish, so elapsed does not drift.
+                val untilPublish: Duration = config.durationUpdateInterval - sincePublish
+                val step: Duration =
+                    if (reserve != null && directory != null) minOf(untilPublish, freeSpacePollInterval) else untilPublish
+                delay(step)
+                sincePublish += step
                 val tick: Duration = base + mark.elapsedNow()
                 // Do not publish a tick computed before a stopTicker() that has already landed;
                 // the transition that cancelled us has the authoritative value.
                 ensureActive()
-                gate.submit { if (epoch == tickerEpoch) _elapsed.value = tick }
+                if (sincePublish >= config.durationUpdateInterval) {
+                    sincePublish = Duration.ZERO
+                    gate.submit { if (epoch == tickerEpoch) _elapsed.value = tick }
+                }
                 if (reserve != null && directory != null && claimSpaceCheck()) {
                     val free: Long = fileSystem.freeSpaceBytes(directory)
                     // -1 is "the platform could not tell", which is not "low".
                     if (free in 0 until reserve) {
+                        // Fenced like the tick above: a low reading taken before a pause() that has
+                        // since landed must not end the paused recording. resume() starts a new
+                        // ticker, which polls again and ends it correctly if space is still low.
                         gate.submit {
-                            handleEvent(token, EngineEvent.Interrupted(InterruptionReason.StorageLow))
+                            if (epoch == tickerEpoch) {
+                                handleEvent(token, EngineEvent.Interrupted(InterruptionReason.StorageLow))
+                            }
                         }
                     }
                 }
@@ -876,7 +999,7 @@ internal class DefaultAudioRecorder(
 
     /** Whether a free-space poll is due; if so, this caller owns it and the interval restarts. */
     private fun claimSpaceCheck(): Boolean {
-        val last: TimeMark = lastSpaceCheck.load() ?: return false
+        val last: TimeMark = lastSpaceCheck.value ?: return false
         if (last.elapsedNow() < freeSpacePollInterval) return false
         return lastSpaceCheck.compareAndSet(last, timeSource.markNow())
     }
@@ -896,9 +1019,8 @@ internal class DefaultAudioRecorder(
      * flows share this one meter, so watching both does not sample the microphone twice.
      *
      * Nothing here reads a field the transitions write: the interval and floor come from the
-     * immutable [config], and the engine's `peakDbfs()` is documented as safe to call concurrently
-     * with the transitions. What it publishes goes through the lock, fenced by [meterEpoch]. Lock
-     * held.
+     * immutable [config]. Each sample, `peakDbfs()` call included, is taken and published under the
+     * lock, fenced by [meterEpoch] (see [sampleLevel]). Lock held.
      */
     private fun startMeter() {
         stopMeter()
@@ -919,13 +1041,10 @@ internal class DefaultAudioRecorder(
                     // The peak is "since the previous call", so the first call measures an
                     // arbitrary stretch before anyone was watching. Reading it only to throw it
                     // away is what makes the first published value cover one interval.
-                    engine.peakDbfs()
+                    sampleLevel(epoch, publish = false)
                     while (true) {
                         delay(config.levelUpdateInterval)
-                        // null: the engine had nothing to say (not recording any more, or the
-                        // platform could not answer). Keep the last value rather than draw a gap.
-                        val dbfs: Float = engine.peakDbfs() ?: continue
-                        publishLevel(epoch, normalizedLevel(dbfs, config.levelFloorDbfs))
+                        sampleLevel(epoch, publish = true)
                     }
                 }
         }
@@ -940,14 +1059,28 @@ internal class DefaultAudioRecorder(
     }
 
     /**
-     * Cancelling the meter does not wait for a sample that is already being taken, so a value can
-     * be computed just before a pause, stop or release lands and arrive just after it. Publishing
-     * under the lock, behind the epoch that transition advanced, drops it: neither [level] nor
-     * [levelSamples] ever shows a sample from after the transition that ended the metering.
+     * Takes one meter sample under the lock, behind [epoch]. Every transition that stops or releases
+     * the engine either holds the lock (release) or advances [meterEpoch] first
+     * (`beginFinalize` -> `stopMeter`), so the engine's `peakDbfs()` can never overlap its
+     * `stop()` or `release()` — `AVAudioRecorder` documents no thread safety. The call is cheap, so
+     * running it on whichever thread holds the lock is fine; the sample is dropped when the epoch is
+     * stale, so neither [level] nor [levelSamples] shows one from after the transition that ended the
+     * metering. A `null` answer (not recording any more, or the platform could not answer) keeps the
+     * last value rather than drawing a gap; with [publish] `false` the answer is discarded.
      */
-    private fun publishLevel(epoch: Long, value: Float) {
+    private fun sampleLevel(epoch: Long, publish: Boolean) {
         gate.submit {
-            if (epoch == meterEpoch) {
+            if (epoch != meterEpoch) return@submit
+            // Defence in depth: the engine contract says peakDbfs never throws, but a throw inside a
+            // submitted action would surface from an unrelated call, so it counts as "no answer".
+            val dbfs: Float? = try {
+                engine.peakDbfs()
+            } catch (@Suppress("TooGenericExceptionCaught", "SwallowedException") failure: Exception) {
+                null
+            }
+            // Re-checked: an engine that reports from inside the call can have ended the metering.
+            if (publish && dbfs != null && epoch == meterEpoch) {
+                val value: Float = normalizedLevel(dbfs, config.levelFloorDbfs)
                 _level.value = value
                 _levelSamples.tryEmit(value)
             }

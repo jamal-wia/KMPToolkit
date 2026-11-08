@@ -17,7 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
  * **whoever creates a player releases it**, exactly once, when the screen or component that owns it
  * goes away:
  *
- * 1. [release] frees the native handle, cancels the position-polling coroutine, and detaches the
+ * 1. [release] frees the native handle (immediately, or as soon as a load still running on the
+ *    platform has unwound), cancels the position-polling coroutine, and detaches the
  *    engine's callbacks. [close] is the same operation under the [AutoCloseable] name, so a player
  *    also works with `use { }`.
  * 2. **[release] is idempotent.** Calling it a second (or tenth) time does nothing at all and never
@@ -69,8 +70,8 @@ public interface AudioPlayer : AutoCloseable {
 
     /**
      * The playback rate in effect, already clamped to
-     * [AudioPlayerConfig.minPlaybackSpeed]`..`[AudioPlayerConfig.maxPlaybackSpeed]. `1.0` until
-     * [setPlaybackSpeed] is called; survives [prepare] so a chosen rate carries over to the next
+     * [AudioPlayerConfig.minPlaybackSpeed]`..`[AudioPlayerConfig.maxPlaybackSpeed]. `1.0` (clamped into
+     * the range) until [setPlaybackSpeed] is called; survives [prepare] so a chosen rate carries over to the next
      * source.
      */
     public val playbackSpeed: Float
@@ -91,6 +92,23 @@ public interface AudioPlayer : AutoCloseable {
      * loaded source is discarded, the state returns to [PlayerState.Idle], and the
      * `CancellationException` propagates — so a `LaunchedEffect` or a scoped `launch` that goes away
      * leaves no half-open native handle behind.
+     *
+     * **An engine's own cancellation is a failure.** A `CancellationException` thrown by the engine
+     * while the caller is still active (an engine's own timeout) is a load failure and arrives as
+     * [PlayerState.Error]; only the caller's own cancellation, or a newer [prepare], [unload] or
+     * [release], ends the call by cancellation.
+     *
+     * **A blank file path is refused.** An [AudioSource.File] whose path is blank ends in
+     * [PlayerState.Error] with an `IllegalArgumentException`, without reaching the platform.
+     *
+     * **After [release]**, every call reports the same [PlayerState.Error] instance
+     * ([AudioPlayerReleasedException]), so repeating the call emits nothing new.
+     *
+     * **There is no built-in deadline.** A remote load is bounded only by the platform's own network
+     * timeouts, so a stalled stream can leave the player in [PlayerState.Preparing] for a long time.
+     * A caller that wants a deadline wraps the call, for example in `withTimeoutOrNull(10.seconds)`;
+     * cancellation returns the player to [PlayerState.Idle], and [unload], [release] or a new
+     * [prepare] also end a load that is waiting.
      *
      * @param source what to load; see [AudioSource].
      */
@@ -136,14 +154,16 @@ public interface AudioPlayer : AutoCloseable {
     public fun seekTo(positionMs: Long)
 
     /**
-     * Moves the playhead [amountMs] later, clamped to the end of the source.
+     * Moves the playhead [amountMs] later, clamped to the end of the source. The arithmetic
+     * saturates, so `Long.MAX_VALUE` means "to the end" and never wraps around to the start.
      *
      * @param amountMs how far to skip ahead, in milliseconds.
      */
     public fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)
 
     /**
-     * Moves the playhead [amountMs] earlier, clamped to `0`.
+     * Moves the playhead [amountMs] earlier, clamped to `0`. The arithmetic saturates, so
+     * `Long.MAX_VALUE` means "to the start".
      *
      * @param amountMs how far to skip back, in milliseconds.
      */
@@ -162,6 +182,8 @@ public interface AudioPlayer : AutoCloseable {
      * Takes effect immediately while playing and is applied on the next [play] otherwise. It is
      * never an error to ask for a rate outside the range — the value is clamped, because a UI
      * offering a fixed set of speed buttons should not have to know the platform's limits.
+     * Infinities clamp to the range ends. `Float.NaN` names no rate and is ignored: the current
+     * rate stays in effect.
      *
      * @param speed rate multiplier: `1.0` is normal, `0.5` half, `2.0` double.
      */
@@ -190,8 +212,10 @@ public interface AudioPlayer : AutoCloseable {
     }
 
     /**
-     * Frees the native handle and stops all internal work, for good. Idempotent; see the lifecycle
-     * contract on [AudioPlayer]. To free the handle but keep using the player, see [unload].
+     * Frees the native handle and stops all internal work, for good. The handle is freed
+     * immediately, or as soon as a load still running on the platform has unwound (a blocking
+     * `setDataSource` on Android cannot be interrupted, and the handle is never freed under it).
+     * Idempotent; see the lifecycle contract on [AudioPlayer]. To free the handle but keep using the player, see [unload].
      */
     public fun release()
 

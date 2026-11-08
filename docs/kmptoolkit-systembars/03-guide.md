@@ -259,6 +259,12 @@ composition-scoped effect shipped for it. Two things follow from that:
   an override is easy and costly; the wake lock has no composition-scoped equivalent, so call
   `setKeepScreenOn(false)` explicitly from whatever owns the session (a `DisposableEffect`'s
   `onDispose`, a component's teardown hook) when the reason to stay awake ends.
+  On Android, with several windows of the app resumed together (split screen, freeform, activity
+  embedding), a hold flags each of them at once and each window that resumes while it stands.
+  The release reaches every window of the app the hold put the flag on while it was on
+  (an activity opened on top of another carries it too), not only the one currently on screen, and
+  clears it at once on each one that is still alive, resumed or paused, such as a second window beside
+  the first. Only a window that is finishing or gone is skipped: its flag dies with it.
 - **The last call wins, from any thread.** A `true` from a background collector followed by the
   teardown's `false` on the main thread leaves the screen free to sleep, even though the `true`
   still had to be posted to the main thread when the `false` ran.

@@ -31,6 +31,7 @@ internal class IosKeyValueStorage(
     }
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {
+        unpairedSurrogateFailure(key, value)?.let { return@withContext it }
         defaults.setObject(value, forKey = key)
         StorageResult.Success(Unit)
     }

@@ -37,6 +37,8 @@ kotlin {
 // machine or CI job that has VLC installed on purpose) turns that skip into a failure, so a broken
 // VLC setup cannot pass as a green run.
 tasks.withType<Test>().configureEach {
+    // One test reads the JDK's java.io.DeleteOnExitHook by reflection to prove no per-load entry.
+    jvmArgs("--add-opens", "java.base/java.io=ALL-UNNAMED")
     systemProperty(
         "kmptoolkit.vlc.required",
         providers.gradleProperty("vlc.required").getOrElse("false"),

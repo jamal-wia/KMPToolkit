@@ -2,7 +2,18 @@ package io.github.jamal_wia.kmptoolkit.downloader
 
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
+import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import kotlin.concurrent.AtomicInt
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import platform.posix.usleep
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
@@ -150,8 +161,129 @@ class IosDownloaderStorageTempFileTest {
         assertEquals(TempFileState.None, storage.tempFileState(unit))
     }
 
-    private fun writePartial(unit: DownloadUnit, text: String) {
-        val path: String = storage.getTempFilePath(unit)
+    @Test
+    fun deletingTheTempFileAlsoRemovesTheStagingTreeAnInterruptedExtractionLeft() {
+        val unit = TestUnit(id = "model")
+        writePartial(unit, "0123456789")
+        storage.markTempFileComplete(unit)
+        val tmpDir: String = storage.getTempFilePath(unit).substringBeforeLast('/')
+        val staging = "$tmpDir/staging-model/nested"
+        val other = "$tmpDir/staging-other"
+        NSFileManager.defaultManager.createDirectoryAtPath(staging, true, null, null)
+        NSFileManager.defaultManager.createDirectoryAtPath(other, true, null, null)
+
+        storage.deleteTempFile(unit)
+
+        assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$tmpDir/staging-model"))
+        assertTrue(NSFileManager.defaultManager.fileExistsAtPath(other), "another unit's staging tree is not touched")
+        val leftovers: List<*> = NSFileManager.defaultManager.contentsOfDirectoryAtPath("$tmpDir/kmptoolkit-internal/trash", null).orEmpty()
+        assertTrue(leftovers.isEmpty(), "the detached tree must be deleted, not left as trash")
+    }
+
+    @Test
+    fun deletingATempFileSweepsATrashTreeAKilledProcessLeftWhateverUnitItBelongedTo() {
+        val tmpDir: String = storage.getTempFilePath(TestUnit(id = "unrelated")).substringBeforeLast('/')
+        val leftover = "$tmpDir/kmptoolkit-internal/trash/gone-123/nested"
+        NSFileManager.defaultManager.createDirectoryAtPath(leftover, true, null, null)
+        writePartialAt("$leftover/file", "half-deleted")
+        val other = "$tmpDir/staging-other"
+        NSFileManager.defaultManager.createDirectoryAtPath(other, true, null, null)
+        // A unit whose id merely starts with "trash-" owns a temp file that must survive the sweep.
+        val lookalike = TestUnit(id = "trash-model")
+        writePartial(lookalike, "0123456789")
+
+        storage.deleteTempFile(TestUnit(id = "unrelated"))
+
+        assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$tmpDir/kmptoolkit-internal/trash/gone-123"), "the leftover trash tree is reclaimed")
+        assertTrue(NSFileManager.defaultManager.fileExistsAtPath(other), "another unit's staging tree is not touched")
+        assertTrue(NSFileManager.defaultManager.fileExistsAtPath(storage.getTempFilePath(lookalike)), "a unit id starting with trash- is not trash")
+    }
+
+    @Test
+    fun deletingTheTempFileLeavesTheStagingTreeAloneWhileACommitOfTheUnitRuns() = runTest {
+        val unit = TestUnit(id = "model")
+        val baseDir: String = storage.getTempFilePath(unit).substringBeforeLast("/tmp/")
+        val staging = "$baseDir/tmp/staging-model/nested"
+        NSFileManager.defaultManager.createDirectoryAtPath(staging, true, null, null)
+        val gate = CompletableDeferred<Unit>()
+        val commit: Job = launch(Dispatchers.Unconfined) {
+            UnitCommitLocks.withUnitLock(baseDir, "model") { gate.await() }
+        }
+
+        storage.deleteTempFile(unit)
+
+        assertTrue(NSFileManager.defaultManager.fileExistsAtPath(staging), "an extraction in progress must survive a cancel")
+        gate.complete(Unit)
+        withTimeout(5_000) { commit.join() }
+        storage.deleteTempFile(unit)
+        assertFalse(NSFileManager.defaultManager.fileExistsAtPath("$baseDir/tmp/staging-model"), "reclaimed once no commit runs")
+    }
+
+    // 18
+    @Test
+    fun onACaseInsensitiveVolumeACancelOfOneCaseVariantLeavesTheStagingTreeAloneWhileACommitOfTheOtherRuns() = runTest {
+        val folding: DownloaderStorage = IosDownloaderStorage(config, NoopLogger, caseInsensitiveOverride = true)
+        val entered = AtomicInt(0)
+        val release = AtomicInt(0)
+        val committing = HoldingUnit(id = "Model", entered = entered, release = release)
+        writePartialAt(folding.getTempFilePath(committing), "abc")
+        folding.markTempFileComplete(committing)
+        val baseDir: String = folding.getTempFilePath(committing).substringBeforeLast("/tmp/")
+        val staging = "$baseDir/tmp/staging-model/nested"
+        NSFileManager.defaultManager.createDirectoryAtPath(staging, true, null, null)
+        val commit: Deferred<Unit> = async(Dispatchers.Default) {
+            runCatching { folding.commitResource(committing) }
+            Unit
+        }
+        try {
+            check(spinUntil { entered.value == 1 }) { "the commit never reached its hash check" }
+
+            folding.deleteTempFile(TestUnit(id = "model"))
+
+            assertTrue(
+                NSFileManager.defaultManager.fileExistsAtPath(staging),
+                "a cancel of 'model' must not detach the tree while 'Model' commits",
+            )
+        } finally {
+            release.value = 1
+        }
+        // Real time: the commit runs on another thread, and runTest's virtual clock would skip ahead.
+        withContext(Dispatchers.Default) { withTimeout(5_000) { commit.await() } }
+    }
+
+    /** Waits on the calling thread (never the main queue's work) for at most about five seconds. */
+    private fun spinUntil(condition: () -> Boolean): Boolean {
+        repeat(5_000) {
+            if (condition()) return true
+            usleep(1_000u)
+        }
+        return condition()
+    }
+
+    private inner class HoldingUnit(
+        override val id: String,
+        private val entered: AtomicInt,
+        private val release: AtomicInt,
+    ) : DownloadUnit {
+        /** Read inside the commit's lock, so it parks the commit exactly there; bounded so it can never hang. */
+        override val sha256: Sha256?
+            get() {
+                entered.value = 1
+                spinUntil { release.value == 1 }
+                return null
+            }
+        override val apiPath: String = "/resources/$id"
+        override val relativePath: String = "resources/$id.bin"
+        override val group: ResourceGroup = object : ResourceGroup {
+            override val key: String = id
+            override val units: List<DownloadUnit> get() = listOf(this@HoldingUnit)
+        }
+        override fun toString(): String = "HoldingUnit($id)"
+    }
+
+    private fun writePartial(unit: DownloadUnit, text: String) = writePartialAt(storage.getTempFilePath(unit), text)
+
+    private fun writePartialAt(path: String, text: String) {
         NSFileManager.defaultManager.createDirectoryAtPath(
             path = path.substringBeforeLast('/'),
             withIntermediateDirectories = true,

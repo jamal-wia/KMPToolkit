@@ -11,6 +11,8 @@ internal object VlcNativeDiscovery {
 
     private var found: Boolean = false
 
+    // Monitor, not Mutex: native discovery blocks and is also reached from non-suspending availability
+    // checks (D-21).
     @Synchronized
     fun discover(): Boolean {
         if (found) return true

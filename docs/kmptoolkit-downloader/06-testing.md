@@ -11,7 +11,7 @@ commonTest.dependencies {
 | Fixture | Use it when |
 |---|---|
 | `FakeDownloader` | You are testing code that only *asks* for a resource or observes its state |
-| `FakeDownloaderStorage` | You are testing storage-facing code without real files; `tempFileStates` sets what a transfer left behind; deliberately stricter than the real storages about `beginTempFile`, requires a `Complete` file to commit, records `beganWith`, and has a `failIntegrityFor` knob |
+| `FakeDownloaderStorage` | You are testing storage-facing code without real files; `tempFileStates` sets what a transfer left behind; deliberately stricter than the real storages about `beginTempFile`, requires a `Complete` file to mark and to commit (a successful commit makes the unit available), records `beganWith`, and has a `failIntegrityFor` knob; it does **not** validate `relativePath` or hash unit ids (the real storages throw `InvalidDownloadUnitException`), so test the "fails before any transfer, state `Error`" behaviour with the real storage only: the engine checks `relativePath` before a transfer only on the library's own storages, so a fixture whose `getResourcePath` throws covers just `pathOf` (and `commitResource` if it throws there too) |
 | `TestUnit` / `TestGroup` | You need a catalogue that exists only for the test |
 | `RecordingNotifier` | You want to assert what would have been shown, and in what order |
 | `InMemoryStateStore` | You need a `DownloadStateStore` that does not touch real storage |
@@ -39,12 +39,15 @@ and then check only `DownloadUnit.sha256`; the fake does not.
 
 - **Strict.** `markTempFileComplete(unit)` throws `IllegalStateException` — its message names the
   forgotten `beginTempFile` — unless the unit's id is in `begunIds`. `beginTempFile` adds it;
-  `deleteTempFile` and `commitResource` remove it. To model a transfer begun earlier, such as a
+  `deleteTempFile` and `commitResource` remove it. It also throws when there is no temp file to mark
+  (state `None`, or the id absent from `tempFileStates`), as the real storages do; marking a file that
+  is already `Complete` stays a no-op. To model a transfer begun earlier, such as a
   correct `206` resume of a partial from before the fake existed, seed `begunIds` together with
   `tempFileStates` instead of calling `beginTempFile`; `beganWith` then stays empty.
 - **`commitResource` mirrors the real contract.** It throws `IllegalStateException` unless the
   unit's state is `Complete`, and on success the temp file is consumed: the state goes back to
-  `None`. Seed `tempFileStates[unit.id] = TempFileState.Complete` before committing. A unit in
+  `None`, and the unit becomes available (its id is added to `availableIds`; a `failIntegrityFor` id
+  stays unavailable). Seed `tempFileStates[unit.id] = TempFileState.Complete` before committing. A unit in
   `availableIds` without a `Complete` temp file commits as a no-op, as the real storages answer a
   commit that a concurrent one already finalized.
 - **`beganWith: MutableList<Pair<String, Sha256?>>`** records every `beginTempFile` as (unit id,
@@ -123,7 +126,8 @@ fun `a failed download is retried before giving up`() = runTest {
 }
 ```
 
-`TestDownloadDispatchers` is what makes the five-minute stall timeout a non-issue in a test — it
+`TestDownloadDispatchers` is what makes the stall timeout (five minutes unless you pass a
+`DownloaderConfig`) a non-issue in a test — it
 runs the engine's coroutines on the test scheduler, so `runTest` fast-forwards through the `delay`
 instead of waiting for it.
 

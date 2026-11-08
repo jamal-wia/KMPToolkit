@@ -73,7 +73,9 @@ public sealed interface AttemptResult {
      *   completion time: too short risks a redundant hand-off racing a live executor (survivable
      *   but wasteful), too long delays recovery after the executor dies silently. Must be positive
      *   — a non-positive lease would expire the instant it is written, and the item would
-     *   re-execute and re-detach on every drain iteration.
+     *   re-execute and re-detach on every drain iteration. The engine honours a lease for at most 24
+     *   hours: a longer value (up to `Long.MAX_VALUE`) is shortened to that, and the item is re-handed
+     *   after a day — see the platform notes on clocks for why a lease needs a ceiling.
      * @throws IllegalArgumentException if [leaseMillis] is not positive.
      */
     public data class Detached(val leaseMillis: Long) : AttemptResult {

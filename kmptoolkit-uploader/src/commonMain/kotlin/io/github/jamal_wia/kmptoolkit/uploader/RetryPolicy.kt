@@ -1,6 +1,5 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
-import kotlin.math.min
 import kotlin.random.Random
 
 /**
@@ -20,7 +19,8 @@ import kotlin.random.Random
  *   normal) but must not depend on the current time.
  * - **It must never return a value above [maxDelayMillis]**, and must never return a negative one.
  *   A zero return is legal but means "retry immediately", which for a permanently failing item
- *   turns the drain into a hot loop — prefer a positive floor.
+ *   re-runs the item at the next opportunity, with nothing to pace it — prefer a positive floor. The engine
+ *   never re-runs one item twice inside one drain pass: a zero-delay retry waits for the next trigger or alarm.
  * - **[maxDelayMillis] is a real upper bound.** The engine uses it to recognize a corrupt backoff
  *   gate: a gate further in the future than this bound can reach was written before the device's
  *   wall clock jumped backwards, and honoring it would freeze the item — and everything behind it
@@ -95,7 +95,8 @@ public class ExponentialBackoffRetryPolicy(
      */
     override fun backoffMillis(attempts: Int): Long {
         val exponent: Int = (attempts - 1).coerceIn(0, MAX_EXPONENT)
-        val raw: Long = min(maxDelayMillis, baseDelayMillis shl exponent)
+        // Saturating: a base so large that doubling it overflows the Long range must stay at the ceiling, never wrap.
+        val raw: Long = if (baseDelayMillis > (maxDelayMillis shr exponent)) maxDelayMillis else baseDelayMillis shl exponent
         val spread: Double = 1.0 + jitterRatio * (random.nextDouble() * 2 - 1)
         return (raw * spread).toLong().coerceIn(0L, maxDelayMillis)
     }

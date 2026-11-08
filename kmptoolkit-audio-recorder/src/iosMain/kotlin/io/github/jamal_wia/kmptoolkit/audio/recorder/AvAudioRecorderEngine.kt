@@ -79,14 +79,16 @@ internal class AvAudioRecorderEngine(
     private val audioSession: AudioSessionHolders = AudioSessionHolders.Shared,
 ) : RecorderEngine {
 
-    // Volatile because peakDbfs() reads it from the metering coroutine while release() nulls it on
-    // the caller's thread — the one cross-thread read in this class.
+    // Volatile because delegate callbacks read it on their own thread (accepts, below) and release() may
+    // null it from the worker finishing a session, not only from the caller.
     @Volatile
     private var recorder: AVAudioRecorder? = null
     private var channelCount: Int = 1
 
     // Whether this engine holds one of the counted audio-session holds, so it gives back exactly
-    // the one it took, however many failure paths call deactivateAudioSession().
+    // the one it took, however many failure paths call deactivateAudioSession(). Plain, not atomic:
+    // prepare() (worker) and release() (caller) never run at once — DefaultAudioRecorder leaves the
+    // engine to prepare's own tail while a prepare is in flight, so this field has one thread at a time.
     private var holdsSession: Boolean = false
 
     // Read by delegate and notification callbacks on whichever thread they arrive on, written by
@@ -147,7 +149,8 @@ internal class AvAudioRecorderEngine(
         if (listener != null) created.delegate = delegate
 
         if (!created.prepareToRecord()) {
-            created.deleteRecording()
+            // No deletion here: DefaultAudioRecorder.undoPreparation deletes the file, and only when this
+            // attempt created it and still owns the path (OutputPathOwners).
             deactivateAudioSession()
             error("AVAudioRecorder.prepareToRecord() failed")
         }

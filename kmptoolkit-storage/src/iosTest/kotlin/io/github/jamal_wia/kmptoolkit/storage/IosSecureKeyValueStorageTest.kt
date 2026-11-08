@@ -37,6 +37,17 @@ class IosSecureKeyValueStorageTest {
     }
 
     @Test
+    fun `an unpaired surrogate is rejected before the Keychain is asked`() = runTest {
+        for ((key: String, value: String) in listOf("k" to "a\uD800b", "\uDC00" to "v")) {
+            val error: StorageError? = storage.put(key, value).errorOrNull()
+            assertTrue(
+                error is StorageError.OperationFailed && error.operation == StorageOperation.PUT,
+                "put answered $error",
+            )
+        }
+    }
+
+    @Test
     fun `a remove without a Keychain is a typed failure rather than a crash`() = runTest {
         assertEquals(StorageError.Unavailable(), storage.remove("k").errorOrNull())
     }

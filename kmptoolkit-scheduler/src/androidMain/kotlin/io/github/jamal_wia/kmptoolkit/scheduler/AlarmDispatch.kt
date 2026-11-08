@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.scheduler
 
+import kotlinx.coroutines.flow.MutableStateFlow
+
 /**
  * Process-wide handle from the OS-instantiated [AlarmReceiver] back to the handlers and identifiers
  * the app configured.
@@ -16,8 +18,7 @@ package io.github.jamal_wia.kmptoolkit.scheduler
  */
 internal object AlarmDispatch {
 
-    @Volatile
-    private var registration: Registration? = null
+    private val registration: MutableStateFlow<Registration?> = MutableStateFlow(null)
 
     /** Installed by `createAlarmScheduler` with a fixed list, read by [AlarmReceiver]. */
     fun install(keys: AlarmIntentKeys, handlers: List<AlarmHandler>) {
@@ -27,15 +28,15 @@ internal object AlarmDispatch {
 
     /** Installed by `createAlarmScheduler` with a provider that [AlarmReceiver] calls at fire time. */
     fun install(keys: AlarmIntentKeys, handlerProvider: () -> Collection<AlarmHandler>) {
-        registration = Registration(keys, handlerProvider)
+        registration.value = Registration(keys, handlerProvider)
     }
 
     /** `null` until a scheduler has been created in this process. */
-    fun current(): Registration? = registration
+    fun current(): Registration? = registration.value
 
     /** Test seam: drops the registration so one test cannot see another's handlers. */
     fun reset() {
-        registration = null
+        registration.value = null
     }
 
     class Registration(

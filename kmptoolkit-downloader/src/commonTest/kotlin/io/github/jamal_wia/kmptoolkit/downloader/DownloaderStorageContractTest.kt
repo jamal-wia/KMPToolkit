@@ -13,9 +13,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -36,6 +38,18 @@ abstract class DownloaderStorageContractTest {
     /** Writes [bytes] to [path], creating missing parent directories. */
     protected abstract fun writeFile(path: String, bytes: ByteArray)
 
+    /** Sets the modification time of the file at [path] to about an hour ago, before any marker a storage writes. */
+    protected abstract fun backdate(path: String)
+
+    /**
+     * A file the way 3.0.0 left it: older than the first use of the base directory by this version,
+     * which is the only kind of legacy temp file the migration moves.
+     */
+    protected fun writeLegacyFile(path: String, bytes: ByteArray) {
+        writeFile(path, bytes)
+        backdate(path)
+    }
+
     /** The bytes of the regular file at [path], or null when there is none. */
     protected abstract fun readFile(path: String): ByteArray?
 
@@ -45,9 +59,18 @@ abstract class DownloaderStorageContractTest {
     /** Removes everything this test's storage wrote. */
     protected abstract fun deleteTestDirectory()
 
+    /** The storage's base directory, exactly as the storage composes its paths from it. */
+    protected abstract fun baseDirectory(): String
+
+    /** Removes the file at [path] if there is one; used for a sentinel outside the base directory. */
+    protected abstract fun deleteFile(path: String)
+
     @AfterTest
     fun deleteDirectoryAfterTest() {
         deleteTestDirectory()
+        // The migration record is process-wide and keyed by base path and id; both are reused by
+        // later tests, so a test that reuses an id would silently skip its migration without this.
+        LegacyTempMigrations.resetForTests()
     }
 
     private val storage: DownloaderStorage by lazy { newStorage() }
@@ -592,6 +615,343 @@ abstract class DownloaderStorageContractTest {
         }
     }
 
+    // -- path safety: unit ids and relativePath ----------------------------------------------------
+    // Ids that cannot be file names are stored under hashed names; see UnitFileLayout. The migration
+    // runs once per process per unit; the @AfterTest above resets that record
+    // (LegacyTempMigrations.resetForTests), so ids may be reused across tests, though each test here
+    // still uses one of its own.
+
+    // 1
+    @Test
+    fun `a temp file of an id with a slash survives another unit's cancel sweeping the trash`() {
+        val unit = ContractUnit("trash/x", relativePath = "resources/p1.bin")
+        writeTemp(storage, unit, "abc")
+
+        storage.deleteTempFile(ContractUnit("other-1"))
+
+        assertEquals(TempFileState.Partial, storage.tempFileState(unit))
+        assertEquals(3L, storage.getTempFileSize(unit))
+    }
+
+    // 2
+    @Test
+    fun `a temp file of an id that looks like a staging subtree survives that unit's archive commit`() = runTest {
+        val unit = ContractUnit("staging-foo/bar", relativePath = "resources/p2.bin")
+        writeTemp(storage, unit, "abc")
+        val archive = ContractUnit("foo", format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "archives/foo")
+        storage.beginTempFile(archive, null)
+        writeTempBytes(storage, archive, zipOf("marker.txt", "hello".encodeToByteArray()))
+
+        finish(storage, archive)
+
+        assertTrue(storage.isResourceAvailable(archive))
+        assertEquals(3L, storage.getTempFileSize(unit), "the partial of 'staging-foo/bar' is not foo's staging tree")
+    }
+
+    // 3
+    @Test
+    fun `a unit named like another unit's record does not lose its partial when that unit begins`() {
+        val victim = ContractUnit("expect/q3", tempExtension = "sha256", relativePath = "resources/p3.bin")
+        writeTemp(storage, victim, "abc")
+
+        storage.beginTempFile(ContractUnit("q3", relativePath = "resources/q3.bin"), null)
+
+        assertEquals(TempFileState.Partial, storage.tempFileState(victim))
+        assertEquals(3L, storage.getTempFileSize(victim))
+    }
+
+    // 4
+    @Test
+    fun `an id with dot-dot never puts its temp file outside the tmp directory`() {
+        val unit = ContractUnit("../x", relativePath = "resources/p4.bin")
+
+        val path: String = normalized(storage.getTempFilePath(unit))
+
+        assertTrue(path.startsWith(baseDirectory() + "/tmp/"), "temp path was $path")
+    }
+
+    // 5
+    @Test
+    fun `an id of 300 characters completes the whole flow`() = runTest {
+        val unit = ContractUnit("a".repeat(300), relativePath = "resources/p5.bin")
+        storage.beginTempFile(unit, ABC)
+        writeTemp(storage, unit, "abc")
+
+        finish(storage, unit)
+
+        assertTrue(storage.isResourceAvailable(unit))
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+    }
+
+    // 6
+    @Test
+    fun `an id with a NUL character completes the whole flow`() = runTest {
+        val unit = ContractUnit("a\u0000b", relativePath = "resources/p6.bin")
+        storage.beginTempFile(unit, ABC)
+        writeTemp(storage, unit, "abc")
+
+        finish(storage, unit)
+
+        assertTrue(storage.isResourceAvailable(unit))
+        assertEquals("abc", readFile(storage.getResourcePath(unit))?.decodeToString())
+    }
+
+    // 7
+    @Test
+    fun `a temp extension with a slash completes the flow and the record stays keyed by the id alone`() = runTest {
+        val unit = ContractUnit("model7", tempExtension = "a/b", relativePath = "resources/p7.bin")
+        storage.beginTempFile(unit, ABC)
+        assertTrue(pathExists(baseDirectory() + "/tmp/expect/model7.sha256"), "the record is tmp/expect/<id>.sha256")
+        assertTrue(
+            pathExists(storage.getTempFilePath(unit).substringBeforeLast('/')),
+            "beginTempFile must leave the directory of the temp path in place, so a writer can open the file",
+        )
+        writeTemp(storage, unit, "abc")
+
+        finish(storage, unit)
+
+        assertTrue(storage.isResourceAvailable(unit))
+        assertFalse(pathExists(baseDirectory() + "/tmp/expect/model7.sha256"))
+    }
+
+    // 8 (guard)
+    @Test
+    fun `a plain id keeps exactly the documented paths`() = runTest {
+        val unit = ContractUnit("model-1", relativePath = "resources/p8.bin")
+        val base: String = baseDirectory()
+
+        assertEquals("$base/tmp/model-1.tmp", storage.getTempFilePath(unit))
+        storage.beginTempFile(unit, ABC)
+        assertTrue(pathExists("$base/tmp/expect/model-1.sha256"))
+        writeTemp(storage, unit, "abc")
+        storage.markTempFileComplete(unit)
+        assertTrue(pathExists("$base/tmp/model-1.tmp.complete"))
+        assertFalse(pathExists("$base/tmp/model-1.tmp"))
+        // The one thing under the internal directory is the layout marker; no hashed name, record or staging dir.
+        assertTrue(pathExists("$base/${UnitFileLayout.LEGACY_LAYOUT_MARKER}"), "the layout marker is written on first use")
+        assertFalse(pathExists("$base/tmp/kmptoolkit-internal/trash"), "a plain id never touches the hashed subtree")
+    }
+
+    // 9
+    @Test
+    fun `the 3_0_0 temp files of an id with a slash are moved to the hashed place and still honoured`() = runTest {
+        val base: String = baseDirectory()
+        for ((id: String, recorded: Sha256, passes: Boolean) in listOf(
+            Triple("models/v1-t9-ok", ABC, true),
+            Triple("models/v1-t9-bad", OTHER, false),
+        )) {
+            val unit = ContractUnit(id, relativePath = "resources/p9-${id.substringAfterLast('-')}.bin")
+            writeLegacyFile("$base/tmp/$id.tmp", "abc".encodeToByteArray())
+            writeLegacyFile("$base/tmp/expect/$id.sha256", "sha256:${recorded.hex}\n".encodeToByteArray())
+
+            assertEquals(TempFileState.Partial, storage.tempFileState(unit), id)
+            assertEquals(3L, storage.getTempFileSize(unit), id)
+            assertFalse(pathExists("$base/tmp/$id.tmp"), "the legacy partial of $id must be gone")
+            assertFalse(pathExists("$base/tmp/expect/$id.sha256"), "the legacy record of $id must be gone")
+            assertTrue(storage.getTempFilePath(unit).startsWith("$base/tmp/kmptoolkit-internal/"), id)
+
+            if (passes) {
+                finish(storage, unit)
+                assertTrue(storage.isResourceAvailable(unit), "the migrated record matches the bytes")
+            } else {
+                assertFailsWith<ResourceIntegrityException>(id) { finish(storage, unit) }
+            }
+        }
+    }
+
+    // 10
+    @Test
+    fun `migration never touches another unit's staging tree or record`() {
+        val base: String = baseDirectory()
+        writeLegacyFile("$base/tmp/staging-a/b.tmp", "xyz".encodeToByteArray())
+        writeLegacyFile("$base/tmp/expect/foo.sha256", "sha256:${OTHER.hex}\n".encodeToByteArray())
+        val inStaging = ContractUnit("staging-a/b", relativePath = "resources/p10a.bin")
+        val namedLikeARecord = ContractUnit("expect/foo", tempExtension = "sha256", relativePath = "resources/p10b.bin")
+
+        for (unit: ContractUnit in listOf(inStaging, namedLikeARecord)) {
+            assertEquals(TempFileState.None, storage.tempFileState(unit), "$unit")
+            assertEquals(0L, storage.getTempFileSize(unit), "$unit")
+        }
+
+        assertEquals("xyz", readFile("$base/tmp/staging-a/b.tmp")?.decodeToString())
+        assertEquals("sha256:${OTHER.hex}\n", readFile("$base/tmp/expect/foo.sha256")?.decodeToString())
+    }
+
+    // 11
+    @Test
+    fun `a migration cut short by a crash is completed and a destination that exists is never overwritten`() = runTest {
+        val base: String = baseDirectory()
+        val layout = UnitFileLayout(caseInsensitive = false)
+
+        val resumed = ContractUnit("models/v1-t11", relativePath = "resources/p11a.bin")
+        val resumedNames: UnitFileLayout.Names = layout.namesOf(resumed)
+        writeLegacyFile("$base/${resumedNames.record}", "sha256:${ABC.hex}\n".encodeToByteArray())
+        writeLegacyFile("$base/tmp/models/v1-t11.tmp", "abc".encodeToByteArray())
+        assertEquals(3L, storage.getTempFileSize(resumed))
+        assertFalse(pathExists("$base/tmp/models/v1-t11.tmp"))
+        finish(storage, resumed)
+        assertTrue(storage.isResourceAvailable(resumed), "the commit verifies against the record that was already moved")
+
+        val both = ContractUnit("models/v1-t11b", relativePath = "resources/p11b.bin")
+        writeFile("$base/${layout.namesOf(both).partial}", "new!".encodeToByteArray())
+        writeLegacyFile("$base/tmp/models/v1-t11b.tmp", "old".encodeToByteArray())
+        assertEquals(4L, storage.getTempFileSize(both), "the destination is authoritative")
+        assertFalse(pathExists("$base/tmp/models/v1-t11b.tmp"), "the stale legacy file is deleted")
+    }
+
+    // a no-replace move is the primitive the migration's "never overwrites" rests on
+    @Test
+    fun `renameNoReplace never replaces an existing destination and moves to a free one`() {
+        val base: String = baseDirectory()
+        writeFile("$base/nr/from.bin", "legacy".encodeToByteArray())
+        writeFile("$base/nr/taken.bin", "authoritative".encodeToByteArray())
+
+        assertFalse(renameNoReplace("$base/nr/from.bin", "$base/nr/taken.bin"), "the destination exists")
+        assertEquals("authoritative", readFile("$base/nr/taken.bin")?.decodeToString(), "it must not be replaced")
+        assertEquals("legacy", readFile("$base/nr/from.bin")?.decodeToString(), "the source must stay")
+
+        assertTrue(renameNoReplace("$base/nr/from.bin", "$base/nr/free.bin"))
+        assertEquals("legacy", readFile("$base/nr/free.bin")?.decodeToString())
+        assertFalse(pathExists("$base/nr/from.bin"), "the source name is gone after a successful move")
+        assertFalse(renameNoReplace("$base/nr/missing.bin", "$base/nr/other.bin"), "a missing source fails")
+    }
+
+    // 12
+    @Test
+    fun `concurrent first touches of the same unsafe unit converge on one migrated file`() = runTest {
+        val base: String = baseDirectory()
+        val unit = ContractUnit("models/v1-t12", relativePath = "resources/p12.bin")
+        writeLegacyFile("$base/tmp/models/v1-t12.tmp", "hello".encodeToByteArray())
+
+        val sizes: List<Long> = withContext(Dispatchers.Default) {
+            withTimeout(10.seconds) {
+                val start = CompletableDeferred<Unit>()
+                val callers: List<Deferred<Long>> = List(4) {
+                    async {
+                        start.await()
+                        storage.getTempFileSize(unit)
+                    }
+                }
+                start.complete(Unit)
+                callers.awaitAll()
+            }
+        }
+
+        assertEquals(listOf(5L, 5L, 5L, 5L), sizes)
+        assertFalse(pathExists("$base/tmp/models/v1-t12.tmp"))
+        assertEquals("hello", readFile(storage.getTempFilePath(unit))?.decodeToString())
+    }
+
+    // 13
+    @Test
+    fun `a relativePath that can never be used is rejected by every resource method and touches nothing`() = runTest {
+        val outside: String = baseDirectory().substringBeforeLast('/') + "/x"
+        writeFile(outside, "sentinel".encodeToByteArray())
+        try {
+            val reasons = InvalidDownloadUnitException.Reason.entries
+            val cases: List<Pair<String, InvalidDownloadUnitException.Reason>> = listOf(
+                "" to reasons[0], "/" to reasons[0], "./" to reasons[0], "a/.." to reasons[0],
+                "../x" to InvalidDownloadUnitException.Reason.ESCAPES_BASE_DIRECTORY,
+                "a/../../x" to InvalidDownloadUnitException.Reason.ESCAPES_BASE_DIRECTORY,
+                "x\u0000" to InvalidDownloadUnitException.Reason.INVALID_CHARACTER,
+                "tmp" to InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH,
+                "tmp/expect" to InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH,
+                "tmp/expect/foo.sha256" to InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH,
+                "tmp/staging-q/r" to InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH,
+                "tmp/kmptoolkit-internal/z" to InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH,
+                "tmp/own13.tmp" to InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH,
+            )
+            for ((path: String, reason: InvalidDownloadUnitException.Reason) in cases) {
+                val unit = ContractUnit("own13", relativePath = path)
+
+                assertEquals(reason, assertFailsWith<InvalidDownloadUnitException>("getResourcePath '$path'") {
+                    storage.getResourcePath(unit)
+                }.reason, "path '$path'")
+                assertFalse(storage.isResourceAvailable(unit), "path '$path'")
+                assertEquals(0L, storage.getResourceSize(unit), "path '$path'")
+                assertFailsWith<InvalidDownloadUnitException>("deleteResource '$path'") { storage.deleteResource(unit) }
+            }
+            assertEquals("sentinel", readFile(outside)?.decodeToString(), "a file outside the base must survive deleteResource")
+        } finally {
+            deleteFile(outside)
+        }
+    }
+
+    @Test
+    fun `committing to a rejected relativePath fails before anything moves and the temp work stays cleanable`() = runTest {
+        val unit = ContractUnit("own13c", relativePath = "tmp/expect")
+        storage.beginTempFile(unit, null)
+        writeTemp(storage, unit, "abc")
+        storage.markTempFileComplete(unit)
+
+        assertFailsWith<InvalidDownloadUnitException> { storage.commitResource(unit) }
+
+        assertEquals(TempFileState.Complete, storage.tempFileState(unit), "the bytes stay for a corrected catalogue")
+        storage.deleteTempFile(unit)
+        assertEquals(TempFileState.None, storage.tempFileState(unit), "the temp side never looks at relativePath")
+    }
+
+    // 14 (guard)
+    @Test
+    fun `relative paths that worked in 3_0_0 are accepted and commit at their normalized path`() = runTest {
+        // tmp/trash/... did not exist in 3.0.0 (the trash is under tmp/kmptoolkit-internal now), so it worked there.
+        // Each path with the normalized path the resource is used at (`.`, `..` and empty segments resolved).
+        for ((index: Int, spelling: Pair<String, String>) in listOf(
+            "tmp/foo.bin" to "tmp/foo.bin", "/abs/x" to "abs/x", "a/./b" to "a/b", "a/../b" to "b",
+            "tmp/trash/a.bin" to "tmp/trash/a.bin",
+        ).withIndex()) {
+            val (path: String, normalized: String) = spelling
+            val unit = ContractUnit("guard14-$index", relativePath = path)
+            storage.beginTempFile(unit, null)
+            writeTemp(storage, unit, "abc")
+
+            finish(storage, unit)
+
+            assertTrue(storage.getResourcePath(unit).endsWith("/$normalized"), "path '$path' must be used as '$normalized'")
+            assertTrue(storage.isResourceAvailable(unit), "path '$path'")
+            assertEquals("abc", readFile(storage.getResourcePath(unit))?.decodeToString(), "path '$path'")
+        }
+    }
+
+    // 15
+    @Test
+    fun `the staging tree of a 247 byte id is reclaimed by a cancel`() {
+        val id: String = "q".repeat(247)
+        val unit = ContractUnit(id, format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "archives/p15")
+        val staging: String = baseDirectory() + "/tmp/staging-" + id
+        writeFile("$staging/nested/marker.txt", "half-extracted".encodeToByteArray())
+
+        storage.deleteTempFile(unit)
+
+        assertFalse(pathExists(staging), "the trash name must not depend on the id's length")
+    }
+
+    @Test
+    fun `an archive of an id that is not a file name extracts and commits`() = runTest {
+        val unit = ContractUnit("pages/v1-t16", format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "archives/p16")
+        storage.beginTempFile(unit, null)
+        writeTempBytes(storage, unit, zipOf("marker.txt", "hello".encodeToByteArray()))
+
+        finish(storage, unit)
+
+        assertTrue(storage.isResourceAvailable(unit))
+        assertEquals(TempFileState.None, storage.tempFileState(unit))
+        assertFalse(pathExists(baseDirectory() + "/tmp/pages"), "nothing of a hashed id is created under its raw name")
+    }
+
+    /** Resolves `.` and `..` lexically, as a canonical path would. */
+    private fun normalized(path: String): String {
+        val segments: ArrayList<String> = ArrayList()
+        for (segment: String in path.split('/')) {
+            when (segment) {
+                "", "." -> Unit
+                ".." -> if (segments.isNotEmpty()) segments.removeAt(segments.lastIndex)
+                else -> segments.add(segment)
+            }
+        }
+        return "/" + segments.joinToString("/")
+    }
+
     // -- helpers -----------------------------------------------------------------------------
 
     private fun writeTemp(on: DownloaderStorage, unit: DownloadUnit, text: String) =
@@ -646,6 +1006,22 @@ abstract class DownloaderStorageContractTest {
         }
 
         override fun toString(): String = "ContractUnit($id)"
+    }
+
+    @Test
+    fun `a relativePath with a dot-dot segment commits at its normalized path`() = runTest {
+        val unit = ContractUnit("dots", relativePath = "files/x/../a.bin")
+        storage.beginTempFile(unit, null)
+        writeTemp(storage, unit, "abc")
+
+        finish(storage, unit)
+
+        assertTrue(storage.getResourcePath(unit).endsWith("/files/a.bin"), storage.getResourcePath(unit))
+        assertTrue(storage.isResourceAvailable(unit))
+        assertEquals("abc", readFile("${baseDirectory()}/files/a.bin")?.decodeToString())
+        assertEquals(3L, storage.getResourceSize(unit))
+        storage.deleteResource(unit)
+        assertFalse(pathExists("${baseDirectory()}/files/a.bin"))
     }
 
     private companion object {

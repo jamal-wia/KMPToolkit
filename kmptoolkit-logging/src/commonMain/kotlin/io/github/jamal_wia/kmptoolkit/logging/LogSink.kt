@@ -15,6 +15,9 @@ package io.github.jamal_wia.kmptoolkit.logging
  *   block in it; hand off to your own queue if the destination is slow.
  * - Implementations must be safe to call from several threads at once, because the logger they are
  *   installed in is.
+ * - Must not log through the [LoggerFactory] it is installed in, directly or through code it calls.
+ *   There is no re-entrancy guard: such a sink recurses until the stack overflows, and that `Error`
+ *   reaches the caller.
  * - A sink that throws does not break the caller and does not stop the other sinks — see
  *   [createLoggerFactory] for exactly what happens.
  */

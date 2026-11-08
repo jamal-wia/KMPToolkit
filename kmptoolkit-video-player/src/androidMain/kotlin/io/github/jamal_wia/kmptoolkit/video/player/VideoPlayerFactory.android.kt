@@ -39,12 +39,19 @@ public fun createVideoPlayer(
 
 /**
  * The Media3 player behind a player this module created, for `kmptoolkit-video-player-compose` to
- * attach a surface to; `null` for a player over any other engine, and after [VideoPlayer.release].
+ * attach a surface to; `null` for a player over any other engine, and from the moment
+ * [VideoPlayer.release] has returned, also while a load still unwinding keeps the engine alive a
+ * moment longer.
  *
  * Main thread only. The same instance is returned for the player's whole life — across
  * [VideoPlayer.unload] and every [VideoPlayer.prepare] — so a surface attaches once. Called on the
  * main thread before the first [VideoPlayer.prepare], it creates the ExoPlayer then.
  */
 @ToolkitInternalApi
-public fun VideoPlayer.media3PlayerOrNull(): Player? =
-    ((this as? EngineVideoPlayer)?.engine as? Media3VideoEngine)?.playerForSurface()
+public fun VideoPlayer.media3PlayerOrNull(): Player? {
+    val owner: EngineVideoPlayer = this as? EngineVideoPlayer ?: return null
+    // The owner's own flag, not the engine's: release() defers the engine's disposal until a load
+    // still unwinding has finished, so the engine can live a moment after release() has returned.
+    if (owner.isReleased) return null
+    return (owner.engine as? Media3VideoEngine)?.playerForSurface()
+}

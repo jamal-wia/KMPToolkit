@@ -260,7 +260,7 @@ Nothing is hardcoded. `RecordingStorage` has three knobs and a default derived f
 | You set | Result |
 |---|---|
 | nothing | `<app-private files>/<your application id>/recording_<epochMillis>_<token>.m4a` |
-| `directoryName = "voice-notes"` | `<app-private files>/voice-notes/recording_<epochMillis>_<token>.m4a` |
+| `directoryName = "voice-notes"` | `<app-private files>/voice-notes/recording_<epochMillis>_<token>.m4a` (a nested name such as `"audio/notes"` works too; a leading `/` or a `.` / `..` segment is rejected) |
 | `directoryPath = "/…/cache/notes"` | `/…/cache/notes/recording_<epochMillis>_<token>.m4a` |
 | `fileNamePrefix = "note"` | `…/note_<epochMillis>_<token>.m4a` |
 | `prepare(outputPath = "…")` | exactly that path, config ignored. Must be absolute |
@@ -348,7 +348,10 @@ Cancellation is *not* how you abandon a recording that already started: `start` 
 so there is nothing to cancel. Call `cancel()`.
 
 `release()` during an in-flight `prepare()` is also safe: the preparation tears itself down when it
-completes rather than moving a released recorder to `Ready`.
+completes rather than moving a released recorder to `Ready`. The engine is never driven from two
+threads in that case either: `release()` only flips the state and leaves the native recorder (and, on
+iOS, the audio-session hold) to the preparation's own tail, and a `release()` that lands before the
+microphone was opened stops `prepare` from opening it at all — it returns `AlreadyReleased`.
 
 ## Threading
 

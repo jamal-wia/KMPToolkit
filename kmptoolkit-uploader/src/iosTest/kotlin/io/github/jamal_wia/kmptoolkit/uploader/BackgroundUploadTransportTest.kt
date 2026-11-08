@@ -8,7 +8,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.test.runTest
 import platform.Foundation.create
 import platform.Foundation.stringWithContentsOfFile
@@ -45,6 +48,102 @@ class BackgroundUploadTransportTest {
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(sessionIdentifierPrefix = " ") }
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(lease = Duration.ZERO) }
         assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(rehandFlushWindow = (-1).minutes) }
+    }
+
+    @Test
+    fun `the timeout defaults equal the system's own session values`() {
+        val config = BackgroundUploadConfig()
+        assertEquals(60.seconds, config.requestTimeout)
+        assertEquals(7.days, config.resourceTimeout)
+
+        val configuration = buildSessionConfiguration("p.item", config)
+        val system = platform.Foundation.NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier("p.baseline")
+        assertEquals(system.timeoutIntervalForRequest, configuration.timeoutIntervalForRequest)
+        assertEquals(system.timeoutIntervalForResource, configuration.timeoutIntervalForResource)
+    }
+
+    @Test
+    fun `custom timeouts reach the background session configuration`() {
+        val config = BackgroundUploadConfig(requestTimeout = 90.seconds, resourceTimeout = 36.hours)
+
+        val configuration = buildSessionConfiguration("p.item", config)
+
+        assertEquals(90.0, configuration.timeoutIntervalForRequest)
+        assertEquals(36.0 * 3600.0, configuration.timeoutIntervalForResource)
+    }
+
+    @Test
+    fun `the config rejects non-positive and infinite timeouts`() {
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(requestTimeout = Duration.ZERO) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(requestTimeout = (-1).seconds) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(resourceTimeout = Duration.ZERO) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(resourceTimeout = (-1).hours) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(requestTimeout = Duration.INFINITE) }
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(resourceTimeout = Duration.INFINITE) }
+    }
+
+    @Test
+    fun `equals hashCode and toString include the timeouts`() {
+        val base = BackgroundUploadConfig(requestTimeout = 30.seconds, resourceTimeout = 1.days)
+        val same = BackgroundUploadConfig(requestTimeout = 30.seconds, resourceTimeout = 1.days)
+
+        assertEquals(base, same)
+        assertEquals(base.hashCode(), same.hashCode())
+        assertTrue(base != BackgroundUploadConfig(requestTimeout = 31.seconds, resourceTimeout = 1.days))
+        assertTrue(base != BackgroundUploadConfig(requestTimeout = 30.seconds, resourceTimeout = 2.days))
+        assertTrue(base.toString().contains("requestTimeout=30s"))
+        assertTrue(base.toString().contains("resourceTimeout=1d"))
+    }
+
+    @Test
+    @Suppress("DEPRECATION")
+    fun `the three-argument constructor stays callable and takes the system timeouts`() {
+        // The call Swift code makes: BackgroundUploadConfig(sessionIdentifierPrefix:lease:rehandFlushWindow:).
+        val old = BackgroundUploadConfig("old.prefix.", 5.minutes, 2.seconds)
+
+        assertEquals("old.prefix.", old.sessionIdentifierPrefix)
+        assertEquals(5.minutes, old.lease)
+        assertEquals(2.seconds, old.rehandFlushWindow)
+        assertEquals(60.seconds, old.requestTimeout)
+        assertEquals(7.days, old.resourceTimeout)
+        assertEquals(BackgroundUploadConfig("old.prefix.", 5.minutes, 2.seconds, 60.seconds, 7.days), old)
+        // The old overload keeps the primary constructor's validation.
+        assertFailsWith<IllegalArgumentException> { BackgroundUploadConfig(" ", 5.minutes, 2.seconds) }
+    }
+
+    @Test
+    @Suppress("DEPRECATION")
+    fun `a call naming exactly the three old arguments also takes the system timeouts`() {
+        // Named arguments do not change overload resolution: this lands on the deprecated overload too.
+        val named = BackgroundUploadConfig(
+            sessionIdentifierPrefix = "named.",
+            lease = 5.minutes,
+            rehandFlushWindow = 2.seconds,
+        )
+
+        assertEquals("named.", named.sessionIdentifierPrefix)
+        assertEquals(5.minutes, named.lease)
+        assertEquals(2.seconds, named.rehandFlushWindow)
+        assertEquals(60.seconds, named.requestTimeout)
+        assertEquals(7.days, named.resourceTimeout)
+        assertFailsWith<IllegalArgumentException> {
+            BackgroundUploadConfig(sessionIdentifierPrefix = " ", lease = 5.minutes, rehandFlushWindow = 2.seconds)
+        }
+    }
+
+    @Test
+    fun `calls that leave a parameter out resolve to the new constructor`() {
+        // No @Suppress: a call resolving to the deprecated overload would make the build warn. No assertion can
+        // observe which overload ran (the values are the same), so this is checked by the compiler's warnings.
+        val none = BackgroundUploadConfig()
+        val prefixOnly = BackgroundUploadConfig("p.")
+        val named = BackgroundUploadConfig(lease = 5.minutes, requestTimeout = 90.seconds)
+
+        assertEquals(60.minutes, none.lease)
+        assertEquals("p.", prefixOnly.sessionIdentifierPrefix)
+        assertEquals(3.seconds, prefixOnly.rehandFlushWindow)
+        assertEquals(90.seconds, named.requestTimeout)
+        assertEquals(5.minutes, named.lease)
     }
 
     @Test

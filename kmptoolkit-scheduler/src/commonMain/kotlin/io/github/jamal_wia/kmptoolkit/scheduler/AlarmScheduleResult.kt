@@ -71,11 +71,14 @@ public sealed interface AlarmFailure {
     public data object SchedulerUnavailable : AlarmFailure
 
     /**
-     * The platform rejected the request for some other reason — for example iOS's cap of roughly
-     * 64 pending local notifications per app.
+     * The platform rejected the request for some other reason — for example iOS's cap of 64
+     * pending local notifications per app (checked before adding, since iOS drops the excess
+     * silently).
      *
-     * @param message the platform's own diagnostic text, if it supplied one. For logs and bug
-     *   reports; it is not localized and must never be shown to a user.
+     * @param message a diagnostic for logs and bug reports: the platform's own text if it supplied
+     *   one or, where the library itself refuses (the iOS pending cap, or an Android id whose four
+     *   PendingIntent slots are all occupied), a fixed English description from this library. Not
+     *   localized, never to be shown to a user, and not a stable value to match on.
      */
     public data class PlatformError(val message: String?) : AlarmFailure
 }

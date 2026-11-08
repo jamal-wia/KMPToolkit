@@ -13,10 +13,10 @@ package io.github.jamal_wia.kmptoolkit.audio.player
  * @property positionUpdateIntervalMs how often [AudioPlayer.playbackPositionFlow] and the
  *   [PlayerState.Playing.currentPosition] of the current state are refreshed while playing. Must be
  *   positive. Lower values cost one platform position read per tick.
- * @property minPlaybackSpeed lower bound [AudioPlayer.setPlaybackSpeed] clamps to. Must be positive
+ * @property minPlaybackSpeed lower bound [AudioPlayer.setPlaybackSpeed] clamps to. Must be finite and positive
  *   — `0f` is not "paused", it is a rate the platforms reject.
- * @property maxPlaybackSpeed upper bound [AudioPlayer.setPlaybackSpeed] clamps to. Must be at least
- *   [minPlaybackSpeed].
+ * @property maxPlaybackSpeed upper bound [AudioPlayer.setPlaybackSpeed] clamps to. Must be finite and at
+ *   least [minPlaybackSpeed].
  */
 public data class AudioPlayerConfig(
     val positionUpdateIntervalMs: Long = DEFAULT_POSITION_UPDATE_INTERVAL_MS,
@@ -27,8 +27,11 @@ public data class AudioPlayerConfig(
         require(positionUpdateIntervalMs > 0L) {
             "positionUpdateIntervalMs must be positive, was $positionUpdateIntervalMs"
         }
-        require(minPlaybackSpeed > 0f) {
-            "minPlaybackSpeed must be positive, was $minPlaybackSpeed"
+        require(minPlaybackSpeed.isFinite() && minPlaybackSpeed > 0f) {
+            "minPlaybackSpeed must be finite and positive, was $minPlaybackSpeed"
+        }
+        require(maxPlaybackSpeed.isFinite()) {
+            "maxPlaybackSpeed must be finite, was $maxPlaybackSpeed"
         }
         require(maxPlaybackSpeed >= minPlaybackSpeed) {
             "maxPlaybackSpeed ($maxPlaybackSpeed) must be at least " +

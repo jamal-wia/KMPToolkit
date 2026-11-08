@@ -39,6 +39,11 @@ internal class AndroidSecureKeyValueStorage(
         } catch (error: StorageKeyUnavailableException) {
             StorageResult.Failure(StorageError.Unavailable(error.cause ?: error))
         } catch (error: Exception) {
+            // A keystore fault the platform itself calls transient (API 33+) is not a lost value:
+            // the same bytes can decrypt a moment later, so it must not read as "discard it".
+            if (isTransientKeystoreFailure(error)) {
+                return@withContext StorageResult.Failure(StorageError.Unavailable(error))
+            }
             // Everything else means these particular bytes cannot be turned back into a value:
             // truncated or hand-edited Base64, a tag that fails to authenticate, a key the platform
             // destroyed. The entry is not coming back; say so rather than returning null, which a
@@ -48,6 +53,7 @@ internal class AndroidSecureKeyValueStorage(
     }
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {
+        unpairedSurrogateFailure(key, value)?.let { return@withContext it }
         val encrypted: String = try {
             cipher.encrypt(value)
         } catch (cancellation: CancellationException) {

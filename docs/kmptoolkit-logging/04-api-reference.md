@@ -110,6 +110,7 @@ Runs `block`, then logs `"<label> [<duration>]"` at `level`, and returns `block`
   duration is real even when the logger later drops the line.
 - `block` runs exactly once.
 - An exception from `block` propagates, and no event is logged.
+- A non-local `return` out of `block` counts as completion: the line is logged.
 
 A debugging convenience, not instrumentation: for numbers you intend to track over time, emit a
 metric instead of parsing logs.
@@ -163,7 +164,7 @@ Guaranteed behavior of the returned factory's loggers:
 | `level >= minLevel` and `sinks` non-empty | `isLoggable` is `true`; the message is built once and passed to every sink in order |
 | `level < minLevel` | Nothing is delivered; the message lambda is never evaluated |
 | `sinks` is empty | Logging is off: `isLoggable` is `false` at every level, no lambda is evaluated. This is the supported off switch |
-| A sink throws | The throwable is swallowed, the remaining sinks still receive the event, and the caller returns normally |
+| A sink throws | The throwable is swallowed (an `AssertionError`, a `NotImplementedError` or, on Android, a `LinkageError` included), the remaining sinks still receive the event, and the caller returns normally. A `CancellationException` is the exception: it is rethrown, but only after every sink has been offered the event; any other `Error` (`StackOverflowError`, `OutOfMemoryError`) is rethrown at once. The logger never clears the caller's interrupt status: a thread interrupted when it logs is still interrupted afterwards, however a sink handled or wrapped the interrupt; a sink's bare `InterruptedException` raised by an interrupt that arrived during the write has the flag set again once every sink has had the event, or as the logger rethrows an Error a later sink raised (JVM and Android). A wrapped one cannot be told apart from another thread's interrupt and is contained like any exception |
 | The message lambda throws | The exception propagates to the caller and no sink is called — a caller-side defect must stay visible |
 | `sinks` mutated after the call | No effect; the list is copied at construction |
 

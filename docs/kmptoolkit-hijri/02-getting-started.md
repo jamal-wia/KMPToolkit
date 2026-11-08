@@ -31,6 +31,10 @@ so you get the type without declaring it twice.
 ```kotlin
 import io.github.jamal_wia.kmptoolkit.hijri.HijriDate
 import io.github.jamal_wia.kmptoolkit.hijri.toHijriDate
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.todayIn
+import kotlin.time.Clock
 
 val today: LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault())
 val hijri: HijriDate = today.toHijriDate()

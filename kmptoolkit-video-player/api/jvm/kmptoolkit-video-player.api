@@ -65,6 +65,7 @@ public abstract interface class io/github/jamal_wia/kmptoolkit/video/player/Vide
 	public abstract fun getBufferedPositionFlow ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun getPlaybackPositionFlow ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun getPlaybackSpeedFlow ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getPlaybackSpeedRange ()Lkotlin/ranges/ClosedFloatingPointRange;
 	public abstract fun getRepeatModeFlow ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun getStateFlow ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun getVideoSizeFlow ()Lkotlinx/coroutines/flow/StateFlow;

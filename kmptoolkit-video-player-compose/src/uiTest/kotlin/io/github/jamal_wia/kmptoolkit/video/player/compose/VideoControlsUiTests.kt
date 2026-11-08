@@ -525,6 +525,32 @@ abstract class VideoControlsUiTests {
     }
 
     @Test
+    fun `a seek the player dropped does not leave the handle at its target once the bar is disabled`() = runComposeUiTest {
+        // The player left its playable states as the seek committed, so it dropped the seek and the
+        // position never moved: nothing else would ever release the handle.
+        var enabled by mutableStateOf(true)
+        setContent {
+            Box(Modifier.size(300.dp, 48.dp)) {
+                VideoSeekBar(
+                    positionMs = 6_000L,
+                    durationMs = 60_000L,
+                    onSeek = {},
+                    enabled = enabled,
+                    contentDescription = "Standalone",
+                )
+            }
+        }
+        onNodeWithContentDescription("Standalone").performSemanticsAction(SemanticsActions.SetProgress) { it(0.5f) }
+        waitForIdle()
+        onNodeWithContentDescription("Standalone").assert(progressIs(0.5f))
+
+        enabled = false
+        waitForIdle()
+
+        onNodeWithContentDescription("Standalone").assert(progressIs(0.1f))
+    }
+
+    @Test
     fun `a seek bar disabled mid drag cancels the drag without seeking`() = runComposeUiTest {
         var enabled by mutableStateOf(true)
         val seeks: MutableList<Long> = mutableListOf()

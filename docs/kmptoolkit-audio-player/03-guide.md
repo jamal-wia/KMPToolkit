@@ -84,6 +84,10 @@ player.play()        // no-op — a stray tap after teardown does nothing
 player.seekTo(500)   // no-op
 ```
 
+`release()` frees the native handle immediately, or as soon as a load still running on the platform
+has unwound: a blocking `setDataSource` on Android cannot be interrupted, and the handle is never freed
+under it.
+
 ```kotlin
 player.release()
 player.prepare(source)
@@ -159,6 +163,10 @@ LaunchedEffect(url) {
 
 `Idle`, not `Error`: nothing failed, the caller simply left. Reserving `Error` for real failures is
 what lets a UI show a retry button on `Error` without also showing one after every navigation.
+
+Rapid switching is safe too: the engine only ever runs one load at a time, even when a middle
+`prepare` is cancelled while a newer one and the first are still waiting on each other — a load
+starts only after every load before it has fully unwound.
 
 ## Seeking and scrubbing
 

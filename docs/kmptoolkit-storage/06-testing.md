@@ -35,7 +35,7 @@ half, since the branches worth testing are the ones where the store *does not* b
 
 It implements `SecureKeyValueStorage`, and therefore `KeyValueStorage`, so it substitutes for
 either. It keeps the same contract as the real stores — absent reads back as `null`, `""` reads back
-as `""`, `put` overwrites, `remove` of an absent key succeeds, `clear` empties only this instance.
+as `""`, `put` overwrites (and fails with `OperationFailed` for a key or value with an unpaired surrogate, as the real stores do), `remove` of an absent key succeeds, `clear` empties only this instance.
 Nothing is encrypted; a double that encrypted would need the very key store that is missing.
 
 ```kotlin

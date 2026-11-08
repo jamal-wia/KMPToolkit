@@ -19,8 +19,9 @@ import kotlinx.coroutines.flow.Flow
  *
  * These invariants are what the engine relies on. An implementation that breaks one does not fail
  * loudly — it loses or duplicates a delivery under a race, which is exactly the failure mode this
- * module exists to prevent. `kmptoolkit-uploader-testing` ships `AbstractUploaderStoreContractTest`,
- * which asserts all of them; extend it rather than trusting a read-through.
+ * module exists to prevent. `kmptoolkit-uploader-testing` ships `UploaderStoreContract`,
+ * which asserts all of them (durability across a restart excepted, which no in-process check can see); run it
+ * rather than trusting a read-through.
  *
  * ### Durability
  * Every write must be durable before the call returns. An item survives process death from the
@@ -72,6 +73,14 @@ import kotlinx.coroutines.flow.Flow
  * The pair ([UploaderItem.type], [UploaderItem.uniqueKey]) is the dedup identity. A `null` unique key
  * never conflicts with anything — every keyless enqueue appends. See [insertKeep] for the exact
  * per-state behavior.
+ *
+ * ### Cancellation
+ * A call may throw a `CancellationException` when its caller is cancelled, before its write or **after it has
+ * committed** (a store that switches to a database dispatcher reports the caller's cancellation when the call
+ * returns). It may also not notice the cancellation at all. Both kinds are allowed; nothing is required of a
+ * store, and the engine never relies on either: a write it must see through (a withdrawal, the release of an
+ * interrupted claim) it makes non-cancellable on its own side. Because the engine makes some writes non-cancellable, a call
+ * that never returns holds its caller for good: bound your own calls (a busy timeout, a statement timeout).
  *
  * ### Nothing here interprets a payload
  * [UploaderItem.payload] is an opaque string and [UploaderItem.tag] is an opaque label. A store stores
@@ -143,7 +152,8 @@ public interface UploaderStore {
      *
      * This is the settle path's read: an executor reporting an outcome may be reporting on an item
      * that was superseded, wiped, or already settled, and `null` is the normal, expected answer in
-     * those cases — not an error.
+     * those cases — not an error. The engine also reads it once before every attempt, to be sure the item
+     * it is about to attempt was not withdrawn since the pass read the queue.
      *
      * @param id the item's [UploaderItem.id].
      * @return the item, or `null` if no row has that id.
@@ -190,7 +200,8 @@ public interface UploaderStore {
      * @param id the item's [UploaderItem.id]; an absent row is a no-op returning `false`.
      * @param attempts the new absolute attempt count (not a delta).
      * @param nextRunAtEpochMillis epoch millis before which the item must not be attempted again.
-     * @param lastError a short diagnostic string, or `null`.
+     * @param lastError a short diagnostic string, or `null`. At most about 4096 characters; the engine
+     *   truncates longer text before calling.
      * @param expectedState the state the caller read the item in — [UploaderItemState.IN_FLIGHT] for a
      *   settle or a failed hand-off, the drain's read for an attempt it ran itself.
      * @param expectedClaim the [UploaderItem.claim] the caller read alongside [expectedState].
@@ -233,7 +244,9 @@ public interface UploaderStore {
      * the protocol this is one step of.
      *
      * @param id the item's [UploaderItem.id]; an absent row is a no-op returning `false`.
-     * @param leaseUntilEpochMillis epoch millis at which the new claim expires.
+     * @param leaseUntilEpochMillis epoch millis at which the new claim expires; stored exactly: the engine compares
+     *   it to tell its own claim from another engine's, and a store that rounds it only loses the prompt release of an
+     *   interrupted claim.
      * @param expectedState the state the caller read the item in — [UploaderItemState.PENDING] for a
      *   first hand-off, [UploaderItemState.IN_FLIGHT] for a re-hand after an expired lease.
      * @param expectedClaim the [UploaderItem.claim] the caller read alongside [expectedState].
@@ -262,7 +275,8 @@ public interface UploaderStore {
      * engine no longer runs. An unguarded park would take the item from the executor now holding it.
      *
      * @param id the item's [UploaderItem.id]; an absent row is a no-op returning `false`.
-     * @param lastError why it was parked, or `null`.
+     * @param lastError why it was parked, or `null`. At most about 4096 characters; the engine truncates
+     *   longer text before calling.
      * @param expectedState the state the caller read the item in.
      * @param expectedClaim the [UploaderItem.claim] the caller read alongside [expectedState].
      * @return `true` if the row was parked; `false` if it was absent or had moved.

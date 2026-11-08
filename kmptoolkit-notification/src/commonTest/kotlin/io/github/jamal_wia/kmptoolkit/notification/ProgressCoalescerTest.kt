@@ -6,6 +6,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TestTimeSource
 
 /**
@@ -312,4 +313,178 @@ class ProgressCoalescerTest {
         assertTrue(coalescer.wouldSuppress("a", NotificationProgress.Determinate(42), content = "Downloading"))
         assertFalse(coalescer.wouldSuppress("a", NotificationProgress.Determinate(42), content = "Paused"))
     }
+
+    // --- a failed post is rolled back; the record is otherwise atomic -----------------------
+
+    @Test
+    fun `a failed post rolled back lets the same progress post again`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        val ticket: ProgressCoalescer.PostTicket =
+            requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(40)))
+
+        coalescer.rollback(ticket)
+
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(40)) != null)
+    }
+
+    @Test
+    fun `a post that succeeded makes the same progress redundant`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.prepare("a", NotificationProgress.Determinate(40))
+
+        assertEquals(null, coalescer.prepare("a", NotificationProgress.Determinate(40)))
+    }
+
+    @Test
+    fun `rolling back restores the previous baseline rather than clearing it`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.prepare("a", NotificationProgress.Determinate(40))
+        val failed: ProgressCoalescer.PostTicket =
+            requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(50)))
+
+        coalescer.rollback(failed)
+
+        assertEquals(null, coalescer.prepare("a", NotificationProgress.Determinate(41)))
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(50)) != null)
+    }
+
+    @Test
+    fun `a rollback after forget does not resurrect the baseline`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        val ticket: ProgressCoalescer.PostTicket =
+            requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(40)))
+        coalescer.forget("a")
+        coalescer.prepare("a", NotificationProgress.Determinate(40))
+        // The new run's frame is recorded; the old ticket's rollback must not touch it.
+        coalescer.rollback(ticket)
+
+        assertEquals(null, coalescer.prepare("a", NotificationProgress.Determinate(40)))
+    }
+
+    @Test
+    fun `a rollback after clear does not bring back the previous baseline`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.prepare("a", NotificationProgress.Determinate(40))
+        val inFlight: ProgressCoalescer.PostTicket =
+            requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(50)))
+        coalescer.clear()
+
+        coalescer.rollback(inFlight)
+
+        // An unconditional restore would bring back the 40 bucket and suppress 41.
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(41)) != null)
+    }
+
+    @Test
+    fun `a rollback after forget does not bring back the previous baseline`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.prepare("a", NotificationProgress.Determinate(40))
+        val inFlight: ProgressCoalescer.PostTicket =
+            requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(50)))
+        coalescer.forget("a")
+
+        coalescer.rollback(inFlight)
+
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(41)) != null)
+    }
+
+    @Test
+    fun `two prepares without a rollback second one is suppressed by the rate limit`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(10)) != null)
+        assertEquals(null, coalescer.prepare("a", NotificationProgress.Determinate(50)))
+    }
+
+    @Test
+    fun `a failed post does not start the rate limit window`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        coalescer.rollback(requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(40))))
+
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(50)) != null)
+    }
+
+    @Test
+    fun `a terminal frame resets the id so the next run starts fresh`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.prepare("a", NotificationProgress.Determinate(40))
+        coalescer.prepare("a", NotificationProgress.Determinate(100))
+
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(40)) != null)
+    }
+
+    @Test
+    fun `a terminal frame whose post failed still posts on retry`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.prepare("a", NotificationProgress.Determinate(40))
+        coalescer.rollback(requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(100))))
+
+        assertTrue(coalescer.prepare("a", NotificationProgress.Determinate(100)) != null)
+    }
+
+    // --- abandoned ids -----------------------------------------------------------------------
+
+    @Test
+    fun `baselines of ids abandoned without a terminal frame are dropped once they are stale`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        repeat(1_000) { index: Int ->
+            coalescer.prepare("run-$index", NotificationProgress.Determinate(10))
+        }
+        assertEquals(1_000, coalescer.postedCountForTest())
+
+        time += 11.minutes
+        coalescer.prepare("fresh", NotificationProgress.Determinate(10))
+
+        assertEquals(1, coalescer.postedCountForTest())
+        assertEquals(1, coalescer.latestCountForTest())
+    }
+
+    @Test
+    fun `a baseline younger than the horizon survives a prune`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        repeat(100) { index: Int ->
+            coalescer.prepare("run-$index", NotificationProgress.Determinate(10))
+        }
+
+        time += 2.minutes
+        coalescer.prepare("fresh", NotificationProgress.Determinate(10))
+
+        assertEquals(101, coalescer.postedCountForTest())
+    }
+
+    @Test
+    fun `a pruned id posts again as a first frame`() {
+        val coalescer: ProgressCoalescer = coalescer(minInterval = 500.milliseconds)
+        repeat(100) { index: Int ->
+            coalescer.prepare("run-$index", NotificationProgress.Determinate(10))
+        }
+
+        time += 11.minutes
+        coalescer.prepare("other", NotificationProgress.Determinate(10))
+
+        assertTrue(coalescer.prepare("run-0", NotificationProgress.Determinate(10)) != null)
+    }
+
+    @Test
+    fun `a terminal frame whose post failed leaves no newest-serial entry behind`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.rollback(requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(100))))
+
+        assertEquals(0, coalescer.latestCountForTest())
+    }
+
+    @Test
+    fun `a progress frame whose post failed leaves no entry in either map`() {
+        val coalescer: ProgressCoalescer = coalescer()
+        coalescer.rollback(requireNotNull(coalescer.prepare("a", NotificationProgress.Determinate(40))))
+
+        assertEquals(0, coalescer.postedCountForTest())
+        assertEquals(0, coalescer.latestCountForTest())
+    }
+
+    private fun ProgressCoalescer.shouldPost(
+        id: String,
+        progress: NotificationProgress?,
+        content: Any? = null,
+    ): Boolean = prepare(id, progress, content) != null
 }

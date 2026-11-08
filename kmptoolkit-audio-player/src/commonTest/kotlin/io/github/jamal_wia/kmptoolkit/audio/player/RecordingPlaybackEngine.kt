@@ -34,10 +34,17 @@ internal class RecordingPlaybackEngine(
      */
     var failureWhenCancelled: Throwable? = null
 
+    /** Runs as the load finishes successfully, like a platform error arriving right after "prepared". */
+    var afterLoad: (() -> Unit)? = null
+
     /** Loads currently running, and the most that ever ran at once — the player promises one. */
     var activeLoads: Int = 0
         private set
     var maxConcurrentLoads: Int = 0
+        private set
+
+    /** Times [release] ran while a load was still running on the engine; the player promises zero. */
+    var releasesDuringLoad: Int = 0
         private set
 
     val loadedSources: MutableList<AudioSource> = mutableListOf()
@@ -65,6 +72,7 @@ internal class RecordingPlaybackEngine(
             }
             loadFailure?.let { failure: Throwable -> throw failure }
             position = 0L
+            afterLoad?.invoke()
         } finally {
             if (unwindDelayMs > 0L) withContext(NonCancellable) { delay(unwindDelayMs) }
             activeLoads--
@@ -94,6 +102,7 @@ internal class RecordingPlaybackEngine(
 
     override fun release() {
         releaseCount++
+        if (activeLoads > 0) releasesDuringLoad++
         position = 0L
     }
 

@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -96,8 +99,30 @@ public fun LogOverlayPanel(
     val records: List<LogRecord> by state.records.collectAsState()
     // Which record's stack trace is expanded. Deliberately composition-local rather than part of
     // LogOverlayState: it is a view detail, and two panels showing the same buffer should be able
-    // to expand different rows.
-    val expandedId: MutableState<Long?> = remember { mutableStateOf(null) }
+    // to expand different rows. Held as the record itself and compared by identity, not by id: ids
+    // restart at 1 after clear(), and a swapped state numbers from 1 too, so an id would hand the
+    // expanded row to an unrelated new record.
+    val expandedRecord: MutableState<LogRecord?> = remember { mutableStateOf(null) }
+
+    // Newest first, so a record that arrives has to be shown at the top. A keyed LazyColumn keeps the
+    // row that was first in place when a row is inserted above it, which parks the new record above
+    // the viewport. So: when the newest record changes while the list still shows its top (read here,
+    // in the composition that follows the change, before the list is re-measured), scroll back to
+    // item 0. A reader who scrolled down into the history is not moved.
+    val listState: LazyListState = rememberLazyListState()
+    val follow: NewestFollower = remember { NewestFollower() }
+    val newest: LogRecord? = records.lastOrNull()
+    if (newest !== follow.newest) {
+        follow.scrollToTop = follow.newest == null ||
+            (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0)
+        follow.newest = newest
+    }
+    LaunchedEffect(newest) {
+        if (follow.scrollToTop) {
+            follow.scrollToTop = false
+            listState.scrollToItem(0)
+        }
+    }
 
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.surface) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -137,15 +162,15 @@ public fun LogOverlayPanel(
                     )
                 }
             } else {
-                LazyColumn {
+                LazyColumn(state = listState) {
                     // Newest first: the reason to open this panel is almost always the thing that
                     // just happened.
                     items(items = records.asReversed(), key = LogRecord::id) { record ->
                         LogRecordRow(
                             record = record,
-                            isExpanded = expandedId.value == record.id,
+                            isExpanded = expandedRecord.value === record,
                             onClick = {
-                                expandedId.value = if (expandedId.value == record.id) null else record.id
+                                expandedRecord.value = if (expandedRecord.value === record) null else record
                             },
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = HORIZONTAL_PADDING))
@@ -154,6 +179,12 @@ public fun LogOverlayPanel(
             }
         }
     }
+}
+
+/** Plain holder (not state): written during composition, read by the effect that follows it. */
+private class NewestFollower {
+    var newest: LogRecord? = null
+    var scrollToTop: Boolean = false
 }
 
 @Composable

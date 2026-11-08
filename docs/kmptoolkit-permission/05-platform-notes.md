@@ -134,7 +134,19 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
   API levels are `Location` there, background location below API 29 is `Location`, background body
   sensors below API 33 is `BodySensors` — reads and writes that entry's flags, so the two can never
   disagree.
+- Entries that ask Android for the same permission string (or a subset of it) share what was learned: a
+  refusal for good through `PhotoLibrary` reads as one through `AudioLibrary` below API 33, and through
+  `Calendar` as one through `CalendarWriteOnly`. The reverse direction is not mirrored (the full calendar
+  can still show a dialog for the read string), and neither is a partial answer. A `Runtime(name)` you
+  build for a string a catalog entry already covers keeps its own flags, so ask through one of the two.
+  `observe` follows the same model: a request through one of these entries re-reads every observer of
+  an entry that asks for at least one of the same strings (`AudioLibrary` and `PhotoLibrary` below
+  API 33, `Calendar` and `CalendarWriteOnly`), so an observer is never behind `check` until the next
+  resume. A `Runtime(name)` is not in the catalog and is re-read only at a resume.
 - A role reuses the two keys: `asked` after its first refusal, `rationale` after its second.
+  A role dialog interrupted by its activity finishing with it up records nothing: the default host
+  tells an interruption from the user backing out. A host of your own has only a result code, so what it
+  reports as `RESULT_CANCELED` counts as a refusal.
 - Special accesses and device admins store nothing.
 
 The flags are not a secret and need no encryption; a plain `createKeyValueStorage(context)` is the
@@ -253,6 +265,20 @@ or from a `singleInstance` activity, it opens from the application context with
 The details are in
 [`kmptoolkit-activity` — System screens and tasks](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks).
 
+### Answers arrive before the resume
+
+Android delivers the answer of a permission dialog, a role screen or a device-admin screen to the
+paused activity and resumes it right after, in the same main-thread message. A caller on
+`Dispatchers.Main.immediate` (`viewModelScope`, `lifecycleScope`) that goes on to the next request
+therefore continues *before* the resume, when no activity is resumed yet: a dialog launched there
+finds none, and a Settings screen opened there takes the resume that follows the answer for the
+user coming back. So the controller waits, before it puts any system UI on screen - a dialog, a role or
+device-admin screen, a Settings screen - until an activity of the app is resumed: at once when one
+is, at most one second otherwise. In a backgrounded app, where no activity ever resumes, the wait times
+out once per call (later launches of the same call do not wait again) and the launch then goes on as it
+always did: the host reports it could not be shown and the status is unchanged. The wait is separate
+from the one after a refusal, which is for reading the rationale.
+
 ### The dialog host
 
 The default `ActivityResultPermissionRequestHost` registers with the resumed `ComponentActivity`'s
@@ -260,7 +286,40 @@ The default `ActivityResultPermissionRequestHost` registers with the resumed `Co
 activity that resumes while a request is pending. The registry keeps a launched request's key across
 a configuration change and delivers the answer when something registers for it there, so a dialog
 answered while the activity was being recreated still reaches the waiting request. Process death
-ends the request: nothing in the new process is waiting, and nothing was recorded.
+ends the request: nothing in the new process is waiting, and nothing was recorded. The key carries a
+random token of the running process, so the answer to a dialog that was up when the process died,
+which the restored activity's registry parks under the old key, never matches a request of the new
+process and is never taken for its first one. The dead request's answer stays unread in that
+activity's saved state until the activity finishes (one small entry; no public registry API can
+remove it).
+
+The host holds the activity whose registry the dialog uses only while that dialog is showing; nothing
+is kept between requests. An activity destroyed for recreation (a configuration change, the system
+reclaiming it) is let go at its destroy, and the answer is picked up from the recreated instance when
+it resumes. An activity that another live one covered while the dialog was up stays registered until
+the request ends, since the answer goes to the registry the dialog was started from; every
+registration, including one the registry handed a waiting answer to during registration, is dropped
+when the request ends. A request ends when the user answers, when the activity the dialog was shown
+from (or its recreated instance) is finished (destroyed, or another activity resumes over it), or at
+process death. Only that activity decides it: another activity of the app that opens and finishes
+while the dialog is up (a trampoline or deep-link screen) never ends the request, and the activity the
+dialog came from finishing behind another live one does. An origin the system destroyed for
+recreation and that is never recreated leaves the request pending until the answer arrives; with a
+dialog up the only recreation that happens is a configuration change, which recreates it at once. A caller that is cancelled
+while the dialog is up does **not** withdraw it: the system dialog cannot be taken back, so the
+request stays pending until the user answers, the answer is then discarded, and a launch in that
+window returns `false` like any launch while one is pending.
+
+The controller covers that window for the request queued behind the cancelled one: it waits until the
+host is free (the stale dialog answered or abandoned) and then launches its own dialog. The wait is
+bounded at 30 seconds (an internal constant, not configurable) and ends at once if the waiting caller
+is cancelled. When the stale dialog is still up at the bound, the waiting request fails like a refused
+launch: nothing is shown and the current status is returned. A request arriving after the wait has
+timed out is not held again; it goes straight to the host.
+
+Each `createPermissionController` call without an `activityAccess` registers its own activity
+tracker, a lifecycle callback on the `Application` that lives as long as the process. Build the
+controller once, or pass one shared `ActivityAccess` to every factory that takes one.
 
 ### `minSdk`
 
@@ -290,8 +349,24 @@ your manifest to declare its permission where it has one — `SCHEDULE_EXACT_ALA
 | `KeepPermissionsWhenUnused` | `PackageManager.isAutoRevokeWhitelisted` (API 30+; `Granted` below) | `Intent.ACTION_AUTO_REVOKE_PERMISSIONS` with `package:` |
 | `AccessibilityService(component)` | `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`; `Unavailable` for an unknown service | `ACTION_ACCESSIBILITY_SETTINGS` |
 
+`request` of a special access returns at the first resume of an activity of the app after the Settings
+screen opened. With several windows of the app on screen (split screen, freeform, activity embedding), a
+window beside Settings that is recreated (fold, rotation, theme or density change) counts, and the
+request then returns the status unchanged while Settings is still open; `observe` and
+`PermissionRequestFlow.refresh` pick up the user's choice at the next resume. A precise "the window
+Settings covered resumed" rule needs a pause signal the activity tracker does not have, and every guess
+without one can hang a request, which holds the controller's request lock; an early return is harmless.
+
 A platform call that throws — `isExternalStorageManager` is known to on some OEM builds — reads as not
 granted, and is logged.
+
+The runtime path has the same guard, with a fallback for each read that is the answer the platform
+cannot contradict, logged once per read and Android string: the notification switch below API 33
+(`areNotificationsEnabled`) reads as off, i.e. `PermanentlyDenied`; the device-policy lookup reads as
+"not restricted"; the rationale lookup reads as "cannot tell" (`NotDetermined`, or
+`Denied(explainFirst = false)` once the dialog was shown); the protection-level lookup reads as "the
+device does not know it" (`Unavailable` for a `Runtime(name)`). `checkSelfPermission` is not guarded: it
+fails only when the system server is dead, and no honest fallback exists.
 
 **Why the fallbacks.** Some OEM Settings apps drop a package-specific screen while keeping the list
 it belongs to. Each entry that has both tries this app's own page first and then the generic list of
@@ -331,7 +406,7 @@ iOS 18 limited contacts status — are reached behind a runtime OS check.
 | `Camera` | `AVCaptureDevice.authorizationStatus(for: .video)` + `requestAccess` | **Clean.** Restricted is `Restricted`. |
 | `Microphone` | `AVAudioSession.recordPermission` + `requestRecordPermission` | **Clean.** No restricted state exists. |
 | `Notifications` | `UNUserNotificationCenter.getNotificationSettings` + `requestAuthorization` with `IosPermissionOptions.notificationOptions` | **Asynchronous.** Provisional is `Limited`, and a request from it asks again without `Provisional`, which shows the full prompt; ephemeral (an App Clip) is `Granted`. `openSettings` opens the app's notification page on iOS 15.4+ (`UIApplicationOpenNotificationSettingsURLString`), the app's page below. |
-| `Location` | `CLLocationManager.authorizationStatus` + `requestWhenInUseAuthorization` | **Folded.** "When in use" and "always" are granted; reduced accuracy is `Limited`. The answer arrives through the delegate, which `request` awaits. |
+| `Location` | `CLLocationManager.authorizationStatus` + `requestWhenInUseAuthorization` | **Folded.** "When in use" and "always" are granted; reduced accuracy is `Limited`. The answer arrives through the delegate, which `request` awaits — with the same fallback as `LocationBackground`: if iOS shows no prompt (Location Services off device-wide) or the user leaves it unanswered, `request` returns the status as it is instead of waiting for ever. |
 | `LocationBackground` | the same manager + `requestAlwaysAuthorization` | **Folded, with one inference.** Only "always" is granted (`Limited` with reduced accuracy); "when in use" is `Denied(explainFirst = true)`. iOS shows the upgrade prompt **at most once** and says nothing when it declines, so `request` waits for a changed status or — if the app did not resign active within a second — returns the status as it is. Once the upgrade was asked for in this process and the status stayed "when in use", the entry reads `PermanentlyDenied`. While location is not determined, a request asks for "when in use" first. |
 | `AudioLibrary` | `MPMediaLibrary.authorizationStatus` + `requestAuthorization` | **Clean.** The user's music library. |
 | `PhotoLibrary` | `PHPhotoLibrary.authorizationStatus(for: .readWrite)` + `requestAuthorization(for:)` | **Clean.** `.limited` is `Limited`; iOS does not prompt again from there — `presentLimitedPhotoLibraryPicker` lets the user change the selection. |

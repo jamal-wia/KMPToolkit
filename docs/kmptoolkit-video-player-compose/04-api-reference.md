@@ -77,8 +77,8 @@ public fun rememberVideoPlayer(
 |---|---|
 | Creation | Once, on first composition, through `LocalVideoPlayerFactory.current` or else the platform factory. `config` and the factory are read then and never again. |
 | Source | Each `source` (by `equals`) is prepared in a coroutine of the composition; a newer one cancels an older prepare still in flight. `null` calls `unload()`. |
-| `autoPlay` | `play()` after a prepare returns, unless that prepare was superseded. Read when the prepare returns, so changing it applies to the next source. |
-| Release | `release()` when the call leaves the composition. Do not release it yourself or use it afterwards. |
+| `autoPlay` | `play()` after a prepare returns, unless that prepare was superseded. Read when the prepare returns, so changing it applies to the next source. `VideoPlayer(source = …)` with `pauseOnBackground` also skips it while the host lifecycle is below `STARTED`. |
+| Release | `release()` when the call leaves the composition, or when a composition that created the player is discarded before it was shown (e.g. a dropped lazy-list prefetch). Do not release it yourself or use it afterwards. |
 | Failure | A failed load is the player's `Error` state; nothing is thrown. |
 | Missing engine | `IllegalStateException` on desktop without a provided factory, with a message naming `LocalVideoPlayerFactory` and the engine artifacts. |
 
@@ -114,7 +114,8 @@ The picture only. Never changes the player's state; never releases it.
 
 - **Size**: both dimensions bounded → the bounds. One unbounded → derived from
   `videoSizeFlow`'s aspect ratio, or the minimum constraint until it is known. Both unbounded → the
-  minimum constraints.
+  minimum constraints. Any side is capped at 32 766 px, so a picture of an extreme shape (a 1:10000
+  strip) lays out, clipped, instead of throwing out of measure.
 - **Picture**: sized by `scaleMode` inside those bounds, centred, clipped to them. The ratio is
   `videoSizeFlow`'s — the display shape, so an anamorphic source is right on every platform; on
   desktop each frame is stretched over that picture box, and only while no size is known is a
@@ -203,7 +204,7 @@ public fun VideoControlsScope.DefaultVideoControls(
     textStyle: TextStyle = VideoControlsDefaults.ControlTextStyle,
     onFullscreenClick: (() -> Unit)? = null,
     isFullscreen: Boolean = false,
-    speeds: List<Float> = VideoControlsDefaults.Speeds,
+    speeds: List<Float> = VideoControlsDefaults.Speeds, // entries outside player.playbackSpeedRange are not offered
     seekStepMs: Long = DEFAULT_SEEK_AMOUNT_MS,
     showSeekButtons: Boolean = true,
     showMuteButton: Boolean = true,
@@ -219,7 +220,7 @@ and the seek-forward button; along the bottom, the position (the drag position w
 `VideoSeekBar`, the duration, `MuteButton`, `SpeedButton` and — only when `onFullscreenClick` is
 not `null` — `FullscreenButton`. Always, while buffering or `Preparing`: a `BufferingIndicator` in
 the centre in place of the centre button. Transport controls are disabled while the state is not
-playable (`Idle`, `Preparing`, `Error`); mute is always enabled.
+playable (`Idle`, `Preparing`, `Error`); mute is always enabled. `speeds` entries outside the player's `playbackSpeedRange` are not offered (the player would clamp them and the button could not advance past them); when none is inside the range, its two bounds are offered.
 
 ## Building blocks
 
@@ -248,8 +249,10 @@ the matching `VideoControlsLabels` field (`null` → role only).
   The handle then returns to `positionMs`; nothing stays frozen at the finger's last position.
 - Tap: `onSeek(tapped position)`.
 - While dragging, `positionMs` changes are ignored. After a seek, the handle stays at the target
-  until `positionMs` next changes.
-- Accessibility: `ProgressBarRangeInfo(fraction, 0f..1f)` and a `SetProgress` action that seeks.
+  until `positionMs` next changes, or the bar stops being active (`enabled` turns `false` or
+  `durationMs` drops to `0`) — a seek the player rejected, because it left its playable states as
+  the seek committed, never moves `positionMs`.
+- Accessibility: `ProgressBarRangeInfo(fraction, 0f..1f)` and a `SetProgress` action that seeks; the progress is clamped to `0f..1f`, and a non-numeric (`NaN`) progress is refused (the action returns `false`) instead of throwing.
 - Disabled (no gestures, no `SetProgress`, `disabled()` semantics) while `durationMs <= 0` or
   `!enabled`.
 - Mirrored in RTL.

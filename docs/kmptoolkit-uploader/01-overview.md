@@ -43,6 +43,9 @@ external executor under a self-expiring lease.
 - **Constraint gating.** An effect can wait for a live precondition — connectivity, a connected
   socket — and the queue re-drains the moment it flips.
 - **A platform wake layer.** WorkManager on Android, `BGTaskScheduler` on iOS, both optional.
+- **The server's answer.** An `UploadHandler` receives the response — status, headers and the start
+  of the body — in `classify` and `onDelivered`, so the id of a created resource, a job id or a
+  validation error is not thrown away. See [`03-guide.md`](03-guide.md#reading-what-the-server-answered).
 - **Detached delivery.** A handler can hand a long upload to an external executor and settle it
   later, under a lease that expires so a dead executor cannot strand the item forever. Android ships
   a ready-made executor for the common case — a plain multipart HTTP upload — as
@@ -88,6 +91,7 @@ If you use SQLDelight, `kmptoolkit-uploader-sqldelight` is a ready store. If you
 | `Uploader` | What features depend on: `enqueue`, `observe`, `cancel`, `cancelByTag`, `trigger` |
 | `UploaderEngine` | `Uploader` plus lifecycle: `start`, `drain`, `settle`, `awaitDrained`, `close` |
 | `UploaderHandler<P>` | One per effect type: encode, decode, order, deliver |
+| `UploadHandler<P>` | An `UploaderHandler` whose delivery is a multipart upload; its hooks receive an `UploadResponse` |
 | `AttemptResult` | What a delivery attempt concluded |
 | `SettleResult` | What a *detached* delivery concluded |
 | `RetryPolicy` | How failures are paced; `ExponentialBackoffRetryPolicy` is the built-in |

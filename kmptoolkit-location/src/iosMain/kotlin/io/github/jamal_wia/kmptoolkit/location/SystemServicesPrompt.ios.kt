@@ -60,32 +60,58 @@ internal class SystemServicesPromptLocationProvider(
  * Starts a one-shot request on a `CLLocationManager` whose only purpose is the alert iOS raises in
  * front of it.
  *
- * Every manager and its delegate are held until their request finishes one way or the other — ARC
+ * The manager and its delegate are held until their request finishes one way or the other — ARC
  * would otherwise collect them while the alert is still up. `CLLocationManager.delegate` is a weak
- * reference, so the set below is the only thing keeping a delegate alive; a second prompt started
- * before the first finished adds to it rather than replacing the first. Touched on the main queue
- * only.
+ * reference, so [OneAlertRequest] is the only thing keeping a delegate alive. At most one request
+ * is kept at a time: for an app that is not yet authorized CoreLocation may never call back, and a
+ * request per prompt would be retained for as long as the process lives. A prompt made while one is
+ * still pending changes nothing — the alert is already the one waiting for the user. Touched on the
+ * main queue only.
  */
 private class CoreLocationServicesAlert : ServicesAlert {
 
-    private val pending: MutableSet<DiscardingDelegate> = mutableSetOf()
+    private val request: OneAlertRequest = OneAlertRequest(begin = ::beginCoreLocationRequest)
 
     override suspend fun raise() {
-        withContext(Dispatchers.Main) {
-            // Created and started on the main queue, like every manager in this module: CoreLocation
-            // delivers callbacks on the run loop of the thread that created the manager.
-            val delegate = DiscardingDelegate(onFinished = { finished: DiscardingDelegate ->
-                pending -= finished
-            })
-            val manager = CLLocationManager().apply {
-                desiredAccuracy = kCLLocationAccuracyHundredMeters
-                this.delegate = delegate
-            }
-            delegate.manager = manager
-            pending += delegate
-            manager.requestLocation()
-        }
+        // Created and started on the main queue, like every manager in this module: CoreLocation
+        // delivers callbacks on the run loop of the thread that created the manager.
+        withContext(Dispatchers.Main) { request.start() }
     }
+}
+
+/**
+ * Keeps at most one request pending. [begin] starts a request and returns what must stay
+ * referenced until it finishes; it calls its argument when the request is over, possibly before it
+ * returns. Not thread-safe:
+ * the caller serialises (the main queue). Separated from CoreLocation so a test can drive it with
+ * a request that never finishes.
+ */
+internal class OneAlertRequest(private val begin: (finished: (Any) -> Unit) -> Any) {
+
+    private val pending: MutableSet<Any> = mutableSetOf()
+
+    /** How many requests are kept right now; never more than one. */
+    val pendingCount: Int get() = pending.size
+
+    fun start() {
+        if (pending.isNotEmpty()) return
+        // A request may be over before begin returns; then there is nothing to keep, and adding
+        // the handle afterwards would wedge every later prompt.
+        var finishedEarly = false
+        val handle: Any = begin { finished: Any -> if (!pending.remove(finished)) finishedEarly = true }
+        if (!finishedEarly) pending += handle
+    }
+}
+
+private fun beginCoreLocationRequest(finished: (Any) -> Unit): Any {
+    val delegate = DiscardingDelegate(onFinished = { done: DiscardingDelegate -> finished(done) })
+    val manager = CLLocationManager().apply {
+        desiredAccuracy = kCLLocationAccuracyHundredMeters
+        this.delegate = delegate
+    }
+    delegate.manager = manager
+    manager.requestLocation()
+    return delegate
 }
 
 private class DiscardingDelegate(

@@ -162,4 +162,9 @@ class AndroidSqlDelightUploaderStoreTest {
     fun `closing twice is a no-op`() {
         checks.closingTwiceIsANoOp()
     }
+
+    @Test
+    fun `close inside inTransaction fails fast and leaves the storage open`() = runTest {
+        checks.closeInsideATransactionFailsFastAndLeavesTheStorageOpen()
+    }
 }

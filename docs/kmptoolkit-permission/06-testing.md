@@ -176,6 +176,11 @@ worth copying are the ones a real device produces and a happy-path test never re
 cannot launch, a host that throws, a dialog interrupted without an answer, and a dismissal (denied,
 no rationale, no refusal remembered) — none of which may be recorded as a refusal.
 
+The controller waits up to a second for a resumed activity before it launches any system UI (see
+[platform notes](05-platform-notes.md#answers-arrive-before-the-resume)): a test that builds the real
+controller over an `ActivityAccess` that never resumes pays that second, in virtual time under `runTest`,
+once per request call.
+
 ## What the module tests itself
 
 - **`commonTest`**, run on both Android and iOS: every row of the flow's transition table, the

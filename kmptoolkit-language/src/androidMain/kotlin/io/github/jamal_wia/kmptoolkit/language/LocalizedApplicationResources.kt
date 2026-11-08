@@ -48,6 +48,8 @@ public class LocalizedApplicationResources {
 
     private class Localized(val locale: Locale, val resources: Resources)
 
+    // Volatile, not locked: getResources() is called on any thread and must not block; each field is one
+    // reference, and a race at worst builds equivalent resources twice (see resourcesOf).
     @Volatile
     private var languageSource: (() -> AppLanguage)? = null
 

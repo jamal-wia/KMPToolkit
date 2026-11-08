@@ -62,6 +62,8 @@ The end of the source is handled by VLCJ's repeat support, which starts the sour
 reports its end. The player never reports `Completed` while looping. The restart re-opens the
 input, so there can be a short gap at the loop point — VLC does not offer a gapless loop that can be
 switched on and off for a source already loaded.
+A seek made in the gap at the loop point is reported at once and applied as soon as the restarted
+source has output.
 
 ## Volume
 
@@ -70,6 +72,9 @@ never does: `1f` means the same on every platform, and amplification clips.
 
 Volume and rate are re-applied each time output starts, because VLC only accepts them once its
 audio output exists. A volume set while nothing plays is not lost.
+
+The VLC engine plays rates from 1/32 to 32 (libvlc's range) and uses the nearest bound outside it;
+`playbackSpeedFlow` still shows the speed that was asked for.
 
 ## Buffering and buffered position
 
@@ -120,8 +125,15 @@ Nothing here differs from the shared contract, but it is worth knowing what happ
 - **The libvlc instance** — the expensive part, whose creation scans VLC's plugins — is created by
   the first `prepare` and **kept** across all of the above, so switching sources or unloading never
   rebuilds it. `release()` frees it, on the player's background teardown thread after the last
-  native media player. A player dropped without `release()` still frees it once garbage-collected,
-  as a safety net — but release every player you create rather than relying on that.
+  native media player. A player dropped without `release()` is freed once garbage-collected, as a
+  safety net: the native media player of a loaded source, then the instance. The net does not
+  cover a player that is **still playing** — it stays reachable and keeps decoding and playing — and
+  collection time is up to the JVM, so release every player you create rather than relying on it.
+- **Temporary asset copies** (an asset packed in a jar) are deleted when their source is closed. They
+  are not registered with the JDK's delete-on-exit list, which would grow with every load; a single
+  shutdown hook removes any copy that was never closed. A copy that cannot be deleted when its
+  source closes (on Windows, a file the native player still holds open) stays registered, so the
+  hook retries it at exit.
 - **Nothing slow runs on the calling thread**, which is usually the UI thread. Locating and loading
   libvlc and opening the source run on `Dispatchers.IO`. Stopping and freeing a native player — which
   for a stalled network stream can take as long as libvlc's network timeout — runs on a background

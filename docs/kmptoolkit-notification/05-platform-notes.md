@@ -55,7 +55,7 @@ if you need it, set the interruption level yourself in platform code.
 **This module declares no Android permission**, and a `LibraryManifestTest` asserts it against a real
 `PackageManager` on every build (see [`docs/01-architecture.md`](../01-architecture.md#asserting-the-no-permissions-invariant)).
 
-**No dependency merges one either.** `androidx.core`, the only Android dependency, contributes no
+**No dependency merges one either.** `androidx.core` and `androidx.media` (plus `kmptoolkit-permission`), the module's Android dependencies, contribute no
 `<uses-permission>`. The only entries the assertion has to subtract come from the *test* harness and
 never reach a published artifact:
 
@@ -111,7 +111,9 @@ usage-description string.
   `startForeground` takes no tag. Up to 2.x every id was posted untagged under its masked
   `String.hashCode()`, so `"Aa"` and `"BB"` — equal hashes — were one notification; see
   [`03-guide.md`](03-guide.md#updating-from-2x) for what the 3.x notifier does about what 2.x left in
-  the tray.
+  the tray. Ids (and action ids) that differ only in unpaired surrogates are distinct too: their
+  `PendingIntent` keys encode such characters losslessly, because plain URI encoding would turn each
+  into `?` and merge them.
 - **Every `PendingIntent` carries its own key.** A `PendingIntent` is identified by request code plus
   the intent as `Intent.filterEquals` sees it — extras do not count — so two notifications whose
   intents differed only in extras would share one, and `FLAG_UPDATE_CURRENT` would rewrite the
@@ -136,6 +138,11 @@ usage-description string.
   about to be coalesced does not need `createNotificationChannel` re-issued, but a channel that is
   missing is still created, because the platform drops a notification on a channel that does not
   exist without a word.
+- **The 2.x sweep cache is bounded.** The first post of an id also removes the untagged notification
+  a 2.x version would have shown for it (a migration aid, gone in a future major release). The ids already swept are
+  remembered only to skip a repeated binder call; `cancel` and `cancelAll` drop them and the set is
+  capped at 256, so forgetting one costs a single harmless `cancel`, and posting under many fresh ids
+  does not make the notifier grow.
 - **`cancelAll` clears the app's whole tray**, including notifications posted by a previous process
   or by another part of your app.
 
@@ -145,7 +152,10 @@ usage-description string.
   "notifications are off in Settings", so `NotificationsDisabled` is never returned there;
   `PermissionDenied` covers both.
 - **`add(request:)` is asynchronous** and its `NSError` is awaited, so a rejection becomes
-  `Failed(cause)` rather than a success you would have believed.
+  `Failed(cause)` rather than a success you would have believed. The one rejection with its own
+  result is `UNErrorCodeNotificationsNotAllowed` — authorization revoked between the check and the
+  `add` — which is reported as `PermissionDenied`, the answer the check would have given a moment
+  later. A failed `add` does not become the coalescing baseline, so retrying the same progress posts.
 - **No progress bar, no small icon, no `ongoing`, no `autoCancel`.** Those fields are ignored; put a
   percentage in `body` if it must be visible.
 - **`cancelAll` removes delivered notifications only.** Pending (scheduled) requests are left alone,

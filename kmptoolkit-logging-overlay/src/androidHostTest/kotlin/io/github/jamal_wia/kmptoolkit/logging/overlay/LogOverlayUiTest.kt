@@ -23,10 +23,10 @@ import kotlin.test.assertTrue
  * that the panel's two buttons drive [LogOverlayState] rather than any private UI state.
  */
 @RunWith(RobolectricTestRunner::class)
-// Pinned, not left to default: the default is the module's compileSdk (37), which no released
-// Robolectric ships an emulated runtime for, and the failure is an opaque IllegalArgumentException
-// from DefaultSdkPicker rather than anything naming the SDK level. Raise this when Robolectric
-// catches up; nothing under test is API-level sensitive.
+// Pinned, not left to default: nothing under test is API-level sensitive, so a stable emulated
+// runtime keeps the test independent of the module's compileSdk (37). Robolectric 4.17 ships an
+// SDK 37 image, but running it needs a JVM access flag this build does not pass (see the modules'
+// robolectric.properties), so the pin stays at a level that runs without it.
 @Config(sdk = [34])
 @OptIn(ExperimentalTestApi::class)
 class LogOverlayUiTest {

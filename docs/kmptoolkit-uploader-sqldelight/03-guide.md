@@ -204,6 +204,13 @@ holds the database thread and SQLite's write lock until it returns. That is bad 
 database; here it also stalls every other queue operation. Do the slow work first, then open the
 transaction — or, better, put the slow work in a handler, which is what the uploader is for.
 
+Never await, inside `inTransaction`, another coroutine that touches the uploader or this storage (an
+executor settling an item, an `observe` collector, a second `enqueue` launched elsewhere). That
+coroutine's statements queue on the database thread, which is parked inside your block waiting for it:
+a permanent deadlock of the whole queue, with no timeout and no error. Do that work before or after the
+transaction, or call the store directly from inside the block, where re-entry is free. Calling
+`storage.close()` inside the block is refused with an `IllegalStateException` for the same reason.
+
 A block that throws rolls the transaction back and the exception propagates unchanged, including
 `CancellationException`: a cancelled coroutine never leaves a half-applied transaction behind.
 
@@ -211,11 +218,66 @@ Collecting `observeByType` from inside a transaction is fine — the flow recogn
 already on the database thread rather than dispatching onto it — though what it shows you is the
 uncommitted state your own transaction has written so far.
 
+Withdrawals are not transactional. `cancel`, `cancelByTag` and `REPLACE` called inside a transaction cancel a
+running upload or attempt at once. If that transaction later rolls back, the row is restored and stays queued, and
+its upload resumes no later than when its lease expires; the cancelled attempt spent nothing.
+
 ## Failures
 
 Nothing platform-specific escapes. A SQLite failure — a full disk, a corrupt file, a database that
 cannot be opened — arrives as `UploaderStorageException`, carrying the `UploaderStorageOperation` that
-was running and the platform cause.
+was running and the platform cause. A corrupt database file is by default never deleted for you (see
+`createUploaderStorage(context, config)` in the API reference): the open fails and the file stays as found.
+
+### One row is at most 1 MiB
+
+The text columns of one row (payload, id, type, unique key, ordering key, tag and last error) may hold at most
+1 MiB of UTF-8 together. An insert over that is refused with `UploaderStorageException`. The limit exists because
+Android reads a row through a `CursorWindow` of about 2 MiB: a bigger row can be written but never read back, and
+because the queue is read as a whole, that one row would make every item unreadable and impossible to withdraw.
+The same limit holds on every platform so the queue behaves alike. Keep a large payload elsewhere (a file) and
+queue a reference to it. The engine itself bounds the failure text it stores to about 4096 characters. The bound also holds for later writes:
+a failure text or park reason written after the insert is cut (on a character boundary, or dropped) to whatever room
+the rest of the row leaves, so a row accepted at the limit never grows past it.
+
+A storage used after `close()` fails with `UploaderStorageException` whose cause is an `IllegalStateException`,
+never with a `CancellationException`.
+
+### A corrupt database at launch
+
+Opening the queue is the one place a corrupt file shows up, so handle it where you create the storage,
+once per launch. On both platforms the default is the same: `createUploaderStorage` throws
+`UploaderStorageException` with `operation == UploaderStorageOperation.OPEN`, and the file is byte for
+byte what it was. Nothing the queue still owed is lost until you decide it is.
+
+```kotlin
+val storage: UploaderStorage = try {
+    createUploaderStorage(context)
+} catch (failure: UploaderStorageException) {
+    if (failure.operation != UploaderStorageOperation.OPEN) throw failure
+    // Report it (crash reporter, a "could not start uploads" state), then choose:
+    // keep the file for inspection and run without a queue, or give up on its contents.
+    reportStorageFailure(failure)
+    throw failure
+}
+```
+
+`OPEN` also covers causes that are not corruption (a failed migration, a full disk, a locked file),
+and retrying is then the right move; in those cases the file is never deleted either way.
+
+If losing the queue is acceptable — for example because every effect is cheap to recreate from your
+own data — opt in to starting afresh instead of handling the failure:
+
+```kotlin
+val storage: UploaderStorage = createUploaderStorage(
+    context,
+    UploaderDatabaseConfig(recreateOnCorruption = true),
+)
+```
+
+With `recreateOnCorruption = true` a file recognised as corrupt is deleted and an empty queue opened,
+which is how 3.0.0 always behaved. Every effect that was still queued in that file is gone, with no
+signal to the app. Other open failures still throw.
 
 It is thrown rather than returned because `UploaderStore` has no result type, and swallowing a failed
 write would be worse than throwing: the engine would believe an effect is queued that is not, and

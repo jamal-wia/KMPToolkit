@@ -86,7 +86,9 @@ public interface UploaderHandler<P : Any> {
      * Encodes [payload] into the string stored in [UploaderItem.payload].
      *
      * The format is entirely yours — `kotlinx.serialization` JSON, protobuf in Base64, a single id.
-     * This module has no serialization dependency and never looks inside the result.
+     * This module has no serialization dependency and never looks inside the result. The result is text, and
+     * a store may replace an unpaired surrogate in it (for example with U+FFFD), so encode binary data as, for
+     * example, Base64.
      *
      * @param payload the value passed to [Uploader.enqueue].
      * @return the encoded form to persist.
@@ -97,7 +99,8 @@ public interface UploaderHandler<P : Any> {
      * Decodes what [encodePayload] wrote.
      *
      * Throwing is the correct way to report an undecodable payload: the engine parks that item
-     * with the failure attached instead of retrying it forever or deleting it. Configure your
+     * with the failure attached instead of retrying it forever or deleting it. A [kotlinx.coroutines.CancellationException]
+     * the decoder throws on its own counts as such a failure; only a cancellation of the engine's own scope propagates. Configure your
      * decoder to tolerate unknown fields so a row written by a newer app version with an added
      * field still reads.
      *
@@ -148,7 +151,8 @@ public interface UploaderHandler<P : Any> {
  *   [UploaderItemState.IN_FLIGHT] and its lease expired without anyone settling it. The previous
  *   executor may in fact have completed and merely failed to report (the app died right after the
  *   send landed), so a detaching handler should rejoin or probe rather than blindly starting a
- *   fresh delivery. `false` for ordinary first attempts and for re-runs after
+ *   fresh delivery. Also `true` after an engine was closed just as the previous attempt answered
+ *   [AttemptResult.Detached]. `false` for ordinary first attempts and for re-runs after
  *   [AttemptResult.Retry].
  * @property claim the claim this attempt runs under — the value [UploaderItem.claim] takes when this
  *   attempt's hand-off is written. An executor this attempt detaches to passes it back to

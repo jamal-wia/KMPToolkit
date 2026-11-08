@@ -10,6 +10,10 @@ What differs between platforms, and what the consuming app has to declare.
   source, whatever the engine does with its own state between loads.
 - Buffering and picture-size reports are dropped when no source is loaded, so a late platform
   callback cannot resurrect a state.
+- A failure or stall the engine reports after its load succeeded but before `prepare` publishes
+  `Ready` is applied in order at that step: a failure wins over `Ready`, a stall is kept. A new
+  `prepare` on a still-loaded source first releases the engine, so a late report of the old source
+  cannot be taken for the new one.
 - Polling runs only while `Playing`.
 
 ## Permissions — the library declares none of its own
@@ -91,7 +95,10 @@ The player polls the duration, playhead and buffered position from its own corou
 (`Dispatchers.Default` by default), which ExoPlayer would reject. The engine answers those from a
 snapshot it refreshes on the main thread on every player event and on every poll, extrapolating the
 playhead between refreshes from the snapshot's clock and speed — so the polled position is current to
-within one main-thread hop, not one poll interval.
+within one main-thread hop, not one poll interval. While calls made from another thread are still
+queued, refreshes are skipped: the ExoPlayer then still describes the moment before them, and would
+put the pre-seek playhead (or the still-playing state) back over a seek or pause the caller has
+already seen.
 
 ### One ExoPlayer per player
 
@@ -106,6 +113,7 @@ so a surface attached to it stays attached. `release()` releases the ExoPlayer i
 | `STATE_READY` during a load | the load returns |
 | `onPlayerError` during a load | the load throws the `PlaybackException` → `VideoPlayerState.Error` |
 | `onPlayerError` after a load | `onFailed` → `VideoPlayerState.Error` |
+| any event after `release()` returned | not forwarded, including one already queued on a busy looper behind the reset |
 | `STATE_BUFFERING` / leaving it | `isBufferingFlow` `true` / `false` (a seek buffers briefly too) |
 | `onVideoSizeChanged` | `videoSizeFlow`: width × `pixelWidthHeightRatio` by height; a zero size is `null`. Media3 applies rotation before reporting. |
 | `STATE_ENDED` | `Completed`. The engine also clears `playWhenReady`, so a later seek does not resume playback on its own. Never reached with `RepeatMode.One` (`REPEAT_MODE_ONE`). |
@@ -164,7 +172,11 @@ and pass no headers — a source with no headers creates the asset with no optio
 shared `AVAudioSession` to `AVAudioSessionCategoryPlayback` with mode `AVAudioSessionModeMoviePlayback`
 and activates it — without that, a video's sound is muted by the ringer switch. The setting is
 process-wide; pass `managesAudioSession = false` when the app owns the session (for example because
-it also records, or mixes with other audio). Interruptions (a call, Siri, a route change) are not
+it also records, or mixes with other audio). The session is left active after `release()`: it is
+shared by every player and by `kmptoolkit-audio-player`, so no single player can tell when it is
+safe to deactivate. An app that wants other apps' audio to resume deactivates it itself
+(`setActive(false, withOptions: .notifyOthersOnDeactivation)`) when it knows no player is running,
+or passes `managesAudioSession = false`. Interruptions (a call, Siri, a route change) are not
 observed: the player neither pauses nor reports them. The `audio` background mode is not needed —
 background playback is out of scope for this module.
 
@@ -209,7 +221,10 @@ which does not fit a player that swaps its source on every `prepare`.
 **Seeking** is frame-accurate (zero tolerance before and after). That is what a seek bar and a
 "watched 95 %" check want; on a long remote stream it can take slightly longer than a keyframe seek.
 `AVPlayer` completes a seek asynchronously, so until it has, `playbackPositionFlow` and the state
-report the seek target rather than `AVPlayer`'s not-yet-updated `currentTime()`.
+report the seek target rather than `AVPlayer`'s not-yet-updated `currentTime()`. The target is
+released by the completion of that very seek: AVFoundation completes a seek a newer one interrupted
+while the newer one is still running, and that completion — even for the same target, as when two
+backward seeks both clamp to 0 — leaves the newer target in force.
 
 **Playback speed** is assigned to `AVPlayer.rate` right after `play()` and immediately while playing;
 setting a speed while paused does not start playback.

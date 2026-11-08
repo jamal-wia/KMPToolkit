@@ -20,7 +20,7 @@ A string-keyed, string-valued store whose contents survive a process restart.
 | Member | Contract |
 |---|---|
 | `get` | `Success(null)` when the key was never written. `Failure` only when the store could not be read — never for a missing key |
-| `put` | Overwrites. The value is readable by any instance over the same config once this returns |
+| `put` | Overwrites. The value is readable by any instance over the same config once this returns. A key or value containing an unpaired UTF-16 surrogate cannot be stored by any backend; `put` answers `OperationFailed` and changes nothing |
 | `remove` | Idempotent; succeeds for a key that is not there |
 | `clear` | Removes only this store's entries. Never another store's, never the iOS standard defaults |
 
@@ -93,7 +93,7 @@ public enum class StorageOperation { GET, PUT, REMOVE, CLEAR }
 
 | Case | Means | Response |
 |---|---|---|
-| `Unavailable` | the store cannot be opened right now — a key store that will not load, a Keychain before first unlock | retry later; nothing is lost |
+| `Unavailable` | the store cannot be opened right now — a key store that will not load, a Keychain before first unlock; on Android 13+ (API 33) also a decrypt that failed with a keystore fault the platform calls transient | retry later; nothing is lost |
 | `Undecryptable` | the entry exists and its plaintext cannot be recovered — the key that encrypted it is gone | discard and re-acquire; retrying will not help |
 | `OperationFailed` | the operation itself failed. `platformCode` carries an iOS `OSStatus`, `cause` an exception where the platform threw one | log it; it is not a state to branch on |
 
@@ -135,7 +135,10 @@ and process restarts; reset by `clear()`, by clearing app data, and by a reinsta
 
 `current()` always returns an id and never fails. If the store cannot be written, the id is valid
 for that call but a later call produces a different one — a degraded signal rather than an error to
-handle. Nothing is memoized in memory, so a `clear()` takes effect on the very next call.
+handle. If the entry cannot be read right now (`StorageError.Unavailable`, for example a keystore that
+is not answering), the id is fresh for that call and the stored one is left untouched; only an absent,
+blank, `Undecryptable` or otherwise permanently unreadable entry is overwritten. Nothing is memoized
+in memory, so a `clear()` takes effect on the very next call.
 
 Concurrent first calls agree: the read-generate-write runs under one lock shared by every provider in
 the process, so callers racing on a fresh store — through one provider or several over the same

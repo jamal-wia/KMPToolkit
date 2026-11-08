@@ -66,6 +66,10 @@ renders it with `Node.snapshot` into a reused `WritableImage` and copies the pix
 `IntArray`. That is one scene-graph render, one GPU→CPU readback and one full-frame copy per
 displayed frame, on the JavaFX application thread — on top of the decode JavaFX does anyway.
 
+The pulse runs only while there is a picture to copy: it stops for audio-only sources (no picture,
+so no per-frame cost at all) and once a paused picture has settled, and starts again on `start()`, a
+seek, or a picture that appears later.
+
 The array is new for every frame on purpose: the consumer holds the latest frame and draws it on its
 own schedule, so an array handed back to the engine could be overwritten mid-draw and tear. The cost
 is one short-lived allocation per displayed frame (`width × height × 4` bytes — about 3.7 MB at 720p,
@@ -94,19 +98,38 @@ decoder writes straight into memory without a render-and-read-back step.
 - **Starting the toolkit.** The first `prepare` (or `isJavaFxMediaAvailable()`) calls
   `Platform.startup` if nothing has started JavaFX yet, and tolerates an app that already did. That
   can take up to 10 s, so `prepare` does it — and resolves the source against the disk — on
-  `Dispatchers.IO`, never on the thread that called it; `isJavaFxMediaAvailable()` blocks its caller.
+  `Dispatchers.IO`, never on the thread that called it; `isJavaFxMediaAvailable()` blocks its caller, except on the JavaFX application thread, where an
+  already running toolkit is confirmed at once.
   Only
   when the engine itself started the toolkit does it call `Platform.setImplicitExit(false)` — it
   never opens a window, and without that JavaFX could shut down when a window of the app's closes.
   An app that runs its own JavaFX windows keeps its own exit policy.
+  Callers that were waiting meanwhile each try again in turn, so while the thread stays
+  unresponsive, N concurrent first calls can take up to N x 10 s; the bound is per attempt, not per
+  caller.
 - **The toolkit stays up.** `release()` frees the player, not the toolkit; it is process-wide and
-  shared with the rest of the app. If the app calls `Platform.exit()`, players stop working and
-  further transport calls are ignored.
+  shared with the rest of the app. If the app calls `Platform.exit()` (or JavaFX exits on its own
+  when the app's last JavaFX window closes and implicit exit is on), players stop working and
+  further transport calls are ignored; a `prepare` made after that fails with
+  `RuntimeUnavailable` instead of waiting for the ready timeout. An explicit `Platform.exit()` is
+  seen at once. An implicit exit and a dead JavaFX thread give OpenJFX's own API no signal, so they
+  are seen through the thread (where it ends with the toolkit) or through a heartbeat block that the
+  JavaFX thread has not run for 2 s. Silence counts only while an implicit exit is possible at all
+  (implicit exit on; never when the engine started the toolkit, since it switches implicit exit
+  off), and never while the JavaFX thread is running the engine's own work, such as building a
+  player on a cold start. A thread kept busy for 2 s by the app's own work while implicit exit is on
+  is still taken for an exited one until it answers: that load fails with `RuntimeUnavailable`,
+  which is not remembered, and the next load works. The first call or load after such an exit therefore takes up to
+  2 s to fail, later ones fail at once, and a thread that was only stalled and then recovers counts
+  as running again. A load in flight when the toolkit ends fails within about 2 s as well. Where
+  JavaFX is hosted on a thread that outlives it (inside Swing or SWT), the heartbeat, with implicit exit on, is the only
+  signal.
 - **Where work happens.** Every `MediaPlayer` call runs on the JavaFX application thread, in the
   order the calls were made from whichever threads made them (a call made on that thread runs at
   once only when nothing queued from another thread is still waiting to run); the position, duration and buffered position the core module polls are cached there, so polling never
   blocks. Opening a source (`new Media(uri)`, which may block on the network) runs on
-  `Dispatchers.IO`.
+  `Dispatchers.IO`. A seek still queued behind a newer seek is skipped, because the newer one
+  decides the position.
 - **Where events come from.** State callbacks and frames are produced on the JavaFX application
   thread; the core module's flows make that invisible to collectors.
 
@@ -125,9 +148,15 @@ decoder writes straight into memory without a render-and-read-back step.
 - **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine
   pauses it there, so a seek from `Completed` stays `Paused` — in the state and in JavaFX — until
   `play()`.
+- **Open files after release.** JavaFX gives a `Media` no way to be closed: the file or connection
+  it opened stays open after `release()` until the garbage collector reclaims it. Under the usual
+  descriptor limits this matters only for an app that loads thousands of sources between two
+  collections.
 - **Playback speed.** On macOS, `MediaPlayer.play()` starts the native player at normal speed
   whatever rate JavaFX holds, so a speed set while paused would be lost; the engine applies the rate
   again after every `play()`.
+  A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
+  passes one).
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from
   `bufferProgressTime`, which is meaningful for progressive HTTP sources (for a local file expect it
   to cover the whole duration).

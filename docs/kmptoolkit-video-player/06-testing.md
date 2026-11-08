@@ -59,16 +59,16 @@ Nothing moves on its own — there is no wall clock inside.
 | `var loadDelayMs: Long` | Make loads take virtual time — a window to cancel or replace a `prepare`. |
 | `var suspendLoads: Boolean`, `finishLoad()`, `failLoad(cause)`, `val isLoadPending` | Hold a load in `Preparing` until the test decides how it ends. |
 | `var videoSizeOnLoad: VideoSize?` | Report a picture size while loading, as platforms do. |
-| `advancePositionTo(ms)` / `advancePositionBy(ms)` | Move the playhead, as playback would between polls. `advancePositionBy` stops at a known duration. |
+| `advancePositionTo(ms)` / `advancePositionBy(ms)` | Move the playhead, as playback would between polls. `advancePositionBy` stops at a known duration and saturates instead of wrapping around. |
 | `var bufferedPositionMs` | Set what the next poll reads as buffered. |
-| `completePlayback()` | Play to the end: `Completed` — or, when the player asked for looping, back to `0` with no completion, like a real engine. |
+| `completePlayback()` | Play to the end: `Completed` — or, when the player asked for looping, back to `0` with no completion, like a real engine. The playhead moves to `durationMs` when that is known; on an unknown length (`0`) it stays where it is, as on the real engines. |
 | `failPlayback(cause)` | Fail after a successful load — a stream that dies mid-video. |
 | `reportBuffering(isBuffering)` | Stall or resume. |
 | `reportVideoSize(size)` | Report or change the picture size (`null`: no picture). |
 | `val isPlaying`, `val positionMs`, `val seekTargets` | Assert what the player asked the platform to do. |
 | `val appliedSpeed`, `val appliedVolume`, `val isLooping` | Assert the settings the platform received — `appliedVolume` is `0f` while the player is muted. |
 | `val loadedSources` | Every source passed to `load`, in order, including failed ones. |
-| `val releaseCount`, `val disposeCount`, `val hasListener` | Assert the release contract. `disposeCount` is `1` once the player is released, `0` before — never raised by an unload. |
+| `val releaseCount`, `val disposeCount`, `val hasListener` | Assert the release contract. `releaseCount` goes up once per unload, per cancelled load, per `prepare` that replaces a loaded or in-flight source, and for the player's own release (a first `prepare` adds none). `disposeCount` is `1` once the player is released, `0` before — never raised by an unload. |
 
 ## Observing position updates
 

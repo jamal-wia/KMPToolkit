@@ -153,7 +153,8 @@ manifest, and only you know which alarms are still wanted after however long the
 
 - **`id`** is identity. Same id twice means "replace", not "add" — that is the mechanism for
   editing a reminder's time. Derive it from your own domain key (`"reminder-$reminderId"`), never
-  from the fire time, or moving a reminder leaves the old alarm armed.
+  from the fire time, or moving a reminder leaves the old alarm armed. If `schedule` keeps
+  answering `Failed(PlatformError)` for one id, `cancel(id)` and schedule again.
 - **`type`** is routing. One stable value per feature, matched exactly and case-sensitively against
   `AlarmHandler.type`. It is not a category for display.
 
@@ -171,13 +172,24 @@ manifest, and only you know which alarms are still wanted after however long the
   `ACTION_MY_PACKAGE_REPLACED` exactly as you re-arm after a reboot.
 - **Treating the result as a boolean.** `Inexact` is armed; `Failed` is not. Collapsing them either
   hides a downgrade or invents a failure that did not happen.
+- **Changing `alarmIntentScheme` between app versions.** Alarms armed under the earlier scheme can no
+  longer be cancelled or replaced: `cancel` is a silent no-op and a new `schedule` of the same id arms
+  a second alarm. Pick a scheme once and keep it.
+- **Changing `alarmIdKey` or `alarmTypeKey` between app versions.** An alarm armed under the earlier
+  key names is read with the new ones when it fires, finds no id or type, and is dropped without a
+  trace. Keep both stable, like the scheme.
 - **Expecting `cancelAll()` to clear everything.** It cancels exactly the ids you pass. There is no
-  "cancel all mine" on Android.
+  "cancel all mine" on Android. Like `cancel`, it removes only alarms that have not fired yet: on iOS a
+  notification already delivered stays in Notification Centre (see the iOS notes in
+  [`05-platform-notes.md`](05-platform-notes.md) for how to clear it, for example on logout).
 - **Assuming an alarm survives force-stop or reboot.** Neither is true on Android. Reconcile at
   startup and re-arm at boot.
-- **Scheduling hundreds of alarms on iOS.** Roughly 64 pending local notifications per app, then
-  requests are refused — you get `Failed(PlatformError(...))`. Schedule a rolling window, not a
-  year of reminders.
+- **Scheduling hundreds of alarms on iOS.** At most 64 pending local notifications per app: iOS
+  keeps the soonest 64 and silently drops the rest, so the scheduler refuses a 65th new identifier
+  with `Failed(PlatformError(...))` instead of reporting `Exact`. The count includes every pending local
+  notification of the app, not only this scheduler's. Schedule a rolling window, not a year of
+  reminders (see [`05-platform-notes.md`](05-platform-notes.md) for the source and verification
+  status).
 - **Localizing at fire time on iOS.** There is no fire time on iOS. Re-schedule on language change.
 
 ## Read next

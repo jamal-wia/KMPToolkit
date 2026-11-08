@@ -25,6 +25,8 @@ package io.github.jamal_wia.kmptoolkit.audio.player
  * - **[load] must honor cancellation** and leave nothing loaded when it is cancelled. The player
  *   never runs two loads on one engine at once — a newer load waits for the cancelled one to finish
  *   unwinding — but it relies on the cancelled one actually unwinding.
+ * - **Report an error during loading by throwing from [load]**, and one right after `load` returned
+ *   through [PlaybackEngineListener.onFailed]; the player turns either into [PlayerState.Error].
  * - **Never call the listener after [release]** — the player detaches it first, but an engine that
  *   posts callbacks from a platform queue must also drop anything already in flight.
  * - **[start], [pause], [seekTo] and [setSpeed] must tolerate being called in the wrong state.**
@@ -47,6 +49,10 @@ public interface PlaybackEngine {
     /**
      * Loads [source] and suspends until it is ready to play, discarding anything loaded before.
      *
+     * A `CancellationException` thrown while the calling coroutine is still active (an engine's own
+     * timeout) counts as a load failure, like any other throwable; the player surfaces it as
+     * [PlayerState.Error].
+     *
      * @param source what to load.
      * @throws Throwable any platform error — surfaced by the player as [PlayerState.Error].
      */
@@ -59,14 +65,17 @@ public interface PlaybackEngine {
     public fun pause()
 
     /**
-     * Moves the playhead. The caller has already clamped [positionMs] to `0..`[durationMs].
+     * Moves the playhead. [positionMs] is never negative. It is clamped to `0..`[durationMs] while the
+     * length is known; while [durationMs] is `0` a relative skip passes its target unclamped, up to
+     * [Long.MAX_VALUE]. An engine whose platform takes a narrower type must saturate, not truncate.
      *
      * @param positionMs target position in milliseconds.
      */
     public fun seekTo(positionMs: Long)
 
     /**
-     * Sets the output rate. The caller has already clamped [speed] to the configured range.
+     * Sets the output rate. The caller has already clamped [speed] to the configured range. Must not
+     * throw: a rate the platform refuses is ignored and playback keeps its previous rate.
      *
      * @param speed rate multiplier.
      */
@@ -96,6 +105,10 @@ public interface PlaybackEngineListener {
 
     /**
      * Playback failed after loading succeeded.
+     *
+     * Also honoured when it arrives after [PlaybackEngine.load] has returned but before the player has
+     * published [PlayerState.Ready]: the player then ends in [PlayerState.Error], never in `Ready`. An
+     * engine must not call it while `load` is still running — a load failure is thrown from `load`.
      *
      * @param cause the platform error, surfaced unchanged as [PlayerState.Error].
      */

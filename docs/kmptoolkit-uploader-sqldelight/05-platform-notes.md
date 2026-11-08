@@ -46,6 +46,22 @@ effects in it, on a device that may have different credentials. If that matters 
 `data_extraction_rules.xml` exclusion for the file, or wipe the queue on first launch after a
 restore. This module cannot decide that for you.
 
+## Corrupt database file
+
+The default contract is the same on both platforms: a file that is not a usable database fails
+`createUploaderStorage` with `UploaderStorageException(OPEN)` and is left byte for byte as found.
+`UploaderDatabaseConfig(recreateOnCorruption = true)` replaces it with an empty queue on both.
+
+| | Android | iOS |
+|---|---|---|
+| Default | Android's own handler would delete the file and recreate it, so the factory installs a callback that throws instead | `NativeSqliteDriver` never deletes a file; the first statement fails and the factory reports it |
+| `recreateOnCorruption = true` | The framework's own handler deletes the file and reopens | The factory probes the opened file with `PRAGMA quick_check` (a file damaged below a valid header opens fine and would fail on every later read), and when the open or the probe fails with a message saying the file is not a database or is malformed it deletes the file with SQLiter's `DatabaseFileContext` and opens again (SQLite discards a write-ahead log found next to the empty new file, so the old queue cannot come back through it) |
+
+One difference remains: Android decides what counts as corruption (the framework raises
+`SQLiteDatabaseCorruptException`), while on iOS the factory recognises SQLite's "file is not a
+database" and "malformed" messages. A corruption SQLite reports in other words is treated as an
+ordinary `OPEN` failure on iOS and the file is kept.
+
 ## Driver differences
 
 | | Android (`AndroidSqliteDriver`) | iOS (`NativeSqliteDriver`) |
@@ -90,7 +106,9 @@ What this means for you:
 - **`close()` blocks until the thread is quiet**, then releases it. It has to: releasing a thread
   does not join it, and closing the connection while a statement is still running would close it
   under a live cursor. On Android the thread is a daemon, so forgetting `close()` leaks a thread but
-  cannot hang a JVM; on iOS it is a worker with its own run loop and must be closed.
+  cannot hang a JVM; on iOS it is a worker with its own run loop and must be closed. If closing the
+  driver throws, the thread is still released and the exception reaches the caller; the storage counts
+  as closed, so a second `close()` does nothing.
 
 `observeByType`'s flow reads on that same thread, so an emission can never observe a half-applied
 transaction. Collecting it from inside `inTransaction` is safe — it recognizes it is already on the

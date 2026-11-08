@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -34,6 +36,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.random.Random
 import kotlin.time.TimeSource
 
@@ -84,7 +88,8 @@ import kotlin.time.TimeSource
  * @param probe the on-demand trigger source — see [createStatusBarLuminanceProbe].
  * @param enabled when `false`, no sampling happens and no override is ever pushed onto [controller];
  *   the wrapper still composes [content] and still records it into its layer every frame.
- * @param intervalMs periodic sample cadence.
+ * @param intervalMs periodic sample cadence in milliseconds; must be positive, otherwise the call throws
+ *   [IllegalArgumentException].
  * @param onSampled diagnostics hook — called after every sample with how long the whole sample took
  *   (layer readback + both strips + any controller write), in nanoseconds, on the composition's
  *   thread. `null` (the default) costs nothing.
@@ -98,6 +103,9 @@ public fun AutoSystemBarsIconStyle(
     onSampled: ((durationNanos: Long) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
+    // First, before any early return: the validity of a parameter must not depend on the device's
+    // insets. Not coerced: a clamp would turn a hang into a 1 ms CPU hog and hide the bug.
+    require(intervalMs > 0L) { "intervalMs must be positive, was $intervalMs" }
     val layer: GraphicsLayer = rememberGraphicsLayer()
     // Strip-sized scratch layer the sampler renders into — see `sampleOnce`.
     val stripLayer: GraphicsLayer = rememberGraphicsLayer()
@@ -128,9 +136,13 @@ public fun AutoSystemBarsIconStyle(
     // immersive, or gesture nav with no inset) is simply skipped inside `sampleOnce`.
     if (!enabled || (statusBarHeightPx <= 0 && navBarHeightPx <= 0)) return
 
+    // Not an effect key: a new lambda instance (one capturing a changing value) would otherwise
+    // restart the sampler and release the override on every recomposition.
+    val currentOnSampled: State<((durationNanos: Long) -> Unit)?> = rememberUpdatedState(onSampled)
+
     LaunchedEffect(
         layer, density, layoutDirection, statusBarHeightPx, navBarHeightPx,
-        intervalMs, controller, probe, onSampled, isAnimating, lifecycleOwner,
+        intervalMs, controller, probe, isAnimating, lifecycleOwner,
     ) {
         val statusPx: Int = statusBarHeightPx.coerceAtLeast(0)
         val navPx: Int = navBarHeightPx.coerceAtLeast(0)
@@ -161,7 +173,12 @@ public fun AutoSystemBarsIconStyle(
         // per bar, so the scratch layer holds exactly those rows: each is the display layer redrawn
         // with a one-row clip and shifted so the wanted source row lands there. The display list is
         // replayed, not re-recorded, so the composables' draw lambdas do not run again.
-        suspend fun sampleOnce() {
+        // One readback at a time: on API 24-27 the readback suspends, so the trigger collector and
+        // the periodic tick could otherwise both be inside a sample, re-recording the strip layer
+        // under the first one's pending read.
+        val sampling = SerialSampler()
+
+        suspend fun sampleOnce(): Unit = sampling.run {
             val started: TimeSource.Monotonic.ValueTimeMark = TimeSource.Monotonic.markNow()
             // Captured before the readback (on API 24-27 toImageBitmap suspends, and a root draw
             // landing meanwhile must count as unread) and booked only once the readback succeeded —
@@ -202,7 +219,7 @@ public fun AutoSystemBarsIconStyle(
                     drawsAtLastSample = drawsBeforeReadback
                     ticksSinceLastSample = 0
                 }
-            onSampled?.invoke(started.elapsedNow().inWholeNanoseconds)
+            currentOnSampled.value?.invoke(started.elapsedNow().inWholeNanoseconds)
         }
 
         try {
@@ -266,6 +283,20 @@ public fun AutoSystemBarsIconStyle(
             handle.release()
         }
     }
+}
+
+/**
+ * Runs samples one at a time, in the order they ask. On API 24-27 the readback suspends, so the
+ * trigger collector and the periodic tick can both be inside a sample; the second would re-record
+ * the scratch layer under the first one's pending read. A [Mutex], not a flag: a waiting sample must
+ * run afterwards (it is the one that reads the post-trigger frame) and a cancelled waiter must just
+ * leave. Kept as a class of its own so a test can drive it with a readback that never finishes.
+ */
+internal class SerialSampler {
+
+    private val mutex: Mutex = Mutex()
+
+    suspend fun <T> run(sample: suspend () -> T): T = mutex.withLock { sample() }
 }
 
 /**

@@ -46,11 +46,15 @@ class VlcjVideoEngineSessionTest {
     private val teardownThread: ExecutorService =
         Executors.newSingleThreadExecutor { Thread(it, TEARDOWN_THREAD).apply { isDaemon = true } }
     private val listener = RecordingListener()
+
+    /** The engine's clock, frozen unless a test advances it, so no seek hold depends on wall time. */
+    @Volatile private var clockNanos: Long = 1_000_000_000L
     private val tempFiles: MutableList<File> = CopyOnWriteArrayList()
 
     private fun newEngine(
         discover: () -> Boolean = { true },
         resolve: (VideoSource, ClassLoader) -> ResolvedMedia = VlcMediaResolver::resolve,
+        nanoTime: () -> Long = { clockNanos },
     ): VlcjVideoEngine = VlcjVideoEngine(
         vlcArgs = emptyList(),
         discover = {
@@ -64,6 +68,7 @@ class VlcjVideoEngineSessionTest {
         },
         teardown = teardownThread,
         resolve = resolve,
+        nanoTime = nanoTime,
     ).also { it.setListener(listener) }
 
     private val engine: VlcjVideoEngine by lazy { newEngine() }
@@ -283,8 +288,10 @@ class VlcjVideoEngineSessionTest {
         assertEquals(FakeVlcRuntime.TASK_THREAD, player.threadOf("setTime(800)"))
         assertEquals(FakeVlcRuntime.TASK_THREAD, player.threadOf("setVolume(25)"))
 
+        // The applied seek's target is held for 500 ms (libvlc applies set_time asynchronously).
+        clockNanos += 600_000_000L
         player.playhead = 950L
-        assertEquals(950L, engine.positionMs(), "once applied, the playhead is libvlc's")
+        assertEquals(950L, engine.positionMs(), "once the hold expired, the playhead is libvlc's")
     }
 
     @Test
@@ -509,6 +516,69 @@ class VlcjVideoEngineSessionTest {
 
         assertEquals(listOf("play", "setTime(800)", "setTime(1500)"), player.transportCalls())
         assertEquals(1_500L, engine.positionMs())
+    }
+
+    @Test
+    fun `a seek stands as the playhead while earlier calls are still queued on the task thread`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        player.playhead = 12_000L
+        listener.reaction = { event -> if (event == "buffering=true") engine.pause() }
+        val held: CountDownLatch = holdTaskThread()
+        player.fire { buffering(20f) } // submitted from the event thread: the session has a backlog
+
+        engine.seekTo(60_000L) // only queued behind it: libvlc has not even been asked yet
+
+        assertEquals(60_000L, engine.positionMs(), "the clock still reads the old playhead")
+        held.countDown()
+        runtime.drainTasks()
+        assertEquals(60_000L, engine.positionMs())
+    }
+
+    @Test
+    fun `a clock reading taken before a seek does not replace its target`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        engine.seekTo(60_000L)
+        // libvlc 3 applies set_time asynchronously: until it has, it still reports the old time.
+        player.playhead = 12_000L
+
+        player.fire { timeChanged(12_000L) }
+
+        assertEquals(60_000L, engine.positionMs())
+    }
+
+    @Test
+    fun `after the hold window the clock takes over even if libvlc never reported a time near the target`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        engine.seekTo(60_000L)
+        player.playhead = 12_000L
+        clockNanos += 600_000_000L
+
+        assertEquals(12_000L, engine.positionMs())
+    }
+
+    @Test
+    fun `a seek still queued after the end stands over the end`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        player.fire { finished() }
+        listener.reaction = { event -> if (event == "buffering=true") engine.seekTo(500L) }
+        val held: CountDownLatch = holdTaskThread()
+        player.fire { buffering(20f) } // the seek is submitted from the event thread
+
+        assertEquals(500L, engine.positionMs(), "RepeatMode.One restarts like this; not the end")
+        held.countDown()
+        runtime.drainTasks()
+    }
+
+    @Test
+    fun `a reported time near the target ends the hold and the clock takes over`() = runBlocking<Unit> {
+        val player: FakeVlcPlayer = loadAndStart()
+        engine.seekTo(60_000L)
+        player.playhead = 12_000L
+        player.fire { timeChanged(60_400L) } // libvlc landed on a keyframe just after the target
+
+        player.playhead = 61_000L
+
+        assertEquals(61_000L, engine.positionMs())
     }
 
     // --- video size and frames ---------------------------------------------------------------

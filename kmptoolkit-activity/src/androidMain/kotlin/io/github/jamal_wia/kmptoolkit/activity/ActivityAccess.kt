@@ -34,8 +34,30 @@ public interface ActivityAccess {
      * destroyed is treated as absent and dropped, so a stale reference cannot reach your code.
      * The block runs on the calling thread; most `Activity` APIs require the main thread, and this
      * does not move you there.
+     *
+     * With several windows of the app resumed at once (split screen, freeform or desktop windows) it is
+     * the one resumed most recently; when that one pauses, the access answers with the other window
+     * still resumed. Listeners are not called for that change - no activity resumed.
      */
     public fun <R> withActivity(block: (Activity) -> R): R?
+
+    /**
+     * Runs [block] once with every activity this access tracks that is resumed right now, the earliest
+     * resumed first and the one [withActivity] answers with last; runs it never when none is.
+     *
+     * Same validation as [withActivity] (a finishing or destroyed instance is skipped), same thread rule
+     * (the calling thread; most `Activity` APIs need the main one). The set is read once before the first
+     * call, so a block that resumes or finishes an activity does not change which activities this call
+     * visits.
+     *
+     * The default runs [block] with [withActivity]'s activity only, so an implementation of your own that
+     * knows one window keeps compiling and behaves as before.
+     *
+     * @since 4.0.0
+     */
+    public fun forEachResumedActivity(block: (Activity) -> Unit) {
+        withActivity(block)
+    }
 
     /**
      * Subscribes to activity resumption, and fires immediately if this tracker already holds a
@@ -47,7 +69,9 @@ public interface ActivityAccess {
      * rule. Subscribe on the main thread and it runs synchronously, inside this
      * call. Subscribe from any other thread and it is posted to the main thread instead. It is
      * dropped if you cancel first, if the activity stops being resumed in the meantime, or if a
-     * real resume reaches the listener before it.
+     * real resume reaches the listener before it. If the listener throws during the synchronous
+     * replay, the exception propagates out of this call and the listener is not subscribed (you never
+     * received a handle to cancel it with).
      *
      * **Do not let the listener store the activity.** It is held strongly by the tracker until you
      * cancel it, so anything it captures lives as long as the tracker does.
@@ -61,6 +85,12 @@ public interface ActivityAccess {
      * Unregisters from the `Application`, drops the current activity reference, and forgets every
      * listener.
      *
+     * Like [ActivitySubscription.cancel], it is a hard stop for every listener: once it has returned,
+     * none is called again from any thread, and it waits for a call already running on the main
+     * thread. That holds for every caller: a concurrent second `release()`, or one made from inside a
+     * listener, also does not return before the listeners are stopped, and a listener added while
+     * `release()` runs is never called.
+     *
      * A process-lifetime tracker never needs this. It exists for tests. Idempotent.
      */
     public fun release()
@@ -69,7 +99,16 @@ public interface ActivityAccess {
 /** A handle returned by [ActivityAccess.addOnActivityResumedListener]. */
 public interface ActivitySubscription {
 
-    /** Stops the listener from being called again, and releases whatever it captured. Idempotent. */
+    /**
+     * Stops the listener from being called again, and releases whatever it captured, even while the caller still holds this handle. Idempotent.
+     *
+     * The guarantee is strict and holds on every thread: once this returns, the listener is never
+     * called again, whichever thread called it and however a resume or a replay is racing it. If
+     * the listener is running on the main thread at that moment, this call waits for it to return,
+     * so do not call it from another thread while holding a lock the listener also takes. Called
+     * from inside the listener itself (or from another listener), it never waits and never
+     * deadlocks.
+     */
     public fun cancel()
 }
 

@@ -14,15 +14,30 @@ ensureAvailable ─▶ [already available?] ─── yes ──▶ return at on
                    [transfer running?] ── yes ──▶ attach to it
                           │ no
                           ▼
-                   enqueueDownload (resumes a Partial file)
+                   subscribe to the events, THEN enqueueDownload (resumes a Partial file)
                           │
                           ▼
                    Progress… ─┬─ FileReady ─▶ mark Complete ─▶ commit ─▶ verify ─▶ Completed
                               │                                  └─ check failed ─▶ download again
-                              ├─ Error     ─▶ retry? ─▶ re-enqueue │ give up
+                              ├─ Error     ─▶ temp file Complete? ─ yes ─▶ commit
+                              │                 └─ no ─▶ retry? ─▶ re-enqueue │ give up
                               ├─ Cancelled ─▶ Idle, temp deleted
-                              └─ (silence)  ─▶ 5-minute stall ─▶ treated as Error
+                              └─ (silence)  ─▶ stall timeout (5 min) ─▶ treated as Error
 ```
+
+The engine subscribes to a transfer's events **before** it enqueues the transfer, so an event your
+downloader emits while enqueuing (a file that is already whole, a failure to begin) is not lost even
+through a `MutableSharedFlow` without replay. And on an `Error` or a stall it first looks at the
+temp file: a `Complete` one means the transfer finished and only its `FileReady` went missing, so the
+engine commits it instead of re-downloading or deleting it.
+
+Two more rules follow from that order. What a subscription delivers *before* the engine enqueues is
+dropped — it can only be a replay of an earlier attempt — so a replaying downloader must not
+replay a terminal event of a finished transfer once a new `enqueueDownload` has been called. And
+when the engine *attaches* to a transfer that was running, it checks again after subscribing: a
+transfer that ended in between (and whose event a downloader without replay dropped) is committed
+if its temp file is complete and started again otherwise. An event flow that completes without a
+terminal event fails the unit at once as `DownloadError.Unknown`; it is not waited out as a stall.
 
 Two invariants make the rest of this document make sense:
 
@@ -31,15 +46,22 @@ Two invariants make the rest of this document make sense:
   (`isDownloadInProgress`); "is it done" is answered by the **file on disk**
   (`isResourceAvailable`). A crash therefore needs no recovery pass — the next `ensureAvailable`
   re-derives everything from those two questions.
+  A stored failure count outside what the engine writes is treated as damaged: below zero as no
+  failures, above the limit as the limit, so a broken `DownloadStateStore` cannot turn the
+  three-attempt limit into endless retries.
 - **The temp file IS the resume state, where the platform allows it — and a partial one is never
   committed.** `DownloaderStorage.tempFileState` tells a `Partial` file from a `Complete` one; they
   are different files, and only `markTempFileComplete` turns one into the other. A partial file is
   resumed via a ranged request — or attached to, while its transfer is still running — however
   large it is: a transfer killed mid-way leaves a file that exists and is not empty, and before
-  2.0.0 the engine committed exactly that as the finished resource. A user cancel and a final
-  failure both delete the temp file, so those restart from zero.
+  2.0.0 the engine committed exactly that as the finished resource. A failed transfer keeps its
+  partial file for the next `ensureAvailable` to resume from; only a user cancel, an integrity
+  failure and a `NotFound` failure delete it, so only those restart from zero.
 
 ## Group path vs. per-unit path
+
+The engine keeps a small record for every unit id it has seen, for its whole lifetime; reuse one
+engine, and expect a new id to cost a little more as tens of thousands accumulate.
 
 The two surfaces on `Downloader` are deliberately **not** one generalized over the other — the
 group path's mutex, progress scaling and notification machinery are proven for a large bundle and
@@ -49,7 +71,7 @@ left alone; the per-unit path is a separate, simpler machine for a runtime catal
 |---|---|---|
 | Concurrency | one download per group, groups in parallel | several units in parallel |
 | State | `downloadState(group)` — one per declared group | `unitDownloadStateFlow(unit)` — one per unit, created lazily |
-| Retry | progress-based loop + persisted stall counter, up to 2 stalls without progress | **none** — one stall surfaces as `Error`; these are small files a user can just re-tap |
+| Retry | loop with capped backoff + persisted failure counter, up to 3 failed attempts in a row (progress past the earlier high-water mark restarts the run); `NotFound` / `Unauthorized` never retried | **none** — one stall surfaces as `Error`; these are small files a user can just re-tap |
 | Failure | throws + publishes | throws + publishes (identical contract) |
 | Bundled bypass | honoured | **ignored** — a runtime unit is never bundled |
 | Notifier | called throughout | **never called** — the per-unit path talks to nobody but its own state flow |
@@ -59,6 +81,22 @@ emission is seeded from disk, so a collector can tell "already downloaded earlie
 from "nobody has asked" (`Idle`) from "finished downloading this process" (`Completed`) without a
 separate storage read. `Completed` is sticky and never demoted back to `Available` — that
 distinction is what a UI row keys off to celebrate a fresh download exactly once.
+
+## Unit ids and relative paths
+
+Give units ids made of `[A-Za-z0-9._-]` and keep them unique ignoring case (on iOS, ignoring Unicode
+normalization too). Other ids work, but they are stored under a hashed name (see
+[`05-platform-notes.md`](05-platform-notes.md)) rather than at the readable path.
+
+A `relativePath` is yours: it is used as written once `.`, `..` and empty segments are resolved
+lexically (`files/x/../a.bin` is `files/a.bin` whether or not `x` exists, and `..` never climbs out
+through a symbolic link). If it cannot be used safely (empty, NUL,
+climbing out of the base directory, or naming a directory the storage manages such as `tmp` or
+`tmp/expect`) the unit fails before any transfer: `ensureAvailable` throws `DownloadFailedException`
+with `DownloadError.Unknown`, whose `cause` is `InvalidDownloadUnitException` carrying the
+`Reason`. `isAvailable` is `false` and `pathOf` throws the same exception. It is a catalogue error:
+fix the catalogue, the temp files are kept. Only the library's own storages are checked this way: the
+engine never calls `getResourcePath` of a `DownloaderStorage` you wrote before a transfer.
 
 ## Prove the bytes are usable — `ResourceFormat`
 
@@ -70,12 +108,24 @@ deep inside a reader — is what this exists to prevent.
 |---|---|
 | `Opaque` | Move into place; existence is the only possible check |
 | `ZipArchive(availabilityMarker)` | Extract into a staging directory, swap into place, delete the archive; the marker file is what proves completeness, since an interrupted extraction also leaves a directory behind |
-| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Open it and read its schema — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself |
+| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Require the 16-byte SQLite header (an empty or cut body fails), open it and read its schema — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself |
 
 The point of the self-check: nobody hardcodes an expected row count anywhere in this library — the
 file states its own expected size. Which table and which key are the host's domain knowledge —
-values on the format, not anything the library assumes. Both shipped storage implementations carry
-zip-slip protection during extraction.
+values on the format, not anything the library assumes: the table is used as a name (a keyword or a name with
+spaces works) and the key as a bound value, never as SQL text. Both shipped storage implementations carry
+zip-slip protection during extraction. Empty directories in the archive are created too. Every entry
+is extracted or the commit fails; none is skipped. An archive that cannot be extracted as delivered — a
+truncated or corrupt entry (size or CRC-32 mismatch), an entry name that leaves the extraction
+directory, an unsupported compression method or an encrypted entry — fails the commit with
+`ResourceIntegrityException` and is deleted, so the engine downloads it once more and then reports
+`DownloadError.Corrupted`. An archive must end with its end of central directory record (one cut before it fails), and its entry names must
+be valid UTF-8. When the marker is not at the top and the archive holds exactly one non-empty top-level directory
+that contains it, that directory's contents are moved up; files and empty directories beside it stay where they
+are, and a name that exists at the top as a file fails the commit with `ResourceIntegrityException`. An archive
+whose extracted tree lacks the marker fails the commit
+with `ResourceIntegrityException` before anything at the final path is touched, so a resource already
+committed stays available; the engine downloads once more and then reports `DownloadError.Corrupted`.
 
 ### A stated hash — `DownloadUnit.sha256`
 
@@ -151,32 +201,71 @@ When exactly to call `beginTempFile` is a decision table in
 
 The group path's policy, as a table because it is not obvious:
 
-| Terminal event | Made progress this attempt? | Engine does |
+| Terminal event | Advanced past the high-water mark this attempt? | Engine does |
 |---|---|---|
 | `FileReady` | — | mark the temp file complete (if the downloader did not), commit, verify, clear stall count, done |
 | `Cancelled` | — | clear stall count, delete temp file, `Idle`, throw `DownloadCancelledException` |
-| `Error` | yes | **retry unconditionally**, stall count reset |
-| `Error` | no, count ≤ 2 | increment, re-enqueue |
-| `Error` | no, count > 2 | clear stall count (the next `ensureAvailable` gets a fresh budget), delete temp file, `Error` state + notification, throw `DownloadFailedException` |
+| `Error` classified `NotFound` or `Unauthorized` | either | never retried: clear the failure count, `Error` state + notification, throw `DownloadFailedException` |
+| `Error`, any other | yes | restart the run: failure count = 1, wait, re-enqueue |
+| `Error`, any other | no, count ≤ 2 | increment, wait, re-enqueue |
+| `Error`, any other | no, count > 2 | clear the failure count (the next `ensureAvailable` gets a fresh budget), `Error` state + notification, throw `DownloadFailedException` |
+
+**What happens to the partial file.** A failed transfer keeps it, so the user's retry resumes
+instead of starting over — a drive through a tunnel must not cost a 1.8 GB download. It is deleted
+in exactly four cases: the user cancels (`cancelDownload`, either overload, whatever state the file
+is in), the bytes fail their integrity check at commit, the failure is `NotFound` (404/410 — the
+object is gone, so the bytes can never be completed), and the downloader reports `Cancelled` (the
+engine takes that for a user cancel; a port reports it only as the answer to `cancelDownload`). `Unauthorized` keeps it: a refreshed session
+fixes that. The engine has no rule for a 416; see
+[`07-background-downloader.md`](07-background-downloader.md).
+
+**Progress means moving forward.** The engine remembers the highest fraction any attempt of one
+`ensureAvailable` has reported (the high-water mark). Only a `Progress` beyond it counts: a transfer
+that restarts and re-reports where it already was, or reports `0`, has not moved. A repeated
+`Progress` still proves the transfer is alive — it restarts the stall timer — but it is not
+progress, so a downloader that repeats one value and then fails is stopped after three attempts.
+A fraction outside 0..1 is clamped into it, and a non-finite one (NaN, infinity) is ignored: it is
+never published and never counts as progress.
+Before every re-enqueue the engine waits 2 s, doubling per failure of the call up to 30 s.
 
 A commit whose bytes fail a check — a `sha256` or recorded-hash mismatch, a database that does not
 open or does not hold the rows it declares — deletes the temp file and downloads **once more**. A second failure is
 `DownloadError.Corrupted`: persisting across two fresh downloads, it is the server's bytes or the
 host's stated hash that is wrong, and no number of retries fixes either. Any other commit failure
-(a full disk, an unwritable path) is `DownloadError.Storage` at once — downloading again is not the
-fix. Both surfaces share this policy.
+(a full disk, an unwritable path) is `DownloadError.Storage` at
+once — downloading again is not the fix, so the complete temp file is **kept**: once the user has
+freed space, the next `ensureAvailable` commits it without a transfer. Both surfaces share this
+policy.
 
 Three things make it work:
 
-- **Stall detection is an inactivity timeout, not a wall clock.** A slow-but-progressing large
-  transfer never trips it; a dead connection does. A stall re-enters the table above as an `Error`
+- **Stall detection is an inactivity timeout, not a wall clock.** It is armed when the engine
+  subscribes to the attempt, so a transfer that never emits anything stalls too. A slow-but-progressing
+  large transfer never trips it; a dead connection does. A transfer the OS legitimately holds
+  silent (iOS waiting for connectivity) must re-emit its current `Progress`, `0` included, now and
+  then, or the host sets `stallTimeout = Duration.INFINITE`. The timeout is 5 minutes unless you pass a
+  `DownloaderConfig(stallTimeout = …)` to `createDownloader` (`Duration.INFINITE` turns it off). A stall re-enters the table above as an `Error`
   with no progress.
-- **The stall counter is persisted** through `DownloadStateStore` — worthless if it reset with the
+- **The failure counter is persisted** through `DownloadStateStore` — worthless if it reset with the
   process, since a crash loop would otherwise retry forever.
-- **Error classification is one keyword-matching function** turning your
-  `BackgroundResourceDownloader`'s raw platform strings into a `DownloadError`. It has to be
-  string-based — what a failing transfer reports differs per platform and per layer — so it is
-  confined to one place and everything downstream is typed.
+- **Error classification is one text-matching function** turning your
+  `BackgroundResourceDownloader`'s raw platform strings into a `DownloadError`. It reads a stated
+  HTTP status (`HTTP 503`, `status 404`) first — a status beats words such as "unauthorized" or
+  "forbidden" in the same message — and falls back to wording only when none is stated. It has to
+  be string-based — what a failing transfer reports differs per platform and per layer — so it is
+  confined to one place and everything downstream is typed. The phrasing a downloader should use
+  is in [`07-background-downloader.md`](07-background-downloader.md).
+
+**When your own code throws.** The ports are host code. A `DownloadNotifier` that throws is logged
+and ignored — a failed notification never fails the download it describes. Anything else that
+throws inside an attempt (`enqueueDownload` — on Android 12+ a foreground service that may not
+start from the background — `isDownloadInProgress`, the event flow, the `DownloadStateStore`) ends
+the unit as a `DownloadFailedException` carrying that exception as its `cause`, with
+`DownloadError.Unknown` (the host's own message) as the error, the state flow at `Error` and the
+notifier told, and the group is not left at `Downloading`. The temp file stays. This covers the
+transfer itself (the port calls above, the commit, the unit's hash). A `DownloaderStorage` that
+you implement and that throws while the engine only *plans* a call (`isResourceAvailable`,
+`tempFileState`) is not caught: that exception reaches the caller as it is.
 
 The per-unit path has **no retry loop** — one stall surfaces directly as `Error`.
 
@@ -213,18 +302,52 @@ implementation has somewhere standard to turn a unit's `apiPath` into something 
 
 ## Cancelling — user, and logout
 
+**What a cancel releases, and what it leaves.** `cancelDownload(unit)` is also how a host releases a
+unit it no longer wants: it deletes the partial temp file, the expected-hash record and, for an
+archive unit, an extraction tree (`tmp/staging-<unit.id>/`) that a process kill left half-done (not
+touched while a commit of that unit is running, and, very rarely, while another unit's commit is
+registering; the next cancel or commit of the unit removes it). The same call also sweeps
+`tmp/kmptoolkit-internal/trash/`, where a detached tree waits for its delete, so a delete that a kill cut short is
+finished by the next cancel of any unit.
+Nothing else enumerates the temp area, and keeping a partial after a transient failure is the resume
+contract, so a unit that is dropped from your catalogue keeps its partial until you call
+`cancelDownload(unit)` for it. Do that when a catalogue revision removes ids.
+
+**The engine keeps light state per id.** For every unit id it has seen during its lifetime (a
+request, a state subscription, a cancel of a tracked unit) the engine keeps a state flow and a lock
+until it is garbage collected. Ids must therefore come from a stable catalogue (they also key the
+temp file, the background session and the stall count, so a fresh id per session would defeat
+resume); minting a new id on every launch is not supported.
+
 Three distinct operations:
 
 - **`cancelDownload(group)`** — cancels each unit, clears stall counts, deletes temp files, drops
   the notification, resets the group to `Idle`. Safe from any thread.
-- **`cancelDownload(unit)`** — non-suspend; the state reset is dispatched onto the engine's own
-  scope, so a caller that must observe the reset synchronously should await the flow rather than
-  read it on the next line.
+- **`cancelDownload(unit)`** — the same for one unit. Synchronous like the group overload: the
+  transfer is cancelled and the state is `Idle` when it returns, so a request made on the next
+  line starts a fresh transfer instead of racing a cancel that is still on its way. (That relies
+  on the port: after its `cancelDownload`, `isDownloadInProgress` must be `false` and the cancelled
+  transfer's `Cancelled` must not be replayed to the next subscriber.)
+  A cancel of a unit this engine has never tracked (never requested, never observed) still cancels
+  the platform transfer, clears the stall count and deletes the unit's temp data, but creates no
+  state flow for it (only the unit's lock object is kept).
 - **`cancelAllDownloads()`** — the **logout** entry point: cancels every group-level and per-unit
-  download. It is `suspend` and awaits every per-unit reset directly, unlike the fire-and-forget
-  `cancelDownload(unit)` overload — going through that overload instead lost the state write to a
-  scope-cancellation race in the codebase this module draws from, kept here as documentation of why
-  the suspend version exists.
+  download the engine tracks (each as above, so every running `ensureAvailable` ends with
+  `DownloadCancelledException`), then the engine's own coroutines (a notification-shade Retry).
+
+**A cancel reaches a call that is already running.** Each `cancelDownload` marks the group (or the
+unit) as cancelled, and every `ensureAvailable` that was started before it ends with
+`DownloadCancelledException`: at once if it is waiting for a transfer or sitting out a retry
+backoff, otherwise at its next step — before the next unit, before a transfer is started, after a
+commit in flight. The running call removes the temp files itself (the commit reads them, so the
+cancel never deletes them behind a running call), publishes `Idle` and removes the notification.
+A commit that had already succeeded leaves its resource in place: while units are still missing
+the call reports the cancel, and once the last commit has succeeded the cancel has no effect and
+`Completed` is published (the resource is there, so the state says so). A group cancel also
+cancels per-unit calls on that group's units, and never deletes a temp file a per-unit commit is
+reading. A request made after the cancel is not affected. This is how a cancel or a logout stops a
+call that is not a child of the engine's own scope (one a screen launched), and what keeps a retry
+backoff from re-enqueueing a download the user cancelled.
 
 What logout does **not** do: it cancels transfers, it never deletes committed resources. Deleting
 is a cache-management concern via `DownloaderStorage.deleteResource`.

@@ -171,7 +171,9 @@ See [`03-guide.md`](03-guide.md#automatic-icon-styling) for how this interacts w
 ## 7. If you need to keep the screen awake
 
 `ScreenWakeLockController` is unrelated to the bars, but ships in the same module. Create one the
-same way, hold it for the session that needs it, and clear it explicitly when done — it does not
+same way, hold it for the session that needs it (one per screen or session is fine, even when their
+lifetimes overlap: they share one activity tracker, the flag stays on while any of them holds it, and a
+cleared one holds nothing), and clear it explicitly when done — it does not
 tie itself to a composition the way `SystemBarsEffect` does:
 
 ```kotlin

@@ -43,6 +43,12 @@ val wakeLock = createScreenWakeLockController(activityAccess)
 
 Each of those keeps a reference to it and neither releases it — the lifetime is yours.
 
+The factories of the other modules that take an optional `activityAccess` (the permission controller,
+the biometric gate) register a tracker of their own when you pass none, and nothing ever releases it:
+it is one small object and one slot in the `Application`'s callback list per call. That is invisible
+when each factory is called once, in `Application.onCreate`, as their documentation asks, and a cost
+you pay per call if you build a controller or a gate per screen. Share one `ActivityAccess` instead.
+
 ## `withActivity` returns null, and that is normal
 
 ```kotlin
@@ -78,12 +84,27 @@ captures lives as long as the tracker does. Capture the `ActivityAccess`, not an
 
 ## Threading
 
+To act on every window of the app that is resumed (split screen, freeform, activity embedding) rather
+than the newest one, use `forEachResumedActivity { activity -> ... }`.
+
 `withActivity` runs the block on the calling thread and does not move you to the main thread —
 most `Activity` APIs require it, so hop yourself if you are not already there. Listeners are invoked
 synchronously on whatever thread the framework delivers `onActivityResumed` on, which is the main
 thread. The immediate replay to a new listener also runs on the main thread. It runs inline when
 you subscribe there. When you subscribe from a background thread it is posted to the main thread,
 so a listener never needs its own thread hop.
+
+`ActivitySubscription.cancel()` may be called from any thread and is a hard stop: once it returns,
+the listener is never called again, and if the listener is running on the main thread right then,
+`cancel()` waits for it to finish. Cancelling from inside a listener is always safe. Only avoid
+cancelling from another thread while holding a lock the listener also takes. `release()` behaves the
+same for all listeners, for every caller: a second `release()` racing the first, or made from inside a
+listener, does not return before the listeners are stopped, and a listener added while `release()`
+runs is never called. Cancelling (or releasing) also drops the listener itself and the access it
+belongs to, so a handle you keep pins neither what the listener captured nor the released access. A
+resume that was already in flight when `release()` ran does not put its activity back: a released
+access reports no activity. Release an access only after everything built on it is torn down: a controller over
+a released access can no longer reach any window, so a window flag it set stays on that window.
 
 ## Opening system screens
 

@@ -4,7 +4,11 @@ import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.core.graphics.Insets
@@ -57,15 +61,18 @@ class AutoSystemBarsIconStyleLifecycleTest {
     private val probe = TestProbe()
     private val samples: MutableList<Long> = mutableListOf()
 
-    private fun setProbe() {
+    private fun setProbe(
+        controller: SystemBarsController = RecordingSystemBarsController(),
+        sampledHook: @Composable () -> ((Long) -> Unit) = { { samples += it } },
+    ) {
         composeTestRule.mainClock.autoAdvance = false
         composeTestRule.setContent {
             CompositionLocalProvider(LocalLifecycleOwner provides host) {
                 AutoSystemBarsIconStyle(
                     intervalMs = INTERVAL_MS,
-                    controller = RecordingSystemBarsController(),
+                    controller = controller,
                     probe = probe,
-                    onSampled = { samples += it },
+                    onSampled = sampledHook(),
                 ) {
                     Box(Modifier.fillMaxSize())
                 }
@@ -114,6 +121,37 @@ class AutoSystemBarsIconStyleLifecycleTest {
         advance(TEN_INTERVALS_MS)
 
         assertEquals(0, samples.size)
+    }
+
+    private class CountingController(
+        private val inner: SystemBarsController = RecordingSystemBarsController(),
+    ) : SystemBarsController by inner {
+        var pushes: Int = 0
+        override fun applyOverride(override: SystemBarsOverride): SystemBarsOverrideHandle {
+            pushes++
+            return inner.applyOverride(override)
+        }
+    }
+
+    @Test
+    fun `a new onSampled lambda on recomposition does not restart the sampler`() {
+        val controller = CountingController()
+        var generation by mutableIntStateOf(0)
+        setProbe(controller) {
+            // Reads state at composition, so every bump hands the probe a new lambda instance.
+            val captured: Int = generation
+            ({ _: Long -> samples += captured.toLong() })
+        }
+        moveTo(Lifecycle.State.STARTED)
+        advanceToFirstTick()
+
+        repeat(3) {
+            composeTestRule.runOnUiThread { generation++ }
+            composeTestRule.waitForIdle()
+            advanceFrames(1)
+        }
+
+        assertEquals(1, controller.pushes, "every new lambda released the override and pushed a fresh one")
     }
 
     @Test

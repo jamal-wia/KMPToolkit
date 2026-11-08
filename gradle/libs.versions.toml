@@ -31,7 +31,9 @@ sqldelight = "2.4.1"
 # --- Persistence (kmptoolkit-downloader, iOS-only integrity checks over SQLite-backed units) ---
 androidxSqlite = "2.7.1"
 
-# --- Demo module only (classic Jetpack Compose, not Compose Multiplatform) ---
+# --- Classic Jetpack Compose BOM: the sample app, plus the androidHostTest source sets of five
+# library modules (video-player-compose, hardware-keys, language-compose, systembars,
+# logging-overlay), which pull in the androidx ui-test artifacts it versions ---
 composeBom = "2026.09.00"
 
 # --- Test tooling ---
@@ -98,7 +100,8 @@ compose-material3 = { module = "org.jetbrains.compose.material3:material3", vers
 # Test-only: runComposeUiTest, for the Robolectric (androidHostTest) and desktop (jvmTest) UI tests.
 compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "composeMultiplatform" }
 
-# Demo module — classic Jetpack Compose BOM
+# Classic Jetpack Compose BOM and androidx artifacts — the sample app and the Robolectric host-test
+# source sets of five library modules (see composeBom above), not the demo alone
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }

@@ -35,12 +35,16 @@ public interface Downloader {
     /**
      * True when [unit]'s resource is present and committed on disk. Unlike the group overload this
      * never consults the bundled-assets bypass — a runtime-catalogue unit is never bundled.
+     * `false` for a unit whose [DownloadUnit.relativePath] the storage rejects
+     * ([InvalidDownloadUnitException]).
      */
     public fun isAvailable(unit: DownloadUnit): Boolean
 
     /**
      * Absolute path of [unit]'s committed resource — what a consumer opens after
      * [ensureAvailable] returns. Valid only while [isAvailable] holds.
+     *
+     * @throws InvalidDownloadUnitException when the storage rejects [DownloadUnit.relativePath].
      */
     public fun pathOf(unit: DownloadUnit): String
 
@@ -58,15 +62,34 @@ public interface Downloader {
      */
     public suspend fun ensureAvailable(group: ResourceGroup)
 
-    /** Cancels [group]'s in-progress download, if any. Safe to call when none is running. */
+    /**
+     * Cancels [group]'s in-progress download, if any. Safe to call when none is running. A call of
+     * [ensureAvailable] that is running (or queued) for the group ends with
+     * [DownloadCancelledException], whatever it was doing: waiting for a transfer, sitting out a
+     * retry backoff or committing. The exception is a call whose last commit has already succeeded:
+     * every unit is on disk, so there is nothing to cancel and it completes and publishes
+     * [GroupDownloadState.Completed]. A per-unit [ensureAvailable] running for one of the group's
+     * units is cancelled too. A request that is starting its transfer at that very instant stops it
+     * and returns to Idle at its next checkpoint, microseconds later; [cancelAllDownloads], which can
+     * suspend, waits for that.
+     */
     public fun cancelDownload(group: ResourceGroup)
 
     /**
      * Cancels every in-progress download — both group-level and per-unit. Used at logout, so
      * nothing keeps transferring under credentials that have just been revoked.
      *
-     * Suspend because each unit's state reset is awaited here rather than dispatched: a caller
-     * that cancels and then immediately asks [hasActiveUnitDownload] must not race the reset.
+     * Every reset is in place when this returns (the unit cancel is synchronous): a caller that
+     * cancels and then immediately asks [hasActiveUnitDownload] does not race it. A running
+     * [ensureAvailable] ends with [DownloadCancelledException], unless its last commit has already
+     * succeeded: then it completes and publishes [GroupDownloadState.Completed] (or
+     * [UnitDownloadState.Completed] for a unit).
+     *
+     * It also waits for a request that is starting its transfer at that instant, so when it returns
+     * no call it cancelled shows Downloading, holds a transfer in the [BackgroundResourceDownloader]
+     * or has a start notification posted. Do not call it blocking (`runBlocking`) from inside a
+     * [BackgroundResourceDownloader] or `DownloadNotifier` callback: that callback may be the start
+     * being waited for.
      */
     public suspend fun cancelAllDownloads()
 
@@ -85,7 +108,22 @@ public interface Downloader {
      */
     public suspend fun ensureAvailable(unit: DownloadUnit)
 
-    /** Cancels [unit]'s in-progress or enqueued download, if any. Safe when none is active. */
+    /**
+     * Cancels [unit]'s in-progress or enqueued download, if any. Safe when none is active.
+     * Synchronous: the transfer is cancelled and the state is [UnitDownloadState.Idle] when this
+     * returns, so an [ensureAvailable] made right after it starts a new transfer. A call that is
+     * running (or queued) for the unit ends with [DownloadCancelledException], unless its commit has
+     * already succeeded: then it completes and publishes [UnitDownloadState.Completed].
+     *
+     * Also the way to release a unit the host no longer wants: it deletes the unit's partial temp
+     * data (and an interrupted archive extraction), which nothing else sweeps. A unit the engine has
+     * never tracked is cancelled and cleaned up the same way, without the engine creating a state flow
+     * for it (it keeps only the unit's lock object).
+     * The engine keeps a small state flow and lock for every unit id it tracks, for its whole
+     * lifetime, so ids must come from a stable catalogue (see [DownloadUnit.id]). A request that is
+     * starting its transfer at that very instant stops it and returns to Idle at its next
+     * checkpoint, microseconds later; [cancelAllDownloads], which can suspend, waits for that.
+     */
     public fun cancelDownload(unit: DownloadUnit)
 
     /**
@@ -167,12 +205,54 @@ public class DownloadFailedException(
  *   retry, stall, commit and notification hand-off is logged — pass a real logger and you can
  *   reconstruct the life of any download from the log.
  * @return a [Downloader], ready to use immediately — there is no separate `start()`.
+ * @see DownloaderConfig the overload that takes one, to tune the engine; this one uses its defaults.
  */
 public fun createDownloader(
     storage: DownloaderStorage,
     backgroundDownloader: BackgroundResourceDownloader,
     groups: List<ResourceGroup>,
     stateStore: DownloadStateStore,
+    notifier: DownloadNotifier = DownloadNotifier.NoOp,
+    bundledResourcesPresent: Boolean = false,
+    dispatchers: DownloadDispatchers = DownloadDispatchers.Default,
+    logger: Logger = NoopLogger,
+): Downloader = createDownloader(
+    storage = storage,
+    backgroundDownloader = backgroundDownloader,
+    groups = groups,
+    stateStore = stateStore,
+    config = DownloaderConfig(),
+    notifier = notifier,
+    bundledResourcesPresent = bundledResourcesPresent,
+    dispatchers = dispatchers,
+    logger = logger,
+)
+
+/**
+ * Creates a downloader engine tuned by [config]. Identical to the overload without it in every
+ * other respect — see there for what the parameters mean.
+ *
+ * ```kotlin
+ * val downloader: Downloader = createDownloader(
+ *     storage = createDownloaderStorage(context),
+ *     backgroundDownloader = myBackgroundResourceDownloader,
+ *     groups = MyResourceGroup.entries,
+ *     stateStore = myDownloadStateStore,
+ *     config = DownloaderConfig(stallTimeout = 15.minutes),
+ * )
+ * ```
+ *
+ * @param config the engine's settings. Required here — a separate overload rather than a new
+ *   defaulted parameter, so no existing call can resolve to this one and the existing overload's
+ *   signature is unchanged.
+ * @since 4.0.0
+ */
+public fun createDownloader(
+    storage: DownloaderStorage,
+    backgroundDownloader: BackgroundResourceDownloader,
+    groups: List<ResourceGroup>,
+    stateStore: DownloadStateStore,
+    config: DownloaderConfig,
     notifier: DownloadNotifier = DownloadNotifier.NoOp,
     bundledResourcesPresent: Boolean = false,
     dispatchers: DownloadDispatchers = DownloadDispatchers.Default,
@@ -186,4 +266,5 @@ public fun createDownloader(
     groups = groups,
     dispatchers = dispatchers,
     logger = logger,
+    config = config,
 )

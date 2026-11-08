@@ -33,11 +33,14 @@ The one type shared code depends on.
   and keeps the default), and a decorator must override it. The two-argument form is the same as passing `NotificationOptions.DEFAULT`.
 - **`cancel`** — removes the notification under `id` and forgets its progress-coalescing state. A
   no-op for an id that is not showing, including one this instance never posted. Reports nothing,
-  because neither platform reports anything.
+  because neither platform reports anything. Never throws for a platform refusal (a dead binder, a
+  revoked right): on Android it is logged under the tag `KmpToolkitNotification` and the notification
+  may stay on the tray.
 - **`cancelAll`** — removes every notification the app is showing, including ones posted by a
-  previous process. Does not touch notifications scheduled for later.
+  previous process. Does not touch notifications scheduled for later. Never throws either; a
+  refusal is logged and the tray may stay as it was.
 
-**Thread-safety:** safe from any thread, including concurrently for different ids.
+**Thread-safety:** safe from any thread, including concurrently for different ids. `cancel` / `cancelAll` are ordered against a post of the same id still in flight (the cancelled notification does not come back), and any post (progress or not) overtaken by a newer one for the same id, or by a `cancel`, is dropped and reported as `Coalesced`. The ordering holds per `Notifier` instance (`createNotifier` returns a new one per call).
 
 **Ordering:** the checks run permission → app-level toggle → channel → icon → coalescing, so the
 result names the first reason the user would not have seen the notification. A coalesced post never
@@ -46,7 +49,21 @@ hides a real failure. On Android below API 33 the permission check is skipped: t
 
 **Coalescing:** the bucket applies only to frames that differ from the one showing in nothing but the
 percentage; a changed title, body, button set or options bypasses it. The rate limit
-(`minProgressInterval`) applies to every determinate frame, changed or not.
+(`minProgressInterval`) applies to every determinate frame, changed or not. A frame becomes the
+baseline later frames are judged against when it is decided, and **a post that fails is rolled back**:
+if a post returns `Failed`, retrying the same progress posts it again instead of answering `Coalesced`.
+This also holds when posts of one id overlap: a frame that failed never counts as shown, so an older
+frame of the same id that is still in flight is not dropped on its account (it only yields to a frame
+that actually reached the tray), and a retry is never judged redundant against a frame that was never
+displayed. On Android, a frame that is rendered and then refused or dropped does not change where the frame
+still on the tray opens the app: a frame's tap target is written only once the platform has accepted that
+frame, so a refused frame writes nothing and nothing has to be written back (this also holds after a
+process restart). When posts of one id overlap, the baseline a refused frame falls back to is the frame
+that actually reached the tray by the time the refusal is handled, not the one that was shown when the
+refused frame was prepared. A frame that gave up because a newer one overtook it (answered `Coalesced`) is never
+revived or remembered as shown if that newer frame then fails, and on iOS a frame handed to the
+notification center and refused later, in any order of refusals, leaves no baseline behind. Per-id bookkeeping of frames that were started and never finished is aged out, so it does
+not grow for the notifier's lifetime.
 
 ## Factories
 
@@ -301,8 +318,8 @@ public val NotificationResult.isPosted: Boolean
 | Case | Meaning | Platforms |
 |---|---|---|
 | `Posted` | accepted by the platform (not "drawn") | both |
-| `Coalesced` | redundant progress update, previous frame stands | both |
-| `PermissionDenied` | no runtime grant | Android 13+, iOS |
+| `Coalesced` | redundant progress update, previous frame stands; also a post that a `cancel` of the same id or a newer post for it overtook mid-flight (nothing is posted) | both |
+| `PermissionDenied` | no runtime grant — on iOS also an `add` rejected because authorization was revoked after the check | Android 13+, iOS |
 | `NotificationsDisabled` | app-level toggle off | Android (iOS folds this into `PermissionDenied`) |
 | `ChannelBlocked` | channel muted by the user, or its group muted (API 28+) | Android 8+ |
 | `Failed` | icon that does not resolve, framework refusal, `NSError` | both |

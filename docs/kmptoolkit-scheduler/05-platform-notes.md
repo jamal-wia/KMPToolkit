@@ -68,6 +68,12 @@ thing from a permission:
   when someone forgets it: no compile error, no exception, `schedule` still reports success, and
   the alarm simply never arrives. That is the worst possible failure mode for a scheduling library.
 
+The receiver is built by the system with no arguments, so the handlers reach it through one
+process-wide registration: the `handlerProvider` (or the handler list) of the **latest**
+`createAlarmScheduler` call, kept for the life of the process. It holds only what you pass, so a
+provider that captures an `Activity` or another UI object pins it until the process dies; capture
+application-scoped objects only.
+
 If you need the alarm broadcast to go somewhere else entirely, do not use the module's receiver:
 schedule nothing through it, declare your own receiver, and use `handlerFor` for the dispatch rule.
 
@@ -111,10 +117,32 @@ What breaks delivery entirely:
 - **Aggressive OEM battery management** (Xiaomi, Huawei, Samsung and others) can suppress alarms for
   apps the user has not whitelisted. Nothing in the Android API can override it.
 
+### A refused cancel
+
+When a `schedule` replaces an alarm, the new alarm is armed first and the old one is cancelled
+after. If `AlarmManager` refuses that cancel (a `SecurityException` or `IllegalStateException`,
+logged), `schedule` still reports the new alarm, and the old one stays armed and may fire once more.
+`cancel(id)` is the same: a refusal is logged and the alarm may stay armed.
+
+- An id owns four `PendingIntent` slots. The new alarm goes into a slot the id does not occupy, and a
+  retirement the platform refused leaves its slot occupied.
+- When all four slots are occupied (three replacements in a row whose cancel was refused, with no successful
+  `schedule` or `cancel` of the id in between), a further `schedule` of that id answers
+  `Failed(PlatformError)` and changes nothing: the armed alarm stays exactly as it was. A healthy
+  `schedule` does not recover it, because the newest alarm cannot be told from the stale ones.
+- Recovery is `cancel(id)`, then `schedule` again. Between the two calls no alarm is armed for that
+  id, and if `cancel` is refused again the id stays saturated.
+
 What does **not** break delivery: an **app update**. Android keeps a package's alarms when the
 package is replaced. They are addressed to a receiver class, though — so if the update removed the
 class an alarm was armed for (typically: moving from an app's own receiver onto this module's), the
 alarm still fires but reaches nothing. Re-arm on `ACTION_MY_PACKAGE_REPLACED` in that release.
+
+Ids with an unpaired surrogate (for example an id cut from text in the middle of an emoji) get a
+different data URI since 4.0.0, so two such ids that differ only in those characters are now two
+alarms. An alarm armed for such an id by 3.0.x is still found: `schedule` retires it once the new
+alarm is armed, and `cancel` / `cancelAll` remove it. The lookup uses the old URI, so in 4.0.0 it may
+also retire a 3.0.x alarm that 3.0.x already treated as the same alarm.
 
 At fire time your `AlarmHandler` runs inside `goAsync()`, which keeps the process alive for roughly
 ten seconds. It is enough to post a notification or enqueue `WorkManager`; it is not enough for
@@ -130,14 +158,33 @@ does not use) offers opportunistic background execution, not a wall-clock trigge
 
 Practical consequences:
 
-- **Roughly 64 pending local notifications per app.** Requests past the cap are refused — you get
-  `Failed(PlatformError(...))`. Schedule a rolling window rather than a year of reminders.
+- **At most 64 pending local notifications per app.** iOS itself keeps only the soonest-firing 64
+  and silently discards the rest — `addNotificationRequest` reports no error (Apple documents this
+  on the `UILocalNotification` page, and the behavior has carried over to `UserNotifications`).
+  Because the OS never says so, `IosAlarmScheduler` checks before adding: it reads the pending
+  requests and, if 64 *other* identifiers are already pending, returns
+  `Failed(PlatformError(...))` without adding. Re-scheduling an identifier that is already pending
+  replaces it and is not counted, so it still succeeds at the cap. The count covers every pending local
+  notification of the app, including ones created by your own code or another library, not only this
+  scheduler's. The authorization check, the cap check and the add run under one process-wide lock, and
+  `cancel` / `cancelAll` take the same lock, so concurrent `schedule` calls through this library
+  cannot overshoot and a `cancel` of an id can never be overtaken by a `schedule` of it that was
+  already in flight (the alarm is never left armed after `cancel` returned); notifications added by code outside it are not serialised
+  with it and can still push the total past 64. Schedule a rolling window rather than
+  a year of reminders.
+
+  Verification status: the pre-check is verified by unit tests against a fake notification center
+  only. Confirming the OS behavior on a real device (schedule 65) is still outstanding, as is confirming that a completed add is immediately visible in the pending list, which the lock relies on.
 - **Delivery is at the requested time**, subject to the usual system discretion (Focus modes,
   Scheduled Summary, Do Not Disturb can delay or bundle the *presentation*).
 - **The text is frozen.** Language changes after scheduling do not update pending notifications;
   re-schedule them.
 - **A trigger in the past is clamped** to one second from now, because iOS rejects a non-positive
   interval outright. A missed reminder therefore appears immediately rather than throwing.
+- **`cancel` removes pending requests only.** A notification already delivered stays in Notification
+  Centre. To clear it too (for example on logout), call
+  `UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:)` with the same ids;
+  the request identifier is the alarm id verbatim.
 - `Exact` on iOS means "the OS accepted the request for that instant" — it is not the same
   guarantee as an Android exact alarm, because it is a presentation, not an execution.
 

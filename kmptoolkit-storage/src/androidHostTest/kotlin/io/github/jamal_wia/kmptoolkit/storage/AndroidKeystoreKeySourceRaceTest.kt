@@ -102,7 +102,7 @@ class AndroidKeystoreKeySourceRaceTest {
 
         fun liveKey(alias: String): SecretKey? = (entries[alias] as? Live)?.key
 
-        override fun existingKey(alias: String): SecretKey? {
+        override fun existingKey(alias: String, mayDelete: Boolean): SecretKey? {
             val seen: Entry? = entries[alias]
             looked.countDown()
             looked.await(WINDOW_MS, TimeUnit.MILLISECONDS)

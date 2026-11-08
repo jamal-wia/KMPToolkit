@@ -6,7 +6,7 @@ import java.util.Locale
 public actual fun applyLanguageGlobally(language: AppLanguage) {
     // Locale.setDefault(Locale) sets every category at once — DISPLAY and FORMAT alike — which is
     // what a language selection means: strings, dates and numbers all follow it.
-    Locale.setDefault(language.code?.let(Locale::forLanguageTag) ?: systemLocale())
+    Locale.setDefault(language.platformTag()?.let(Locale::forLanguageTag) ?: systemLocale())
 }
 
 public actual fun getSystemLanguageCode(): String? =

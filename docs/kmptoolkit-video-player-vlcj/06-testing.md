@@ -55,12 +55,39 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   playback errors; a listener calling back into the engine from `onCompleted` or another callback
   (re-submitted, never run on the event thread); transport calls reaching libvlc in call order across
   the app's thread and VLC's (a `pause` after a restart queued from `onCompleted` wins, an app call
-  never overtakes one submitted from a callback, a pending seek never undoes a later one); the parsed display size winning over the decoder's
+  never overtakes one submitted from a callback, a pending seek never undoes a later one); a seek standing as the playhead while earlier calls are still queued or a clock reading from before it arrives, and the hold ending on a time near the target; the parsed display size winning over the decoder's
   stored size, which is only a fallback; a fresh pixel array per frame; after `release` no callback,
   frame or native call; `release` returning while libvlc is still stopping a stalled input, with
   stop → release on the teardown thread; `release` from inside a callback; a new load silencing the
   old source; the temporary asset copy deleted after its player is released, and when a cancellation
   lands right after resolution or during discovery; nothing slow on the calling thread.
+- `VlcjSetTimeInputLockAdversarialTest` — a model of libvlc 3, whose `set_time` waits for the event callback
+  that is running (measured against libvlc 3.0.21): a seek, and the pending seek applied at Playing,
+  never wait for a callback that waits for the engine; `release` from inside a callback while another
+  thread's seek waits for it neither deadlocks nor frees the player under the seek; a seek in flight
+  against a release on another thread frees the player only after the seek returned and starts nothing
+  after `release` returned; a clock reading taken while a seek arrives from a VLC thread does not
+  replace its target; a listener called from the load's size report that calls back into the engine never
+  waits for a native call whose callback waits for the listener lock.
+- `VlcjReplayAfterEndAdversarialTest` — VLCJ resets an ended media with a stop on its task thread (libvlc
+  ignores a `play` until then): a restart made from another thread right after the end, and one made from
+  inside the completion callback, both reach libvlc behind that reset.
+- `VlcjRateRangeAdversarialTest` — libvlc 3 plays rates from 1/32 to 32 only: a speed below that reaches libvlc
+  as 1/32, one above as 32, and one in range unchanged.
+- `VlcjBoundaryAdversarialTest` — hostile inputs at the engine's edge: a NaN volume and a rate that is not finite
+  and positive never reach libvlc, the playhead stays where a source of unknown length ended, and a seek target
+  beyond what libvlc's microsecond conversion can hold is capped instead of wrapping.
+- `VlcjResolverUnencodedUrlAdversarialTest` — a `VideoSource.Asset` whose class loader returns a `file:` URL that
+  is not percent-encoded (a space, a non-ASCII character or `%` in the path) resolves to that file.
+- `VlcjVideoEngineCleanerTest` — the garbage-collection safety net: an engine dropped with a source
+  loaded is collected despite a native side that holds its callbacks strongly, and then releases the
+  native player and the libvlc instance (once), the player always before the instance, also when
+  the teardown thread lags and its own queued teardown and the Cleaner's task race for the same
+  session (the loser does nothing); an engine still referenced is neither collected nor released and
+  still receives events; `dispose` twice, or `release` then `dispose`, releases once. `VlcMediaResolverTest` also
+  checks that resolving a jar asset 50 times adds no entry to the JDK's delete-on-exit list and
+  leaves no registered or temporary copy behind (the test JVM opens `java.io` for that reflection),
+  and that a copy whose delete fails stays registered for a retry.
 - `VlcjVideoPlayerFactoryTest` — the player `createVlcjVideoPlayer` builds: never throws, exposes a
   frame source, touches neither discovery nor libvlc before `prepare`; without VLC, `prepare` settles
   on `Error(VlcUnavailableException)`; a seek after completion leaves the player `Paused` with VLC not

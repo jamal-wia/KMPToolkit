@@ -64,8 +64,8 @@ public fun VideoPlayerSurface(
         },
         modifier = modifier.clipToBounds(),
     ) { measurables, constraints ->
-        val boxWidth: Int
-        val boxHeight: Int
+        var boxWidth: Int
+        var boxHeight: Int
         when {
             constraints.hasBoundedWidth && constraints.hasBoundedHeight -> {
                 boxWidth = constraints.maxWidth
@@ -92,10 +92,15 @@ public fun VideoPlayerSurface(
                 boxHeight = constraints.minHeight
             }
         }
+        // Whatever the picture's shape, what is measured and laid out must stay representable as
+        // Constraints: a strip of 1:10000 multiplied into a 100 px box asks for a million pixels.
+        // Nothing that large is ever visible, and a frame clamped to the limit is clipped like any Crop.
+        boxWidth = boxWidth.coerceIn(0, MAX_LAYOUT_PX)
+        boxHeight = boxHeight.coerceIn(0, MAX_LAYOUT_PX)
         val frame: FrameSize =
             fitVideoFrame(aspectRatio, boxWidth.toFloat(), boxHeight.toFloat(), scaleMode)
-        val frameWidth: Int = frame.width.roundToInt().coerceAtLeast(0)
-        val frameHeight: Int = frame.height.roundToInt().coerceAtLeast(0)
+        val frameWidth: Int = frame.width.roundToInt().coerceIn(0, MAX_LAYOUT_PX)
+        val frameHeight: Int = frame.height.roundToInt().coerceIn(0, MAX_LAYOUT_PX)
         val placeables = measurables.map { it.measure(Constraints.fixed(frameWidth, frameHeight)) }
         layout(boxWidth, boxHeight) {
             // Negative for Crop: the overflow is centred and clipped by clipToBounds().
@@ -125,3 +130,9 @@ internal typealias PlatformSurfaceContent =
  */
 internal val LocalPlatformSurfaceOverride: ProvidableCompositionLocal<PlatformSurfaceContent?> =
     staticCompositionLocalOf { null }
+
+/**
+ * The largest side, in pixels, the surface ever measures or lays out: 15 bits, which `Constraints`
+ * can represent next to any other side. Far beyond any display.
+ */
+private const val MAX_LAYOUT_PX: Int = 32_766

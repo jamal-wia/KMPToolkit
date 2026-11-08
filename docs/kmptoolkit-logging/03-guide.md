@@ -150,8 +150,16 @@ to the console, the serious half also to the reporter.
 A logging call is not part of the work the caller is trying to do, so a broken destination must not
 turn into a crash somewhere unrelated. If a sink throws:
 
-- the throwable is swallowed;
+- the throwable is swallowed: every `Exception`, and the Errors a broken sink raises for its own
+  reasons (`AssertionError`, a `TODO()` sink's `NotImplementedError`, on Android a `LinkageError` such
+  as `NoSuchMethodError`). A `CancellationException` is rethrown after every sink has been offered the
+  event, and any other `Error` (`StackOverflowError`, `OutOfMemoryError`) reaches the caller at once;
 - the sinks after it in the list still receive the event;
+- the logger never clears the caller's interrupt status: if the thread was interrupted when it logged,
+  it is still interrupted afterwards, however a sink handled or wrapped the interrupt; a sink's bare
+  `InterruptedException` raised by an interrupt that arrived during the write also has the flag set again
+  (JVM and Android). A wrapped one cannot be told apart from another thread's interrupt and is contained
+  like any exception, so a worker or blocking section that logs still sees its interrupt;
 - the caller returns normally.
 
 There is deliberately no "report the failure somewhere" behavior, because everywhere it could be
@@ -204,7 +212,8 @@ val page: Page = log.logTimed("renderPage") { renderer.render(index) }
 
 Logs `renderPage [12.4ms]` at `DEBUG` (pass `level` for another) and returns the block's result
 unchanged. The measurement runs whether or not the event passes the threshold, so the number is
-real; an exception from the block propagates without a log line.
+real; an exception from the block propagates without a log line; an early `return` out of the block is
+timed.
 
 It is a debugging convenience, not instrumentation — if you want percentiles across sessions, emit a
 metric, don't parse logs.

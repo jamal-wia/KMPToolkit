@@ -11,7 +11,7 @@ inject the `VideoPlayer`; your screen logic then tests against the fake on every
 What is worth testing on the JVM side is the engine choice itself — for example that the app falls
 back when `isJavaFxMediaAvailable()` is `false`. Put that decision behind your own
 `() -> Boolean` so a test can answer it either way; do not rely on the real check in unit tests, since
-its answer depends on the machine (a display, the OpenJFX jars) and is remembered for the process.
+its answer depends on the machine (a display, the OpenJFX jars) and is remembered for the process (a permanent failure only).
 
 ## How this module tests itself
 
@@ -32,7 +32,8 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
   `-Pjavafx.required=true` and a machine where JavaFX cannot run fails them instead: use it wherever
   the real-engine tests are meant to run, so they cannot all be skipped without anyone noticing.
 - **Always run, JavaFX or not:** header rejection, missing asset/file, blank input, an unavailable
-  runtime (through an internal seam), calls before any load; that `prepare` starts the toolkit off
+  runtime (through an internal seam), an asset whose class loader returns a `file:` URL that is not
+  percent-encoded resolving to a valid URI of that file, calls before any load; that `prepare` starts the toolkit off
   the thread that called it (a runtime seam that blocks); and, in a class loader that cannot see
   OpenJFX at all, that `createJavaFxVideoPlayer()` creates a player without touching JavaFX, that
   `frameSourceOrNull()` is non-null, and that `prepare` settles on

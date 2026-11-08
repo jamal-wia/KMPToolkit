@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoFrame
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
+import java.util.concurrent.atomic.AtomicReference
 import javafx.animation.AnimationTimer
 import javafx.scene.Group
 import javafx.scene.Scene
@@ -16,6 +17,12 @@ import javafx.scene.paint.Color
 import javafx.util.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -81,10 +88,17 @@ internal class FxPlayback private constructor(
     private var refreshUntilNanos: Long = 0L
     private var looping: Boolean = false
     private var atEnd: Boolean = false
+
+    // The ticket of the newest seekTo: taken on the caller's thread before posting, read on the FX thread
+    // (D-24: a value shared between threads, in a module with a coroutines dependency).
+    private val latestSeek: MutableStateFlow<Long> = MutableStateFlow(0L)
     private var buffering: Boolean = false
     private var reportedSize: VideoSize? = null
     private var failed: Boolean = false
     private var disposed: Boolean = false
+
+    /** Whether [pulse] runs. FX-thread confined, like everything here. */
+    private var pulsing: Boolean = false
 
     private val pulse: AnimationTimer = object : AnimationTimer() {
         override fun handle(now: Long) = onPulse(now)
@@ -96,15 +110,16 @@ internal class FxPlayback private constructor(
             reportSize()
             // The first picture is decoded around READY, not necessarily before it: the pulse keeps
             // trying until a snapshot is opaque (see awaitingPicture).
-            pulse.start()
+            startPulse()
             ready.complete(Unit)
         }
         player.setOnError { fail(player.error ?: media.error) }
         media.setOnError { fail(media.error ?: player.error) }
         player.setOnEndOfMedia {
             // Fired at the end of every cycle, including while cycleCount is INDEFINITE and JavaFX
-            // is already starting the next one — that is not an end.
-            if (looping) return@setOnEndOfMedia
+            // is already starting the next one — that is not an end. A handler JavaFX queued before
+            // dispose() can still run after it, and must then do nothing.
+            if (disposed || looping) return@setOnEndOfMedia
             atEnd = true
             // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
             // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
@@ -116,6 +131,9 @@ internal class FxPlayback private constructor(
         }
         player.statusProperty().addListener { _, _, status ->
             setBuffering(status == MediaPlayer.Status.STALLED)
+            // JavaFX reports PLAYING some time after play(): a pulse in between may already have
+            // stopped, and a stall longer than the refresh window stops it too.
+            if (status == MediaPlayer.Status.PLAYING) startPulse()
         }
         player.currentTimeProperty().addListener { _, _, _ ->
             reportTimes()
@@ -135,6 +153,8 @@ internal class FxPlayback private constructor(
             atEnd = false
             player.seek(player.startTime)
         }
+        // Keeps the pulse alive until the status turns PLAYING (the listener restarts it then).
+        refreshPicture()
         player.play()
         reapplyRate()
     }
@@ -143,13 +163,20 @@ internal class FxPlayback private constructor(
         if (!disposed) player.pause()
     }
 
-    fun seekTo(positionMs: Long): Unit = FxThread.post {
-        if (!disposed) {
-            atEnd = false
-            player.seek(Duration.millis(positionMs.toDouble()))
-            refreshPicture()
+    fun seekTo(positionMs: Long) {
+        val ticket: Long = latestSeek.updateAndGet { it + 1 }
+        FxThread.post {
+            // A newer seek is queued behind this one and overrides its position: skip the native work.
+            // The newer ticket is taken before its block is posted, and FxThread.post runs a block inline
+            // only when nothing is queued, so a block that sees a newer ticket always has that newer
+            // block still behind it. onSeekApplied still answers every seek, a skipped one included.
+            if (!disposed && ticket == latestSeek.value) {
+                atEnd = false
+                player.seek(Duration.millis(positionMs.toDouble()))
+                refreshPicture()
+            }
+            sink.onSeekApplied()
         }
-        sink.onSeekApplied()
     }
 
     fun setSpeed(speed: Float): Unit = FxThread.post {
@@ -167,19 +194,34 @@ internal class FxPlayback private constructor(
     }
 
     /** What JavaFX currently holds, read on the FX thread — for tests; settings have no getter. */
-    class Inspection(val volume: Double, val rate: Double, val cycleCount: Int, val status: String)
+    class Inspection(
+        val volume: Double,
+        val rate: Double,
+        val cycleCount: Int,
+        val status: String,
+        val pulsing: Boolean,
+    )
 
     suspend fun inspect(): Inspection = FxThread.call {
-        Inspection(player.volume, player.rate, player.cycleCount, player.status.toString())
+        Inspection(player.volume, player.rate, player.cycleCount, player.status.toString(), pulsing)
     }
 
     /** Stops the pulse and frees the native player. Idempotent; any thread. */
     fun dispose(): Unit = FxThread.post {
         if (disposed) return@post
         disposed = true
-        pulse.stop()
+        stopPulse()
         ready.cancel()
         view.mediaPlayer = null
+        // OpenJFX race: MediaPlayer.dispose() sets DISPOSED, but a status update its native side had
+        // already queued (onPlaying / onPause) can run afterwards and overwrite it, after which the
+        // guards in seek() and pause() pass on a player whose native half is gone. A queued
+        // end-of-media then loops (seek -> NullPointerException on the FX thread) or reaches our
+        // handler. With one cycle and no handler an already queued end takes the plain non-looping
+        // branch, which never seeks. Plain property writes on a player that is not yet disposed. Do
+        // not "simplify" this away.
+        player.onEndOfMedia = null
+        player.cycleCount = 1
         player.dispose()
         image = null
         scratch = null
@@ -233,17 +275,41 @@ internal class FxPlayback private constructor(
         if (size == reportedSize) return
         reportedSize = size
         sink.onVideoSize(size)
+        // A picture that appears later (the size was 0×0 until now) needs the pulse again.
+        if (size != null) startPulse()
     }
 
     /** Keeps copying for a while although not playing: the picture changes after a seek. */
     private fun refreshPicture() {
         refreshUntilNanos = System.nanoTime() + REFRESH_WINDOW_NANOS
+        startPulse()
+    }
+
+    private fun startPulse() {
+        if (disposed || pulsing) return
+        pulsing = true
+        pulse.start()
+    }
+
+    private fun stopPulse() {
+        if (!pulsing) return
+        pulsing = false
+        pulse.stop()
     }
 
     private fun onPulse(now: Long) {
         if (disposed) return
+        if (media.width <= 0 || media.height <= 0) {
+            // Audio only: there is no picture to copy, now or until reportSize sees one.
+            stopPulse()
+            return
+        }
         val playing: Boolean = player.status == MediaPlayer.Status.PLAYING && !atEnd
-        if (!playing && !awaitingPicture && now > refreshUntilNanos) return
+        if (!playing && !awaitingPicture && now > refreshUntilNanos) {
+            // Nothing left to copy; start(), seekTo() and a changed picture start it again.
+            stopPulse()
+            return
+        }
         // Pulses arrive at the display rate with jitter; without the slack a 30 fps cap on a 60 Hz
         // pulse regularly waits a third pulse and delivers ~24 fps.
         if (now - lastSnapshotNanos < minFrameIntervalNanos - PULSE_SLACK_NANOS) return
@@ -296,21 +362,62 @@ internal class FxPlayback private constructor(
             onCreated: (FxPlayback) -> Unit,
         ): FxPlayback {
             val media: Media = withContext(Dispatchers.IO) { runInterruptible { Media(uri) } }
-            val playback: FxPlayback = FxThread.call {
-                FxPlayback(media, sink, maxFrameRate).also(onCreated)
-            }
+            // An atomic: the FX block may still run after the wait timed out or was cancelled,
+            // concurrently with the read below (D-21).
+            val created: AtomicReference<FxPlayback?> = AtomicReference(null)
             try {
                 // JavaFX can stay UNKNOWN forever — on macOS a file it cannot parse reports neither
-                // READY nor an error — so the wait is bounded.
-                withTimeoutOrNull(readyTimeoutMs) { playback.ready.await() }
-                    ?: throw JavaFxVideoPlayerException.LoadTimedOut(readyTimeoutMs)
-                return playback
+                // READY nor an error — so the wait is bounded. So is building the player: once the
+                // toolkit has exited, runLater drops the block silently and the call would never
+                // resume. A block that does run late finds its session closed and disposes itself
+                // (see JavaFxVideoEngine.Session.attach). An exit seen before this point fails the load
+                // at once (ToolkitJavaFxRuntime re-checks it on every call); only an exit that races
+                // the load itself, between that probe and this call, waits out the timeout.
+                withTimeoutOrNull(readyTimeoutMs) {
+                    coroutineScope {
+                        // The toolkit can end at any moment, by implicit exit as well as
+                        // Platform.exit(); the wait then ends at once instead of at the timeout.
+                        // Silence is not taken for an exit while the FX thread runs this load's own
+                        // construction (see FxThread.hasExited).
+                        val exitWatch: Job = launch {
+                            while (true) {
+                                delay(EXIT_POLL_MS)
+                                if (FxThread.hasExited(wait = false)) {
+                                    throw JavaFxVideoPlayerException.RuntimeUnavailable(
+                                        IllegalStateException("The JavaFX toolkit has exited"),
+                                    )
+                                }
+                            }
+                        }
+                        val playback: FxPlayback = FxThread.call {
+                            FxPlayback(media, sink, maxFrameRate).also {
+                                created.set(it)
+                                onCreated(it)
+                            }
+                        }
+                        playback.ready.await()
+                        exitWatch.cancel()
+                        playback
+                    }
+                } ?: throw if (created.get() == null) {
+                    JavaFxVideoPlayerException.RuntimeUnavailable(
+                        IllegalStateException(
+                            "The JavaFX application thread ran no work within $readyTimeoutMs ms; " +
+                                "the toolkit has probably exited",
+                        ),
+                    )
+                } else {
+                    JavaFxVideoPlayerException.LoadTimedOut(readyTimeoutMs)
+                }
+                return checkNotNull(created.get())
             } catch (e: Throwable) {
                 // Cancellation included: nothing playable is left behind either way.
-                playback.dispose()
+                created.get()?.dispose()
                 throw e
             }
         }
+
+        private const val EXIT_POLL_MS: Long = 100L
 
         private fun Duration?.toMillisOrZero(): Long {
             if (this == null || isUnknown || isIndefinite) return 0L

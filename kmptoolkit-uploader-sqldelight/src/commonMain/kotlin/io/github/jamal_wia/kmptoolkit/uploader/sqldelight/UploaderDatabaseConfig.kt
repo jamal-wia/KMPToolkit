@@ -26,8 +26,43 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
  *
  *   The name is an identifier, not a path: it becomes part of a file name verbatim, so a path
  *   separator in it would write the queue outside the directory the platform expects.
+ * @param recreateOnCorruption what to do with a file that is not a usable database (corruption, a
+ *   truncated write). `false` — the default — fails the open with [UploaderStorageException] and leaves
+ *   the file exactly as found, so nothing the queue still owes is lost without the app's say. `true`
+ *   deletes the file and opens an empty queue instead, which is how 3.0.0 behaved: every effect that
+ *   was still queued is dropped. Only a file that is recognisably corrupt is deleted; any other open
+ *   failure (a failed migration, a full disk, a locked file) still fails and keeps the file.
+ *   Added in 4.0.0.
  */
-public data class UploaderDatabaseConfig(public val name: String? = null) {
+public data class UploaderDatabaseConfig(
+    public val name: String? = null,
+    public val recreateOnCorruption: Boolean = false,
+) {
+    /**
+     * The 3.0.0 constructor, kept so code and binaries built against it keep working. It keeps the
+     * 3.0.0 default argument on purpose: that default is what makes the compiler emit the
+     * default-arguments bridge a library compiled against 3.0.0 calls for `UploaderDatabaseConfig()`.
+     * A hidden declaration never takes part in overload resolution, so the default cannot make a
+     * source call ambiguous.
+     */
+    @Deprecated(
+        "Superseded by the constructor with recreateOnCorruption.",
+        ReplaceWith("UploaderDatabaseConfig(name, recreateOnCorruption = false)"),
+        level = DeprecationLevel.HIDDEN,
+    )
+    public constructor(name: String? = null) : this(name, false)
+
+    /**
+     * The 3.0.0 `copy`, kept for binaries built against it, with its 3.0.0 default argument for the
+     * same reason as the constructor above.
+     */
+    @Deprecated(
+        "Superseded by copy with recreateOnCorruption.",
+        ReplaceWith("copy(name = name)"),
+        level = DeprecationLevel.HIDDEN,
+    )
+    public fun copy(name: String? = this.name): UploaderDatabaseConfig = copy(name = name, recreateOnCorruption = recreateOnCorruption)
+
     init {
         // Validated at construction rather than surfaced as a failed operation: the name is a
         // literal a developer writes, so a wrong one is a bug to fix at the call site, not a

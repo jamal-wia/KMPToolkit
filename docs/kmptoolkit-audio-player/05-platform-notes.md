@@ -58,14 +58,27 @@ means `src/main/assets/sounds/chime.mp3`. The file must be stored uncompressed f
 to be openable — audio formats already are, so this only bites for something like a `.wav` inside a
 zip.
 
+**Seek range.** `MediaPlayer.seekTo` takes an `Int`, so the engine saturates the target to `0..Int.MAX_VALUE` rather than truncating it: a skip past the end of a source whose length is not known yet asks for the platform's own far end, never a wrapped-around earlier position. The iOS engine saturates to the same ceiling before building its `CMTime`.
+
 **Threading.** The `MediaPlayer` is created on `Dispatchers.IO`, which does blocking `setDataSource`
 work off the main thread and — because that thread has no `Looper` — makes the platform deliver its
 callbacks on the main looper. That is why the module needs no main dispatcher and therefore no
 `kotlinx-coroutines-android` dependency.
 
+**A late error** — one `MediaPlayer` reports right after it reported prepared, before `prepare`
+publishes `Ready` — is no longer lost: the engine forwards it to the player as a playback failure, and
+the player lets `Error` win over a `Ready` that was about to be published.
+
+**A late callback of a replaced source** — the platform reads a `MediaPlayer`'s listener on the main
+looper while a new `load` or `release` clears it on another thread, so a completion or error of the
+previous source's `MediaPlayer` can still arrive after the engine let go of it. The engine fences every
+steady-state callback by the handle that raised it and drops one from a player that is no longer its
+current one, so it can neither complete nor fail the source that replaced it. The iOS engine fences the
+same way with a generation counter.
+
 **Playback speed** is applied via `PlaybackParams`, available since API 23. The module's `minSdk` is
 24, so there is no fallback path. The rate is pushed only while playing: assigning `playbackParams`
-to a paused `MediaPlayer` starts playback on several API levels.
+to a paused `MediaPlayer` starts playback on several API levels. A rate inside the configured range that the device's `PlaybackParams` refuses is ignored (playback keeps its previous rate) and `playbackSpeed` still reports the requested value.
 
 **Audio focus is not requested.** Playing while another app plays music results in both being
 audible. Request focus with `AudioManager` in the app if you need ducking or pausing — it is a
@@ -77,6 +90,10 @@ exposes no richer detail.
 ## iOS
 
 **Engine:** `AVFoundation.AVPlayer`, one `AVPlayerItem` per prepared source.
+
+**A blank `AudioSource.File` path** never reaches the engine: `NSURL.fileURLWithPath("")` raises an
+Objective-C exception that Kotlin/Native cannot catch, so the player refuses it with
+`Error(IllegalArgumentException)` on both platforms.
 
 **Assets** resolve through `NSBundle.URLForResource(name:withExtension:subdirectory:)`, so the
 extension in the path matters — `AudioSource.Asset("chime.mp3")` looks up `chime` with extension
@@ -97,6 +114,12 @@ switch silenced, and without it most callers would report the player as "silentl
 not by itself keep audio going once the app is in the background or the screen locks — that needs
 the `audio` background mode, below.
 
+`release()` and `unload()` never deactivate the session: it is process-wide and the app's other
+audio may be using it, and activating it again does not stack, so nothing accumulates. An app that
+wants other apps' audio, which the activation interrupted, to resume deactivates the session
+itself with `setActive(false, withOptions: .notifyOthersOnDeactivation)`, or passes
+`managesAudioSession = false` and owns the session entirely.
+
 Pass `managesAudioSession = false` when the app owns its session — in particular when it also
 records, where the category has to be `PlayAndRecord` and switching it under the recorder's feet
 breaks it:
@@ -113,6 +136,14 @@ observes `AVAudioSession.interruptionNotification` itself and calls `pause()`/`p
 does not set it, and setting it without genuinely playing in the background is an App Store
 rejection.
 
+**Threading.** The player's polling coroutine runs on `Dispatchers.Main` by default (4.0.0; it was
+`Dispatchers.Default`), because the engine creates the `AVPlayer` on the main thread and AVFoundation
+documents no thread safety for it. Drive the transport calls from the main thread as well. Position updates need a free main thread
+(a running main run loop, so not a host that blocks main); `createAudioPlayer(coroutineContext =
+Dispatchers.Default)` restores the 3.0 behavior. The
+end-of-item notification carries a per-load generation, so one already in flight when the source is
+unloaded or replaced is dropped instead of marking the new source `Completed`.
+
 **Loading progress** is detected by polling `AVPlayerItem.status` every 20 ms until it is
 `ReadyToPlay` or `Failed`. Polling rather than KVO: key-value observing has no Kotlin/Native binding
 that is safe against observing a deallocated object, and the loop runs only during loading — which
@@ -120,6 +151,8 @@ also makes `prepare()`'s cancellation contract hold on iOS.
 
 **Errors** are `IllegalStateException` carrying the `AVPlayerItem`'s `localizedDescription`, or
 `IllegalArgumentException` for an asset that is not in the bundle or a URL `NSURL` refuses.
+A load that fails or is cancelled releases its `AVPlayer`, item and end-of-item observer at once, as the
+Android engine does with its `MediaPlayer`, rather than holding them until the next load.
 
 ## Behavior that is identical on both
 

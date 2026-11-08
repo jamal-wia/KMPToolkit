@@ -32,7 +32,9 @@ internal actual fun PlatformAppLocale(language: AppLanguage, content: @Composabl
     val targetLocale: Locale = remember(language.code, baseConfiguration) {
         // The same resolution applyLanguageGlobally performs; needed here as a value, to compare
         // against what is currently in force.
-        language.code?.let(Locale::forLanguageTag) ?: deviceLocale()
+        // An underscore in a code means a hyphen (the language module's rule: `ar_EG` is `ar-EG`); the
+        // module's own helper is internal, so the one-line replacement is repeated here.
+        language.code?.replace('_', '-')?.let(Locale::forLanguageTag) ?: deviceLocale()
     }
 
     // Android resets the process-global default locale to the device's on every configuration

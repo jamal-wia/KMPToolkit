@@ -40,6 +40,8 @@ internal class MediaRecorderEngine(
     @Volatile
     private var listener: ((EngineEvent) -> Unit)? = null
 
+    // Volatile like [recorder]: set and cleared by whichever thread drives the engine (the caller under
+    // the recorder's lock, or the worker finishing a session) - one at a time, but not always the same one.
     @Volatile
     private var silenceMonitor: InputSilenceMonitor? = null
 

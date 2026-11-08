@@ -4,6 +4,8 @@ import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionCategoryPlayback
@@ -47,6 +49,16 @@ internal class AvPlayerEngine(
     private var completionObserver: NSObjectProtocol? = null
     private var listener: PlaybackEngineListener? = null
 
+    /** Whether an `AVPlayer` is held; a test hook for "a failed or cancelled load leaves nothing". */
+    internal val hasPlayer: Boolean get() = player != null
+
+    /**
+     * Bumped by every [release]. The end-of-item block runs on whichever thread posts the
+     * notification, so removing the observer does not stop one that is already running; each block
+     * compares the value it captured against this one and drops itself when its load is gone.
+     */
+    private val generation: MutableStateFlow<Int> = MutableStateFlow(0)
+
     /** The rate [start] plays at. Remembered because a paused AVPlayer cannot be told it yet. */
     private var speed: Float = NORMAL_SPEED
 
@@ -57,17 +69,25 @@ internal class AvPlayerEngine(
     override suspend fun load(source: AudioSource) {
         release()
 
-        val url: NSURL = resolveUrl(source)
+        // A load that throws or is cancelled leaves nothing playable behind (see PlaybackEngine):
+        // without this the failed AVPlayer, its item and the end-of-item observer would stay held
+        // until the next load, unload or release.
+        try {
+            val url: NSURL = resolveUrl(source)
 
-        withContext(Dispatchers.Main) {
-            if (managesAudioSession) activateAudioSession()
+            withContext(Dispatchers.Main) {
+                if (managesAudioSession) activateAudioSession()
 
-            val item = AVPlayerItem(uRL = url)
-            player = AVPlayer(playerItem = item)
-            observeCompletion(item)
+                val item = AVPlayerItem(uRL = url)
+                player = AVPlayer(playerItem = item)
+                observeCompletion(item)
+            }
+
+            awaitReadyToPlay()
+        } catch (failure: Throwable) {
+            release()
+            throw failure
         }
-
-        awaitReadyToPlay()
     }
 
     override fun start() {
@@ -87,7 +107,9 @@ internal class AvPlayerEngine(
         val current: AVPlayer = player ?: return
         current.seekToTime(
             CMTimeMakeWithSeconds(
-                seconds = positionMs / MILLIS_PER_SECOND,
+                // Saturated: a relative skip in a source of unknown length can arrive up to Long.MAX_VALUE,
+                // at the edge of CMTime's Int64 value; an invalid CMTime is a needless risk.
+                seconds = positionMs.coerceIn(0L, MAX_SEEK_MS) / MILLIS_PER_SECOND,
                 preferredTimescale = CM_TIME_TIMESCALE,
             )
         )
@@ -111,6 +133,7 @@ internal class AvPlayerEngine(
             NSNotificationCenter.defaultCenter.removeObserver(observer)
         }
         completionObserver = null
+        generation.update { it + 1 }
         player?.pause()
         player = null
     }
@@ -166,12 +189,13 @@ internal class AvPlayerEngine(
     }
 
     private fun observeCompletion(item: AVPlayerItem) {
+        val captured: Int = generation.value
         completionObserver = NSNotificationCenter.defaultCenter.addObserverForName(
             name = AVPlayerItemDidPlayToEndTimeNotification,
             `object` = item,
             queue = null,
         ) { _ ->
-            listener?.onCompleted()
+            if (generation.value == captured) listener?.onCompleted()
         }
     }
 
@@ -184,6 +208,7 @@ internal class AvPlayerEngine(
 
     private companion object {
         const val MILLIS_PER_SECOND: Double = 1000.0
+        const val MAX_SEEK_MS: Long = Int.MAX_VALUE.toLong()
 
         /** `CMTime` timescale of 1/1000 s, i.e. millisecond resolution. */
         const val CM_TIME_TIMESCALE: Int = 1000

@@ -38,6 +38,11 @@ the platform before the first collector, and `SharingStarted.WhileSubscribed()` 
 when the last one goes away — see [`05-platform-notes.md`](05-platform-notes.md) for exactly what
 "registered" means on each platform.
 
+`observeLocation()` is for a visible app. On iOS it stops delivering while the app is suspended —
+silently, with no `null` — because this module does not enable background location updates; see
+[`05-platform-notes.md`](05-platform-notes.md) before building a feature that must keep tracking
+with the screen locked.
+
 ## Checking whether location is even on
 
 `getCurrentLocation()` returning `null` is ambiguous by itself: missing permission, service off, or
@@ -192,7 +197,11 @@ equivalent cap on `observeLocation()` — a `Flow` that "gives up" would be indi
   a disabled service, or no signal. Nothing throws.
 - **Assuming `observeLocation()` is silent until a real fix arrives.** Both platform implementations
   seed the flow immediately — with the freshest cached fix, or `null` — precisely so a `combine()`
-  downstream never hangs waiting for its first value.
+  downstream never hangs waiting for its first value. On Android the seed is sent before the update
+  listeners are registered, so a live fix is always delivered after it and the last value you see is
+  never an older cached one. The Android seed only considers providers that are switched on: when the
+  user has turned location off, a collection that starts then begins on `null`, even if the platform
+  still holds a last fix for a disabled provider.
 - **Polling `isLocationEnabled()` in a loop.** There is no observe API for it, deliberately — see
   [`05-platform-notes.md`](05-platform-notes.md). Read it when you are about to act on the answer:
   screen resume, before starting a feature, after `openLocationSettings()` returns control to your

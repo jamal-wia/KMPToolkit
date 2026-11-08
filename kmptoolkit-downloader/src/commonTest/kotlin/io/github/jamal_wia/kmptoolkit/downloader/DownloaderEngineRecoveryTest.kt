@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.downloader
 
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -294,14 +295,21 @@ class DownloaderEngineRecoveryTest {
         var enqueueCount: Int = 0
             private set
 
+        // The engine subscribes to the events before it enqueues, so the transfer only starts
+        // producing once enqueued — as a real one does. A transfer already running (inProgress)
+        // has no enqueue to wait for.
+        private val enqueued: Channel<Unit> = Channel(Channel.UNLIMITED)
+
         override fun enqueueDownload(unit: DownloadUnit) {
             enqueueCount++
             storage.events += "enqueue"
+            enqueued.trySend(Unit)
         }
 
         override fun isDownloadInProgress(unit: DownloadUnit): Boolean = inProgress
         override fun cancelDownload(unit: DownloadUnit) = Unit
         override fun observeProgress(unit: DownloadUnit): Flow<BackgroundDownloadEvent> = flow {
+            if (!inProgress) enqueued.receive()
             storage.tempStates[unit.id] = TempFileState.Partial
             emit(BackgroundDownloadEvent.Progress(unit = unit, fraction = 0.5f))
             if (marksItself) storage.markTempFileComplete(unit)

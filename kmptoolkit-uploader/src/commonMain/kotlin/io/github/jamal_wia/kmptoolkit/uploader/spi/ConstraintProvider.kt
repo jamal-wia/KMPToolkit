@@ -30,6 +30,13 @@ import kotlinx.coroutines.flow.StateFlow
  *   initial value. Prefer an optimistic initial value where the truth is not yet known: a wrong
  *   `true` costs one failed attempt and a backoff, while a wrong `false` stalls every gated effect
  *   until the first real signal arrives.
+ * - **[satisfied] should never throw when read.** If it does, the engine logs the failure and skips the
+ *   item for that pass as if the constraint were unsatisfied; the items of other handlers are
+ *   unaffected and the next trigger or heartbeat reads it again.
+ * - **A [satisfied] flow that fails when collected** (or a getter that throws when the engine subscribes) ends the
+ *   subscription with a logged error; it never reaches the engine scope's uncaught-exception handler. The
+ *   items of that constraint are still checked on every pass and every heartbeat, so only the
+ *   `false → true` latency is lost, bounded by the heartbeat interval.
  * - **[satisfied] is read from arbitrary threads** and collected for the engine's lifetime. Back it
  *   with a `StateFlow` that outlives the engine, or at least the scope you gave the engine.
  *

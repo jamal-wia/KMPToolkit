@@ -125,8 +125,10 @@ public data class AudioRecorderConfig(
  *   `<app-private files dir>/<directoryName>`, which is `Context.getFilesDir()` on Android and the
  *   app's `Documents` directory on iOS. Supply a path explicitly to record into a cache directory,
  *   an app-group container, or anywhere else you have write access to.
- * @param directoryName subdirectory created under the app-private base directory when
- *   [directoryPath] is `null`. `null` — the default — uses the consumer's own application id
+ * @param directoryName relative directory created under the app-private base directory when
+ *   [directoryPath] is `null`. It may be nested (`"a/b"`) but must not start with `/` (that is what
+ *   [directoryPath] is for) or contain a `.` or `..` segment, which could place recordings outside the
+ *   app-private directory; such a name is rejected in `init`. `null` — the default — uses the consumer's own application id
  *   (Android `Context.getPackageName()`) or bundle identifier (iOS `CFBundleIdentifier`), so two
  *   apps that happen to share a directory (an app group, an SD card path) never write into each
  *   other's recordings. Ignored entirely when [directoryPath] is set.
@@ -148,11 +150,18 @@ public data class RecordingStorage(
         require(!fileNamePrefix.contains('/') && !fileNamePrefix.contains('\\')) {
             "fileNamePrefix must not contain a path separator, was '$fileNamePrefix'"
         }
-        require(directoryPath == null || directoryPath.isNotBlank()) {
+        require(directoryPath == null || (directoryPath.isNotBlank() && directoryPath.startsWith('/'))) {
             "directoryPath must be null or a non-blank absolute path"
         }
         require(directoryName == null || directoryName.isNotBlank()) {
             "directoryName must be null or a non-blank directory name"
+        }
+        require(
+            directoryName == null ||
+                (!directoryName.startsWith('/') && directoryName.split('/').none { it == "." || it == ".." }),
+        ) {
+            "directoryName must be a relative directory inside the app-private base " +
+                "(no leading '/', no '.' or '..' segment), was '$directoryName'"
         }
     }
 

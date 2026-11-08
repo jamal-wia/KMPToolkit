@@ -260,6 +260,22 @@ class FakeVideoPlaybackEngineTest {
     }
 
     @Test
+    fun `completePlayback on an unknown length leaves the playhead where it is and completes there`() = runTest {
+        val engine = FakeVideoPlaybackEngine(durationMs = 0L)
+        val player: VideoPlayer = newPlayer(engine)
+        player.prepare(source)
+        player.play()
+        engine.advancePositionTo(45_000L)
+
+        engine.completePlayback()
+
+        assertEquals(45_000L, engine.positionMs)
+        assertEquals(VideoPlayerState.Completed(45_000L), player.stateFlow.value)
+        assertEquals(45_000L, player.playbackPositionFlow.value)
+        player.release()
+    }
+
+    @Test
     fun `completePlayback on a looping fake starts over instead of completing`() = runTest {
         val engine = FakeVideoPlaybackEngine(durationMs = 30_000L)
         val player: VideoPlayer = newPlayer(engine)

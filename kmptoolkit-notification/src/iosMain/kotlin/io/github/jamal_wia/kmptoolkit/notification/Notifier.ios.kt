@@ -11,6 +11,8 @@ import kotlinx.cinterop.useContents
 import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.Foundation.NSError
 import platform.Foundation.NSProcessInfo
+import platform.UserNotifications.UNErrorCodeNotificationsNotAllowed
+import platform.UserNotifications.UNErrorDomain
 import platform.UserNotifications.UNMutableNotificationContent
 import platform.UserNotifications.UNNotificationInterruptionLevel
 import platform.UserNotifications.UNNotificationInterruptionLevel.UNNotificationInterruptionLevelActive
@@ -61,12 +63,34 @@ internal class IosNotifier(
     private val center: UNUserNotificationCenter
         get() = UNUserNotificationCenter.currentNotificationCenter()
 
+    /**
+     * Orders a post's "still wanted? then add" step against [cancel] and [cancelAll]. Separate from
+     * the coalescer's own lock and always taken first, so the two never invert. An `NSLock` is not
+     * reentrant: nothing under it calls back into this class.
+     */
+    private val postLock: NotifierLock = notifierLock()
+
     override suspend fun post(id: String, notification: LocalNotification): NotificationResult {
         // Validation, not a catch: `requestWithIdentifier` rejects an empty identifier by raising an
         // Objective-C exception, and Kotlin/Native cannot catch one — the process would die. This is
         // the only reason post() throws at all, and it throws for a caller's bug, not for a device
         // state. See Notifier.post's KDoc.
         requireValidNotificationId(id)
+        // The post is in flight from here on: a cancel that returns while it is still in the
+        // permission check, before the coalescer would hear of it, is ordered against it all the same.
+        val claim: ProgressCoalescer.PostClaim = coalescer.claim(id)
+        try {
+            return postClaimed(id, notification, claim)
+        } finally {
+            coalescer.release(claim)
+        }
+    }
+
+    private suspend fun postClaimed(
+        id: String,
+        notification: LocalNotification,
+        claim: ProgressCoalescer.PostClaim,
+    ): NotificationResult {
         // iOS reports "the user switched notifications off in Settings" and "the user answered no
         // to the prompt" as one and the same authorization status, so there is no honest way to
         // return NotificationsDisabled here — PermissionDenied covers both. Provisional authorization
@@ -74,9 +98,9 @@ internal class IosNotifier(
         if (!permissions.check(CommonPermission.Notifications).isUsable) {
             return NotificationResult.PermissionDenied
         }
-        if (!coalescer.shouldPost(id, notification.progress, notification.copy(progress = null))) {
-            return NotificationResult.Coalesced
-        }
+        val ticket: ProgressCoalescer.PostTicket =
+            coalescer.prepare(id, notification.progress, notification.copy(progress = null), claim)
+                ?: return NotificationResult.Coalesced
 
         val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
             identifier = id,
@@ -85,30 +109,74 @@ internal class IosNotifier(
             // kmptoolkit-scheduler's job, not this module's.
             trigger = null,
         )
-        val error: NSError? = suspendCancellableCoroutine { continuation ->
-            center.addNotificationRequest(request) { error: NSError? ->
-                continuation.resume(error)
+        var overtaken = false
+        var handedOver = false
+        val error: NSError? = try {
+            suspendCancellableCoroutine { continuation ->
+                // Issued under the lock cancel() also takes, after asking whether the frame is still
+                // wanted: the center applies requests in call order, so a cancel that ran first is
+                // not followed by this frame, and a frame overtaken by a newer one is dropped. The
+                // completion is awaited outside the lock.
+                val issued: Boolean = postLock.withLock {
+                    if (!coalescer.isLive(ticket)) return@withLock false
+                    center.addNotificationRequest(request) { error: NSError? ->
+                        continuation.resume(error)
+                    }
+                    handedOver = true
+                    coalescer.complete(ticket)
+                    true
+                }
+                if (!issued) {
+                    overtaken = true
+                    continuation.resume(null)
+                }
             }
+        } catch (e: Throwable) {
+            // Cancelled while waiting for the system. Once the request was handed over the outcome is
+            // unknown (the center may have accepted it), and neither the frame nor the baseline behind
+            // it may be trusted: the id is left with no baseline and its next frame posts. Before the
+            // hand-over nothing reached the center and the frame is simply rolled back. A no-op if
+            // cancel/clear got there first.
+            if (handedOver) coalescer.abandon(ticket) else coalescer.rollback(ticket)
+            throw e
         }
-        return if (error == null) {
-            NotificationResult.Posted
+        if (overtaken) return NotificationResult.Coalesced
+        if (error == null) {
+            // Confirmed: only now may the frame stop being undoable (see ProgressCoalescer.complete).
+            coalescer.acknowledge(ticket)
+            return NotificationResult.Posted
+        }
+        // The system rejected it: nothing is showing, so a retry of the same progress must post.
+        coalescer.rollback(ticket)
+        return if (error.isNotificationsNotAllowed()) {
+            // The authorization check above passed and the user revoked it before `add` ran: the
+            // same answer the check would have given a moment later.
+            NotificationResult.PermissionDenied
         } else {
             NotificationResult.Failed(IllegalStateException(error.localizedDescription))
         }
     }
 
+    private fun NSError.isNotificationsNotAllowed(): Boolean =
+        domain == UNErrorDomain && code == UNErrorCodeNotificationsNotAllowed
+
     override fun cancel(id: String) {
-        coalescer.forget(id)
-        val notificationCenter: UNUserNotificationCenter = center
-        notificationCenter.removeDeliveredNotificationsWithIdentifiers(listOf(id))
-        notificationCenter.removePendingNotificationRequestsWithIdentifiers(listOf(id))
+        // One critical section with the decide-and-add of an in-flight post (see post).
+        postLock.withLock {
+            coalescer.forget(id)
+            val notificationCenter: UNUserNotificationCenter = center
+            notificationCenter.removeDeliveredNotificationsWithIdentifiers(listOf(id))
+            notificationCenter.removePendingNotificationRequestsWithIdentifiers(listOf(id))
+        }
     }
 
     override fun cancelAll() {
-        coalescer.clear()
-        // Delivered only, mirroring Android's cancelAll(): a pending request is something the OS
-        // has been asked to show later, which is nobody's idea of "clear the tray".
-        center.removeAllDeliveredNotifications()
+        postLock.withLock {
+            coalescer.clear()
+            // Delivered only, mirroring Android's cancelAll(): a pending request is something the OS
+            // has been asked to show later, which is nobody's idea of "clear the tray".
+            center.removeAllDeliveredNotifications()
+        }
     }
 
     private fun contentFor(notification: LocalNotification): UNMutableNotificationContent =

@@ -21,7 +21,7 @@ unload()/release()                               ▼      │
 | From | Call or event | To |
 |---|---|---|
 | any | `prepare(source)` | `Preparing` → `Ready(duration)`, or `Error(cause)` |
-| `Ready` / `Paused` / `Completed` | `play()` | `Playing` (from `Completed`: from `0`) |
+| `Ready` / `Paused` / `Completed` | `play()` | `Playing` (from `Completed`, or from the end of the source: from `0`) |
 | `Playing` | `pause()` | `Paused(duration, position)` |
 | any playable | `stop()` | `Ready`, playhead at `0`, source still loaded |
 | `Completed` | `seekTo(n)` | `Paused` |
@@ -60,7 +60,9 @@ apart. Match on the types and codes you care about and fall through on the rest;
 platform produces are not part of this module's compatibility promise.
 
 A failure *after* loading — a stream that dies mid-video — arrives the same way, as `Error`, when the
-platform notices. Recovering means preparing again; there is no `retry()`, because the source to
+platform notices. That includes a failure the engine reports in the instant between its load
+succeeding and `prepare` publishing `Ready`: it is kept and applied in order, so the player settles on
+`Error` rather than `Ready`. Recovering means preparing again; there is no `retry()`, because the source to
 retry with (perhaps with a refreshed token) is information only you have.
 
 ## The release contract
@@ -142,8 +144,10 @@ player.bufferedPositionFlow // how far ahead the platform has data, in ms — a 
 ```
 
 - `isBufferingFlow` is reported for a **loaded** source only. Waiting for data while loading is what
-  `Preparing` already says, so it stays `false` then. It is `false` whenever the player is idle, has
-  completed, or has failed.
+  `Preparing` already says, so it is not shown then. A stall the engine reports in the instant between
+  its load succeeding and `prepare` publishing `Ready` is the exception: it is kept and shown with
+  `Ready`. It is `false` whenever the player is idle, has
+  completed (a stall reported after the end is ignored), or has failed.
 - `bufferedPositionFlow` is polled together with the playhead, only while `Playing`, and snapshotted
   when a source finishes loading and on `pause()`. It is `0` when nothing is loaded; for a local file
   it is the duration.
@@ -209,7 +213,7 @@ player.playbackSpeedFlow.value   // 1.5f — the clamped value in effect
 ```
 
 Clamped to `VideoPlayerConfig`'s `minPlaybackSpeed..maxPlaybackSpeed` (`0.25f..3.0f` by default),
-never rejected; `NaN` is ignored. As in the audio player, the rate reaches the platform only while
+never rejected; `NaN` is ignored. `player.playbackSpeedRange` is that configured range, for a speed menu that should offer only rates the player accepts. The rate a player starts with (`1.0`) is clamped the same way, so a range such as `2f..3f` starts at `2f`. An engine may play only part of a very wide range: the VLC engine plays 1/32..32 and uses the nearest bound outside it. As in the audio player, the rate reaches the platform only while
 playing, on every `play()` and when a source loads — on `AVPlayer` a non-zero rate on a paused player
 starts it.
 
@@ -233,9 +237,9 @@ fun onScrub(fraction: Float) {
 ```
 
 `seekForward()` / `seekBackward()` default to ten seconds (`DEFAULT_SEEK_AMOUNT_MS`) and never
-overflow, whatever amount they are given. Seeking out of `Completed` lands in `Paused`. Seeking a
+overflow, whatever amount they are given. On a source whose length is not known yet (`duration` `0`, a live stream) they skip relative to the playhead instead of clamping to `0`; an absolute `seekTo` there still clamps to `0..0`. Seeking out of `Completed` lands in `Paused`. Seeking a
 `Ready` player moves the playhead (`playbackPositionFlow`) and leaves it `Ready`; the next `play()`
-starts from there.
+starts from there. `play()` with the playhead sitting on the end of the source (after a seek onto it) starts over from `0`, like `play()` from `Completed`.
 
 ## Tuning the position poll
 
@@ -274,7 +278,8 @@ The player takes ownership of the engine: it installs itself as the listener, an
 - **Calling `play()` right after `prepare()` without checking the state.** `prepare` can end in
   `Error`, and `play()` there is a no-op.
 - **Treating `duration == 0` as an error.** It means the platform has not reported a length — normal
-  for a live stream.
+  for a live stream. A source of unknown length that plays to its end completes with the position
+  where it ended as its length (`Completed(duration = end)`), so a progress or "watched" check still works.
 - **Keying "watched" on `Completed` with `RepeatMode.One`.** A looping player never completes.
 - **Releasing a shared player from one of its screens.** `release()` is permanent; use `unload()` for
   a player you do not own.

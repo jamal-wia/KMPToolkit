@@ -4,12 +4,14 @@ import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * A complete [UploaderStore] backed by a list in memory — durable for exactly as long as the object
@@ -22,14 +24,17 @@ import kotlinx.coroutines.sync.withLock
  *   a driver and a temp directory. Against this one they are a `runTest` block.
  * - **Being a reference implementation.** It is the shortest complete answer to
  *   `docs/kmptoolkit-uploader/07-custom-store.md`, and passes
- *   [AbstractUploaderStoreContractTest] unmodified.
+ *   [UploaderStoreContract] unmodified.
  *
  * It is *not* a fake in the loose sense: it implements the SPI contract exactly, including
  * insertion ordering, the parked-conflict rule, the compare-and-sets in [recordFailure],
  * [markInFlight] and [park] with the claim counter they advance, and no-op-on-absent-row everywhere. A test that passes against this store and
- * fails against your database has found a bug in your store, which is the point.
+ * fails against your database has found a bug in your store, which is the point — for the SPI invariants, not for
+ * cancellation timing: its calls never notice a cancelled caller, contended or not, whereas a store that hops to a database thread
+ * does, even after its write committed. The engine is built for both kinds (see the Cancellation section of
+ * [UploaderStore]).
  *
- * Thread-safe: every mutation runs under a [Mutex], so concurrent enqueues and settles behave the
+ * Thread-safe: every mutation runs under a [Mutex] that is taken non-cancellably, so a cancelled caller's write still lands and concurrent enqueues and settles behave the
  * way they would against a serialized database writer.
  *
  * @param initialItems items to start with, in insertion order — a convenient way to simulate "the
@@ -40,6 +45,13 @@ public class InMemoryUploaderStore(
 ) : UploaderStore {
 
     private val mutex = Mutex()
+
+    /**
+     * Runs a mutation under the lock, taking the lock non-cancellably: a contended `Mutex.lock` reports a cancelled
+     * caller, which would make this store notice cancellation under load and not otherwise. Every write therefore lands,
+     * contended or not, for a caller that is already cancelled.
+     */
+    private suspend fun <T> write(block: () -> T): T = withContext(NonCancellable) { mutex.withLock { block() } }
 
     private val state: MutableStateFlow<List<UploaderItem>> = MutableStateFlow(initialItems.toList())
 
@@ -54,7 +66,7 @@ public class InMemoryUploaderStore(
     /** A snapshot of [items] right now. */
     public fun snapshot(): List<UploaderItem> = state.value
 
-    override suspend fun insertKeep(record: UploaderItem): Boolean = mutex.withLock {
+    override suspend fun insertKeep(record: UploaderItem): Boolean = write {
         val existing: UploaderItem? = findConflict(record)
         when (existing?.state) {
             // An in-flight delivery must win over a re-enqueue exactly like a waiting one.
@@ -73,7 +85,7 @@ public class InMemoryUploaderStore(
         }
     }
 
-    override suspend fun insertReplace(record: UploaderItem): UploaderItem? = mutex.withLock {
+    override suspend fun insertReplace(record: UploaderItem): UploaderItem? = write {
         val existing: UploaderItem? = findConflict(record)
         // Delete-and-append, never an in-place edit: the replacement enters at the tail of the
         // insertion sequence, so a repeatedly replaced key cannot hold its channel's head forever.
@@ -96,11 +108,11 @@ public class InMemoryUploaderStore(
         expectedState: UploaderItemState,
         expectedClaim: Long,
         disposition: FailureDisposition,
-    ): Boolean = mutex.withLock {
+    ): Boolean = write {
         // The optimistic guard: a claim that moved since the caller read it means the drain re-handed
         // this item or a settle got there first — either way the stale report must not clobber what is
         // there now.
-        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return@withLock false
+        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return@write false
         // A give-up lands in this same write, so the row is never observable as PENDING once its
         // retry budget is spent.
         when (disposition) {
@@ -128,9 +140,9 @@ public class InMemoryUploaderStore(
         leaseUntilEpochMillis: Long,
         expectedState: UploaderItemState,
         expectedClaim: Long,
-    ): Boolean = mutex.withLock {
+    ): Boolean = write {
         // Claimed only as the caller read it: a row parked or re-gated since then must stay that way.
-        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return@withLock false
+        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return@write false
         replace(
             current.copy(
                 state = UploaderItemState.IN_FLIGHT,
@@ -146,10 +158,10 @@ public class InMemoryUploaderStore(
         lastError: String?,
         expectedState: UploaderItemState,
         expectedClaim: Long,
-    ): Boolean = mutex.withLock {
+    ): Boolean = write {
         // Parked only as the caller read it: a re-hand since then has made this a verdict on an attempt
         // the engine no longer runs.
-        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return@withLock false
+        val current: UploaderItem = guarded(id, expectedState, expectedClaim) ?: return@write false
         replace(
             current.copy(
                 state = UploaderItemState.PARKED,
@@ -165,11 +177,11 @@ public class InMemoryUploaderStore(
     private fun guarded(id: String, expectedState: UploaderItemState, expectedClaim: Long): UploaderItem? =
         state.value.firstOrNull { it.id == id }?.takeIf { it.state == expectedState && it.claim == expectedClaim }
 
-    override suspend fun deleteById(id: String): Unit = mutex.withLock {
+    override suspend fun deleteById(id: String): Unit = write {
         state.value = state.value.filterNot { it.id == id }
     }
 
-    override suspend fun deleteByTag(tag: String): List<UploaderItem> = mutex.withLock {
+    override suspend fun deleteByTag(tag: String): List<UploaderItem> = write {
         val (removed: List<UploaderItem>, kept: List<UploaderItem>) = state.value.partition { it.tag == tag }
         state.value = kept
         removed
@@ -178,7 +190,7 @@ public class InMemoryUploaderStore(
     override fun observeByType(type: String): Flow<List<UploaderItem>> =
         state.map { items -> items.filter { it.type == type } }
 
-    override suspend fun clearAll(): Unit = mutex.withLock {
+    override suspend fun clearAll(): Unit = write {
         state.value = emptyList()
     }
 

@@ -59,12 +59,12 @@ deterministic.
 
 | Member | Use it to |
 |---|---|
-| `FakePlaybackEngine(durationMs)` / `var durationMs` | Set the duration a load reports. `0` models a source whose length the platform never reports. |
+| `FakePlaybackEngine(durationMs)` / `var durationMs` | Set the duration a load reports. `0` models a source whose length the platform never reports (unknown); a negative duration is refused (constructor and setter). |
 | `var loadFailure: Throwable?` | Make the next `prepare` fail with exactly this cause. Set back to `null` to let the next one succeed. |
 | `var loadDelayMs: Long` | Give the test a window in which to cancel the coroutine that called `prepare`. |
-| `advancePositionTo(ms)` / `advancePositionBy(ms)` | Move the playhead, as playback would between two polls. |
-| `completePlayback()` | Play to the end: playhead to `durationMs`, then `onCompleted`. |
-| `failPlayback(cause)` | Fail *after* a successful load — a stream that dies mid-track. |
+| `advancePositionTo(ms)` / `advancePositionBy(ms)` | Move the playhead, as playback would between two polls; `advancePositionBy` saturates, so a huge amount lands on `durationMs`. `0` = unknown: `advancePositionBy` is not clamped then; neither call produces a negative position. A load, failed or not, stops what was playing before it. |
+| `completePlayback()` | Play to the end: playhead to `durationMs`, then `onCompleted`. On an unknown length (`0`) the playhead stays where it is, as on the real engines, and the player completes there. |
+| `failPlayback(cause)` | Fail *after* a successful load — a stream that dies mid-track, or right after `load` returned (the player then ends in `Error`, not `Ready`). Not meant to be called while a load is still running. |
 | `val positionMs`, `val isPlaying`, `val appliedSpeed` | Assert what the player asked the platform to do. |
 | `val loadedSources` | Every source passed to `load`, in order, including ones that then failed. |
 | `val releaseCount`, `val hasListener` | Assert the release contract — see below. |
@@ -189,5 +189,7 @@ category effects, codec support. Those need a device or a simulator, and no fake
 them — [`05-platform-notes.md`](05-platform-notes.md) lists what each platform actually does.
 
 The module's own tests take the same split: the state machine, the release contract, clamping and
-cancellation are covered in `commonTest`; the two engines are thin enough to be verified by reading
-them against that document.
+cancellation are covered in `commonTest`, including stress runs on real threads. `androidHostTest`
+(Robolectric, test scope only) drives the Android engine against `ShadowMediaPlayer` to check that a
+load cancelled mid-preparation releases its `MediaPlayer`; the engines are otherwise thin enough to be
+verified by reading them against that document.

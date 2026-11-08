@@ -65,7 +65,7 @@ becomes `AwaitingSettings` you offer the settings trip. Both are your components
 | `AwaitingRationale` | your explanation, with a continue and a cancel | `rationaleAcknowledged()` / `rationaleDismissed()` |
 | `AwaitingSettings` | your prompt offering system settings | `openSettings()` / `settingsDeclined()` |
 | `Granted` | proceed | — |
-| `Limited` | proceed with what was granted; optionally offer to widen it | `start()` again to ask where the platform can — see [Limited grants](#limited-grants) |
+| `Limited` | proceed with what was granted; optionally offer to widen it | `start()` re-checks and stays `Limited`; to ask to widen it, call `controller.request(permission)`, then `refresh()` — see [Limited grants](#limited-grants) |
 | `Unavailable` | hide or disable the feature; do **not** send the user to settings | — |
 | `Denied` | degrade gracefully; leave a way to try again | `start()` again later |
 
@@ -196,7 +196,7 @@ The map has one entry per distinct permission, in your order. On Android every r
 the batch that can still show a dialog shares **one** system dialog — the user sees "Allow camera?"
 and "Allow microphone?" back to back, without your app in between — and everything else (special
 accesses, roles, background location, an entry already decided) is then requested one by one, in
-order. On iOS there is no shared dialog: each prompt follows the previous one.
+order, and each step waits for the app to be back on screen before it asks. On iOS there is no shared dialog: each prompt follows the previous one.
 
 Use a batch where the permissions belong to one feature and one explanation covers them all. Where
 each needs its own explanation, drive a `PermissionRequestFlow` per permission instead — that is why
@@ -262,6 +262,11 @@ suspend fun onBecomeLauncherTapped() {
 
 A special access request that is cancelled while the user is on the Settings screen leaves the screen
 where it is; the next `check` or `observe` sees what the user did there.
+
+A runtime request cancelled while its system dialog is up leaves that dialog on screen too. A request
+queued behind it waits (up to 30 seconds) for the user to answer it, then shows its own dialog; if the
+dialog is still up after that, the request returns the unchanged status without showing anything, as
+for any launch the host refuses. Cancelling the waiting request ends its wait at once.
 
 ## Any other Android permission: `Runtime(name)`
 
