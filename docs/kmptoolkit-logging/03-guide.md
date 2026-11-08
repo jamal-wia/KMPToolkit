@@ -212,7 +212,8 @@ val page: Page = log.logTimed("renderPage") { renderer.render(index) }
 
 Logs `renderPage [12.4ms]` at `DEBUG` (pass `level` for another) and returns the block's result
 unchanged. The measurement runs whether or not the event passes the threshold, so the number is
-real; an exception from the block propagates without a log line.
+real; an exception from the block propagates without a log line; an early `return` out of the block is
+timed.
 
 It is a debugging convenience, not instrumentation — if you want percentiles across sessions, emit a
 metric, don't parse logs.
