@@ -1,7 +1,12 @@
 public abstract interface class io/github/jamal_wia/kmptoolkit/activity/ActivityAccess {
 	public abstract fun addOnActivityResumedListener (Lkotlin/jvm/functions/Function1;)Lio/github/jamal_wia/kmptoolkit/activity/ActivitySubscription;
+	public fun forEachResumedActivity (Lkotlin/jvm/functions/Function1;)V
 	public abstract fun release ()V
 	public abstract fun withActivity (Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/activity/ActivityAccess$DefaultImpls {
+	public static fun forEachResumedActivity (Lio/github/jamal_wia/kmptoolkit/activity/ActivityAccess;Lkotlin/jvm/functions/Function1;)V
 }
 
 public final class io/github/jamal_wia/kmptoolkit/activity/ActivityAccessKt {

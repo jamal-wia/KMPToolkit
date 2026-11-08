@@ -139,6 +139,10 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
   `Calendar` as one through `CalendarWriteOnly`. The reverse direction is not mirrored (the full calendar
   can still show a dialog for the read string), and neither is a partial answer. A `Runtime(name)` you
   build for a string a catalog entry already covers keeps its own flags, so ask through one of the two.
+  `observe` follows the same model: a request through one of these entries re-reads every observer of
+  an entry that asks for at least one of the same strings (`AudioLibrary` and `PhotoLibrary` below
+  API 33, `Calendar` and `CalendarWriteOnly`), so an observer is never behind `check` until the next
+  resume. A `Runtime(name)` is not in the catalog and is re-read only at a resume.
 - A role reuses the two keys: `asked` after its first refusal, `rationale` after its second.
   A role dialog interrupted by its activity finishing with it up records nothing: the default host
   tells an interruption from the user backing out. A host of your own has only a result code, so what it
@@ -331,8 +335,24 @@ your manifest to declare its permission where it has one — `SCHEDULE_EXACT_ALA
 | `KeepPermissionsWhenUnused` | `PackageManager.isAutoRevokeWhitelisted` (API 30+; `Granted` below) | `Intent.ACTION_AUTO_REVOKE_PERMISSIONS` with `package:` |
 | `AccessibilityService(component)` | `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`; `Unavailable` for an unknown service | `ACTION_ACCESSIBILITY_SETTINGS` |
 
+`request` of a special access returns at the first resume of an activity of the app after the Settings
+screen opened. With several windows of the app on screen (split screen, freeform, activity embedding), a
+window beside Settings that is recreated (fold, rotation, theme or density change) counts, and the
+request then returns the status unchanged while Settings is still open; `observe` and
+`PermissionRequestFlow.refresh` pick up the user's choice at the next resume. A precise "the window
+Settings covered resumed" rule needs a pause signal the activity tracker does not have, and every guess
+without one can hang a request, which holds the controller's request lock; an early return is harmless.
+
 A platform call that throws — `isExternalStorageManager` is known to on some OEM builds — reads as not
 granted, and is logged.
+
+The runtime path has the same guard, with a fallback for each read that is the answer the platform
+cannot contradict, logged once per read and Android string: the notification switch below API 33
+(`areNotificationsEnabled`) reads as off, i.e. `PermanentlyDenied`; the device-policy lookup reads as
+"not restricted"; the rationale lookup reads as "cannot tell" (`NotDetermined`, or
+`Denied(explainFirst = false)` once the dialog was shown); the protection-level lookup reads as "the
+device does not know it" (`Unavailable` for a `Runtime(name)`). `checkSelfPermission` is not guarded: it
+fails only when the system server is dead, and no honest fallback exists.
 
 **Why the fallbacks.** Some OEM Settings apps drop a package-specific screen while keeping the list
 it belongs to. Each entry that has both tries this app's own page first and then the generic list of

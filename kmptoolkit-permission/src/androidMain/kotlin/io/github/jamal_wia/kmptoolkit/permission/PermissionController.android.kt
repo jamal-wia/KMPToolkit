@@ -28,6 +28,7 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import kotlin.coroutines.resume
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.channels.awaitClose
@@ -303,9 +304,9 @@ internal class AndroidPermissionController(
     /** The app's `targetSdkVersion`, which decides whether some permissions exist for it at all. */
     private val targetSdk: Int,
     /** A raw permission's protection level, `null` when the device does not know it. */
-    private val protectionOf: (String) -> Protection?,
+    protectionOf: (String) -> Protection?,
     /** `null` when there is no activity to ask right now. */
-    private val shouldShowRationale: (String) -> Boolean?,
+    shouldShowRationale: (String) -> Boolean?,
     /** Suspends, briefly and at most once per call, until an activity can be asked. */
     private val awaitActivity: suspend () -> Unit,
     /** Calls the listener on every activity resume — at once, if one is resumed — until cancelled. */
@@ -320,9 +321,9 @@ internal class AndroidPermissionController(
     /** The manifest's declared permissions; `null` when unreadable, which filters nothing. */
     private val declaredPermissions: () -> Set<String>?,
     /** Whether a device policy has revoked the Android permission. */
-    private val isRevokedByPolicy: (String) -> Boolean,
+    isRevokedByPolicy: (String) -> Boolean,
     /** Whether the app's notifications are switched on — the pre-API-33 notification status. */
-    private val notificationsEnabled: () -> Boolean,
+    notificationsEnabled: () -> Boolean,
     private val specialAccesses: SpecialAccesses,
     private val resultGrants: ResultGrants,
     /**
@@ -352,6 +353,48 @@ internal class AndroidPermissionController(
 
     /** Flag operations already reported as failed, so a storage that stays down warns once per flag. */
     private val reportedFlagFailures: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+
+    /** Platform reads already reported as failed (seam name plus Android string), so a read that fails on every resume warns once. */
+    private val reportedPlatformFailures: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+
+    /**
+     * Runs one platform [read]; when it throws, logs once and answers [fallback] instead. The contract is
+     * that nothing throws for a platform failure, and each fallback is the reading the module already has
+     * for "the platform cannot tell". [CancellationException] is rethrown: it is an `IllegalStateException`
+     * and must not be swallowed.
+     *
+     * `checkSelfPermission` ([isGranted]) is deliberately not guarded: it fails only when the system server
+     * is dead, where the process is killed anyway, and no fallback for it is honest (a false "not granted"
+     * could produce a false `PermanentlyDenied`).
+     */
+    private fun <T> platformRead(what: String, fallback: T, read: () -> T): T = try {
+        read()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (cause: Exception) {
+        if (reportedPlatformFailures.markReported(what)) logger.w(cause) { "$what threw; read as $fallback" }
+        fallback
+    }
+
+    /** A raw permission's protection level; `null` (the device does not know it) when the lookup throws. */
+    private val protectionOf: (String) -> Protection? = { androidPermission: String ->
+        platformRead("protection level of $androidPermission", null) { protectionOf(androidPermission) }
+    }
+
+    /** `null` (cannot tell) when the lookup throws. */
+    private val shouldShowRationale: (String) -> Boolean? = { androidPermission: String ->
+        platformRead("rationale lookup of $androidPermission", null) { shouldShowRationale(androidPermission) }
+    }
+
+    /** `false` (not restricted) when the lookup throws. */
+    private val isRevokedByPolicy: (String) -> Boolean = { androidPermission: String ->
+        platformRead("policy lookup of $androidPermission", false) { isRevokedByPolicy(androidPermission) }
+    }
+
+    /** `false` (switched off) when the read throws. */
+    private val notificationsEnabled: () -> Boolean = {
+        platformRead("notification switch", false) { notificationsEnabled() }
+    }
 
     /** `true` the first time [key] is reported. */
     private fun MutableStateFlow<Set<String>>.markReported(key: String): Boolean =
@@ -451,6 +494,26 @@ internal class AndroidPermissionController(
 
     // --- requests -------------------------------------------------------------------------------
 
+    /**
+     * Tells every [observe] that [source]'s request resolved, and those of every other catalog entry that
+     * asks Android for at least one of the strings [source]'s dialog asked for: they are one question to
+     * the platform, so a request through one is a reason for the others to re-read. A re-read is side
+     * effect free, so the match is an intersection, broader than the containment [coveredBy] needs for
+     * its writes. A `Runtime(name)` is not in the catalog and is re-read only at the next resume.
+     */
+    private fun announceResolved(source: Permission) {
+        requestsResolved.tryEmit(source)
+        val dialog: RuntimeRule.Dialog = ruleOf(source) as? RuntimeRule.Dialog ?: return
+        val strings: List<String> = declaredQuietly(dialog.androidPermissions)
+        if (strings.isEmpty()) return
+        for (entry: Permission in MIRRORABLE_ENTRIES) {
+            val entrySource: Permission = entry.statusSource()
+            if (entrySource == source) continue
+            val entryRule: RuntimeRule.Dialog = ruleOf(entrySource) as? RuntimeRule.Dialog ?: continue
+            if (declaredQuietly(entryRule.androidPermissions).any { it in strings }) requestsResolved.tryEmit(entrySource)
+        }
+    }
+
     /** One permission, with [requestMutex] held. */
     private suspend fun requestOne(permission: Permission, resumeWait: MutableStateFlow<Boolean>): PermissionStatus {
         val source: Permission = permission.statusSource()
@@ -461,7 +524,7 @@ internal class AndroidPermissionController(
             ruleOf(source) != null -> requestRuntime(source, requested = permission, resumeWait = resumeWait)
             else -> PermissionStatus.Unavailable
         }
-        requestsResolved.tryEmit(source)
+        announceResolved(source)
         return status
     }
 
@@ -491,7 +554,7 @@ internal class AndroidPermissionController(
             ?: return dialogs.mapValues { (source, _) -> runtimeStatus(source) }
         return dialogs.mapValues { (source, strings) ->
             settle(source, strings, answers.filterKeys { it in strings }, resumeWait)
-                .also { requestsResolved.tryEmit(source) }
+                .also { announceResolved(source) }
         }
     }
 
@@ -660,6 +723,11 @@ internal class AndroidPermissionController(
      * The resume listener fires synchronously for an activity that is already resumed when it is added;
      * that call is the screen not having appeared yet, and is ignored. Cancelling the caller removes the
      * listener; the screen stays where it is, and the next [check] or [observe] sees what the user did.
+     *
+     * Any resume after the open ends the wait, so with several windows of the app on screen a window beside
+     * Settings that is recreated ends it early. Why not wait for the covered window only: there is no pause
+     * signal to tell which window Settings covered, and every heuristic without one can hang instead, which
+     * is far worse — this holds [requestMutex], so one stuck request would block every later one.
      */
     private suspend fun openAndAwaitReturn(request: SystemScreenRequest, permission: Permission): Boolean {
         val returned: CompletableDeferred<Boolean> = CompletableDeferred()

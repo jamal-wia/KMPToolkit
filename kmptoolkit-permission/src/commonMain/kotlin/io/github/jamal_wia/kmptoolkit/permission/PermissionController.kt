@@ -50,7 +50,10 @@ public interface PermissionController {
     /**
      * Shows the system UI for [permission] once and suspends until it has been answered: the runtime
      * permission dialog; for a permission only Settings can grant, the Settings screen — returning
-     * after the app is in the foreground again; for an Android role, the role dialog.
+     * after the app is in the foreground again (on Android, at the first resume of an activity of the app
+     * after the screen opened; with several windows of the app on screen, a window beside Settings that is
+     * recreated counts, and the request then returns the status unchanged — [observe] sees the user's
+     * choice at the next resume); for an Android role, the role dialog.
      *
      * @return the status after the answer, re-read from the OS. It can still be anything but
      *   [PermissionStatus.NotDetermined] after a dialog was shown; a request is a question, not an
@@ -77,7 +80,9 @@ public interface PermissionController {
      * Emits the current status when collected, then again — only when it differs — at the points where
      * a platform can change it behind the app's back or where this controller changed it: on Android
      * every activity resume, on iOS every time the app becomes active, and on both after every request
-     * through this controller that covered [permission]. Never shows UI.
+     * through this controller that covered [permission]. On Android that is a request for the entry itself,
+     * for the entry it stands for on this API level, or for another catalog entry that asks Android for the
+     * same permission (a `Runtime(name)` is re-read only at the next resume). Never shows UI.
      */
     public fun observe(permission: Permission): Flow<PermissionStatus>
 

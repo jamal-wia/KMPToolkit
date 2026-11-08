@@ -481,6 +481,20 @@ class PermissionRequestFlowTest {
     }
 
     @Test
+    fun `start from limited re-checks and stays limited without asking to widen the grant`() = runTest {
+        val controller = ScriptedPermissionController(status = PermissionStatus.Limited)
+        val flow: PermissionRequestFlow = flowFor(controller)
+        assertEquals(PermissionFlowState.Limited, flow.start())
+        val checksBefore: Int = controller.checkCount
+
+        assertEquals(PermissionFlowState.Limited, flow.start())
+
+        assertEquals(checksBefore + 1, controller.checkCount, "start() from Limited did not re-check")
+        assertEquals(0, controller.requestCount, "start() from Limited asked to widen the grant")
+        assertEquals(PermissionFlowState.Limited, flow.state.value)
+    }
+
+    @Test
     fun `start on a restricted or unavailable permission lands on unavailable without a dialog`() = runTest {
         listOf(PermissionStatus.Restricted, PermissionStatus.Unavailable).forEach { status ->
             val controller = ScriptedPermissionController(status = status)

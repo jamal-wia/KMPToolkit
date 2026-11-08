@@ -64,6 +64,17 @@ internal class LifecycleActivityTracker(
         return block(activity)
     }
 
+    override fun forEachResumedActivity(block: (Activity) -> Unit) {
+        val stale: MutableList<WeakReference<Activity>> = mutableListOf()
+        val live: MutableList<Activity> = mutableListOf()
+        for (reference in resumed.get()) {
+            val activity: Activity? = reference.get()
+            if (activity == null || activity.isFinishing || activity.isDestroyed) stale += reference else live += activity
+        }
+        if (stale.isNotEmpty()) resumed.updateAndGet { list -> list.filterNot { entry -> stale.any { it === entry } } }
+        live.forEach(block)
+    }
+
     /**
      * The most recently resumed activity that is still alive: not collected, not finishing, not
      * destroyed. The dead or finishing references walked past are dropped by identity, so a resume that

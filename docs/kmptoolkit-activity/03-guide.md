@@ -84,6 +84,9 @@ captures lives as long as the tracker does. Capture the `ActivityAccess`, not an
 
 ## Threading
 
+To act on every window of the app that is resumed (split screen, freeform, activity embedding) rather
+than the newest one, use `forEachResumedActivity { activity -> ... }`.
+
 `withActivity` runs the block on the calling thread and does not move you to the main thread —
 most `Activity` APIs require it, so hop yourself if you are not already there. Listeners are invoked
 synchronously on whatever thread the framework delivers `onActivityResumed` on, which is the main

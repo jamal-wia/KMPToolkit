@@ -203,21 +203,27 @@ public interface PermissionController {
   nothing shown, the status returned unchanged.
 - **`observe`** emits the current status on collection, then each *different* status: on every
   activity resume on Android, every time the app becomes active on iOS, and after every request
-  through the same controller that covered the permission (or the entry it stands for on this API
-  level). It never shows UI.
+  through the same controller that asked Android for a permission it depends on: the entry itself,
+  the entry it stands for on this API level, or another catalog entry asking for the same Android
+  permission (a `Runtime(name)` is re-read only at the next resume). It never shows UI.
 - **`openSettings`** opens the most specific system screen for `permission`: a special access's own
   page, the app's notification page for `Notifications`, the default-apps screen for a role, and
   otherwise the app's details page. `true` means a screen was handed to the system, not that the user
   saw it or changed anything. `false` for a type the controller does not know.
 - **Nothing throws** for a platform failure — a missing activity, a launcher that cannot fire, a
-  screen no app handles — it arrives as a status or as `false`, and is logged.
+  screen no app handles — it arrives as a status or as `false`, and is logged. A platform read that
+  throws (the notification switch, a policy or rationale lookup, a protection-level lookup) reads as
+  the status it would have when the platform cannot tell, and is logged once.
 - **Cancellation.** Cancelling the coroutine that called `request` abandons the *result*, not the
   system UI: the user's answer still reaches the OS, nothing is recorded for an unanswered dialog, and
   the next `check` sees what happened. A dialog still waiting to be posted to the main thread when
   the caller is cancelled (Android, caller off the main thread) is not shown at all.
 - **Callers on any thread.** On Android a request for a special access subscribes to the activity's
   resume and opens the Settings screen on the main thread, so a caller on `Dispatchers.Default` or `IO`
-  returns only once the user is back, never early because of a late resume notification. `observe`
+  returns only once the user is back, never early because of a late resume notification. "Back" is the
+  first resume of an activity of the app after the screen opened: with several windows of the app on
+  screen, a window beside Settings that is recreated counts, and the request then returns the status
+  unchanged (`observe` sees the user's choice at the next resume). `observe`
   subscribes to request results before it first reads the status, so a request that resolves in between
   is not missed.
 
