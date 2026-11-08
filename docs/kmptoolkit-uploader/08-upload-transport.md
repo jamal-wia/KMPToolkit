@@ -213,6 +213,7 @@ read timeout for a read already waiting) or, between reads, when the job is canc
 cannot be read completely — the connection broke, or the time ran out —
 is reported as truncated with the bytes read so far, not as a transport failure. A status that carries no content (`1xx`,
 `204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
+A redirect (`3xx` other than `304`) whose body the stack does not hand over is flagged truncated unless its headers declare an empty body (`Content-Length: 0`).
 The status line and headers must arrive within twice the read timeout after the body is sent: a server that
 trickles them longer fails the attempt as a transport failure (no status was received). A server that answers before the
 body is complete and closes the connection is heard: whatever final status it sent (a `413`, a
