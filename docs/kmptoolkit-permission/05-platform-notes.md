@@ -334,6 +334,14 @@ your manifest to declare its permission where it has one — `SCHEDULE_EXACT_ALA
 A platform call that throws — `isExternalStorageManager` is known to on some OEM builds — reads as not
 granted, and is logged.
 
+The runtime path has the same guard, with a fallback for each read that is the answer the platform
+cannot contradict, logged once per read and Android string: the notification switch below API 33
+(`areNotificationsEnabled`) reads as off, i.e. `PermanentlyDenied`; the device-policy lookup reads as
+"not restricted"; the rationale lookup reads as "cannot tell" (`NotDetermined`, or
+`Denied(explainFirst = false)` once the dialog was shown); the protection-level lookup reads as "the
+device does not know it" (`Unavailable` for a `Runtime(name)`). `checkSelfPermission` is not guarded: it
+fails only when the system server is dead, and no honest fallback exists.
+
 **Why the fallbacks.** Some OEM Settings apps drop a package-specific screen while keeping the list
 it belongs to. Each entry that has both tries this app's own page first and then the generic list of
 the same access, one tap away from the toggle. Only public platform actions are used, at the API

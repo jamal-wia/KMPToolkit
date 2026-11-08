@@ -210,7 +210,9 @@ public interface PermissionController {
   otherwise the app's details page. `true` means a screen was handed to the system, not that the user
   saw it or changed anything. `false` for a type the controller does not know.
 - **Nothing throws** for a platform failure — a missing activity, a launcher that cannot fire, a
-  screen no app handles — it arrives as a status or as `false`, and is logged.
+  screen no app handles — it arrives as a status or as `false`, and is logged. A platform read that
+  throws (the notification switch, a policy or rationale lookup, a protection-level lookup) reads as
+  the status it would have when the platform cannot tell, and is logged once.
 - **Cancellation.** Cancelling the coroutine that called `request` abandons the *result*, not the
   system UI: the user's answer still reaches the OS, nothing is recorded for an unanswered dialog, and
   the next `check` sees what happened. A dialog still waiting to be posted to the main thread when
