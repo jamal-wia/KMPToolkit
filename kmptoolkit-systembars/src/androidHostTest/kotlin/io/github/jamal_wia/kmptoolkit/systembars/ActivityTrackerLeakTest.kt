@@ -167,7 +167,7 @@ class ActivityTrackerLeakTest {
     }
 
     @Test
-    fun `a release owed to a paused window keeps exactly one subscription and drops it on its resume`() {
+    fun `a release reaches a paused window at once and leaves no subscription behind`() {
         val counting: CountingWrapper = countingAccess() // before the activity: the tracker only sees later resumes
         val activity = Robolectric.buildActivity(Activity::class.java).create().resume()
         val controller = createScreenWakeLockController(counting)
@@ -175,7 +175,9 @@ class ActivityTrackerLeakTest {
         activity.pause()
 
         controller.setKeepScreenOn(false)
-        assertEquals(1, counting.live, "the release is still owed to that window")
+        // A paused window can be written, so the release is applied now, not owed until it resumes.
+        assertFalse(activity.get().keepsScreenOn(), "the paused window kept the flag after the release")
+        assertEquals(0, counting.live, "nothing is owed, so nothing stays subscribed")
         activity.resume()
 
         assertFalse(activity.get().keepsScreenOn())
