@@ -27,7 +27,10 @@ import kotlinx.coroutines.sync.withLock
  * It is *not* a fake in the loose sense: it implements the SPI contract exactly, including
  * insertion ordering, the parked-conflict rule, the compare-and-sets in [recordFailure],
  * [markInFlight] and [park] with the claim counter they advance, and no-op-on-absent-row everywhere. A test that passes against this store and
- * fails against your database has found a bug in your store, which is the point.
+ * fails against your database has found a bug in your store, which is the point — for the SPI invariants, not for
+ * cancellation timing: its calls never notice a cancelled caller, whereas a store that hops to a database thread
+ * does, even after its write committed. The engine is built for both kinds (see the Cancellation section of
+ * [UploaderStore]).
  *
  * Thread-safe: every mutation runs under a [Mutex], so concurrent enqueues and settles behave the
  * way they would against a serialized database writer.

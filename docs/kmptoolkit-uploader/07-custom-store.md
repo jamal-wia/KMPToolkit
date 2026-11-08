@@ -111,6 +111,14 @@ At least three callers can overlap: the drain coroutine, a feature calling `enqu
 executor calling `settle`. Guard your state — a `Mutex`, a serialized database writer, a
 transaction, whatever your engine offers.
 
+### Cancellation (nothing required)
+
+A call may throw `CancellationException` when its caller is cancelled — before its write, or **after the write
+committed** (a store that switches to a database dispatcher reports the caller's cancellation when the call
+returns). It may also not notice the cancellation at all, which is what `InMemoryUploaderStore` does. Both kinds are
+legal and no contract check requires either: the engine never relies on one, and makes a write it must see through (a
+withdrawal, the release of an interrupted claim) non-cancellable on its own side.
+
 ## The four functions worth care
 
 ### `insertKeep` — the conflict rules
