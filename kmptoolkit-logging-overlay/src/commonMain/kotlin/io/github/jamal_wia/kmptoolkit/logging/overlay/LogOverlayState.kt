@@ -126,14 +126,14 @@ public class LogOverlayState(
 
     /** Whether the cause/suppressed graph under [root] stays within the depth and node limits. Never recurses. */
     private fun isWithinRenderLimits(root: Throwable): Boolean {
-        val visited: HashSet<Throwable> = hashSetOf(root)
+        val visited: MutableList<Throwable> = mutableListOf(root)
         val pending: ArrayDeque<Pair<Throwable, Int>> = ArrayDeque()
         pending.addLast(root to 0)
         while (pending.isNotEmpty()) {
             val (node: Throwable, depth: Int) = pending.removeFirst()
             val children: List<Throwable> = listOfNotNull(node.cause) + node.suppressedExceptions
             for (child: Throwable in children) {
-                if (!visited.add(child)) continue
+                if (!visited.addIfAbsentByIdentity(child)) continue
                 if (depth + 1 > MAX_RENDERED_THROWABLE_DEPTH || visited.size > MAX_RENDERED_THROWABLES) return false
                 pending.addLast(child to depth + 1)
             }
@@ -141,19 +141,31 @@ public class LogOverlayState(
         return true
     }
 
+    /**
+     * Adds [throwable] unless this very instance is already present. By identity: a throwable class may
+     * override `equals`, and a value-equal chain must still be measured node by node (the JDK's own printer
+     * uses an identity set too). Both walks are capped at about a thousand nodes, so the linear scan is cheap
+     * and it never calls a hostile `equals` or `hashCode`.
+     */
+    private fun MutableList<Throwable>.addIfAbsentByIdentity(throwable: Throwable): Boolean {
+        if (any { known: Throwable -> known === throwable }) return false
+        add(throwable)
+        return true
+    }
+
     /** The throwable's own text, its first [MAX_RENDERED_THROWABLE_DEPTH] causes and a count of the rest; no frames. */
     private fun summarize(root: Throwable): String {
-        val seen: HashSet<Throwable> = hashSetOf(root)
+        val seen: MutableList<Throwable> = mutableListOf(root)
         val lines: MutableList<String> = mutableListOf(root.toString())
         var next: Throwable? = root.cause
         var shown = 0
-        while (next != null && shown < MAX_RENDERED_THROWABLE_DEPTH && seen.add(next)) {
+        while (next != null && shown < MAX_RENDERED_THROWABLE_DEPTH && seen.addIfAbsentByIdentity(next)) {
             lines += "Caused by: $next"
             shown++
             next = next.cause
         }
         var more = 0
-        while (next != null && more <= MAX_RENDERED_THROWABLES && seen.add(next)) {
+        while (next != null && more <= MAX_RENDERED_THROWABLES && seen.addIfAbsentByIdentity(next)) {
             more++
             next = next.cause
         }
