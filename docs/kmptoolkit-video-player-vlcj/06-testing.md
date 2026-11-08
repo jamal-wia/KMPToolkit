@@ -76,6 +76,8 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
 - `VlcjBoundaryAdversarialTest` — hostile inputs at the engine's edge: a NaN volume and a rate that is not finite
   and positive never reach libvlc, the playhead stays where a source of unknown length ended, and a seek target
   beyond what libvlc's microsecond conversion can hold is capped instead of wrapping.
+- `VlcjResolverUnencodedUrlAdversarialTest` — a `VideoSource.Asset` whose class loader returns a `file:` URL that
+  is not percent-encoded (a space, a non-ASCII character or `%` in the path) resolves to that file.
 - `VlcjVideoEngineCleanerTest` — the garbage-collection safety net: an engine dropped with a source
   loaded is collected despite a native side that holds its callbacks strongly, and then releases the
   native player and the libvlc instance (once), the player always before the instance, also when

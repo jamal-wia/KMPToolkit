@@ -4,6 +4,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.InputStream
+import java.net.URISyntaxException
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -136,7 +137,14 @@ internal object VlcMediaResolver {
         val url: URL = classLoader.getResource(resourcePath)
             ?: throw FileNotFoundException("No classpath resource: $resourcePath")
         if (url.protocol == "file") {
-            val file: File = Paths.get(url.toURI()).toFile()
+            // A loader that does not percent-encode (File.toURL(), plugin loaders) hands back a URL that
+            // is not a valid URI; its path is then the file path as written. An authority URL
+            // (file://host/...) keeps going through the URI.
+            val file: File = try {
+                Paths.get(url.toURI()).toFile()
+            } catch (_: URISyntaxException) {
+                File(url.path)
+            }
             return ResolvedMedia(file.absolutePath, emptyList(), isLocal = true, temporaryFile = null)
         }
         val extension: String = resourcePath.substringAfterLast('/').substringAfterLast('.', "")
