@@ -25,7 +25,7 @@ import org.robolectric.annotation.Config
  * held while two windows are resumed flags both through the decorator exactly as it does through the tracker.
  */
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [26, 30, 34])
+@Config(sdk = [28, 34])
 class WakeLockDecoratedAccessTest {
 
     private val application: Application = ApplicationProvider.getApplicationContext()

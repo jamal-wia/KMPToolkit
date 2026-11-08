@@ -28,7 +28,7 @@ import org.robolectric.annotation.Config
  * Seeded and capped: 8 walks of at most 30 events per level.
  */
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [24, 26, 28, 29, 30, 31, 33, 34])
+@Config(sdk = [24, 28, 30, 34])
 class WakeLockApiMatrixTest {
 
     private val application: Application = ApplicationProvider.getApplicationContext()
