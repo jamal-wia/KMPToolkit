@@ -110,7 +110,10 @@ deep inside a reader — is what this exists to prevent.
 The point of the self-check: nobody hardcodes an expected row count anywhere in this library — the
 file states its own expected size. Which table and which key are the host's domain knowledge —
 values on the format, not anything the library assumes. Both shipped storage implementations carry
-zip-slip protection during extraction. Empty directories in the archive are created too.
+zip-slip protection during extraction. Empty directories in the archive are created too. An archive
+whose extracted tree (after a single root directory is moved up) lacks the marker fails the commit
+with `ResourceIntegrityException` before anything at the final path is touched, so a resource already
+committed stays available; the engine downloads once more and then reports `DownloadError.Corrupted`.
 
 ### A stated hash — `DownloadUnit.sha256`
 

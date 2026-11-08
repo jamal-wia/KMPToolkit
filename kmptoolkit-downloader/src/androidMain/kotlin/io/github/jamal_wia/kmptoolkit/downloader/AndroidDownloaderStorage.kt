@@ -382,6 +382,12 @@ internal class AndroidDownloaderStorage(
                         nestedDir.delete()
                     }
                 }
+                // The tree must be what the unit declares before anything at the final path is touched:
+                // a directory without its marker is not "ready", and it must not replace one that is.
+                if (!File(stagingDir, unit.archiveMarker()).exists()) {
+                    tempFile.delete()
+                    throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
+                }
                 // Atomic swap: remove old target, rename staging to target
                 deleteTree(targetDir)
                 if (!stagingDir.renameTo(targetDir)) {

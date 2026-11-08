@@ -209,7 +209,9 @@ state committed without a transfer). `markTempFileComplete` is atomic, idempoten
 two callers mark the same file at once: the loser of the rename returns normally),
 and throws when there is no file. `commitResource` throws when there is no complete file, and
 throws `ResourceIntegrityException(message, cause)` — after deleting the temp file — when the bytes
-fail a check; the engine answers that with one fresh download. All three resource methods that name a
+fail a check, or when a `ZipArchive` whose extracted tree (after a single root directory is moved up)
+lacks the marker fails the same way, before anything at the final path is touched, so a resource
+already committed stays available; the engine answers that with one fresh download. All three resource methods that name a
 path (`getResourcePath`, `commitResource`, `deleteResource`) throw `InvalidDownloadUnitException` for a
 `relativePath` that is not usable. Commits of one unit are mutually
 exclusive across every storage instance over the same base directory in the process, and a commit

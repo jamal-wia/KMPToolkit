@@ -518,6 +518,12 @@ internal class IosDownloaderStorage(
                         }
                     }
                 }
+                // The tree must be what the unit declares before anything at the final path is touched:
+                // a directory without its marker is not "ready", and it must not replace one that is.
+                if (!fileExists("$stagingDir/${unit.archiveMarker()}")) {
+                    NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
+                    throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
+                }
                 // Atomic swap: remove old target, rename staging to target
                 NSFileManager.defaultManager.removeItemAtPath(targetDir, error = null)
                 // moveItemAtPath and copyItemAtPath both fail when the parent is missing, which a

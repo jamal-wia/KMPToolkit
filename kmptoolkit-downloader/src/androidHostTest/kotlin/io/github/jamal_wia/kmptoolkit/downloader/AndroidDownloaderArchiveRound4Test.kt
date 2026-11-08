@@ -92,14 +92,15 @@ class AndroidDownloaderArchiveRound4Test {
     }
 
     @Test
-    fun `an archive with two root directories and no marker fails the engine path and leaves no staging`() = runBlocking {
+    fun `an archive with two root directories and no marker fails the commit and leaves no staging`() = runBlocking {
         withTimeout(30_000) {
             val storage: DownloaderStorage = storage()
             val unit = TestUnit("n2", "pages/n2", Group("g"), ResourceFormat.ZipArchive("ok.txt"))
             stage(storage, unit, zip("a/ok.txt" to "1", "b/x" to "2"))
-            storage.commitResource(unit)
+            assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
             assertFalse(storage.isResourceAvailable(unit))
             assertFalse(File(root, "tmp/staging-n2").exists())
+            assertEquals(TempFileState.None, storage.tempFileState(unit))
         }
     }
 

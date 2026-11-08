@@ -158,7 +158,10 @@ public interface DownloaderStorage {
      * Before anything reaches the final path — before an archive is extracted, a database opened or
      * a file moved — the bytes are hashed once and checked against every expectation there is:
      * [DownloadUnit.sha256] when the unit states one, and the hash recorded by [beginTempFile].
-     * A [ResourceFormat.SqliteDatabase] is then checked as well. A failed check deletes the temp
+     * A [ResourceFormat.SqliteDatabase] is then checked as well. A [ResourceFormat.ZipArchive] whose
+     * extracted tree (after a single root directory is moved up) lacks the marker fails the same way,
+     * before anything at the final path is touched, so a resource already committed stays available.
+     * A failed check deletes the temp
      * file and throws [ResourceIntegrityException], which the engine answers with a fresh download
      * rather than a failure; so does a recorded expectation that exists but cannot be read, which is
      * never treated as "no check". With no record at all (a partial from before the record existed,
@@ -208,8 +211,8 @@ public sealed interface TempFileState {
 
 /**
  * Thrown by [DownloaderStorage.commitResource] when the downloaded bytes fail a check: a
- * [DownloadUnit.sha256] or recorded hash mismatch, or a [ResourceFormat.SqliteDatabase] that does not open or does
- * not hold the rows it declares. The temp file is already gone when this is thrown.
+ * [DownloadUnit.sha256] or recorded hash mismatch, a [ResourceFormat.SqliteDatabase] that does not open or does
+ * not hold the rows it declares, or a [ResourceFormat.ZipArchive] whose extracted tree lacks its marker. The temp file is already gone when this is thrown.
  *
  * Its own type because the right answer differs from every other commit failure: downloading again
  * is the fix for corrupt bytes, and not for a full disk. The engine retries once and then reports

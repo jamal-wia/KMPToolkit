@@ -173,6 +173,46 @@ class AndroidDownloaderContractRound4Test {
     }
 
     @Test
+    fun `an archive without the marker never replaces a committed archive`() = runBlocking {
+        withTimeout(30_000) {
+            val storage: DownloaderStorage = storage()
+            val unit: TestUnit = archive("a1")
+            stage(storage, unit, zip("ok.txt" to "1", "old.bin" to "old"))
+            storage.commitResource(unit)
+            assertTrue(storage.isResourceAvailable(unit))
+
+            stage(storage, unit, zip("other.bin" to "new"))
+            assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
+
+            assertTrue(storage.isResourceAvailable(unit), "a previously available resource was replaced by one that is not")
+            assertEquals("old", File(storage.getResourcePath(unit), "old.bin").readText())
+            assertEquals(TempFileState.None, storage.tempFileState(unit))
+            assertFalse(File(root, "tmp/staging-a1").exists(), "staging of the failed commit is still there")
+        }
+    }
+
+    @Test
+    fun `an archive without the marker fails the engine with Corrupted after exactly two transfers and leaves nothing`() = runBlocking {
+        withTimeout(60_000) {
+            val storage: DownloaderStorage = storage()
+            val group = Group("g")
+            val unit: TestUnit = archive("a4", group)
+            group.units = listOf(unit)
+            val service = Service(storage, zip("other.bin" to "new"))
+            val engine: Downloader = engine(storage, service, group)
+
+            val failure: Throwable? = runCatching { engine.ensureAvailable(unit) }.exceptionOrNull()
+
+            assertTrue(failure is DownloadFailedException, "$failure")
+            assertTrue(failure.error is DownloadError.Corrupted, "${failure.error}")
+            assertEquals(2, service.enqueues.get())
+            assertFalse(engine.isAvailable(unit))
+            assertFalse(File(root, "tmp/staging-a4").exists())
+            assertEquals(TempFileState.None, storage.tempFileState(unit))
+        }
+    }
+
+    @Test
     fun `zip entries that climb out of the target fail the commit and write nothing outside`() = runBlocking {
         withTimeout(30_000) {
             val storage: DownloaderStorage = storage()
