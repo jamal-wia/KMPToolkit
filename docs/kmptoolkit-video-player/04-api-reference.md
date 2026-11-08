@@ -341,6 +341,6 @@ render a player — not part of the public contract, may change in any release:
 
 | Symbol | Platform | What it is |
 |---|---|---|
-| `VideoPlayer.media3PlayerOrNull(): androidx.media3.common.Player?` | Android | The ExoPlayer behind a player this module created. Main thread only; the same instance for the player's whole life (across `unload`/`prepare`), created on first call on the main thread; `null` after `release()` or for another engine. |
+| `VideoPlayer.media3PlayerOrNull(): androidx.media3.common.Player?` | Android | The ExoPlayer behind a player this module created. Main thread only; the same instance for the player's whole life (across `unload`/`prepare`), created on first call on the main thread; `null` from the moment `release()` has returned (also while a load still unwinding keeps the engine alive a moment longer) or for another engine. |
 | `VideoPlayer.avPlayerOrNull(): AVPlayer?` | iOS | The `AVPlayer` behind a player this module created. Main thread only. |
 | `VideoFrameSource`, `VideoFrame`, `VideoPlayer.frameSourceOrNull()` | JVM | A desktop engine that renders decoded ARGB frames into memory, for the Compose surface to draw; `frameSourceOrNull()` returns the engine of any player whose engine implements `VideoFrameSource`. |
