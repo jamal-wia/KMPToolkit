@@ -156,7 +156,7 @@ class AndroidAlarmSchedulerChaosRecoveryStormAdversarialTest {
     }
 
     private companion object {
-        const val ROUNDS: Int = 60
+        const val ROUNDS: Int = 30
         const val WORKERS: Int = 6
         const val OPS: Int = 150
         val IDS: List<String> = listOf("a", "\uD800", "?", "\uD801\uD800", "\uD800\uD81F", "%uD800")

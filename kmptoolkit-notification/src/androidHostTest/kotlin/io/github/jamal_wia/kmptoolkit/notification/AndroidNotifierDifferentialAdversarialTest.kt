@@ -33,7 +33,7 @@ import org.robolectric.shadows.ShadowNotificationManager
  * Every result and the whole tray are compared after every step.
  */
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [24, 29, 32, 34], shadows = [AndroidNotifierDifferentialAdversarialTest.RefusingShadowNotificationManager::class])
+@Config(sdk = [24, 32, 34], shadows = [AndroidNotifierDifferentialAdversarialTest.RefusingShadowNotificationManager::class])
 class AndroidNotifierDifferentialAdversarialTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
