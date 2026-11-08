@@ -149,17 +149,17 @@ cancelled their uploads too.
 ```kotlin
 public abstract class UploadHandler<P : Any>(transport: UploadTransport) : UploaderHandler<P> {
     public abstract suspend fun prepareUpload(context: AttemptContext, payload: P): UploadPreparation
-    public open val maxResponseBodyBytes: Int                      // since 3.1.0; default DEFAULT_MAX_RESPONSE_BODY_BYTES
-    public open suspend fun classify(payload: P, result: UploadResult, response: UploadResponse?): SettleResult // since 3.1.0
-    public open suspend fun classify(payload: P, result: UploadResult): SettleResult // open since 3.1.0; was abstract
+    public open val maxResponseBodyBytes: Int                      // since 4.0.0; default DEFAULT_MAX_RESPONSE_BODY_BYTES
+    public open suspend fun classify(payload: P, result: UploadResult, response: UploadResponse?): SettleResult // since 4.0.0
+    public open suspend fun classify(payload: P, result: UploadResult): SettleResult // open since 4.0.0; was abstract
     public open suspend fun onUploadProgress(payload: P, fraction: Float)
-    public open suspend fun onDelivered(payload: P, response: UploadResponse?) // since 3.1.0
+    public open suspend fun onDelivered(payload: P, response: UploadResponse?) // since 4.0.0
     public open suspend fun onDelivered(payload: P)
     public open suspend fun onSettled(payload: P, attempts: Int, result: SettleResult)
     final override suspend fun execute(context: AttemptContext, payload: P): AttemptResult
 
     public companion object {
-        public const val DEFAULT_MAX_RESPONSE_BODY_BYTES: Int = 65_536 // since 3.1.0
+        public const val DEFAULT_MAX_RESPONSE_BODY_BYTES: Int = 65_536 // since 4.0.0
     }
 }
 
@@ -196,7 +196,7 @@ public object UploadGateway {
     public suspend fun prepareAttempt(itemId: String, engineWait: Duration = DEFAULT_ENGINE_WAIT): UploadAttempt
     public suspend fun progress(itemId: String, fraction: Float)
     public suspend fun complete(itemId: String, result: UploadResult, engineWait: Duration = DEFAULT_ENGINE_WAIT): Boolean
-    public suspend fun complete(itemId: String, response: UploadResponse, engineWait: Duration = DEFAULT_ENGINE_WAIT): Boolean // since 3.1.0
+    public suspend fun complete(itemId: String, response: UploadResponse, engineWait: Duration = DEFAULT_ENGINE_WAIT): Boolean // since 4.0.0
 }
 
 public sealed interface UploadAttempt {
@@ -210,12 +210,12 @@ How a transport for `UploadHandler` items reaches the engine registered in `Uplo
 `prepareAttempt` is `NothingOwed` for an item gone, not in flight, dropped or parked by its handler, or
 whose preparation threw. `complete` returns `false` only when no engine registered within the wait, or
 its store failed; an unknown or already settled id is a no-op that returns `true`. `complete(itemId,
-response)` (since 3.1.0) reports what the server answered — the engine builds
+response)` (since 4.0.0) reports what the server answered — the engine builds
 `UploadResult.Completed(response.statusCode)` from it — while `complete(itemId, result)` is the
 status-only form, for a `TransportFailure` or a transport that cannot read the body. `progress` is best
 effort and never waits.
 
-## `UploadResponse` (since 3.1.0)
+## `UploadResponse` (since 4.0.0)
 
 ```kotlin
 public class UploadResponse(
@@ -399,7 +399,7 @@ default.
 | `UploadTransportConfig(uniqueWorkNamePrefix = null, workTag = null, requiresNetwork = true, leaseMillis = 15.minutes, workBackoff = 30.seconds, engineWait = 5.seconds, connectTimeoutMillis = 30_000, readTimeoutMillis = 60_000)` | `uniqueWorkNamePrefix` defaults to `<applicationId>.uploader.upload.` |
 | `UploaderUploadWorker` | Constructed reflectively by WorkManager; needs no manifest entry |
 | `createWorkManagerUploadHandlerTransport(context, config, logger)` | Since 1.5.0. For `UploadHandler` items; the job stores only the item id |
-| `UploadHandlerWorker` | Since 1.5.0. Reads the server's response since 3.1.0. Open, with `protected open fun readItemId(inputData)` for taking over an earlier worker's jobs; input keys in its companion |
+| `UploadHandlerWorker` | Since 1.5.0. Reads the server's response since 4.0.0. Open, with `protected open fun readItemId(inputData)` for taking over an earlier worker's jobs; input keys in its companion |
 
 ## iOS
 
@@ -409,8 +409,8 @@ default.
 | `BackgroundTaskWakeConfig(taskIdentifier = null, requiresNetworkConnectivity = true, requiresExternalPower = false, engineWait = 5.seconds, drainBudget = 25.seconds)` | `taskIdentifier` defaults to `<bundleId>.uploader.drain` |
 | `BackgroundTaskWakeScheduler.taskIdentifier` | The resolved string — must be in `Info.plist` |
 | `BackgroundTaskWakeScheduler.handleWake(onDone)` | Call from your Swift `BGTaskScheduler` handler; `onDone` runs even if the drain throws |
-| `createBackgroundUploadTransport(config, logger)` | Since 1.5.0. Background `NSURLSession` per item, for `UploadHandler` items; reads the server's response since 3.1.0 |
-| `BackgroundUploadConfig(sessionIdentifierPrefix = null, lease = 60.minutes, rehandFlushWindow = 3.seconds, requestTimeout = 60.seconds, resourceTimeout = 7.days)` | `sessionIdentifierPrefix` defaults to `<bundleId>.uploader.upload.`. `requestTimeout` (idle timeout) and `resourceTimeout` (whole transfer, retries included) since 3.1.0 — the system defaults, both must be positive and finite; see [timeouts](08-upload-transport.md#timeouts). The three-parameter constructor remains as a deprecated overload (without default arguments) so Swift callers of `init(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compile |
+| `createBackgroundUploadTransport(config, logger)` | Since 1.5.0. Background `NSURLSession` per item, for `UploadHandler` items; reads the server's response since 4.0.0 |
+| `BackgroundUploadConfig(sessionIdentifierPrefix = null, lease = 60.minutes, rehandFlushWindow = 3.seconds, requestTimeout = 60.seconds, resourceTimeout = 7.days)` | `sessionIdentifierPrefix` defaults to `<bundleId>.uploader.upload.`. `requestTimeout` (idle timeout) and `resourceTimeout` (whole transfer, retries included) since 4.0.0 — the system defaults, both must be positive and finite; see [timeouts](08-upload-transport.md#timeouts). The three-parameter constructor remains as a deprecated overload (without default arguments) so Swift callers of `init(sessionIdentifierPrefix:lease:rehandFlushWindow:)` still compile |
 | `BackgroundUploadRelaunch.handleEvents(identifier, completion)` | Call from `handleEventsForBackgroundURLSession` |
 
 ## `kmptoolkit-uploader-testing`
@@ -424,6 +424,6 @@ default.
 | `RecordingWakeScheduler` | Counts arming and disarming |
 | `MutableConstraintProvider` | A constraint you flip by hand |
 | `MutableUploaderClock` | A wall clock you move by hand, including backwards |
-| `RecordingUploadTransport` | Since 1.5.0. Records hand-offs for an `UploadHandler`; settle through `UploadGateway` — `complete(itemId, UploadResponse)` hands the handler a server answer (since 3.1.0) |
+| `RecordingUploadTransport` | Since 1.5.0. Records hand-offs for an `UploadHandler`; settle through `UploadGateway` — `complete(itemId, UploadResponse)` hands the handler a server answer (since 4.0.0) |
 
 See [`06-testing.md`](06-testing.md).

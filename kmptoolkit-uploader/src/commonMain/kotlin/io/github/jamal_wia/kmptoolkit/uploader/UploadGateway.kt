@@ -97,7 +97,7 @@ public object UploadGateway {
      * [UploadResponse.isBodyTruncated] set if it had to stop there) and need not know the limit.
      *
      * @return as [complete]; an unknown or already settled [itemId] is a no-op that returns `true`.
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public suspend fun complete(
         itemId: String,

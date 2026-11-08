@@ -88,7 +88,7 @@ public abstract class UploadHandler<P : Any>(
      * A body longer than the limit is cut to it and [UploadResponse.isBodyTruncated] is set; that never
      * causes a retry. `0` captures no body at all, but the status and headers are still delivered.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public open val maxResponseBodyBytes: Int get() = DEFAULT_MAX_RESPONSE_BODY_BYTES
 
@@ -106,14 +106,14 @@ public abstract class UploadHandler<P : Any>(
      * The default calls the two-argument [classify], so a handler written for 3.0 keeps working
      * unchanged.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public open suspend fun classify(payload: P, result: UploadResult, response: UploadResponse?): SettleResult =
         classify(payload, result)
 
     /**
      * What the upload's raw [result] means for the item, without the server's response. Kept for
-     * handlers written before 3.1.0, and no longer abstract: the default is
+     * handlers written before 4.0.0, and no longer abstract: the default is
      * [defaultUploadClassification]. Override the three-argument [classify] to see the response.
      * A thrown exception settles the item as [SettleResult.Failed].
      */
@@ -143,7 +143,7 @@ public abstract class UploadHandler<P : Any>(
      *
      * The default calls the one-argument [onDelivered], so a handler written for 3.0 keeps working.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public open suspend fun onDelivered(payload: P, response: UploadResponse?) {
         onDelivered(payload)
@@ -151,7 +151,7 @@ public abstract class UploadHandler<P : Any>(
 
     /**
      * Called when [classify] said [SettleResult.Delivered], **before** the item's row is removed.
-     * Kept for handlers written before 3.1.0; override the two-argument [onDelivered] to see the
+     * Kept for handlers written before 4.0.0; override the two-argument [onDelivered] to see the
      * server's response.
      */
     public open suspend fun onDelivered(payload: P) {}
@@ -200,7 +200,7 @@ public abstract class UploadHandler<P : Any>(
         /**
          * The default of [maxResponseBodyBytes]: 64 KiB, room for a JSON answer or a validation error.
          *
-         * @since 3.1.0
+         * @since 4.0.0
          */
         public const val DEFAULT_MAX_RESPONSE_BODY_BYTES: Int = 65_536
     }

@@ -205,7 +205,7 @@ Backed by `AVFoundation.AVPlayer`.
   See [`05-platform-notes.md`](05-platform-notes.md) before turning it off, and before leaving it on
   in an app that also records.
 - `coroutineContext` — hosts the position-polling coroutine. Defaults to `Dispatchers.Main` (it was
-  `Dispatchers.Default` before 3.1.0): `AVPlayer` is created on the main thread and documents no
+  `Dispatchers.Default` before 4.0.0): `AVPlayer` is created on the main thread and documents no
   thread safety, so it is read from the same thread that should drive it. Call the transport
   functions from the main thread too. Position updates need a free main thread (a running main run
   loop); pass `coroutineContext = Dispatchers.Default` to restore the 3.0 behavior.

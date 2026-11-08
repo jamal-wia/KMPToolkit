@@ -19,7 +19,7 @@ package io.github.jamal_wia.kmptoolkit.downloader
  *
  * @property unit the unit whose [DownloadUnit.relativePath] was rejected.
  * @property reason which rule it broke.
- * @since 3.1.0
+ * @since 4.0.0
  */
 public class InvalidDownloadUnitException(
     public val unit: DownloadUnit,
@@ -29,7 +29,7 @@ public class InvalidDownloadUnitException(
     /**
      * Which rule a [DownloadUnit.relativePath] broke.
      *
-     * @since 3.1.0
+     * @since 4.0.0
      */
     public enum class Reason {
         /** The path is empty, or normalizes to nothing (`""`, `"/"`, `"."`, `"a/.."`): it would be the base directory itself. */

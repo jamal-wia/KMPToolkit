@@ -82,7 +82,7 @@ import platform.posix.memcpy
  * @param resourceTimeout the session's `timeoutIntervalForResource`: how long the whole transfer, retries
  *   after an idle timeout included, may take before iOS fails it. The default, 7 days, is the system's
  *   own. It therefore bounds how long an upload may be re-sent; keep [lease] below it. Must be positive and finite.
- * @since 1.5.0 ([requestTimeout] and [resourceTimeout] since 3.1.0)
+ * @since 1.5.0 ([requestTimeout] and [resourceTimeout] since 4.0.0)
  */
 public class BackgroundUploadConfig(
     public val sessionIdentifierPrefix: String? = null,
@@ -99,7 +99,7 @@ public class BackgroundUploadConfig(
      * (positionally or by name) and no timeout lands here, with a deprecation warning.
      *
      * Removing its defaults (3.0.0 had them) is a deliberate, recorded trade-off: a library compiled against
-     * 3.0.0 that calls it with arguments omitted must be recompiled against 3.1.0.
+     * 3.0.0 that calls it with arguments omitted must be recompiled against 4.0.0.
      */
     @Deprecated(
         "Superseded by the constructor with requestTimeout and resourceTimeout.",

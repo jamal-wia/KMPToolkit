@@ -305,7 +305,7 @@ classifier-based Android transport.
 
 ### Reading what the server answered
 
-Since 3.1.0 an `UploadHandler` sees the server's answer. `classify(payload, result, response)` and
+Since 4.0.0 an `UploadHandler` sees the server's answer. `classify(payload, result, response)` and
 `onDelivered(payload, response)` receive an `UploadResponse`: `statusCode`, `headers` (lowercase names,
 `header(name)` is case-insensitive), `body()` — a copy of the first bytes of the body, never `null`,
 empty for a `204` — and `isBodyTruncated`. `response` is `null` only when the server never answered

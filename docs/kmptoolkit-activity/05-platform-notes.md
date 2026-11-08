@@ -32,7 +32,7 @@ windows, desktop windowing, foldables). The tracker keeps every tracked activity
 the most recently resumed last, and answers with the newest one that is still alive. When that window
 pauses, the other one that is still resumed is the answer of `withActivity` and of a new listener's
 replay. No listener is called for that change, because no activity resumed. To reach every resumed
-window rather than the newest, use `forEachResumedActivity` (3.1.0).
+window rather than the newest, use `forEachResumedActivity` (4.0.0).
 
 ### The weak reference
 

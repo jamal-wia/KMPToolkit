@@ -95,7 +95,7 @@ which depends entirely on your backend.
 | `DownloaderStorage` | Shipped for you (Android and iOS) — where bytes live on disk |
 | `DownloadUrlResolver` | Turns a unit's opaque path into a fetchable URL, plus the hash of the object behind it when the backend states one (`ResolvedDownload`) |
 | `DownloadNotifier` | How a download tells the user it is happening — typed, no strings |
-| `DownloaderConfig` | The engine's tunables (since 3.1.0) — today the stall timeout; passed to the `createDownloader` overload that takes it |
+| `DownloaderConfig` | The engine's tunables (since 4.0.0) — today the stall timeout; passed to the `createDownloader` overload that takes it |
 | `DownloadStateStore` | The one bit of engine state that must survive process death — the stall counter |
 | `DownloadDispatchers` | The dispatchers the engine's own coroutines run on |
 | `DownloaderRegistry` | A process-wide slot for OS-constructed entry points to find the running `Downloader` |

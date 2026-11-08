@@ -136,7 +136,7 @@ observes `AVAudioSession.interruptionNotification` itself and calls `pause()`/`p
 does not set it, and setting it without genuinely playing in the background is an App Store
 rejection.
 
-**Threading.** The player's polling coroutine runs on `Dispatchers.Main` by default (3.1.0; it was
+**Threading.** The player's polling coroutine runs on `Dispatchers.Main` by default (4.0.0; it was
 `Dispatchers.Default`), because the engine creates the `AVPlayer` on the main thread and AVFoundation
 documents no thread safety for it. Drive the transport calls from the main thread as well. Position updates need a free main thread
 (a running main run loop, so not a host that blocks main); `createAudioPlayer(coroutineContext =

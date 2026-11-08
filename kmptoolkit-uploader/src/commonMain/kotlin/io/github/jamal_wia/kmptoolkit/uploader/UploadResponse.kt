@@ -29,7 +29,7 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * @param body the response body, or its prefix; copied.
  * @param isBodyTruncated whether the body is incomplete: at least one received byte is missing from [body],
  *   or the transport could not read the body completely.
- * @since 3.1.0
+ * @since 4.0.0
  */
 public class UploadResponse(
     public val statusCode: Int,

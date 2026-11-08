@@ -32,7 +32,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
  *   deletes the file and opens an empty queue instead, which is how 3.0.0 behaved: every effect that
  *   was still queued is dropped. Only a file that is recognisably corrupt is deleted; any other open
  *   failure (a failed migration, a full disk, a locked file) still fails and keeps the file.
- *   Added in 3.1.0.
+ *   Added in 4.0.0.
  */
 public data class UploaderDatabaseConfig(
     public val name: String? = null,
