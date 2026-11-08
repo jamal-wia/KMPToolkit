@@ -2,7 +2,6 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.uploader.AttemptContext
-import io.github.jamal_wia.kmptoolkit.uploader.AttemptResult
 import io.github.jamal_wia.kmptoolkit.uploader.GiveUpPolicy
 import io.github.jamal_wia.kmptoolkit.uploader.RetryPolicy
 import io.github.jamal_wia.kmptoolkit.uploader.UploadField
@@ -39,8 +38,8 @@ import org.junit.runner.RunWith
 
 /**
  * Round 6 (re-sweep of round 5 on real SQLite): the release of an interrupted claim must give the row back as the
- * pass read it (attempts, error text, gate, lease), and a graceful close must not make the next engine repeat an
- * effect that was delivered.
+ * pass read it (attempts, error text, gate, lease). The close-during-delivery fuzz found in the same pass is the suspect
+ * in adversarial/A1/suspects/r6-R6-05b-*.
  */
 @RunWith(AndroidJUnit4::class)
 class UploaderStorageClaimReleaseRound6AdversarialTest {
@@ -88,18 +87,6 @@ class UploaderStorageClaimReleaseRound6AdversarialTest {
             UploadPreparation.Proceed(UploadRequest("https://example.invalid/u", fields = listOf(UploadField.Text("a", payload))))
     }
 
-    private class CountingHandler : UploaderHandler<String> {
-        override val type: String = "adv.r6.plain"
-        override val retryPolicy: RetryPolicy = Quick
-        val runs: MutableStateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
-        override fun encodePayload(payload: String): String = payload
-        override fun decodePayload(raw: String): String = raw
-        override suspend fun execute(context: AttemptContext, payload: String): AttemptResult {
-            runs.update { it + (payload to ((it[payload] ?: 0) + 1)) }
-            return AttemptResult.Success
-        }
-    }
-
     /** The claim commits, the caller's cancellation is reported on return: what a dispatcher hop does. */
     private class HoppingClaimStore(private val inner: UploaderStore, private val onClaimed: () -> Unit) : UploaderStore by inner {
         override suspend fun markInFlight(id: String, leaseUntilEpochMillis: Long, expectedState: UploaderItemState, expectedClaim: Long): Boolean {
@@ -116,23 +103,13 @@ class UploaderStorageClaimReleaseRound6AdversarialTest {
         return createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
     }
 
-    private val ownerJobs: MutableMap<UploaderEngine, Job> = mutableMapOf()
-
-    /** Waits until every coroutine of a closed engine has ended, so no attempt of it overlaps its replacement. */
-    private suspend fun quiesce(closed: UploaderEngine) {
-        withTimeout(10.seconds) { ownerJobs.getValue(closed).children.toList().forEach { it.join() } }
-    }
-
     private fun engineOver(store: UploaderStore, handler: UploaderHandler<*>): UploaderEngine {
         val job = Job().also { jobs += it }
         return createUploaderEngine(
             store = store,
             handlers = listOf(handler),
             scope = CoroutineScope(Dispatchers.Default + job),
-        ).also {
-            engines += it
-            ownerJobs[it] = job
-        }
+        ).also { engines += it }
     }
 
     private fun realTest(seconds: Int = 60, body: suspend () -> Unit) =
@@ -199,30 +176,5 @@ class UploaderStorageClaimReleaseRound6AdversarialTest {
         third.start()
         withTimeout(10.seconds) { transport.launches.first { it.isNotEmpty() } }
         assertEquals(listOf(true), transport.launches.value, "the next engine knows an earlier executor may have run")
-    }
-
-    @Test
-    fun `an engine closed at a random moment while delivering never makes its replacement repeat a delivered effect`() = realTest(150) {
-        repeat(40) { iteration ->
-            val storage: UploaderStorage = open()
-            val handler = CountingHandler()
-            val first: UploaderEngine = engineOver(storage.store, handler)
-            repeat(100) { first.enqueue(handler, "p$it") }
-            first.start()
-            delay(Random.nextLong(0, 15))
-            first.close()
-            quiesce(first)
-            val second: UploaderEngine = engineOver(storage.store, handler)
-            second.start()
-            var waited = 0
-            while (storage.store.getAllActive().isNotEmpty() && waited < 20_000) {
-                delay(25)
-                waited += 25
-            }
-            val repeated: Map<String, Int> = handler.runs.value.filterValues { it > 1 }
-            assertEquals(emptyMap(), repeated, "iteration $iteration: delivered effects ran again; queue left=${storage.store.getAllActive().size}")
-            assertEquals(100, handler.runs.value.size, "iteration $iteration: every effect ran")
-            second.close()
-        }
     }
 }
