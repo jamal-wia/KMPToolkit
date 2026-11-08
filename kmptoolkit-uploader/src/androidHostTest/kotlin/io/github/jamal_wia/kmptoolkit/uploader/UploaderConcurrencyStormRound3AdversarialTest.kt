@@ -398,6 +398,48 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         assertEquals(0, failures, "a write that loses the race to create the directory reports the outcome as unprotected")
     }
 
+    // R3-11: slow headers on many connections at once: every transfer ends as a transport failure within the watchdog bound.
+    @Test
+    fun `many connections with dripped headers are all dropped by the watchdog`() {
+        thread(isDaemon = true) {
+            while (!server.isClosed) {
+                val socket: Socket = runCatching { server.accept() }.getOrNull() ?: return@thread
+                connections.incrementAndGet()
+                thread(isDaemon = true) {
+                    runCatching {
+                        readRequest(socket)
+                        val out = socket.getOutputStream()
+                        out.write("HTTP/1.1 200 OK\r\n".encodeToByteArray())
+                        while (!socket.isClosed) {
+                            out.write('X'.code)
+                            out.flush()
+                            Thread.sleep(100L)
+                        }
+                    }
+                    runCatching { socket.close() }
+                }
+            }
+        }
+        val request = UploadRequest(url = "http://127.0.0.1:${server.localPort}/u", fields = emptyList())
+        val startedAt = System.nanoTime()
+        val outcomes: List<MultipartOutcome> = runBlocking {
+            withTimeout(20_000L) {
+                (1..24).map {
+                    async(Dispatchers.IO) {
+                        withWriteWatchdog(400) { watch ->
+                            withContext(Dispatchers.IO) {
+                                performMultipartUploadCapturing(request, 2_000, 400, watch = watch)
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+        val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
+        outcomes.forEach { assertIs<UploadResult.TransportFailure>(it.result) }
+        assertTrue(tookMillis < 5_000L, "watchdog bound is about 2 x 400 ms plus polling; took $tookMillis ms")
+    }
+
     // R3-12: the per-item lock table does not keep entries of cancelled waiters.
     @Test
     fun `cancelled waiters leave no entry in the item lock table`() {

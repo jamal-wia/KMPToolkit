@@ -102,7 +102,13 @@ internal fun performMultipartUploadCapturing(
         }
         watch?.finishWriting()
         val status: Int = connection.responseCode
-        watch?.answered()
+        // A status read after the watchdog dropped the connection is no answer: the headers were cut short by the drop.
+        if (watch != null && !watch.answered()) {
+            return MultipartOutcome(
+                UploadResult.TransportFailure("no complete answer within the watchdog bound (status $status)"),
+                null,
+            )
+        }
         MultipartOutcome(
             UploadResult.Completed(status),
             if (captureResponse) readResponse(connection, status, isCancelled, readTimeoutMillis) else null,
@@ -118,7 +124,8 @@ internal fun performMultipartUploadCapturing(
         // Not after the watchdog dropped the connection either: the peer is not answering, and asking for its
         // status would wait out the whole read timeout on a socket that was closed on purpose.
         val lateStatus: Int? = connection?.takeIf { e is PeerWriteFailure && watch?.wasDropped != true }?.let { conn ->
-            runCatching { conn.responseCode }.getOrNull()?.takeIf { it in HTTP_FINAL_STATUSES }
+            // A drop that landed while this status was awaited cut it short: it is no answer either.
+            runCatching { conn.responseCode }.getOrNull()?.takeIf { it in HTTP_FINAL_STATUSES && watch?.wasDropped != true }
         }
         if (lateStatus != null) {
             // Best effort: the connection was torn down mid-request, so the body may be unreadable — then
@@ -351,9 +358,15 @@ internal class WriteWatch {
         awaitingAnswer = true
     }
 
-    /** The status line and headers arrived; the body read that follows has its own deadline. */
-    fun answered() {
+    /**
+     * The status line and headers arrived; the body read that follows has its own deadline.
+     *
+     * @return `false` when [drop] ran first: `drop` writes `dropped` before it closes the socket, so a status or
+     *   headers cut short by the drop are always seen here.
+     */
+    fun answered(): Boolean {
         awaitingAnswer = false
+        return !dropped
     }
 
     /** Closes the socket; the blocked write throws and the transfer reports through its ordinary failure path. */
