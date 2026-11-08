@@ -249,7 +249,10 @@ internal class VlcjVideoEngine(
         // The player clamps into a finite range; this is the boundary guard for any other caller.
         // Checked before the value is stored, so a re-apply (after load, at Playing) never resurrects it.
         if (!speed.isFinite() || speed <= 0f) return
-        this.speed = speed
+        // libvlc 3 plays rates from 1/32 to 32 only: below that the clock does not advance while the state
+        // reads Playing, and a tiny rate wraps (probe rate2.c). The player's playbackSpeedFlow still
+        // shows the speed that was asked for.
+        this.speed = speed.coerceIn(MIN_VLC_RATE, MAX_VLC_RATE)
         val s: Session = session ?: return
         inOrder(s) { if (s.started) Plan({ s.applySettings() }) else null }
     }
@@ -825,6 +828,8 @@ internal class VlcjVideoEngine(
 
     internal companion object {
         private const val FULL_CACHE_PERCENT = 100f
+        private const val MIN_VLC_RATE = 1f / 32f
+        private const val MAX_VLC_RATE = 32f
 
         /** How long a seek's target is held after `setTime` ran, if libvlc reports no time near it. */
         private const val SEEK_HOLD_NANOS = 500_000_000L
