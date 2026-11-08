@@ -54,6 +54,11 @@ class OverlayEqualThrowablesChainTest {
 
         state.asLogSink().log(LogLevel.ERROR, "T", "boom", hostile)
 
-        assertEquals(hostile.stackTraceToString(), state.records.value.single().throwableText)
+        // Where the platform's own printer copes with a hostile hashCode (the JDK's uses an identity set) the
+        // record is exactly its text. Kotlin/Native's keeps a HashSet and throws on this very input, so there the
+        // documented placeholder is the answer; either way the sink does not throw.
+        val expected: String = runCatching { hostile.stackTraceToString() }
+            .getOrElse { "RuntimeException (stack trace unavailable: IllegalStateException)" }
+        assertEquals(expected, state.records.value.single().throwableText)
     }
 }
