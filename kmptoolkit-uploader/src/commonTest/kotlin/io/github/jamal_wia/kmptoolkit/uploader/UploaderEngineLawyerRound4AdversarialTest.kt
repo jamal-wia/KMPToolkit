@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -118,6 +119,27 @@ class UploaderEngineLawyerRound4AdversarialTest {
             engine.close()
         } finally {
             parent.cancel()
+        }
+    }
+
+    @Test
+    fun `a decodePayload that throws parks the item even when the exception is a CancellationException`() = runTest {
+        val store = TestUploaderStore()
+        val handler = TestHandler(decode = { throw CancellationException("a cancellation leaked out of the decoder") })
+        val engine: UploaderEngine = createUploaderEngine(
+            store = store,
+            handlers = listOf(handler),
+            scope = backgroundScope,
+            clock = TestClock(1_000L),
+            idGenerator = SequentialIds()::next,
+        )
+        try {
+            val id: String = assertNotNull(engine.enqueue(handler, "p"))
+            engine.drain()
+
+            assertEquals(UploaderItemState.PARKED, store.find(id)?.state, "a throwing decodePayload parks the item with the failure attached")
+        } finally {
+            engine.close()
         }
     }
 

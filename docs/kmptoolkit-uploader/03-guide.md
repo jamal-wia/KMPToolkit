@@ -91,6 +91,10 @@ override val retryPolicy: RetryPolicy = ExponentialBackoffRetryPolicy(
 )
 ```
 
+A retry is never re-run inside the pass that failed it, even when the policy returns `0`: its next try waits for the
+next trigger or alarm (at least `minAlarmDelay` away). Prefer a positive floor anyway. `ExponentialBackoffRetryPolicy`
+saturates at `maxDelayMillis`, so a huge `baseDelayMillis` can never wrap a delay around to zero.
+
 Backoff is a pure function of the item's **persisted** attempt count, so a budget survives a
 restart rather than resetting to zero on every launch. Jitter matters more than it looks: without
 it, everything queued while a device was in a tunnel retries in lockstep and hits your server as one

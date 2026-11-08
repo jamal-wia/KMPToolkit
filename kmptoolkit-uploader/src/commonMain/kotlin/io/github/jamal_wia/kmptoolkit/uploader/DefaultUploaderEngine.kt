@@ -403,6 +403,11 @@ internal class DefaultUploaderEngine(
         store.park(record.id, boundedFailureText(reason), record.state, record.claim)
 
     override suspend fun drain() {
+        // Per call of drain(): ids whose attempt already ran in it, and ids already skipped once as "moved". An
+        // item gets one turn per pass of work; a second turn waits for the next trigger or alarm, so neither a
+        // zero backoff nor a store whose point read disagrees with its list read can keep one call spinning.
+        val ranThisDrain: MutableSet<String> = HashSet()
+        val movedThisDrain: MutableSet<String> = HashSet()
         while (true) {
             // A store whose calls never suspend gives cancellation no other place to be seen: without this a
             // close() (or a cancelled scope) from inside a handler would not stop the pass.
@@ -497,9 +502,25 @@ internal class DefaultUploaderEngine(
                 }
                 // One item's failure must not abort the pass: the items behind it would not run, no alarm
                 // would be armed for their gates, and the same row would be first again on the next trigger.
+                if (item.id in ranThisDrain) {
+                    // It already ran in this call and is due again at once: a retry whose policy returned no delay.
+                    // Its next try waits for the next trigger or alarm instead of re-running in this loop.
+                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, saturatingAdd(nowMillis, failedPassRetryMillis(1)))
+                    continue
+                }
                 try {
-                    attemptUnlessMoved(item) { executeItem(item, handler) }
+                    val ran: Boolean = attemptUnlessMoved(item) { executeItem(item, handler) }
                     outsideFailures.update { it - item.id }
+                    if (ran) {
+                        ranThisDrain += item.id
+                    } else if (!movedThisDrain.add(item.id)) {
+                        // Skipped as "moved" twice in one call although nothing else changed it: the store's point
+                        // read keeps disagreeing with its list read. Leave the item alone for now and say so; the
+                        // alarm asks again, and a consistent store will have caught up by then.
+                        logger.w { "Skipped ${item.logName} again — the store's getById differs from its getAllActive." }
+                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, saturatingAdd(nowMillis, failedPassRetryMillis(1)))
+                        continue
+                    }
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
                     logger.e(e) { "Attempt of ${item.logName} leaked a cancellation; retrying later." }
@@ -608,9 +629,10 @@ internal class DefaultUploaderEngine(
         val typedHandler = handler as UploaderHandler<Any>
         val payload: Any = try {
             typedHandler.decodePayload(item.payload)
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Throwable) {
+            // Real cancellation of this scope (or of a withdrawal) still propagates; a CancellationException the
+            // decoder threw on its own is a decode failure like any other and must not retry forever.
+            if (e is CancellationException) currentCoroutineContext().ensureActive()
             // Retrying cannot fix a broken payload, and deleting it would lose the user's data.
             parkAsRead(item, "undecodable payload: ${describeFailure(e)}")
             logger.e(e) { "Parked ${item.logName} — undecodable payload." }
@@ -852,15 +874,15 @@ internal class DefaultUploaderEngine(
      * the other and no attempt of a removed item begins after the withdrawal returned. A withdrawn attempt
      * records nothing: its row is gone, or a transaction that rolled the withdrawal back restored it unspent.
      */
-    private suspend fun attemptUnlessMoved(item: UploaderItem, block: suspend () -> Unit) {
-        coroutineScope {
+    private suspend fun attemptUnlessMoved(item: UploaderItem, block: suspend () -> Unit): Boolean {
+        return coroutineScope {
             val attempt: Deferred<Unit> = async(start = CoroutineStart.LAZY) { block() }
             val entry = RunningAttempt(attempt)
             runningAttempts.update { it + (item.id to entry) }
             try {
                 if (store.getById(item.id) != item) {
                     logger.i { "Attempt of ${item.logName} skipped — the item moved since this pass read it." }
-                    return@coroutineScope
+                    return@coroutineScope false
                 }
                 try {
                     attempt.await()
@@ -869,10 +891,11 @@ internal class DefaultUploaderEngine(
                     currentCoroutineContext().ensureActive()
                     if (entry.withdrawn.value) {
                         logger.i { "Attempt of ${item.logName} stopped — the item was withdrawn." }
-                        return@coroutineScope
+                        return@coroutineScope true
                     }
                     throw e // a leaked cancellation: the drain's catch handles it as before
                 }
+                true
             } finally {
                 runningAttempts.update { map -> if (map[item.id] === entry) map - item.id else map }
                 // A lazy child that never started would keep this scope waiting for it.
@@ -1080,9 +1103,9 @@ internal class DefaultUploaderEngine(
         val handler: UploadHandler<Any> = handlersByType[record.type] as? UploadHandler<Any> ?: return
         val payload: Any = try {
             handler.decodePayload(record.payload)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Throwable) {
+        } catch (e: Throwable) {
+            // A decoder's own CancellationException is a decode failure; real cancellation still propagates.
+            if (e is CancellationException) currentCoroutineContext().ensureActive()
             return // the settle path parks an undecodable payload; a progress hint just drops
         }
         runIsolated(record, "onUploadProgress") { handler.onUploadProgress(payload, fraction.coerceIn(0f, 1f)) }
@@ -1298,9 +1321,9 @@ internal class DefaultUploaderEngine(
         }
         val payload: Any = try {
             handler.decodePayload(record.payload)
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Throwable) {
+            // A decoder's own CancellationException is a decode failure; real cancellation still propagates.
+            if (e is CancellationException) currentCoroutineContext().ensureActive()
             parkAsRead(record, "undecodable payload on $phase: ${describeFailure(e)}")
             logger.e(e) { "Parked ${record.logName} — undecodable payload on $phase." }
             return null

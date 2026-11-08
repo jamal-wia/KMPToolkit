@@ -287,6 +287,27 @@ class UploaderEngineStarvationRound4AdversarialTest {
         override fun backoffMillis(attempts: Int): Long = 0L // legal: "never negative"
     }
 
+    @Test
+    fun `a retry with a zero backoff is not re-run inside the same pass`() = runTest {
+        var runs = 0
+        val handler = TestHandler(
+            retryPolicy = ZeroBackoffPolicy(),
+            onExecute = { _, _ ->
+                // the test bounds the spin itself: the 300th run parks the item so the pass can end
+                if (++runs >= 300) AttemptResult.Park("test bound") else AttemptResult.Retry(IllegalStateException("x"))
+            },
+        )
+        val engine: UploaderEngine = engineOf(backgroundScope, handler)
+        try {
+            engine.enqueue(handler, "p")
+            engine.drain()
+
+            assertEquals(1, runs, "one drain pass ran a failing item $runs times back to back")
+        } finally {
+            engine.close()
+        }
+    }
+
     private class SpinGuard : RuntimeException("the drain read the queue again and again without waiting")
 
     private class SkewedStore(private val inner: TestUploaderStore) : io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore by inner {
@@ -300,7 +321,48 @@ class UploaderEngineStarvationRound4AdversarialTest {
         override suspend fun getById(id: String): UploaderItem? = inner.getById(id)?.copy(lastError = "normalised")
     }
 
+    @Test
+    fun `a store whose point read differs from its list read does not make the drain spin`() = runTest {
+        val handler = TestHandler()
+        val skewed = SkewedStore(store)
+        val engine: UploaderEngine = createUploaderEngine(
+            store = skewed,
+            handlers = listOf(handler),
+            scope = backgroundScope,
+            clock = clock,
+            idGenerator = SequentialIds()::next,
+        )
+        try {
+            engine.enqueue(handler, "p")
+            try {
+                engine.drain()
+            } catch (_: SpinGuard) {
+                // the guard ended the spin
+            }
+
+            assertTrue(skewed.reads <= 10, "the drain re-read the whole queue ${skewed.reads} times in one pass")
+        } finally {
+            engine.close()
+        }
+    }
+
     // --- the public backoff policy at the end of the Long range ----------------------------------------
+
+    @Test
+    fun `an exponential policy never shrinks its delay when the doubling overflows`() {
+        val policy = ExponentialBackoffRetryPolicy(
+            baseDelayMillis = 1L shl 62,
+            maxDelayMillis = Long.MAX_VALUE,
+            jitterRatio = 0.0,
+        )
+
+        val first: Long = policy.backoffMillis(1)
+        val second: Long = policy.backoffMillis(2)
+        val third: Long = policy.backoffMillis(3)
+
+        assertTrue(second >= first, "attempt 2 waits $second ms after attempt 1 waited $first ms")
+        assertTrue(third >= second, "attempt 3 waits $third ms after attempt 2 waited $second ms")
+    }
 
     @Test
     fun `a one hour guard keeps the heartbeat quiet after close`() = runTest(timeout = 30.seconds) {

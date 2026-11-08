@@ -79,7 +79,7 @@ be delayed, silent data loss.
 | `retryPolicy: RetryPolicy` | `ExponentialBackoffRetryPolicy()` | Per effect type. |
 | `constraintKeys: Set<String>` | `emptySet()` | All must be satisfied. Unknown key ⇒ satisfied + logged error. |
 | `encodePayload(P): String` | — | Any format; the engine never inspects it. |
-| `decodePayload(String): P` | — | Throwing parks the item with the failure attached. |
+| `decodePayload(String): P` | — | Throwing parks the item with the failure attached; so does a `CancellationException` thrown while the engine itself is not cancelled. |
 | `orderingKey(P): String?` | `null` | Called once at enqueue and persisted. |
 | `execute(AttemptContext, P): AttemptResult` | — | Must be at-least-once tolerant, bounded, and should return rather than throw. |
 

@@ -99,7 +99,8 @@ public interface UploaderHandler<P : Any> {
      * Decodes what [encodePayload] wrote.
      *
      * Throwing is the correct way to report an undecodable payload: the engine parks that item
-     * with the failure attached instead of retrying it forever or deleting it. Configure your
+     * with the failure attached instead of retrying it forever or deleting it. A [kotlinx.coroutines.CancellationException]
+     * the decoder throws on its own counts as such a failure; only a cancellation of the engine's own scope propagates. Configure your
      * decoder to tolerate unknown fields so a row written by a newer app version with an added
      * field still reads.
      *
