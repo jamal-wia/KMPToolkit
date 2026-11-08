@@ -867,6 +867,10 @@ release are listed there.
   reported `Playing`), and a seek target is capped so libvlc's microsecond conversion cannot
   overflow (a skip far past the end of a source of unknown length was ignored by libvlc).
 
+### Known issues
+
+- `kmptoolkit-downloader`: when two engines with separate storage instances over the same base directory request the same unit at almost the same time, one may start a second transfer after the first has finished but before it is committed. The resource is always committed whole, but a full-size partial temp file of that unit can stay in `tmp/` until `cancelDownload(unit)`. With a downloader that restarts from byte zero (`beginTempFile`), one caller can instead fail once with `DownloadError.Storage`; retrying succeeds. A single engine per directory is not affected. Fixed in 4.1.0.
+
 ## [3.0.0]
 
 ### Breaking
