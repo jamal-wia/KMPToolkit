@@ -39,24 +39,29 @@ public data class UploaderDatabaseConfig(
     public val recreateOnCorruption: Boolean = false,
 ) {
     /**
-     * The 3.0.0 constructor, kept so code and binaries built against it keep working.
+     * The 3.0.0 constructor, kept so code and binaries built against it keep working. It keeps the
+     * 3.0.0 default argument on purpose: that default is what makes the compiler emit the
+     * default-arguments bridge a library compiled against 3.0.0 calls for `UploaderDatabaseConfig()`.
+     * A hidden declaration never takes part in overload resolution, so the default cannot make a
+     * source call ambiguous.
      */
     @Deprecated(
         "Superseded by the constructor with recreateOnCorruption.",
         ReplaceWith("UploaderDatabaseConfig(name, recreateOnCorruption = false)"),
         level = DeprecationLevel.HIDDEN,
     )
-    public constructor(name: String?) : this(name, false)
+    public constructor(name: String? = null) : this(name, false)
 
     /**
-     * The 3.0.0 `copy`, kept for binaries built against it.
+     * The 3.0.0 `copy`, kept for binaries built against it, with its 3.0.0 default argument for the
+     * same reason as the constructor above.
      */
     @Deprecated(
         "Superseded by copy with recreateOnCorruption.",
         ReplaceWith("copy(name = name)"),
         level = DeprecationLevel.HIDDEN,
     )
-    public fun copy(name: String?): UploaderDatabaseConfig = copy(name = name, recreateOnCorruption = recreateOnCorruption)
+    public fun copy(name: String? = this.name): UploaderDatabaseConfig = copy(name = name, recreateOnCorruption = recreateOnCorruption)
 
     init {
         // Validated at construction rather than surfaced as a failed operation: the name is a

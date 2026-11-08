@@ -11,7 +11,7 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [4.0.0]
 
-Source compatible with 3.0.x and binary compatible apart from the two recompilation cases named under
+Source compatible with 3.0.x and binary compatible apart from the one recompilation case named under
 Breaking; the behavior changes of this release are listed there.
 
 ### Breaking
@@ -92,7 +92,7 @@ Breaking; the behavior changes of this release are listed there.
 - `kmptoolkit-uploader` (iOS): the deprecated three-parameter `BackgroundUploadConfig` constructor no
   longer has default arguments (it had them in 3.0.0). Only a library precompiled against 3.0.0 that
   calls it with arguments omitted, for example `BackgroundUploadConfig()`, must be recompiled against
-  3.1.0. Kotlin source code, Swift code and apps are unaffected.
+  4.0.0. Kotlin source code, Swift code and apps are unaffected.
 - `kmptoolkit-uploader`: the engine honours a lease for at most 24 hours. A longer
   `AttemptResult.Detached` or `UploadTransport.leaseMillis` is shortened to 24 hours, and the item
   is re-handed after a day (the hand-off must already be idempotent). An in-flight item stored by an
@@ -102,10 +102,10 @@ Breaking; the behavior changes of this release are listed there.
   queue on Android. `createUploaderStorage` now fails with `UploaderStorageException(OPEN)` and
   leaves the file untouched, the same as iOS. Handle it at launch (see
   `docs/kmptoolkit-uploader-sqldelight/03-guide.md`) or set
-  `UploaderDatabaseConfig.recreateOnCorruption = true` to get the old behavior. A binary compiled
-  against 3.0.0 that calls `UploaderDatabaseConfig.copy()` with every argument omitted must be
-  recompiled against 4.0.0; the 3.0.0 constructor and `copy(name)` stay as hidden declarations, so
-  every other call still links.
+  `UploaderDatabaseConfig.recreateOnCorruption = true` to get the old behavior. Binaries
+  compiled against 3.0.0 keep linking, including calls that omit every argument
+  (`UploaderDatabaseConfig()`, `copy()`): the 3.0.0 constructor and `copy(name)` stay as hidden
+  declarations with their 3.0.0 default arguments.
 - `kmptoolkit-uploader-sqldelight`: an item whose text (payload, keys or tag) exceeds 1 MiB in UTF-8
   is refused with `UploaderStorageException`; such a row could not be read back on Android and made
   the whole queue unreadable.
