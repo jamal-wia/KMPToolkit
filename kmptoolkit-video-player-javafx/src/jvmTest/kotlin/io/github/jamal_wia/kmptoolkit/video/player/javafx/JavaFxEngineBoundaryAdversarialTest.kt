@@ -11,6 +11,7 @@ import javafx.application.Platform
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
@@ -36,6 +37,42 @@ class JavaFxEngineBoundaryAdversarialTest {
         val done = CountDownLatch(1)
         Platform.runLater { done.countDown() }
         done.await(10L, TimeUnit.SECONDS)
+    }
+
+    @Test
+    fun `a rate that is not finite and positive never reaches the JavaFX player`() = runBlocking<Unit> {
+        withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.ASSET)) }
+        val hostile: List<Float> = listOf(
+            Float.NaN, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, 0f, -1f,
+        )
+        val reached: MutableList<String> = mutableListOf()
+        for (rate: Float in hostile) {
+            engine.setSpeed(2f)
+            withTimeout(5_000L) { engine.inspectPlayback() }
+            engine.setSpeed(rate)
+            val seen: Double = withTimeout(5_000L) { checkNotNull(engine.inspectPlayback()).rate }
+            if (seen != 2.0) reached += "setSpeed($rate) -> JavaFX rate $seen"
+        }
+        assertEquals(emptyList(), reached, "rates that reached the JavaFX player")
+    }
+
+    @Test
+    fun `a volume that is NaN never reaches the JavaFX player`() = runBlocking<Unit> {
+        withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.ASSET)) }
+        engine.setVolume(0.5f)
+        engine.setVolume(Float.NaN)
+        val seen: Double = withTimeout(5_000L) { checkNotNull(engine.inspectPlayback()).volume }
+        assertTrue(!seen.isNaN(), "JavaFX holds a NaN volume")
+    }
+
+    @Test
+    fun `a NaN rate or volume set before the load is not applied by the load`() = runBlocking<Unit> {
+        engine.setSpeed(Float.NaN)
+        engine.setVolume(Float.NaN)
+        withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.ASSET)) }
+        val seen: FxPlayback.Inspection = withTimeout(5_000L) { checkNotNull(engine.inspectPlayback()) }
+        assertEquals(1.0, seen.rate, "the rate the load applied")
+        assertEquals(1.0, seen.volume, "the volume the load applied")
     }
 
     private class QuietSink : FxPlayback.Sink {

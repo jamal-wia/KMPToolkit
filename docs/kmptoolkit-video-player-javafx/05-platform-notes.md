@@ -155,6 +155,8 @@ decoder writes straight into memory without a render-and-read-back step.
 - **Playback speed.** On macOS, `MediaPlayer.play()` starts the native player at normal speed
   whatever rate JavaFX holds, so a speed set while paused would be lost; the engine applies the rate
   again after every `play()`.
+  A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
+  passes one).
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from
   `bufferProgressTime`, which is meaningful for progressive HTTP sources (for a local file expect it
   to cover the whole duration).
