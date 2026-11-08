@@ -100,6 +100,10 @@ class TrackerMultiWindowFuzzTest {
                     !windows[j].get().isFinishing && !windows[j].get().isDestroyed
                 }?.let { j -> windows[j].get() }
                 val actual: Activity? = tracker.withActivity { it }
+                // A listener added now is replayed the same window (or nothing), never another one.
+                val replayed: MutableList<Activity> = mutableListOf()
+                tracker.addOnActivityResumedListener { replayed += it }.cancel()
+                assertEquals(listOfNotNull(actual), replayed, "walk $walk $trail: the replay disagrees with withActivity")
                 if (expected == null) {
                     assertEquals(null, actual, "walk $walk $trail")
                 } else {
