@@ -267,7 +267,8 @@ internal class VlcjVideoEngine(
         // A seek still queued (RepeatMode.One restarts from the end this way) outranks "ended".
         val inFlight: Long? = synchronized(lock) { if (s.seeksInFlight > 0) s.seekTargetMs else null }
         if (inFlight != null) return inFlight
-        if (s.ended) return durationMs()
+        // An unknown length (0) is not an end position.
+        if (s.ended) return if (s.lengthMs > 0L) durationMs() else s.timeMs.coerceAtLeast(0L)
         if (s.started && !onVlcThread.get()) {
             withOpenSession { open ->
                 // The seek target stands until libvlc reports a time near it (see holdsSeekTarget).
@@ -582,7 +583,8 @@ internal class VlcjVideoEngine(
                 return@onVlcCallback
             }
             s.ended = true
-            s.timeMs = s.lengthMs
+            // An unknown length (0) is not an end position: the last reported time stays.
+            if (s.lengthMs > 0L) s.timeMs = s.lengthMs
             notify(s) { it.onCompleted() }
         }
 

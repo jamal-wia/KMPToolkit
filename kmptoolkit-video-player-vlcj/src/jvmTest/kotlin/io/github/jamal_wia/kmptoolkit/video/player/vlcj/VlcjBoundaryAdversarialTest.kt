@@ -88,4 +88,17 @@ class VlcjBoundaryAdversarialTest {
         assertEquals(emptyList(), errors.toList(), "an exception escaped on a native thread")
         engine.dispose()
     }
+
+    @Test
+    fun `the playhead at the end of a source of unknown length stays where it ended`() {
+        runtime.parsedInfo = VlcParsedInfo(durationMs = 0L, trackCount = 1, videoSize = null)
+        val engine = newEngine()
+        val player: FakeVlcPlayer = startAndPlay(engine)
+        player.fire { timeChanged(7_000L) }
+        player.fire { finished() }
+        runtime.drainTasks()
+        assertEquals(0L, engine.durationMs(), "the length was never learned")
+        assertEquals(7_000L, engine.positionMs(), "the playhead jumped to the unknown length at the end")
+        engine.dispose()
+    }
 }
