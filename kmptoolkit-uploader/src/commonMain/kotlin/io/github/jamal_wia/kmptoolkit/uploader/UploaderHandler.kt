@@ -151,7 +151,8 @@ public interface UploaderHandler<P : Any> {
  *   [UploaderItemState.IN_FLIGHT] and its lease expired without anyone settling it. The previous
  *   executor may in fact have completed and merely failed to report (the app died right after the
  *   send landed), so a detaching handler should rejoin or probe rather than blindly starting a
- *   fresh delivery. `false` for ordinary first attempts and for re-runs after
+ *   fresh delivery. Also `true` after an engine was closed just as the previous attempt answered
+ *   [AttemptResult.Detached]. `false` for ordinary first attempts and for re-runs after
  *   [AttemptResult.Retry].
  * @property claim the claim this attempt runs under — the value [UploaderItem.claim] takes when this
  *   attempt's hand-off is written. An executor this attempt detaches to passes it back to

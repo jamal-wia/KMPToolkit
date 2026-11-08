@@ -119,6 +119,11 @@ returns). It may also not notice the cancellation at all, which is what `InMemor
 legal and no contract check requires either: the engine never relies on one, and makes a write it must see through (a
 withdrawal, the release of an interrupted claim) non-cancellable on its own side.
 
+- Because the engine makes some writes non-cancellable, a call that never returns holds its caller for good: bound your
+  own calls (a busy timeout, a statement timeout).
+- Store the lease exactly (`markInFlight`'s `leaseUntilEpochMillis`): the engine compares it to tell its own claim from
+  another engine's, and a store that rounds it only loses the prompt release of an interrupted claim.
+
 ## The four functions worth care
 
 ### `insertKeep` — the conflict rules
