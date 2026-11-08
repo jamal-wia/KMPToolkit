@@ -772,8 +772,10 @@ internal class IosDownloaderStorage(
                 if (headerRead == 0) break // the archive ends right after an entry
                 if (headerRead < LOCAL_HEADER_SIZE) {
                     // ZipInputStream ends the walk here without a word. A remainder that is the start of a
-                    // local header is a cut archive, though: the entry it begins would be lost silently.
-                    if (headerRead >= 4 && hasLocalHeaderSignature(headerBuf)) {
+                    // local header (even one byte of it) is a cut archive, though: the entry it begins would be
+                    // lost silently. At a header position the only legal endings are a central directory or an
+                    // end record, which never begin with those bytes.
+                    if (startsLocalHeader(headerBuf, minOf(headerRead, 4))) {
                         zipFail(null, "the archive ends inside a local file header")
                     }
                     break
@@ -870,6 +872,13 @@ internal class IosDownloaderStorage(
             fclose(zipFile)
         }
         logger.i { "ZIP extraction complete" }
+    }
+
+    /** True when the first [count] bytes of [buf] equal the first [count] bytes of `PK\u0003\u0004`. */
+    private fun startsLocalHeader(buf: ByteArray, count: Int): Boolean {
+        val signature: IntArray = intArrayOf(0x50, 0x4B, 0x03, 0x04)
+        for (i: Int in 0 until count) if (buf[i].toInt() and 0xFF != signature[i]) return false
+        return true
     }
 
     private fun hasLocalHeaderSignature(buf: ByteArray): Boolean =

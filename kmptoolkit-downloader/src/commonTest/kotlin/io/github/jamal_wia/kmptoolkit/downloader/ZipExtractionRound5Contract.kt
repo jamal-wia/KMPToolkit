@@ -272,6 +272,26 @@ abstract class ZipExtractionRound5Contract {
         assertEquals(TempFileState.None, storage.tempFileState(unit))
     }
 
+    @Test
+    fun `an archive cut two bytes into the next local header fails the commit`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("cut2")
+        commit(storage, unit, Base64.decode(ZIP_R))
+
+        assertRejected(storage, unit)
+    }
+
+    @Test
+    fun `an archive whose comment ends with the local header signature commits`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("commentsig")
+        commit(storage, unit, Base64.decode(ZIP_S))
+
+        storage.commitResource(unit)
+
+        assertEquals("marker\n", text(storage, unit, "marker.txt"))
+    }
+
     private companion object {
     private val ZIP_A: String =
         "UEsDBBQACAAIAAAAIQAAAAAAAAAAAAAAAAAKAAAAbWFya2VyLnR4dMtNLMpOLeICAFBLBwioFlBoCQAAAAcAAABQSwMEFAAIAAgAAAAhAAAAAA" +
@@ -445,5 +465,12 @@ abstract class ZipExtractionRound5Contract {
     private val ZIP_Q: String =
         "UEsDBBQACAAIAAAAIQAAAAAAAAAAAAAAAAAKAAAAbWFya2VyLnR4dMtNLMpOLeICAFBLBwipFlBoCQAAAAcAAABQSwECFAAUAAgACAAAACEAqB" +
         "ZQaAkAAAAHAAAACgAAAAAAAAAAAAAAAAAAAAAAbWFya2VyLnR4dFBLBQYAAAAAAQABADgAAABBAAAAAAA="
+
+    private val ZIP_R: String =
+        "UEsDBBQAAAAAAAAAIQCoFlBoBwAAAAcAAAAKAAAAbWFya2VyLnR4dG1hcmtlcgpQSw=="
+
+    private val ZIP_S: String =
+        "UEsDBBQAAAAAAAAAIQCoFlBoBwAAAAcAAAAKAAAAbWFya2VyLnR4dG1hcmtlcgpQSwECFAAUAAAAAAAAACEAqBZQaAcAAAAHAAAACgAAAAAAAA" +
+        "AAAAAAAAAAAAAAbWFya2VyLnR4dFBLBQYAAAAAAQABADgAAAAvAAAAGgB6aXAgY29tbWVudCBQSwMEMDEyMzQ1Njc4OQ=="
     }
 }

@@ -185,8 +185,9 @@ truncated or corrupt archive, an unsupported compression method, an encrypted en
 fails the commit with `ResourceIntegrityException` (one fresh download, then `DownloadError.Corrupted`).
 iOS does not read ZIP64 archives (entries or archives over 4 GiB): such an archive fails the commit there.
 The walk is the one `java.util.zip.ZipInputStream` makes: local headers in order, the central directory
-never read; an archive cut exactly after an entry (no central directory) is accepted by both, and a cut
-inside the next local header (four bytes or more of it) fails on both.
+never read. An archive cut anywhere inside an entry, its header included, fails the commit on both
+platforms. An archive cut exactly after its last entry (the central directory missing entirely) is
+accepted, as `java.util.zip` accepts it; the sha256 and marker checks still apply.
 
 ## Both platforms
 

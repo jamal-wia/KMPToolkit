@@ -596,22 +596,47 @@ internal class AndroidDownloaderStorage(
     }
 
     /**
-     * Fails when the last bytes of [tempFile], fewer than a local header, begin with the local header signature:
-     * the archive was cut inside the header of an entry, which ZipInputStream reads as the end of the entries.
+     * Fails when [tempFile] has no end-of-central-directory record and its last bytes, fewer than a local header,
+     * begin like one (`P`, `PK`, `PK\u0003` or the whole signature): the archive was cut inside the header of an
+     * entry, which ZipInputStream reads as the end of the entries. An archive that has its end record was not cut
+     * inside a header and is never checked: the last bytes of a valid archive (record fields, comment) may
+     * contain the signature.
      */
     private fun rejectCutHeader(unit: DownloadUnit, tempFile: File) {
-        val tail: ByteArray = RandomAccessFile(tempFile, "r").use { file: RandomAccessFile ->
+        RandomAccessFile(tempFile, "r").use { file: RandomAccessFile ->
+            if (hasEndRecord(file)) return
             val length: Int = minOf(LOCAL_HEADER_SIZE - 1L, file.length()).toInt()
             file.seek(file.length() - length)
-            ByteArray(length).also { file.readFully(it) }
-        }
-        for (start: Int in 0..tail.size - 4) {
-            if (tail[start] == 0x50.toByte() && tail[start + 1] == 0x4B.toByte() &&
-                tail[start + 2] == 0x03.toByte() && tail[start + 3] == 0x04.toByte()
-            ) {
-                throw ResourceIntegrityException("Archive of $unit ends inside a local file header")
+            val tail = ByteArray(length).also { file.readFully(it) }
+            val signature: ByteArray = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
+            // A remainder whose first bytes are a prefix of the signature (all of it, or a cut one).
+            for (start: Int in 0 until tail.size) {
+                val count: Int = minOf(4, tail.size - start)
+                if (count < 4 && start + count != tail.size) continue
+                if ((0 until count).all { tail[start + it] == signature[it] }) {
+                    throw ResourceIntegrityException("Archive of $unit ends inside a local file header")
+                }
             }
         }
+    }
+
+    /** True when [file] ends with an end-of-central-directory record: `PK\u0005\u0006` at `length - 22 - n` whose comment length is `n`. */
+    private fun hasEndRecord(file: RandomAccessFile): Boolean {
+        val length: Long = file.length()
+        if (length < END_RECORD_SIZE) return false
+        val maxComment: Long = minOf(65535L, length - END_RECORD_SIZE)
+        val record = ByteArray(END_RECORD_SIZE)
+        for (n: Long in 0..maxComment) {
+            file.seek(length - END_RECORD_SIZE - n)
+            file.readFully(record)
+            val commentLength: Int = (record[20].toInt() and 0xFF) or ((record[21].toInt() and 0xFF) shl 8)
+            if (record[0] == 0x50.toByte() && record[1] == 0x4B.toByte() && record[2] == 0x05.toByte() &&
+                record[3] == 0x06.toByte() && commentLength.toLong() == n
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     /** Remembers whether a read of the archive hit its end: the signal that the walk ended at the end of the file. */
@@ -627,5 +652,6 @@ internal class AndroidDownloaderStorage(
 
     private companion object {
         const val LOCAL_HEADER_SIZE: Int = 30
+        const val END_RECORD_SIZE: Int = 22
     }
 }
