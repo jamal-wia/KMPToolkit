@@ -50,7 +50,10 @@ public interface PermissionController {
     /**
      * Shows the system UI for [permission] once and suspends until it has been answered: the runtime
      * permission dialog; for a permission only Settings can grant, the Settings screen — returning
-     * after the app is in the foreground again; for an Android role, the role dialog.
+     * after the app is in the foreground again (on Android, at the first resume of an activity of the app
+     * after the screen opened; with several windows of the app on screen, a window beside Settings that is
+     * recreated counts, and the request then returns the status unchanged — [observe] sees the user's
+     * choice at the next resume); for an Android role, the role dialog.
      *
      * @return the status after the answer, re-read from the OS. It can still be anything but
      *   [PermissionStatus.NotDetermined] after a dialog was shown; a request is a question, not an

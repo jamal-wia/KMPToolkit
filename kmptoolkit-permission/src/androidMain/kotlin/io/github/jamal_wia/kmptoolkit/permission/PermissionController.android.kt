@@ -723,6 +723,11 @@ internal class AndroidPermissionController(
      * The resume listener fires synchronously for an activity that is already resumed when it is added;
      * that call is the screen not having appeared yet, and is ignored. Cancelling the caller removes the
      * listener; the screen stays where it is, and the next [check] or [observe] sees what the user did.
+     *
+     * Any resume after the open ends the wait, so with several windows of the app on screen a window beside
+     * Settings that is recreated ends it early. Why not wait for the covered window only: there is no pause
+     * signal to tell which window Settings covered, and every heuristic without one can hang instead, which
+     * is far worse — this holds [requestMutex], so one stuck request would block every later one.
      */
     private suspend fun openAndAwaitReturn(request: SystemScreenRequest, permission: Permission): Boolean {
         val returned: CompletableDeferred<Boolean> = CompletableDeferred()

@@ -335,6 +335,14 @@ your manifest to declare its permission where it has one — `SCHEDULE_EXACT_ALA
 | `KeepPermissionsWhenUnused` | `PackageManager.isAutoRevokeWhitelisted` (API 30+; `Granted` below) | `Intent.ACTION_AUTO_REVOKE_PERMISSIONS` with `package:` |
 | `AccessibilityService(component)` | `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES`; `Unavailable` for an unknown service | `ACTION_ACCESSIBILITY_SETTINGS` |
 
+`request` of a special access returns at the first resume of an activity of the app after the Settings
+screen opened. With several windows of the app on screen (split screen, freeform, activity embedding), a
+window beside Settings that is recreated (fold, rotation, theme or density change) counts, and the
+request then returns the status unchanged while Settings is still open; `observe` and
+`PermissionRequestFlow.refresh` pick up the user's choice at the next resume. A precise "the window
+Settings covered resumed" rule needs a pause signal the activity tracker does not have, and every guess
+without one can hang a request, which holds the controller's request lock; an early return is harmless.
+
 A platform call that throws — `isExternalStorageManager` is known to on some OEM builds — reads as not
 granted, and is logged.
 

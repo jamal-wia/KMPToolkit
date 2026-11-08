@@ -220,7 +220,10 @@ public interface PermissionController {
   the caller is cancelled (Android, caller off the main thread) is not shown at all.
 - **Callers on any thread.** On Android a request for a special access subscribes to the activity's
   resume and opens the Settings screen on the main thread, so a caller on `Dispatchers.Default` or `IO`
-  returns only once the user is back, never early because of a late resume notification. `observe`
+  returns only once the user is back, never early because of a late resume notification. "Back" is the
+  first resume of an activity of the app after the screen opened: with several windows of the app on
+  screen, a window beside Settings that is recreated counts, and the request then returns the status
+  unchanged (`observe` sees the user's choice at the next resume). `observe`
   subscribes to request results before it first reads the status, so a request that resolves in between
   is not missed.
 
