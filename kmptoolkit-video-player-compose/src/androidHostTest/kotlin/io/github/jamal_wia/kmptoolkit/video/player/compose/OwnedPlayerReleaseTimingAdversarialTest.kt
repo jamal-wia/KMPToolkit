@@ -100,7 +100,39 @@ class OwnedPlayerReleaseTimingAdversarialTest {
         println("rounds whose dispose had not happened yet when composition.dispose() returned: $synchronousZero of $ROUNDS")
     }
 
+    @Test
+    fun `players of disposed compositions and abandoned compositions become unreachable`() {
+        val refs: MutableList<java.lang.ref.WeakReference<Any>> = Collections.synchronizedList(mutableListOf())
+        val factory = VideoPlayerFactory { _ ->
+            val engine = OrderedEngine()
+            createVideoPlayer(engine).also {
+                refs += java.lang.ref.WeakReference<Any>(it)
+                refs += java.lang.ref.WeakReference<Any>(engine)
+            }
+        }
+        repeat(GC_COMPOSITIONS) { i ->
+            val recomposer = Recomposer(EmptyCoroutineContext)
+            val composition = ControlledComposition(NoApplier(), recomposer)
+            composition.composeContent {
+                CompositionLocalProvider(LocalVideoPlayerFactory provides factory) {
+                    rememberVideoPlayer(VideoSource.Remote("https://example.test/a.mp4"))
+                }
+            }
+            if (i % 2 == 0) composition.applyChanges()
+            composition.dispose()
+            recomposer.close()
+        }
+        val deadline: Long = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+        while (System.nanoTime() < deadline && refs.any { it.get() != null }) {
+            System.gc()
+            Thread.sleep(20L)
+        }
+        val leaked: Int = refs.count { it.get() != null }
+        assertEquals(0, leaked, "$leaked of ${refs.size} players or engines of disposed compositions are still reachable")
+    }
+
     private companion object {
+        const val GC_COMPOSITIONS: Int = 40
         const val ROUNDS: Int = 150
     }
 }
