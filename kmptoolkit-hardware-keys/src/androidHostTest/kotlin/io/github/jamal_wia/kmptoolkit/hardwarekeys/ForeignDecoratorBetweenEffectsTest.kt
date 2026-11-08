@@ -5,7 +5,6 @@ import android.view.KeyEvent
 import android.view.Window
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertSame
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -27,16 +26,18 @@ class ForeignDecoratorBetweenEffectsTest {
             var calls = 0
             val policy: (KeyEvent) -> Boolean = { calls++; false }
 
-            val first: KeyInterceptingWindowCallback = acquireInstallation(window, policy)
+            val first: KeyPolicyRecord.Hold = acquireInstallation(window, policy)
             window.callback = ThirdParty(window.callback)
-            val second: KeyInterceptingWindowCallback = acquireInstallation(window, policy)
+            val second: KeyPolicyRecord.Hold = acquireInstallation(window, policy)
 
             window.callback.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP))
             assertEquals(1, calls, "the policy ran once per decoration, not once per key")
 
-            assertSame(first, second, "a second live layer was stacked under the foreign decorator")
-
+            // The second effect leaves while the first is still live: one run per key, from the one record.
             releaseInstallation(window, second)
+            calls = 0
+            window.callback.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP))
+            assertEquals(1, calls, "the first effect is still live and the policy must run once")
             releaseInstallation(window, first)
 
             // Both effects are gone while the foreign decorator still sits on top: our layer stays in the

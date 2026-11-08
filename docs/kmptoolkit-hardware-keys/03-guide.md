@@ -82,11 +82,16 @@ enforces.
 ## Dialog windows other code has decorated
 
 The effect wraps the window's existing `Window.Callback` and forwards everything it does not consume.
-On leaving composition it restores the original callback **only if its own wrapper is still the one
-installed**. If some other code replaced the callback after the effect ran, that replacement is left
-alone rather than overwritten, so the other decorator keeps working. The effect's wrapper then stays in
-the chain, but inert: with its effect gone it forwards every key to what it wraps and no longer consults
-the policy, so a key is not consumed after the effect left composition. An effect entering the same
-window while another effect still holds the wrapper shares it, even through such a decorator, so the
-policy runs once per key. Only once no effect holds it does a new effect stack a fresh wrapper over
-the decorator, and the inert wrapper below costs one forwarded call.
+When the effect enters a window whose outermost callback is another library's decorator, it puts a
+fresh wrapper on top; all of the effect's wrappers in one window consult one shared record, so however
+many the chain holds, the policy runs once per key, and the ones below only forward. When the last
+effect leaves, the effect removes its own wrappers from the top and leaves any decorator it does not
+own - and anything under it - in place; a wrapper left under such a decorator is inert (it forwards
+every key and no longer consults the policy). A decorator that puts back a callback it saved before the
+effect's wrapper drops that wrapper; the policy then acts again from the next effect that enters the
+window.
+
+If two effects in one window or view read different policies (possible only when `install` replaced the
+policy between their compositions, which it reports as an error), the most recently composed one still
+in composition decides, and an effect that leaves takes its policy with it. A key dispatched to the same
+window from inside the handling of another key is not offered to the policy again.

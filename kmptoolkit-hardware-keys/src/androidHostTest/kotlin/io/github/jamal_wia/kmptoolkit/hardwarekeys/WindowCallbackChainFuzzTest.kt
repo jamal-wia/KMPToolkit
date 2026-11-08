@@ -32,7 +32,7 @@ class WindowCallbackChainFuzzTest {
                 val original: Window.Callback = window.callback
                 var calls = 0
                 val policy: (KeyEvent) -> Boolean = { calls++; false }
-                val live: MutableList<KeyInterceptingWindowCallback> = mutableListOf()
+                val live: MutableList<KeyPolicyRecord.Hold> = mutableListOf()
                 val foreign: MutableList<Foreign> = mutableListOf()
                 val log = StringBuilder()
                 repeat(60) { step ->

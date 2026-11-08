@@ -202,7 +202,7 @@ class DialogWindowHardwareKeyEffectUiTest {
         }
         waitForIdle()
         val shown: Window = assertNotNull(window)
-        val later = KeyInterceptingWindowCallback(shown.callback) { false }
+        val later = object : Window.Callback by shown.callback {}
         shown.callback = later
 
         withEffect = false

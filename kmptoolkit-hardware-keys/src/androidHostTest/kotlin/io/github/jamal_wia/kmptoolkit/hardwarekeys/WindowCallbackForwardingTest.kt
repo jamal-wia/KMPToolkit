@@ -52,7 +52,7 @@ class WindowCallbackForwardingTest {
         val delegate = Proxy.newProxyInstance(
             Window.Callback::class.java.classLoader, arrayOf(Window.Callback::class.java), handler,
         ) as Window.Callback
-        val decoration = KeyInterceptingWindowCallback(delegate) { false }
+        val decoration = KeyInterceptingWindowCallback(delegate, WindowKeyHook().also { it.take { false } })
         val expected = mutableListOf<String>()
         val skipped = mutableListOf<String>()
         for (method in Window.Callback::class.java.methods) {
