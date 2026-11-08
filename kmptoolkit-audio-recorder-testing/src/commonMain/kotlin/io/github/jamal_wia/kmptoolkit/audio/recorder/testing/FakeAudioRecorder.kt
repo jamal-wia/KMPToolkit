@@ -68,7 +68,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * @param config used only to generate file names the same way the real recorder does; its encoder
  *   settings are irrelevant here because nothing is encoded.
  * @param directory directory generated paths sit in, since a fake has no filesystem to resolve an
- *   app-private path against.
+ *   app-private path against. A trailing or repeated separator is dropped from generated paths, as the
+ *   real recorder's join does; `.` and `..` segments are not resolved, as neither platform join does.
  */
 public class FakeAudioRecorder(
     private val config: AudioRecorderConfig = AudioRecorderConfig(),
@@ -387,7 +388,10 @@ public class FakeAudioRecorder(
     private fun generatePath(): String {
         val storage: RecordingStorage = config.storage
         sequence++
-        return "$directory/${storage.fileNamePrefix}_$sequence.${config.format.extension}"
+        // The real join (File(directory, name) on Android, URLByAppendingPathComponent on iOS) drops a
+        // trailing separator and collapses repeated ones, so a consumer test comparing paths sees the same.
+        val joined: String = directory.replace(Regex("/{2,}"), "/").trimEnd('/')
+        return "$joined/${storage.fileNamePrefix}_$sequence.${config.format.extension}"
     }
 
     private fun consumeScriptedFailure(): RecorderError? {

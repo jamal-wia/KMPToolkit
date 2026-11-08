@@ -170,7 +170,8 @@ recorder.
   own; script them with `failNextOperationWith`.
   The shape of an explicit path is checked, though: `prepare` with a blank or non-absolute path is refused
   with `DirectoryNotWritable`, like the real recorder (and consumes no scripted failure). The `directory`
-  constructor argument must be absolute.
+  constructor argument must be absolute; a trailing or repeated separator in `directory` is dropped from
+  generated paths, as the real recorder does.
 - **No format validation.** `UnsupportedFormat` likewise.
 - **Not safe to call from several threads**, exactly like the recorder it replaces.
 - **No subscription-driven metering.** The real recorder samples the microphone only while `level`
