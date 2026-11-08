@@ -38,7 +38,8 @@ public interface DownloadUnit {
 
     /**
      * Where the committed resource lives, relative to the platform's resource base directory, used
-     * exactly as written.
+     * as written once `.`, `..` and empty segments are resolved lexically: `files/x/../a.bin` is
+     * `files/a.bin` whether or not `x` exists, and `..` never climbs out through a symbolic link.
      *
      * The shipped storages reject, with [InvalidDownloadUnitException], a path that is empty or
      * normalizes to nothing, contains NUL, leaves the base directory (`../x`), or names something

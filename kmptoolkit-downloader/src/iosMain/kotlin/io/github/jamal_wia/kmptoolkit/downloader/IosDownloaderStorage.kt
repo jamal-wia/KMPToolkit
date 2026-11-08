@@ -214,16 +214,17 @@ internal class IosDownloaderStorage(
         (layout.inspectRelativePath(unit) as? UnitFileLayout.PathInspection.Rejected)?.reason
 
     override fun getResourcePath(unit: DownloadUnit): String {
-        when (val inspection: UnitFileLayout.PathInspection = layout.inspectRelativePath(unit)) {
-            is UnitFileLayout.PathInspection.Rejected -> throw InvalidDownloadUnitException(unit, inspection.reason)
-            UnitFileLayout.PathInspection.AcceptedUnderTmp -> {
-                if (tmpPathWarnings.isFirst(unit.relativePath)) {
-                    logger.w { "relativePath '${unit.relativePath}' of $unit is under tmp/, which the storage reserves" }
-                }
+        val accepted: UnitFileLayout.PathInspection.Accepted =
+            when (val inspection: UnitFileLayout.PathInspection = layout.inspectRelativePath(unit)) {
+                is UnitFileLayout.PathInspection.Rejected -> throw InvalidDownloadUnitException(unit, inspection.reason)
+                is UnitFileLayout.PathInspection.Accepted -> inspection
             }
-            UnitFileLayout.PathInspection.Accepted -> Unit
+        if (accepted.underTmp && tmpPathWarnings.isFirst(unit.relativePath)) {
+            logger.w { "relativePath '${unit.relativePath}' of $unit is under tmp/, which the storage reserves" }
         }
-        return "$baseDir/${unit.relativePath}"
+        // Every file operation uses this path, never unit.relativePath: the check and the use agree.
+        val normalizedPath: String = accepted.normalizedPath
+        return "$baseDir/$normalizedPath"
     }
 
     override fun getTempFilePath(unit: DownloadUnit): String = "$baseDir/${names(unit).partial}"

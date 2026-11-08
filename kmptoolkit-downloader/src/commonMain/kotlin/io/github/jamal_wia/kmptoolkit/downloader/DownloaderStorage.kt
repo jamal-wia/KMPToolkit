@@ -32,7 +32,10 @@ public interface DownloaderStorage {
     public fun isResourceAvailable(unit: DownloadUnit): Boolean
 
     /**
-     * Absolute path of the committed resource — a file, or a directory for an archive unit.
+     * Absolute path of the committed resource — a file, or a directory for an archive unit. It is
+     * the base directory plus the lexically normalized [DownloadUnit.relativePath] (`.`, `..` and
+     * empty segments resolved), and the shipped storages use exactly this path for every file
+     * operation on the resource.
      *
      * @throws InvalidDownloadUnitException when [DownloadUnit.relativePath] cannot be used safely.
      *   The shipped storages also throw it from [commitResource] and [deleteResource], answer `false`

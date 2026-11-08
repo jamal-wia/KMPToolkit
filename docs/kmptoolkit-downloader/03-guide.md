@@ -85,7 +85,9 @@ Give units ids made of `[A-Za-z0-9._-]` and keep them unique ignoring case (on i
 normalization too). Other ids work, but they are stored under a hashed name (see
 [`05-platform-notes.md`](05-platform-notes.md)) rather than at the readable path.
 
-A `relativePath` is yours: it is used exactly as written. If it cannot be used safely (empty, NUL,
+A `relativePath` is yours: it is used as written once `.`, `..` and empty segments are resolved
+lexically (`files/x/../a.bin` is `files/a.bin` whether or not `x` exists, and `..` never climbs out
+through a symbolic link). If it cannot be used safely (empty, NUL,
 climbing out of the base directory, or naming a directory the storage manages such as `tmp` or
 `tmp/expect`) the unit fails before any transfer: `ensureAvailable` throws `DownloadFailedException`
 with `DownloadError.Unknown`, whose `cause` is `InvalidDownloadUnitException` carrying the

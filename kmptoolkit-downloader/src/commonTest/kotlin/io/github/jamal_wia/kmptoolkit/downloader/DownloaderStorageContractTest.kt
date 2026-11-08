@@ -893,18 +893,21 @@ abstract class DownloaderStorageContractTest {
 
     // 14 (guard)
     @Test
-    fun `relative paths that worked in 3_0_0 are accepted unchanged and commit`() = runTest {
+    fun `relative paths that worked in 3_0_0 are accepted and commit at their normalized path`() = runTest {
         // tmp/trash/... did not exist in 3.0.0 (the trash is under tmp/kmptoolkit-internal now), so it worked there.
-        for ((index: Int, path: String) in listOf(
-            "tmp/foo.bin", "/abs/x", "a/./b", "a/../b", "tmp/trash/a.bin",
+        // Each path with the normalized path the resource is used at (`.`, `..` and empty segments resolved).
+        for ((index: Int, spelling: Pair<String, String>) in listOf(
+            "tmp/foo.bin" to "tmp/foo.bin", "/abs/x" to "abs/x", "a/./b" to "a/b", "a/../b" to "b",
+            "tmp/trash/a.bin" to "tmp/trash/a.bin",
         ).withIndex()) {
+            val (path: String, normalized: String) = spelling
             val unit = ContractUnit("guard14-$index", relativePath = path)
             storage.beginTempFile(unit, null)
             writeTemp(storage, unit, "abc")
 
             finish(storage, unit)
 
-            assertTrue(storage.getResourcePath(unit).endsWith(path), "path '$path' must be used as written")
+            assertTrue(storage.getResourcePath(unit).endsWith("/$normalized"), "path '$path' must be used as '$normalized'")
             assertTrue(storage.isResourceAvailable(unit), "path '$path'")
             assertEquals("abc", readFile(storage.getResourcePath(unit))?.decodeToString(), "path '$path'")
         }
@@ -1003,6 +1006,22 @@ abstract class DownloaderStorageContractTest {
         }
 
         override fun toString(): String = "ContractUnit($id)"
+    }
+
+    @Test
+    fun `a relativePath with a dot-dot segment commits at its normalized path`() = runTest {
+        val unit = ContractUnit("dots", relativePath = "files/x/../a.bin")
+        storage.beginTempFile(unit, null)
+        writeTemp(storage, unit, "abc")
+
+        finish(storage, unit)
+
+        assertTrue(storage.getResourcePath(unit).endsWith("/files/a.bin"), storage.getResourcePath(unit))
+        assertTrue(storage.isResourceAvailable(unit))
+        assertEquals("abc", readFile("${baseDirectory()}/files/a.bin")?.decodeToString())
+        assertEquals(3L, storage.getResourceSize(unit))
+        storage.deleteResource(unit)
+        assertFalse(pathExists("${baseDirectory()}/files/a.bin"))
     }
 
     private companion object {

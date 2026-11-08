@@ -120,8 +120,8 @@ class AndroidDownloaderArchiveRound4Test {
             val group = Group("g")
             val spellings: List<String> = listOf(
                 "files/a.bin", "/files/a.bin", "files//a.bin", "./files/a.bin", "files/./a.bin",
-                "files/a.bin/", "//files/a.bin", "../archive_round4/files/a.bin",
-                "files/../files/a.bin", 
+                "files/x/../a.bin", "files/a.bin/", "//files/a.bin", "../archive_round4/files/a.bin",
+                "files/../files/a.bin", "a/b/../../files/a.bin",
             )
             val problems: MutableList<String> = mutableListOf()
             for ((index: Int, spelling: String) in spellings.withIndex()) {

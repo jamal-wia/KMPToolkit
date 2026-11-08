@@ -42,11 +42,12 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
 
     /** What [inspectRelativePath] decided. */
     sealed interface PathInspection {
-        /** Accepted, nothing to report. */
-        data object Accepted : PathInspection
-
-        /** Accepted, but under `tmp/`, which the storage reserves; the caller logs a warning. */
-        data object AcceptedUnderTmp : PathInspection
+        /**
+         * Accepted. [normalizedPath] is the path every file operation must use: the segments kept
+         * after `.`, `..` and empty ones are resolved lexically, joined with `/`, in their original
+         * case. [underTmp] is true under `tmp/`, which the storage reserves; the caller logs a warning.
+         */
+        class Accepted(val normalizedPath: String, val underTmp: Boolean) : PathInspection
 
         class Rejected(val reason: InvalidDownloadUnitException.Reason) : PathInspection
     }
@@ -90,29 +91,36 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
 
     /**
      * Decides whether [DownloadUnit.relativePath] may be used. Lexical only: the segments are
-     * normalized for the check, and the caller keeps using the original string.
+     * normalized, and the accepted result carries the normalized path, so the check and every file
+     * operation agree on one path whether or not a `..` segment's directory exists, and a symbolic
+     * link below the base can never turn a `..` into an escape the check did not see.
      */
     fun inspectRelativePath(unit: DownloadUnit): PathInspection {
         val path: String = unit.relativePath
         if (path.indexOf('\u0000') >= 0) return reject(InvalidDownloadUnitException.Reason.INVALID_CHARACTER)
         val segments: ArrayList<String> = ArrayList()
+        var changed = false
         var start = 0
         while (start <= path.length) {
             var end: Int = path.indexOf('/', start)
             if (end < 0) end = path.length
             val length: Int = end - start
             when {
-                length == 0 || (length == 1 && path[start] == '.') -> Unit
+                length == 0 || (length == 1 && path[start] == '.') -> changed = true
                 length == 2 && path[start] == '.' && path[start + 1] == '.' -> {
                     if (segments.isEmpty()) return reject(InvalidDownloadUnitException.Reason.ESCAPES_BASE_DIRECTORY)
                     segments.removeAt(segments.lastIndex)
+                    changed = true
                 }
                 else -> segments.add(path.substring(start, end))
             }
             start = end + 1
         }
         if (segments.isEmpty()) return reject(InvalidDownloadUnitException.Reason.EMPTY)
-        if (fold(segments[0]) != TMP) return PathInspection.Accepted
+        // No empty, `.` or `..` segment: no leading, trailing or doubled `/` either, so the original
+        // string is already the normalized path.
+        val normalized: String = if (changed) segments.joinToString("/") else path
+        if (fold(segments[0]) != TMP) return PathInspection.Accepted(normalized, underTmp = false)
         if (segments.size == 1) return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)
         val second: String = fold(segments[1])
         if (isReservedBelowTmp(second)) return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)
@@ -133,7 +141,7 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
                 return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)
             }
         }
-        return PathInspection.AcceptedUnderTmp
+        return PathInspection.Accepted(normalized, underTmp = true)
     }
 
     /**
