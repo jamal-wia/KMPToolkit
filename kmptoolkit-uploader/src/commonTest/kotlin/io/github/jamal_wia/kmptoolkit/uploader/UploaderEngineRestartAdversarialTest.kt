@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -349,8 +350,17 @@ class UploaderEngineRestartAdversarialTest {
         }
     }
 
+    /** A runner whose transaction commits and then reports its caller's cancellation, as a real database runner does. */
+    private class ParkingAfterCommitRunner(private val gate: CompletableDeferred<Unit>) : TransactionRunner {
+        override suspend fun <R> inTransaction(block: suspend () -> R): R {
+            val result: R = block()
+            gate.await()
+            return result
+        }
+    }
+
     @Test
-    fun `a caller cancelled after its row committed leaves an item that the platform wake still covers and a drain delivers`() =
+    fun `a caller cancelled after its row committed inside the store leaves an item that the platform wake still covers and a drain delivers`() =
         runTest {
             val inner = TestUploaderStore()
             val gate = CompletableDeferred<Unit>()
@@ -362,8 +372,7 @@ class UploaderEngineRestartAdversarialTest {
             val caller: Job = launch { engine.enqueue(handler, "x") }
             runCurrent()
             assertEquals(1, inner.items.size, "the row is committed while the caller is parked")
-            // The write is non-cancellable once started, so the parked store call returns only when its gate
-            // opens; opening it after the cancel is what makes this a cancelled caller seeing a committed write.
+            // A store cannot see the caller's cancellation (the write is non-cancellable), so it returns once its gate opens.
             caller.cancel()
             gate.complete(Unit)
             caller.join()
@@ -383,7 +392,42 @@ class UploaderEngineRestartAdversarialTest {
         }
 
     @Test
-    fun `a caller cancelled after its row committed still triggers the running drain`() = runTest {
+    fun `a caller cancelled after its row committed in the transaction runner leaves an item that the platform wake still covers and a drain delivers`() =
+        runTest {
+            val inner = TestUploaderStore()
+            val gate = CompletableDeferred<Unit>()
+            val wake = TestWakeScheduler()
+            val handler = TestHandler()
+            val engine: UploaderEngine =
+                testEngine(
+                    inner,
+                    listOf(handler),
+                    backgroundScope,
+                    transactionRunner = ParkingAfterCommitRunner(gate),
+                    wakeScheduler = wake,
+                )
+
+            val caller: Job = launch { engine.enqueue(handler, "x") }
+            runCurrent()
+            assertEquals(1, inner.items.size, "the row is committed while the caller is parked")
+            caller.cancelAndJoin()
+
+            // Either the enqueue left nothing behind, or what it persisted is covered by a platform wake:
+            // a process killed now must still be revived to deliver the committed row.
+            assertTrue(
+                inner.items.isEmpty() || wake.armed,
+                "a committed row (${inner.items.size}) exists but the platform wake was never armed for it",
+            )
+
+            engine.start()
+            runCurrent()
+            assertEquals(listOf("x"), handler.payloads, "the committed row is delivered by the next drain")
+            assertEquals(emptyList(), inner.items)
+            assertFalse(wake.armed, "the wake is disarmed once the queue is empty")
+        }
+
+    @Test
+    fun `a caller cancelled after its row committed inside the store still triggers the running drain`() = runTest {
         val inner = TestUploaderStore()
         val gate = CompletableDeferred<Unit>()
         val handler = TestHandler()
@@ -394,10 +438,29 @@ class UploaderEngineRestartAdversarialTest {
 
         val caller: Job = launch { engine.enqueue(handler, "x") }
         runCurrent()
-        // Cancel first, open the gate second: the started write is non-cancellable (see the test above).
+        // A store cannot see the caller's cancellation (the write is non-cancellable), so it returns once its gate opens.
         caller.cancel()
         gate.complete(Unit)
         caller.join()
+        runCurrent()
+
+        assertEquals(listOf("x"), handler.payloads, "the committed row waited for a later trigger instead of draining now")
+    }
+
+    @Test
+    fun `a caller cancelled after its row committed in the transaction runner still triggers the running drain`() = runTest {
+        val inner = TestUploaderStore()
+        val gate = CompletableDeferred<Unit>()
+        val handler = TestHandler()
+        val engine: UploaderEngine =
+            testEngine(inner, listOf(handler), backgroundScope, transactionRunner = ParkingAfterCommitRunner(gate))
+        engine.start()
+        runCurrent()
+
+        val caller: Job = launch { engine.enqueue(handler, "x") }
+        runCurrent()
+        assertEquals(1, inner.items.size, "the row is committed while the caller is parked")
+        caller.cancelAndJoin()
         runCurrent()
 
         assertEquals(listOf("x"), handler.payloads, "the committed row waited for a later trigger instead of draining now")
