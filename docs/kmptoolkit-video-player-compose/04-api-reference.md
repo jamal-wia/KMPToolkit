@@ -252,7 +252,7 @@ the matching `VideoControlsLabels` field (`null` → role only).
   until `positionMs` next changes, or the bar stops being active (`enabled` turns `false` or
   `durationMs` drops to `0`) — a seek the player rejected, because it left its playable states as
   the seek committed, never moves `positionMs`.
-- Accessibility: `ProgressBarRangeInfo(fraction, 0f..1f)` and a `SetProgress` action that seeks.
+- Accessibility: `ProgressBarRangeInfo(fraction, 0f..1f)` and a `SetProgress` action that seeks; the progress is clamped to `0f..1f`, and a non-numeric (`NaN`) progress is refused (the action returns `false`) instead of throwing.
 - Disabled (no gestures, no `SetProgress`, `disabled()` semantics) while `durationMs <= 0` or
   `!enabled`.
 - Mirrored in RTL.
