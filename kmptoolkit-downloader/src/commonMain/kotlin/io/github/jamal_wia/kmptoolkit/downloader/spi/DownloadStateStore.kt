@@ -5,7 +5,8 @@ package io.github.jamal_wia.kmptoolkit.downloader.spi
  *
  * One thing needs it today: the per-unit stall counter — a download that dies without transferring
  * a byte must not be retried forever, and the count is worthless if it resets every time the
- * process does.
+ * process does. A value outside what the engine writes is treated as damaged: below zero as no
+ * failures, above the limit as the limit.
  *
  * A port rather than a direct dependency on any particular key-value storage, so this library stays
  * free of that choice and of the dependency-injection framework it might carry. A host's adapter is

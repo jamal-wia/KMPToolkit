@@ -46,6 +46,9 @@ Two invariants make the rest of this document make sense:
   (`isDownloadInProgress`); "is it done" is answered by the **file on disk**
   (`isResourceAvailable`). A crash therefore needs no recovery pass — the next `ensureAvailable`
   re-derives everything from those two questions.
+  A stored failure count outside what the engine writes is treated as damaged: below zero as no
+  failures, above the limit as the limit, so a broken `DownloadStateStore` cannot turn the
+  three-attempt limit into endless retries.
 - **The temp file IS the resume state, where the platform allows it — and a partial one is never
   committed.** `DownloaderStorage.tempFileState` tells a `Partial` file from a `Complete` one; they
   are different files, and only `markTempFileComplete` turns one into the other. A partial file is

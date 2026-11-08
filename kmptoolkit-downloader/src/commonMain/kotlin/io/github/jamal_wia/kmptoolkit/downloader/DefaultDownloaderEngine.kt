@@ -6,6 +6,7 @@ import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
+import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -1578,7 +1579,13 @@ internal class DefaultDownloaderEngine(
         stateStore.readInt(stallCountKey(unit), 0)
 
     private fun incrementStallCount(unit: DownloadUnit): Int {
-        val newCount: Int = getStallCount(unit) + 1
+        val stored: Int = getStallCount(unit)
+        // The engine only ever writes 1..MAX_STALL_RETRIES + 1. Anything else is a damaged host store:
+        // read as the nearest valid value, so it can neither grant endless retries (negative) nor
+        // overflow into them (Int.MAX_VALUE + 1).
+        val previous: Int = stored.coerceIn(0, MAX_STALL_RETRIES + 1)
+        if (previous != stored) logger.w { "Stored failure count $stored of $unit is out of range, read as $previous" }
+        val newCount: Int = previous + 1
         stateStore.writeInt(stallCountKey(unit), newCount)
         return newCount
     }
