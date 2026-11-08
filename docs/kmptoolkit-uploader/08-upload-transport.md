@@ -148,7 +148,8 @@ when the settlement is done:
 - **iOS** entries are deleted just before the commit and written back if it does not land; a process death in that
   microsecond window uploads again (at least once).
 
-An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
+An entry file larger than 4 MiB cannot be one the journal wrote (a body is at most 1 MiB and the headers are capped); it is
+deleted without being read, on both platforms, instead of failing every attempt of its item. An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
 briefly on disk; see [`05-platform-notes.md`](05-platform-notes.md#the-servers-response). Your own
 transport has no journal: keep your own record if it needs one.
 

@@ -42,7 +42,10 @@ internal class AndroidOutcomeStorage(
 
     override fun read(itemId: String): ByteArray? {
         val file = File(dir, itemId)
-        return if (file.isFile) file.readBytes() else null
+        if (!file.isFile) return null
+        // Larger than any entry the journal writes: not read at all (a poison file would exhaust the heap).
+        if (file.length() > MAX_ENCODED_ENTRY_BYTES) return ByteArray(0)
+        return file.readBytes()
     }
 
     override fun delete(itemId: String) {
