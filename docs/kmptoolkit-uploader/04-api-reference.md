@@ -9,10 +9,10 @@ The narrow interface features depend on.
 
 | Member | Signature | Notes |
 |---|---|---|
-| `enqueue` | `suspend fun <P : Any> enqueue(handler: UploaderHandler<P>, payload: P, uniqueKey: String? = null, tag: String? = null, conflictPolicy: ConflictPolicy = KEEP): String?` | Suspends until persisted. Returns the new item id, or `null` when a `KEEP` conflict left the queued item in place. The drain trigger and the platform wake are armed even if the caller is cancelled (or the write fails) mid-call, because a row may already have committed. A caller cancelled before the write starts writes nothing; once the write has started, cancelling the caller does not interrupt it: the row is queued as a normal pending item and the call may return normally. With `REPLACE`, the stop of the superseded item's attempt and the cancel of its upload run to the end too. |
+| `enqueue` | `suspend fun <P : Any> enqueue(handler: UploaderHandler<P>, payload: P, uniqueKey: String? = null, tag: String? = null, conflictPolicy: ConflictPolicy = KEEP): String?` | Suspends until persisted. Returns the new item id, or `null` when a `KEEP` conflict left the queued item in place. The drain trigger and the platform wake are armed even if the caller is cancelled (or the write fails) mid-call, because a row may already have committed. A caller cancelled before the write starts writes nothing; once the write has started, cancelling the caller does not interrupt it: the row is queued as a normal pending item and the call may return normally. With `REPLACE`, the stop of the superseded item's attempt and the cancel of its upload run to the end too, and they come before the wake is armed. Once its store write has started, the call waits for that write to finish even if the caller is cancelled or times out; a store call that never returns holds the call with it. |
 | `observe` | `fun observe(type: String): Flow<List<UploaderItem>>` | All states, insertion order. Does not suspend — the query runs on collection. |
-| `cancel` | `suspend fun cancel(id: String)` | Since 2.0.0. Withdraws one item in any state: deletes its row, then cancels its upload on its `UploadHandler`'s transport. Touches nothing else. Unknown id: no-op. Best effort for bytes already sent. A caller cancelled before the call starts removes nothing; once the removal has begun, cancelling the caller does not stop it halfway: the delete, the stop of the running attempt and the cancel of the upload complete together, and the call may return normally. A cancelled attempt records nothing whatever its handler answers, except that a `Success` has its row deleted. |
-| `cancelByTag` | `suspend fun cancelByTag(tag: String)` | Since 2.0.0. `cancel` for every item with that exact tag — the logout wipe. Once the wipe has started, a cancelled caller does not interrupt it. Residual: if the store itself fails after the wipe committed, the list of removed items is lost, so those uploads run until they settle (their settle is a no-op); a cancelled caller cannot cause this. |
+| `cancel` | `suspend fun cancel(id: String)` | Since 2.0.0. Withdraws one item in any state: deletes its row, then cancels its upload on its `UploadHandler`'s transport. Touches nothing else. Unknown id: no-op. Best effort for bytes already sent. A caller cancelled before the call starts removes nothing; once the removal has begun, cancelling the caller does not stop it halfway: the delete, the stop of the running attempt and the cancel of the upload complete together, and the call may return normally. A cancelled attempt records nothing whatever its handler answers, except that a `Success` has its row deleted. If the call throws, check nothing: either the item is gone with its attempt and upload stopped, or it is still queued with its attempt and upload untouched; call `cancel` again. Only when the engine could not even read the row back are the attempt and upload stopped with the row possibly still queued (it resumes when its lease runs out). Once its store write has started, the call waits for that write to finish even if the caller is cancelled or times out; a store call that never returns holds the call with it. |
+| `cancelByTag` | `suspend fun cancelByTag(tag: String)` | Since 2.0.0. `cancel` for every item with that exact tag — the logout wipe. Once the wipe has started, a cancelled caller does not interrupt it. Residual: if the store itself fails after the wipe committed, the list of removed items is lost, so those uploads run until they settle (their settle is a no-op); a cancelled caller cannot cause this. Once its store write has started, the call waits for that write to finish even if the caller is cancelled or times out; a store call that never returns holds the call with it. |
 | `trigger` | `fun trigger()` | Conflated, non-suspending, safe from anywhere. |
 
 **Suspension rule:** an operation that touches storage suspends; one that only moves in-memory state
@@ -29,7 +29,7 @@ whether a call can block.
 | `drain` | `suspend fun drain()` | One full pass. **Do not call on a started engine** — it breaks single-flight. For tests and diagnostics. |
 | `settle` | `suspend fun settle(id: String, claim: Long, result: SettleResult)` | Reports a detached delivery, with the `id` and `claim` from the executor's `AttemptContext`. Every race degrades to a no-op; see below. |
 | `awaitDrained` | `suspend fun awaitDrained(timeout: Duration): Boolean` | For a wake job. An `IN_FLIGHT` item counts as **not** drained. An already empty queue is `true` even for a zero timeout. A failing store read never throws: it counts as "not drained" and is re-read at `drainPollInterval`, so a persistent failure ends in `false` at the timeout. |
-| `close` | `fun close()` | Idempotent, non-suspending. Stops the engine, leaves the queue and your scope alone. An attempt running at close is cancelled and records nothing (apart from a `Success` delete); nothing is claimed or launched afterwards; an upload whose claim was being written is released so the next engine starts it at once. |
+| `close` | `fun close()` | Idempotent, non-suspending. Stops the engine, leaves the queue and your scope alone. An attempt running at close is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, so the next engine starts the item at once. It does not wait for a running attempt: one that ignores its cancellation may still be running when a new engine starts the same item, so a handler that does not honour cancellation can see its item run twice, as after a process kill. |
 
 ### `settle` guards
 
@@ -365,7 +365,11 @@ Eleven functions; the full contract is in the interface KDoc and in
 - Every id-addressed write treats an absent row as a no-op and is idempotent.
 - Callable concurrently.
 - Cancellation: a call may throw `CancellationException` for a cancelled caller before its write or after it committed, or
-  not notice the cancellation at all; both are allowed, and the engine relies on neither.
+  not notice the cancellation at all; both are allowed, and the engine relies on neither. Because the engine makes some
+  writes non-cancellable, a call that never returns holds its caller for good: bound your own calls (a busy timeout, a
+  statement timeout).
+- `markInFlight` stores `leaseUntilEpochMillis` exactly: the engine compares it to tell its own claim from another
+  engine's; a store that rounds it only loses the prompt release of an interrupted claim.
 - Dedup identity is `(type, uniqueKey)`; a `null` key never conflicts.
 - Payload and tag are opaque.
 
@@ -417,7 +421,7 @@ default.
 
 | Symbol | Purpose |
 |---|---|
-| `InMemoryUploaderStore` | A complete store; run the real engine against it |
+| `InMemoryUploaderStore` | A complete store; run the real engine against it. Its calls never notice a cancelled caller, contended or not (its lock is taken non-cancellably) |
 | `UploaderStoreContract` | Runnable checks for every store invariant |
 | `UploaderStoreContractViolation` | The `AssertionError` a failed check throws |
 | `FakeUploader` | Records enqueues; for testing code that only decides to enqueue |

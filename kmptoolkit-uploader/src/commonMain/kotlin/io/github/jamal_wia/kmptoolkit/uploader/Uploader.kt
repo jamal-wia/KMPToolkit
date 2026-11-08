@@ -40,7 +40,7 @@ public interface Uploader {
      * A caller cancelled before the write starts writes nothing and arms no wake. Once the write has started,
      * cancelling the caller does not interrupt it: the write completes, the item is queued as a normal pending
      * item with its wake armed, and the call may return normally (see [ConflictPolicy.REPLACE] for what that
-     * means for a superseded item).
+     * means for a superseded item). Once its store write has started, the call waits for that write to finish even if the caller is cancelled or times out; a store call that never returns holds the call with it.
      */
     public suspend fun <P : Any> enqueue(
         handler: UploaderHandler<P>,
@@ -73,15 +73,21 @@ public interface Uploader {
      * **No attempt begins after this returns, and a running one is cancelled.** An item the drain had
      * already read before the call is not attempted afterwards (not even its `decodePayload`, `execute` or
      * `prepareUpload`). An attempt the engine is already running for it is cancelled, spends no attempt and
-     * records nothing, whatever its handler answers to the cancellation (a `Retry`, `Park`, `Drop` or `Detached`
-     * returned from a swallowed cancellation is not written down); the one exception is a `Success`, whose
+     * records nothing, whatever its handler answers to the cancellation (a `Retry`, `Park` or `Drop`
+     * returned from a swallowed cancellation is not written down; neither is a `Detached` of this withdrawn attempt);
+     * the one exception is a `Success`, whose
      * effect happened, so its row is deleted. This call does not wait for the attempt, and a handler that
      * ignores cancellation may still finish its effect.
      *
      * **A cancelled caller does not stop the call halfway.** A caller cancelled before the call starts removes
      * nothing. Once the call has begun removing the row, cancelling its caller (a cleared `viewModelScope`
      * during a logout wipe, say) changes nothing: the removal and the stop of the running attempt or upload
-     * complete together, and the call may even return normally.
+     * complete together, and the call may even return normally. Once its store write has started, the call waits for that write to finish even if the caller is cancelled or times out; a store call that never returns holds the call with it.
+     *
+     * **If the call throws, check nothing:** either the item is gone with its attempt and upload stopped, or it is
+     * still queued with its attempt and upload untouched; call [cancel] again. Only when the engine could not even read
+     * the row back are the attempt and upload stopped with the row possibly still queued (it resumes when its lease
+     * runs out).
      *
      * **Best effort for the bytes.** An upload whose body already reached the server may have been
      * accepted; nothing can recall it. Use [AttemptContext.id] as an idempotency key, and treat a
@@ -112,7 +118,7 @@ public interface Uploader {
      * begins afterwards and a running one is cancelled. As for [cancel], those side effects are not rolled
      * back when an enclosing transaction rolls back. A caller cancelled before the wipe starts removes nothing;
      * once it has started, cancelling the caller does not interrupt it: every removed item is stopped and its
-     * upload cancelled.
+     * upload cancelled. Once its store write has started, the call waits for that write to finish even if the caller is cancelled or times out; a store call that never returns holds the call with it.
      *
      * If the store itself fails after the wipe committed, the list of removed items is lost, so the uploads of
      * those items run until they settle, and their settle is a no-op. Only a failing store can cause this; a
