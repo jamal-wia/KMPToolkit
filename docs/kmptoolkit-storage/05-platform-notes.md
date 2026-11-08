@@ -240,6 +240,9 @@ call from the main thread and from any number of coroutines at once:
   (`InvalidKeyException`) is dropped from that cache and looked up again once — if another instance
   replaced an unrecoverable key meanwhile, the next use picks the new one up instead of failing until
   the process restarts.
+  A value that ends in a line break is stored by the plain store with one U+E000 appended, because
+  the framework's XML writer indents after a trailing line break; the store removes it on read. Code
+  reading the preferences file directly sees it.
 - **iOS.** `NSUserDefaults` and Keychain calls go through `cfprefsd` and `securityd`, both IPC. Two
   writers adding the same Keychain item at once — two coroutines, or an app extension sharing the
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then
