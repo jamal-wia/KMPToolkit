@@ -145,8 +145,9 @@ runs no handler hook, so clean up after it yourself — the source file, a "send
 After `cancel`, `cancelByTag` or a `REPLACE` returns, no attempt of a removed item begins, even one the drain had
 already read from the queue, and an attempt the engine is already running for it is cancelled: it spends no
 attempt and records nothing, whatever its handler answers to the cancellation: a `Retry`, `Park`, `Drop` or
-`Detached` returned from a swallowed cancellation is not written down. A `Success` is the exception: its effect
-happened, so its row is deleted. The call does not wait for that attempt, and a handler that ignores cancellation
+`Detached` returned from a swallowed cancellation is not written down (an attempt cancelled by `close()` still
+records its `Detached`, see the close section). A `Success` is the
+exception: its effect happened, so its row is deleted. The call does not wait for that attempt, and a handler that ignores cancellation
 may still finish its effect.
 
 A caller that is cancelled does not stop a withdrawal halfway. A caller cancelled before the call starts removes
@@ -154,6 +155,14 @@ nothing; once the call has begun removing rows, cancelling its caller changes no
 running attempt and the cancel of the upload complete together, and the call may return normally. That is what
 makes the logout wipe safe when the screen's `viewModelScope` is cleared while `cancelByTag` runs: no upload of the
 wiped account keeps running. (A `REPLACE` enqueue follows the same rule.) So does any `enqueue`: one whose caller is cancelled while its write is in progress still queues its item.
+
+The price: once the store write of a withdrawal or an enqueue has started, the call waits for that write whatever the
+caller's timeout, and a store call that never returns holds the call with it. The store is the only bound, so set a busy
+or statement timeout on your database.
+
+If `cancel` throws, check nothing: either the item is gone with its attempt and upload stopped, or it is still queued
+with its attempt and upload untouched. Call `cancel` again. Only when the engine could not even read the row back are
+the attempt and upload stopped with the row possibly still queued (it resumes when its lease runs out).
 
 What it cannot do is recall bytes the server already has: an upload whose body was fully sent may
 have been accepted. Read a withdrawal as "will not be sent from now on". Send `AttemptContext.id` as
@@ -392,9 +401,12 @@ slot if this engine holds it. It does not cancel the scope you provided and does
 queue — everything owed is still owed, and a freshly constructed engine picks it up. Cancelling your
 own scope stops the engine just as effectively.
 
-An attempt running at close is cancelled and records nothing, apart from the delete of a `Success`; nothing is
-claimed or launched after `close()` returns. An upload whose claim was being written at that moment is released, so
-the next engine starts it at once instead of waiting for the lease to run out.
+An attempt running at close is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, so the next engine starts the item at once.
+The owner may build the next engine right after `close()` returns: a closed engine's late release of a claim writes
+nothing when the row shows another engine's claim.
+
+`close()` does not wait for a running attempt; one that ignores its cancellation may still be running when a new engine
+starts the same item, so a handler that does not honour cancellation can see its item run twice, as after a process kill.
 
 ## Logging
 

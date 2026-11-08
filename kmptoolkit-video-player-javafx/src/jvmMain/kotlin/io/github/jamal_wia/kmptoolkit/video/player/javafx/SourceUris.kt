@@ -3,6 +3,8 @@ package io.github.jamal_wia.kmptoolkit.video.player.javafx
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import java.io.File
 import java.io.FileNotFoundException
+import java.net.URISyntaxException
+import java.net.URL
 
 /**
  * The URI JavaFX Media opens for [source], checked as far as can be without JavaFX: a missing local
@@ -16,9 +18,12 @@ import java.io.FileNotFoundException
 internal fun resolveSourceUri(source: VideoSource, classLoader: ClassLoader): String = when (source) {
     is VideoSource.Asset -> {
         require(source.path.isNotBlank()) { "Asset path is blank" }
-        val url: java.net.URL = classLoader.getResource(source.path.removePrefix("/"))
+        val url: URL = classLoader.getResource(source.path.removePrefix("/"))
             ?: throw FileNotFoundException("No classpath resource '${source.path}'")
-        url.toExternalForm()
+        // A loader that does not percent-encode (File.toURL(), plugin loaders) hands back a file: URL
+        // that is not a valid URI, which JavaFX Media rejects; its path is then the file path as
+        // written, and the file's own URI is encoded. Anything else (`jar:` and the rest) goes on as is.
+        if (url.protocol == "file") fileUrlAsUri(url) else url.toExternalForm()
     }
 
     is VideoSource.File -> {
@@ -35,4 +40,10 @@ internal fun resolveSourceUri(source: VideoSource, classLoader: ClassLoader): St
         require(source.url.isNotBlank()) { "Remote URL is blank" }
         source.url
     }
+}
+
+private fun fileUrlAsUri(url: URL): String = try {
+    url.toURI().toString()
+} catch (_: URISyntaxException) {
+    File(url.path).toURI().toString()
 }

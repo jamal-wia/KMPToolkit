@@ -101,4 +101,18 @@ class VlcjBoundaryAdversarialTest {
         assertEquals(7_000L, engine.positionMs(), "the playhead jumped to the unknown length at the end")
         engine.dispose()
     }
+
+    @Test
+    fun `a seek target beyond what libvlc can represent is capped, not wrapped`() {
+        val engine = newEngine()
+        val player: FakeVlcPlayer = startAndPlay(engine)
+        engine.seekTo(Long.MAX_VALUE)
+        runtime.drainTasks()
+        val targets: List<Long> = player.calls.filter { it.startsWith("setTime(") }
+            .map { it.removePrefix("setTime(").removeSuffix(")").toLong() }
+        assertEquals(1, targets.size, "the seek never reached libvlc: ${player.calls}")
+        assertTrue(targets.single() <= Long.MAX_VALUE / 1_000L, "the target overflows libvlc's microseconds: $targets")
+        assertEquals(targets.single(), engine.positionMs())
+        engine.dispose()
+    }
 }

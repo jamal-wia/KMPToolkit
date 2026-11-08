@@ -79,7 +79,8 @@ import kotlinx.coroutines.flow.Flow
  * committed** (a store that switches to a database dispatcher reports the caller's cancellation when the call
  * returns). It may also not notice the cancellation at all. Both kinds are allowed; nothing is required of a
  * store, and the engine never relies on either: a write it must see through (a withdrawal, the release of an
- * interrupted claim) it makes non-cancellable on its own side.
+ * interrupted claim) it makes non-cancellable on its own side. Because the engine makes some writes non-cancellable, a call
+ * that never returns holds its caller for good: bound your own calls (a busy timeout, a statement timeout).
  *
  * ### Nothing here interprets a payload
  * [UploaderItem.payload] is an opaque string and [UploaderItem.tag] is an opaque label. A store stores
@@ -243,7 +244,9 @@ public interface UploaderStore {
      * the protocol this is one step of.
      *
      * @param id the item's [UploaderItem.id]; an absent row is a no-op returning `false`.
-     * @param leaseUntilEpochMillis epoch millis at which the new claim expires.
+     * @param leaseUntilEpochMillis epoch millis at which the new claim expires; stored exactly: the engine compares
+     *   it to tell its own claim from another engine's, and a store that rounds it only loses the prompt release of an
+     *   interrupted claim.
      * @param expectedState the state the caller read the item in — [UploaderItemState.PENDING] for a
      *   first hand-off, [UploaderItemState.IN_FLIGHT] for a re-hand after an expired lease.
      * @param expectedClaim the [UploaderItem.claim] the caller read alongside [expectedState].

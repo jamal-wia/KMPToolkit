@@ -78,7 +78,7 @@ fun `a failing effect is retried with a backoff gate`() = runTest {
 }
 ```
 
-`InMemoryUploaderStore` never notices a cancelled caller, whereas a store that hops to a database thread does,
+`InMemoryUploaderStore` never notices a cancelled caller, even when calls contend for its lock, whereas a store that hops to a database thread does,
 even after its write committed. The engine is built for both, so a test against the in-memory store pins the
 SPI invariants, not cancellation timing.
 

@@ -102,7 +102,7 @@ For reference when reading the core module's contract — details in [`03-guide.
 |---|---|
 | `prepare` | Waits for libvlc's parser (local + network); no frame decoded until `play()`. |
 | `setVolume(v)` | VLC volume `round(v × 100)` %, never above 100; a NaN volume is ignored. |
-| `setPlaybackSpeed` | VLC rate; a rate that is not finite and positive is ignored (the player never passes one). |
+| `setPlaybackSpeed` | VLC rate, clamped to libvlc's 1/32..32 (`playbackSpeedFlow` still shows the speed asked for); a rate that is not finite and positive is ignored (the player never passes one). |
 | `RepeatMode.One` | VLCJ repeat; the input is re-opened at the end, possibly with a short gap. |
 | `bufferedPositionFlow` | Duration for local sources, playhead for remote ones. |
 | `videoSizeFlow` | First video track's displayed size after parsing (sample aspect ratio and rotation applied). The decoder's stored picture size is used only when parsing found no size (some network streams). |

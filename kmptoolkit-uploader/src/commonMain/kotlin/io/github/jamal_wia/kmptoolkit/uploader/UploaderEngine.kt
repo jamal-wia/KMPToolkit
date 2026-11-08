@@ -136,9 +136,15 @@ public interface UploaderEngine : Uploader {
      *
      * It does **not** cancel the [CoroutineScope] you provided, which is yours, and it does not
      * touch the queue: everything owed is still owed, and a freshly constructed engine picks it up. An attempt
-     * running at close is cancelled and records nothing, apart from the delete of a `Success`, and nothing is
-     * claimed or launched after [close] returns. A hand-off interrupted while its claim was being written is
-     * released to the state it was read in, so the next engine starts it at once instead of after the lease.
+     * running at close is cancelled and records nothing except what already happened: a `Success` still removes its
+     * row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close;
+     * a claim that was being written, or that finished after close, is released if it is still this engine's, so the
+     * next engine starts the item at once.
+     *
+     * [close] does not wait for a running attempt; one that ignores its cancellation may still be running when a new
+     * engine starts the same item, so a handler that does not honour cancellation can see its item run twice, as
+     * after a process kill.
+     *
      * After [close] the engine is permanently inert — [enqueue] still persists (the store is
      * independent) but nothing will drain it. Construct a new engine rather than reusing a closed
      * one.
