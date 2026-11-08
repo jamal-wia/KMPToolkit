@@ -229,4 +229,36 @@ class InMemoryKeyValueStorageTest {
         storage.clear()
         assertNotEquals(first, DeviceIdProvider(storage).current())
     }
+
+    @Test
+    fun `a put with an unpaired surrogate fails with OperationFailed and changes nothing`() = runTest {
+        storage.put("k", "old")
+
+        for ((key: String, value: String) in listOf("k" to "a\uD800b", "k" to "a\uDC00b", "\uD800" to "v", "a\uDC00" to "v")) {
+            val error: StorageError? = storage.put(key, value).errorOrNull()
+            assertTrue(
+                error is StorageError.OperationFailed && error.operation == StorageOperation.PUT && error.key == key,
+                "put of a key/value with an unpaired surrogate answered $error",
+            )
+        }
+
+        assertEquals(mapOf("k" to "old"), storage.contents)
+        assertEquals(listOf("k"), storage.writes)
+    }
+
+    @Test
+    fun `a put with a well-formed surrogate pair is stored`() = runTest {
+        storage.put("k", "😀")
+
+        assertEquals(StorageResult.Success("😀"), storage.get("k"))
+    }
+
+    @Test
+    fun `an invalid put does not consume an armed failure`() = runTest {
+        storage.failNextOperationWith = StorageError.Unavailable()
+
+        storage.put("k", "\uD800")
+
+        assertEquals(StorageError.Unavailable(), storage.get("k").errorOrNull())
+    }
 }

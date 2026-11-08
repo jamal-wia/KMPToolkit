@@ -51,10 +51,13 @@ internal class JvmKeyValueStorage(
         load().getProperty(key)
     }
 
-    override suspend fun put(key: String, value: String): StorageResult<Unit> = guarded(StorageOperation.PUT, key) {
-        val properties: Properties = load()
-        properties.setProperty(key, value)
-        write(properties)
+    override suspend fun put(key: String, value: String): StorageResult<Unit> {
+        unpairedSurrogateFailure(key, value)?.let { return it }
+        return guarded(StorageOperation.PUT, key) {
+            val properties: Properties = load()
+            properties.setProperty(key, value)
+            write(properties)
+        }
     }
 
     override suspend fun remove(key: String): StorageResult<Unit> = guarded(StorageOperation.REMOVE, key) {

@@ -37,8 +37,10 @@ internal class AndroidKeyValueStorage(
         }
     }
 
-    override suspend fun put(key: String, value: String): StorageResult<Unit> =
-        commit(StorageOperation.PUT, key) { it.putString(key, value) }
+    override suspend fun put(key: String, value: String): StorageResult<Unit> {
+        unpairedSurrogateFailure(key, value)?.let { return it }
+        return commit(StorageOperation.PUT, key) { it.putString(key, value) }
+    }
 
     override suspend fun remove(key: String): StorageResult<Unit> =
         commit(StorageOperation.REMOVE, key) { it.remove(key) }

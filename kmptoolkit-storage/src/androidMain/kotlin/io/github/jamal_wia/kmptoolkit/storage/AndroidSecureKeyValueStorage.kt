@@ -53,6 +53,7 @@ internal class AndroidSecureKeyValueStorage(
     }
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {
+        unpairedSurrogateFailure(key, value)?.let { return@withContext it }
         val encrypted: String = try {
             cipher.encrypt(value)
         } catch (cancellation: CancellationException) {
