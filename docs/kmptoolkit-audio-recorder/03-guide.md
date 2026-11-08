@@ -260,7 +260,7 @@ Nothing is hardcoded. `RecordingStorage` has three knobs and a default derived f
 | You set | Result |
 |---|---|
 | nothing | `<app-private files>/<your application id>/recording_<epochMillis>_<token>.m4a` |
-| `directoryName = "voice-notes"` | `<app-private files>/voice-notes/recording_<epochMillis>_<token>.m4a` |
+| `directoryName = "voice-notes"` | `<app-private files>/voice-notes/recording_<epochMillis>_<token>.m4a` (a nested name such as `"audio/notes"` works too; a leading `/` or a `.` / `..` segment is rejected) |
 | `directoryPath = "/…/cache/notes"` | `/…/cache/notes/recording_<epochMillis>_<token>.m4a` |
 | `fileNamePrefix = "note"` | `…/note_<epochMillis>_<token>.m4a` |
 | `prepare(outputPath = "…")` | exactly that path, config ignored. Must be absolute |

@@ -26,6 +26,20 @@ class RecorderConfigContractTest {
     }
 
     @Test
+    fun `a directory name inside the base is accepted, nested or with a trailing separator`() {
+        for (name in listOf("voice-notes", "audio/notes", "notes/")) {
+            assertEquals(name, RecordingStorage(directoryName = name).directoryName)
+        }
+    }
+
+    @Test
+    fun `a directory name that can leave the base or names it is rejected`() {
+        for (name in listOf(".", "..", "../x", "a/../../x", "a/./b", "/abs")) {
+            assertFailsWith<IllegalArgumentException>("'$name' was accepted") { RecordingStorage(directoryName = name) }
+        }
+    }
+
+    @Test
     fun `the level mapping stays inside zero to one for every legal floor and any reading`() {
         val random = Random(4)
         val floors: List<Float> = listOf(-Float.MIN_VALUE, -1e-30f, -0.001f, -1f, -50f, -120f, -1e30f, -Float.MAX_VALUE)

@@ -506,7 +506,7 @@ public data class RecordingStorage(
 ```
 
 - `directoryPath` — absolute directory; a blank or relative path is rejected in `init`. `null` means `<app-private files>/<directoryName>`.
-- `directoryName` — subdirectory under the app-private base. `null` means the consumer's own
+- `directoryName` — relative directory under the app-private base; may be nested (`a/b`) but must not start with `/` or contain a `.` or `..` segment; rejected in `init`. `null` means the consumer's own
   application id / bundle identifier. Ignored when `directoryPath` is set.
 - `fileNamePrefix` — leading part of a generated name (`<prefix>_<epochMillis>_<token>.<ext>`). Must not be
   blank and must not contain `/` or `\`.
