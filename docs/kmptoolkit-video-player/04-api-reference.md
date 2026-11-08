@@ -94,7 +94,7 @@ wrote (a poll tick can no longer turn `Completed` or `Paused` back into `Playing
 its transition applied — after `pause()`, `stateFlow` already holds `Paused`. An engine event that
 arrives while a call is running is applied right after it. The flows are safe to collect anywhere.
 `release()` cannot double-free; a call racing a release from another thread is applied or dropped
-as a whole, never half-way, and nothing reaches the engine after the release. A completion the platform reported before a seek away from the end (or a `stop()`, or the rewind of a `play()` from the end) is dropped as stale; a seek onto the end does not make a completion stale.
+as a whole, never half-way, and nothing reaches the engine after the release. A completion the platform reported before a seek away from the end (or a `stop()`, or the rewind of a `play()` from the end) is dropped as stale; a seek onto the end does not make a completion stale. A `stateFlow` collector on an immediate dispatcher may call the player from inside the update; every transition has finished its other writes by then, so such a call is never undone.
 
 ---
 

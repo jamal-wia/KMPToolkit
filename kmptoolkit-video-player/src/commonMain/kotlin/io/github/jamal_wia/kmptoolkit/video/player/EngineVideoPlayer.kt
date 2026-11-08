@@ -42,6 +42,10 @@ import kotlinx.coroutines.withContext
  * lock; engine callbacks and poll ticks never wait, they are handed to the thread holding it (see
  * [StateMachineLock] for why). Everything marked "guarded" below is touched only under that lock.
  *
+ * **Every transition writes [stateFlow] last.** A collector on an immediate dispatcher runs inside that
+ * write and may call the player back; nothing of the transition may run after it, or it would undo what
+ * the collector did. A composite call ([replay]: seek, then play) re-reads the state between its steps.
+ *
  * ### Dropped sources
  *
  * Whether a report belongs to the source the player now shows is not read off the published state;
@@ -261,8 +265,9 @@ internal class EngineVideoPlayer(
             engine.setLooping(_repeatModeFlow.value == RepeatMode.One)
             engine.setSpeed(_playbackSpeedFlow.value)
             _bufferedPositionFlow.value = engine.bufferedPositionMs().coerceAtLeast(0L)
-            _stateFlow.value = VideoPlayerState.Ready(engine.durationMs())
+            val duration: Long = engine.durationMs()
             _isBufferingFlow.value = stalled
+            _stateFlow.value = VideoPlayerState.Ready(duration)
         }
     }
 
@@ -400,8 +405,8 @@ internal class EngineVideoPlayer(
                     engine.seekTo(0L)
                     engine.start()
                     _playbackPositionFlow.value = 0L
-                    _stateFlow.value = VideoPlayerState.Playing(duration = known, currentPosition = 0L)
                     startPositionUpdates()
+                    _stateFlow.value = VideoPlayerState.Playing(duration = known, currentPosition = 0L)
                 }
                 is VideoPlayerState.Paused -> {
                     engine.seekTo(0L)
@@ -494,11 +499,10 @@ internal class EngineVideoPlayer(
         }
         engine.start()
         engine.setSpeed(_playbackSpeedFlow.value)
-        _stateFlow.value = VideoPlayerState.Playing(
-            duration = duration,
-            currentPosition = engine.positionMs(),
-        )
+        val position: Long = engine.positionMs()
+        // Polling first: a collector that pauses from inside the state write stops the poll it finds.
         startPositionUpdates()
+        _stateFlow.value = VideoPlayerState.Playing(duration = duration, currentPosition = position)
     }
 
     private fun seekToLocked(positionMs: Long, relative: Boolean = false) {
@@ -618,13 +622,17 @@ internal class EngineVideoPlayer(
         val current: VideoPlayerState = _stateFlow.value
         if (current !is VideoPlayerState.Playing) return
         val position: Long = engine.positionMs()
-        // Compare-and-set as well as the lock: the tick must only ever refine the Playing state it
-        // read, never replace a state another transition wrote.
+        val buffered: Long = engine.bufferedPositionMs().coerceAtLeast(0L)
         val refreshed: VideoPlayerState.Playing =
             current.copy(duration = freshDuration(current.duration), currentPosition = position)
-        if (!_stateFlow.compareAndSet(current, refreshed)) return
+        // The flows first and the state last, like every transition: a collector on an immediate
+        // dispatcher that pauses or rewinds from inside the state write must not be overwritten by
+        // this tick's older reading afterwards.
         _playbackPositionFlow.value = position
-        _bufferedPositionFlow.value = engine.bufferedPositionMs().coerceAtLeast(0L)
+        _bufferedPositionFlow.value = buffered
+        // Compare-and-set as well as the lock: under the lock it can only fail because a collector of one
+        // of the two flows above re-entered and changed the state, and then that transition's writes stand.
+        _stateFlow.compareAndSet(current, refreshed)
     }
 
     /**
