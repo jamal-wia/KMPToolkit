@@ -58,10 +58,11 @@ public fun createScreenWakeLockController(activityAccess: ActivityAccess): Scree
  *    the currently resumed activity into a new listener immediately, and a replay that ran the full
  *    apply with nothing held would wipe `FLAG_KEEP_SCREEN_ON` off a window some other owner had set
  *    it on.
- *  - It must clear a flag it DID set but could not take back. The activity tracker clears its
- *    reference on pause, before an owner's teardown may run — so a release that arrives with the
- *    screen already going away finds no activity to write to. Without re-applying that release on
- *    the next resume, the window would keep the flag for the rest of its life.
+ *  - It must clear a flag it DID set. A release takes the flag off every live window listed here at
+ *    once, resumed or not (several windows of the app can be resumed together, and a paused one can
+ *    be written too); only a window that cannot be written any more (finishing, destroyed,
+ *    collected) is dropped, its flag dying with it. The resume callback below is the fallback for a
+ *    window the release could not write.
  *
  * Several controllers count as one owner of the flag per window: a release clears it only when no
  * other live controller still holds that window ([KeepScreenOnHolders]), so per-screen controllers
@@ -128,8 +129,17 @@ internal class AndroidScreenWakeLockController(
         // No activity means the screen is already going away. The write is not lost: pushedTo
         // still names the window carrying the flag, so its next resume applies this release.
         activityAccess.withActivity { activity -> applyFlag(activity, keepOn = target) }
-        // An earlier window still carrying the flag stays in pushedTo, owed its release like a paused
-        // one: the subscription lives until each such window has resumed (or is gone).
+        // A release takes the flag off every live window this controller put it on, resumed or not: a
+        // window that is paused, stopped or still resumed beside the current one can be written all the
+        // same, and one that is resumed already will not resume again to be told. Snapshot first,
+        // applyFlag edits pushedTo.
+        if (!target) {
+            val live: List<Activity> = pushedTo.mapNotNull { it.get() }.filter { !it.isFinishing && !it.isDestroyed }
+            live.forEach { window -> applyFlag(window, keepOn = false) }
+        }
+        // A window that cannot be written any more (finishing, destroyed, collected) is dropped by
+        // unsubscribeWhenIdle: its flag dies with it. Whatever is left is owed its release at its next
+        // resume, and the subscription lives until then.
         unsubscribeWhenIdle()
     }
 

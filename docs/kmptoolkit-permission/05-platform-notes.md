@@ -134,7 +134,15 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
   API levels are `Location` there, background location below API 29 is `Location`, background body
   sensors below API 33 is `BodySensors` — reads and writes that entry's flags, so the two can never
   disagree.
+- Entries that ask Android for the same permission string (or a subset of it) share what was learned: a
+  refusal for good through `PhotoLibrary` reads as one through `AudioLibrary` below API 33, and through
+  `Calendar` as one through `CalendarWriteOnly`. The reverse direction is not mirrored (the full calendar
+  can still show a dialog for the read string), and neither is a partial answer. A `Runtime(name)` you
+  build for a string a catalog entry already covers keeps its own flags, so ask through one of the two.
 - A role reuses the two keys: `asked` after its first refusal, `rationale` after its second.
+  A role dialog interrupted by its activity finishing with it up records nothing: the default host
+  tells an interruption from the user backing out. A host of your own has only a result code, so what it
+  reports as `RESULT_CANCELED` counts as a refusal.
 - Special accesses and device admins store nothing.
 
 The flags are not a secret and need no encryption; a plain `createKeyValueStorage(context)` is the
@@ -273,8 +281,13 @@ reclaiming it) is let go at its destroy, and the answer is picked up from the re
 it resumes. An activity that another live one covered while the dialog was up stays registered until
 the request ends, since the answer goes to the registry the dialog was started from; every
 registration, including one the registry handed a waiting answer to during registration, is dropped
-when the request ends. A request ends when the user answers, when that activity is finished
-(destroyed, or another activity resumes over it), or at process death. A caller that is cancelled
+when the request ends. A request ends when the user answers, when the activity the dialog was shown
+from (or its recreated instance) is finished (destroyed, or another activity resumes over it), or at
+process death. Only that activity decides it: another activity of the app that opens and finishes
+while the dialog is up (a trampoline or deep-link screen) never ends the request, and the activity the
+dialog came from finishing behind another live one does. An origin the system destroyed for
+recreation and that is never recreated leaves the request pending until the answer arrives; with a
+dialog up the only recreation that happens is a configuration change, which recreates it at once. A caller that is cancelled
 while the dialog is up does **not** withdraw it: the system dialog cannot be taken back, so the
 request stays pending until the user answers, the answer is then discarded, and a launch in that
 window returns `false` like any launch while one is pending.

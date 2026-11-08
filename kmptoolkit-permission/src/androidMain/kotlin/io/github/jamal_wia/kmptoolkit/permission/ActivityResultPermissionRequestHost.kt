@@ -26,8 +26,10 @@ import io.github.jamal_wia.kmptoolkit.logging.w
  *   recreation, and this host registers for the answer again on the next activity that resumes, so the
  *   answer still reaches the waiting request. (Not across process death: nothing in the new process
  *   is waiting.)
- * - **It gives up when the activity is finished** (not recreated) while the dialog is up — whether it
- *   is destroyed first or another activity resumes before it is: nothing can
+ * - **It gives up when the activity the dialog was shown from (or its recreated instance) is finished**
+ *   (not recreated) while the dialog is up — whether it
+ *   is destroyed first or another activity resumes before it is. Another activity of the app that comes
+ *   and goes meanwhile never ends the request. Nothing can
  *   answer then, so the request ends as interrupted — an empty answer, `RESULT_CANCELED` — and the
  *   host takes the next one.
  * - **One request at a time.** A launch while another is pending returns `false` and shows nothing.
@@ -76,7 +78,7 @@ public class ActivityResultPermissionRequestHost(
             input = androidPermissions.toTypedArray(),
             onResult = onResult,
             // What `settle` reads as "interrupted, record nothing".
-            abandoned = emptyMap(),
+            onAbandoned = { onResult(emptyMap()) },
         )
 
     override fun launchForResult(intent: Intent, onResult: (resultCode: Int) -> Unit): Boolean =
@@ -85,7 +87,21 @@ public class ActivityResultPermissionRequestHost(
             contract = ActivityResultContracts.StartActivityForResult(),
             input = intent,
             onResult = { result: ActivityResult -> onResult(result.resultCode) },
-            abandoned = ActivityResult(Activity.RESULT_CANCELED, null),
+            onAbandoned = { onResult(Activity.RESULT_CANCELED) },
+        )
+
+    /**
+     * [launchForResult] for the controller: a request that is interrupted (its activity finished with the
+     * screen up) reports `null` instead of `RESULT_CANCELED`, which a user backing out also produces, so
+     * an interruption is never recorded as a refusal. Same request slot as [launchForResult].
+     */
+    internal fun launchForResultOrInterrupted(intent: Intent, onResult: (resultCode: Int?) -> Unit): Boolean =
+        start(
+            kind = "result",
+            contract = ActivityResultContracts.StartActivityForResult(),
+            input = intent,
+            onResult = { result: ActivityResult -> onResult(result.resultCode) },
+            onAbandoned = { onResult(null) },
         )
 
     private fun <I, O> start(
@@ -93,7 +109,7 @@ public class ActivityResultPermissionRequestHost(
         contract: ActivityResultContract<I, O>,
         input: I,
         onResult: (O) -> Unit,
-        abandoned: O,
+        onAbandoned: () -> Unit,
     ): Boolean {
         if (pending != null) {
             logger.w { "A permission request is already showing; not launching another" }
@@ -103,7 +119,7 @@ public class ActivityResultPermissionRequestHost(
             logger.w { "No resumed ComponentActivity to show the permission request from" }
             return false
         }
-        val request = PendingRequest("$keyPrefix.$kind", contract, onResult, abandoned)
+        val request = PendingRequest("$keyPrefix.$kind", contract, onResult, onAbandoned)
         pending = request
         val launched: Boolean = try {
             // null: the registry handed a parked answer to the new registration and the request is over
@@ -140,11 +156,25 @@ public class ActivityResultPermissionRequestHost(
         private val key: String,
         private val contract: ActivityResultContract<I, O>,
         private val onResult: (O) -> Unit,
-        private val abandoned: O,
+        private val onAbandoned: () -> Unit,
     ) {
         var resumes: ActivitySubscription? = null
         private val attachments: MutableList<Attachment> = mutableListOf()
-        private var current: Attachment? = null
+
+        /**
+         * The attachment the dialog was launched from (or its recreated instance): the only registry that
+         * can ever deliver the answer, so the only activity whose finishing ends the request. Another
+         * activity of the app coming and going while the dialog is up is attached to, never judged.
+         */
+        private var origin: Attachment? = null
+
+        /**
+         * What is remembered of an origin the system destroyed to recreate it: a class and a task id, which
+         * pin no activity. The next activity of that class in that task is the recreated instance, and its
+         * restored registry owns the answer, so it becomes the origin.
+         */
+        private var lostOriginClass: Class<out Activity>? = null
+        private var lostOriginTaskId: Int = 0
 
         /** The registration with one activity's registry, and the observer that lets go of it at that activity's destroy. */
         private inner class Attachment(val activity: ComponentActivity) {
@@ -164,16 +194,16 @@ public class ActivityResultPermissionRequestHost(
 
         /**
          * Another activity resumed. Android resumes the next screen before it stops and destroys the
-         * one that finished, so by the time this runs the activity the dialog belonged to is already
-         * finishing and its destroy event would find the watch removed by the move: its answer
-         * can never be delivered, so give up here. A configuration change is not this case — the old
-         * instance is not finishing.
+         * one that finished, so by the time this runs the activity the dialog came from ([origin]) may
+         * already be finishing: its answer can never be delivered, so give up here. A configuration
+         * change is not this case — the old instance is not finishing. Any other activity finishing is
+         * not this case either: it never held the answer.
          */
         fun onResumed(activity: ComponentActivity) {
-            val leaving: Activity? = current?.activity
+            val leaving: Activity? = origin?.activity
             if (leaving != null && leaving !== activity && leaving.isFinishing && !leaving.isChangingConfigurations) {
                 finish()
-                onResult(abandoned)
+                onAbandoned()
                 return
             }
             attach(activity)
@@ -185,14 +215,16 @@ public class ActivityResultPermissionRequestHost(
          */
         fun attach(activity: ComponentActivity): ActivityResultLauncher<I>? {
             attachments.firstOrNull { it.activity === activity }?.let { known: Attachment ->
-                current = known
                 return known.launcher
             }
             // An activity destroyed since it was attached is no longer a registry anything can be answered to.
             attachments.filter { it.activity.isDestroyed }.forEach { gone: Attachment -> detach(gone) }
             val attachment = Attachment(activity)
             attachments += attachment
-            current = attachment
+            if (origin == null && (attachments.size == 1 && lostOriginClass == null || isRecreatedOrigin(activity))) {
+                origin = attachment
+                lostOriginClass = null
+            }
             activity.lifecycle.addObserver(attachment.destroyWatch)
             val registered: ActivityResultLauncher<I> = activity.activityResultRegistry.register(key, contract) { output: O ->
                 if (pending === this) {
@@ -210,8 +242,12 @@ public class ActivityResultPermissionRequestHost(
             return registered
         }
 
+        /** The first launch has no lost origin to match; afterwards only the recreated instance of the lost one qualifies. */
+        private fun isRecreatedOrigin(activity: ComponentActivity): Boolean =
+            lostOriginClass == activity.javaClass && lostOriginTaskId == activity.taskId
+
         /**
-         * An activity that is finished, not recreated, while its dialog is up never hears the answer:
+         * The origin activity that is finished, not recreated, while its dialog is up never hears the answer:
          * the registry that would deliver it is gone with it, and no other registry holds it. Left
          * alone, [pending] would refuse every later launch for the life of the process. An activity the
          * system destroys to recreate it (a configuration change, a reclaim) is only let go of: the
@@ -220,17 +256,22 @@ public class ActivityResultPermissionRequestHost(
         private fun onDestroyed(attachment: Attachment) {
             if (pending !== this) return
             val activity: ComponentActivity = attachment.activity
-            if (attachment === current && activity.isFinishing && !activity.isChangingConfigurations) {
+            if (attachment !== origin) {
+                // Never held the answer, whether or not it is finishing: nothing to end.
+                detach(attachment)
+            } else if (activity.isFinishing && !activity.isChangingConfigurations) {
                 finish()
-                onResult(abandoned)
+                onAbandoned()
             } else {
+                lostOriginClass = activity.javaClass
+                lostOriginTaskId = activity.taskId
                 detach(attachment)
             }
         }
 
         private fun detach(attachment: Attachment) {
             attachments.remove(attachment)
-            if (current === attachment) current = null
+            if (origin === attachment) origin = null
             attachment.release()
         }
 
@@ -240,7 +281,8 @@ public class ActivityResultPermissionRequestHost(
             resumes = null
             val all: List<Attachment> = attachments.toList()
             attachments.clear()
-            current = null
+            origin = null
+            lostOriginClass = null
             all.forEach { it.release() }
         }
     }

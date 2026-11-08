@@ -35,6 +35,9 @@ public interface PermissionRequestHost {
      * Starts [intent] for a result — `ActivityResultContracts.StartActivityForResult()` — and later
      * invokes [onResult] with the activity's result code. The controller uses it for the screens that
      * answer with one: the role dialog, the device-admin activation screen.
+     *
+     * A host that reports an interruption (the screen's activity finished) as `RESULT_CANCELED` makes the
+     * controller record a refusal for a role; call [onResult] only for a screen that really answered.
      */
     public fun launchForResult(intent: Intent, onResult: (resultCode: Int) -> Unit): Boolean
 }

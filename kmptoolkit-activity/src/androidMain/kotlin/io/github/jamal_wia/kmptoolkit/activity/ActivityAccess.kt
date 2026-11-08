@@ -34,6 +34,10 @@ public interface ActivityAccess {
      * destroyed is treated as absent and dropped, so a stale reference cannot reach your code.
      * The block runs on the calling thread; most `Activity` APIs require the main thread, and this
      * does not move you there.
+     *
+     * With several windows of the app resumed at once (split screen, freeform or desktop windows) it is
+     * the one resumed most recently; when that one pauses, the access answers with the other window
+     * still resumed. Listeners are not called for that change - no activity resumed.
      */
     public fun <R> withActivity(block: (Activity) -> R): R?
 

@@ -20,6 +20,8 @@ running it when there is none.
 The activity is validated first: one that is finishing or already destroyed is treated as absent and
 dropped, so a stale reference cannot reach your code. The block runs on the calling thread.
 
+With several windows of the app resumed at once (split screen, freeform or desktop windows) it is the one resumed most recently; when that one pauses, the access answers with the other window that is still resumed. Listeners are not called for that change: no activity resumed.
+
 ### `addOnActivityResumedListener`
 
 Subscribes to activity resumption, and fires immediately if one is already resumed — so a listener

@@ -24,7 +24,7 @@ import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.w
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
-import io.github.jamal_wia.kmptoolkit.storage.getStringOrNull
+import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 import kotlin.coroutines.resume
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -44,6 +44,24 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * What [AndroidPermissionController.launchForResult] delivers for a request the library's own host ended
+ * as interrupted. Never a result code a system screen produces (those are `RESULT_OK`, `RESULT_CANCELED`
+ * and small positive custom codes).
+ */
+private const val INTERRUPTED: Int = Int.MIN_VALUE
+
+/**
+ * The entries with a dialog of their own that [AndroidPermissionController.coveredBy] can share a learned
+ * refusal with: the catalog's, which is all anyone can know of ahead of time.
+ */
+private val MIRRORABLE_ENTRIES: List<Permission> = CommonPermission.entries + listOf(
+    AndroidPermission.NearbyWifiDevices,
+    AndroidPermission.LocalNetwork,
+    AndroidPermission.BodySensors,
+    AndroidPermission.BodySensorsBackground,
+)
 
 /** The value written under a [rationaleSeenKey]. Its presence is the flag; the text is for a human reading a dump. */
 private const val FLAG_SET: String = "true"
@@ -332,6 +350,9 @@ internal class AndroidPermissionController(
     /** Permissions already reported as undeclared, so a status observed on every resume warns once. */
     private val reportedUndeclared: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
+    /** Flag operations already reported as failed, so a storage that stays down warns once per flag. */
+    private val reportedFlagFailures: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+
     /** `true` the first time [key] is reported. */
     private fun MutableStateFlow<Set<String>>.markReported(key: String): Boolean =
         key !in getAndUpdate { reported -> if (key in reported) reported else reported + key }
@@ -361,16 +382,21 @@ internal class AndroidPermissionController(
     }
 
     override suspend fun request(permission: Permission): PermissionStatus =
-        requestMutex.withLock { requestOne(permission) }
+        requestMutex.withLock { requestOne(permission, resumeWait = MutableStateFlow(false)) }
 
     override suspend fun request(permissions: Collection<Permission>): Map<Permission, PermissionStatus> =
         requestMutex.withLock {
             val distinct: List<Permission> = permissions.distinct()
-            val results: MutableMap<Permission, PermissionStatus> = requestSharedDialog(distinct).toMutableMap()
+            // One wait for an activity per call, however many permissions settle (see ResumeWait).
+            val resumeWait: MutableStateFlow<Boolean> = MutableStateFlow(false)
+            // Keyed by status source: two entries that stand for one Android permission on this API
+            // level are one request with one answer, never two dialogs.
+            val results: MutableMap<Permission, PermissionStatus> = requestSharedDialog(distinct, resumeWait).toMutableMap()
             for (permission in distinct) {
-                if (permission !in results) results[permission] = requestOne(permission)
+                val source: Permission = permission.statusSource()
+                if (source !in results) results[source] = requestOne(permission, resumeWait)
             }
-            distinct.associateWith { permission -> results.getValue(permission) }
+            distinct.associateWith { permission -> results.getValue(permission.statusSource()) }
         }
 
     /**
@@ -426,13 +452,13 @@ internal class AndroidPermissionController(
     // --- requests -------------------------------------------------------------------------------
 
     /** One permission, with [requestMutex] held. */
-    private suspend fun requestOne(permission: Permission): PermissionStatus {
+    private suspend fun requestOne(permission: Permission, resumeWait: MutableStateFlow<Boolean>): PermissionStatus {
         val source: Permission = permission.statusSource()
         val status: PermissionStatus = when {
             source is AndroidPermission.SpecialAccess -> requestSpecialAccess(source)
             source is AndroidPermission.Role -> requestRole(source)
             source is AndroidPermission.DeviceAdmin -> requestDeviceAdmin(source)
-            ruleOf(source) != null -> requestRuntime(source, requested = permission)
+            ruleOf(source) != null -> requestRuntime(source, requested = permission, resumeWait = resumeWait)
             else -> PermissionStatus.Unavailable
         }
         requestsResolved.tryEmit(source)
@@ -441,12 +467,16 @@ internal class AndroidPermissionController(
 
     /**
      * Shows one system dialog for every runtime permission in [permissions] that can still prompt, and
-     * returns the status each of them reached; the others are left to [requestOne].
+     * returns the status each of those sources reached, keyed by status source; the others are left to
+     * [requestOne].
      *
      * Background location is never in the group: Android grants it only on top of foreground location,
      * and ignores a request that asks for both at once.
      */
-    private suspend fun requestSharedDialog(permissions: List<Permission>): Map<Permission, PermissionStatus> {
+    private suspend fun requestSharedDialog(
+        permissions: List<Permission>,
+        resumeWait: MutableStateFlow<Boolean>,
+    ): Map<Permission, PermissionStatus> {
         val dialogs: MutableMap<Permission, List<String>> = linkedMapOf()
         for (permission in permissions) {
             val source: Permission = permission.statusSource()
@@ -458,16 +488,19 @@ internal class AndroidPermissionController(
         if (dialogs.size < 2) return emptyMap()
 
         val answers: Map<String, Boolean> = launchDialog(dialogs.values.flatten().distinct())
-            ?: return permissions.filter { it.statusSource() in dialogs }.associateWith { runtimeStatus(it.statusSource()) }
-        val bySource: Map<Permission, PermissionStatus> = dialogs.mapValues { (source, strings) ->
-            settle(source, strings, answers.filterKeys { it in strings })
+            ?: return dialogs.mapValues { (source, _) -> runtimeStatus(source) }
+        return dialogs.mapValues { (source, strings) ->
+            settle(source, strings, answers.filterKeys { it in strings }, resumeWait)
                 .also { requestsResolved.tryEmit(source) }
         }
-        return permissions.filter { it.statusSource() in bySource }.associateWith { bySource.getValue(it.statusSource()) }
     }
 
     /** [requested] is only for the log: the entry the caller asked for, when [permission] stands for it. */
-    private suspend fun requestRuntime(permission: Permission, requested: Permission): PermissionStatus {
+    private suspend fun requestRuntime(
+        permission: Permission,
+        requested: Permission,
+        resumeWait: MutableStateFlow<Boolean>,
+    ): PermissionStatus {
         val current: PermissionStatus = runtimeStatus(permission)
         if (!current.mayShowDialog()) {
             logger.d {
@@ -487,11 +520,21 @@ internal class AndroidPermissionController(
         val dialog: RuntimeRule.Dialog = ruleOf(permission) as? RuntimeRule.Dialog ?: return current
         val strings: List<String> = declared(permission, dialog.androidPermissions)
         val answers: Map<String, Boolean> = launchDialog(strings) ?: return current
-        return settle(permission, strings, answers)
+        return settle(permission, strings, answers, resumeWait)
     }
 
-    /** Records and reports the outcome of a dialog that showed [strings] for [permission]. */
-    private suspend fun settle(permission: Permission, strings: List<String>, answers: Map<String, Boolean>): PermissionStatus {
+    /**
+     * Records and reports the outcome of a dialog that showed [strings] for [permission].
+     *
+     * [resumeWait] is the call's "already waited for an activity" mark: a batch of refused permissions
+     * in a backgrounded app waits once, not once per permission.
+     */
+    private suspend fun settle(
+        permission: Permission,
+        strings: List<String>,
+        answers: Map<String, Boolean>,
+        resumeWait: MutableStateFlow<Boolean>,
+    ): PermissionStatus {
         // The platform answers an interrupted request with no entries: nothing was decided, so nothing
         // is recorded, and the status is whatever it was.
         if (answers.isEmpty()) return runtimeStatus(permission)
@@ -511,10 +554,11 @@ internal class AndroidPermissionController(
                 // Recorded only now, after the dialog actually resolved. Recording it before launching
                 // would turn a dialog that never appeared into a permanent denial the user never made.
                 markAsked(permission)
+                mirrorAsked(permission, strings, answers)
                 // The answer arrives just before the activity is resumed again, and a continuation that
                 // runs in that gap finds no activity to ask for the rationale. Waiting for the resume
                 // turns "cannot tell" back into an answer in all but a backgrounded app.
-                if (rationaleFor(strings) == null) awaitActivity()
+                if (rationaleFor(strings) == null && resumeWait.compareAndSet(expect = false, update = true)) awaitActivity()
                 runtimeStatus(permission)
             }
         }
@@ -547,9 +591,13 @@ internal class AndroidPermissionController(
         if (!current.mayShowDialog()) return current
         val intent: Intent = resultGrants.requestIntent(role) ?: return current
         val resultCode: Int = launchForResult(intent, role) ?: return current
+        if (resultCode == INTERRUPTED) {
+            logger.d { "The dialog for $role was interrupted; nothing recorded" }
+            return roleStatus(role)
+        }
         if (resultGrants.isHeld(role) != true) {
             logger.d { "$role was not granted (result $resultCode)" }
-            if (storage.getStringOrNull(askedKey(keyPrefix, role)) == null) {
+            if (readFlag(askedKey(keyPrefix, role)) == null) {
                 markAsked(role)
             } else {
                 markFlag(rationaleSeenKey(keyPrefix, role))
@@ -571,7 +619,7 @@ internal class AndroidPermissionController(
 
         false -> when {
             isSet(rationaleSeenKey(keyPrefix, role)) -> PermissionStatus.PermanentlyDenied
-            storage.getStringOrNull(askedKey(keyPrefix, role)) != null -> PermissionStatus.Denied(explainFirst = true)
+            readFlag(askedKey(keyPrefix, role)) != null -> PermissionStatus.Denied(explainFirst = true)
             else -> PermissionStatus.NotDetermined
         }
     }
@@ -595,7 +643,14 @@ internal class AndroidPermissionController(
     /** Starts [intent] through the host for a result; the result code, or `null` when nothing was shown. */
     private suspend fun launchForResult(intent: Intent, permission: Permission): Int? =
         launchOnHost("The system screen for $permission") { deliver ->
-            host.launchForResult(intent) { resultCode -> deliver(resultCode) }
+            // The library's own host can tell an interrupted request from the user backing out; any other
+            // host only has a result code, so what it reports as RESULT_CANCELED counts as a refusal.
+            val own: ActivityResultPermissionRequestHost? = host as? ActivityResultPermissionRequestHost
+            if (own != null) {
+                own.launchForResultOrInterrupted(intent) { resultCode -> deliver(resultCode ?: INTERRUPTED) }
+            } else {
+                host.launchForResult(intent) { resultCode -> deliver(resultCode) }
+            }
         }
 
     /**
@@ -758,11 +813,16 @@ internal class AndroidPermissionController(
     private fun PermissionStatus.mayShowDialog(): Boolean =
         this is PermissionStatus.NotDetermined || this is PermissionStatus.Denied || this is PermissionStatus.Limited
 
+    /** The strings of [androidPermissions] the manifest declares, without reporting; all of them when it cannot be read. */
+    private fun declaredQuietly(androidPermissions: List<String>): List<String> {
+        val declared: Set<String> = declaredPermissions() ?: return androidPermissions
+        return androidPermissions.filter { it in declared }
+    }
+
     /** The strings of [androidPermissions] the manifest declares; all of them when it cannot be read. */
     private fun declared(permission: Permission, androidPermissions: List<String>): List<String> {
-        val declared: Set<String> = declaredPermissions() ?: return androidPermissions
-        val present: List<String> = androidPermissions.filter { it in declared }
-        if (present.isEmpty() && reportedUndeclared.markReported(permission.id)) {
+        val present: List<String> = declaredQuietly(androidPermissions)
+        if (present.isEmpty() && declaredPermissions() != null && reportedUndeclared.markReported(permission.id)) {
             logger.w { "$permission reads Unavailable: declare ${androidPermissions.joinToString(" or ")} in the manifest" }
         }
         return present
@@ -804,11 +864,12 @@ internal class AndroidPermissionController(
         }
         if (androidPermissions.any(isRevokedByPolicy)) return PermissionStatus.Restricted
 
-        val askedValue: String? = storage.getStringOrNull(askedKey(keyPrefix, permission))
+        val askedValue: String? = readFlag(askedKey(keyPrefix, permission))
         val asked: Boolean = askedValue != null
         return when (rationaleFor(androidPermissions)) {
             true -> {
                 markFlag(rationaleSeenKey(keyPrefix, permission))
+                mirrorRationaleSeen(permission, androidPermissions)
                 PermissionStatus.Denied(explainFirst = true)
             }
 
@@ -822,6 +883,38 @@ internal class AndroidPermissionController(
             }
 
             null -> if (asked) PermissionStatus.Denied(explainFirst = false) else PermissionStatus.NotDetermined
+        }
+    }
+
+    /**
+     * The other catalog entries that ask Android for nothing but strings [strings] already holds (and for
+     * at least one the manifest declares), with the declared strings each asks for. Several entries can
+     * stand for one Android permission without being the same entry (`PhotoLibrary` and `AudioLibrary`
+     * below API 33, `Calendar` and `CalendarWriteOnly`); the platform's "will not show again" is per
+     * string, so what is learned through one is learned for these too. Entries that stand for another
+     * (`SameAs`) already share flags and are left out; so is anything the catalog does not list (a
+     * `Runtime(name)` keeps its own flags). Reads nothing and reports nothing.
+     */
+    private fun coveredBy(permission: Permission, strings: List<String>): List<Pair<Permission, List<String>>> =
+        MIRRORABLE_ENTRIES.mapNotNull { entry: Permission ->
+            if (entry == permission || entry.statusSource() != entry || entry.isScanWithoutDisavowal()) return@mapNotNull null
+            val rule: RuntimeRule.Dialog = ruleOf(entry) as? RuntimeRule.Dialog ?: return@mapNotNull null
+            val entryStrings: List<String> = declaredQuietly(rule.androidPermissions)
+            if (entryStrings.isNotEmpty() && strings.containsAll(entryStrings)) entry to entryStrings else null
+        }
+
+    /** After a refusal of [permission] through [strings]: the same refusal, as the other entries read it. */
+    private suspend fun mirrorAsked(permission: Permission, strings: List<String>, answers: Map<String, Boolean>) {
+        for ((entry: Permission, entryStrings: List<String>) in coveredBy(permission, strings)) {
+            val rule: RuntimeRule.Dialog = ruleOf(entry) as RuntimeRule.Dialog
+            if (rule.grantOf(answers.filterKeys { it in entryStrings }) == Grant.None) markAsked(entry)
+        }
+    }
+
+    /** After the platform asked for a rationale for [permission]'s [strings]: the other entries that ask for the same also saw it. */
+    private suspend fun mirrorRationaleSeen(permission: Permission, strings: List<String>) {
+        for ((entry: Permission, entryStrings: List<String>) in coveredBy(permission, strings)) {
+            if (rationaleFor(entryStrings) == true) markFlag(rationaleSeenKey(keyPrefix, entry))
         }
     }
 
@@ -846,12 +939,43 @@ internal class AndroidPermissionController(
 
     // --- flags ----------------------------------------------------------------------------------
 
-    private suspend fun isSet(key: String): Boolean = storage.getStringOrNull(key) == FLAG_SET
+    private suspend fun isSet(key: String): Boolean = readFlag(key) == FLAG_SET
+
+    /**
+     * The flag under [key], `null` when it is absent or the storage could not read it. An unreadable
+     * flag reads as absent (the safe side: nothing is turned into a permanent denial), and is reported
+     * to the logger once per key, so a storage that is down says so without a line on every check.
+     */
+    private suspend fun readFlag(key: String): String? =
+        when (val result: StorageResult<String?> = storage.get(key)) {
+            is StorageResult.Success -> result.value
+            is StorageResult.Failure -> {
+                reportFlagFailure("read", key, result)
+                null
+            }
+        }
+
+    private suspend fun writeFlag(key: String, value: String) {
+        val result: StorageResult<Unit> = storage.put(key, value)
+        if (result is StorageResult.Failure) reportFlagFailure("write", key, result)
+    }
+
+    private suspend fun removeFlag(key: String) {
+        val result: StorageResult<Unit> = storage.remove(key)
+        if (result is StorageResult.Failure) reportFlagFailure("remove", key, result)
+    }
+
+    /** Warns the first time [operation] on [key] fails; a storage that stays down does not fill the log. */
+    private fun reportFlagFailure(operation: String, key: String, failure: StorageResult.Failure) {
+        if (reportedFlagFailures.markReported("$operation $key")) {
+            logger.w { "Could not $operation the permission flag $key (${failure.error}); it is treated as not set" }
+        }
+    }
 
     /** Records that the dialog was shown, leaving a flag an earlier version wrote as it is. */
     private suspend fun markAsked(permission: Permission) {
         val key: String = askedKey(keyPrefix, permission)
-        if (storage.getStringOrNull(key) == null) storage.put(key, ASKED)
+        if (readFlag(key) == null) writeFlag(key, ASKED)
     }
 
     /**
@@ -859,7 +983,7 @@ internal class AndroidPermissionController(
      * permission that keeps asking for a rationale from writing on every call.
      */
     private suspend fun markFlag(key: String) {
-        if (!isSet(key)) storage.put(key, FLAG_SET)
+        if (!isSet(key)) writeFlag(key, FLAG_SET)
     }
 
     /**
@@ -871,7 +995,7 @@ internal class AndroidPermissionController(
      */
     private suspend fun clearFlags(permission: Permission) {
         listOf(askedKey(keyPrefix, permission), rationaleSeenKey(keyPrefix, permission)).forEach { key: String ->
-            if (storage.getStringOrNull(key) != null) storage.remove(key)
+            if (readFlag(key) != null) removeFlag(key)
         }
     }
 }
