@@ -90,7 +90,7 @@ class DownloaderEngineCorruptStateRound4Test {
     }
 
     @Test
-    fun `a stored count of Int MAX reads as exhausted - one transfer, then the cleared count allows three more`() {
+    fun `a stored count of Int MAX reads as exhausted - one transfer then three more once the count is cleared`() {
         assertEquals(listOf(1, 3), exactTransfers(Int.MAX_VALUE, calls = 2))
     }
 
