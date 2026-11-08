@@ -6,9 +6,10 @@ package io.github.jamal_wia.kmptoolkit.video.player
  *
  * @property positionUpdateIntervalMs how often [VideoPlayer.playbackPositionFlow] and
  *   [VideoPlayer.bufferedPositionFlow] refresh while playing. Must be positive.
- * @property minPlaybackSpeed lower bound [VideoPlayer.setPlaybackSpeed] clamps to. Must be positive.
- * @property maxPlaybackSpeed upper bound [VideoPlayer.setPlaybackSpeed] clamps to. At least
- *   [minPlaybackSpeed].
+ * @property minPlaybackSpeed lower bound [VideoPlayer.setPlaybackSpeed] clamps to. Finite and
+ *   positive.
+ * @property maxPlaybackSpeed upper bound [VideoPlayer.setPlaybackSpeed] clamps to. Finite, and at
+ *   least [minPlaybackSpeed]. Also the bound the rate a player starts with is clamped into.
  * @throws IllegalArgumentException when a rule above is broken.
  */
 public class VideoPlayerConfig(
@@ -20,7 +21,10 @@ public class VideoPlayerConfig(
         require(positionUpdateIntervalMs > 0L) {
             "positionUpdateIntervalMs must be positive, was $positionUpdateIntervalMs"
         }
-        require(minPlaybackSpeed > 0f) { "minPlaybackSpeed must be positive, was $minPlaybackSpeed" }
+        require(minPlaybackSpeed.isFinite() && minPlaybackSpeed > 0f) {
+            "minPlaybackSpeed must be finite and positive, was $minPlaybackSpeed"
+        }
+        require(maxPlaybackSpeed.isFinite()) { "maxPlaybackSpeed must be finite, was $maxPlaybackSpeed" }
         require(maxPlaybackSpeed >= minPlaybackSpeed) {
             "maxPlaybackSpeed ($maxPlaybackSpeed) must be at least minPlaybackSpeed ($minPlaybackSpeed)"
         }

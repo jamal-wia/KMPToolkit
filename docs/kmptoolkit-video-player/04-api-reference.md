@@ -31,9 +31,9 @@ any thread.
 | `stateFlow: StateFlow<VideoPlayerState>` | `Idle` | The transport state. |
 | `playbackPositionFlow: StateFlow<Long>` | `0` | Playhead, refreshed every `positionUpdateIntervalMs` while `Playing`; set directly by seeks, `stop()` and completion (to the duration); `0` after `prepare`, `unload`, `release`. |
 | `bufferedPositionFlow: StateFlow<Long>` | `0` | Buffered-ahead position. Polled with the playhead while `Playing`, snapshotted when a load finishes and on `pause()`; `0` when nothing is loaded and after a playback failure. |
-| `isBufferingFlow: StateFlow<Boolean>` | `false` | Whether a **loaded** source is stalled waiting for data. Independent of `stateFlow` (a stalled stream is still `Playing`). Not shown while preparing (a stall of the just-loaded source that the engine reports before `Ready` is published is kept and shown with `Ready`); `false` when idle, on completion and on failure. |
+| `isBufferingFlow: StateFlow<Boolean>` | `false` | Whether a **loaded** source is stalled waiting for data. Independent of `stateFlow` (a stalled stream is still `Playing`). Not shown while preparing (a stall of the just-loaded source that the engine reports before `Ready` is published is kept and shown with `Ready`); `false` when idle, on completion and on failure; a stall the engine reports after the end is ignored while the state is `Completed`. |
 | `videoSizeFlow: StateFlow<VideoSize?>` | `null` | Displayed picture size once the platform reports one — usually while `Preparing`. Kept on `Completed`; `null` again when a new `prepare` starts, on a failure, `unload`, `release`. |
-| `playbackSpeedFlow: StateFlow<Float>` | `1.0` | Rate in effect, clamped to the configured range. |
+| `playbackSpeedFlow: StateFlow<Float>` | `1.0`, clamped into the configured range | Rate in effect, clamped to the configured range — the initial value too, so a range that excludes `1.0` starts at its nearest bound. |
 | `volumeFlow: StateFlow<Float>` | `1.0` | Output volume in `0f..1f`, independent of mute. |
 | `isMutedFlow: StateFlow<Boolean>` | `false` | Whether output is muted. |
 | `repeatModeFlow: StateFlow<RepeatMode>` | `Off` | What happens at the end of the source. |
@@ -59,12 +59,12 @@ Every call below is **ignored** unless the state `isPlayable`, and ignored entir
 
 | Member | Contract |
 |---|---|
-| `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts polling, applies the speed. Ignored while already `Playing`. From `Completed` it starts over from `0`. |
+| `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts polling, applies the speed. Ignored while already `Playing`. From `Completed`, or with the playhead on the end of the source, it starts over from `0`. |
 | `fun pause()` | `Playing` → `Paused(duration, position)`, stops polling. Ignored in any other state. |
 | `fun stop()` | Any playable → `Ready(duration)` with the playhead at `0`; the source stays loaded. |
 | `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`, `Ready` stays `Ready`. |
-| `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`, saturating instead of overflowing. |
-| `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`, saturating instead of overflowing. |
+| `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`, saturating instead of overflowing. On a source of unknown length (`duration` `0`) there is no end to clamp to: the target is `position + amountMs` floored at `0`, not `0`. |
+| `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`, saturating instead of overflowing; on a source of unknown length the target is floored at `0` only. |
 | `fun replay()` | Seek to `0` and play, from any playable state. |
 
 ### Settings
@@ -113,7 +113,7 @@ public sealed interface VideoPlayerState
 | `Completed` | `duration` | Played to the end with `RepeatMode.Off`; the source stays loaded. |
 | `Error` | `cause: Throwable` | Load or playback failed. **No display string.** |
 
-A `duration` of `0` means the platform has not reported one (a live stream), not an error.
+A `duration` of `0` means the platform has not reported one (a live stream), not an error. A length the platform reports later replaces it at the next position update, pause or seek; a later `0` never overwrites a known length.
 
 | Extension | Returns |
 |---|---|
@@ -196,7 +196,7 @@ public class VideoPlayerConfig(
 
 A plain class, so a later release can add a setting without a binary break. Validated in `init`,
 each rule throwing `IllegalArgumentException`: `positionUpdateIntervalMs > 0`,
-`minPlaybackSpeed > 0`, `maxPlaybackSpeed >= minPlaybackSpeed`. The defaults are exposed as
+`minPlaybackSpeed` finite and `> 0`, `maxPlaybackSpeed` finite and `>= minPlaybackSpeed` (an infinite bound is refused: no platform reproduces an infinite rate). The defaults are exposed as
 `DEFAULT_POSITION_UPDATE_INTERVAL_MS`, `DEFAULT_MIN_PLAYBACK_SPEED`, `DEFAULT_MAX_PLAYBACK_SPEED`.
 
 ---
@@ -341,6 +341,6 @@ render a player — not part of the public contract, may change in any release:
 
 | Symbol | Platform | What it is |
 |---|---|---|
-| `VideoPlayer.media3PlayerOrNull(): androidx.media3.common.Player?` | Android | The ExoPlayer behind a player this module created. Main thread only; the same instance for the player's whole life (across `unload`/`prepare`), created on first call on the main thread; `null` after `release()` or for another engine. |
+| `VideoPlayer.media3PlayerOrNull(): androidx.media3.common.Player?` | Android | The ExoPlayer behind a player this module created. Main thread only; the same instance for the player's whole life (across `unload`/`prepare`), created on first call on the main thread; `null` from the moment `release()` has returned (also while a load still unwinding keeps the engine alive a moment longer) or for another engine. |
 | `VideoPlayer.avPlayerOrNull(): AVPlayer?` | iOS | The `AVPlayer` behind a player this module created. Main thread only. |
 | `VideoFrameSource`, `VideoFrame`, `VideoPlayer.frameSourceOrNull()` | JVM | A desktop engine that renders decoded ARGB frames into memory, for the Compose surface to draw; `frameSourceOrNull()` returns the engine of any player whose engine implements `VideoFrameSource`. |

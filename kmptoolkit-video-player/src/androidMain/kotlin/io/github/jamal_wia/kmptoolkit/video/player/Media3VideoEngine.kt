@@ -245,6 +245,9 @@ internal class Media3VideoEngine(
     }
 
     override fun setSpeed(speed: Float) {
+        // The player clamps into a finite range; this is the boundary guard for any other caller. An
+        // infinite or non-positive rate is no rate: ExoPlayer would spin its work loop on it.
+        if (!speed.isFinite() || speed <= 0f) return
         onPlayerThread { player?.setPlaybackSpeed(speed) }
     }
 
