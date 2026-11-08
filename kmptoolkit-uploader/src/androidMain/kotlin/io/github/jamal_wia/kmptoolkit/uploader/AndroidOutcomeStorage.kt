@@ -23,7 +23,9 @@ internal class AndroidOutcomeStorage(
 ) : OutcomeStorage {
 
     override fun write(itemId: String, bytes: ByteArray): Boolean {
-        if (!(dir.isDirectory || dir.mkdirs()) || !(leftoversDir.isDirectory || leftoversDir.mkdirs())) return false
+        // `mkdirs` returns false for the thread that lost the race to create the directory: the directory existing
+        // afterwards is what counts.
+        if (!(dir.mkdirs() || dir.isDirectory) || !(leftoversDir.mkdirs() || leftoversDir.isDirectory)) return false
         val partial = File(leftoversDir, "$itemId.${UUID.randomUUID()}")
         try {
             FileOutputStream(partial).use { output ->

@@ -377,6 +377,27 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         assertEquals(0, connections.get(), "the item is gone: its file must not be uploaded again")
     }
 
+    // R3-13: the first writes into a fresh journal, from many threads at once, must all land.
+    @Test
+    fun `concurrent first writes into a fresh journal directory all succeed`() {
+        var failures = 0
+        repeat(30) { round ->
+            val root = File(context.cacheDir, "r3-first-write-$round-${System.nanoTime()}")
+            tempFiles += root
+            val storage = AndroidOutcomeStorage(File(root, "outcomes"), File(root, "outcomes-partial"))
+            val start = java.util.concurrent.CountDownLatch(1)
+            val results = java.util.Collections.synchronizedList(mutableListOf<Boolean>())
+            val threads = (1..16).map { index ->
+                thread { start.await(); results += storage.write("item-$index", byteArrayOf(1, 2, 3)) }
+            }
+            start.countDown()
+            threads.forEach { it.join(10_000L) }
+            failures += results.count { !it }
+            root.deleteRecursively()
+        }
+        assertEquals(0, failures, "a write that loses the race to create the directory reports the outcome as unprotected")
+    }
+
     // R3-12: the per-item lock table does not keep entries of cancelled waiters.
     @Test
     fun `cancelled waiters leave no entry in the item lock table`() {
