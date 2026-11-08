@@ -76,4 +76,44 @@ class OutputPathOwnersHandoffTest {
         OutputPathOwners.release(a)
         OutputPathOwners.release(b)
     }
+
+    @Test
+    fun `a committed claim regains the path when the newer pending claim is released`() = runTest(timeout = 10.seconds) {
+        val path = "/owners/handoff-commit-under-pending.m4a"
+        val a = OutputPathClaim()
+        val b = OutputPathClaim()
+        val c = OutputPathClaim()
+        OutputPathOwners.claim(path, a)
+        OutputPathOwners.commit(path, a)
+        OutputPathOwners.claim(path, b)
+        OutputPathOwners.claim(path, c)
+        OutputPathOwners.commit(path, b)
+
+        OutputPathOwners.release(c)
+
+        assertFalse(OutputPathOwners.deleteIfOwner(path, a) { error("the claim older than the committed one must not delete") })
+        assertTrue(OutputPathOwners.deleteIfOwner(path, b) {}, "the committed claim owns again after the newer one failed")
+        OutputPathOwners.release(a)
+        OutputPathOwners.release(b)
+    }
+
+    @Test
+    fun `two commits under a pending newest claim leave no older claim able to delete`() = runTest(timeout = 10.seconds) {
+        val path = "/owners/handoff-two-commits.m4a"
+        val a = OutputPathClaim()
+        val b = OutputPathClaim()
+        val c = OutputPathClaim()
+        OutputPathOwners.claim(path, a)
+        OutputPathOwners.claim(path, b)
+        OutputPathOwners.claim(path, c)
+        OutputPathOwners.commit(path, b)
+        OutputPathOwners.commit(path, c)
+
+        OutputPathOwners.release(c)
+
+        assertFalse(OutputPathOwners.deleteIfOwner(path, a) { error("a must not delete") })
+        assertFalse(OutputPathOwners.deleteIfOwner(path, b) { error("b must not delete") })
+        OutputPathOwners.release(a)
+        OutputPathOwners.release(b)
+    }
 }

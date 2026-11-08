@@ -83,4 +83,9 @@ class OutputPathOwnersModelFuzzTest {
     fun `commits only while newest never let an older claim delete`() = runTest(timeout = 60.seconds) {
         for (seed in 0 until 400) run(seed, commitOnlyWhileOwner = true)?.let { assertTrue(false, "seed $seed: $it") }
     }
+
+    @Test
+    fun `commits in any order never let an older claim delete`() = runTest(timeout = 60.seconds) {
+        for (seed in 0 until 400) run(seed, commitOnlyWhileOwner = false)?.let { assertTrue(false, "seed $seed: $it") }
+    }
 }

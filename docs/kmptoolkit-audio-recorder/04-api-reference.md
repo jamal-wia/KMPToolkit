@@ -215,11 +215,15 @@ the library — only a file this call created is — though the platform may alr
 **Handing an explicit path from one recorder to the next.** A recorder never deletes a file it no
 longer owns. Each `prepare()` claims its path in an in-process registry before it looks at the file,
 and a later claim on the same path (the next screen's recorder) takes it over. The takeover becomes
-final only when that `prepare()` succeeds. A later `prepare()` that fails or whose caller is cancelled
+final only when that `prepare()` succeeds, even if a still newer `prepare()` on the path is running at that
+moment (engines finish in any order; the newer one then sits on top, and if it fails the path goes back to
+the recorder that succeeded, never to one older than it). A later `prepare()` that fails or whose caller is cancelled
 gives the path back, so the earlier recorder, if it is still prepared, interrupted or recording,
 deletes its file on `release()`/`cancel()` as described here. If the earlier recorder is released or
 cancelled while the later `prepare()` is still running, it leaves the file alone, and if that later
-attempt then fails, the file stays. A successful `prepare()` keeps its claim for the whole session, and
+attempt then fails, the file stays. Two `prepare()` calls running at the same time on one explicit path are
+not supported: the library guarantees only that an earlier recorder never deletes the recording of a later one
+that succeeded. A successful `prepare()` keeps its claim for the whole session, and
 every deletion of the session's file goes
 through it: the late tail of a `prepare()` that was released while opening the file, the file removal
 of a `cancel()` whose finalization is still running when the recorder is released, the cleanup after
