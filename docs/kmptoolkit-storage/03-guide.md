@@ -37,7 +37,9 @@ What the module does make atomic is its own read-then-create: the Android encryp
 one instance or several over the same configuration — agree on a single key, a single id. A store
 that cannot be written at all (a desktop file that no longer parses) gives `DeviceIdProvider` no place
 to keep the id: it returns a new one per call until the host repairs or clears the store, and never
-clears it on its own.
+clears it on its own. `DeviceIdProvider` reads a stored id without taking any lock; only creating an id is
+serialized (one process-wide lock, re-reading under it), so a store whose read never answers holds up
+only its own caller.
 
 A call whose coroutine is cancelled while it runs throws `CancellationException`, and may or may not
 have taken effect: the platform call underneath is not interruptible.
