@@ -1,9 +1,12 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -26,9 +29,9 @@ import kotlinx.coroutines.withContext
  * small values — and it is what makes a write durable when the call returns.
  *
  * Nothing throws: an unreadable or corrupted file, a path the file system rejects, and a denied
- * security check all arrive as [StorageError.OperationFailed]. A file that cannot be parsed fails
- * every operation on it, writes included, and is never replaced: its other values may still be
- * recoverable by hand. [KeyValueStorage.clear] is the way out.
+ * security check all arrive as [StorageError.OperationFailed]. A file that cannot be parsed,
+ * including one that is not valid UTF-8, fails every operation on it, writes included, and is never
+ * replaced: its other values may still be recoverable by hand. [KeyValueStorage.clear] is the way out.
  *
  * The file I/O runs on [dispatcher], never on the caller's thread.
  */
@@ -101,7 +104,12 @@ internal class JvmKeyValueStorage(
     private fun load(): Properties {
         val properties = Properties()
         if (file.isFile) {
-            file.reader(StandardCharsets.UTF_8).use(properties::load)
+            // Strict: a byte that is not UTF-8 is an error (a MalformedInputException, an IOException),
+            // never a replacement character that the next write would store for good.
+            val decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+            InputStreamReader(FileInputStream(file), decoder).use(properties::load)
         }
         return properties
     }

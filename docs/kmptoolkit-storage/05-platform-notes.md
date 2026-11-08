@@ -248,7 +248,7 @@ call from the main thread and from any number of coroutines at once:
   cycles over the file never interleave. The lock is keyed by the path folded to lower case and
   Unicode NFC, so two spellings of one name (`Settings`, `settings`) share it on a volume that folds
   case (macOS, Windows); on a case-sensitive volume they are two files behind one lock. A file that
-  cannot be parsed fails every operation on it, writes included, and is never replaced; `clear()` is
+  cannot be parsed, including one that is not valid UTF-8, fails every operation on it, writes included, and is never replaced; `clear()` is
   the way out, and a `DeviceIdProvider` over such a file yields a new id per call until then.
 
 A secure-store call is still a cipher round trip on Android and an IPC hop to `securityd` on iOS:
