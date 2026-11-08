@@ -26,7 +26,7 @@ class RecorderConfigContractTest {
     }
 
     @Test
-    fun `a directory name inside the base is accepted, nested or with a trailing separator`() {
+    fun `a directory name inside the base is accepted whether nested or with a trailing separator`() {
         for (name in listOf("voice-notes", "audio/notes", "notes/")) {
             assertEquals(name, RecordingStorage(directoryName = name).directoryName)
         }

@@ -10,7 +10,7 @@ import kotlinx.coroutines.test.runTest
 class OutputPathOwnersHandoffTest {
 
     @Test
-    fun `an uncommitted later claim gives the path back when it is released, newest first`() = runTest(timeout = 10.seconds) {
+    fun `an uncommitted later claim gives the path back when it is released newest first`() = runTest(timeout = 10.seconds) {
         val path = "/owners/handoff-chain.m4a"
         val a = OutputPathClaim()
         val b = OutputPathClaim()
