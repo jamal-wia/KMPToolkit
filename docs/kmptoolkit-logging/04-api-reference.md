@@ -110,6 +110,7 @@ Runs `block`, then logs `"<label> [<duration>]"` at `level`, and returns `block`
   duration is real even when the logger later drops the line.
 - `block` runs exactly once.
 - An exception from `block` propagates, and no event is logged.
+- A non-local `return` out of `block` counts as completion: the line is logged.
 
 A debugging convenience, not instrumentation: for numbers you intend to track over time, emit a
 metric instead of parsing logs.

@@ -15,10 +15,12 @@ import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenRequest
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.logging.d
 import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.coroutines.resume
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -39,8 +41,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * The app must declare `android.permission.ACCESS_FINE_LOCATION` and/or
  * `android.permission.ACCESS_COARSE_LOCATION` itself — this library declares no permission, on
- * purpose. Without it, [LocationProvider.getCurrentLocation] returns `null` and
- * [LocationProvider.observeLocation] emits `null`, instead of either throwing.
+ * purpose. With neither permission, [LocationProvider.getCurrentLocation] returns `null` and
+ * [LocationProvider.observeLocation] emits `null` and ends, instead of either throwing. With
+ * `ACCESS_COARSE_LOCATION` alone, fixes come from the providers the platform lets a coarse caller
+ * use. On Android 10 and lower that is the network provider only.
  *
  * [LocationProvider.openLocationSettings] opens the screen with
  * [SystemScreenLauncher.SeparateTask]: this factory has no activity to launch from, so the screen
@@ -145,23 +149,40 @@ internal class AndroidLocationProvider(
         accuracy = Criteria.ACCURACY_FINE
     }
 
-    @SuppressLint("MissingPermission")
     override suspend fun getCurrentLocation(): GeoCoordinates? {
         val service: LocationManager = manager ?: return null
+        val source: LocationUpdatesSource = updatesSource ?: return null
         return try {
             val provider: String = bestEnabledProvider(service) ?: return null
             // The freshest cache across the enabled tracked providers (plus the one getBestProvider
             // named, in case it is neither), the same rule observeLocation seeds with: the GPS provider
             // being on without a fix must not hide a fix the network provider already holds.
-            val cached: Location? = updatesSource?.let { source: LocationUpdatesSource ->
-                freshestLastKnownLocation(source, (TRACKED_PROVIDERS + provider).distinct())
-            }
+            val cached: Location? = freshestLastKnownLocation(source, (TRACKED_PROVIDERS + provider).distinct())
             if (cached != null) return cached.toCoordinates()
             // No cached fix — fall back to a fresh single shot, capped so a device with no signal
-            // cannot suspend this call forever.
-            withTimeoutOrNull(config.singleFixTimeoutMillis) {
-                requestSingleUpdate(service, provider)
+            // cannot suspend this call forever. A provider that refuses the caller's permission (the GPS
+            // provider, for a coarse-only app on Android 10 and lower) is skipped for the next candidate,
+            // the best provider first; only when every candidate refuses is the permission reported missing.
+            val candidates: List<String> =
+                (listOf(provider) + TRACKED_PROVIDERS).distinct().filter { candidate -> source.isProviderEnabled(candidate) }
+            var lastRefusal: SecurityException? = null
+            var exhausted = false
+            val fix: GeoCoordinates? = withTimeoutOrNull(config.singleFixTimeoutMillis) {
+                for (candidate in candidates) {
+                    try {
+                        return@withTimeoutOrNull requestSingleUpdate(source, candidate)
+                    } catch (refused: SecurityException) {
+                        lastRefusal = refused
+                    }
+                }
+                exhausted = true
+                null
             }
+            val refusal: SecurityException? = lastRefusal
+            if (fix == null && exhausted && refusal != null) {
+                logger.w(refusal) { "Location permission missing in getCurrentLocation" }
+            }
+            fix
         } catch (security: SecurityException) {
             logger.w(security) { "Location permission missing in getCurrentLocation" }
             null
@@ -183,6 +204,10 @@ internal class AndroidLocationProvider(
             return@callbackFlow
         }
 
+        // The providers that can deliver: all tracked ones during the registration window, then only the
+        // ones that accepted the registration (a provider that refused the caller's permission never will).
+        val live = MutableStateFlow(providers)
+
         // Every LocationListener method is implemented: on API 24-29 the three legacy callbacks are
         // abstract (defaults only from API 30) and the platform calls them, so a missing one is an
         // AbstractMethodError on the main thread.
@@ -198,12 +223,14 @@ internal class AndroidLocationProvider(
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
 
             override fun onProviderDisabled(provider: String) {
-                // Only report "no signal" once every tracked provider is off; another one may
+                // Only report "no signal" once every provider that can deliver is off; another one may
                 // still be delivering updates.
-                if (providers.none { tracked -> service.isProviderEnabled(tracked) }) trySend(null)
+                if (live.value.none { tracked -> service.isProviderEnabled(tracked) }) trySend(null)
             }
         }
 
+        val accepted = mutableListOf<String>()
+        val refusals = linkedMapOf<String, SecurityException>()
         try {
             // Seed first, register second. A live fix is delivered on the main looper while this
             // block may run on any dispatcher, so a seed sent after the registration can land behind
@@ -215,14 +242,22 @@ internal class AndroidLocationProvider(
             // combine would hang on its initial value. Reading the cache needs the permission too,
             // so it shares the SecurityException path of the registration.
             trySend(freshestLastKnownLocation(service, providers)?.toCoordinates())
+            // A provider that refuses the caller's permission is skipped, not fatal: a coarse-only app on
+            // Android 10 and lower is refused the GPS provider and still gets the network one.
             providers.forEach { provider ->
-                service.requestUpdates(
-                    provider,
-                    config.minUpdateIntervalMillis,
-                    config.minUpdateDistanceMeters,
-                    listener,
-                )
+                try {
+                    service.requestUpdates(
+                        provider,
+                        config.minUpdateIntervalMillis,
+                        config.minUpdateDistanceMeters,
+                        listener,
+                    )
+                    accepted += provider
+                } catch (refused: SecurityException) {
+                    refusals[provider] = refused
+                }
             }
+            if (accepted.isEmpty()) throw refusals.values.last()
         } catch (security: SecurityException) {
             // A later provider's registration may have failed after an earlier one succeeded, and
             // awaitClose below is never installed on this path: without this the manager keeps the
@@ -241,6 +276,11 @@ internal class AndroidLocationProvider(
             // attached to it as suppressed instead of replacing it.
             runCatching { service.removeUpdates(listener) }.exceptionOrNull()?.let(failure::addSuppressed)
             throw failure
+        }
+
+        live.value = accepted.toList()
+        refusals.keys.forEach { refused ->
+            logger.d { "Location provider $refused refused the caller's permission; continuing with $accepted" }
         }
 
         awaitClose { service.removeUpdates(listener) }
@@ -278,13 +318,30 @@ internal class AndroidLocationProvider(
         // Only providers that are switched on: the platform may keep handing out the last fix of a
         // disabled provider, and a collection that starts after the user turned location off must
         // begin on `null` (the same rule onProviderDisabled applies), not on a stale position.
-        providers.filter { provider -> service.isProviderEnabled(provider) }
-            .mapNotNull { provider -> service.lastKnownLocation(provider) }
-            .maxByOrNull { location -> location.time }
+        freshest(
+            providers.filter { provider -> service.isProviderEnabled(provider) }
+                .mapNotNull { provider ->
+                    // A provider that refuses the caller's permission simply has no cached fix for it.
+                    try {
+                        service.lastKnownLocation(provider)
+                    } catch (refused: SecurityException) {
+                        null
+                    }
+                },
+        )
 
-    @SuppressLint("MissingPermission")
+    // Location.time is wall-clock and jumps when the clock is corrected; elapsedRealtimeNanos is the
+    // platform's monotonic stamp. A fix without one (0: a test fixture) makes the whole comparison
+    // fall back to time, so stamps from two different clocks are never compared.
+    private fun freshest(fixes: List<Location>): Location? =
+        if (fixes.all { fix -> fix.elapsedRealtimeNanos > 0L }) {
+            fixes.maxByOrNull { fix -> fix.elapsedRealtimeNanos }
+        } else {
+            fixes.maxByOrNull { fix -> fix.time }
+        }
+
     private suspend fun requestSingleUpdate(
-        service: LocationManager,
+        service: LocationUpdatesSource,
         provider: String,
     ): GeoCoordinates? = suspendCancellableCoroutine { continuation ->
         // Every LocationListener method is implemented: on API 24-29 the three legacy callbacks are
@@ -304,7 +361,7 @@ internal class AndroidLocationProvider(
 
             override fun onProviderDisabled(provider: String) = Unit
         }
-        service.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+        service.requestUpdates(provider, 0L, 0f, listener)
         continuation.invokeOnCancellation { service.removeUpdates(listener) }
     }
 
