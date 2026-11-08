@@ -148,7 +148,8 @@ when the settlement is done:
 - **iOS** entries are deleted just before the commit and written back if it does not land; a process death in that
   microsecond window uploads again (at least once).
 
-An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
+An entry file larger than 4 MiB cannot be one the journal wrote (a body is at most 1 MiB and the headers are capped); it is
+deleted without being read, on both platforms, instead of failing every attempt of its item. An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
 briefly on disk; see [`05-platform-notes.md`](05-platform-notes.md#the-servers-response). Your own
 transport has no journal: keep your own record if it needs one.
 
@@ -213,6 +214,7 @@ read timeout for a read already waiting) or, between reads, when the job is canc
 cannot be read completely — the connection broke, or the time ran out —
 is reported as truncated with the bytes read so far, not as a transport failure. A status that carries no content (`1xx`,
 `204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
+A redirect (`3xx` other than `304`) whose body the stack does not hand over is flagged truncated unless its headers declare an empty body (`Content-Length: 0`).
 The status line and headers must arrive within twice the read timeout after the body is sent: a server that
 trickles them longer fails the attempt as a transport failure (no status was received). A server that answers before the
 body is complete and closes the connection is heard: whatever final status it sent (a `413`, a
@@ -255,12 +257,16 @@ val transport: UploadTransport = createBackgroundUploadTransport(
 
 One background `NSURLSession` per item, its identifier the prefix plus the item id. The system daemon
 `nsurlsessiond` keeps uploading after the app is suspended or killed. The multipart body is written to
-a temporary file — background uploads must come from a file — streamed from the source files in
+a temporary file — background uploads must come from a file, named after the item id, or after a hash of it when
+the id is not a plain file name — streamed from the source files in
 chunks, so a large recording is never held in memory, and removed when the upload completes.
 
 The delegate accumulates the response body as the session delivers it (at most 1 MiB, converted once
 when the task completes) and builds the response from the final `NSHTTPURLResponse` before the session
-is invalidated; only headers whose names and values are strings are kept. **A force-quit cancels
+is invalidated; only headers whose names and values are strings are kept. A task that ends with an error after
+its status arrived (the connection broke while the body was arriving, or a timeout fired) is still that status's
+answer: it is reported with the bytes received so far and `isBodyTruncated = true`, except for a status that
+carries no content, and only an error before any status is a transport failure. **A force-quit cancels
 background transfers** — iOS does not continue an upload for an app the user swiped away.
 
 Create the transport once per process. A second `createBackgroundUploadTransport` call becomes the

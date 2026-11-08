@@ -177,7 +177,7 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
 
 - **Android.** `UploadHandlerWorker` reads the response in the same attempt, before the connection is
   dropped: `inputStream` for a status below 400, `errorStream` for 400 and above (a missing one is an
-  empty body; flagged truncated when the headers declared one the stack did not deliver). With a
+  empty body; flagged truncated when the headers declared one the stack did not deliver). A redirect whose body the stack does not hand over is flagged truncated unless its headers declare an empty body. With a
   process-wide `java.net.Authenticator` that answers challenges, or on a plain JVM, a 401/407 body is
   unavailable and arrives empty and flagged truncated; the status still reaches `classify`. At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
   The body stays in the process and is never put into `WorkManager`'s data. A `WorkManager` worker has
@@ -187,8 +187,10 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   response when the task completes. A body that arrived while the app was dead is delivered only if
   `BackgroundUploadRelaunch.handleEvents` is wired (see
   [`08-upload-transport.md`](08-upload-transport.md#the-relaunch-hook--required)); without it the
-  outcome waits for the lease and the item uploads again. **A force-quit cancels background transfers**:
-  iOS does not continue an upload for an app the user swiped away.
+  outcome waits for the lease and the item uploads again. A connection that breaks after the status
+  arrived (or a timeout that fires while the body arrives) keeps the status and headers and reports the body
+  truncated, as on Android; only a failure before any status is a transport failure. **A force-quit cancels
+  background transfers**: iOS does not continue an upload for an app the user swiped away.
 - **The outcome journal.** Once a handler transport has the server's answer it writes it to a small file
   *before* the engine settles the item, and deletes the file when the settlement landed. The file holds
   the status, the headers, the body and a timestamp, so **a response body rests briefly on disk**. The body is
@@ -209,7 +211,7 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   instant uploads again: at least once). One replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
   file; so does the 7-day expiry. A file of an unknown format version or a damaged one is ignored and
-  deleted. On Android a file that exists but cannot be read is waited for while the job has run fewer than 3 times (WorkManager's
+  deleted. So is a file larger than 4 MiB, which no entry this journal wrote can be (it is deleted without being read). On Android a file that exists but cannot be read is waited for while the job has run fewer than 3 times (WorkManager's
   run count, which also counts retries for other reasons) and then given
   up (the item uploads again, at least once); iOS treats it as absent and uploads, for now. Nothing is journaled for a transport failure (there is no response), a write that fails
   leaves the behaviour of 3.0 (a re-upload after a lease expiry), and the legacy classifier transport
@@ -247,3 +249,7 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   a wake or a replay is never stopped by a log line.
 - **Ids** are `java.util.UUID` on Android and `NSUUID` on iOS, both canonical UUID strings. Override
   `idGenerator` if your server wants a different idempotency-key shape.
+  Any id works on both platforms. The outcome journal names its file after the id, so an item whose id it
+  cannot use as a file name — empty, `.` or `..`, containing `/`, `\`, a space or a control character, or
+  longer than 200 characters — is uploaded and settled normally but its answer is not journaled: a process
+  death between the answer and the settlement uploads it again (at least once).

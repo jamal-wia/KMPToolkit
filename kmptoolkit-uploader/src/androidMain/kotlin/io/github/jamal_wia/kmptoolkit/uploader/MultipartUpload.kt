@@ -146,7 +146,8 @@ internal fun performMultipartUploadCapturing(
  * The answer on [connection] (whose status is [status]): headers without the status line's null key, and the
  * body from `errorStream` for a 4xx/5xx or `inputStream` otherwise — an empty body when the server sent none,
  * and also when the headers declared one the stack did not deliver, in which case it is flagged truncated.
- * A body that fails to read is reported as truncated rather than thrown. A status that carries no content
+ * A body that fails to read is reported as truncated rather than thrown. A redirect whose body the stack
+ * does not hand over is flagged truncated unless its headers declare an empty body. A status that carries no content
  * (1xx, 204, 205, 304) is never read and never flagged: whatever length its headers name belongs to the
  * entity it stands for, not to a body it sent.
  */
@@ -163,13 +164,15 @@ private fun readResponse(
             }
         }
     }.getOrDefault(emptyMap())
-    if (status in HTTP_INFORMATIONAL_RANGE || status in STATUSES_WITHOUT_CONTENT) {
+    if (statusCarriesNoContent(status)) {
         return UploadResponse(status, headers, ByteArray(0), false)
     }
     var read = ReadBody(ByteArray(0), cut = false)
+    var opened = false
     try {
         val stream: InputStream? = if (status >= HTTP_BAD_REQUEST) connection.errorStream else connection.inputStream
         if (stream != null) {
+            opened = true
             read = stream.use { input -> readAtMost(input, MAX_RESPONSE_BODY_BYTES, isCancelled, deadlineMillis) }
             // A server that closes early may end a fixed-length body without any error on some stacks:
             // fewer bytes than it declared is an incomplete body. Skipped when the stack decoded the
@@ -184,11 +187,24 @@ private fun readResponse(
             read = ReadBody(read.bytes, cut = true)
         }
     } catch (e: Exception) {
-        // No stream to read from: the status stands, the body is unknown.
-        read = ReadBody(read.bytes, cut = true)
+        // The stack refused the stream (a redirect in streaming mode raises HttpRetryException): the status
+        // stands and the body is unknown, unless the headers prove there is none. A failure after the stream
+        // was opened keeps the flag: bytes may have been lost.
+        read = ReadBody(read.bytes, cut = opened || !declaresEmptyBody(connection))
     }
     return UploadResponse(status, headers, read.bytes, read.cut)
 }
+
+/**
+ * Whether the response's headers prove the body empty: a `Content-Length` of exactly `0` and no chunked transfer
+ * encoding. Stricter than the negation of [declaresBody] on purpose: a close-delimited body (no length, no
+ * chunking) may have been sent and withheld by the stack.
+ */
+private fun declaresEmptyBody(connection: HttpURLConnection): Boolean = runCatching {
+    val length: Long? = connection.getHeaderField("Content-Length")?.trim()?.toLongOrNull()
+    val chunked: Boolean = connection.getHeaderField("Transfer-Encoding")?.contains("chunked", ignoreCase = true) == true
+    length == 0L && !chunked
+}.getOrDefault(false)
 
 /** Whether the response's headers announce a body: a positive `Content-Length` or a chunked transfer encoding. */
 private fun declaresBody(connection: HttpURLConnection): Boolean {
@@ -295,8 +311,6 @@ private fun writeMultipartBody(
     writeText("--$boundary--\r\n")
 }
 
-private val HTTP_INFORMATIONAL_RANGE: IntRange = 100..199
-private val STATUSES_WITHOUT_CONTENT: Set<Int> = setOf(204, 205, 304)
 private const val HTTP_BAD_REQUEST: Int = 400
 private val HTTP_FINAL_STATUSES: IntRange = 200..599
 private const val COPY_BUFFER_BYTES: Int = 8 * 1024

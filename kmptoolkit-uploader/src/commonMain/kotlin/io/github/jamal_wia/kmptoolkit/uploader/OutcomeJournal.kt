@@ -21,7 +21,11 @@ internal interface OutcomeStorage {
     /** Stores [bytes] for [itemId] atomically: a reader sees the previous entry or this one, never a part of it. */
     fun write(itemId: String, bytes: ByteArray): Boolean
 
-    /** The bytes stored for [itemId], or `null` when there are none. */
+    /**
+     * The bytes stored for [itemId], or `null` when there are none. An entry larger than [MAX_ENCODED_ENTRY_BYTES]
+     * cannot be one the journal wrote: return an empty array for it without reading it (the codec reads that as
+     * corrupt and the journal deletes the file).
+     */
     fun read(itemId: String): ByteArray?
 
     /** Removes the entry of [itemId]; a no-op when there is none. */
@@ -108,6 +112,8 @@ internal enum class JournalSettleOutcome {
  * run, and a leftover after the commit is recognised as stale by its stamp and dropped. An unstamped entry (the
  * iOS delegate writes these in a process with no engine to read a stamp from) is deleted just before the commit
  * and written back when the commit did not land.
+ *
+ * An entry file too large to be one the journal wrote is treated as damaged and deleted without being read.
  *
  * Nothing here throws for a storage problem: a failed write means the journal does not protect that
  * outcome — today's behaviour — and a failed read or delete is logged.
@@ -438,6 +444,16 @@ internal sealed interface DecodedOutcome {
     /** Not a complete entry of the known version. */
     data object Corrupt : DecodedOutcome
 }
+
+/**
+ * The most bytes one journal entry file can hold and still be read: anything larger cannot be an entry this journal
+ * wrote. An entry is at most a body of [MAX_RESPONSE_BODY_BYTES] (1 MiB), headers of at most
+ * [MAX_RESPONSE_HEADER_CHARS] characters (64 Ki, at most 4 UTF-8 bytes each: 256 KiB) plus 8 bytes of lengths per
+ * header (at most about 64 Ki headers: 512 KiB), and a fixed prefix of under 32 bytes — under 2 MiB, so 4 MiB leaves
+ * a factor of two of headroom and never rejects an entry this journal wrote. A storage returns an empty array for
+ * a larger file instead of reading it.
+ */
+internal const val MAX_ENCODED_ENTRY_BYTES: Long = 4L * 1024 * 1024
 
 /**
  * The on-disk form of an entry. Version 1 (unstamped): `int version, int status, long writtenAt, byte truncated,
