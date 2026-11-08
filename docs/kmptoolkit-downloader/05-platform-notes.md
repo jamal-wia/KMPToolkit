@@ -123,7 +123,7 @@ normalization share files on a case-insensitive volume. On such a volume (iOS as
 per storage; an unanswerable volume counts as case-insensitive) the commit lock of `Model` and
 `model` is shared, so they never commit or detach a staging tree at the same time, and a
 `relativePath` such as `TMP/Expect/x` is rejected like `tmp/expect/x` (case is folded with the full
-mapping, so `tmp/ſtaging-x` is rejected too, and ids such as `straße` and `STRASSE` share a commit
+mapping, so `tmp/ſtaging-x` is rejected too, and ids such as `ß`, `ẞ`, `straße` and `STRASSE` share a commit
 lock). Android is case-sensitive.
 
 On iOS the OS may restart a background download from zero while claiming to resume it from

@@ -68,6 +68,8 @@ class JvmKeyValueStorageFoldRound5Test {
     @Test
     fun `the lock key is one for every spelling a folding volume treats as one file`() {
         assertEquals(key("\u00df.p"), key("ss.p"))
+        assertEquals(key("stra\u00dfe.p"), key("STRA\u1e9eE.p"))
+        assertEquals(key("ss.p"), key("\u1e9e.p"))
         assertEquals(key("ss.p"), key("SS.p"))
         assertEquals(key("\u03b1\u03c3.p"), key("\u03b1\u03c2.p"))
         assertEquals(key("\u03b1\u03c3.p"), key("\u0391\u03a3.p"))
