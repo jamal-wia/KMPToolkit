@@ -214,8 +214,13 @@ the library — only a file this call created is — though the platform may alr
 
 **Handing an explicit path from one recorder to the next.** A recorder never deletes a file it no
 longer owns. Each `prepare()` claims its path in an in-process registry before it looks at the file,
-and a later claim on the same path (the next screen's recorder) takes it over. A successful
-`prepare()` keeps its claim for the whole session, and every deletion of the session's file goes
+and a later claim on the same path (the next screen's recorder) takes it over. The takeover becomes
+final only when that `prepare()` succeeds. A later `prepare()` that fails or whose caller is cancelled
+gives the path back, so the earlier recorder, if it is still prepared, interrupted or recording,
+deletes its file on `release()`/`cancel()` as described here. If the earlier recorder is released or
+cancelled while the later `prepare()` is still running, it leaves the file alone, and if that later
+attempt then fails, the file stays. A successful `prepare()` keeps its claim for the whole session, and
+every deletion of the session's file goes
 through it: the late tail of a `prepare()` that was released while opening the file, the file removal
 of a `cancel()` whose finalization is still running when the recorder is released, the cleanup after
 the system ends a prepared recording, `release()` or a new `prepare()` on a recorder that is only
@@ -292,6 +297,9 @@ cancellation no later than its next suspension point.
 
 Best-effort by design — an engine that throws while being stopped does not prevent the deletion or
 the return to `Idle`, and this still returns `Success`.
+
+A worker context that refuses the work (an executor that was shut down) still releases the recorder and
+deletes the file, on the calling thread.
 
 ### `fun release()`
 
@@ -498,7 +506,7 @@ public data class RecordingStorage(
 ```
 
 - `directoryPath` — absolute directory; a blank or relative path is rejected in `init`. `null` means `<app-private files>/<directoryName>`.
-- `directoryName` — subdirectory under the app-private base. `null` means the consumer's own
+- `directoryName` — relative directory under the app-private base; may be nested (`a/b`) but must not start with `/` or contain a `.` or `..` segment; rejected in `init`. `null` means the consumer's own
   application id / bundle identifier. Ignored when `directoryPath` is set.
 - `fileNamePrefix` — leading part of a generated name (`<prefix>_<epochMillis>_<token>.<ext>`). Must not be
   blank and must not contain `/` or `\`.

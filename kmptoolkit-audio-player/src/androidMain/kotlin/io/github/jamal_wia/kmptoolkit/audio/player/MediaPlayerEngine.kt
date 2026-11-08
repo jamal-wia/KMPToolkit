@@ -102,7 +102,10 @@ internal class MediaPlayerEngine(
     }
 
     override fun seekTo(positionMs: Long) {
-        withPlayer { player -> player.seekTo(positionMs.toInt()) }
+        // MediaPlayer.seekTo takes an Int. A relative skip in a source of unknown length arrives unclamped
+        // (up to Long.MAX_VALUE), and truncating it would wrap to a negative or tiny value. Saturating
+        // gives the platform's own "far end": it clamps to the duration once it knows one.
+        withPlayer { player -> player.seekTo(positionMs.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()) }
     }
 
     override fun setSpeed(speed: Float) {

@@ -8,6 +8,8 @@ package io.github.jamal_wia.kmptoolkit.audio.player
  * [AudioPlayer]'s lifecycle contract). It exists so that "nothing loaded because the player is
  * dead" is distinguishable from "nothing loaded because the file was missing" with a type check
  * instead of string matching.
+ *
+ * Every `prepare` after `release` reports the same instance, so repeating the call emits nothing new.
  */
 public class AudioPlayerReleasedException : IllegalStateException(
     "The AudioPlayer has been released and cannot load another source."
