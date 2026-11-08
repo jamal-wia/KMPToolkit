@@ -103,7 +103,15 @@ compiled against) with value `equals` / `hashCode` / `toString`.
 [`03-guide.md`](03-guide.md) for what commit does for each.
 
 Every entry of a `ZipArchive` is extracted, or the commit fails with `ResourceIntegrityException`; an entry that
-would land outside the directory fails the commit.
+would land outside the directory fails the commit. An archive must end with its end of central directory record
+(a comment cut short is tolerated; an archive cut anywhere before the record, its central directory included, fails),
+and entry names are read as UTF-8 whether or not the archive sets the UTF-8 flag (a name that is not valid UTF-8
+fails the commit).
+
+A `SqliteDatabase` file must carry the 16-byte SQLite header and be at least 100 bytes long (a file without it, an
+empty or cut body, fails the commit). `rowCountTable` is a table or view name, used as a name (any characters); a
+value that names no table is used as SQL text as in 3.0.0, kept for compatibility, do not rely on it.
+`declaredRowCountMetaKey` is a value, bound as a parameter: write it plainly, never escaped.
 
 ## `ResourceGroup`
 
@@ -216,8 +224,11 @@ and throws when there is no file. `commitResource` throws when there is no compl
 throws `ResourceIntegrityException(message, cause)` — after deleting the temp file — when the bytes
 fail a check, or when a `ZipArchive` cannot be extracted as delivered (a truncated or corrupt entry, a size or
 CRC-32 mismatch, an entry name that leaves the extraction directory, an unsupported compression method, an
-encrypted entry; every entry is extracted or the commit fails, none is skipped), or whose extracted tree (after a single root directory
-is moved up) lacks the marker fails the same way, before anything at the final path is touched, so a resource
+encrypted entry, an entry name that is not valid UTF-8, no end of central directory record; every entry is extracted or
+the commit fails, none is skipped), or whose extracted tree lacks the marker fails the same way. When the marker is not
+at the top and the archive holds exactly one non-empty top-level directory that contains it, that directory's contents
+are moved up; files and empty directories beside it stay where they are, and a name that exists at the top as a file
+fails the commit with `ResourceIntegrityException`. A failed check fails the same way, before anything at the final path is touched, so a resource
 already committed stays available; the engine answers that with one fresh download. All three resource methods that name a
 path (`getResourcePath`, `commitResource`, `deleteResource`) throw `InvalidDownloadUnitException` for a
 `relativePath` that is not usable. Commits of one unit are mutually

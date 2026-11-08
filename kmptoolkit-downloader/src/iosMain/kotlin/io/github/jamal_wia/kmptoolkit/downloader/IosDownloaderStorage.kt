@@ -26,6 +26,7 @@ import platform.CoreCrypto.CC_SHA256_Final
 import platform.CoreCrypto.CC_SHA256_Init
 import platform.CoreCrypto.CC_SHA256_Update
 import kotlin.random.Random
+import kotlin.text.CharacterCodingException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
@@ -52,6 +53,9 @@ import platform.Foundation.timeIntervalSince1970
 import platform.Foundation.NSUserDomainMask
 import platform.posix.FILE
 import platform.posix.SEEK_CUR
+import platform.posix.SEEK_END
+import platform.posix.SEEK_SET
+import platform.posix.ftell
 import platform.posix.fclose
 import platform.posix.ferror
 import platform.posix.fflush
@@ -492,35 +496,7 @@ internal class IosDownloaderStorage(
                 // Handle nested directory: ZIP may contain a root directory prefix
                 // (e.g., entries like "pages/page001.webp" instead of "page001.webp"),
                 // causing files to land in staging/pages/ instead of staging/.
-                if (!fileExists("$stagingDir/${unit.archiveMarker()}")) {
-                    val entries: List<String> = NSFileManager.defaultManager
-                        .contentsOfDirectoryAtPath(stagingDir, error = null)
-                        ?.filterIsInstance<String>()
-                        // An empty directory never counts as the single root.
-                        ?.filter { name: String -> !isEmptyDirectory("$stagingDir/$name") }
-                        ?: emptyList()
-                    if (entries.size == 1) {
-                        val nestedDir = "$stagingDir/${entries[0]}"
-                        if (fileExists("$nestedDir/${unit.archiveMarker()}")) {
-                            logger.i { "Detected nested directory '${entries[0]}', moving contents up" }
-                            val nestedContents: List<String> = NSFileManager.defaultManager
-                                .contentsOfDirectoryAtPath(nestedDir, error = null)
-                                ?.filterIsInstance<String>()
-                                ?: emptyList()
-                            for (name: String in nestedContents) {
-                                NSFileManager.defaultManager.moveItemAtPath(
-                                    "$nestedDir/$name",
-                                    toPath = "$stagingDir/$name",
-                                    error = null,
-                                )
-                            }
-                            NSFileManager.defaultManager.removeItemAtPath(
-                                nestedDir,
-                                error = null
-                            )
-                        }
-                    }
-                }
+                if (!fileExists("$stagingDir/${unit.archiveMarker()}")) moveSingleRootUp(stagingDir, unit)
                 // The tree must be what the unit declares before anything at the final path is touched:
                 // a directory without its marker is not "ready", and it must not replace one that is.
                 if (!fileExists("$stagingDir/${unit.archiveMarker()}")) {
@@ -565,6 +541,60 @@ internal class IosDownloaderStorage(
             moveFile(tempFilePath = tempFilePath, destinationPath = getResourcePath(unit))
         }
     }
+
+    /**
+     * Moves the contents of the archive's single root directory up into [stagingDir] when the marker is not at the top.
+     * Candidates are the non-empty top-level directories (files and empty directories never are); it acts only for
+     * exactly one candidate that holds the marker. The root is first renamed to a free sibling name, so a child named
+     * like the root lands where it belongs; every move is checked, a child replaces only an empty directory of its
+     * name, and one that meets a file or a non-empty directory fails the commit. The root's shell is removed only when
+     * it is empty: a directory that still holds data is never deleted.
+     */
+    private fun moveSingleRootUp(stagingDir: String, unit: DownloadUnit) {
+        val manager: NSFileManager = NSFileManager.defaultManager
+        val topLevel: List<String> = manager.contentsOfDirectoryAtPath(stagingDir, error = null)
+            ?.filterIsInstance<String>() ?: emptyList()
+        val candidates: List<String> = topLevel.filter { name: String -> isNonEmptyDirectory("$stagingDir/$name") }
+        if (candidates.size != 1) return
+        val rootName: String = candidates[0]
+        val root = "$stagingDir/$rootName"
+        if (!fileExists("$root/${unit.archiveMarker()}")) return
+        logger.i { "Detected nested directory '$rootName', moving contents up" }
+        val children: List<String> = manager.contentsOfDirectoryAtPath(root, error = null)
+            ?.filterIsInstance<String>() ?: emptyList()
+        val taken: Set<String> = (topLevel + children).map { name: String -> name.lowercase() }.toSet()
+        var suffix = 0
+        var temporaryName: String = TEMPORARY_ROOT_NAME
+        while (temporaryName.lowercase() in taken) temporaryName = "$TEMPORARY_ROOT_NAME-${++suffix}"
+        val temporary = "$stagingDir/$temporaryName"
+        check(manager.moveItemAtPath(root, toPath = temporary, error = null)) {
+            "Could not move the root directory '$rootName' of $unit aside"
+        }
+        for (child: String in children) {
+            val destination = "$stagingDir/$child"
+            if (fileExists(destination)) {
+                if (isEmptyDirectory(destination)) {
+                    check(manager.removeItemAtPath(destination, error = null)) {
+                        "Could not replace the empty directory '$child' of $unit"
+                    }
+                } else {
+                    throw ResourceIntegrityException(
+                        "Archive of $unit: '$child' of root '$rootName' collides with a top-level entry",
+                    )
+                }
+            }
+            check(manager.moveItemAtPath("$temporary/$child", toPath = destination, error = null)) {
+                "Could not move '$child' of the root directory of $unit up"
+            }
+        }
+        // Never delete a directory that still holds data.
+        check(isEmptyDirectory(temporary)) { "The root directory of $unit still holds entries after moving its contents up" }
+        check(manager.removeItemAtPath(temporary, error = null)) { "Could not remove the emptied root directory of $unit" }
+    }
+
+    /** True when [path] is a directory with something in it. */
+    private fun isNonEmptyDirectory(path: String): Boolean =
+        NSFileManager.defaultManager.contentsOfDirectoryAtPath(path, error = null)?.isNotEmpty() == true
 
     /**
      * Checks the file at [tempFilePath] against every hash expected of it — [DownloadUnit.sha256]
@@ -631,6 +661,7 @@ internal class IosDownloaderStorage(
      * may reach the final path, not even momentarily.
      */
     private fun verifySqlite(tempFilePath: String, format: ResourceFormat.SqliteDatabase) {
+        requireSqliteHeader(tempFilePath)
         val counts: Pair<Int, Int?>? = try {
             val connection: SQLiteConnection = BundledSQLiteDriver().open(tempFilePath)
             try {
@@ -664,7 +695,6 @@ internal class IosDownloaderStorage(
         val (actualCount: Int, declaredCount: Int?) = counts ?: return
         if (declaredCount == null || actualCount != declaredCount) {
             NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
-        requireSqliteHeader(tempFilePath)
             throw ResourceIntegrityException(
                 "Downloaded resource failed integrity check: " +
                     "$actualCount rows, meta declares $declaredCount",
@@ -672,36 +702,6 @@ internal class IosDownloaderStorage(
         }
     }
 
-    private fun queryInt(connection: SQLiteConnection, sql: String): Int? {
-        val statement: SQLiteStatement = connection.prepare(sql)
-        return try {
-            if (statement.step()) statement.getInt(0) else null
-        } finally {
-            statement.close()
-        }
-    }
-
-    private fun queryText(connection: SQLiteConnection, sql: String, argument: String): String? {
-        val statement: SQLiteStatement = connection.prepare(sql)
-        return try {
-            if (statement.step()) statement.getText(0) else null
-        } finally {
-            statement.close()
-        }
-    }
-
-    private fun moveFile(tempFilePath: String, destinationPath: String) {
-        val parentDir: String = destinationPath.substringBeforeLast('/')
-        NSFileManager.defaultManager.createDirectoryAtPath(
-            path = parentDir,
-            withIntermediateDirectories = true,
-            attributes = null,
-            error = null,
-        )
-        // POSIX rename replaces an existing destination atomically, so a resource already in place
-        // is never missing, not even for a moment. The old remove-then-move removed it first, and a
-        // commit whose source was already gone then deleted a committed resource and failed.
-        if (rename(tempFilePath, destinationPath) != 0) {
     /** Deletes the file and throws when it does not start with the 16-byte SQLite header or is shorter than 100 bytes. */
     private fun requireSqliteHeader(tempFilePath: String) {
         val head = ByteArray(SQLITE_MIN_BYTES)
@@ -724,6 +724,37 @@ internal class IosDownloaderStorage(
         }
     }
 
+    private fun queryInt(connection: SQLiteConnection, sql: String): Int? {
+        val statement: SQLiteStatement = connection.prepare(sql)
+        return try {
+            if (statement.step()) statement.getInt(0) else null
+        } finally {
+            statement.close()
+        }
+    }
+
+    private fun queryText(connection: SQLiteConnection, sql: String, argument: String): String? {
+        val statement: SQLiteStatement = connection.prepare(sql)
+        return try {
+            statement.bindText(1, argument)
+            if (statement.step()) statement.getText(0) else null
+        } finally {
+            statement.close()
+        }
+    }
+
+    private fun moveFile(tempFilePath: String, destinationPath: String) {
+        val parentDir: String = destinationPath.substringBeforeLast('/')
+        NSFileManager.defaultManager.createDirectoryAtPath(
+            path = parentDir,
+            withIntermediateDirectories = true,
+            attributes = null,
+            error = null,
+        )
+        // POSIX rename replaces an existing destination atomically, so a resource already in place
+        // is never missing, not even for a moment. The old remove-then-move removed it first, and a
+        // commit whose source was already gone then deleted a committed resource and failed.
+        if (rename(tempFilePath, destinationPath) != 0) {
             // Only the fallback below removes the destination, so it must first be sure the source
             // is still there to replace it with.
             check(fileExists(tempFilePath)) {
@@ -736,7 +767,6 @@ internal class IosDownloaderStorage(
             if (!copied) {
                 NSFileManager.defaultManager.removeItemAtPath(destinationPath, error = null)
                 throw IllegalStateException("Could not move the downloaded file to $destinationPath")
-            statement.bindText(1, argument)
             }
             NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
         }
@@ -790,6 +820,12 @@ internal class IosDownloaderStorage(
 
         val zipFile: CPointer<FILE> = fopen(filePath, "rb")
             ?: error("Failed to open ZIP file: $filePath")
+        try {
+            requireEndRecord(zipFile)
+        } catch (e: Throwable) {
+            fclose(zipFile)
+            throw e
+        }
 
         val headerBuf = ByteArray(LOCAL_HEADER_SIZE)
         val ioBuf = ByteArray(WRITE_BUFFER_SIZE)
@@ -799,16 +835,9 @@ internal class IosDownloaderStorage(
             while (true) {
                 val headerRead: Int = readExact(zipFile, headerBuf, LOCAL_HEADER_SIZE)
                 if (headerRead == 0) break // the archive ends right after an entry
-                if (headerRead < LOCAL_HEADER_SIZE) {
-                    // ZipInputStream ends the walk here without a word. A remainder that is the start of a
-                    // local header (even one byte of it) is a cut archive, though: the entry it begins would be
-                    // lost silently. At a header position the only legal endings are a central directory or an
-                    // end record, which never begin with those bytes.
-                    if (startsLocalHeader(headerBuf, minOf(headerRead, 4))) {
-                        zipFail(null, "the archive ends inside a local file header")
-                    }
-                    break
-                }
+                // A remainder shorter than a header ends the walk, like ZipInputStream. The end record was
+                // checked before the walk, so a cut archive never gets here.
+                if (headerRead < LOCAL_HEADER_SIZE) break
                 // A signature other than a local file header (the central directory) ends the entries.
                 if (!hasLocalHeaderSignature(headerBuf)) break
 
@@ -825,7 +854,12 @@ internal class IosDownloaderStorage(
                 if (readExact(zipFile, fileNameBuf, fileNameLength) < fileNameLength) {
                     zipFail(null, "the archive ends inside an entry name")
                 }
-                val fileName: String = fileNameBuf.decodeToString()
+                // Names are UTF-8 whether or not the archive sets the flag; anything else is not extracted as delivered.
+                val fileName: String = try {
+                    fileNameBuf.decodeToString(throwOnInvalidSequence = true)
+                } catch (_: CharacterCodingException) {
+                    zipFail(null, "an entry name is not valid UTF-8")
+                }
 
                 // Not interpreted (the ZIP64 field is never needed: see below), but a cut must not pass.
                 if (extraFieldLength > 0 && readExact(zipFile, ByteArray(extraFieldLength), extraFieldLength) < extraFieldLength) {
@@ -903,13 +937,6 @@ internal class IosDownloaderStorage(
         logger.i { "ZIP extraction complete" }
     }
 
-    /** True when the first [count] bytes of [buf] equal the first [count] bytes of `PK\u0003\u0004`. */
-    private fun startsLocalHeader(buf: ByteArray, count: Int): Boolean {
-        val signature: IntArray = intArrayOf(0x50, 0x4B, 0x03, 0x04)
-        for (i: Int in 0 until count) if (buf[i].toInt() and 0xFF != signature[i]) return false
-        return true
-    }
-
     private fun hasLocalHeaderSignature(buf: ByteArray): Boolean =
         buf[0].toInt() and 0xFF == 0x50 &&
             buf[1].toInt() and 0xFF == 0x4B &&
@@ -973,6 +1000,25 @@ internal class IosDownloaderStorage(
         }
         if (sink.size != uncompressed) {
             zipFail(entry, "invalid entry size (descriptor $uncompressed, got ${sink.size} bytes)")
+        }
+    }
+
+    /**
+     * Fails with [ResourceIntegrityException] when the archive has no self-consistent end of central directory record
+     * ([hasZipEndRecord]): a file cut anywhere before it, its central directory included, is a half-written archive.
+     * Decided from the file alone before the walk, so both platforms give one archive one answer. Leaves [file] at its start.
+     */
+    private fun requireEndRecord(file: CPointer<FILE>) {
+        check(fseek(file, 0, SEEK_END) == 0) { "Failed to seek in the ZIP archive" }
+        val length: Long = ftell(file)
+        check(length >= 0) { "Failed to measure the ZIP archive" }
+        val size: Int = minOf(length, ZIP_END_RECORD_WINDOW).toInt()
+        val tail = ByteArray(size)
+        check(fseek(file, (length - size).convert(), SEEK_SET) == 0) { "Failed to seek in the ZIP archive" }
+        check(readExact(file, tail, size) == size) { "Failed to read the end of the ZIP archive" }
+        check(fseek(file, 0, SEEK_SET) == 0) { "Failed to seek in the ZIP archive" }
+        if (!hasZipEndRecord(tail, length - size)) {
+            zipFail(null, "the archive has no end of central directory record")
         }
     }
 
@@ -1122,6 +1168,7 @@ internal class IosDownloaderStorage(
 }
 
 private const val LOCAL_HEADER_SIZE: Int = 30
+private const val SQLITE_MIN_BYTES: Int = 100
 private const val FLAG_ENCRYPTED: Int = 0x0001
 private const val FLAG_DATA_DESCRIPTOR: Int = 0x0008
 private const val METHOD_STORED: Int = 0
@@ -1129,4 +1176,6 @@ private const val METHOD_DEFLATED: Int = 8
 private const val ZIP64_MARKER: Long = 0xFFFFFFFFL
 private const val MASK_32: Long = 0xFFFFFFFFL
 private const val DESCRIPTOR_SIGNATURE: Long = 0x08074B50L
-private const val SQLITE_MIN_BYTES: Int = 100
+
+/** The sibling name the single root directory is moved to while its children go up; a free variant is chosen. */
+private const val TEMPORARY_ROOT_NAME: String = ".kmptoolkit-up"

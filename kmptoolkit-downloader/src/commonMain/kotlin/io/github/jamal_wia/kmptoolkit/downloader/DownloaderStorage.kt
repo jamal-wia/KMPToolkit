@@ -159,11 +159,14 @@ public interface DownloaderStorage {
      * a file moved — the bytes are hashed once and checked against every expectation there is:
      * [DownloadUnit.sha256] when the unit states one, and the hash recorded by [beginTempFile].
      * A [ResourceFormat.SqliteDatabase] is then checked as well. A [ResourceFormat.ZipArchive] whose
-     * extracted tree (after a single root directory is moved up) lacks the marker fails the same way,
+     * extracted tree (after a single root directory is moved up: when the marker is not at the top and the archive holds
+     * exactly one non-empty top-level directory that contains it, that directory's contents are moved up; files and empty
+     * directories beside it stay where they are, and a name that exists at the top as a file fails the commit with
+     * [ResourceIntegrityException]) lacks the marker fails the same way,
      * before anything at the final path is touched, so a resource already committed stays available.
      * So does an archive that cannot be extracted as delivered: a truncated or corrupt entry (size or
-     * CRC-32 mismatch), an entry name that leaves the extraction directory, an unsupported compression
-     * method or an encrypted entry. Every entry is extracted or the commit fails; none is skipped.
+     * CRC-32 mismatch), an entry name that leaves the extraction directory or is not valid UTF-8, an unsupported
+     * compression method, an encrypted entry, or a file without its end of central directory record. Every entry is extracted or the commit fails; none is skipped.
      * A failed check deletes the temp
      * file and throws [ResourceIntegrityException], which the engine answers with a fresh download
      * rather than a failure; so does a recorded expectation that exists but cannot be read, which is

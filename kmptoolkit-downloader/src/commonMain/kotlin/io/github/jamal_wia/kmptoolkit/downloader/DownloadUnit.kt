@@ -120,6 +120,10 @@ public sealed interface ResourceFormat {
      * is known to produce — its presence is what proves a directory resource is complete, since an
      * interrupted extraction also leaves a directory behind. Every entry is extracted, or the commit fails
      * with [ResourceIntegrityException]; an entry that would land outside the directory fails the commit.
+     *
+     * The archive must end with its end of central directory record (a comment cut short is tolerated; an archive cut
+     * anywhere before the record, its central directory included, fails), and entry names are read as UTF-8 whether
+     * or not the archive sets the UTF-8 flag: a name that is not valid UTF-8 fails the commit.
      */
     public data class ZipArchive(public val availabilityMarker: String) : ResourceFormat
 
@@ -134,14 +138,14 @@ public sealed interface ResourceFormat {
      * [declaredRowCountMetaKey] and the row count of that table must equal the value stored under
      * that key in a `meta(key, value)` table. Which table and which key those are is the host's
      * domain knowledge, which is why they are values here rather than anything the library assumes.
-     */
-    public data class SqliteDatabase(
-        public val rowCountTable: String? = null,
-        public val declaredRowCountMetaKey: String? = null,
      *
      * [rowCountTable] is a table or view name, used as a name (any characters: a keyword or a name with spaces
      * works); a value that names no table is used as SQL text, as in 3.0.0 — kept for compatibility, do not rely
      * on it. [declaredRowCountMetaKey] is a value bound as a parameter, never escaped by the host.
+     */
+    public data class SqliteDatabase(
+        public val rowCountTable: String? = null,
+        public val declaredRowCountMetaKey: String? = null,
     ) : ResourceFormat
 }
 

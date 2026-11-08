@@ -220,4 +220,29 @@ class AndroidArchiveEngineRound6Test {
             assertTrue(two.downloadState(group).value is GroupDownloadState.Error, "${two.downloadState(group).value}")
         }
     }
+
+    @Test
+    fun `an archive with a name in the local code page fails the engine with Corrupted after exactly two transfers`() = runBlocking {
+        withTimeout(60_000) {
+            val storage: DownloaderStorage = createDownloaderStorage(context, config)
+            val group = Group("g")
+            val unit = TestUnit("latin", group)
+            group.units = listOf(unit)
+            val latin: ByteArray = ZipBytesRound6.build(
+                listOf(
+                    ZipEntryRound6("marker.txt", "ok\n"),
+                    ZipEntryRound6(byteArrayOf(0x63, 0x61, 0x66, 0xE9.toByte(), 0x2E, 0x74), "x".encodeToByteArray()),
+                ),
+            ).bytes
+            val service = Service(storage, mapOf("latin" to listOf(latin)))
+            val engine: Downloader = engine(storage, service, group)
+
+            val failure: Throwable? = runCatching { engine.ensureAvailable(unit) }.exceptionOrNull()
+
+            assertTrue(failure is DownloadFailedException, "$failure")
+            assertTrue(failure.error is DownloadError.Corrupted, "expected Corrupted, was ${failure.error}")
+            assertEquals(2, service.count("latin"))
+            assertEquals(TempFileState.None, storage.tempFileState(unit))
+        }
+    }
 }

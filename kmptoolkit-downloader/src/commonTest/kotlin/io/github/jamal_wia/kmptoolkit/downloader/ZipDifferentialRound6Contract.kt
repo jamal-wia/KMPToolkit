@@ -79,14 +79,17 @@ abstract class ZipDifferentialRound6Contract {
     // ---- truncation at every byte boundary ---------------------------------------------------------------
 
     @Test
-    fun `an archive that lost its central directory and has junk after the last entry commits`() = runTest {
+    fun `an archive that lost its central directory and has junk after the last entry is rejected`() = runTest {
+        // D-83 (B6-02) replaces D-74: an archive must end with its end of central directory record. Before, this
+        // archive committed on both platforms.
         val junk = ByteArray(300) { index: Int -> (index * 7 + 3).toByte() }
         junk[0] = 0x00 // not the start of a header
         val built: BuiltZipRound6 = ZipBytesRound6.build(listOf(marker()), withCentralDirectory = false, trailing = junk)
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("junkcd")
+        stage(storage, unit, built.bytes)
 
-        val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("junkcd", built.bytes)
-
-        assertEquals("marker\n", text(storage, unit, "marker.txt"))
+        assertRejected(storage, unit, "an archive without an end record")
     }
 
     @Test
@@ -251,5 +254,173 @@ abstract class ZipDifferentialRound6Contract {
         val two = ArchiveUnit("tworoots")
         stage(storage, two, ZipBytesRound6.build(listOf(ZipEntryRound6("one/marker.txt", "m\n"), ZipEntryRound6("two/other.txt", "o\n"))).bytes)
         assertRejected(storage, two, "two roots")
+    }
+
+    // ---- B6-02: one end-of-central-directory rule on both platforms (D-83) ---------------------------------
+
+    @Test
+    fun `an archive cut before its end record is complete is rejected and one cut inside the comment commits`() = runTest {
+        val first = ZipEntryRound6(
+            "marker.txt".encodeToByteArray(), "marker\n".encodeToByteArray(),
+            deflated = true, descriptor = DescriptorRound6.WithSignature,
+        )
+        // A name ending in P: a cut right after it used to be mistaken for the start of a header on one platform only.
+        val second = ZipEntryRound6("dir/TOP", "second\n")
+        val built: BuiltZipRound6 = ZipBytesRound6.build(listOf(first, second), comment = "end".encodeToByteArray())
+        val storage: DownloaderStorage = newStorage()
+        val problems: ArrayList<String> = ArrayList()
+        for (length: Int in 0..built.bytes.size) {
+            val unit = ArchiveUnit("cut$length")
+            stage(storage, unit, built.bytes.copyOf(length))
+            val failure: Throwable? = runCatching { storage.commitResource(unit) }.exceptionOrNull()
+            if (length < built.endRecordStart + 22) {
+                if (failure !is ResourceIntegrityException) problems += "cut $length: expected rejection, was $failure"
+                else if (storage.tempFileState(unit) != TempFileState.None) problems += "cut $length: temp file kept"
+                else if (pathExists("${baseOf(storage, unit)}/tmp/staging-cut$length")) problems += "cut $length: staging left"
+            } else {
+                if (failure != null) problems += "cut $length: expected the archive to commit, was $failure"
+                else if (text(storage, unit, "marker.txt") != "marker\n" || text(storage, unit, "dir/TOP") != "second\n") {
+                    problems += "cut $length: entries missing"
+                }
+            }
+        }
+        assertTrue(problems.isEmpty(), problems.joinToString("\n"))
+    }
+
+    @Test
+    fun `an archive that lost its whole central directory right after the last entry is rejected whatever the data ends with`() = runTest {
+        val tails: List<ByteArray> = listOf(
+            "GROUP".encodeToByteArray(),
+            "PK".encodeToByteArray(),
+            byteArrayOf(0x50, 0x4B, 0x03),
+            byteArrayOf(0x50, 0x4B, 0x03, 0x04),
+            byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0x41, 0x42),
+        )
+        val storage: DownloaderStorage = newStorage()
+        for ((index: Int, tail: ByteArray) in tails.withIndex()) {
+            val built: BuiltZipRound6 = ZipBytesRound6.build(
+                listOf(marker(), ZipEntryRound6("notes.bin".encodeToByteArray(), "see ".encodeToByteArray() + tail)),
+                withCentralDirectory = false,
+            )
+            val unit = ArchiveUnit("tail$index")
+            stage(storage, unit, built.bytes)
+            assertRejected(storage, unit, "no central directory, data ending ${tail.toList()}")
+        }
+    }
+
+    @Test
+    fun `an archive whose comment ends with the local header signature commits and junk in place of the central directory with an intact end record commits`() = runTest {
+        val signed: BuiltZipRound6 = ZipBytesRound6.build(listOf(marker()), comment = byteArrayOf(0x50, 0x4B, 0x03, 0x04))
+        val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("signedcomment", signed.bytes)
+        assertEquals("marker\n", text(storage, unit, "marker.txt"))
+
+        // The central directory replaced by junk of the same length: the end record is intact and consistent.
+        val built: BuiltZipRound6 = ZipBytesRound6.build(listOf(marker()))
+        val bytes: ByteArray = built.bytes.copyOf()
+        for (index: Int in built.centralDirectoryStart until built.endRecordStart) bytes[index] = 0x11
+        val (storage2: DownloaderStorage, unit2: DownloadUnit) = commitOk("junkcdintact", bytes)
+        assertEquals("marker\n", text(storage2, unit2, "marker.txt"))
+    }
+
+    // ---- B6-04: names are UTF-8 on both platforms ---------------------------------------------------------
+
+    @Test
+    fun `a name that is not valid UTF-8 fails the commit on both platforms whatever the flag says`() = runTest {
+        val variants: List<Pair<String, ZipEntryRound6>> = listOf(
+            "latin-1 name without the UTF-8 flag" to ZipEntryRound6(byteArrayOf(0x63, 0x61, 0x66, 0xE9.toByte(), 0x2E, 0x74), "latin\n".encodeToByteArray()),
+            "UTF-8 flag with an invalid sequence" to ZipEntryRound6(byteArrayOf(0x63, 0xC3.toByte(), 0x28, 0x2E, 0x74), "bad\n".encodeToByteArray(), extraFlags = 0x0800),
+            "an encoded surrogate" to ZipEntryRound6(byteArrayOf(0x73, 0xED.toByte(), 0xA0.toByte(), 0x80.toByte(), 0x2E, 0x74), "sur\n".encodeToByteArray()),
+            "an overlong slash" to ZipEntryRound6(byteArrayOf(0x6F, 0xC0.toByte(), 0xAF.toByte(), 0x2E, 0x74), "over\n".encodeToByteArray()),
+            "a sequence cut at the end of the name" to ZipEntryRound6(byteArrayOf(0x63, 0x61, 0x66, 0xC3.toByte()), "cut\n".encodeToByteArray()),
+            "a four-byte sequence above U+10FFFF" to ZipEntryRound6(byteArrayOf(0x68, 0xF4.toByte(), 0x90.toByte(), 0x80.toByte(), 0x80.toByte()), "big\n".encodeToByteArray()),
+        )
+        val storage: DownloaderStorage = newStorage()
+        for ((index: Int, variant: Pair<String, ZipEntryRound6>) in variants.withIndex()) {
+            val unit = ArchiveUnit("latin$index")
+            stage(storage, unit, ZipBytesRound6.build(listOf(marker(), variant.second)).bytes)
+            assertRejected(storage, unit, variant.first)
+        }
+    }
+
+    @Test
+    fun `valid UTF-8 without the flag extracts under its own name`() = runTest {
+        val name: ByteArray = byteArrayOf(0x63, 0x61, 0x66, 0xC3.toByte(), 0xA9.toByte())
+        val entries: List<ZipEntryRound6> = listOf(marker(), ZipEntryRound6(name, "coffee\n".encodeToByteArray()))
+
+        val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("utf8", ZipBytesRound6.build(entries).bytes)
+
+        assertEquals("coffee\n", text(storage, unit, "caf\u00e9"))
+    }
+
+    // ---- B6-01 / B6-03: one flattening rule (D-83) ----------------------------------------------------------
+
+    @Test
+    fun `a single root directory is moved up even when it holds a directory of the same name`() = runTest {
+        val entries: List<ZipEntryRound6> = listOf(
+            ZipEntryRound6("root/marker.txt", "marker\n"),
+            ZipEntryRound6("root/root/inner.txt", "inner\n"),
+        )
+
+        val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("samename", ZipBytesRound6.build(entries).bytes)
+
+        assertEquals("marker\n", text(storage, unit, "marker.txt"))
+        assertEquals("inner\n", text(storage, unit, "root/inner.txt"))
+        assertNull(text(storage, unit, "root/root/inner.txt"))
+    }
+
+    @Test
+    fun `a single root directory is moved up over an empty directory of the same name at the top`() = runTest {
+        val entries: List<ZipEntryRound6> = listOf(
+            ZipEntryRound6("empty/".encodeToByteArray(), ByteArray(0)),
+            ZipEntryRound6("root/marker.txt", "marker\n"),
+            ZipEntryRound6("root/empty/x.txt", "x\n"),
+        )
+
+        val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("emptysame", ZipBytesRound6.build(entries).bytes)
+
+        assertEquals("marker\n", text(storage, unit, "marker.txt"))
+        assertEquals("x\n", text(storage, unit, "empty/x.txt"))
+    }
+
+    @Test
+    fun `a single root directory next to a file is moved up and the file stays where it is`() = runTest {
+        val entries: List<ZipEntryRound6> = listOf(
+            ZipEntryRound6("root/marker.txt", "m\n"),
+            ZipEntryRound6("README", "r\n"),
+        )
+
+        val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("beside", ZipBytesRound6.build(entries).bytes)
+
+        assertEquals("m\n", text(storage, unit, "marker.txt"))
+        assertEquals("r\n", text(storage, unit, "README"))
+    }
+
+    @Test
+    fun `a root child colliding with a top-level file fails the commit`() = runTest {
+        val entries: List<ZipEntryRound6> = listOf(
+            ZipEntryRound6("root/marker.txt", "m\n"),
+            ZipEntryRound6("root/README", "inner\n"),
+            ZipEntryRound6("README", "outer\n"),
+        )
+        val storage: DownloaderStorage = newStorage()
+        val unit = ArchiveUnit("collide")
+        stage(storage, unit, ZipBytesRound6.build(entries).bytes)
+
+        assertRejected(storage, unit, "a root child named like a top-level file")
+    }
+
+    @Test
+    fun `a root whose child is named like the temporary name commits`() = runTest {
+        val entries: List<ZipEntryRound6> = listOf(
+            ZipEntryRound6("root/marker.txt", "m\n"),
+            ZipEntryRound6("root/.kmptoolkit-up/x.txt", "x\n"),
+            ZipEntryRound6("root/.kmptoolkit-up-1/y.txt", "y\n"),
+        )
+
+        val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("tempname", ZipBytesRound6.build(entries).bytes)
+
+        assertEquals("m\n", text(storage, unit, "marker.txt"))
+        assertEquals("x\n", text(storage, unit, ".kmptoolkit-up/x.txt"))
+        assertEquals("y\n", text(storage, unit, ".kmptoolkit-up-1/y.txt"))
     }
 }

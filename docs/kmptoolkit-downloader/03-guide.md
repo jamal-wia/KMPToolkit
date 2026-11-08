@@ -119,7 +119,11 @@ is extracted or the commit fails; none is skipped. An archive that cannot be ext
 truncated or corrupt entry (size or CRC-32 mismatch), an entry name that leaves the extraction
 directory, an unsupported compression method or an encrypted entry — fails the commit with
 `ResourceIntegrityException` and is deleted, so the engine downloads it once more and then reports
-`DownloadError.Corrupted`. An archive whose extracted tree (after a single root directory is moved up) lacks the marker fails the commit
+`DownloadError.Corrupted`. An archive must end with its end of central directory record (one cut before it fails), and its entry names must
+be valid UTF-8. When the marker is not at the top and the archive holds exactly one non-empty top-level directory
+that contains it, that directory's contents are moved up; files and empty directories beside it stay where they
+are, and a name that exists at the top as a file fails the commit with `ResourceIntegrityException`. An archive
+whose extracted tree lacks the marker fails the commit
 with `ResourceIntegrityException` before anything at the final path is touched, so a resource already
 committed stays available; the engine downloads once more and then reports `DownloadError.Corrupted`.
 
