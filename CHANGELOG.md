@@ -104,7 +104,7 @@ Breaking; the behavior changes of this release are listed there.
   `docs/kmptoolkit-uploader-sqldelight/03-guide.md`) or set
   `UploaderDatabaseConfig.recreateOnCorruption = true` to get the old behavior. A binary compiled
   against 3.0.0 that calls `UploaderDatabaseConfig.copy()` with every argument omitted must be
-  recompiled against 3.1.0; the 3.0.0 constructor and `copy(name)` stay as hidden declarations, so
+  recompiled against 4.0.0; the 3.0.0 constructor and `copy(name)` stay as hidden declarations, so
   every other call still links.
 - `kmptoolkit-uploader-sqldelight`: an item whose text (payload, keys or tag) exceeds 1 MiB in UTF-8
   is refused with `UploaderStorageException`; such a row could not be read back on Android and made
@@ -403,7 +403,7 @@ Breaking; the behavior changes of this release are listed there.
 - `kmptoolkit-downloader`: unit ids containing `/`, NUL or an over-long name no longer collide with
   other units' files, escape `tmp/` or fail with `ENAMETOOLONG`: they are stored under a hashed name
   in `tmp/kmptoolkit-internal/`. Their 3.0.0 temp files are migrated on first use, with a move that
-  never replaces an existing destination and only for files that existed before the first 3.1.0 use
+  never replaces an existing destination and only for files that existed before the first 4.0.0 use
   of the base directory (recorded by a marker file), so a resource another unit later commits at
   such a path is never moved. Ids that are plain file names keep their exact paths, and a
   `relativePath` equal to the unit's own 3.0.0 temp path is rejected.

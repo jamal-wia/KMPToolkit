@@ -508,7 +508,7 @@ internal class AndroidDownloaderStorage(
                     } else {
                         // The table is a name: resolved through sqlite_master and quoted. A value that names no table
                         // is used as SQL text, as 3.0.0 did (a pre-quoted or schema-qualified name keeps working).
-                        // 4.0: drop the verbatim fallback
+                        // future major release: drop the verbatim fallback
                         val stored: String? = queryText(db, SQLITE_RESOLVE_TABLE_SQL, table)
                         val countSql: String = if (stored != null) countRowsSql(stored) else countRowsVerbatimSql(table)
                         queryInt(db, countSql) to
