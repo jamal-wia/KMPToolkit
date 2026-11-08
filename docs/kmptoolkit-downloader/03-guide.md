@@ -113,8 +113,12 @@ deep inside a reader — is what this exists to prevent.
 The point of the self-check: nobody hardcodes an expected row count anywhere in this library — the
 file states its own expected size. Which table and which key are the host's domain knowledge —
 values on the format, not anything the library assumes. Both shipped storage implementations carry
-zip-slip protection during extraction. Empty directories in the archive are created too. An archive
-whose extracted tree (after a single root directory is moved up) lacks the marker fails the commit
+zip-slip protection during extraction. Empty directories in the archive are created too. Every entry
+is extracted or the commit fails; none is skipped. An archive that cannot be extracted as delivered — a
+truncated or corrupt entry (size or CRC-32 mismatch), an entry name that leaves the extraction
+directory, an unsupported compression method or an encrypted entry — fails the commit with
+`ResourceIntegrityException` and is deleted, so the engine downloads it once more and then reports
+`DownloadError.Corrupted`. An archive whose extracted tree (after a single root directory is moved up) lacks the marker fails the commit
 with `ResourceIntegrityException` before anything at the final path is touched, so a resource already
 committed stays available; the engine downloads once more and then reports `DownloadError.Corrupted`.
 
@@ -223,7 +227,7 @@ A commit whose bytes fail a check — a `sha256` or recorded-hash mismatch, a da
 open or does not hold the rows it declares — deletes the temp file and downloads **once more**. A second failure is
 `DownloadError.Corrupted`: persisting across two fresh downloads, it is the server's bytes or the
 host's stated hash that is wrong, and no number of retries fixes either. Any other commit failure
-(a full disk, an unwritable path, an archive that will not extract) is `DownloadError.Storage` at
+(a full disk, an unwritable path) is `DownloadError.Storage` at
 once — downloading again is not the fix, so the complete temp file is **kept**: once the user has
 freed space, the next `ensureAvailable` commits it without a transfer. Both surfaces share this
 policy.

@@ -176,7 +176,17 @@ data.
 
 ZIP extraction is `java.util.zip` on Android and a hand-written streaming extractor over zlib's raw
 `inflate` on iOS (Kotlin/Native has no `java.util.zip`). Both stream through a single reusable
-buffer rather than loading an entry into memory, and both carry zip-slip protection.
+buffer rather than loading an entry into memory, both extract every entry or fail the commit, and both
+treat an entry that would leave the extraction directory as a failure (names are resolved lexically on
+`/` only: `a/../inner.txt` extracts to `inner.txt`, `release..notes.txt` is an ordinary name, `../evil.txt`
+fails). Both check each entry's sizes and CRC-32; an entry written with a data descriptor (a streaming
+writer's layout, as `java.util.zip.ZipOutputStream` produces) is supported for DEFLATED entries. A
+truncated or corrupt archive, an unsupported compression method, an encrypted entry or a traversal name
+fails the commit with `ResourceIntegrityException` (one fresh download, then `DownloadError.Corrupted`).
+iOS does not read ZIP64 archives (entries or archives over 4 GiB): such an archive fails the commit there.
+The walk is the one `java.util.zip.ZipInputStream` makes: local headers in order, the central directory
+never read; an archive cut exactly after an entry (no central directory) is accepted by both, and a cut
+inside the next local header (four bytes or more of it) fails on both.
 
 ## Both platforms
 
@@ -191,8 +201,11 @@ buffer rather than loading an entry into memory, and both carry zip-slip protect
 - **No disk-space precondition.** Neither platform checks free space before enqueueing; a full disk
   fails during the transfer or during commit, and surfaces as whatever your
   `BackgroundResourceDownloader` reports (commonly `DownloadError.Unknown` unless your
-  implementation's error message is recognisable) or, for a commit-time failure (a `ZipArchive`
-  extraction, a move into place), as `DownloadError.Storage`.
+  implementation's error message is recognisable) or, for a commit-time failure (a write during a
+  `ZipArchive` extraction, a move into place), as `DownloadError.Storage`. Extraction writes are checked
+  on both platforms, so a full disk during extraction fails the commit instead of leaving a truncated
+  file. An archive whose bytes cannot be extracted at all is not a storage failure but
+  `ResourceIntegrityException` (above).
 - **`DownloaderStorage` keys everything by the unit's own properties (`id`, `relativePath`), never
   by object identity or by any internal per-instance map.** Two `DownloadUnit` instances with the
   same `id` — a host constructing a fresh instance per call is common and expected — always resolve
