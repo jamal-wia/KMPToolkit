@@ -13,6 +13,8 @@ import android.content.Intent
  * The contract both members share:
  * - Call `onResult` **exactly once**, on any thread, after the UI has been answered. Never calling it
  *   leaves the requesting coroutine suspended until it is cancelled.
+ * - The Android controller calls a member once an activity of the app is resumed, or after waiting a
+ *   second for one; a host that still finds none returns `false`.
  * - Return `false` when nothing could be shown at all — no activity, no launcher — and then do **not**
  *   call `onResult`. The controller then reports the status unchanged rather than inventing a refusal.
  */

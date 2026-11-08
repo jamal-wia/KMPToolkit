@@ -187,7 +187,9 @@ public interface PermissionController {
 - **`request`** shows the system UI — the dialog, the Settings screen, the role chooser — and returns
   the status once the user has answered it or come back from it. When the current status shows no
   UI (`Granted`, `PermanentlyDenied`, `Restricted`, `Unavailable`, and `Limited` where the platform has
-  nothing to show) it returns that status at once.
+  nothing to show) it returns that status at once. On Android, system UI is put on screen only while
+  an activity of the app is resumed; a request made in between - just after a previous answer, or
+  before the first resume - waits up to a second for one.
 - **`request(permissions)`** — one entry per distinct permission, in iteration order. On Android every
   runtime permission that can still prompt shares one system dialog; background location and
   background body sensors never join it. Entries that stand for one Android permission on the
@@ -223,7 +225,9 @@ public interface PermissionController {
   returns only once the user is back, never early because of a late resume notification. "Back" is the
   first resume of an activity of the app after the screen opened: with several windows of the app on
   screen, a window beside Settings that is recreated counts, and the request then returns the status
-  unchanged (`observe` sees the user's choice at the next resume). `observe`
+  unchanged (`observe` sees the user's choice at the next resume). A caller on
+  `Dispatchers.Main.immediate` that requests again right after an answer gets its dialog: the
+  controller waits for the resume that follows the answer before it launches. `observe`
   subscribes to request results before it first reads the status, so a request that resolves in between
   is not missed.
 

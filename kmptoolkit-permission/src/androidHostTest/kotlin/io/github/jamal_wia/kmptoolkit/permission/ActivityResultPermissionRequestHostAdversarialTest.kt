@@ -24,6 +24,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.Shadows.shadowOf
@@ -218,14 +219,19 @@ class ActivityResultPermissionRequestHostAdversarialTest {
             first.get().finish()
             first.pause().stop().destroy()
             // The finished activity abandoned the stale dialog, which frees the host; with no activity
-            // resumed yet the queued request's launch has nowhere to go and is refused.
+            // resumed yet the queued request waits one bound (virtual time here) for one, and its launch
+            // then has nowhere to go and is refused.
             assertEquals(PermissionStatus.NotDetermined, queued.await())
             val second: ActivityController<ComponentActivity> = resumedActivity()
             val next = async { controller.request(CommonPermission.Camera) }
+            // The body resumes from inside the bound's timeout (virtual time ran it), i.e. inside an
+            // unconfined frame, where a nested async starts only once the body suspends: let it start.
+            yield()
 
             assertEquals(2, host.shown, "no recovery path after the activity was finished")
             assertFalse(next.isCompleted)
             answer(second.get(), lastRequest(second.get()), granted = true)
+            yield() // same unconfined frame: the answer's continuation runs once the body suspends
             assertTrue(next.isCompleted)
             assertEquals(PermissionStatus.Granted, next.getCompleted())
         }

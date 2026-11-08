@@ -265,6 +265,20 @@ or from a `singleInstance` activity, it opens from the application context with
 The details are in
 [`kmptoolkit-activity` — System screens and tasks](../kmptoolkit-activity/05-platform-notes.md#system-screens-and-tasks).
 
+### Answers arrive before the resume
+
+Android delivers the answer of a permission dialog, a role screen or a device-admin screen to the
+paused activity and resumes it right after, in the same main-thread message. A caller on
+`Dispatchers.Main.immediate` (`viewModelScope`, `lifecycleScope`) that goes on to the next request
+therefore continues *before* the resume, when no activity is resumed yet: a dialog launched there
+finds none, and a Settings screen opened there takes the resume that follows the answer for the
+user coming back. So the controller waits, before it puts any system UI on screen - a dialog, a role or
+device-admin screen, a Settings screen - until an activity of the app is resumed: at once when one
+is, at most one second otherwise. In a backgrounded app, where no activity ever resumes, the wait times
+out once per call (later launches of the same call do not wait again) and the launch then goes on as it
+always did: the host reports it could not be shown and the status is unchanged. The wait is separate
+from the one after a refusal, which is for reading the rationale.
+
 ### The dialog host
 
 The default `ActivityResultPermissionRequestHost` registers with the resumed `ComponentActivity`'s
