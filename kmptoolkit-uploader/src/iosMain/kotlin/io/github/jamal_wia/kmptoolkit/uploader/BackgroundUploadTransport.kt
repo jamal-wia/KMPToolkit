@@ -827,6 +827,9 @@ private const val FALLBACK_BUNDLE_ID: String = "io.github.jamal_wia.kmptoolkit.u
 // Top-level: the delegate subclasses NSObject, and Kotlin/Native forbids a companion with fields there.
 private const val STATUS_UNKNOWN: Long = -1L
 
+/** Final HTTP statuses, the same range the Android transport takes as an answer. */
+private val HTTP_FINAL_STATUSES: LongRange = 200L..599L
+
 /** The slice of `NSURLSession` the transport uses; [NsUrlUploadSession] is the real one, tests script a fake. */
 internal interface UploadSession {
     /** Reports how many tasks the session has, on the session's own queue. */
@@ -1027,7 +1030,8 @@ internal class UploadSessionDelegate(
 
     /**
      * The terminal event, however the session delivered it: [statusCode] is [STATUS_UNKNOWN] without an HTTP
-     * response, [errorDescription] is set for a transport error, and [invalidate] invalidates the session.
+     * response, [errorDescription] is set for a transport error — with a status it marks the body as cut short,
+     * not the attempt as failed — and [invalidate] invalidates the session.
      */
     fun complete(statusCode: Long, headerFields: Map<Any?, *>?, errorDescription: String?, invalidate: () -> Unit) {
         // Under the lock startUpload creates its task under: a hand-off that has not created its task yet sees
@@ -1041,15 +1045,17 @@ internal class UploadSessionDelegate(
         } finally {
             terminalLock.unlock()
         }
+        // The status first: a connection that broke (or a timeout that fired) after the server's status arrived
+        // still has that status as its answer, with the body marked cut short.
         val outcome: UploadResult = when {
+            statusCode in HTTP_FINAL_STATUSES -> UploadResult.Completed(statusCode.toInt())
             errorDescription != null -> UploadResult.TransportFailure(errorDescription)
-            statusCode == STATUS_UNKNOWN -> UploadResult.TransportFailure("no HTTP response")
-            else -> UploadResult.Completed(statusCode.toInt())
+            else -> UploadResult.TransportFailure("no HTTP response")
         }
         // Built here, before the session is invalidated below: the server's answer exists only for an
         // outcome that is a completed response, and the body is converted from the accumulated bytes once.
         val response: UploadResponse? = if (outcome is UploadResult.Completed) {
-            uploadResponseOf(outcome.statusCode, headerFields, responseBody)
+            uploadResponseOf(outcome.statusCode, headerFields, responseBody, transportBroke = errorDescription != null)
         } else {
             null
         }
@@ -1058,7 +1064,7 @@ internal class UploadSessionDelegate(
         // process may be suspended or killed as soon as this callback returns, and the outcome would exist
         // nowhere else. A failed write leaves today's behaviour.
         val journaled: Boolean = !wasCancelled && response != null && journal.record(itemId, response)
-        logger.i { "Upload completed — item=$itemId, outcome=$outcome, cancelled=$wasCancelled" }
+        logger.i { "Upload completed — item=$itemId, outcome=$outcome, transportError=${errorDescription != null}, cancelled=$wasCancelled" }
         // Before the settlement is launched, not after: the settlement can return the item to the queue,
         // and a re-hand landing at once replaces this session — terminal now — with a new one under the
         // same identifier, which must not overlap a session that is not yet invalidated.
@@ -1128,14 +1134,21 @@ internal class ResponseBodyBuffer(private val ceiling: Int = MAX_RESPONSE_BODY_B
 /**
  * The [UploadResponse] for a completed answer: [headerFields] — `NSHTTPURLResponse.allHeaderFields`, whose
  * keys and values are `Any` — reduced to the entries that are strings on both sides, and the [body] kept.
+ * [transportBroke] says the session ended with an error after the status arrived: the bytes received so far are
+ * the body, flagged truncated unless [statusCode] carries no content at all.
  */
-internal fun uploadResponseOf(statusCode: Int, headerFields: Map<Any?, *>?, body: ResponseBodyBuffer): UploadResponse {
+internal fun uploadResponseOf(
+    statusCode: Int,
+    headerFields: Map<Any?, *>?,
+    body: ResponseBodyBuffer,
+    transportBroke: Boolean = false,
+): UploadResponse {
     val headers: MutableMap<String, String> = LinkedHashMap()
     headerFields?.forEach { (name, value) ->
         if (name is String && value is String) headers[name] = value
     }
     val (bytes: ByteArray, cut: Boolean) = body.toBodyAndCut()
-    return UploadResponse(statusCode, headers, bytes, cut)
+    return UploadResponse(statusCode, headers, bytes, cut || (transportBroke && !statusCarriesNoContent(statusCode)))
 }
 
 /** Progress is quantized against a fixed basis, so byte totals above Int range stay exact. */

@@ -114,3 +114,10 @@ internal const val MAX_RESPONSE_BODY_BYTES: Int = 1024 * 1024
 
 /** The most characters of response header names and values the engine keeps. */
 internal const val MAX_RESPONSE_HEADER_CHARS: Int = 64 * 1024
+
+/**
+ * Whether an HTTP response with [status] carries no content: a 1xx, 204, 205 or 304. Whatever length its headers
+ * name belongs to the entity it stands for, not to a body it sent, so such a response is never flagged as
+ * having a truncated body. One rule for every transport, so the platforms cannot drift.
+ */
+internal fun statusCarriesNoContent(status: Int): Boolean = status in 100..199 || status == 204 || status == 205 || status == 304

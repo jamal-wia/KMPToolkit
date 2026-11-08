@@ -260,7 +260,10 @@ chunks, so a large recording is never held in memory, and removed when the uploa
 
 The delegate accumulates the response body as the session delivers it (at most 1 MiB, converted once
 when the task completes) and builds the response from the final `NSHTTPURLResponse` before the session
-is invalidated; only headers whose names and values are strings are kept. **A force-quit cancels
+is invalidated; only headers whose names and values are strings are kept. A task that ends with an error after
+its status arrived (the connection broke while the body was arriving, or a timeout fired) is still that status's
+answer: it is reported with the bytes received so far and `isBodyTruncated = true`, except for a status that
+carries no content, and only an error before any status is a transport failure. **A force-quit cancels
 background transfers** — iOS does not continue an upload for an app the user swiped away.
 
 Create the transport once per process. A second `createBackgroundUploadTransport` call becomes the

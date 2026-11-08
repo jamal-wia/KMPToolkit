@@ -163,7 +163,7 @@ private fun readResponse(
             }
         }
     }.getOrDefault(emptyMap())
-    if (status in HTTP_INFORMATIONAL_RANGE || status in STATUSES_WITHOUT_CONTENT) {
+    if (statusCarriesNoContent(status)) {
         return UploadResponse(status, headers, ByteArray(0), false)
     }
     var read = ReadBody(ByteArray(0), cut = false)
@@ -295,8 +295,6 @@ private fun writeMultipartBody(
     writeText("--$boundary--\r\n")
 }
 
-private val HTTP_INFORMATIONAL_RANGE: IntRange = 100..199
-private val STATUSES_WITHOUT_CONTENT: Set<Int> = setOf(204, 205, 304)
 private const val HTTP_BAD_REQUEST: Int = 400
 private val HTTP_FINAL_STATUSES: IntRange = 200..599
 private const val COPY_BUFFER_BYTES: Int = 8 * 1024

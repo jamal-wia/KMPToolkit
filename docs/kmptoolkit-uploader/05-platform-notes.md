@@ -187,8 +187,10 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   response when the task completes. A body that arrived while the app was dead is delivered only if
   `BackgroundUploadRelaunch.handleEvents` is wired (see
   [`08-upload-transport.md`](08-upload-transport.md#the-relaunch-hook--required)); without it the
-  outcome waits for the lease and the item uploads again. **A force-quit cancels background transfers**:
-  iOS does not continue an upload for an app the user swiped away.
+  outcome waits for the lease and the item uploads again. A connection that breaks after the status
+  arrived (or a timeout that fires while the body arrives) keeps the status and headers and reports the body
+  truncated, as on Android; only a failure before any status is a transport failure. **A force-quit cancels
+  background transfers**: iOS does not continue an upload for an app the user swiped away.
 - **The outcome journal.** Once a handler transport has the server's answer it writes it to a small file
   *before* the engine settles the item, and deletes the file when the settlement landed. The file holds
   the status, the headers, the body and a timestamp, so **a response body rests briefly on disk**. The body is
