@@ -65,7 +65,7 @@ becomes `AwaitingSettings` you offer the settings trip. Both are your components
 | `AwaitingRationale` | your explanation, with a continue and a cancel | `rationaleAcknowledged()` / `rationaleDismissed()` |
 | `AwaitingSettings` | your prompt offering system settings | `openSettings()` / `settingsDeclined()` |
 | `Granted` | proceed | — |
-| `Limited` | proceed with what was granted; optionally offer to widen it | `start()` again to ask where the platform can — see [Limited grants](#limited-grants) |
+| `Limited` | proceed with what was granted; optionally offer to widen it | `start()` re-checks and stays `Limited`; to ask to widen it, call `controller.request(permission)`, then `refresh()` — see [Limited grants](#limited-grants) |
 | `Unavailable` | hide or disable the feature; do **not** send the user to settings | — |
 | `Denied` | degrade gracefully; leave a way to try again | `start()` again later |
 
