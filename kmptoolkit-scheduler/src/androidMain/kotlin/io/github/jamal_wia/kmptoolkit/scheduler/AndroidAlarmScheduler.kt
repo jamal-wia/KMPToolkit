@@ -146,7 +146,7 @@ internal class AndroidAlarmScheduler(
      * A slot that is already occupied is never written to: writing it would rewrite, with
      * `FLAG_UPDATE_CURRENT`, the extras of an alarm that stays armed if the replacement is then
      * refused. Slots stay occupied only after a refused retirement, so all of them are taken only
-     * after [AlarmIntents.SLOT_COUNT] - 1 such refusals in a row, with no successful schedule or
+     * after [AlarmIntents.SLOT_COUNT] - 1 replacements in a row whose retirement was refused, with no successful schedule or
      * cancel of the id in between. Then the replacement is refused without touching anything
      * ([AlarmScheduleResult.Failed], documented in 04-api-reference.md): the armed alarm stays exactly
      * as it was, and `cancel(id)` (which retires every slot) lets the id schedule again.

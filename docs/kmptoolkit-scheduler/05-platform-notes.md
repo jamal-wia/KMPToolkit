@@ -126,7 +126,7 @@ logged), `schedule` still reports the new alarm, and the old one stays armed and
 
 - An id owns four `PendingIntent` slots. The new alarm goes into a slot the id does not occupy, and a
   retirement the platform refused leaves its slot occupied.
-- When all four slots are occupied (three refused retirements in a row, with no successful
+- When all four slots are occupied (three replacements in a row whose cancel was refused, with no successful
   `schedule` or `cancel` of the id in between), a further `schedule` of that id answers
   `Failed(PlatformError)` and changes nothing: the armed alarm stays exactly as it was. A healthy
   `schedule` does not recover it, because the newest alarm cannot be told from the stale ones.
