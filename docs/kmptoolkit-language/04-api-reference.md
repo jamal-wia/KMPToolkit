@@ -40,7 +40,7 @@ public interface AppLanguageCatalog {
 
 | Member | Contract |
 |---|---|
-| `supported` | The languages you passed, in the order you passed them. Never contains `System` |
+| `supported` | The languages you passed, in the order you passed them, copied at construction. Never contains `System` |
 | `fallback` | Served to a device whose language you do not offer. Always an element of `supported` |
 | `systemId` | The persisted identity of `AppLanguage.System` |
 | `byCode(code)` | The supported language with that code, or `null`. Case-insensitive, and applies the JDK's legacy code remaps (`in`→`id`, `iw`→`he`, `ji`→`yi`) |

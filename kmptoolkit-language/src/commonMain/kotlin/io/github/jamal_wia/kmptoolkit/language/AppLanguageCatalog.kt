@@ -98,7 +98,8 @@ public interface AppLanguageCatalog {
  * Creates an [AppLanguageCatalog] over [supported].
  *
  * @param supported the languages your app offers. Must be non-empty, must not contain
- *   [AppLanguage.System], and must not repeat a code.
+ *   [AppLanguage.System], and must not repeat a code. Copied: mutating the list afterwards does not
+ *   change the catalog.
  * @param fallback the language to serve a device whose own language you do not offer. Must be one of
  *   [supported]; defaults to the first, so listing your default language first is enough.
  * @param systemId the string [AppLanguageCatalog.idOf] returns for [AppLanguage.System]. It is a
@@ -113,7 +114,9 @@ public fun createAppLanguageCatalog(
     fallback: AppLanguage = supported.first(),
     systemId: String = "system",
     systemLanguageCode: () -> String? = ::getSystemLanguageCode,
-): AppLanguageCatalog = DefaultAppLanguageCatalog(supported, fallback, systemId, systemLanguageCode)
+): AppLanguageCatalog =
+    // Copied: validation and every lookup then see one list, whatever the caller does to theirs later.
+    DefaultAppLanguageCatalog(supported.toList(), fallback, systemId, systemLanguageCode)
 
 private class DefaultAppLanguageCatalog(
     override val supported: List<AppLanguage>,
