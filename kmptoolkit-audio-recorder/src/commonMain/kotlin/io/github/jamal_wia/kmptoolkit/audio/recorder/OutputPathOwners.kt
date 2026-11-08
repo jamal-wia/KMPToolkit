@@ -24,6 +24,18 @@ internal class OutputPathClaim
  * only while its claim is still the current one. An attempt that never finishes its tail never
  * blocks the next one, because a claim is taken over rather than waited for.
  *
+ * The takeover is provisional until [commit]. A claim remembers the claims it displaced; while its
+ * attempt is still running, or when it ends without a session (it failed, was refused, or its caller
+ * was cancelled), [release] hands the path back to the claim it displaced, which may still be a live
+ * recorder with a file to clean up. The attempt that succeeds calls [commit], which forgets the
+ * displaced claims for good. Why a plain stack would be wrong: a newer recorder that succeeded must
+ * never hand the path back, or recorder B records, stops and is released, an older recorder A
+ * becomes the owner again, and `A.release()` from a prepared state deletes B's finished recording.
+ *
+ * Residual, accepted: if the displaced recorder is released or cancelled while the later attempt is
+ * still running, it leaves the file alone (the later attempt may be writing it) and its claim leaves
+ * the registry; should that later attempt then fail, the file stays on disk. That is litter, not loss.
+ *
  * A claim lives as long as the `prepare()` call that took it, or, when that call succeeds, as long as
  * the recorder's session keeps the file ([release] when the file is deleted or the recorder is
  * prepared again or released). Every later deletion of the session's file (cancel, system end of a
@@ -38,8 +50,16 @@ internal class OutputPathClaim
  */
 internal object OutputPathOwners {
 
-    /** Immutable and compared by identity; [deleting] is true only while a delete is in progress. */
-    private class Slot(val claim: OutputPathClaim, val deleting: Boolean)
+    /**
+     * Immutable. [owner] is the claim that may delete; [displaced] are the claims it took the path over
+     * from (oldest first) and gives it back to unless it is committed; [deleting] is true only while a
+     * delete is in progress.
+     */
+    private class Slot(val owner: OutputPathClaim, val displaced: List<OutputPathClaim>, val deleting: Boolean)
+
+    /** The slot after its owner leaves: the most recently displaced claim owns again, or nobody does. */
+    private fun Slot.withoutOwner(): Slot? =
+        if (displaced.isEmpty()) null else Slot(displaced.last(), displaced.dropLast(1), deleting = false)
 
     private val slots: MutableStateFlow<Map<String, Slot>> = MutableStateFlow(emptyMap())
 
@@ -79,7 +99,26 @@ internal object OutputPathOwners {
                 slots.first { map: Map<String, Slot> -> map[key]?.deleting != true }
                 continue
             }
-            if (slots.compareAndSet(current, current + (key to Slot(claim, deleting = false)))) return
+            val old: Slot? = current[key]
+            val taken = Slot(claim, old?.let { slot: Slot -> slot.displaced + slot.owner } ?: emptyList(), deleting = false)
+            if (slots.compareAndSet(current, current + (key to taken))) return
+        }
+    }
+
+    /**
+     * Makes the takeover of [path] by [claim] final: the claims it displaced are forgotten, so nothing
+     * ever hands the path back to them. Called when [claim] becomes a recorder's session. A no-op if
+     * [claim] is no longer the owner.
+     */
+    fun commit(path: String, claim: OutputPathClaim) {
+        val key: String = ownershipKey(path)
+        slots.update { map: Map<String, Slot> ->
+            val slot: Slot? = map[key]
+            if (slot == null || slot.owner !== claim || slot.displaced.isEmpty()) {
+                map
+            } else {
+                map + (key to Slot(claim, emptyList(), slot.deleting))
+            }
         }
     }
 
@@ -93,25 +132,51 @@ internal object OutputPathOwners {
         while (true) {
             val current: Map<String, Slot> = slots.value
             val slot: Slot = current[key] ?: return false
-            if (slot.claim !== claim || slot.deleting) return false
-            val marker = Slot(claim, deleting = true)
+            if (slot.owner !== claim || slot.deleting) return false
+            val marker = Slot(claim, slot.displaced, deleting = true)
             if (!slots.compareAndSet(current, current + (key to marker))) continue
             try {
                 delete()
             } finally {
-                slots.update { map: Map<String, Slot> -> if (map[key] === marker) map - key else map }
+                // The delete ended this claim's ownership. Only this deleter ever sets or clears the
+                // flag on this slot ([claim] waits it out, [release] leaves the owner of a deleting
+                // slot alone), so "deleting and still mine" identifies the marker.
+                slots.update { map: Map<String, Slot> ->
+                    val now: Slot? = map[key]
+                    if (now == null || !now.deleting || now.owner !== claim) {
+                        map
+                    } else {
+                        val next: Slot? = now.withoutOwner()
+                        if (next == null) map - key else map + (key to next)
+                    }
+                }
             }
             return true
         }
     }
 
-    /** Drops every entry [claim] still holds; entries taken over by a later claim stay. */
+    /**
+     * Lets go of every entry [claim] holds. Where it owns the path, the claim it displaced (if any)
+     * owns it again; where it was displaced itself, it is simply forgotten. The owner of a slot with a
+     * delete in progress stays until that delete's own finally pops it.
+     */
     fun release(claim: OutputPathClaim) {
         slots.update { map: Map<String, Slot> ->
-            if (map.values.any { slot: Slot -> slot.claim === claim }) {
-                map.filterValues { slot: Slot -> slot.claim !== claim }
-            } else {
+            if (map.values.none { slot: Slot -> slot.owner === claim || claim in slot.displaced }) {
                 map
+            } else {
+                val next: MutableMap<String, Slot> = map.toMutableMap()
+                for ((key: String, slot: Slot) in map) {
+                    when {
+                        slot.owner === claim && slot.deleting -> Unit
+                        slot.owner === claim -> {
+                            val without: Slot? = slot.withoutOwner()
+                            if (without == null) next.remove(key) else next[key] = without
+                        }
+                        claim in slot.displaced -> next[key] = Slot(slot.owner, slot.displaced - claim, slot.deleting)
+                    }
+                }
+                next
             }
         }
     }

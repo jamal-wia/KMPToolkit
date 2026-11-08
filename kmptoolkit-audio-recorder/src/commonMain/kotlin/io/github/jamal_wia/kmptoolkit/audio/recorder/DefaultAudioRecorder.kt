@@ -315,6 +315,8 @@ internal class DefaultAudioRecorder(
             // recording that does not exist yet.
             engine.setEventListener(listenerFor(token))
             sessionClaim = claim
+            // The only place a claim becomes a session: the takeover of the path is final from here.
+            OutputPathOwners.commit(path, claim)
             _state.value = RecorderState.Ready(path)
             RecorderResult.Success(path)
         }
