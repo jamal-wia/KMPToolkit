@@ -299,7 +299,9 @@ internal class VlcjVideoEngine(
 
     /**
      * Releases, then frees the libvlc instance — after every native player, on the [teardown]
-     * thread. Final and idempotent: a [load] after it throws.
+     * thread. Final and idempotent: a [load] after it throws. Waits while another thread is still
+     * creating libvlc (the monitor [RuntimeHolder.acquire] holds); the player calls this only after
+     * every load has unwound, so through the player it never waits.
      */
     override fun dispose() {
         release()
