@@ -105,6 +105,9 @@ class MyApplication : Application() {
 The same applies to `createScreenWakeLockController`, and to any `ActivityAccess` you create
 yourself for either. `ControllerCreationOrderTest` pins this down, including the late-created case.
 
+With several windows of the app resumed (split screen, freeform, activity embedding), the wake-lock
+hold flags each of them, not only the newest one; the release takes the flag off each again.
+
 Insets themselves are Compose's job, not this module's: `WindowInsets.statusBars`,
 `WindowInsets.safeDrawing`, `Modifier.windowInsetsPadding`.
 

@@ -42,6 +42,24 @@ public interface ActivityAccess {
     public fun <R> withActivity(block: (Activity) -> R): R?
 
     /**
+     * Runs [block] once with every activity this access tracks that is resumed right now, the earliest
+     * resumed first and the one [withActivity] answers with last; runs it never when none is.
+     *
+     * Same validation as [withActivity] (a finishing or destroyed instance is skipped), same thread rule
+     * (the calling thread; most `Activity` APIs need the main one). The set is read once before the first
+     * call, so a block that resumes or finishes an activity does not change which activities this call
+     * visits.
+     *
+     * The default runs [block] with [withActivity]'s activity only, so an implementation of your own that
+     * knows one window keeps compiling and behaves as before.
+     *
+     * @since 3.1.0
+     */
+    public fun forEachResumedActivity(block: (Activity) -> Unit) {
+        withActivity(block)
+    }
+
+    /**
      * Subscribes to activity resumption, and fires immediately if this tracker already holds a
      * resumed activity — one whose resume it saw. An activity that resumed before the tracker was
      * created is not known to it; see [createActivityAccess].

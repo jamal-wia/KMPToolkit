@@ -7,6 +7,7 @@ Every symbol here lives in `androidMain`; this module has no other target.
 ```kotlin
 public interface ActivityAccess {
     public fun <R> withActivity(block: (Activity) -> R): R?
+    public fun forEachResumedActivity(block: (Activity) -> Unit) // default body, since 3.1.0
     public fun addOnActivityResumedListener(listener: (Activity) -> Unit): ActivitySubscription
     public fun release()
 }
@@ -21,6 +22,18 @@ The activity is validated first: one that is finishing or already destroyed is t
 dropped, so a stale reference cannot reach your code. The block runs on the calling thread.
 
 With several windows of the app resumed at once (split screen, freeform or desktop windows) it is the one resumed most recently; when that one pauses, the access answers with the other window that is still resumed. Listeners are not called for that change: no activity resumed.
+
+### `forEachResumedActivity`
+
+Since 3.1.0. Runs `block` once with every activity this access tracks that is resumed right now, the
+earliest resumed first and the one `withActivity` answers with last; never runs it when none is. Same
+validation as `withActivity` (a finishing or destroyed instance is skipped) and the same thread rule:
+the calling thread. The set is read once before the first call, so a block that resumes or finishes an
+activity does not change which activities the call visits.
+
+It has a default body that runs `block` with `withActivity`'s activity only, so an `ActivityAccess` of
+your own that knows one window keeps compiling and behaves as before. The tracker `createActivityAccess`
+returns overrides it.
 
 ### `addOnActivityResumedListener`
 

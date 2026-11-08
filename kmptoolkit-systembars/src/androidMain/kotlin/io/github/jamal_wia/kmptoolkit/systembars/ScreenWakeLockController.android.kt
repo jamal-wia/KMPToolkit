@@ -52,6 +52,9 @@ public fun createScreenWakeLockController(activityAccess: ActivityAccess): Scree
  * calling this same controller — and a freshly attached activity's window starts with the flag
  * UNSET regardless of what the previous window had.
  *
+ * With several windows of the app resumed together (split screen, freeform, activity embedding), a hold
+ * puts the flag on every resumed window at once and on each window that resumes while it stands.
+ *
  * [pushedTo] is what makes re-applying safe in both directions:
  *
  *  - It must not clear a flag it never set. [ActivityAccess.addOnActivityResumedListener] replays
@@ -128,7 +131,13 @@ internal class AndroidScreenWakeLockController(
         if (target) subscribeToResumes()
         // No activity means the screen is already going away. The write is not lost: pushedTo
         // still names the window carrying the flag, so its next resume applies this release.
-        activityAccess.withActivity { activity -> applyFlag(activity, keepOn = target) }
+        if (target) {
+            // Every resumed window, not only the newest: with two resumed already (split screen, freeform,
+            // activity embedding) only the resume listener would otherwise reach a window that resumes later.
+            activityAccess.forEachResumedActivity { activity -> applyFlag(activity, keepOn = true) }
+        } else {
+            activityAccess.withActivity { activity -> applyFlag(activity, keepOn = false) }
+        }
         // A release takes the flag off every live window this controller put it on, resumed or not: a
         // window that is paused, stopped or still resumed beside the current one can be written all the
         // same, and one that is resumed already will not resume again to be told. Snapshot first,
