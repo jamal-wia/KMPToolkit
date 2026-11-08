@@ -76,7 +76,8 @@ public sealed interface AlarmFailure {
      * silently).
      *
      * @param message a diagnostic for logs and bug reports: the platform's own text if it supplied
-     *   one or, for the iOS pending cap, a fixed English description from this library. Not
+     *   one or, where the library itself refuses (the iOS pending cap, or an Android id whose four
+     *   PendingIntent slots are all occupied), a fixed English description from this library. Not
      *   localized, never to be shown to a user, and not a stable value to match on.
      */
     public data class PlatformError(val message: String?) : AlarmFailure
