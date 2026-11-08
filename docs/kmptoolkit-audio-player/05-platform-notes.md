@@ -89,6 +89,10 @@ exposes no richer detail.
 
 **Engine:** `AVFoundation.AVPlayer`, one `AVPlayerItem` per prepared source.
 
+**A blank `AudioSource.File` path** never reaches the engine: `NSURL.fileURLWithPath("")` raises an
+Objective-C exception that Kotlin/Native cannot catch, so the player refuses it with
+`Error(IllegalArgumentException)` on both platforms.
+
 **Assets** resolve through `NSBundle.URLForResource(name:withExtension:subdirectory:)`, so the
 extension in the path matters — `AudioSource.Asset("chime.mp3")` looks up `chime` with extension
 `mp3`. The lookup tries the bundle root first, then each entry of `assetSubdirectories` in order:

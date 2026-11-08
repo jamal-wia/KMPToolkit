@@ -49,6 +49,10 @@ public interface PlaybackEngine {
     /**
      * Loads [source] and suspends until it is ready to play, discarding anything loaded before.
      *
+     * A `CancellationException` thrown while the calling coroutine is still active (an engine's own
+     * timeout) counts as a load failure, like any other throwable; the player surfaces it as
+     * [PlayerState.Error].
+     *
      * @param source what to load.
      * @throws Throwable any platform error — surfaced by the player as [PlayerState.Error].
      */

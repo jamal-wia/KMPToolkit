@@ -35,9 +35,14 @@ source, resets the playhead to `0`, and re-applies `playbackSpeed`.
   and `CancellationException` propagates.
 - **A newer `prepare` replaces this one** — the older load is cancelled and fully unwound before the
   newer one starts; the replaced call returns normally without writing any state.
+- **An engine's own `CancellationException` is a failure** — one thrown by the engine while the
+  caller is still active (an engine's own timeout) is a load failure and arrives as `Error`; only the
+  caller's own cancellation, or a newer `prepare`/`unload`/`release`, ends the call by cancellation.
+- **A blank `AudioSource.File` path is refused** — it ends in `Error(IllegalArgumentException)` and the
+  engine is never asked to load it.
 - **No built-in deadline** — a remote load is bounded only by the platform's own network timeouts.
   A caller that wants one wraps the call in `withTimeoutOrNull`; cancellation returns to `Idle`.
-- After `release()`: sets `Error(AudioPlayerReleasedException)` and loads nothing. After `unload()`
+- After `release()`: sets `Error(AudioPlayerReleasedException)` and loads nothing; every later call reports the same `Error` instance, so a consumer that retries on `Error` does not loop. After `unload()`
   it works as on a fresh player.
 
 ### Transport
@@ -81,10 +86,10 @@ public sealed interface PlayerState
 |---|---|---|
 | `Idle` | — | Nothing loaded. Initial state, and the state after `release()`. |
 | `Preparing` | — | Loading or buffering. No duration yet. |
-| `Ready` | `duration` | Loaded, never started (or stopped back to the start). |
-| `Playing` | `duration`, `currentPosition` | Advancing; position refreshed each poll, and a length the platform reports late replaces a `0` duration at the next poll, pause or seek (a length once known is never reset to `0`). |
-| `Paused` | `duration`, `currentPosition` | Suspended at `currentPosition`. |
-| `Completed` | `duration` | Played to the end; the source stays loaded. |
+| `Ready` | `duration` | Loaded, never started (or stopped back to the start). A length known earlier is kept by `stop()`. |
+| `Playing` | `duration`, `currentPosition` | Advancing; position refreshed each poll, and a length the platform reports late replaces a `0` duration (once a length is known for the loaded source, no state reverts it to `0`). |
+| `Paused` | `duration`, `currentPosition` | Suspended at `currentPosition`. A length known earlier is kept, also by a seek out of `Completed`. |
+| `Completed` | `duration` | Played to the end; the source stays loaded. A length known earlier is kept. |
 | `Error` | `cause: Throwable` | Load or playback failed. **No display string** — the cause is the platform's own exception. |
 
 A `duration` of `0` means the platform has not reported one, not an error.
@@ -110,7 +115,7 @@ public sealed interface AudioSource
 | Case | Data | Resolution |
 |---|---|---|
 | `Asset(path)` | path relative to the bundled-resource root, **with extension** | Android `assets/`; iOS bundle lookup — see [`05-platform-notes.md`](05-platform-notes.md) |
-| `File(path)` | absolute file path | Read directly. The library never creates, downloads, or deletes it. |
+| `File(path)` | absolute file path, not blank | Read directly. The library never creates, downloads, or deletes it. |
 | `Remote(url)` | absolute URL | Streamed. Cleartext `http://` is blocked by default on both platforms. |
 
 ---

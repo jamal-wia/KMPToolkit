@@ -93,6 +93,17 @@ public interface AudioPlayer : AutoCloseable {
      * `CancellationException` propagates — so a `LaunchedEffect` or a scoped `launch` that goes away
      * leaves no half-open native handle behind.
      *
+     * **An engine's own cancellation is a failure.** A `CancellationException` thrown by the engine
+     * while the caller is still active (an engine's own timeout) is a load failure and arrives as
+     * [PlayerState.Error]; only the caller's own cancellation, or a newer [prepare], [unload] or
+     * [release], ends the call by cancellation.
+     *
+     * **A blank file path is refused.** An [AudioSource.File] whose path is blank ends in
+     * [PlayerState.Error] with an `IllegalArgumentException`, without reaching the platform.
+     *
+     * **After [release]**, every call reports the same [PlayerState.Error] instance
+     * ([AudioPlayerReleasedException]), so repeating the call emits nothing new.
+     *
      * **There is no built-in deadline.** A remote load is bounded only by the platform's own network
      * timeouts, so a stalled stream can leave the player in [PlayerState.Preparing] for a long time.
      * A caller that wants a deadline wraps the call, for example in `withTimeoutOrNull(10.seconds)`;

@@ -115,6 +115,13 @@ private class EngineAudioPlayer(
     @Volatile
     private var released: Boolean = false
 
+    /**
+     * The one `Error` every [prepare] after [release] reports. [PlayerState.Error] compares its cause by
+     * identity, so a fresh exception per call would be a new emission each time and a consumer that retries
+     * on `Error` would loop forever. Created lazily so the stack trace points at the first misuse. Guarded.
+     */
+    private var releasedError: PlayerState.Error? = null
+
     private val _stateFlow: MutableStateFlow<PlayerState> = MutableStateFlow(PlayerState.Idle)
     override val stateFlow: StateFlow<PlayerState> = _stateFlow.asStateFlow()
 
@@ -133,7 +140,9 @@ private class EngineAudioPlayer(
 
     override suspend fun prepare(source: AudioSource) {
         if (released) {
-            gate.exclusive { _stateFlow.value = PlayerState.Error(AudioPlayerReleasedException()) }
+            gate.exclusive {
+                _stateFlow.value = releasedError ?: PlayerState.Error(AudioPlayerReleasedException()).also { releasedError = it }
+            }
             return
         }
         // A child of the caller's job, so the caller's cancellation still reaches the engine, and a
@@ -231,13 +240,14 @@ private class EngineAudioPlayer(
 
     override fun stop(): Unit = gate.exclusive {
         if (released) return@exclusive
-        if (!_stateFlow.value.isPlayable) return@exclusive
+        val current: PlayerState = _stateFlow.value
+        if (!current.isPlayable) return@exclusive
 
         engine.pause()
         stopPositionUpdates()
         engine.seekTo(0L)
         _playbackPositionFlow.value = 0L
-        _stateFlow.value = PlayerState.Ready(engine.durationMs())
+        _stateFlow.value = PlayerState.Ready(freshDuration(current.duration ?: 0L))
     }
 
     override fun seekTo(positionMs: Long): Unit = gate.exclusive { seekToLocked(positionMs) }
@@ -301,9 +311,10 @@ private class EngineAudioPlayer(
     // They arrive on the engine's thread and are submitted, never waited for.
 
     override fun onCompleted(): Unit = gate.submit {
-        if (released || !_stateFlow.value.isPlayable) return@submit
+        val current: PlayerState = _stateFlow.value
+        if (released || !current.isPlayable) return@submit
         stopPositionUpdates()
-        val duration: Long = engine.durationMs()
+        val duration: Long = freshDuration(current.duration ?: 0L)
         _playbackPositionFlow.value = duration
         _stateFlow.value = PlayerState.Completed(duration)
     }
@@ -325,7 +336,7 @@ private class EngineAudioPlayer(
         val current: PlayerState = _stateFlow.value
         if (!current.isPlayable || current is PlayerState.Playing) return
 
-        val duration: Long = engine.durationMs()
+        val duration: Long = freshDuration(current.duration ?: 0L)
         // A seek onto the end of a completed source leaves Paused with the playhead at the end, which
         // is the end just the same.
         val atEnd: Boolean = duration > 0L && engine.positionMs() >= duration
@@ -339,7 +350,7 @@ private class EngineAudioPlayer(
         engine.start()
         engine.setSpeed(playbackSpeed)
         _stateFlow.value = PlayerState.Playing(
-            duration = engine.durationMs(),
+            duration = duration,
             currentPosition = engine.positionMs(),
         )
         startPositionUpdates()
@@ -350,7 +361,7 @@ private class EngineAudioPlayer(
         val current: PlayerState = _stateFlow.value
         if (!current.isPlayable) return
 
-        val duration: Long = engine.durationMs()
+        val duration: Long = freshDuration(current.duration ?: 0L)
         // A length of 0 means the platform has not reported one yet (a live stream, a header not parsed).
         // An absolute seek still clamps to 0..0 then, but a relative skip has no end to clamp to: moving
         // from 30 s by +/-5 s must not land on 0, so its target goes to the engine, which knows better.
@@ -363,21 +374,30 @@ private class EngineAudioPlayer(
         _playbackPositionFlow.value = target
 
         _stateFlow.value = when (current) {
-            is PlayerState.Playing -> current.copy(duration = freshDuration(current.duration, duration), currentPosition = target)
-            is PlayerState.Paused -> current.copy(duration = freshDuration(current.duration, duration), currentPosition = target)
+            is PlayerState.Playing -> current.copy(duration = duration, currentPosition = target)
+            is PlayerState.Paused -> current.copy(duration = duration, currentPosition = target)
             // Once the playhead has moved off the end, "completed" is no longer a true description
             // of the player — Paused is, and it is the state play() resumes from correctly.
-            is PlayerState.Completed -> PlayerState.Paused(current.duration, target)
+            is PlayerState.Completed -> PlayerState.Paused(duration, target)
             else -> current
         }
     }
 
     /** Runs the engine's load, returning its failure instead of throwing it. Cancellation still throws. */
     private suspend fun loadCatching(source: AudioSource): Throwable? = try {
+        if (source is AudioSource.File && source.path.isBlank()) {
+            // NSURL.fileURLWithPath("") raises an Objective-C exception Kotlin/Native cannot catch, so a
+            // blank path never reaches an engine. release() keeps "a failed load leaves nothing loaded".
+            engine.release()
+            return IllegalArgumentException("AudioSource.File path is blank")
+        }
         engine.load(source)
         null
     } catch (cancellation: CancellationException) {
-        throw cancellation
+        // Active here means neither the caller nor this load (superseded, unload, release) was cancelled:
+        // the engine gave up on its own, which is a load failure like any other. Decided here, inside
+        // withContext(load.job), so the throwable never crosses that boundary and stays the engine's own.
+        if (currentCoroutineContext().isActive) cancellation else throw cancellation
     } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
         // Deliberately broad: an engine reports every load failure by throwing, and the whole point
         // of PlayerState.Error is to hand that Throwable to the consumer unchanged instead of
