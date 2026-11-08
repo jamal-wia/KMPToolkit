@@ -707,11 +707,13 @@ internal class DefaultDownloaderEngine(
             // Progress that arrives after a cancel (buffered ahead of its Cancelled, or from a
             // call that has not noticed yet) must not bring the group back to Downloading.
             if (token.isCancelled) return@awaitTerminalEvent
-            if (event.fraction > progressMark.highWater) {
-                progressMark.highWater = event.fraction
+            // NaN or infinity is ignored: it neither counts as progress nor moves the high-water mark.
+            val fraction: Float = usableFraction(event.fraction) ?: return@awaitTerminalEvent
+            if (fraction > progressMark.highWater) {
+                progressMark.highWater = fraction
                 madeProgress = true
             }
-            val scaledProgress: Float = progressBase + event.fraction * progressScale
+            val scaledProgress: Float = (progressBase + fraction * progressScale).coerceAtMost(1f)
             // Guard: never report progress lower than the current value.
             // On retry, the new attempt starts at fraction=0 before real
             // progress is reported — without this check the UI would
@@ -732,6 +734,9 @@ internal class DefaultDownloaderEngine(
             stalled = wait.stalled,
         )
     }
+
+    /** A port's fraction as the engine uses it: null for NaN or infinity (ignored entirely), otherwise clamped to 0..1. */
+    private fun usableFraction(fraction: Float): Float? = if (fraction.isFinite()) fraction.coerceIn(0f, 1f) else null
 
     /** One attempt's terminal event, and whether it is the engine's own stall error. */
     private class TerminalWait(
@@ -1474,8 +1479,9 @@ internal class DefaultDownloaderEngine(
             undoStart = { stateFlow.value = UnitDownloadState.Idle },
         ) { event ->
             // One atomic write that gives way to a cancel (see the group handler).
+            val fraction: Float = usableFraction(event.fraction) ?: return@awaitTerminalEvent
             stateFlow.update { current: UnitDownloadState ->
-                if (token.isCancelled) current else UnitDownloadState.Downloading(progress = event.fraction)
+                if (token.isCancelled) current else UnitDownloadState.Downloading(progress = fraction)
             }
         }
         // Whatever ended the attempt, a cancel requested meanwhile ends the call.

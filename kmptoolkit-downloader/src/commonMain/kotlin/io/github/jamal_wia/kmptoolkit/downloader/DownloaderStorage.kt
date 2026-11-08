@@ -161,6 +161,9 @@ public interface DownloaderStorage {
      * A [ResourceFormat.SqliteDatabase] is then checked as well. A [ResourceFormat.ZipArchive] whose
      * extracted tree (after a single root directory is moved up) lacks the marker fails the same way,
      * before anything at the final path is touched, so a resource already committed stays available.
+     * So does an archive that cannot be extracted as delivered: a truncated or corrupt entry (size or
+     * CRC-32 mismatch), an entry name that leaves the extraction directory, an unsupported compression
+     * method or an encrypted entry. Every entry is extracted or the commit fails; none is skipped.
      * A failed check deletes the temp
      * file and throws [ResourceIntegrityException], which the engine answers with a fresh download
      * rather than a failure; so does a recorded expectation that exists but cannot be read, which is
@@ -212,7 +215,8 @@ public sealed interface TempFileState {
 /**
  * Thrown by [DownloaderStorage.commitResource] when the downloaded bytes fail a check: a
  * [DownloadUnit.sha256] or recorded hash mismatch, a [ResourceFormat.SqliteDatabase] that does not open or does
- * not hold the rows it declares, or a [ResourceFormat.ZipArchive] whose extracted tree lacks its marker. The temp file is already gone when this is thrown.
+ * not hold the rows it declares, or a [ResourceFormat.ZipArchive] whose extracted tree lacks its marker or that
+ * cannot be extracted as delivered. The temp file is already gone when this is thrown.
  *
  * Its own type because the right answer differs from every other commit failure: downloading again
  * is the fix for corrupt bytes, and not for a full disk. The engine retries once and then reports

@@ -12,6 +12,7 @@ import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.UByteVar
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.convert
@@ -62,9 +63,11 @@ import platform.posix.fsync
 import platform.posix.fwrite
 import platform.posix.remove
 import platform.posix.rename
+import platform.zlib.Z_BUF_ERROR
 import platform.zlib.Z_NO_FLUSH
 import platform.zlib.Z_OK
 import platform.zlib.Z_STREAM_END
+import platform.zlib.crc32
 import platform.zlib.inflateEnd
 import platform.zlib.inflateInit2
 import platform.zlib.z_stream
@@ -521,7 +524,6 @@ internal class IosDownloaderStorage(
                 // The tree must be what the unit declares before anything at the final path is touched:
                 // a directory without its marker is not "ready", and it must not replace one that is.
                 if (!fileExists("$stagingDir/${unit.archiveMarker()}")) {
-                    NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
                     throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
                 }
                 // Atomic swap: remove old target, rename staging to target
@@ -545,6 +547,12 @@ internal class IosDownloaderStorage(
                     }
                     NSFileManager.defaultManager.removeItemAtPath(stagingDir, error = null)
                 }
+            } catch (e: ResourceIntegrityException) {
+                // Bytes that are not what the unit declares: the temp file is worthless, and one fresh download
+                // is the fix. Everything above ran before the committed resource was touched.
+                NSFileManager.defaultManager.removeItemAtPath(tempFilePath, error = null)
+                NSFileManager.defaultManager.removeItemAtPath(stagingDir, error = null)
+                throw e
             } catch (e: Exception) {
                 NSFileManager.defaultManager.removeItemAtPath(stagingDir, error = null)
                 throw e
@@ -708,11 +716,26 @@ internal class IosDownloaderStorage(
 
     // -- Streaming ZIP extraction -----------------------------------------------------------
     // Reads the ZIP file via POSIX fread in chunks instead of loading the entire archive into
-    // memory. This prevents OOM on a large archive.
+    // memory. This prevents OOM on a large archive. The walk is the one java.util.zip.ZipInputStream
+    // makes on Android: local headers in order, the central directory never read, so for every archive
+    // the two platforms extract the same tree or fail.
 
     /** True when [path] is a directory with nothing in it. */
     private fun isEmptyDirectory(path: String): Boolean =
         NSFileManager.defaultManager.contentsOfDirectoryAtPath(path, error = null)?.isEmpty() == true
+
+    /** Where one entry's bytes go: counts them, keeps their CRC-32 and writes them to [file] unless it is null. */
+    private class EntrySink(val file: CPointer<FILE>?, val path: String) {
+        var crc: ULong = 0u
+        var size: Long = 0L
+    }
+
+    /** Logs and throws: the archive cannot be extracted as delivered (bytes that are not what a valid archive holds). */
+    private fun zipFail(entry: String?, reason: String): Nothing {
+        val message: String = if (entry == null) "ZIP archive: $reason" else "ZIP entry '$entry': $reason"
+        logger.e { message }
+        throw ResourceIntegrityException(message)
+    }
 
     /**
      * Extracts a ZIP archive at [filePath] into [targetDir] using streaming I/O.
@@ -720,6 +743,12 @@ internal class IosDownloaderStorage(
      * Parses ZIP local file headers sequentially via POSIX fread and uses zlib's streaming inflate
      * for DEFLATED entries. STORED entries are streamed directly. Never loads the entire archive
      * into memory.
+     *
+     * Every entry is extracted or the call fails with [ResourceIntegrityException]; nothing is skipped.
+     * A truncated header, name, data or data descriptor, a size or CRC-32 that disagrees with the
+     * bytes, a stream that does not end where it declares, an unsupported method, an encrypted or
+     * ZIP64 entry and a name that leaves [targetDir] all fail. A full disk or a file that cannot be
+     * created is [IllegalStateException]: the bytes were fine.
      */
     private fun extractZip(filePath: String, targetDir: String) {
         logger.i { "Extracting ZIP to $targetDir..." }
@@ -733,98 +762,110 @@ internal class IosDownloaderStorage(
         val zipFile: CPointer<FILE> = fopen(filePath, "rb")
             ?: error("Failed to open ZIP file: $filePath")
 
-        val headerBuf = ByteArray(30)
+        val headerBuf = ByteArray(LOCAL_HEADER_SIZE)
         val ioBuf = ByteArray(WRITE_BUFFER_SIZE)
+        val outBuf = ByteArray(WRITE_BUFFER_SIZE)
 
         try {
             while (true) {
-                // Read local file header (30 bytes)
-                val headerRead: Int = readExact(zipFile, headerBuf, 30, ioBuf)
-                if (headerRead < 30) break
-
-                // Check local file header signature: PK\x03\x04
-                if (headerBuf[0].toInt() and 0xFF != 0x50 ||
-                    headerBuf[1].toInt() and 0xFF != 0x4B ||
-                    headerBuf[2].toInt() and 0xFF != 0x03 ||
-                    headerBuf[3].toInt() and 0xFF != 0x04
-                ) {
-                    break // No more local file headers (reached central directory)
+                val headerRead: Int = readExact(zipFile, headerBuf, LOCAL_HEADER_SIZE)
+                if (headerRead == 0) break // the archive ends right after an entry
+                if (headerRead < LOCAL_HEADER_SIZE) {
+                    // ZipInputStream ends the walk here without a word. A remainder that is the start of a
+                    // local header (even one byte of it) is a cut archive, though: the entry it begins would be
+                    // lost silently. At a header position the only legal endings are a central directory or an
+                    // end record, which never begin with those bytes.
+                    if (startsLocalHeader(headerBuf, minOf(headerRead, 4))) {
+                        zipFail(null, "the archive ends inside a local file header")
+                    }
+                    break
                 }
+                // A signature other than a local file header (the central directory) ends the entries.
+                if (!hasLocalHeaderSignature(headerBuf)) break
 
+                val flags: Int = readUInt16LE(headerBuf, 6)
                 val compressionMethod: Int = readUInt16LE(headerBuf, 8)
+                val headerCrc: Long = readUInt32LE(headerBuf, 14)
                 val compressedSize: Long = readUInt32LE(headerBuf, 18)
                 val uncompressedSize: Long = readUInt32LE(headerBuf, 22)
                 val fileNameLength: Int = readUInt16LE(headerBuf, 26)
                 val extraFieldLength: Int = readUInt16LE(headerBuf, 28)
+                val hasDescriptor: Boolean = flags and FLAG_DATA_DESCRIPTOR != 0
 
-                // Read file name
                 val fileNameBuf = ByteArray(fileNameLength)
-                val nameRead: Int = readExact(zipFile, fileNameBuf, fileNameLength, ioBuf)
-                if (nameRead < fileNameLength) {
-                    logger.e { "ZIP corrupted: could not read file name" }
-                    break
+                if (readExact(zipFile, fileNameBuf, fileNameLength) < fileNameLength) {
+                    zipFail(null, "the archive ends inside an entry name")
                 }
                 val fileName: String = fileNameBuf.decodeToString()
 
-                // Skip extra field
-                if (extraFieldLength > 0) {
-                    fseek(zipFile, extraFieldLength.toLong().convert(), SEEK_CUR)
+                // Not interpreted (the ZIP64 field is never needed: see below), but a cut must not pass.
+                if (extraFieldLength > 0 && readExact(zipFile, ByteArray(extraFieldLength), extraFieldLength) < extraFieldLength) {
+                    zipFail(fileName, "the archive ends inside the extra field")
                 }
 
-                // A directory entry has no data. It is created (an empty directory is part of the
-                // tree) under the same zip-slip rule as files.
-                if (fileName.endsWith("/")) {
-                    fseek(zipFile, compressedSize.convert(), SEEK_CUR)
-                    if (fileName.contains("..")) {
-                        logger.d { "Skipping suspicious entry: $fileName" }
+                if (flags and FLAG_ENCRYPTED != 0) zipFail(fileName, "encrypted entries are not supported")
+                if (compressionMethod != METHOD_STORED && compressionMethod != METHOD_DEFLATED) {
+                    zipFail(fileName, "unsupported compression method $compressionMethod")
+                }
+                if (hasDescriptor && compressionMethod != METHOD_DEFLATED) {
+                    zipFail(fileName, "only DEFLATED entries can have a data descriptor")
+                }
+                if (!hasDescriptor && (compressedSize == ZIP64_MARKER || uncompressedSize == ZIP64_MARKER)) {
+                    zipFail(fileName, "ZIP64 entries are not supported on iOS")
+                }
+                if (fileName.indexOf('\u0000') >= 0) zipFail(fileName, "the name contains a NUL character")
+
+                val isDirectory: Boolean = fileName.endsWith("/")
+                val segments: List<String> = normalizedSegments(fileName)
+                    ?: zipFail(fileName, "ZIP entry attempts path traversal")
+                if (segments.isEmpty() && !isDirectory) zipFail(fileName, "the name has no file part")
+                val outputPath: String = if (segments.isEmpty()) targetDir else "$targetDir/${segments.joinToString("/")}"
+
+                // A directory entry is created (an empty directory is part of the tree) under the same rule
+                // as files; a `./` or `/` entry is the target itself. Its data, if any, is still read and checked.
+                var outFile: CPointer<FILE>? = null
+                if (isDirectory) {
+                    NSFileManager.defaultManager.createDirectoryAtPath(
+                        path = outputPath,
+                        withIntermediateDirectories = true,
+                        attributes = null,
+                        error = null,
+                    )
+                } else {
+                    NSFileManager.defaultManager.createDirectoryAtPath(
+                        path = outputPath.substringBeforeLast('/'),
+                        withIntermediateDirectories = true,
+                        attributes = null,
+                        error = null,
+                    )
+                    outFile = fopen(outputPath, "wb") ?: error("Failed to create output file: $outputPath")
+                }
+                val sink = EntrySink(outFile, outputPath)
+                var completed = false
+                try {
+                    if (compressionMethod == METHOD_STORED) {
+                        if (compressedSize != uncompressedSize) {
+                            zipFail(fileName, "invalid entry size (declared $uncompressedSize, stored $compressedSize)")
+                        }
+                        streamStoredEntry(zipFile, sink, compressedSize, ioBuf, fileName)
+                        checkEntry(fileName, sink, headerCrc, uncompressedSize)
+                    } else if (hasDescriptor) {
+                        val consumed: Long = streamDeflatedEntry(zipFile, sink, null, ioBuf, outBuf, fileName)
+                        checkDescriptor(zipFile, fileName, sink, consumed)
                     } else {
-                        NSFileManager.defaultManager.createDirectoryAtPath(
-                            path = "$targetDir/$fileName",
-                            withIntermediateDirectories = true,
-                            attributes = null,
-                            error = null,
-                        )
+                        val consumed: Long = streamDeflatedEntry(zipFile, sink, compressedSize, ioBuf, outBuf, fileName)
+                        if (consumed != compressedSize) {
+                            zipFail(fileName, "invalid compressed size (declared $compressedSize, used $consumed)")
+                        }
+                        checkEntry(fileName, sink, headerCrc, uncompressedSize)
                     }
-                    continue
-                }
-
-                // Zip slip protection
-                if (fileName.contains("..")) {
-                    logger.d { "Skipping suspicious entry: $fileName" }
-                    fseek(zipFile, compressedSize.convert(), SEEK_CUR)
-                    continue
-                }
-
-                val outputPath = "$targetDir/$fileName"
-                val parentDir: String = outputPath.substringBeforeLast('/')
-                NSFileManager.defaultManager.createDirectoryAtPath(
-                    path = parentDir,
-                    withIntermediateDirectories = true,
-                    attributes = null,
-                    error = null,
-                )
-
-                when (compressionMethod) {
-                    0 -> {
-                        // STORED — stream directly to output
-                        streamStoredEntry(zipFile, outputPath, compressedSize.toInt(), ioBuf)
-                    }
-
-                    8 -> {
-                        // DEFLATED — streaming zlib inflate
-                        streamDeflatedEntry(
-                            zipFile, outputPath,
-                            compressedSize.toInt(), uncompressedSize.toInt(), ioBuf,
-                        )
-                    }
-
-                    else -> {
-                        logger.d { "Skipping entry with unsupported compression method $compressionMethod: $fileName" }
-                        fseek(zipFile, compressedSize.convert(), SEEK_CUR)
-                        continue
+                    completed = true
+                } finally {
+                    // A failed close is a lost write. When the entry already failed, that failure is the one to report.
+                    if (outFile != null && fclose(outFile) != 0 && completed) {
+                        throw IllegalStateException("Failed to write $outputPath")
                     }
                 }
-
                 logger.d { "Extracted: $fileName" }
             }
         } finally {
@@ -833,14 +874,83 @@ internal class IosDownloaderStorage(
         logger.i { "ZIP extraction complete" }
     }
 
-    /** Reads exactly [count] bytes from [file] into [dest]. Returns actual bytes read. */
-    private fun readExact(
-        file: CPointer<FILE>,
-        dest: ByteArray,
-        count: Int,
-        @Suppress("UNUSED_PARAMETER") ioBuf: ByteArray,
-    ): Int {
+    /** True when the first [count] bytes of [buf] equal the first [count] bytes of `PK\u0003\u0004`. */
+    private fun startsLocalHeader(buf: ByteArray, count: Int): Boolean {
+        val signature: IntArray = intArrayOf(0x50, 0x4B, 0x03, 0x04)
+        for (i: Int in 0 until count) if (buf[i].toInt() and 0xFF != signature[i]) return false
+        return true
+    }
+
+    private fun hasLocalHeaderSignature(buf: ByteArray): Boolean =
+        buf[0].toInt() and 0xFF == 0x50 &&
+            buf[1].toInt() and 0xFF == 0x4B &&
+            buf[2].toInt() and 0xFF == 0x03 &&
+            buf[3].toInt() and 0xFF == 0x04
+
+    /**
+     * An entry name as the segments left after resolving it lexically, splitting on `/` only: empty and `.`
+     * segments are dropped, `..` removes one, and null when a `..` has nothing to remove (the entry would land
+     * outside the extraction directory). A name that merely contains two dots is an ordinary name.
+     */
+    private fun normalizedSegments(name: String): List<String>? {
+        val segments: ArrayList<String> = ArrayList()
+        for (segment: String in name.split('/')) {
+            when (segment) {
+                "", "." -> Unit
+                ".." -> {
+                    if (segments.isEmpty()) return null
+                    segments.removeAt(segments.lastIndex)
+                }
+                else -> segments.add(segment)
+            }
+        }
+        return segments
+    }
+
+    /** Fails when the bytes written for [entry] are not the CRC-32 and size its header declared. */
+    private fun checkEntry(entry: String, sink: EntrySink, expectedCrc: Long, expectedSize: Long) {
+        if (sink.size != expectedSize) {
+            zipFail(entry, "invalid entry size (declared $expectedSize, got ${sink.size} bytes)")
+        }
+        if (sink.crc.toLong() and MASK_32 != expectedCrc) zipFail(entry, "invalid entry CRC-32")
+    }
+
+    /**
+     * Reads the data descriptor that follows a streamed DEFLATED entry (an optional `PK\u0007\u0008` signature,
+     * the CRC-32, then the compressed and uncompressed sizes) and compares it with what was read and written.
+     * A ZIP64 descriptor (8-byte sizes) does not match and fails, with the other ZIP64 layouts.
+     */
+    private fun checkDescriptor(zipFile: CPointer<FILE>, entry: String, sink: EntrySink, consumed: Long) {
+        val buf = ByteArray(16)
+        if (readExact(zipFile, buf, 4) < 4) zipFail(entry, "the archive ends inside the data descriptor")
+        val crc: Long
+        val compressed: Long
+        val uncompressed: Long
+        if (readUInt32LE(buf, 0) == DESCRIPTOR_SIGNATURE) {
+            if (readExact(zipFile, buf, 12) < 12) zipFail(entry, "the archive ends inside the data descriptor")
+            crc = readUInt32LE(buf, 0)
+            compressed = readUInt32LE(buf, 4)
+            uncompressed = readUInt32LE(buf, 8)
+        } else {
+            // No signature: those four bytes are the CRC-32.
+            crc = readUInt32LE(buf, 0)
+            if (readExact(zipFile, buf, 8) < 8) zipFail(entry, "the archive ends inside the data descriptor")
+            compressed = readUInt32LE(buf, 0)
+            uncompressed = readUInt32LE(buf, 4)
+        }
+        if (sink.crc.toLong() and MASK_32 != crc) zipFail(entry, "invalid entry CRC-32 (data descriptor)")
+        if (consumed != compressed) {
+            zipFail(entry, "invalid compressed size (descriptor $compressed, used $consumed)")
+        }
+        if (sink.size != uncompressed) {
+            zipFail(entry, "invalid entry size (descriptor $uncompressed, got ${sink.size} bytes)")
+        }
+    }
+
+    /** Reads exactly [count] bytes from [file] into [dest]. Returns actual bytes read, fewer only at the end of the file. */
+    private fun readExact(file: CPointer<FILE>, dest: ByteArray, count: Int): Int {
         var totalRead = 0
+        if (count == 0) return 0
         dest.usePinned { pinned ->
             while (totalRead < count) {
                 val remaining: Int = count - totalRead
@@ -857,103 +967,100 @@ internal class IosDownloaderStorage(
         return totalRead
     }
 
-    /** Streams a STORED ZIP entry from [zipFile] to [outputPath]. */
-    private fun streamStoredEntry(
-        zipFile: CPointer<FILE>,
-        outputPath: String,
-        size: Int,
-        ioBuf: ByteArray,
-    ) {
-        val outFile: CPointer<FILE> = fopen(outputPath, "wb")
-            ?: error("Failed to create output file: $outputPath")
-        try {
-            var remaining: Int = size
-            ioBuf.usePinned { pinned ->
-                while (remaining > 0) {
-                    val toRead: Int = minOf(remaining, ioBuf.size)
-                    val n: Long = fread(
-                        pinned.addressOf(0), 1u.convert(), toRead.convert(), zipFile,
-                    ).toLong()
-                    if (n <= 0) break
-                    fwrite(pinned.addressOf(0), 1u.convert(), n.convert(), outFile)
-                    remaining -= n.toInt()
-                }
+    /** Takes [count] bytes of [data] into [sink]: counted, checksummed and (for a file entry) written; a short write throws. */
+    private fun consume(sink: EntrySink, data: ByteArray, count: Int) {
+        if (count == 0) return
+        data.usePinned { pinned ->
+            sink.crc = crc32(sink.crc, pinned.addressOf(0).reinterpret<UByteVar>(), count.convert())
+            sink.size += count
+            val file: CPointer<FILE>? = sink.file
+            if (file != null) {
+                val written: Long = fwrite(pinned.addressOf(0), 1u.convert(), count.convert(), file).toLong()
+                if (written != count.toLong()) throw IllegalStateException("Failed to write ${sink.path}")
             }
-        } finally {
-            fclose(outFile)
+        }
+    }
+
+    /** Streams a STORED ZIP entry of [size] bytes from [zipFile] into [sink]. */
+    private fun streamStoredEntry(zipFile: CPointer<FILE>, sink: EntrySink, size: Long, ioBuf: ByteArray, entry: String) {
+        var remaining: Long = size
+        while (remaining > 0) {
+            val toRead: Int = minOf(remaining, ioBuf.size.toLong()).toInt()
+            if (readExact(zipFile, ioBuf, toRead) < toRead) zipFail(entry, "the archive ends inside the entry data")
+            consume(sink, ioBuf, toRead)
+            remaining -= toRead
         }
     }
 
     /**
-     * Streams a DEFLATED ZIP entry from [zipFile] to [outputPath] using zlib.
-     * Reads compressed data in chunks and inflates incrementally.
+     * Inflates one DEFLATED ZIP entry from [zipFile] into [sink] using zlib, reading compressed data in chunks.
+     * Succeeds only when the deflate stream ends (`Z_STREAM_END`) and returns how many compressed bytes it used.
+     * With a [budget] (the declared compressed size) no more than that is read, and a stream that has not ended
+     * within it fails; without one (a streamed entry whose size follows the data) the unused part of the last
+     * chunk is given back to the file, so the data descriptor can be read next.
      */
     private fun streamDeflatedEntry(
         zipFile: CPointer<FILE>,
-        outputPath: String,
-        compressedSize: Int,
-        @Suppress("UNUSED_PARAMETER") uncompressedSize: Int,
+        sink: EntrySink,
+        budget: Long?,
         ioBuf: ByteArray,
-    ) {
-        val outFile: CPointer<FILE> = fopen(outputPath, "wb")
-            ?: error("Failed to create output file: $outputPath")
-        val outBuf = ByteArray(WRITE_BUFFER_SIZE)
-
-        try {
-            memScoped {
-                val stream: z_stream = alloc()
-                // -15 = raw deflate (no zlib/gzip header)
-                val initResult: Int = inflateInit2(stream.ptr, -15)
-                if (initResult != Z_OK) {
-                    error("inflateInit2 failed with code $initResult")
-                }
-
-                var compressedRemaining: Int = compressedSize
-                var inflateResult: Int = Z_OK
-
+        outBuf: ByteArray,
+        entry: String,
+    ): Long {
+        var consumed = 0L
+        memScoped {
+            val stream: z_stream = alloc()
+            // -15 = raw deflate (no zlib/gzip header)
+            val initResult: Int = inflateInit2(stream.ptr, -15)
+            if (initResult != Z_OK) {
+                error("inflateInit2 failed with code $initResult")
+            }
+            try {
+                var read = 0L
+                var ended = false
+                var needInput = true
                 ioBuf.usePinned { pinnedIn ->
                     outBuf.usePinned { pinnedOut ->
-                        while (compressedRemaining > 0 && inflateResult != Z_STREAM_END) {
-                            val toRead: Int = minOf(compressedRemaining, ioBuf.size)
-                            val n: Long = fread(
-                                pinnedIn.addressOf(0), 1u.convert(), toRead.convert(), zipFile,
-                            ).toLong()
-                            if (n <= 0) break
-                            compressedRemaining -= n.toInt()
-
-                            stream.next_in = pinnedIn.addressOf(0).reinterpret()
-                            stream.avail_in = n.toUInt()
-
-                            // Inflate all available input
-                            while (stream.avail_in > 0u && inflateResult != Z_STREAM_END) {
-                                stream.next_out = pinnedOut.addressOf(0).reinterpret()
-                                stream.avail_out = outBuf.size.toUInt()
-
-                                inflateResult = zlibInflate(stream.ptr, Z_NO_FLUSH)
-                                if (inflateResult != Z_OK && inflateResult != Z_STREAM_END) {
-                                    inflateEnd(stream.ptr)
-                                    error("inflate failed with code $inflateResult")
+                        while (!ended) {
+                            if (needInput) {
+                                val want: Int = if (budget == null) {
+                                    ioBuf.size
+                                } else {
+                                    minOf(budget - read, ioBuf.size.toLong()).toInt()
                                 }
-
-                                val produced: Int = outBuf.size - stream.avail_out.toInt()
-                                if (produced > 0) {
-                                    fwrite(
-                                        pinnedOut.addressOf(0),
-                                        1u.convert(),
-                                        produced.convert(),
-                                        outFile,
-                                    )
-                                }
+                                if (want <= 0) zipFail(entry, "the deflate stream does not end within the declared compressed size")
+                                val n: Long = fread(
+                                    pinnedIn.addressOf(0), 1u.convert(), want.convert(), zipFile,
+                                ).toLong()
+                                if (n <= 0) zipFail(entry, "the archive ends inside the entry data")
+                                read += n
+                                stream.next_in = pinnedIn.addressOf(0).reinterpret()
+                                stream.avail_in = n.toUInt()
                             }
+                            stream.next_out = pinnedOut.addressOf(0).reinterpret()
+                            stream.avail_out = outBuf.size.toUInt()
+                            val result: Int = zlibInflate(stream.ptr, Z_NO_FLUSH)
+                            // Z_BUF_ERROR with all input used and nothing pending only asks for more input.
+                            if (result != Z_OK && result != Z_STREAM_END && !(result == Z_BUF_ERROR && stream.avail_in == 0u)) {
+                                zipFail(entry, "the deflate stream is corrupt (inflate code $result)")
+                            }
+                            consume(sink, outBuf, outBuf.size - stream.avail_out.toInt())
+                            if (result == Z_STREAM_END) ended = true
+                            // Pending output (the buffer came back full) needs another call, not more input.
+                            needInput = stream.avail_in == 0u && stream.avail_out != 0u
                         }
                     }
                 }
-
+                val unused: Long = stream.avail_in.toLong()
+                if (budget == null && unused > 0 && fseek(zipFile, (-unused).convert(), SEEK_CUR) != 0) {
+                    error("Failed to seek in the ZIP archive")
+                }
+                consumed = read - unused
+            } finally {
                 inflateEnd(stream.ptr)
             }
-        } finally {
-            fclose(outFile)
         }
+        return consumed
     }
 
     private fun readUInt16LE(data: ByteArray, offset: Int): Int {
@@ -984,3 +1091,12 @@ internal class IosDownloaderStorage(
     private fun fileExists(path: String): Boolean =
         NSFileManager.defaultManager.fileExistsAtPath(path)
 }
+
+private const val LOCAL_HEADER_SIZE: Int = 30
+private const val FLAG_ENCRYPTED: Int = 0x0001
+private const val FLAG_DATA_DESCRIPTOR: Int = 0x0008
+private const val METHOD_STORED: Int = 0
+private const val METHOD_DEFLATED: Int = 8
+private const val ZIP64_MARKER: Long = 0xFFFFFFFFL
+private const val MASK_32: Long = 0xFFFFFFFFL
+private const val DESCRIPTOR_SIGNATURE: Long = 0x08074B50L

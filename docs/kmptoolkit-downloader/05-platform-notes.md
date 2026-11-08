@@ -122,7 +122,9 @@ Known limits that are not fixed: two units whose id and extension join to the sa
 normalization share files on a case-insensitive volume. On such a volume (iOS asks the volume once
 per storage; an unanswerable volume counts as case-insensitive) the commit lock of `Model` and
 `model` is shared, so they never commit or detach a staging tree at the same time, and a
-`relativePath` such as `TMP/Expect/x` is rejected like `tmp/expect/x`. Android is case-sensitive.
+`relativePath` such as `TMP/Expect/x` is rejected like `tmp/expect/x` (case is folded with the full
+mapping, so `tmp/ſtaging-x` is rejected too, and ids such as `straße` and `STRASSE` share a commit
+lock). Android is case-sensitive.
 
 On iOS the OS may restart a background download from zero while claiming to resume it from
 `resumeData`. The bytes of the new file then do not match the hash recorded for the first one, so
@@ -174,7 +176,18 @@ data.
 
 ZIP extraction is `java.util.zip` on Android and a hand-written streaming extractor over zlib's raw
 `inflate` on iOS (Kotlin/Native has no `java.util.zip`). Both stream through a single reusable
-buffer rather than loading an entry into memory, and both carry zip-slip protection.
+buffer rather than loading an entry into memory, both extract every entry or fail the commit, and both
+treat an entry that would leave the extraction directory as a failure (names are resolved lexically on
+`/` only: `a/../inner.txt` extracts to `inner.txt`, `release..notes.txt` is an ordinary name, `../evil.txt`
+fails). Both check each entry's sizes and CRC-32; an entry written with a data descriptor (a streaming
+writer's layout, as `java.util.zip.ZipOutputStream` produces) is supported for DEFLATED entries. A
+truncated or corrupt archive, an unsupported compression method, an encrypted entry or a traversal name
+fails the commit with `ResourceIntegrityException` (one fresh download, then `DownloadError.Corrupted`).
+iOS does not read ZIP64 archives (entries or archives over 4 GiB): such an archive fails the commit there.
+The walk is the one `java.util.zip.ZipInputStream` makes: local headers in order, the central directory
+never read. An archive cut anywhere inside an entry, its header included, fails the commit on both
+platforms. An archive cut exactly after its last entry (the central directory missing entirely) is
+accepted, as `java.util.zip` accepts it; the sha256 and marker checks still apply.
 
 ## Both platforms
 
@@ -189,8 +202,11 @@ buffer rather than loading an entry into memory, and both carry zip-slip protect
 - **No disk-space precondition.** Neither platform checks free space before enqueueing; a full disk
   fails during the transfer or during commit, and surfaces as whatever your
   `BackgroundResourceDownloader` reports (commonly `DownloadError.Unknown` unless your
-  implementation's error message is recognisable) or, for a commit-time failure (a `ZipArchive`
-  extraction, a move into place), as `DownloadError.Storage`.
+  implementation's error message is recognisable) or, for a commit-time failure (a write during a
+  `ZipArchive` extraction, a move into place), as `DownloadError.Storage`. Extraction writes are checked
+  on both platforms, so a full disk during extraction fails the commit instead of leaving a truncated
+  file. An archive whose bytes cannot be extracted at all is not a storage failure but
+  `ResourceIntegrityException` (above).
 - **`DownloaderStorage` keys everything by the unit's own properties (`id`, `relativePath`), never
   by object identity or by any internal per-instance map.** Two `DownloadUnit` instances with the
   same `id` — a host constructing a fresh instance per call is common and expected — always resolve

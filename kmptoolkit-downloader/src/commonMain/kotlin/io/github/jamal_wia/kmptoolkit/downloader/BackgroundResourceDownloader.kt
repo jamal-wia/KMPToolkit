@@ -70,6 +70,10 @@ public sealed class BackgroundDownloadEvent {
 
     public data class Progress(
         override val unit: DownloadUnit,
+        /**
+         * Expected in 0..1. The engine ignores NaN and infinity and clamps any other value into 0..1
+         * before it reaches a state flow or the notifier.
+         */
         public val fraction: Float,
     ) : BackgroundDownloadEvent()
 

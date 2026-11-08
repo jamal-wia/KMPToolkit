@@ -102,6 +102,9 @@ compiled against) with value `equals` / `hashCode` / `toString`.
 `SqliteDatabase(rowCountTable: String? = null, declaredRowCountMetaKey: String? = null)`. See
 [`03-guide.md`](03-guide.md) for what commit does for each.
 
+Every entry of a `ZipArchive` is extracted, or the commit fails with `ResourceIntegrityException`; an entry that
+would land outside the directory fails the commit.
+
 ## `ResourceGroup`
 
 | Member | Type | Notes |
@@ -168,7 +171,9 @@ that cannot be a file name is stored under a hashed name ([`05-platform-notes.md
 | `isDownloadInProgress` | `fun isDownloadInProgress(unit: DownloadUnit): Boolean` |
 | `cancelDownload` | `fun cancelDownload(unit: DownloadUnit)` |
 
-`BackgroundDownloadEvent`: `Progress(unit, fraction: Float)`, and the terminals
+`BackgroundDownloadEvent`: `Progress(unit, fraction: Float)` (`fraction` is expected in 0..1; the engine
+ignores NaN and infinity and clamps any other value into 0..1 before it reaches a state flow or the
+notifier), and the terminals
 `FileReady(unit)`, `Error(unit, message: String)`, `Cancelled(unit)`. See
 [`07-background-downloader.md`](07-background-downloader.md).
 
@@ -209,8 +214,10 @@ state committed without a transfer). `markTempFileComplete` is atomic, idempoten
 two callers mark the same file at once: the loser of the rename returns normally),
 and throws when there is no file. `commitResource` throws when there is no complete file, and
 throws `ResourceIntegrityException(message, cause)` — after deleting the temp file — when the bytes
-fail a check, or when a `ZipArchive` whose extracted tree (after a single root directory is moved up)
-lacks the marker fails the same way, before anything at the final path is touched, so a resource
+fail a check, or when a `ZipArchive` cannot be extracted as delivered (a truncated or corrupt entry, a size or
+CRC-32 mismatch, an entry name that leaves the extraction directory, an unsupported compression method, an
+encrypted entry; every entry is extracted or the commit fails, none is skipped), or whose extracted tree (after a single root directory
+is moved up) lacks the marker fails the same way, before anything at the final path is touched, so a resource
 already committed stays available; the engine answers that with one fresh download. All three resource methods that name a
 path (`getResourcePath`, `commitResource`, `deleteResource`) throw `InvalidDownloadUnitException` for a
 `relativePath` that is not usable. Commits of one unit are mutually
