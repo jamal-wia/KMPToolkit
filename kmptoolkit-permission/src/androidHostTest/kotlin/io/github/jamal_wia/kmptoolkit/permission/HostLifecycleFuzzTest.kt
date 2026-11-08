@@ -90,8 +90,10 @@ class HostLifecycleFuzzTest {
             assertEquals(listOf(mapOf(camera to false)), answers, "walk $walk $trail")
             assertTrue(host.launch(listOf(camera)) {}, "walk $walk $trail: the host did not take the next request")
             endPlatformRequest(controller.get())
-            // Let this walk's activity go before the next one starts: 120 resumed activities held until
-            // the end of the test run the module's test JVM out of memory now and then.
+            // Finish this walk's activity before the next one starts: finishing ends the walk's unanswered
+            // second request and frees the activity, so no stale request attaches to a later walk's
+            // activity and 120 resumed activities are not held until the end of the test run.
+            controller.get().finish()
             controller.pause().stop().destroy()
             controller.close()
             activities.remove(controller)
