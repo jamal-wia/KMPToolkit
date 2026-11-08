@@ -72,6 +72,7 @@ class UnitFileLayoutFoldRound5Test {
     @Test
     fun `ids that one case-insensitive file shares get one commit lock`() {
         assertEquals(insensitive.lockKey(unitWithId("stra\u00dfe")), insensitive.lockKey(unitWithId("STRASSE")))
+        assertEquals(insensitive.lockKey(unitWithId("STRASSE")), insensitive.lockKey(unitWithId("STRA\u1e9eE")))
         assertEquals(insensitive.lockKey(unitWithId("\u017fave")), insensitive.lockKey(unitWithId("save")))
         assertEquals(insensitive.lockKey(unitWithId("Model")), insensitive.lockKey(unitWithId("model")))
     }

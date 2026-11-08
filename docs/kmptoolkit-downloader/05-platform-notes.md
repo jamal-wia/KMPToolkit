@@ -123,7 +123,7 @@ normalization share files on a case-insensitive volume. On such a volume (iOS as
 per storage; an unanswerable volume counts as case-insensitive) the commit lock of `Model` and
 `model` is shared, so they never commit or detach a staging tree at the same time, and a
 `relativePath` such as `TMP/Expect/x` is rejected like `tmp/expect/x` (case is folded with the full
-mapping, so `tmp/ſtaging-x` is rejected too, and ids such as `straße` and `STRASSE` share a commit
+mapping, so `tmp/ſtaging-x` is rejected too, and ids such as `ß`, `ẞ`, `straße` and `STRASSE` share a commit
 lock). Android is case-sensitive.
 
 On iOS the OS may restart a background download from zero while claiming to resume it from
@@ -185,9 +185,27 @@ truncated or corrupt archive, an unsupported compression method, an encrypted en
 fails the commit with `ResourceIntegrityException` (one fresh download, then `DownloadError.Corrupted`).
 iOS does not read ZIP64 archives (entries or archives over 4 GiB): such an archive fails the commit there.
 The walk is the one `java.util.zip.ZipInputStream` makes: local headers in order, the central directory
-never read. An archive cut anywhere inside an entry, its header included, fails the commit on both
-platforms. An archive cut exactly after its last entry (the central directory missing entirely) is
-accepted, as `java.util.zip` accepts it; the sha256 and marker checks still apply.
+never read. An archive must end with its end of central directory record (a comment cut short is tolerated, and
+so are bytes after the record); an archive cut anywhere before it, its central directory included, fails the
+commit with `ResourceIntegrityException` on both platforms. This is decided from the file alone before anything is
+extracted: a signature `PK\5\6` with 22 bytes after it, within the last 69,633 bytes, whose central directory
+offset plus size equals its own position (a ZIP64 record counts when its locator precedes it). Self-extracting
+archives (a stub in front of the first header) fail on their first bytes. Entry names are read as UTF-8 whether
+or not the archive sets the UTF-8 flag; a name that is not valid UTF-8 (an archive written in a legacy code page)
+fails the commit. Android 14 and later (`targetSdk` 34+) also refuse entry names containing `..` segments or
+starting with `/` inside `java.util.zip` (Zip path validation); on those devices such archives fail as
+`Corrupted`, while older devices and iOS extract them under their normalized names.
+
+When the marker is not at the top and the archive holds exactly one non-empty top-level directory that
+contains it, that directory's contents are moved up; files and empty directories beside it stay where they
+are, and a name that exists at the top as a file fails the commit with `ResourceIntegrityException`. An empty
+directory of the same name is replaced; a non-empty directory is never deleted.
+
+A `SqliteDatabase` file must be at least 100 bytes long and start with the 16-byte SQLite header
+(`SQLite format 3` and a NUL); an empty or cut body fails the commit, before the database is opened. The row
+count table is used as a name (resolved through `sqlite_master`, then quoted: a keyword or a name with spaces
+works) and the meta key is bound as a value, so neither is ever SQL text. A table value that names no table is
+still used as SQL text, as in 3.0.0, for compatibility only.
 
 ## Both platforms
 

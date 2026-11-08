@@ -158,10 +158,12 @@ internal class JvmKeyValueStorage(
 
 /**
  * The key of the lock shared by every store over one file: the canonical path (or the absolute one),
- * Unicode-normalized (NFC) and folded through the full case mapping (uppercase, then lowercase, then NFC
- * again, because case mapping can leave a decomposed sequence): `ß` and `ss`, the Greek sigma forms,
- * the long s `ſ` and `s`, the Kelvin sign and `k` each get one key. Two paths whose uppercase forms are
- * equal always get the same key. Folded always, never probed: a case-sensitive volume
+ * Unicode-normalized (NFC) and folded through the full case mapping (lowercase, uppercase, lowercase, then
+ * NFC again, because case mapping can leave a decomposed sequence): `ß`, the capital sharp s `ẞ` and `ss`,
+ * the Greek sigma forms, the long s `ſ` and `s`, the Kelvin sign and `k` each get one key. Two paths whose
+ * uppercase forms after lowercasing are equal always get the same key. The formula was checked against the
+ * full case-folding table of the Unicode version of the JDK it was written on: no group of code points that
+ * fold to one string is split by it (over-folding, joining names a volume keeps apart, only costs parallelism). Folded always, never probed: a case-sensitive volume
  * only loses some parallelism between `Settings` and `settings` (two files behind one lock; the
  * guarded block never suspends and never nests another lock, so nothing can deadlock), while a
  * volume that folds case would otherwise lose keys, because the canonical path of a file that does
@@ -178,7 +180,11 @@ internal fun jvmStorageLockKey(file: File): String {
         file.absoluteFile.normalize().path
     }
     val composed: String = Normalizer.normalize(path, Normalizer.Form.NFC)
-    // Uppercase first: the full mapping turns ß into SS, every sigma into Σ and ſ into S, so spellings with the
-    // same capitals get the same key; lowercase then gives one form.
-    return Normalizer.normalize(composed.uppercase(Locale.ROOT).lowercase(Locale.ROOT), Normalizer.Form.NFC)
+    // Lowercase first, so the capital sharp s becomes ß (uppercasing leaves it alone). Then the full mapping turns ß
+    // into SS, every sigma into Σ and ſ into S, so spellings with the same capitals get the same key; lowercase
+    // then gives one form.
+    return Normalizer.normalize(
+        composed.lowercase(Locale.ROOT).uppercase(Locale.ROOT).lowercase(Locale.ROOT),
+        Normalizer.Form.NFC,
+    )
 }

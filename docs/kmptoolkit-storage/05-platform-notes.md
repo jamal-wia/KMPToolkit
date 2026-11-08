@@ -249,7 +249,7 @@ call from the main thread and from any number of coroutines at once:
   updates the item instead, so neither write reports a failure.
 - **Desktop.** Instances over the same file share a coroutine `Mutex`, so their read-modify-write
   cycles over the file never interleave. The lock is keyed by the path in Unicode NFC with the full
-  case mapping (`ß` and `ss`, the Greek sigma forms, `Settings` and `settings` share it), so two
+  case mapping (`ß`, `ẞ` and `ss`, the Greek sigma forms, `Settings` and `settings` share it), so two
   spellings of one name share it on a volume that folds case (macOS, Windows); on a case-sensitive volume they are two files behind one lock. A file that
   cannot be parsed, including one that is not valid UTF-8, fails every operation on it, writes included, and is never replaced; `clear()` is
   the way out, and a `DeviceIdProvider` over such a file yields a new id per call until then.

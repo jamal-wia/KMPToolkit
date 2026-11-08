@@ -206,13 +206,15 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
         PathInspection.Rejected(reason)
 
     /**
-     * Folds a path segment on a case-insensitive volume through uppercase then lowercase, the full case
-     * mapping: `ß` and `ss`, `ſ` (long s) and `s`, and the sigma forms each end up equal, as the
-     * volume treats them. Unicode normalization variants are not folded.
+     * Folds a path segment on a case-insensitive volume through lowercase, uppercase, lowercase, the full
+     * case mapping: `ß`, the capital sharp s `ẞ` and `ss`, `ſ` (long s) and `s`, and the sigma forms each end up
+     * equal, as the volume treats them. Two names whose uppercase forms after lowercasing are equal share a key;
+     * over-folding is harmless. Checked against the full case-folding table of the Unicode version of the JDK used
+     * (no group that folds to one string is split). Unicode normalization variants are not folded.
      */
     private fun fold(segment: String): String = if (caseInsensitive) foldCase(segment) else segment
 
-    private fun foldCase(text: String): String = text.uppercase().lowercase()
+    private fun foldCase(text: String): String = text.lowercase().uppercase().lowercase()
 
     companion object {
         private const val TMP: String = "tmp"

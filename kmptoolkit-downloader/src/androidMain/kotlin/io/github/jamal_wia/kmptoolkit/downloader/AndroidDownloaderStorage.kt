@@ -16,9 +16,7 @@ import java.io.EOFException
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.FilterInputStream
 import java.io.IOException
-import java.io.InputStream
 import java.io.RandomAccessFile
 import kotlin.random.Random
 import java.security.MessageDigest
@@ -375,19 +373,7 @@ internal class AndroidDownloaderStorage(
                 // Handle nested directory: ZIP may contain a root directory prefix
                 // (e.g., entries like "pages/page001.webp" instead of "page001.webp"),
                 // causing files to land in staging/pages/ instead of staging/.
-                if (!File(stagingDir, unit.archiveMarker()).exists()) {
-                    // An empty directory never counts as the single root.
-                    val subdirs: Array<File> =
-                        stagingDir.listFiles { f: File -> f.isDirectory && !f.list().isNullOrEmpty() } ?: emptyArray()
-                    if (subdirs.size == 1) {
-                        val nestedDir: File = subdirs[0]
-                        logger.i { "Detected nested directory '${nestedDir.name}', moving contents up" }
-                        nestedDir.listFiles()?.forEach { file: File ->
-                            file.renameTo(File(stagingDir, file.name))
-                        }
-                        nestedDir.delete()
-                    }
-                }
+                if (!File(stagingDir, unit.archiveMarker()).exists()) moveSingleRootUp(stagingDir, unit)
                 // The tree must be what the unit declares before anything at the final path is touched:
                 // a directory without its marker is not "ready", and it must not replace one that is.
                 if (!File(stagingDir, unit.archiveMarker()).exists()) {
@@ -420,6 +406,46 @@ internal class AndroidDownloaderStorage(
                 destinationPath = getResourcePath(unit),
             )
         }
+    }
+
+    /**
+     * Moves the contents of the archive's single root directory up into [stagingDir] when the marker is not at the top.
+     * Candidates are the non-empty top-level directories (files and empty directories never are); it acts only for
+     * exactly one candidate that holds the marker. The root is first renamed to a free sibling name, so a child named
+     * like the root lands where it belongs; every move is checked, a child replaces only an empty directory of its
+     * name, and one that meets a file or a non-empty directory fails the commit. The root's shell is removed only when
+     * it is empty: a directory that still holds data is never deleted.
+     */
+    private fun moveSingleRootUp(stagingDir: File, unit: DownloadUnit) {
+        val candidates: Array<File> =
+            stagingDir.listFiles { f: File -> f.isDirectory && !f.list().isNullOrEmpty() } ?: emptyArray()
+        if (candidates.size != 1) return
+        val root: File = candidates[0]
+        if (!File(root, unit.archiveMarker()).exists()) return
+        logger.i { "Detected nested directory '${root.name}', moving contents up" }
+        val taken: Set<String> = (stagingDir.list().orEmpty().toList() + root.list().orEmpty().toList())
+            .map { name: String -> name.lowercase() }
+            .toSet()
+        var suffix = 0
+        var temporaryName: String = TEMPORARY_ROOT_NAME
+        while (temporaryName.lowercase() in taken) temporaryName = "$TEMPORARY_ROOT_NAME-${++suffix}"
+        val temporary = File(stagingDir, temporaryName)
+        check(root.renameTo(temporary)) { "Could not move the root directory '${root.name}' of $unit aside" }
+        for (child: File in temporary.listFiles().orEmpty()) {
+            val destination = File(stagingDir, child.name)
+            if (destination.exists()) {
+                if (destination.isDirectory && destination.list().isNullOrEmpty()) {
+                    check(destination.delete()) { "Could not replace the empty directory '${child.name}' of $unit" }
+                } else {
+                    throw ResourceIntegrityException(
+                        "Archive of $unit: '${child.name}' of root '${root.name}' collides with a top-level entry",
+                    )
+                }
+            }
+            check(child.renameTo(destination)) { "Could not move '${child.name}' of the root directory of $unit up" }
+        }
+        // File.delete() refuses a directory that still holds anything.
+        check(temporary.delete()) { "Could not remove the emptied root directory of $unit" }
     }
 
     /**
@@ -456,16 +482,19 @@ internal class AndroidDownloaderStorage(
     /**
      * Verifies a committed-to-be [ResourceFormat.SqliteDatabase] before it is moved into place.
      *
-     * Opening it is the baseline check — bytes that are not a database fail here. When the format
+     * The file must start with the 16-byte SQLite header and be at least 100 bytes long (an empty or cut body
+     * fails). Opening it is the next check — bytes that are not a database fail here. When the format
      * also names a table and a `meta` key, the real row count must match the count the file itself
      * declares, which catches a truncated download that still happens to parse. Which table and
      * which key those are is the host's own domain knowledge, which is why they are values on the
-     * unit's [ResourceFormat.SqliteDatabase] rather than anything this library assumes.
+     * unit's [ResourceFormat.SqliteDatabase] rather than anything this library assumes: the table is used as a
+     * name (resolved through `sqlite_master` and quoted) and the key is bound as a parameter.
      *
      * Deletes the temp file and throws [ResourceIntegrityException] on any failure: nothing invalid
      * may reach the final path, not even momentarily.
      */
     private fun verifySqlite(tempFile: File, format: ResourceFormat.SqliteDatabase) {
+        requireSqliteHeader(tempFile)
         val counts: Pair<Int, Int?>? = try {
             SQLiteDatabase.openDatabase(tempFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
                 .use { db: SQLiteDatabase ->
@@ -477,8 +506,13 @@ internal class AndroidDownloaderStorage(
                     if (table == null || metaKey == null) {
                         null
                     } else {
-                        queryInt(db, "SELECT COUNT(*) FROM $table") to
-                            queryText(db, "SELECT value FROM meta WHERE key = '$metaKey'")?.toIntOrNull()
+                        // The table is a name: resolved through sqlite_master and quoted. A value that names no table
+                        // is used as SQL text, as 3.0.0 did (a pre-quoted or schema-qualified name keeps working).
+                        // 4.0: drop the verbatim fallback
+                        val stored: String? = queryText(db, SQLITE_RESOLVE_TABLE_SQL, table)
+                        val countSql: String = if (stored != null) countRowsSql(stored) else countRowsVerbatimSql(table)
+                        queryInt(db, countSql) to
+                            queryText(db, SQLITE_META_VALUE_SQL, metaKey)?.toIntOrNull()
                     }
                 }
         } catch (e: SQLiteException) {
@@ -498,12 +532,25 @@ internal class AndroidDownloaderStorage(
         }
     }
 
+    /** Deletes [tempFile] and throws when it does not start with the 16-byte SQLite header or is shorter than 100 bytes. */
+    private fun requireSqliteHeader(tempFile: File) {
+        val length: Long = tempFile.length()
+        val head = ByteArray(SQLITE_HEADER_READ_SIZE)
+        val read: Int = FileInputStream(tempFile).use { input: FileInputStream -> input.read(head) }
+        if (read < head.size || !hasSqliteHeader(head, length)) {
+            tempFile.delete()
+            throw ResourceIntegrityException(
+                "Downloaded resource failed integrity check: not a valid database (no SQLite header)",
+            )
+        }
+    }
+
     private fun queryInt(db: SQLiteDatabase, sql: String): Int {
         db.rawQuery(sql, null).use { cursor -> return if (cursor.moveToFirst()) cursor.getInt(0) else -1 }
     }
 
-    private fun queryText(db: SQLiteDatabase, sql: String): String? {
-        db.rawQuery(sql, null).use { cursor -> return if (cursor.moveToFirst()) cursor.getString(0) else null }
+    private fun queryText(db: SQLiteDatabase, sql: String, argument: String): String? {
+        db.rawQuery(sql, arrayOf(argument)).use { cursor -> return if (cursor.moveToFirst()) cursor.getString(0) else null }
     }
 
     private fun moveFile(tempFile: File, destinationPath: String) {
@@ -533,6 +580,7 @@ internal class AndroidDownloaderStorage(
      */
     private fun extractZip(unit: DownloadUnit, tempFile: File, targetDir: String) {
         logger.i { "Extracting ZIP to $targetDir..." }
+        requireEndRecord(unit, tempFile)
         val dir = File(targetDir)
         dir.mkdirs()
         val dirPath: String = dir.canonicalPath
@@ -541,9 +589,8 @@ internal class AndroidDownloaderStorage(
         // hundreds of small files can otherwise trigger OOM once the app is backgrounded and heap
         // is tight.
         val copyBuffer = ByteArray(WRITE_BUFFER_SIZE)
-        val observed = EofObservingStream(FileInputStream(tempFile).buffered())
 
-        ZipInputStream(observed).use { zipStream: ZipInputStream ->
+        ZipInputStream(FileInputStream(tempFile).buffered()).use { zipStream: ZipInputStream ->
             var entry: ZipEntry? = readingArchive(unit) { zipStream.nextEntry }
             while (entry != null) {
                 val entryName: String = entry.name
@@ -575,8 +622,6 @@ internal class AndroidDownloaderStorage(
                 entry = readingArchive(unit) { zipStream.nextEntry }
             }
         }
-        // ZipInputStream ends the walk silently on a short remainder; one that starts like a local header is a cut archive.
-        if (observed.sawEof) rejectCutHeader(unit, tempFile)
         logger.i { "ZIP extraction complete" }
     }
 
@@ -593,65 +638,31 @@ internal class AndroidDownloaderStorage(
         throw ResourceIntegrityException("Archive of $unit cannot be extracted: ${e.message}", e)
     } catch (e: EOFException) {
         throw ResourceIntegrityException("Archive of $unit cannot be extracted: ${e.message ?: "unexpected end of archive"}", e)
+    } catch (e: IllegalArgumentException) {
+        // The JDK's ZipCoder: an entry name that is not valid UTF-8 (flag set or not; legacy code pages write such names).
+        throw ResourceIntegrityException("Archive of $unit has an entry name that is not valid UTF-8", e)
     }
 
     /**
-     * Fails when [tempFile] has no end-of-central-directory record and its last bytes, fewer than a local header,
-     * begin like one (`P`, `PK`, `PK\u0003` or the whole signature): the archive was cut inside the header of an
-     * entry, which ZipInputStream reads as the end of the entries. An archive that has its end record was not cut
-     * inside a header and is never checked: the last bytes of a valid archive (record fields, comment) may
-     * contain the signature.
+     * Fails with [ResourceIntegrityException] when [tempFile] has no self-consistent end of central directory record
+     * ([hasZipEndRecord]): a file cut anywhere before it, its central directory included, is a half-written archive.
+     * Decided from the file alone before the walk, because `ZipInputStream` reads ahead and cannot say what it left.
      */
-    private fun rejectCutHeader(unit: DownloadUnit, tempFile: File) {
+    private fun requireEndRecord(unit: DownloadUnit, tempFile: File) {
         RandomAccessFile(tempFile, "r").use { file: RandomAccessFile ->
-            if (hasEndRecord(file)) return
-            val length: Int = minOf(LOCAL_HEADER_SIZE - 1L, file.length()).toInt()
-            file.seek(file.length() - length)
-            val tail = ByteArray(length).also { file.readFully(it) }
-            val signature: ByteArray = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
-            // A remainder whose first bytes are a prefix of the signature (all of it, or a cut one).
-            for (start: Int in 0 until tail.size) {
-                val count: Int = minOf(4, tail.size - start)
-                if (count < 4 && start + count != tail.size) continue
-                if ((0 until count).all { tail[start + it] == signature[it] }) {
-                    throw ResourceIntegrityException("Archive of $unit ends inside a local file header")
-                }
+            val length: Long = file.length()
+            val size: Int = minOf(length, ZIP_END_RECORD_WINDOW).toInt()
+            val tail = ByteArray(size)
+            file.seek(length - size)
+            file.readFully(tail)
+            if (!hasZipEndRecord(tail, length - size)) {
+                throw ResourceIntegrityException("Archive of $unit has no end of central directory record")
             }
         }
-    }
-
-    /** True when [file] ends with an end-of-central-directory record: `PK\u0005\u0006` at `length - 22 - n` whose comment length is `n`. */
-    private fun hasEndRecord(file: RandomAccessFile): Boolean {
-        val length: Long = file.length()
-        if (length < END_RECORD_SIZE) return false
-        val maxComment: Long = minOf(65535L, length - END_RECORD_SIZE)
-        val record = ByteArray(END_RECORD_SIZE)
-        for (n: Long in 0..maxComment) {
-            file.seek(length - END_RECORD_SIZE - n)
-            file.readFully(record)
-            val commentLength: Int = (record[20].toInt() and 0xFF) or ((record[21].toInt() and 0xFF) shl 8)
-            if (record[0] == 0x50.toByte() && record[1] == 0x4B.toByte() && record[2] == 0x05.toByte() &&
-                record[3] == 0x06.toByte() && commentLength.toLong() == n
-            ) {
-                return true
-            }
-        }
-        return false
-    }
-
-    /** Remembers whether a read of the archive hit its end: the signal that the walk ended at the end of the file. */
-    private class EofObservingStream(input: InputStream) : FilterInputStream(input) {
-        var sawEof: Boolean = false
-            private set
-
-        override fun read(): Int = super.read().also { if (it == -1) sawEof = true }
-
-        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-            super.read(buffer, offset, length).also { if (it == -1 && length > 0) sawEof = true }
     }
 
     private companion object {
-        const val LOCAL_HEADER_SIZE: Int = 30
-        const val END_RECORD_SIZE: Int = 22
+        /** The sibling name the single root directory is moved to while its children go up; a free variant is chosen. */
+        const val TEMPORARY_ROOT_NAME: String = ".kmptoolkit-up"
     }
 }
