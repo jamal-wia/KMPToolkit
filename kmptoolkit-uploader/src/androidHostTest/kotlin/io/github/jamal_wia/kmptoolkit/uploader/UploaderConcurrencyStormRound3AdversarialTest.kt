@@ -320,9 +320,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
                 jobs.forEach { it.join() }
             }
         }
-        val field = OutcomeReplayLocks::class.java.getDeclaredField("entries").apply { isAccessible = true }
-        val size: Int = (field.get(OutcomeReplayLocks) as Map<*, *>).size
-        assertEquals(0, size, "lock table must be empty when nobody holds or waits")
+        assertEquals(0, OutcomeReplayLocks.activeKeys, "lock table must be empty when nobody holds or waits")
     }
 
     // R3-14: the creation sweep and one job per item race over thirty journaled answers.

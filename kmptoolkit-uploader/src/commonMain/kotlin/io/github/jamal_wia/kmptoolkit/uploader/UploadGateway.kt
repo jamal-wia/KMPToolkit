@@ -124,6 +124,23 @@ public object UploadGateway {
         return engine.settleJournaled(itemId, response, attemptStamp, onSettling)
     }
 
+    /**
+     * [complete] for an answer the worker did not journal, stamped with the attempt it belongs to
+     * ([attemptStamp]); a report of an attempt the item has moved past is not charged to the new one.
+     *
+     * @return `false` when no engine registered within [engineWait] or the commit did not land.
+     */
+    internal suspend fun completeAttempt(
+        itemId: String,
+        result: UploadResult,
+        response: UploadResponse?,
+        attemptStamp: Int?,
+        engineWait: Duration,
+    ): Boolean {
+        val engine: DefaultUploaderEngine = awaitEngine(engineWait) ?: return false
+        return engine.settleAttempt(itemId, result, response, attemptStamp) != JournalSettleOutcome.NOT_LANDED
+    }
+
     /** The body limit of [itemId]'s handler, or `null` when no engine answers within [engineWait] or the item is gone. */
     internal suspend fun responseBodyLimit(itemId: String, engineWait: Duration): Int? =
         awaitEngine(engineWait)?.responseBodyLimitOf(itemId)
@@ -149,5 +166,13 @@ public sealed interface UploadAttempt {
     public data object EngineUnavailable : UploadAttempt
 }
 
-/** An [UploadAttempt] and the attempt stamp its answer is journaled with (`null` unless it is [UploadAttempt.Ready]). */
-internal class PreparedUpload(val attempt: UploadAttempt, val attemptStamp: Int?)
+/**
+ * An [UploadAttempt], the attempt stamp its answer is journaled with and the body limit read with it (both
+ * meaningful only for [UploadAttempt.Ready]; the stamp is `null` otherwise). A row charged while its handler
+ * prepared the upload comes back as [UploadAttempt.EngineUnavailable], so the job retries and prepares the new attempt.
+ */
+internal class PreparedUpload(
+    val attempt: UploadAttempt,
+    val attemptStamp: Int?,
+    val bodyLimit: Int = MAX_RESPONSE_BODY_BYTES,
+)

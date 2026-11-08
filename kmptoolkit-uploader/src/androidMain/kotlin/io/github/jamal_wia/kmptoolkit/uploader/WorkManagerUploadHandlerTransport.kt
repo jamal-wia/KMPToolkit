@@ -181,9 +181,9 @@ public open class UploadHandlerWorker(
             UploadAttempt.NothingOwed -> return Result.success()
             is UploadAttempt.Ready -> attempt.request
         }
-        // The handler's body limit, asked now while the engine is known to be reachable: the journal keeps no
-        // more of the body than the handler asked for.
-        val bodyLimit: Int = UploadGateway.responseBodyLimit(itemId, engineWait) ?: MAX_RESPONSE_BODY_BYTES
+        // The handler's body limit, read together with the row the attempt was prepared from: the journal keeps
+        // no more of the body than the handler asked for.
+        val bodyLimit: Int = prepared.bodyLimit
 
         // The answer is journaled the moment the transfer returns, before anything waits on the progress
         // forwarder: a slow hook may lose progress, never the answer.
