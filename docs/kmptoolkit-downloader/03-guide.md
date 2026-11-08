@@ -60,6 +60,9 @@ Two invariants make the rest of this document make sense:
 
 ## Group path vs. per-unit path
 
+The engine keeps a small record for every unit id it has seen, for its whole lifetime; reuse one
+engine, and expect a new id to cost a little more as tens of thousands accumulate.
+
 The two surfaces on `Downloader` are deliberately **not** one generalized over the other — the
 group path's mutex, progress scaling and notification machinery are proven for a large bundle and
 left alone; the per-unit path is a separate, simpler machine for a runtime catalogue.

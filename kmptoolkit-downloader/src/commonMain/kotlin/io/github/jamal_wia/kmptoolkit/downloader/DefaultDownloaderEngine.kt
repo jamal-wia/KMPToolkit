@@ -1252,7 +1252,9 @@ internal class DefaultDownloaderEngine(
     // same state and the same mutex regardless of how the host implemented equals. Each is an
     // immutable map in a StateFlow with a compare-and-set get-or-put, so a lookup never suspends
     // (cancelDownload(unit) is not a suspend function and must act at once) and the type works in
-    // commonMain on Kotlin/Native, which ConcurrentHashMap would not.
+    // commonMain on Kotlin/Native, which ConcurrentHashMap would not. Adding a new id copies the map,
+    // so its cost grows with the ids already tracked: negligible for thousands, noticeable only past
+    // tens of thousands.
     private val unitEntries: MutableStateFlow<Map<String, UnitEntry>> = MutableStateFlow(emptyMap())
     private val unitMutexes: MutableStateFlow<Map<String, Mutex>> = MutableStateFlow(emptyMap())
 

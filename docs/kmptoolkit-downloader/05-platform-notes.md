@@ -52,7 +52,9 @@ is where these live.
 
 Temp files live under `<base>/tmp/`: an unfinished transfer at `<unit.id>.<unit.tempExtension>`,
 and the same file renamed to `<unit.id>.<unit.tempExtension>.complete` once
-`markTempFileComplete` declares it finished. The rename is atomic within one directory on both
+`markTempFileComplete` declares it finished. The extension is part of that name, so keep it stable
+per id, as you keep `relativePath` stable: instances of one id that return different extensions see
+different temp files. The rename is atomic within one directory on both
 platforms, so a crash leaves either a partial file or a complete one. A `ZipArchive` unit stages
 its extraction under `<base>/tmp/staging-<unit.id>/` — per unit, so two archives extracting at the
 same time never collide, and two commits of the same unit never share it, since commits of one unit

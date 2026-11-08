@@ -50,8 +50,10 @@ public interface DownloadUnit {
     public val relativePath: String
 
     /**
-     * Extension of the in-progress temp file. Only cosmetic — the temp name is derived from [id]. An
-     * extension that is not one plain name (it contains `/` or NUL, or is long) is replaced by `tmp`
+     * Extension of the in-progress temp file. Carries no meaning of its own, but it is part of the
+     * temp file's name (`tmp/<id>.<ext>`), so every instance of one id must return the same value:
+     * instances that differ see different temp files, while the expected-hash record is shared by id.
+     * An extension that is not one plain name (it contains `/` or NUL, or is long) is replaced by `tmp`
      * in the hashed name the shipped storages then use.
      */
     public val tempExtension: String get() = "tmp"
