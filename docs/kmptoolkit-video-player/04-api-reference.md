@@ -84,8 +84,8 @@ even after `release()`, survive `prepare` and `unload`, and are pushed to every 
 
 | Member | Contract |
 |---|---|
-| `fun unload()` | Abandons a load in flight (that `prepare` returns without writing state), frees the loaded source, stops polling, resets to `Idle` and every source flow to its initial value. Keeps the settings; the next `prepare` works. Drops platform callbacks already posted for the old source. No effect after `release()`. |
-| `fun release()` | Frees every native resource, cancels polling, detaches from the engine, resets to `Idle`. **Idempotent.** Not reversible. |
+| `fun unload()` | Abandons a load in flight (that `prepare` returns without writing state), frees the loaded source, stops polling, resets to `Idle` and every source flow to its initial value. Keeps the settings; the next `prepare` works. Drops platform callbacks already posted for the old source. Resets to `Idle` even when the engine's `release()` throws (rethrown afterwards), so the next `prepare` never waits on it. No effect after `release()`. |
+| `fun release()` | Frees every native resource, cancels polling, detaches from the engine, resets to `Idle` — even when the engine throws (the exception is rethrown afterwards). **Idempotent.** Not reversible. |
 | `override fun close()` | Alias for `release()`, for `use { }`. |
 
 **Threading.** Every member is safe to call from any thread, and each call is one atomic transition:
@@ -296,7 +296,7 @@ public interface VideoPlaybackEngineListener {
 }
 ```
 
-Failures while loading are thrown from `load` instead. An engine must not call the listener after
+Failures while loading are thrown from `load` instead. Only `load` reports failure by throwing. If another method throws anyway, the player still settles: `prepare` ends in `Error`, `release()` disposes the engine and resets to `Idle`, `unload()` resets to `Idle`; the last two then rethrow the engine's exception. An engine must not call the listener after
 `release()`, including callbacks already queued on a platform thread. The player drops reports that
 arrive when no source is loaded, so a late one cannot resurrect a state. It also drops every report of a source it has since told the engine to drop (an `unload`, a `release`, or the start of a newer `prepare`), including one the engine made while that `release()` was running, so a report of the old source can never become the next `prepare`'s outcome. A call already running on another thread must have returned before `release()` returns.
 

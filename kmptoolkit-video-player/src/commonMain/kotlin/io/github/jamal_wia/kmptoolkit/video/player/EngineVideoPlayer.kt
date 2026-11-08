@@ -198,7 +198,19 @@ internal class EngineVideoPlayer(
                 if (!isCurrent(load)) return@exclusive false
                 stopPositionUpdates()
                 // Free whatever the engine still holds (see "Dropped sources"); a new source begins either way.
-                if (engineHoldsSource) freeEngineSource() else sourceEpoch.update { it + 1 }
+                if (engineHoldsSource) {
+                    try {
+                        freeEngineSource()
+                    } catch (@Suppress("TooGenericExceptionCaught") cause: Throwable) {
+                        // An engine that cannot drop its source is broken, but prepare never throws on
+                        // failure: it settles on Error (the epoch was bumped, so its reports are stale).
+                        resetSourceFlows()
+                        _stateFlow.value = VideoPlayerState.Error(cause)
+                        return@exclusive false
+                    }
+                } else {
+                    sourceEpoch.update { it + 1 }
+                }
                 resetSourceFlows()
                 engineHoldsSource = true
                 _stateFlow.value = VideoPlayerState.Preparing
@@ -260,12 +272,29 @@ internal class EngineVideoPlayer(
                 return@exclusive
             }
             val stalled: Boolean = preparingBuffering
-            // Settings belong to the player and outlive every source; push them onto the fresh load.
-            engine.setVolume(effectiveVolume)
-            engine.setLooping(_repeatModeFlow.value == RepeatMode.One)
-            engine.setSpeed(_playbackSpeedFlow.value)
-            _bufferedPositionFlow.value = engine.bufferedPositionMs().coerceAtLeast(0L)
-            val duration: Long = engine.durationMs()
+            val buffered: Long
+            val duration: Long
+            try {
+                // Settings belong to the player and outlive every source; push them onto the fresh load.
+                engine.setVolume(effectiveVolume)
+                engine.setLooping(_repeatModeFlow.value == RepeatMode.One)
+                engine.setSpeed(_playbackSpeedFlow.value)
+                buffered = engine.bufferedPositionMs().coerceAtLeast(0L)
+                duration = engine.durationMs()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (@Suppress("TooGenericExceptionCaught") cause: Throwable) {
+                // A setting the engine refuses is not left as Preparing forever: free the source and settle on Error.
+                try {
+                    freeEngineSource()
+                } catch (@Suppress("TooGenericExceptionCaught") releaseFailure: Throwable) {
+                    cause.addSuppressed(releaseFailure)
+                }
+                resetSourceFlows()
+                _stateFlow.value = VideoPlayerState.Error(cause)
+                return@exclusive
+            }
+            _bufferedPositionFlow.value = buffered
             _isBufferingFlow.value = stalled
             _stateFlow.value = VideoPlayerState.Ready(duration)
         }
@@ -359,11 +388,15 @@ internal class EngineVideoPlayer(
 
     override fun unload(): Unit = gate.exclusive {
         if (released) return@exclusive
-        abandonLoad(dispose = false)
         stopPositionUpdates()
-
-        resetSourceFlows()
-        _stateFlow.value = VideoPlayerState.Idle
+        // Idle however the engine's release goes: an engine that throws is rethrown after the reset, and
+        // abandonLoad has already completed the placeholder, so the next prepare is not left waiting.
+        try {
+            abandonLoad(dispose = false)
+        } finally {
+            resetSourceFlows()
+            _stateFlow.value = VideoPlayerState.Idle
+        }
     }
 
     override fun release(): Unit = gate.exclusive {
@@ -372,11 +405,17 @@ internal class EngineVideoPlayer(
 
         stopPositionUpdates()
         scope.cancel()
-        engine.setListener(null)
-        abandonLoad(dispose = true)
-
-        resetSourceFlows()
-        _stateFlow.value = VideoPlayerState.Idle
+        // Disposed and Idle however the engine's own calls go; the engine's exception is rethrown after.
+        try {
+            try {
+                engine.setListener(null)
+            } finally {
+                abandonLoad(dispose = true)
+            }
+        } finally {
+            resetSourceFlows()
+            _stateFlow.value = VideoPlayerState.Idle
+        }
     }
 
     // Engine callbacks arrive on the engine's own thread, often while it holds a lock of its own:
@@ -575,10 +614,18 @@ internal class EngineVideoPlayer(
         val placeholder = Load(Job().apply { cancel() })
         val abandoned: Load? = currentLoad.getAndUpdate { placeholder }
         abandoned?.job?.cancel()
+        // Whatever the engine throws, it is disposed (when asked) and the placeholder completes, or the
+        // next prepare would wait for it forever.
         val freeEngine: () -> Unit = {
-            freeEngineSource()
-            if (dispose) engine.dispose()
-            placeholder.finished.complete()
+            try {
+                freeEngineSource()
+            } finally {
+                try {
+                    if (dispose) engine.dispose()
+                } finally {
+                    placeholder.finished.complete()
+                }
+            }
         }
         val unwinding: Job? = abandoned?.finished?.takeUnless { it.isCompleted }
         if (unwinding == null) {
@@ -586,7 +633,16 @@ internal class EngineVideoPlayer(
         } else {
             // Completes on whichever thread finishes the abandoned prepare; back under the lock
             // from there, like every other engine call.
-            unwinding.invokeOnCompletion { gate.submit(freeEngine) }
+            unwinding.invokeOnCompletion {
+                gate.submit {
+                    try {
+                        freeEngine()
+                    } catch (@Suppress("TooGenericExceptionCaught") ignored: Throwable) {
+                        // A submitted action must not throw (StateMachineLock), and nobody is waiting to
+                        // receive it here; the cleanup in freeEngine has completed either way.
+                    }
+                }
+            }
         }
     }
 

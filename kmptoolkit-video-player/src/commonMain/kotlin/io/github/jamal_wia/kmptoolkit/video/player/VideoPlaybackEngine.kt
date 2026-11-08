@@ -22,7 +22,9 @@ package io.github.jamal_wia.kmptoolkit.video.player
  *   drops every report of a source it has told the engine to drop, but cannot see a call that has not
  *   yet reached it.
  * - **Transport and settings calls tolerate the wrong state** — swallow the platform's
- *   "illegal state" rather than throwing.
+ *   "illegal state" rather than throwing. Only [load] reports failure by throwing. If another method throws
+ *   anyway, the player still settles: `prepare` ends in `Error`, `release()` disposes the engine and resets to
+ *   `Idle`, `unload()` resets to `Idle`; the last two then rethrow the engine's exception.
  * - **[durationMs], [positionMs] and [bufferedPositionMs] return `0` when unknown** and are cheap:
  *   they are polled from the player's coroutine context, so an engine whose platform object is
  *   confined to one thread answers from values it caches on that thread.

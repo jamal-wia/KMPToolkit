@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -268,6 +269,62 @@ class VideoPlayerRound5AdversarialTest {
         }
     }
 
+    // --- Engines that misbehave under resource pressure ---
+
+    private class ThrowingReleaseEngine(private val inner: RecordingVideoPlaybackEngine) : VideoPlaybackEngine by inner {
+        var throwOnRelease: Boolean = true
+        override fun release() {
+            inner.release()
+            if (throwOnRelease) {
+                throwOnRelease = false
+                throw IllegalStateException("native handle already gone")
+            }
+        }
+    }
+
+    @Test
+    fun `a release that fails inside the engine still disposes it and settles on Idle`() = runTest {
+        val inner = RecordingVideoPlaybackEngine()
+        val engine = ThrowingReleaseEngine(inner)
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(), StandardTestDispatcher(testScheduler))
+        player.prepare(source)
+        player.play()
+        runCatching { player.release() }
+        assertEquals(1, inner.disposeCount, "release() left the engine undisposed after its release() threw")
+        assertEquals(VideoPlayerState.Idle, player.stateFlow.value, "release() left ${player.stateFlow.value}")
+    }
+
+    private class ThrowingSettingEngine(private val inner: RecordingVideoPlaybackEngine) : VideoPlaybackEngine by inner {
+        var throwOnVolume: Boolean = true
+        override fun setVolume(volume: Float) {
+            if (throwOnVolume) {
+                throwOnVolume = false
+                throw IllegalStateException("audio session gone")
+            }
+            inner.setVolume(volume)
+        }
+    }
+
+    @Test
+    fun `a setting the engine refuses at the end of prepare does not leave the player Preparing forever`() = runTest {
+        val inner = RecordingVideoPlaybackEngine()
+        val engine = ThrowingSettingEngine(inner)
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(), StandardTestDispatcher(testScheduler))
+        try {
+            runCatching { player.prepare(source) }
+            assertNotEquals(
+                VideoPlayerState.Preparing,
+                player.stateFlow.value,
+                "prepare ended (threw or not) and the player still says Preparing",
+            )
+            // And the player stays usable: the next prepare settles.
+            player.prepare(VideoSource.Asset("again.mp4"))
+            assertTrue(player.stateFlow.value is VideoPlayerState.Ready || player.stateFlow.value is VideoPlayerState.Error)
+        } finally {
+            runCatching { player.release() }
+        }
+    }
+
     @Test
     fun `replay after an unknown-length completion keeps the end as the length until the platform reports one`() = playerTest(
         engine = RecordingVideoPlaybackEngine(duration = 0L),
@@ -284,5 +341,38 @@ class VideoPlayerRound5AdversarialTest {
         engine.position = 1_000L
         player.pause()
         assertEquals(VideoPlayerState.Paused(60_000L, 1_000L), player.stateFlow.value)
+    }
+
+    @Test
+    fun `an unload whose engine release throws still settles on Idle and the next prepare completes`() = runTest {
+        val inner = RecordingVideoPlaybackEngine()
+        val engine = ThrowingReleaseEngine(inner)
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(), StandardTestDispatcher(testScheduler))
+        try {
+            player.prepare(source)
+            player.play()
+            assertTrue(runCatching { player.unload() }.isFailure, "the engine's exception is rethrown after the cleanup")
+            assertEquals(VideoPlayerState.Idle, player.stateFlow.value)
+            withTimeout(5_000L) { player.prepare(VideoSource.Asset("again.mp4")) }
+            assertEquals(VideoPlayerState.Ready(10_000L), player.stateFlow.value)
+        } finally {
+            runCatching { player.release() }
+        }
+    }
+
+    @Test
+    fun `a release that fails while the next prepare frees the engine settles that prepare on Error and the one after works`() = runTest {
+        val inner = RecordingVideoPlaybackEngine()
+        val engine = ThrowingReleaseEngine(inner)
+        val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(), StandardTestDispatcher(testScheduler))
+        try {
+            player.prepare(source)
+            withTimeout(5_000L) { player.prepare(VideoSource.Asset("b.mp4")) }
+            assertTrue(player.stateFlow.value is VideoPlayerState.Error, "state was ${player.stateFlow.value}")
+            withTimeout(5_000L) { player.prepare(VideoSource.Asset("c.mp4")) }
+            assertEquals(VideoPlayerState.Ready(10_000L), player.stateFlow.value)
+        } finally {
+            runCatching { player.release() }
+        }
     }
 }
