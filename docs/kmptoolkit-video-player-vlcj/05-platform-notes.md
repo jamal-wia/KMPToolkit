@@ -103,6 +103,10 @@ against what the calls before it left. So a `pause()` made right after such a re
 over it, and a seek made as output starts is never undone by the seek that was pending until then.
 Volume and speed are applied from their latest values whenever they are applied.
 
+No call into libvlc is made while holding a lock that VLC's event thread can wait for: libvlc 3 makes a
+seek wait for an event callback that is running, so a seek can never hang against an event, and
+releasing the player waits at most for the one call already inside libvlc.
+
 A seek's target is the playhead the engine reports from the moment `seekTo` is called, not only once
 libvlc has applied it: libvlc 3 applies `set_time` asynchronously, so its clock (and a `timeChanged`
 reading already on its way) can still show the old time for a moment, and calls queued before the

@@ -60,13 +60,19 @@ import kotlinx.coroutines.withContext
  *   session down (stopping a stalled network input can take libvlc's whole timeout) and freeing
  *   libvlc run on one serial [teardown] thread. Only the barrier that makes a closed session
  *   unreachable is synchronous.
- * - Native calls from the caller's thread go through [lock], and every one checks the session is
- *   still open first, so no call can reach a native player after its session closed.
- *   That barrier waits for a native call in flight, so it relies on every native call made on the
- *   caller's thread returning at once. libvlc 3's play, pause, set_time, rate, volume and time
- *   controls only post work to the input thread or read its state, and the blocking ones (stop,
- *   release) run only on [teardown]. Never add a call that can block (a synchronous stop, a
- *   set_media that releases a running input) to a caller-thread path.
+ * - Every native call on a session's player is made inside that session's `nativeCalls` monitor and
+ *   outside [lock]. [lock] guards state only, because libvlc's callbacks take it and libvlc 3's play,
+ *   pause, rate, volume and time controls return at once, but `set_time` waits for an event
+ *   callback that is running: a seek made under a monitor a callback needs would hang for good.
+ *   `nativeCalls` is taken only off VLC's threads and no callback ever waits for it, so a native call
+ *   can wait for at most one callback and never for the thread that makes it. Every call checks the
+ *   session is still open first, and closing a session waits for the native call in flight, so no
+ *   call can reach a native player after its session was freed. The blocking calls (stop, release)
+ *   run only on [teardown]. Never add a call that can block (a synchronous stop, a set_media that
+ *   releases a running input) to a caller-thread path.
+ *   After [release] returns, no native call starts on that session; when it ran off VLC's threads,
+ *   the call that was in flight has finished too. The native player is freed only after every call
+ *   made on it has returned.
  * - VLCJ delivers events on its own event thread and pictures on libvlc's video-output thread;
  *   neither may call back into libvlc (VLCJ's documented rule). Events therefore only update cached
  *   values and notify the listener; a transport call that arrives on one of those threads (a
@@ -101,6 +107,8 @@ internal class VlcjVideoEngine(
     // Monitors, not Mutexes: they are taken on VLC's native event and video-output threads (JNA
     // callbacks), on VLCJ's task thread and by the synchronous SPI, none of which can suspend (D-21).
     // Volatile fields are written under them or on one VLC thread and read unlocked by the getters.
+    // [lock] guards state and is never held across a native call; the per-session
+    // [Session.nativeCalls] orders and guards the native calls themselves.
     private val lock = Any()
     private val listenerLock = Any()
     private val frameLock = Any()
@@ -172,59 +180,63 @@ internal class VlcjVideoEngine(
     }
 
     override fun start() {
-        withOpenSession { s ->
-            inOrder(s) {
-                if (!s.loaded) return@inOrder
-                // A start from rest (the first one, or from the end) is followed by a fresh Playing;
-                // a resume from pause, or a start while playing, is not.
-                val fromRest: Boolean = !s.started || s.ended
-                s.player?.play()
-                if (fromRest) s.outputBegun = false
-                s.started = true
-                // From the end, play() replays the source: it is not at the end any more from here
-                // on, so a pause() made after this start is applied rather than dropped as "ended".
-                s.ended = false
-            }
+        val s: Session = session ?: return
+        inOrder(s) {
+            if (!s.loaded) return@inOrder null
+            // A start from rest (the first one, or from the end) is followed by a fresh Playing;
+            // a resume from pause, or a start while playing, is not.
+            val fromRest: Boolean = !s.started || s.ended
+            if (fromRest) s.outputBegun = false
+            s.started = true
+            // From the end, play() replays the source: it is not at the end any more from here
+            // on, so a pause() made after this start is applied rather than dropped as "ended".
+            s.ended = false
+            Plan({ s.player?.play() })
         }
     }
 
     override fun pause() {
-        withOpenSession { s ->
-            inOrder(s) {
-                if (!s.loaded || !s.started || s.ended) return@inOrder
-                s.player?.pause()
-            }
+        val s: Session = session ?: return
+        inOrder(s) {
+            if (!s.loaded || !s.started || s.ended) return@inOrder null
+            Plan({ s.player?.pause() })
         }
     }
 
     override fun seekTo(positionMs: Long) {
         val target: Long = positionMs.coerceAtLeast(0L)
-        withOpenSession { s ->
-            if (!s.loaded) return@withOpenSession
+        val s: Session = session ?: return
+        if (!s.loaded) return
+        inOrder(s, atCall = {
             // Reported at once, and held until libvlc has applied the seek (see Session.holdsSeekTarget):
             // whatever else of this session is still queued, or a clock reading taken before the
-            // seek, would otherwise put the old playhead back over the target.
+            // seek, would otherwise put the old playhead back over the target. In the same lock
+            // region as the ordering decision, so two seeks reach libvlc in the order their
+            // targets were recorded.
             s.seeksInFlight++
             s.seekTargetMs = target
             s.seekHoldUntilNanos = 0L
             s.timeMs = target
-            inOrder(s) {
-                try {
-                    // Before the first start, between start() and the first Playing (no output yet),
-                    // while a looping source restarts, and after the end, libvlc has no running input to seek in: remember the target
-                    // and apply it when output begins. Nothing starts playing here.
-                    if (!s.started || s.ended || !s.outputBegun) {
-                        s.pendingSeekMs = target
-                        s.timeMs = target
-                    } else {
-                        s.player?.setTime(target)
-                        s.timeMs = target
+        }) {
+            // Before the first start, between start() and the first Playing (no output yet),
+            // while a looping source restarts, and after the end, libvlc has no running input to seek in: remember the target
+            // and apply it when output begins. Nothing starts playing here.
+            if (!s.started || s.ended || !s.outputBegun) {
+                s.pendingSeekMs = target
+                s.timeMs = target
+                s.seeksInFlight--
+                null
+            } else {
+                Plan({ s.player?.setTime(target) }) { applied: Boolean ->
+                    // Still above 0 until here, so a clock reading taken before the seek is rejected.
+                    s.seeksInFlight--
+                    if (applied) {
+                        // A seek made meanwhile from a VLC thread has recorded a newer target already.
+                        if (s.seeksInFlight == 0) s.timeMs = target
                         // libvlc 3 applies set_time asynchronously on its input thread, so the clock
                         // may still read the old time for a moment after the call returned.
                         s.seekHoldUntilNanos = nanoTime() + SEEK_HOLD_NANOS
                     }
-                } finally {
-                    s.seeksInFlight--
                 }
             }
         }
@@ -238,14 +250,16 @@ internal class VlcjVideoEngine(
         // Checked before the value is stored, so a re-apply (after load, at Playing) never resurrects it.
         if (!speed.isFinite() || speed <= 0f) return
         this.speed = speed
-        withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
+        val s: Session = session ?: return
+        inOrder(s) { if (s.started) Plan({ s.applySettings() }) else null }
     }
 
     override fun setVolume(volume: Float) {
         // NaN is not a volume and would make volumePercent throw; out-of-range values are clamped there.
         if (volume.isNaN()) return
         this.volume = volume
-        withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
+        val s: Session = session ?: return
+        inOrder(s) { if (s.started) Plan({ s.applySettings() }) else null }
     }
 
     override fun setLooping(looping: Boolean) {
@@ -270,11 +284,15 @@ internal class VlcjVideoEngine(
         // An unknown length (0) is not an end position.
         if (s.ended) return if (s.lengthMs > 0L) durationMs() else s.timeMs.coerceAtLeast(0L)
         if (s.started && !onVlcThread.get()) {
-            withOpenSession { open ->
+            synchronized(s.nativeCalls) {
                 // The seek target stands until libvlc reports a time near it (see holdsSeekTarget).
-                if (open.holdsSeekTarget()) return@withOpenSession
-                val time: Long = open.player?.time() ?: -1L
-                if (time >= 0L) open.timeMs = time
+                val player: VlcNativePlayer? = synchronized(lock) {
+                    if (!isOpen(s) || s.holdsSeekTarget()) null else s.player
+                }
+                val time: Long = player?.time() ?: -1L
+                // Checked again: a seek made from a VLC thread, which does not wait for nativeCalls,
+                // may have recorded its target while the clock was being read.
+                if (time >= 0L) synchronized(lock) { if (!s.holdsSeekTarget()) s.timeMs = time }
             }
         }
         return s.timeMs.coerceAtLeast(0L)
@@ -337,26 +355,76 @@ internal class VlcjVideoEngine(
         }
     }
 
+    /** [lock] held. Whether [s] is the current session and still open. */
+    private fun isOpen(s: Session): Boolean = session === s && !s.closed
+
     /**
-     * [lock] held, [s] open. Runs [action] for [s] after every call of [s] made before it: at once
-     * when nothing of [s] is waiting on VLCJ's task thread (and this is not a VLC thread, which must
-     * not call into libvlc), otherwise submitted to that thread — one thread, first in first out —
-     * behind what is. The count is changed only under [lock], so a call checking it and a submitted
-     * action starting cannot interleave; a submitted action runs under [lock] too, and only while
-     * [s] is still the open session.
+     * What an ordered call does once [inOrder] has decided it: [nativeWork] is the native calls, made
+     * outside [lock]; [commit] records the outcome under [lock], with whether [nativeWork] returned.
      */
-    private inline fun inOrder(s: Session, crossinline action: () -> Unit) {
-        if (!onVlcThread.get() && s.queued == 0) {
-            action()
+    private class Plan(val nativeWork: () -> Unit, val commit: (applied: Boolean) -> Unit = {})
+
+    /**
+     * Runs the call of [s] that [decide] describes after every call of [s] made before it, whichever
+     * threads made them. [atCall] and [decide] run under [lock] and make no native call; [decide]
+     * reads and writes state and returns what to do natively, or `null` for nothing.
+     *
+     * Off VLC's threads and with nothing of [s] waiting on VLCJ's task thread, the call is decided
+     * and made at once, inside [Session.nativeCalls], with [lock] released around the native work: the
+     * monitor keeps the order and the teardown barrier, [lock] stays free for the callbacks (libvlc 3
+     * makes `set_time` wait for a running one). Otherwise it is submitted to VLCJ's task thread, one
+     * thread, first in first out, behind what is waiting, and decided when it starts. A VLC thread
+     * only counts and submits, under [lock] alone: it must not call into libvlc, and must never wait
+     * for `nativeCalls`. The count is changed only under [lock] and decremented inside `nativeCalls`,
+     * so a caller sees it above 0 until the earlier call has actually run.
+     */
+    private fun inOrder(s: Session, atCall: () -> Unit = {}, decide: () -> Plan?) {
+        if (onVlcThread.get()) {
+            synchronized(lock) {
+                if (!isOpen(s)) return
+                atCall()
+                enqueueLocked(s, decide)
+            }
             return
         }
+        synchronized(s.nativeCalls) {
+            val plan: Plan = synchronized(lock) {
+                if (!isOpen(s)) return
+                atCall()
+                if (s.queued > 0) {
+                    enqueueLocked(s, decide)
+                    return
+                }
+                decide()
+            } ?: return
+            runPlan(plan)
+        }
+    }
+
+    /** [lock] held. Submits [decide] behind what [s] has waiting on VLCJ's task thread. */
+    private fun enqueueLocked(s: Session, decide: () -> Plan?) {
         val player: VlcNativePlayer = s.player ?: return
         s.queued++
+        // VLCJ's submit only hands the task to its executor: plain Java, not a native call.
         player.submit {
-            synchronized(lock) {
-                s.queued--
-                if (session === s && !s.closed) action()
+            synchronized(s.nativeCalls) {
+                val plan: Plan? = synchronized(lock) {
+                    s.queued--
+                    if (isOpen(s)) decide() else null
+                }
+                if (plan != null) runPlan(plan)
             }
+        }
+    }
+
+    /** Makes a decided call's native calls with [lock] free, then records the outcome under it. */
+    private fun runPlan(plan: Plan) {
+        var applied = false
+        try {
+            plan.nativeWork()
+            applied = true
+        } finally {
+            synchronized(lock) { plan.commit(applied) }
         }
     }
 
@@ -367,6 +435,13 @@ internal class VlcjVideoEngine(
         // 2. Barrier: every native call under [lock] checks `closed`, so none can run on this
         //    session after this block.
         synchronized(lock) { if (session === s) session = null }
+        // 2b. Waits for the one native call that may be in flight, which can itself wait for at most
+        //     one running callback, and no callback waits for anything held here. Not on a VLC thread:
+        //     a set_time in flight on another thread waits for this very thread to leave its callback
+        //     (releasing from inside a callback is supported). Nor from inside a listener call
+        //     (listenerLock held): the callback that set_time waits for could be waiting for it. The
+        //     teardown thread waits for the call in flight in both cases, before it frees anything.
+        if (!onVlcThread.get() && !Thread.holdsLock(listenerLock)) synchronized(s.nativeCalls) {}
         s.parsed.cancel()
         // 3. No frame of this session can be published after this block (see publishFrame).
         synchronized(frameLock) { frameFlow.value = null }
@@ -406,6 +481,20 @@ internal class VlcjVideoEngine(
         // One-shot CAS: closeSession is reached from the synchronous release()/dispose() as well as
         // from load (D-21).
         val closing: AtomicBoolean = AtomicBoolean(false)
+
+        /**
+         * Orders and guards this session's native calls (a monitor and not a `Mutex`: the synchronous
+         * SPI and VLCJ's task thread take it, and neither can suspend, D-21). Separate from [lock]
+         * because libvlc's callbacks take [lock], and libvlc 3's `set_time` waits for a running
+         * callback: a native call must never be made under a monitor a callback can wait for.
+         *
+         * - Taken only off VLC's threads (callers, VLCJ's task thread, the teardown thread, the
+         *   load's IO thread); callbacks never take it.
+         * - Lock order is `nativeCalls`, then [lock]; nothing that holds [lock] or [listenerLock]
+         *   waits for it.
+         * - Every native call on this session's player is made inside it and outside [lock].
+         */
+        val nativeCalls: Any = Any()
         val parsed: CompletableDeferred<VlcParseStatus> = CompletableDeferred()
 
         @Volatile var player: VlcNativePlayer? = null
@@ -461,15 +550,18 @@ internal class VlcjVideoEngine(
         /** Creates the native player and starts parsing. Blocking; call off the main thread. */
         fun open() {
             val libvlc: VlcRuntime = runtime.acquire()
-            synchronized(lock) {
-                if (closed) throw CancellationException("The load was abandoned")
+            synchronized(nativeCalls) {
+                synchronized(lock) { if (closed) throw CancellationException("The load was abandoned") }
                 // The native side gets only a weak forwarder: whatever libvlc, VLCJ or JNA hold must
                 // not keep this engine reachable, or the Cleaner could never run (see RuntimeHolder).
                 val created: VlcNativePlayer = libvlc.newPlayer(WeakVlcCallbacks(callbacks))
-                player = created
                 val opened = NativeSession(created, media)
-                nativeSession = opened
-                runtime.track(opened)
+                // Published before nativeCalls is left, so a teardown that waits for it sees them.
+                synchronized(lock) {
+                    player = created
+                    nativeSession = opened
+                    runtime.track(opened)
+                }
                 created.setRepeat(looping)
                 if (!created.prepare(media.mrl, media.options)) {
                     throw VlcPlaybackException("VLC rejected the media locator")
@@ -486,14 +578,23 @@ internal class VlcjVideoEngine(
          */
         fun inspectParsedMedia(): VideoSize? {
             var size: VideoSize? = null
-            withOpenSession { s ->
-                if (s !== this) throw CancellationException("The load was abandoned")
-                val info: VlcParsedInfo = player?.parsedInfo() ?: return@withOpenSession
-                if (info.durationMs > 0L) lengthMs = info.durationMs
-                if (info.trackCount == 0 && media.isLocal) {
-                    throw VlcPlaybackException("VLC found no playable track in the source")
+            synchronized(nativeCalls) {
+                val current: VlcNativePlayer? = synchronized(lock) {
+                    val open: Session = session ?: return@synchronized null
+                    if (open.closed) return@synchronized null
+                    if (open !== this) throw CancellationException("The load was abandoned")
+                    player
                 }
-                size = info.videoSize
+                val info: VlcParsedInfo? = current?.parsedInfo()
+                if (info != null) {
+                    synchronized(lock) {
+                        if (info.durationMs > 0L) lengthMs = info.durationMs
+                        if (info.trackCount == 0 && media.isLocal) {
+                            throw VlcPlaybackException("VLC found no playable track in the source")
+                        }
+                        size = info.videoSize
+                    }
+                }
             }
             if (closed) throw CancellationException("The load was abandoned")
             return size
@@ -529,6 +630,10 @@ internal class VlcjVideoEngine(
          * task holds the session, and so the engine.)
          */
         fun teardown() {
+            // Waits for the native call in flight (also when the release came from a VLC thread, which
+            // does not wait for it itself), so the native player is freed only after it returned.
+            // Never held across NativeSession.close(): stop() can take libvlc's whole network timeout.
+            synchronized(nativeCalls) {}
             val opened: NativeSession? = nativeSession
             if (opened == null) {
                 media.discard()
@@ -546,16 +651,19 @@ internal class VlcjVideoEngine(
             // this thread, though: VLCJ's task thread may call into libvlc.
             // Through the same ordered queue as the transport calls, so a seek the app makes once
             // output began cannot be overtaken, and then undone, by the pending one applied here.
-            withOpenSession { open ->
-                if (open !== s) return@withOpenSession
-                inOrder(s) {
-                    s.outputBegun = true
+            inOrder(s) {
+                s.outputBegun = true
+                val seek: Long = s.pendingSeekMs
+                Plan({
                     s.applySettings()
-                    val seek: Long = s.pendingSeekMs
-                    if (seek >= 0L) {
-                        s.player?.setTime(seek)
-                        s.timeMs = seek
-                        s.seekTargetMs = seek
+                    if (seek >= 0L) s.player?.setTime(seek)
+                }) { applied: Boolean ->
+                    if (applied && seek >= 0L) {
+                        // A seek made meanwhile from a VLC thread has recorded a newer target already.
+                        if (s.seeksInFlight == 0) {
+                            s.timeMs = seek
+                            s.seekTargetMs = seek
+                        }
                         // As for a seek during playback: libvlc 3 applies set_time asynchronously (see
                         // seekTo). The hold fields come first, then pendingSeekMs is cleared, so a
                         // timeChanged that finds no pending seek always finds the hold.
@@ -578,9 +686,9 @@ internal class VlcjVideoEngine(
                 // again, so a seek made in that gap is parked like one made between start() and the
                 // first Playing. Through the ordered queue: a Playing of the cycle that just ended
                 // may still be waiting there, and must not set outputBegun back after this.
-                withOpenSession { open ->
-                    if (open !== s) return@withOpenSession
-                    inOrder(s) { s.outputBegun = false }
+                inOrder(s) {
+                    s.outputBegun = false
+                    null
                 }
                 return@onVlcCallback
             }
