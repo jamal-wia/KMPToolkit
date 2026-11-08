@@ -76,7 +76,8 @@ What the engine does with it:
    nothing. A preparation that throws here counts as a failed attempt under the handler's retry policy, exactly as a
    failing preparation in the drain does: it spends retry budget, so a persistent failure ends in the give-up policy.
 3. **Progress.** Each whole percent goes to `onUploadProgress` through `UploadGateway.progress`.
-   Best effort, never after the item has settled. On Android the answer is journaled as soon as the transfer
+   Best effort, never after the item has settled. On Android the hooks run on a small dedicated pool, so a hook that
+   blocks its thread delays other items' progress, never a settlement. The answer is journaled as soon as the transfer
    returns. On both platforms a progress hook still running 2 s after the transfer ended is cancelled and no longer
    awaited, so it cannot hold up the settlement (one that ignores cancellation runs on in the background).
 4. **Settle.** What the transport saw goes to `UploadGateway.complete` — with the server's
@@ -135,8 +136,15 @@ when the settlement is done:
 - **Android** entries carry the attempt they answer and are deleted only after the commit lands. A death or a stop
   anywhere before the commit is durable leaves the entry, and the next run settles it. A leftover from an attempt
   that was already settled (a delete that failed after the commit) is recognised by its attempt, dropped, and the
-  job uploads. An unreadable entry is waited for over 3 runs, then given up and the item uploads again (at least
-  once). A status received while the job is stopped during the response body is journaled and settled by the re-run.
+  job uploads. An unreadable entry is waited for while the job has run fewer than 3 times (WorkManager's run count,
+  which also counts retries for other reasons), then given up and the item uploads again (at least once). A status
+  received while the job is stopped during the response body is journaled and settled by the re-run. **One job per
+  item runs at a time in a process:** WorkManager reports a stopped job finished while its transfer or settlement still
+  runs, and a second job for the item then waits for the first instead of uploading the file again, then replays what
+  it left or finds nothing owed. A stamped answer is settled from the job's memory unless the entry on disk is
+  provably its own, and never deletes another answer's entry; settling the same stamped answer twice is harmless. Two
+  processes overlapping one item stay at least once. A status that arrives after the watchdog dropped the connection
+  is a transport failure, never an answer.
 - **iOS** entries are deleted just before the commit and written back if it does not land; a process death in that
   microsecond window uploads again (at least once).
 

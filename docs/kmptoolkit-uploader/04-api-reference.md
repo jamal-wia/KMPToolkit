@@ -175,10 +175,10 @@ public sealed interface UploadPreparation {
 | `prepareUpload` | at hand-off, and again when the transport runs the attempt (`wasDetached = true`) | hand-off: a retry; run time: the item stays in flight for the lease |
 | `classify(payload, result, response)` | with the raw outcome and the server's response, for every outcome; the default calls the two-argument `classify` | `SettleResult.Failed` |
 | `classify(payload, result)` | by the default three-argument `classify`; the default is `defaultUploadClassification(result)` | `SettleResult.Failed` |
-| `onUploadProgress` | per whole percent, while in flight; must not block: a hook still running 2 s after the transfer ended is cancelled and no longer awaited; one that ignores cancellation runs on in the background | logged, ignored |
+| `onUploadProgress` | per whole percent, while in flight; do not block a thread here (on Android the hook runs on a small dedicated pool, so a blocked thread delays other items' progress, never a settlement): a hook still running 2 s after the transfer ended is cancelled and no longer awaited; one that ignores cancellation runs on in the background | logged, ignored |
 | `onDelivered(payload, response)` | for `Delivered`, before the row is removed; the default calls the one-argument `onDelivered` | logged, ignored — the response is then lost |
 | `onDelivered(payload)` | by the default two-argument `onDelivered` | logged, ignored |
-| `onSettled` | after the item settled; `attempts` as at hand-off; at most once, in the process that committed the row (a stop of the job or a process death right after the commit can skip it, and nothing calls it later) | logged, ignored |
+| `onSettled` | after the item settled; a delivery or drop runs it once its `onDelivered` (if any) ran, even when the item was withdrawn during the settlement; a park or failure report that a newer settlement superseded runs no hook; `attempts` as at hand-off; at most once, in the process that committed the row (a stop of the job or a process death right after the commit can skip it, and nothing calls it later) | logged, ignored |
 
 `maxResponseBodyBytes` is the most body bytes the handler wants. The engine clamps it to `0..1 MiB` (a
 negative value is `0`, logged once), cuts a longer body to it and sets `UploadResponse.isBodyTruncated`;

@@ -15,11 +15,13 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 
 /**
@@ -562,6 +564,246 @@ class OutcomeJournalTest {
         assertNull(inner.find("item-1"))
     }
 
+    // --- Round 3 (D-59): one answer per item at a time, settled from memory unless the entry is its own -----
+
+    private val created = UploadResponse(201, emptyMap(), ByteArray(0), false)
+    private val failed = UploadResponse(500, emptyMap(), ByteArray(0), false)
+
+    @Test
+    fun `an answer whose entry another job overwrote and deleted is still settled from memory`() = runTest {
+        val settledStatuses = mutableListOf<Int>()
+        val settle: OutcomeSettle = { _, answer, _, _ ->
+            settledStatuses += answer.statusCode
+            JournalSettleOutcome.LANDED
+        }
+        assertTrue(journal.record("item-1", created, attemptStamp = 0))
+        assertTrue(journal.record("item-1", failed, attemptStamp = 0))
+
+        assertTrue(journal.settleRecorded("item-1", failed, 0, settle = settle))
+        assertTrue(journal.settleRecorded("item-1", created, 0, settle = settle))
+
+        assertEquals(listOf(500, 201), settledStatuses, "the 201 is settled although its entry was gone")
+        assertEquals(JournalEntry.Absent, journal.inspect("item-1"))
+    }
+
+    @Test
+    fun `a stamped answer whose entry holds another answer settles its own and leaves the other`() = runTest {
+        val settledStatuses = mutableListOf<Int>()
+        val settle: OutcomeSettle = { _, answer, _, _ ->
+            settledStatuses += answer.statusCode
+            JournalSettleOutcome.LANDED
+        }
+        assertTrue(journal.record("item-1", created, attemptStamp = 0))
+        assertTrue(journal.record("item-1", failed, attemptStamp = 0))
+
+        assertTrue(journal.settleRecorded("item-1", created, 0, settle = settle))
+
+        assertEquals(listOf(201), settledStatuses)
+        assertEquals(500, assertIs<JournalEntry.Valid>(journal.inspect("item-1")).response.statusCode, "the other answer stays")
+
+        assertTrue(journal.settleRecorded("item-1", failed, 0, settle = settle))
+
+        assertEquals(listOf(201, 500), settledStatuses)
+        assertEquals(JournalEntry.Absent, journal.inspect("item-1"))
+    }
+
+    @Test
+    fun `an unstamped answer whose entry a replayer already handled is not settled again`() = runTest {
+        var calls = 0
+        assertTrue(journal.record("item-1", created))
+        journal.delete("item-1")
+
+        assertTrue(journal.settleRecorded("item-1", created) { _, _, _, _ -> calls++; JournalSettleOutcome.LANDED })
+
+        assertEquals(0, calls)
+    }
+
+    @Test
+    fun `a stamped answer with no entry that does not land is recorded again with its stamp`() = runTest {
+        var calls = 0
+
+        assertFalse(
+            journal.settleRecorded("item-1", created, 0) { _, _, _, _ -> calls++; JournalSettleOutcome.NOT_LANDED },
+        )
+
+        assertEquals(1, calls)
+        assertEquals(0, assertIs<JournalEntry.Valid>(journal.inspect("item-1")).attemptStamp)
+    }
+
+    @Test
+    fun `exclusively runs a second holder of the same item only after the first`() = runTest {
+        val log = mutableListOf<String>()
+        val first: Job = launch {
+            journal.exclusively("item-1") {
+                log += "first start"
+                delay(200.milliseconds)
+                log += "first end"
+            }
+        }
+        val second: Job = launch {
+            journal.exclusively("item-1") { log += "second" }
+        }
+
+        first.join()
+        second.join()
+
+        assertEquals(listOf("first start", "first end", "second"), log)
+        assertEquals(0, OutcomeReplayLocks.activeKeys)
+    }
+
+    // --- Round 3: the engine settles an upload once, and runs onSettled only for a commit that applied ------
+
+    private class CommitRefusingStore(private val inner: TestUploaderStore) : UploaderStore by inner {
+        override suspend fun recordFailure(
+            id: String,
+            attempts: Int,
+            nextRunAtEpochMillis: Long,
+            lastError: String?,
+            expectedState: UploaderItemState,
+            expectedClaim: Long,
+            disposition: io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition,
+        ): Boolean = false
+    }
+
+    @Test
+    fun `a failure report the store rejects at commit runs no onSettled`() = runTest {
+        val handler = DeliveryRecorder()
+        val inner = TestUploaderStore()
+        val started: DefaultUploaderEngine = startedEngine(CommitRefusingStore(inner), handler, TestClock(1_000L))
+        val before: UploaderItem? = inner.find("item-1")
+
+        assertTrue(started.settleUpload("item-1", UploadResult.TransportFailure("reset")))
+
+        assertEquals(before, inner.find("item-1"), "the row is unchanged")
+        assertEquals(0, handler.settledCount)
+    }
+
+    @Test
+    fun `eight concurrent failure reports of one attempt charge once and run onSettled once`() = runTest {
+        val handler = DeliveryRecorder()
+        val store = TestUploaderStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        var arrived = 0
+        handler.onClassifyHook = {
+            arrived++
+            withTimeoutOrNull(200) { while (arrived < 8) delay(5) }
+        }
+
+        val reports: List<Job> = List(8) {
+            launch { started.settleUpload("item-1", UploadResult.TransportFailure("reset")) }
+        }
+        reports.forEach { it.join() }
+
+        assertEquals(1, store.find("item-1")?.attempts, "one attempt, one charge")
+        assertEquals(1, handler.settledCount, "onSettled runs for the one commit that applied")
+    }
+
+    @Test
+    fun `two concurrent deliveries of one item run onSettled once`() = runTest {
+        val handler = DeliveryRecorder()
+        val store = TestUploaderStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        val secondArrived = CompletableDeferred<Unit>()
+        var classified = 0
+        handler.onClassifyHook = {
+            if (++classified == 2) secondArrived.complete(Unit)
+        }
+        handler.onDeliveredHook = { withTimeoutOrNull(500) { secondArrived.await() } }
+
+        val first: Job = launch { started.settleUpload("item-1", UploadResult.Completed(201), created) }
+        val second: Job = launch { started.settleUpload("item-1", UploadResult.Completed(201), created) }
+        first.join()
+        second.join()
+
+        assertEquals(1, handler.delivered.size, "onDelivered ran once")
+        assertEquals(1, handler.settledCount, "onSettled ran once")
+        assertNull(store.find("item-1"))
+    }
+
+    @Test
+    fun `a delivery whose row is withdrawn before its commit still runs onSettled once`() = runTest {
+        val handler = DeliveryRecorder()
+        val store = TestUploaderStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        handler.onDeliveredHook = { store.deleteById("item-1") }
+
+        assertTrue(started.settleUpload("item-1", UploadResult.Completed(201), created))
+
+        assertEquals(1, handler.delivered.size, "onDelivered ran once")
+        assertEquals(1, handler.settledCount, "onSettled pairs with the onDelivered that ran")
+        assertNull(store.find("item-1"))
+    }
+
+    @Test
+    fun `a drop whose row is withdrawn before its commit still runs onSettled once`() = runTest {
+        val store = TestUploaderStore()
+        val handler = DeliveryRecorder(classifier = { SettleResult.Drop("gone") })
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        handler.onClassifyHook = { store.deleteById("item-1") }
+
+        assertTrue(started.settleUpload("item-1", UploadResult.Completed(404)))
+
+        assertEquals(0, handler.delivered.size, "a drop is not a delivery")
+        assertEquals(1, handler.settledCount, "onSettled runs once for the drop")
+        assertNull(store.find("item-1"))
+    }
+
+    @Test
+    fun `a stamped transport failure of an attempt the item has moved past is not charged`() = runTest {
+        val handler = DeliveryRecorder()
+        val testClock = TestClock(1_000L)
+        val store = TestUploaderStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, testClock)
+        assertEquals(JournalSettleOutcome.LANDED, started.settleJournaled("item-1", response(status = 503), 0) { })
+        testClock.millis += 3_600_000L
+        started.drain()
+        assertEquals(UploaderItemState.IN_FLIGHT, store.find("item-1")?.state)
+        assertEquals(1, store.find("item-1")?.attempts)
+        val settledBefore: Int = handler.settledCount
+
+        val outcome: JournalSettleOutcome =
+            started.settleAttempt("item-1", UploadResult.TransportFailure("late"), null, 0)
+
+        assertEquals(JournalSettleOutcome.STALE, outcome)
+        assertEquals(1, store.find("item-1")?.attempts, "the late failure did not charge the new attempt")
+        assertEquals(settledBefore, handler.settledCount)
+    }
+
+    @Test
+    fun `an item deleted while its handler prepares the upload is nothing owed`() = runTest {
+        val handler = DeliveryRecorder()
+        val store = TestUploaderStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        handler.onPrepareHook = { store.deleteById("item-1") }
+
+        val prepared: PreparedUpload = started.prepareStampedUploadAttempt("item-1")
+
+        assertEquals(UploadAttempt.NothingOwed, prepared.attempt)
+    }
+
+    @Test
+    fun `an item charged while its handler prepares the upload is retried and not uploaded`() = runTest {
+        val handler = DeliveryRecorder()
+        val store = TestUploaderStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        handler.onPrepareHook = {
+            val row: UploaderItem = store.find("item-1")!!
+            assertTrue(
+                store.recordFailure(
+                    "item-1", row.attempts + 1, 0L, null, row.state, row.claim,
+                    io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition.RETRY,
+                ),
+            )
+            val pending: UploaderItem = store.find("item-1")!!
+            assertTrue(store.markInFlight("item-1", 60_000L, pending.state, pending.claim))
+        }
+
+        val prepared: PreparedUpload = started.prepareStampedUploadAttempt("item-1")
+
+        assertEquals(UploadAttempt.EngineUnavailable, prepared.attempt)
+        assertNull(prepared.attemptStamp)
+    }
+
     private class MemoryOutcomeStorage : OutcomeStorage {
         val files: MutableMap<String, ByteArray> = LinkedHashMap()
         var failWrites = false
@@ -625,22 +867,31 @@ class OutcomeJournalTest {
         var classifiedCount = 0
         var entryAtSettled: Boolean? = null
         var onSettledHook: suspend () -> Unit = {}
+        var onClassifyHook: suspend () -> Unit = {}
+        var onDeliveredHook: suspend () -> Unit = {}
+        var onPrepareHook: suspend () -> Unit = {}
+        var settledCount = 0
 
         override suspend fun classify(payload: String, result: UploadResult, response: UploadResponse?): SettleResult {
             classifiedCount++
+            onClassifyHook()
             return classifier(result)
         }
 
         override suspend fun onSettled(payload: String, attempts: Int, result: SettleResult) {
+            settledCount++
             onSettledHook()
         }
 
         override fun encodePayload(payload: String): String = payload
         override fun decodePayload(raw: String): String = raw
-        override suspend fun prepareUpload(context: AttemptContext, payload: String): UploadPreparation =
-            UploadPreparation.Proceed(UploadRequest(url = "https://example.com/u", fields = emptyList()))
+        override suspend fun prepareUpload(context: AttemptContext, payload: String): UploadPreparation {
+            onPrepareHook()
+            return UploadPreparation.Proceed(UploadRequest(url = "https://example.com/u", fields = emptyList()))
+        }
 
         override suspend fun onDelivered(payload: String, response: UploadResponse?) {
+            onDeliveredHook()
             if (deliveryDelay > Duration.ZERO) delay(deliveryDelay)
             delivered += response
         }

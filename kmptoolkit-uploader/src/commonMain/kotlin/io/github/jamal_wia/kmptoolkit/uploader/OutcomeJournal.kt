@@ -81,7 +81,10 @@ internal enum class JournalSettleOutcome {
     /** Committed, or the item is gone. */
     LANDED,
 
-    /** The answer is of an attempt the item has moved past; a Failed or Park verdict was not applied. */
+    /**
+     * The answer is of an attempt the item has moved past, or its commit found the item already moved on:
+     * nothing was applied and no hook ran.
+     */
     STALE,
 
     /** Nothing was committed (no engine, store failure). */
@@ -209,7 +212,9 @@ internal class OutcomeJournal(
      * deleted just before the commit and written back, with its original write time, when it did not land.
      *
      * An entry that cannot be read back, or reads back damaged or expired, never means "handled": the answer
-     * is settled from [response], and recorded again (best effort) when that does not land.
+     * is settled from [response], and recorded again (best effort) when that does not land. A stamped answer
+     * is settled from memory unless the entry on disk is provably its own, and never deletes another answer's
+     * entry; the Android worker runs one job per item at a time (see [exclusively]).
      *
      * @return whether the outcome landed (or was stale), or a replayer had already handled the entry.
      */
@@ -220,28 +225,97 @@ internal class OutcomeJournal(
         bodyLimit: Int = MAX_RESPONSE_BODY_BYTES,
         settle: OutcomeSettle,
     ): Boolean =
-        OutcomeReplayLocks.withItem(itemId) {
-            when (val entry: JournalEntry = inspect(itemId)) {
+        OutcomeReplayLocks.withItem(itemId) { settleRecordedHeld(itemId, response, attemptStamp, bodyLimit, settle) }
+
+    private suspend fun settleRecordedHeld(
+        itemId: String,
+        response: UploadResponse,
+        attemptStamp: Int?,
+        bodyLimit: Int,
+        settle: OutcomeSettle,
+    ): Boolean {
+        val entry: JournalEntry = inspect(itemId)
+        if (attemptStamp == null) {
+            // Unstamped: the code of the iOS delegate's journal, unchanged.
+            return when (entry) {
                 is JournalEntry.Valid -> settleKeeping(itemId, entry, response, settle) != JournalSettleOutcome.NOT_LANDED
-                // The sweep or a replayer handled and deleted it (or it was never there to settle).
+                // Unstamped only: without a stamp a from-memory settle after a replayer could charge twice.
                 JournalEntry.Absent -> true
-                // The answer is still held in memory: a failed read, a damaged or an expired entry must not
-                // make it look handled. `Discarded` right after this call wrote the entry cannot be a
-                // replayer's work, because a replayer's delete leaves `Absent`. The item lock is held for the
-                // whole call, so nothing else settles it meanwhile.
-                JournalEntry.Unreadable, JournalEntry.Discarded -> {
-                    val outcome: JournalSettleOutcome = settle(itemId, response, attemptStamp) { }
-                    if (outcome != JournalSettleOutcome.NOT_LANDED) {
-                        delete(itemId)
-                        true
-                    } else {
-                        // So the re-run still finds the answer.
-                        record(itemId, response, bodyLimit, attemptStamp)
-                        false
-                    }
-                }
+                JournalEntry.Unreadable, JournalEntry.Discarded -> settleFromMemory(itemId, response, null, bodyLimit, settle)
             }
         }
+        val recorded: UploadResponse = response.enforced(bodyLimit.coerceIn(0, MAX_RESPONSE_BODY_BYTES))
+        return when {
+            entry is JournalEntry.Valid && isOwn(entry, recorded, attemptStamp) ->
+                settleKeeping(itemId, entry, response, settle) != JournalSettleOutcome.NOT_LANDED
+
+            // The entry holds another answer (another job's, across processes): settle ours from memory and
+            // leave that one to its writer or a replay.
+            entry is JournalEntry.Valid -> {
+                val outcome: JournalSettleOutcome = settle(itemId, response, attemptStamp) { }
+                if (outcome == JournalSettleOutcome.NOT_LANDED) {
+                    logger.w {
+                        "The answer of attempt $attemptStamp for item=$itemId did not land and another answer holds " +
+                            "the entry; the re-run replays that one, this one is given up (at least once)."
+                    }
+                    false
+                } else {
+                    true
+                }
+            }
+
+            // Absent, Unreadable, Discarded: the answer is held in memory, and a stamped answer settled twice
+            // is harmless (a stale Failed/Park is a no-op, a delivery finds its row gone), so settle it.
+            else -> settleFromMemory(itemId, response, attemptStamp, bodyLimit, settle)
+        }
+    }
+
+    /** Whether [entry] is the entry this worker's own [recorded] answer of [attemptStamp] wrote. */
+    private fun isOwn(entry: JournalEntry.Valid, recorded: UploadResponse, attemptStamp: Int): Boolean =
+        entry.attemptStamp == attemptStamp && entry.response == recorded
+
+    /**
+     * Settles [response] from memory. Landed or stale: deletes the entry (a no-op when absent) and returns
+     * `true`. Not landed: records it again (best effort) so the re-run still finds it, and returns `false`.
+     */
+    private suspend fun settleFromMemory(
+        itemId: String,
+        response: UploadResponse,
+        attemptStamp: Int?,
+        bodyLimit: Int,
+        settle: OutcomeSettle,
+    ): Boolean {
+        val outcome: JournalSettleOutcome = settle(itemId, response, attemptStamp) { }
+        return if (outcome != JournalSettleOutcome.NOT_LANDED) {
+            delete(itemId)
+            true
+        } else {
+            record(itemId, response, bodyLimit, attemptStamp)
+            false
+        }
+    }
+
+    /** Runs [block] as the only holder of [itemId]'s journal lock in this process; see [HeldItem]. */
+    suspend fun <T> exclusively(itemId: String, block: suspend HeldItem.() -> T): T =
+        OutcomeReplayLocks.withItem(itemId) { HeldItem(itemId).block() }
+
+    /** The journal's operations on one item while [exclusively] holds its lock; they do not take it again (it is not reentrant). */
+    inner class HeldItem internal constructor(val itemId: String) {
+
+        suspend fun replay(settle: OutcomeSettle): ReplayOutcome = replayHeld(itemId, settle)
+
+        fun record(response: UploadResponse, bodyLimit: Int, attemptStamp: Int?): Boolean =
+            this@OutcomeJournal.record(itemId, response, bodyLimit, attemptStamp)
+
+        fun delete() = this@OutcomeJournal.delete(itemId)
+
+        suspend fun settleRecorded(
+            response: UploadResponse,
+            attemptStamp: Int?,
+            bodyLimit: Int,
+            settle: OutcomeSettle,
+        ): Boolean = settleRecordedHeld(itemId, response, attemptStamp, bodyLimit, settle)
+    }
 
     /**
      * Hands the entry of [itemId], if there is a usable one, to [settle] — the engine's settlement — and
@@ -255,18 +329,19 @@ internal class OutcomeJournal(
      * waits, then finds the entry gone and does nothing, so the response is delivered once.
      */
     suspend fun replay(itemId: String, settle: OutcomeSettle): ReplayOutcome =
-        OutcomeReplayLocks.withItem(itemId) {
-            when (val entry: JournalEntry = inspect(itemId)) {
-                JournalEntry.Absent -> ReplayOutcome.NoEntry
-                JournalEntry.Unreadable -> ReplayOutcome.Unreadable
-                JournalEntry.Discarded -> ReplayOutcome.Discarded
-                is JournalEntry.Valid -> {
-                    logger.i { "Replaying the journaled upload outcome — item=$itemId, status=${entry.response.statusCode}" }
-                    when (settleKeeping(itemId, entry, entry.response, settle)) {
-                        JournalSettleOutcome.LANDED -> ReplayOutcome.Replayed
-                        JournalSettleOutcome.STALE -> ReplayOutcome.Stale
-                        JournalSettleOutcome.NOT_LANDED -> ReplayOutcome.Kept
-                    }
+        OutcomeReplayLocks.withItem(itemId) { replayHeld(itemId, settle) }
+
+    private suspend fun replayHeld(itemId: String, settle: OutcomeSettle): ReplayOutcome =
+        when (val entry: JournalEntry = inspect(itemId)) {
+            JournalEntry.Absent -> ReplayOutcome.NoEntry
+            JournalEntry.Unreadable -> ReplayOutcome.Unreadable
+            JournalEntry.Discarded -> ReplayOutcome.Discarded
+            is JournalEntry.Valid -> {
+                logger.i { "Replaying the journaled upload outcome — item=$itemId, status=${entry.response.statusCode}" }
+                when (settleKeeping(itemId, entry, entry.response, settle)) {
+                    JournalSettleOutcome.LANDED -> ReplayOutcome.Replayed
+                    JournalSettleOutcome.STALE -> ReplayOutcome.Stale
+                    JournalSettleOutcome.NOT_LANDED -> ReplayOutcome.Kept
                 }
             }
         }
@@ -506,13 +581,16 @@ internal fun gatewaySettle(engineWait: Duration): OutcomeSettle = { itemId, resp
     UploadGateway.completeJournaled(itemId, response, attemptStamp, engineWait, onSettling)
 }
 
-/** One replay per item id at a time, shared by every [OutcomeJournal] in the process. */
-internal object OutcomeReplayLocks {
+/** One lock per item id, created on demand and dropped once nobody holds or waits for it. */
+internal class ItemLocks {
 
     private class Entry(val mutex: Mutex = Mutex(), var users: Int = 0)
 
     private val guard: Mutex = Mutex()
     private val entries: MutableMap<String, Entry> = HashMap()
+
+    /** The number of ids that have a lock right now; for tests, read when nothing holds or waits. */
+    internal val activeKeys: Int get() = entries.size
 
     suspend fun <T> withItem(itemId: String, block: suspend () -> T): T {
         val entry: Entry = guard.withLock { entries.getOrPut(itemId) { Entry() }.also { it.users++ } }
@@ -526,4 +604,15 @@ internal object OutcomeReplayLocks {
             }
         }
     }
+}
+
+/** One replay per item id at a time, shared by every [OutcomeJournal] in the process. */
+internal object OutcomeReplayLocks {
+
+    private val locks: ItemLocks = ItemLocks()
+
+    /** See [ItemLocks.activeKeys]. */
+    internal val activeKeys: Int get() = locks.activeKeys
+
+    suspend fun <T> withItem(itemId: String, block: suspend () -> T): T = locks.withItem(itemId, block)
 }

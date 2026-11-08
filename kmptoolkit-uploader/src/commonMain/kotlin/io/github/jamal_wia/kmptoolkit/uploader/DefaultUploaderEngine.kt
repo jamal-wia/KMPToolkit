@@ -328,23 +328,36 @@ internal class DefaultUploaderEngine(
     }
 
     override suspend fun settle(id: String, claim: Long, result: SettleResult) {
+        commitSettle(id, claim, result)
+    }
+
+    /**
+     * The commit behind [settle].
+     *
+     * @return whether it applied: `false` for a missing row, a `Park` or `Failed` rejected as stale, a park
+     *   or failure the store refused; `true` for a delivery or drop on a present row and an applied park or
+     *   failure. An upload settlement runs its `onSettled` hook only for a commit that applied.
+     */
+    private suspend fun commitSettle(id: String, claim: Long, result: SettleResult): Boolean {
         val record: UploaderItem? = store.getById(id)
         if (record == null) {
             // Late, duplicate, or superseded settle — the debt is no longer this executor's.
             logger.i { "settle($result) for unknown id=$id — no-op." }
-            return
+            return false
         }
-        when (result) {
+        val applied: Boolean = when (result) {
             // Facts about the effect, so they stand from any claim: a superseded executor that delivered
             // has still delivered, and re-handing the item would send it twice.
             is SettleResult.Delivered -> {
                 store.deleteById(id)
                 logger.i { "Settled ${record.logName} as delivered." }
+                true
             }
 
             is SettleResult.Drop -> {
                 store.deleteById(id)
                 logger.i { "Settled ${record.logName} as dropped — ${result.reason}." }
+                true
             }
 
             // Verdicts on one attempt, so they stand only from the attempt the engine still runs.
@@ -355,13 +368,17 @@ internal class DefaultUploaderEngine(
                 } else {
                     logger.i { "Park settle for ${record.logName} superseded mid-settle — no-op." }
                 }
+                parked
+            } else {
+                false
             }
 
-            is SettleResult.Failed -> if (record.isCurrentFor(claim, result)) settleFailed(record, result)
+            is SettleResult.Failed -> if (record.isCurrentFor(claim, result)) settleFailed(record, result) else false
         }
         // Delivered may have emptied the queue (let the drain disarm the wake); Failed armed a
         // backoff gate (let the drain schedule an alarm for it).
         trigger()
+        return applied
     }
 
     /**
@@ -382,17 +399,17 @@ internal class DefaultUploaderEngine(
         return current
     }
 
-    private suspend fun settleFailed(record: UploaderItem, result: SettleResult.Failed) {
+    private suspend fun settleFailed(record: UploaderItem, result: SettleResult.Failed): Boolean {
         val handler: UploaderHandler<*>? = handlersByType[record.type]
         if (handler == null) {
             // The same treatment the drain gives an orphaned type: keep it, keep it visible.
-            parkAsRead(record, "no handler registered for type '${record.type}'")
+            val parked: Boolean = parkAsRead(record, "no handler registered for type '${record.type}'")
             logger.e { "Parked ${record.logName} on settle — no handler for its type." }
-            return
+            return parked
         }
         // Guarded by the state and claim the record carried when we read it: if the drain re-handed the
         // item in between, the claim moved and this write no-ops instead of clobbering the fresh one.
-        recordRetry(record = record, handler = handler, cause = result.cause)
+        return recordRetry(record = record, handler = handler, cause = result.cause)
     }
 
     /**
@@ -806,7 +823,7 @@ internal class DefaultUploaderEngine(
         cause: Throwable?,
         expectedState: UploaderItemState = record.state,
         expectedClaim: Long = record.claim,
-    ) {
+    ): Boolean {
         val attempts: Int = record.attempts + 1
         val error: String? = describeFailure(cause)
         val nextRunAt: Long = saturatingAdd(clock.nowEpochMillis(), handler.retryPolicy.backoffMillis(attempts))
@@ -837,13 +854,14 @@ internal class DefaultUploaderEngine(
         )
         if (!applied) {
             logger.i { "Stale failure report for ${record.logName} — superseded, no-op." }
-            return
+            return false
         }
         when (disposition) {
             FailureDisposition.PARK -> logger.e { "Parked ${record.logName} after $attempts attempts ($error)." }
             FailureDisposition.DROP -> logger.e { "Dropped ${record.logName} after $attempts attempts ($error)." }
             FailureDisposition.RETRY -> logger.w { "Retry scheduled for ${record.logName} (attempt $attempts, $error)." }
         }
+        return true
     }
 
     /** An attempt the drain is running for one item, and whether a withdrawal has stopped it. */
@@ -1009,9 +1027,13 @@ internal class DefaultUploaderEngine(
      * [UploadAttempt.Ready] attempt, else `null`.
      */
     internal suspend fun prepareStampedUploadAttempt(id: String): PreparedUpload = try {
-        prepareUploadRequest(id)?.let { (request: UploadRequest, stamp: Int) ->
-            PreparedUpload(UploadAttempt.Ready(request), stamp)
-        } ?: PreparedUpload(UploadAttempt.NothingOwed, null)
+        when (val prepared: PreparedRequest? = prepareUploadRequest(id)) {
+            is PreparedRequest.Prepared ->
+                PreparedUpload(UploadAttempt.Ready(prepared.request), prepared.attemptStamp, prepared.bodyLimit)
+
+            PreparedRequest.MovedOn -> PreparedUpload(UploadAttempt.EngineUnavailable, null)
+            PreparedRequest.NothingOwed, null -> PreparedUpload(UploadAttempt.NothingOwed, null)
+        }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Throwable) {
@@ -1019,12 +1041,28 @@ internal class DefaultUploaderEngine(
         PreparedUpload(UploadAttempt.EngineUnavailable, null)
     }
 
+    /** What [prepareUploadRequest] found. */
+    private sealed interface PreparedRequest {
+
+        /** Upload [request]: prepared at the row's [attemptStamp], its response held to [bodyLimit]. */
+        class Prepared(val request: UploadRequest, val attemptStamp: Int, val bodyLimit: Int) : PreparedRequest
+
+        /** The row settled or was withdrawn while the handler prepared the upload. */
+        data object NothingOwed : PreparedRequest
+
+        /** The row was charged while the handler prepared the upload; the job retries and prepares the new attempt. */
+        data object MovedOn : PreparedRequest
+    }
+
     /**
-     * @return the request and the row's `attempts` it was prepared at, or `null` when nothing is to be
-     *   uploaded: the row is gone or no longer in flight, the handler dropped or parked it (applied here), or
-     *   preparation failed (charged to the row as a failed attempt, guarded by its claim).
+     * @return the request, the row's `attempts` it was prepared at and the body limit read with them, or
+     *   `null` when nothing is to be uploaded: the row is gone or no longer in flight, the handler dropped or
+     *   parked it (applied here), or preparation failed (charged to the row as a failed attempt, guarded by
+     *   its claim). The row is read again after the handler prepared, so a settlement or withdrawal that landed
+     *   meanwhile is [PreparedRequest.NothingOwed] and a charge is [PreparedRequest.MovedOn]; what remains is the
+     *   window from that read to the first byte, which any check-then-act has.
      */
-    private suspend fun prepareUploadRequest(id: String): Pair<UploadRequest, Int>? {
+    private suspend fun prepareUploadRequest(id: String): PreparedRequest? {
         val record: UploaderItem? = store.getById(id)
         if (record == null || record.state != UploaderItemState.IN_FLIGHT) {
             logger.i { "Upload attempt for id=$id has nothing owed (state=${record?.state})." }
@@ -1053,7 +1091,23 @@ internal class DefaultUploaderEngine(
             return null
         }
         return when (preparation) {
-            is UploadPreparation.Proceed -> preparation.request to record.attempts
+            is UploadPreparation.Proceed -> {
+                val current: UploaderItem? = store.getById(id)
+                if (current == null || current.state != UploaderItemState.IN_FLIGHT) {
+                    logger.i { "Upload attempt for ${record.logName} settled or withdrawn while it was being prepared; nothing owed." }
+                    PreparedRequest.NothingOwed
+                } else if (current.attempts != record.attempts) {
+                    logger.i { "Upload attempt for ${record.logName} charged while it was being prepared; the job retries." }
+                    PreparedRequest.MovedOn
+                } else {
+                    // A changed claim alone is a re-hand-off the same job serves: proceed.
+                    PreparedRequest.Prepared(
+                        preparation.request,
+                        record.attempts,
+                        effectiveBodyLimit(current, handler),
+                    )
+                }
+            }
             is UploadPreparation.Drop -> {
                 store.deleteById(id)
                 logger.i { "Dropped ${record.logName} at upload attempt — ${preparation.reason}." }
@@ -1123,6 +1177,17 @@ internal class DefaultUploaderEngine(
         response: UploadResponse? = null,
         onSettling: (() -> Unit)? = null,
     ): Boolean = settleUploadOutcome(id, result, response, null, onSettling) != JournalSettleOutcome.NOT_LANDED
+
+    /**
+     * Settles an answer the worker did not journal (a transport failure, a failed journal write) of the attempt
+     * stamped [attemptStamp]; a report of an attempt the item has moved past is not charged to the new one.
+     */
+    internal suspend fun settleAttempt(
+        id: String,
+        result: UploadResult,
+        response: UploadResponse?,
+        attemptStamp: Int?,
+    ): JournalSettleOutcome = settleUploadOutcome(id, result, response, attemptStamp, null)
 
     /**
      * Settles a journaled answer of the attempt stamped [attemptStamp] (`null` for an unstamped one): the
@@ -1206,6 +1271,20 @@ internal class DefaultUploaderEngine(
         JournalSettleOutcome.NOT_LANDED
     }
 
+    /**
+     * Settlements of one item's upload run one at a time in this engine: read the row, classify, check the
+     * stamp, `onDelivered` and commit happen under the item's lock, so a second concurrent settlement (a
+     * consumer's own transport reporting twice, a delegate racing a replay) finds the row the first one left
+     * and cannot run `onSettled` twice, and a park or failure the commit did not apply
+     * runs none. `deleteById` returns `Unit` in the public store contract, so only serialisation can tell the
+     * second Delivered that it found nothing. Lock order: the outcome journal's item lock (outer, held by a worker
+     * job), then this one (inner); the engine never takes the journal's, so there is no cycle. The `onSettled` hook runs after the lock is released.
+     */
+    private val uploadSettleLocks: ItemLocks = ItemLocks()
+
+    /** What the locked part of an upload settlement decided, and the `onSettled` hook it leaves for after the lock. */
+    private class LockedSettle(val outcome: JournalSettleOutcome, val settled: (suspend () -> Unit)?)
+
     private suspend fun settleUploadUnguarded(
         id: String,
         rawResult: UploadResult,
@@ -1213,13 +1292,36 @@ internal class DefaultUploaderEngine(
         attemptStamp: Int?,
         onSettling: (() -> Unit)?,
     ): JournalSettleOutcome {
+        val locked: LockedSettle = uploadSettleLocks.withItem(id) {
+            settleUploadLocked(id, rawResult, rawResponse, attemptStamp, onSettling)
+        }
+        val settled: (suspend () -> Unit)? = locked.settled
+        if (settled != null) {
+            // The commit landed and the caller must learn that; the job's cancelled state is kept for its next
+            // suspension point.
+            try {
+                settled()
+            } catch (e: CancellationException) {
+                logger.i { "onSettled skipped for id=$id: stopped right after the commit." }
+            }
+        }
+        return locked.outcome
+    }
+
+    private suspend fun settleUploadLocked(
+        id: String,
+        rawResult: UploadResult,
+        rawResponse: UploadResponse?,
+        attemptStamp: Int?,
+        onSettling: (() -> Unit)?,
+    ): LockedSettle {
         val record: UploaderItem? = store.getById(id)
         if (record == null) {
             logger.i { "Upload settle($rawResult) for unknown id=$id — no-op." }
-            return JournalSettleOutcome.LANDED
+            return LockedSettle(JournalSettleOutcome.LANDED, null)
         }
         val (handler: UploadHandler<Any>, payload: Any) = uploadHandlerAndPayload(record, "upload settle")
-            ?: return JournalSettleOutcome.LANDED
+            ?: return LockedSettle(JournalSettleOutcome.LANDED, null)
         // The one place the body limit is enforced; with a response, the result is built from it so the
         // two cannot disagree.
         val response: UploadResponse? = rawResponse?.enforced(effectiveBodyLimit(record, handler))
@@ -1244,7 +1346,7 @@ internal class DefaultUploaderEngine(
                 "journaled answer of attempt $attemptStamp for ${record.logName} is stale " +
                     "(item at ${record.attempts}, ${record.state}); not applied"
             }
-            return JournalSettleOutcome.STALE
+            return LockedSettle(JournalSettleOutcome.STALE, null)
         }
         if (settleResult is SettleResult.Delivered) {
             // Before the row settles, isolated: the upload already landed, and a local failure must
@@ -1261,29 +1363,47 @@ internal class DefaultUploaderEngine(
         // a store's CancellationException included, is a commit that did not land: inside NonCancellable a
         // cancellation can only be the store's own. classify, onDelivered and onSettled stay cancellable:
         // they are feature code.
-        val committed: Boolean = withContext(NonCancellable) {
+        val applied: Boolean? = withContext(NonCancellable) {
             try {
                 onSettling?.invoke()
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
             }
             try {
-                settle(id, record.claim, settleResult)
-                true
+                commitSettle(id, record.claim, settleResult)
             } catch (e: Throwable) {
                 logger.e(e) { "Upload settle commit for ${record.logName} failed; not landed." }
-                false
+                null
             }
         }
-        if (!committed) return JournalSettleOutcome.NOT_LANDED
-        // The commit landed and the caller must learn that; the job's cancelled state is kept for its next
-        // suspension point.
-        try {
-            runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
-        } catch (e: CancellationException) {
-            logger.i { "onSettled skipped for ${record.logName}: stopped right after the commit." }
+        // A delivery or drop is a fact about the effect: the row was present at this settlement's locked read, so the
+        // verdict stands even if a withdrawal deleted the row before the commit (commitSettle then reports false). Its
+        // onSettled must still pair with the onDelivered already run. The lock keeps it at most once: a second
+        // settlement of this item reads no row and returns before any hook. A Park or Failed the commit did not apply
+        // ran nothing.
+        val stands: Boolean? = when (applied) {
+            null -> null
+            true -> true
+            false -> settleResult is SettleResult.Delivered || settleResult is SettleResult.Drop
         }
-        return JournalSettleOutcome.LANDED
+        return when (stands) {
+            null -> LockedSettle(JournalSettleOutcome.NOT_LANDED, null)
+            false -> {
+                logger.i { "settle of ${record.logName} superseded at commit; nothing applied, no onSettled" }
+                LockedSettle(JournalSettleOutcome.STALE, null)
+            }
+
+            true -> {
+                if (applied == false) {
+                    logger.i {
+                        "${record.logName} was withdrawn while settling as $settleResult; the verdict stands, onSettled runs"
+                    }
+                }
+                LockedSettle(JournalSettleOutcome.LANDED) {
+                    runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
+                }
+            }
+        }
     }
 
     /** The handler's body limit as enforced, logging a negative value once per handler type. */

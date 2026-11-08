@@ -19,13 +19,13 @@ import io.github.jamal_wia.kmptoolkit.logging.w
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -50,7 +50,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * Unique work keyed by the item id with `ExistingWorkPolicy.KEEP` makes a re-hand while the job is
  * alive a no-op, and re-enqueues after a dead one. The job's outcome reaches the engine or the job is
- * retried by `WorkManager` — an outcome is never dropped.
+ * retried by `WorkManager` — an outcome is never dropped. One job per item runs at a time in a process: a job
+ * that starts while another of the same item still runs (WorkManager reports a stopped job finished while its
+ * transfer or settlement continues) waits for it.
  *
  * Works only with items whose handler is an [UploadHandler]; anything else is parked at run time.
  *
@@ -159,56 +161,63 @@ public open class UploadHandlerWorker(
             UploadTransportConfig.DEFAULT_ENGINE_WAIT.inWholeMilliseconds,
         ).milliseconds
 
-        // An outcome journaled by an earlier run of this job — the process died between the server's answer
-        // and the engine's settlement — is replayed instead of uploading again. A leftover of an attempt that
-        // was already settled is recognised by its stamp and dropped, and the job uploads.
         val journal: OutcomeJournal = androidOutcomeJournal(applicationContext)
-        when (journal.replay(itemId, gatewaySettle(engineWait))) {
-            ReplayOutcome.Replayed -> return Result.success()
-            ReplayOutcome.Kept -> return Result.retry()
-            // "Not readable" never means "handled": wait for it over a few runs, then give it up.
-            ReplayOutcome.Unreadable -> {
-                if (runAttemptCount < UNREADABLE_ENTRY_RUNS) return Result.retry()
-                journal.delete(itemId)
+        // One job per item at a time in this process: a job that starts while another of this item is still
+        // running (WorkManager reports a stopped job finished while its transfer or commit still runs) waits for
+        // it, then replays what it left or finds nothing owed, instead of uploading the file a second time and
+        // racing its journal entry. Inside, only the held item's operations are used: the lock is not reentrant.
+        return journal.exclusively(itemId) {
+            // An outcome journaled by an earlier run of this job — the process died between the server's answer
+            // and the engine's settlement — is replayed instead of uploading again. A leftover of an attempt that
+            // was already settled is recognised by its stamp and dropped, and the job uploads.
+            when (replay(gatewaySettle(engineWait))) {
+                ReplayOutcome.Replayed -> return@exclusively Result.success()
+                ReplayOutcome.Kept -> return@exclusively Result.retry()
+                // "Not readable" never means "handled": wait for it over a few runs, then give it up.
+                ReplayOutcome.Unreadable -> {
+                    if (runAttemptCount < UNREADABLE_ENTRY_RUNS) return@exclusively Result.retry()
+                    delete()
+                }
+                ReplayOutcome.NoEntry, ReplayOutcome.Discarded, ReplayOutcome.Stale -> Unit
             }
-            ReplayOutcome.NoEntry, ReplayOutcome.Discarded, ReplayOutcome.Stale -> Unit
-        }
 
-        val prepared: PreparedUpload = UploadGateway.prepareStampedAttempt(itemId, engineWait)
-        val attemptStamp: Int? = prepared.attemptStamp
-        val request: UploadRequest = when (val attempt: UploadAttempt = prepared.attempt) {
-            UploadAttempt.EngineUnavailable -> return Result.retry()
-            UploadAttempt.NothingOwed -> return Result.success()
-            is UploadAttempt.Ready -> attempt.request
-        }
-        // The handler's body limit, asked now while the engine is known to be reachable: the journal keeps no
-        // more of the body than the handler asked for.
-        val bodyLimit: Int = UploadGateway.responseBodyLimit(itemId, engineWait) ?: MAX_RESPONSE_BODY_BYTES
+            val prepared: PreparedUpload = UploadGateway.prepareStampedAttempt(itemId, engineWait)
+            val attemptStamp: Int? = prepared.attemptStamp
+            val request: UploadRequest = when (val attempt: UploadAttempt = prepared.attempt) {
+                UploadAttempt.EngineUnavailable -> return@exclusively Result.retry()
+                UploadAttempt.NothingOwed -> return@exclusively Result.success()
+                is UploadAttempt.Ready -> attempt.request
+            }
+            // The handler's body limit, read together with the row the attempt was prepared from: the journal
+            // keeps no more of the body than the handler asked for.
+            val bodyLimit: Int = prepared.bodyLimit
 
-        // The answer is journaled the moment the transfer returns, before anything waits on the progress
-        // forwarder: a slow hook may lose progress, never the answer.
-        var journaled = false
-        val outcome: MultipartOutcome = uploadReportingProgress(itemId, request) { answered ->
-            val answer: UploadResponse? = answered.response
-            if (answer != null) journaled = journal.record(itemId, answer, bodyLimit, attemptStamp)
-        }
-        // The server's answer, when there was one, goes to the handler with the status. An outcome that
-        // did not reach the engine must not be lost: re-run. It is written to disk first, so a re-run in a
-        // new process replays it instead of uploading again; without the journal (a write that failed) the
-        // re-run prepares first, so an item that settled meanwhile uploads nothing — but one still in flight
-        // uploads again, which is why the handler's onDelivered must tolerate a repeat. The body stays in
-        // this process and the journal: it is never put into WorkManager's data.
-        val response: UploadResponse? = outcome.response
-        val landed: Boolean = if (response != null) {
-            if (journaled) {
-                journal.settleRecorded(itemId, response, attemptStamp, bodyLimit, gatewaySettle(engineWait))
+            // The answer is journaled the moment the transfer returns, before anything waits on the progress
+            // forwarder: a slow hook may lose progress, never the answer.
+            var journaled = false
+            val outcome: MultipartOutcome = uploadReportingProgress(itemId, request) { answered ->
+                val answer: UploadResponse? = answered.response
+                if (answer != null) journaled = record(answer, bodyLimit, attemptStamp)
+            }
+            // The server's answer, when there was one, goes to the handler with the status. An outcome that
+            // did not reach the engine must not be lost: re-run. It is written to disk first, so a re-run in a
+            // new process replays it instead of uploading again; without the journal (a write that failed) the
+            // re-run prepares first, so an item that settled meanwhile uploads nothing — but one still in flight
+            // uploads again, which is why the handler's onDelivered must tolerate a repeat. The body stays in
+            // this process and the journal: it is never put into WorkManager's data. Every settlement carries the
+            // attempt stamp, so a late or duplicate report is never charged to a newer attempt.
+            val response: UploadResponse? = outcome.response
+            val landed: Boolean = if (response != null) {
+                if (journaled) {
+                    settleRecorded(response, attemptStamp, bodyLimit, gatewaySettle(engineWait))
+                } else {
+                    UploadGateway.completeAttempt(itemId, outcome.result, response, attemptStamp, engineWait)
+                }
             } else {
-                UploadGateway.complete(itemId, response, engineWait)
+                UploadGateway.completeAttempt(itemId, outcome.result, null, attemptStamp, engineWait)
             }
-        } else {
-            UploadGateway.complete(itemId, outcome.result, engineWait)
+            if (landed) Result.success() else Result.retry()
         }
-        return if (landed) Result.success() else Result.retry()
     }
 
     /** The item this job uploads. Override only to read an input key an earlier worker of yours used. */
@@ -222,6 +231,8 @@ public open class UploadHandlerWorker(
      * [PROGRESS_FLUSH_TIMEOUT] to drain, so progress signals land before the settle unless the hook takes
      * longer than that: the hook is then cancelled and no longer awaited, because a progress hook must never
      * hold up the settlement.
+     * The forwarder runs on a small dedicated view of the IO pool, never on the worker's own threads, so a hook
+     * that blocks its thread delays other items' progress at most, never a settlement or a transfer.
      */
     private suspend fun uploadReportingProgress(
         itemId: String,
@@ -231,7 +242,9 @@ public open class UploadHandlerWorker(
         val fractions: Channel<Float> = Channel(Channel.CONFLATED)
         // Outside the job's structured scope on purpose: a hook that ignores cancellation, or blocks a
         // thread, keeps running in the background but no longer delays the settlement.
-        val progressScope = CoroutineScope(currentCoroutineContext().minusKey(Job) + SupervisorJob())
+        // Never the worker's Dispatchers.Default: a hook that blocks its thread then costs other items' progress at
+        // most, never a settlement or a transfer.
+        val progressScope = CoroutineScope(PROGRESS_HOOKS + SupervisorJob())
         val forwarder: Job = progressScope.launch { for (fraction in fractions) UploadGateway.progress(itemId, fraction) }
         try {
             // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO.
@@ -290,10 +303,16 @@ public open class UploadHandlerWorker(
 }
 
 /**
- * An answer on disk that cannot be read is waited for over this many runs; then it is given up and the item
- * uploads again, the documented at-least-once fallback.
+ * An answer on disk that cannot be read is waited for while the job has run fewer than this many times (the job's
+ * run count, WorkManager's `runAttemptCount`, which also counts retries for other reasons); then it is given up and
+ * the item uploads again, the documented at-least-once fallback.
  */
 private const val UNREADABLE_ENTRY_RUNS: Int = 3
+
+/** Threads the progress hooks of all jobs share; a shared view of the IO pool, not a lock. */
+private const val PROGRESS_HOOK_THREADS: Int = 4
+
+private val PROGRESS_HOOKS: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(PROGRESS_HOOK_THREADS)
 
 /** How long the worker waits for [UploadHandler.onUploadProgress] to drain after the transfer ended. */
 private val PROGRESS_FLUSH_TIMEOUT: kotlin.time.Duration = 2.seconds
