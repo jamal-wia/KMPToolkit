@@ -293,6 +293,9 @@ cancellation no later than its next suspension point.
 Best-effort by design — an engine that throws while being stopped does not prevent the deletion or
 the return to `Idle`, and this still returns `Success`.
 
+A worker context that refuses the work (an executor that was shut down) still releases the recorder and
+deletes the file, on the calling thread.
+
 ### `fun release()`
 
 Terminal disposal: releases the native handle and microphone, cancels the ticker, sets `state` to

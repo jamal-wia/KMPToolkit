@@ -785,7 +785,9 @@ internal class DefaultAudioRecorder(
      *
      * Callers run non-cancellable. The only thing that can still escape the hop is a cancellation
      * of the hop itself — a dispatcher that was shut down; it is treated as a failure of [slow],
-     * and the engine is released on the spot, because the hop may never have got to it.
+     * and both the engine release and [afterRelease] run on the spot, under the lock, because the hop
+     * may never have got to them. If it did run before its resume was refused, the repeats are harmless:
+     * releasing is idempotent and the fenced delete is a no-op once the first one ended the claim.
      */
     private suspend fun <R> runFinalization(
         finalization: Finalization,
@@ -813,7 +815,10 @@ internal class DefaultAudioRecorder(
         val hopLost: Boolean = failure is CancellationException
         return gate.exclusive {
             try {
-                if (hopLost && releasesEngine) engine.release()
+                if (hopLost) {
+                    if (releasesEngine) engine.release()
+                    afterRelease()
+                }
                 publish(failure)
             } finally {
                 endFinalize(finalization)
