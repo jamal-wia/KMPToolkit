@@ -1275,10 +1275,10 @@ internal class DefaultUploaderEngine(
      * Settlements of one item's upload run one at a time in this engine: read the row, classify, check the
      * stamp, `onDelivered` and commit happen under the item's lock, so a second concurrent settlement (a
      * consumer's own transport reporting twice, a delegate racing a replay) finds the row the first one left
-     * and cannot run `onSettled` for a commit that applied nothing. `deleteById` returns `Unit` in the public
-     * store contract, so only serialisation can tell the second Delivered that it found nothing. Lock order:
-     * the outcome journal's item lock (outer, held by a worker job), then this one (inner); the engine never
-     * takes the journal's, so there is no cycle. The `onSettled` hook runs after the lock is released.
+     * and cannot run `onSettled` twice, and a park or failure the commit did not apply
+     * runs none. `deleteById` returns `Unit` in the public store contract, so only serialisation can tell the
+     * second Delivered that it found nothing. Lock order: the outcome journal's item lock (outer, held by a worker
+     * job), then this one (inner); the engine never takes the journal's, so there is no cycle. The `onSettled` hook runs after the lock is released.
      */
     private val uploadSettleLocks: ItemLocks = ItemLocks()
 
@@ -1376,15 +1376,32 @@ internal class DefaultUploaderEngine(
                 null
             }
         }
-        return when (applied) {
+        // A delivery or drop is a fact about the effect: the row was present at this settlement's locked read, so the
+        // verdict stands even if a withdrawal deleted the row before the commit (commitSettle then reports false). Its
+        // onSettled must still pair with the onDelivered already run. The lock keeps it at most once: a second
+        // settlement of this item reads no row and returns before any hook. A Park or Failed the commit did not apply
+        // ran nothing.
+        val stands: Boolean? = when (applied) {
+            null -> null
+            true -> true
+            false -> settleResult is SettleResult.Delivered || settleResult is SettleResult.Drop
+        }
+        return when (stands) {
             null -> LockedSettle(JournalSettleOutcome.NOT_LANDED, null)
             false -> {
                 logger.i { "settle of ${record.logName} superseded at commit; nothing applied, no onSettled" }
                 LockedSettle(JournalSettleOutcome.STALE, null)
             }
 
-            true -> LockedSettle(JournalSettleOutcome.LANDED) {
-                runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
+            true -> {
+                if (applied == false) {
+                    logger.i {
+                        "${record.logName} was withdrawn while settling as $settleResult; the verdict stands, onSettled runs"
+                    }
+                }
+                LockedSettle(JournalSettleOutcome.LANDED) {
+                    runIsolated(record, "onSettled") { handler.onSettled(payload, record.attempts, settleResult) }
+                }
             }
         }
     }

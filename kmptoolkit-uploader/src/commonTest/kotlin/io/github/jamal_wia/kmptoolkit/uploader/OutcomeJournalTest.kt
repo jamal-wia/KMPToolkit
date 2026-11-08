@@ -721,6 +721,34 @@ class OutcomeJournalTest {
     }
 
     @Test
+    fun `a delivery whose row is withdrawn before its commit still runs onSettled once`() = runTest {
+        val handler = DeliveryRecorder()
+        val store = TestUploaderStore()
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        handler.onDeliveredHook = { store.deleteById("item-1") }
+
+        assertTrue(started.settleUpload("item-1", UploadResult.Completed(201), created))
+
+        assertEquals(1, handler.delivered.size, "onDelivered ran once")
+        assertEquals(1, handler.settledCount, "onSettled pairs with the onDelivered that ran")
+        assertNull(store.find("item-1"))
+    }
+
+    @Test
+    fun `a drop whose row is withdrawn before its commit still runs onSettled once`() = runTest {
+        val store = TestUploaderStore()
+        val handler = DeliveryRecorder(classifier = { SettleResult.Drop("gone") })
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        handler.onClassifyHook = { store.deleteById("item-1") }
+
+        assertTrue(started.settleUpload("item-1", UploadResult.Completed(404)))
+
+        assertEquals(0, handler.delivered.size, "a drop is not a delivery")
+        assertEquals(1, handler.settledCount, "onSettled runs once for the drop")
+        assertNull(store.find("item-1"))
+    }
+
+    @Test
     fun `a stamped transport failure of an attempt the item has moved past is not charged`() = runTest {
         val handler = DeliveryRecorder()
         val testClock = TestClock(1_000L)

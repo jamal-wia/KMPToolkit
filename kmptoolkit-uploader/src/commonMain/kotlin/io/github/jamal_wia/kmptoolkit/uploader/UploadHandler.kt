@@ -161,8 +161,9 @@ public abstract class UploadHandler<P : Any>(
      * was handed off — `0` for a first attempt. The row is already updated, so deleting the uploaded
      * source file here cannot strand an item that is still owed.
      *
-     * Runs at most once, after the item's row was committed, in the process that committed it. It runs only for a
-     * settlement that changed the item's row; a report that a newer one superseded runs no hook. A stop of
+     * Runs at most once, after the item's row was committed, in the process that committed it. A delivery or drop runs it
+     * once its [onDelivered] (if any) ran, even when the item was withdrawn during the settlement; a park or failure
+     * report that a newer settlement superseded runs no hook. A stop of
      * the platform job, an engine close or a process death right after the commit can skip it, and nothing
      * calls it later. Do not make it the only place that frees a resource such as the uploaded source file;
      * reconcile leftovers at start, or free on [onDelivered] (at least once, before the commit) where that fits.
