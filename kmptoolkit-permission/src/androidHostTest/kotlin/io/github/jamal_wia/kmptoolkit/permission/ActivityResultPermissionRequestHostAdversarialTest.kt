@@ -231,6 +231,7 @@ class ActivityResultPermissionRequestHostAdversarialTest {
             assertEquals(2, host.shown, "no recovery path after the activity was finished")
             assertFalse(next.isCompleted)
             answer(second.get(), lastRequest(second.get()), granted = true)
+            yield() // same unconfined frame: the answer's continuation runs once the body suspends
             assertTrue(next.isCompleted)
             assertEquals(PermissionStatus.Granted, next.getCompleted())
         }
