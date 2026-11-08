@@ -72,7 +72,7 @@ content.
 
 | Member | Contract |
 |---|---|
-| `schedule` | Arms `alarm`, replacing any pending alarm with the same `id`. A fire time in the past is legal — Android fires it immediately, iOS clamps the trigger to one second out. Never throws for a permission or platform refusal; those come back in the result — including Android's cap of 500 concurrent alarms per app, reported as `Failed(PlatformError)`. |
+| `schedule` | Arms `alarm`, replacing any pending alarm with the same `id`. A fire time in the past is legal — Android fires it immediately, iOS clamps the trigger to one second out. On Android, if the platform refuses to cancel the replaced alarm, that alarm stays armed and may still fire once more; the call still reports the new alarm, and the next successful `schedule` or a `cancel` of the id retires it. Four such refusals in a row for one id make `schedule` answer `Failed` until `cancel(id)` — see the `Failed` row. Never throws for a permission or platform refusal; those come back in the result — including Android's cap of 500 concurrent alarms per app, reported as `Failed(PlatformError)`. |
 | `cancel` | Cancels `id`. Cancelling an id that is not armed is a no-op, not an error — neither platform can tell those apart. Never throws for a platform refusal: on Android any `RuntimeException` from `AlarmManager` (a refusal, a revoked right, a restarting system server) is caught and logged, and the alarm may stay armed (the call returns nothing, so the failure is not reported). |
 | `cancelAll` | Cancels exactly the ids passed, in order. An empty collection is a no-op. It is **not** "cancel everything". Like `cancel`, it never throws for a platform refusal, and a refusal on one id does not stop the ids after it. The ids are copied first, so a collection you change while it runs does not break it. |
 
@@ -124,7 +124,7 @@ public sealed interface AlarmScheduleResult {
 |---|---|---|
 | `Exact` | yes | Android accepted `setExactAndAllowWhileIdle`, or iOS accepted the notification request. |
 | `Inexact` | yes | Android could not schedule exactly and fell back to `setAndAllowWhileIdle`. |
-| `Failed` | **no** | Nothing was armed. On Android this includes any `RuntimeException` from `AlarmManager`, not only a refusal. A refused *replacement* leaves the alarm that was armed exactly as it was, content and time included. |
+| `Failed` | **no** | Nothing was armed. On Android this includes any `RuntimeException` from `AlarmManager`, not only a refusal. A refused *replacement* leaves the alarm that was armed exactly as it was, content and time included. On Android an id owns four `PendingIntent` slots, and a retirement the platform refused leaves its slot occupied; when all four are occupied, a further `schedule` of that id answers `Failed(PlatformError)` without touching anything, and `cancel(id)` frees the slots so the id can be scheduled again. |
 
 ## `InexactReason`
 
@@ -185,7 +185,10 @@ invented for you.
 | `alarmIdKey` | Key carrying `ScheduledAlarm.id`: an intent extra on Android, a `userInfo` entry on iOS. **Keep it stable across app versions**, like `alarmIntentScheme`: an Android alarm armed under an earlier key is read with the new one at fire time, finds no id, and is dropped without a trace. |
 | `alarmTypeKey` | Key carrying `ScheduledAlarm.type`, on the same terms, including keeping it stable across app versions. |
 
-Throws `IllegalArgumentException` at construction if a key is blank, the two keys are equal, or the
+Throws `IllegalArgumentException` at construction if a key is blank, the two keys are equal, a key is
+one of the names the module writes into the same Android intent extras (`kmptoolkit_alarm_fire_at`,
+`kmptoolkit_alarm_title`, `kmptoolkit_alarm_body`, `kmptoolkit_alarm_channel`,
+`kmptoolkit_alarm_payload`; the check applies on iOS too, so a config is portable), or the
 scheme is non-null and invalid. There is no iOS background-task id here because the module registers
 none — iOS scheduling goes through `UNUserNotificationCenter`.
 

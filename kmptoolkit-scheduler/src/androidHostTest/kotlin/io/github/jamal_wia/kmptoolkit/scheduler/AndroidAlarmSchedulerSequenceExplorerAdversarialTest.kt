@@ -26,6 +26,8 @@ import org.robolectric.shadows.ShadowAlarmManager
  * a healthy cancel and a cancel the platform refuses. After each operation the OS must hold what the
  * documented rules allow, and a healthy schedule or cancel must always leave exactly one alarm or none,
  * with a single `PendingIntent` slot or none, whatever stale state the refused operations left behind.
+ * The one exception is an id whose every slot is held by an alarm whose retirement was refused: a schedule
+ * then answers Failed and changes nothing (a healthy cancel frees the id).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], shadows = [AndroidAlarmSchedulerSequenceExplorerAdversarialTest.ModalShadowAlarmManager::class])
@@ -101,28 +103,38 @@ class AndroidAlarmSchedulerSequenceExplorerAdversarialTest {
             when (op) {
                 Op.SCHEDULE_X, Op.SCHEDULE_Y -> {
                     val wanted: ScheduledAlarm = if (op == Op.SCHEDULE_X) x else y
-                    assertTrue(runBlocking { scheduler.schedule(wanted) } is AlarmScheduleResult.Exact, label)
-                    assertEquals(listOf(wanted), armed(id), "$label: a healthy schedule must leave exactly that alarm")
-                    assertEquals(1, slots(id), "$label: slots after a healthy schedule")
+                    val result: AlarmScheduleResult = runBlocking { scheduler.schedule(wanted) }
+                    if (slotsBefore == AlarmIntents.SLOT_COUNT) {
+                        // Every slot is held by an alarm whose retirement was refused: documented (04-api-reference.md)
+                        // as Failed without touching anything; a healthy cancel is what frees the id.
+                        assertTrue(result is AlarmScheduleResult.Failed, "$label: $result")
+                        assertEquals(before, armed(id), "$label: a schedule with every slot occupied changed what was armed")
+                        assertEquals(slotsBefore, slots(id), "$label: a schedule with every slot occupied changed the slots")
+                    } else {
+                        assertTrue(result is AlarmScheduleResult.Exact, label)
+                        assertEquals(listOf(wanted), armed(id), "$label: a healthy schedule must leave exactly that alarm")
+                        assertEquals(1, slots(id), "$label: slots after a healthy schedule")
+                    }
                 }
                 Op.SCHEDULE_REFUSED -> {
                     ModalShadowAlarmManager.mode.set(Mode.REFUSE_SET)
                     val result: AlarmScheduleResult = runBlocking { scheduler.schedule(y) }
                     ModalShadowAlarmManager.mode.set(Mode.HEALTHY)
                     assertTrue(result is AlarmScheduleResult.Failed, "$label: $result")
-                    // With every slot occupied (the leftover of SLOT_COUNT - 1 refused retirements in a row) the
-                    // first slot is rewritten in place: the one documented case the scheduler cannot keep.
-                    if (slotsBefore < AlarmIntents.SLOT_COUNT) {
-                        assertEquals(before.map { it.notification.title }, armed(id).map { it.notification.title }, "$label: a refused schedule changed what was armed")
-                    }
+                    assertEquals(before, armed(id), "$label: a refused schedule changed what was armed")
                     assertEquals(slotsBefore, slots(id), "$label: a refused schedule changed the slots")
                 }
                 Op.SCHEDULE_RETIRE_REFUSED -> {
                     ModalShadowAlarmManager.mode.set(Mode.REFUSE_CANCEL)
                     val result: AlarmScheduleResult = runBlocking { scheduler.schedule(x) }
                     ModalShadowAlarmManager.mode.set(Mode.HEALTHY)
-                    assertTrue(result is AlarmScheduleResult.Exact, "$label: the new alarm is armed, so the result is $result")
-                    assertTrue(armed(id).any { it == x }, "$label: the new alarm must be armed")
+                    if (slotsBefore == AlarmIntents.SLOT_COUNT) {
+                        assertTrue(result is AlarmScheduleResult.Failed, "$label: every slot is occupied, so the result is $result")
+                        assertEquals(before, armed(id), "$label: a schedule with every slot occupied changed what was armed")
+                    } else {
+                        assertTrue(result is AlarmScheduleResult.Exact, "$label: the new alarm is armed, so the result is $result")
+                        assertTrue(armed(id).any { it == x }, "$label: the new alarm must be armed")
+                    }
                 }
                 Op.CANCEL -> {
                     runBlocking { scheduler.cancel(id) }

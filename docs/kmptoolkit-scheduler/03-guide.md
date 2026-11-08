@@ -153,7 +153,8 @@ manifest, and only you know which alarms are still wanted after however long the
 
 - **`id`** is identity. Same id twice means "replace", not "add" — that is the mechanism for
   editing a reminder's time. Derive it from your own domain key (`"reminder-$reminderId"`), never
-  from the fire time, or moving a reminder leaves the old alarm armed.
+  from the fire time, or moving a reminder leaves the old alarm armed. If `schedule` keeps
+  answering `Failed(PlatformError)` for one id, `cancel(id)` and schedule again.
 - **`type`** is routing. One stable value per feature, matched exactly and case-sensitively against
   `AlarmHandler.type`. It is not a category for display.
 

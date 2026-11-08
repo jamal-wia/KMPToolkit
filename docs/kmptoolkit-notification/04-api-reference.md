@@ -56,9 +56,11 @@ This also holds when posts of one id overlap: a frame that failed never counts a
 frame of the same id that is still in flight is not dropped on its account (it only yields to a frame
 that actually reached the tray), and a retry is never judged redundant against a frame that was never
 displayed. On Android, a frame that is rendered and then refused or dropped does not change where the frame
-still on the tray opens the app: the tap target of the shown frame is written back, unless another
-frame of the id is still in flight (that one renders its own). After a process restart the shown
-frame's content is not remembered, so nothing can be written back then. A frame that gave up because a newer one overtook it (answered `Coalesced`) is never
+still on the tray opens the app: a frame's tap target is written only once the platform has accepted that
+frame, so a refused frame writes nothing and nothing has to be written back (this also holds after a
+process restart). When posts of one id overlap, the baseline a refused frame falls back to is the frame
+that actually reached the tray by the time the refusal is handled, not the one that was shown when the
+refused frame was prepared. A frame that gave up because a newer one overtook it (answered `Coalesced`) is never
 revived or remembered as shown if that newer frame then fails, and on iOS a frame handed to the
 notification center and refused later, in any order of refusals, leaves no baseline behind. Per-id bookkeeping of frames that were started and never finished is aged out, so it does
 not grow for the notifier's lifetime.

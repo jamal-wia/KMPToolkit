@@ -341,14 +341,60 @@ private const val KIND_DISMISS: String = "dismiss"
  * An unambiguous key for one `PendingIntent` of one notification: kind, notification id and action
  * id as separately percent-encoded URI segments, so no choice of ids — an action called
  * `dismiss/stop`, an id containing `:` — can produce another notification's or another kind's key.
+ * Ids that differ only in unpaired surrogates stay distinct too (see [appendLosslessPath]).
  */
 private fun pendingIntentKey(kind: String, id: String, actionId: String?): String =
     Uri.Builder()
         .scheme(PENDING_INTENT_KEY_SCHEME)
         .authority(kind)
-        .appendPath(id)
-        .apply { if (actionId != null) appendPath(actionId) }
+        .appendLosslessPath(id)
+        .apply { if (actionId != null) appendLosslessPath(actionId) }
         .build()
         .toString()
+
+/**
+ * `Uri.Builder.appendPath`, except that it cannot merge two different strings into one segment.
+ * `Uri.encode` writes UTF-8, which has no form for an unpaired surrogate, so it turns each into `?`
+ * and two ids that differ only in such characters would get one key. A segment without one is
+ * appended exactly as `appendPath` would (keys of existing notifications stay what they were); a
+ * segment with one gets each unpaired surrogate as `%u` and its four hex digits — a form no
+ * `Uri.encode` output contains, because `%` is always followed by two hex digits there.
+ */
+private fun Uri.Builder.appendLosslessPath(segment: String): Uri.Builder {
+    if (!segment.hasUnpairedSurrogate()) return appendPath(segment)
+    val encoded = StringBuilder()
+    var index = 0
+    while (index < segment.length) {
+        val char: Char = segment[index]
+        val paired: Boolean = char.isHighSurrogate() && index + 1 < segment.length && segment[index + 1].isLowSurrogate()
+        if (paired) {
+            encoded.append(Uri.encode(segment.substring(index, index + 2)))
+            index += 2
+        } else if (char.isSurrogate()) {
+            encoded.append("%u").append(char.code.toString(HEX_RADIX).padStart(HEX_DIGITS, '0').uppercase())
+            index += 1
+        } else {
+            encoded.append(Uri.encode(char.toString()))
+            index += 1
+        }
+    }
+    return appendEncodedPath(encoded.toString())
+}
+
+private fun String.hasUnpairedSurrogate(): Boolean {
+    var index = 0
+    while (index < length) {
+        val char: Char = this[index]
+        when {
+            char.isHighSurrogate() && index + 1 < length && this[index + 1].isLowSurrogate() -> index += 2
+            char.isSurrogate() -> return true
+            else -> index += 1
+        }
+    }
+    return false
+}
+
+private const val HEX_RADIX: Int = 16
+private const val HEX_DIGITS: Int = 4
 
 private const val PENDING_INTENT_KEY_SCHEME: String = "kmptoolkit-notification"

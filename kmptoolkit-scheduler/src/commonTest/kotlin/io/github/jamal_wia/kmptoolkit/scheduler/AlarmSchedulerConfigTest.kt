@@ -88,6 +88,21 @@ class AlarmSchedulerConfigTest {
         assertTrue(VALID_SCHEME.matches(scheme), "derived scheme is not a valid URI scheme: $scheme")
     }
 
+    @Test
+    fun `a key equal to one of the module's own extra names is rejected at construction`() {
+        val reserved: List<String> = listOf(
+            "kmptoolkit_alarm_fire_at",
+            "kmptoolkit_alarm_title",
+            "kmptoolkit_alarm_body",
+            "kmptoolkit_alarm_channel",
+            "kmptoolkit_alarm_payload",
+        )
+        for (name: String in reserved) {
+            assertFailsWith<IllegalArgumentException>("alarmIdKey = $name") { AlarmSchedulerConfig(alarmIdKey = name) }
+            assertFailsWith<IllegalArgumentException>("alarmTypeKey = $name") { AlarmSchedulerConfig(alarmTypeKey = name) }
+        }
+    }
+
     private companion object {
         val VALID_SCHEME = Regex("[a-zA-Z][a-zA-Z0-9+.\\-]*")
     }
