@@ -22,7 +22,7 @@ The headless player. Obtain one from a platform factory; never implement it your
 |---|---|
 | `val stateFlow: StateFlow<PlayerState>` | Current state. Starts at `Idle`, never completes. Safe to collect from any thread. |
 | `val playbackPositionFlow: StateFlow<Long>` | Playhead in ms, refreshed every `positionUpdateIntervalMs` while playing, `0` otherwise. |
-| `val playbackSpeed: Float` | Rate in effect, already clamped to the configured range. `1.0` until `setPlaybackSpeed`. Survives `prepare`. |
+| `val playbackSpeed: Float` | Rate in effect, already clamped to the configured range. `1.0` (clamped into the range) until `setPlaybackSpeed`. Survives `prepare`. |
 
 ### `suspend fun prepare(source: AudioSource)`
 
@@ -35,9 +35,14 @@ source, resets the playhead to `0`, and re-applies `playbackSpeed`.
   and `CancellationException` propagates.
 - **A newer `prepare` replaces this one** — the older load is cancelled and fully unwound before the
   newer one starts; the replaced call returns normally without writing any state.
+- **An engine's own `CancellationException` is a failure** — one thrown by the engine while the
+  caller is still active (an engine's own timeout) is a load failure and arrives as `Error`; only the
+  caller's own cancellation, or a newer `prepare`/`unload`/`release`, ends the call by cancellation.
+- **A blank `AudioSource.File` path is refused** — it ends in `Error(IllegalArgumentException)` and the
+  engine is never asked to load it.
 - **No built-in deadline** — a remote load is bounded only by the platform's own network timeouts.
   A caller that wants one wraps the call in `withTimeoutOrNull`; cancellation returns to `Idle`.
-- After `release()`: sets `Error(AudioPlayerReleasedException)` and loads nothing. After `unload()`
+- After `release()`: sets `Error(AudioPlayerReleasedException)` and loads nothing; every later call reports the same `Error` instance, so a consumer that retries on `Error` does not loop. After `unload()`
   it works as on a fresh player.
 
 ### Transport
@@ -47,14 +52,14 @@ entirely after `release()`.
 
 | Member | Contract |
 |---|---|
-| `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts position polling. Ignored while already `Playing`. From `Completed` it starts over from `0`, like `replay()`. |
+| `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts position polling. Ignored while already `Playing`. From `Completed`, or with the playhead sitting on the end (a seek onto the end of a completed source), it starts over from `0`, like `replay()`. |
 | `fun pause()` | `Playing` → `Paused(duration, position)`, stops polling. Ignored in any other state. |
 | `fun stop()` | Any playable → `Ready(duration)` with the playhead at `0`; the source stays loaded. |
 | `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`. |
-| `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`. |
+| `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`; the addition saturates, so `Long.MAX_VALUE` lands on the end. While the duration is not known yet (`0`) there is no end to clamp to, so `seekForward`/`seekBackward` pass the target on (never below `0`) instead of rewinding to the start. |
 | `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`. |
 | `fun replay()` | Seek to `0` and play. Valid from any playable state, including `Completed`. |
-| `fun setPlaybackSpeed(speed: Float)` | Clamps into `minPlaybackSpeed..maxPlaybackSpeed` and stores it. Pushed to the platform immediately while playing, on the next `play()` otherwise. Never rejects a value. Records the clamped rate even after release. |
+| `fun setPlaybackSpeed(speed: Float)` | Clamps into `minPlaybackSpeed..maxPlaybackSpeed` and stores it. Pushed to the platform immediately while playing, on the next `play()` otherwise. Never rejects a value: infinities clamp to the range ends, `NaN` is ignored (the current rate stays). Records the clamped rate even after release. |
 
 ### Lifecycle
 
@@ -81,13 +86,13 @@ public sealed interface PlayerState
 |---|---|---|
 | `Idle` | — | Nothing loaded. Initial state, and the state after `release()`. |
 | `Preparing` | — | Loading or buffering. No duration yet. |
-| `Ready` | `duration` | Loaded, never started (or stopped back to the start). |
-| `Playing` | `duration`, `currentPosition` | Advancing; position refreshed each poll. |
-| `Paused` | `duration`, `currentPosition` | Suspended at `currentPosition`. |
-| `Completed` | `duration` | Played to the end; the source stays loaded. |
+| `Ready` | `duration` | Loaded, never started (or stopped back to the start). A length known earlier is kept by `stop()`. |
+| `Playing` | `duration`, `currentPosition` | Advancing; position refreshed each poll, and a length the platform reports late replaces a `0` duration (once a length is known for the loaded source, no state reverts it to `0`). |
+| `Paused` | `duration`, `currentPosition` | Suspended at `currentPosition`. A length known earlier is kept, also by a seek out of `Completed`. |
+| `Completed` | `duration` | Played to the end; the source stays loaded. A length known earlier is kept; a source of unknown length completes with the position where it ended as its length (`playbackPositionFlow` stays there). |
 | `Error` | `cause: Throwable` | Load or playback failed. **No display string** — the cause is the platform's own exception. |
 
-A `duration` of `0` means the platform has not reported one, not an error.
+A `duration` of `0` means the platform has not reported one, not an error. A length the platform reports later replaces it at the next position update, pause or seek (a `Ready` player picks it up at a seek); once a length is known for the loaded source, no state reverts it to `0`. A source of unknown length that plays to its end completes as `Completed(duration = where it ended)`, and that length then counts as known (`replay` and `stop` keep it).
 
 ### Extension properties
 
@@ -110,7 +115,7 @@ public sealed interface AudioSource
 | Case | Data | Resolution |
 |---|---|---|
 | `Asset(path)` | path relative to the bundled-resource root, **with extension** | Android `assets/`; iOS bundle lookup — see [`05-platform-notes.md`](05-platform-notes.md) |
-| `File(path)` | absolute file path | Read directly. The library never creates, downloads, or deletes it. |
+| `File(path)` | absolute file path, not blank | Read directly. The library never creates, downloads, or deletes it. |
 | `Remote(url)` | absolute URL | Streamed. Cleartext `http://` is blocked by default on both platforms. |
 
 ---
@@ -128,8 +133,8 @@ public data class AudioPlayerConfig(
 Validated in `init`; each rule throws `IllegalArgumentException`:
 
 - `positionUpdateIntervalMs > 0`
-- `minPlaybackSpeed > 0`
-- `maxPlaybackSpeed >= minPlaybackSpeed`
+- `minPlaybackSpeed` finite and `> 0`
+- `maxPlaybackSpeed` finite and `>= minPlaybackSpeed`
 
 The defaults are exposed as `AudioPlayerConfig.DEFAULT_POSITION_UPDATE_INTERVAL_MS`,
 `DEFAULT_MIN_PLAYBACK_SPEED` and `DEFAULT_MAX_PLAYBACK_SPEED`.
@@ -221,7 +226,7 @@ The platform seam. Implement it to back `AudioPlayer` with something other than 
 | `fun setListener(listener: PlaybackEngineListener?)` | Installs or (with `null`) detaches the event sink. |
 | `suspend fun load(source: AudioSource)` | Loads and suspends until playable. **Throws to report failure**, leaving nothing playable behind. Must honor cancellation and leave nothing loaded when cancelled; must work again after `release()`. Never called while a previous `load` is still running. |
 | `fun start()` / `fun pause()` | Start/suspend output. Must tolerate arriving in an unexpected platform state. |
-| `fun seekTo(positionMs: Long)` | Move the playhead; the caller has already clamped the value. |
+| `fun seekTo(positionMs: Long)` | Move the playhead. Never negative; clamped to `0..durationMs` while the length is known. While `durationMs()` is `0` a relative skip passes its target unclamped, up to `Long.MAX_VALUE`: an engine whose platform takes a narrower type must saturate, not truncate. |
 | `fun setSpeed(speed: Float)` | Set the rate; the caller has already clamped the value. |
 | `fun durationMs(): Long` / `fun positionMs(): Long` | Cheap; return `0` when unknown, never negative. |
 | `fun release()` | Free everything. **Must be idempotent**, and safe after a failed `load`. |

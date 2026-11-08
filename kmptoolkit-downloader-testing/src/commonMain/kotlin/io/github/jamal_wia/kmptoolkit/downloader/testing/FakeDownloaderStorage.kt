@@ -85,24 +85,31 @@ public class FakeDownloaderStorage(
     }
 
     /**
-     * Moves a [TempFileState.Partial] unit to [TempFileState.Complete]; anything else stays.
-     * Throws [IllegalStateException] when [unit] is not in [begunIds]: [beginTempFile] was not
-     * called for it since its last delete or commit.
+     * Moves a [TempFileState.Partial] unit to [TempFileState.Complete]; a unit that is already
+     * [TempFileState.Complete] stays so (the real storages are idempotent). Throws
+     * [IllegalStateException] when [unit] is not in [begunIds] ([beginTempFile] was not called for
+     * it since its last delete or commit), and when there is no temp file to mark (state
+     * [TempFileState.None], or absent from [tempFileStates]), as the real storages do.
      */
     override fun markTempFileComplete(unit: DownloadUnit) {
         check(unit.id in begunIds) {
             "markTempFileComplete($unit) without beginTempFile($unit, expectedSha256) first: the " +
                 "host's downloader forgot to begin the temp file, so its hash would never be checked"
         }
-        if (tempFileStates[unit.id] == TempFileState.Partial) {
-            tempFileStates[unit.id] = TempFileState.Complete
+        when (tempFileStates[unit.id]) {
+            TempFileState.Partial -> tempFileStates[unit.id] = TempFileState.Complete
+            TempFileState.Complete -> Unit
+            // Null or None: there is no file to mark, as in the real storages.
+            else -> throw IllegalStateException("No temp file to mark complete for $unit")
         }
     }
 
     /**
      * Throws [IllegalStateException] unless [unit]'s state is [TempFileState.Complete]. Otherwise the
      * temp file is consumed (state [TempFileState.None], [begunIds] cleared) and, for an id in
-     * [failIntegrityFor], [ResourceIntegrityException] is thrown as a failed hash check would.
+     * [failIntegrityFor], [ResourceIntegrityException] is thrown as a failed hash check would. A
+     * successful commit adds the unit to [availableIds], as a real commit makes the resource
+     * available; a unit that fails the integrity check stays unavailable.
      *
      * An id in [availableIds] without a complete temp file returns normally and changes nothing, as
      * the real storages do for a commit that a concurrent commit already finalized.
@@ -117,6 +124,7 @@ public class FakeDownloaderStorage(
         if (unit.id in failIntegrityFor) {
             throw ResourceIntegrityException("Fake integrity failure for $unit")
         }
+        availableIds += unit.id
     }
 
     override fun getResourceSize(unit: DownloadUnit): Long = sizeOnDisk

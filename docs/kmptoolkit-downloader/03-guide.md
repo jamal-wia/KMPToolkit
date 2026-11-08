@@ -46,6 +46,9 @@ Two invariants make the rest of this document make sense:
   (`isDownloadInProgress`); "is it done" is answered by the **file on disk**
   (`isResourceAvailable`). A crash therefore needs no recovery pass — the next `ensureAvailable`
   re-derives everything from those two questions.
+  A stored failure count outside what the engine writes is treated as damaged: below zero as no
+  failures, above the limit as the limit, so a broken `DownloadStateStore` cannot turn the
+  three-attempt limit into endless retries.
 - **The temp file IS the resume state, where the platform allows it — and a partial one is never
   committed.** `DownloaderStorage.tempFileState` tells a `Partial` file from a `Complete` one; they
   are different files, and only `markTempFileComplete` turns one into the other. A partial file is
@@ -56,6 +59,9 @@ Two invariants make the rest of this document make sense:
   failure and a `NotFound` failure delete it, so only those restart from zero.
 
 ## Group path vs. per-unit path
+
+The engine keeps a small record for every unit id it has seen, for its whole lifetime; reuse one
+engine, and expect a new id to cost a little more as tens of thousands accumulate.
 
 The two surfaces on `Downloader` are deliberately **not** one generalized over the other — the
 group path's mutex, progress scaling and notification machinery are proven for a large bundle and
@@ -82,7 +88,9 @@ Give units ids made of `[A-Za-z0-9._-]` and keep them unique ignoring case (on i
 normalization too). Other ids work, but they are stored under a hashed name (see
 [`05-platform-notes.md`](05-platform-notes.md)) rather than at the readable path.
 
-A `relativePath` is yours: it is used exactly as written. If it cannot be used safely (empty, NUL,
+A `relativePath` is yours: it is used as written once `.`, `..` and empty segments are resolved
+lexically (`files/x/../a.bin` is `files/a.bin` whether or not `x` exists, and `..` never climbs out
+through a symbolic link). If it cannot be used safely (empty, NUL,
 climbing out of the base directory, or naming a directory the storage manages such as `tmp` or
 `tmp/expect`) the unit fails before any transfer: `ensureAvailable` throws `DownloadFailedException`
 with `DownloadError.Unknown`, whose `cause` is `InvalidDownloadUnitException` carrying the
@@ -100,12 +108,24 @@ deep inside a reader — is what this exists to prevent.
 |---|---|
 | `Opaque` | Move into place; existence is the only possible check |
 | `ZipArchive(availabilityMarker)` | Extract into a staging directory, swap into place, delete the archive; the marker file is what proves completeness, since an interrupted extraction also leaves a directory behind |
-| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Open it and read its schema — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself |
+| `SqliteDatabase(rowCountTable?, declaredRowCountMetaKey?)` | Require the 16-byte SQLite header (an empty or cut body fails), open it and read its schema — which alone rejects non-databases — and, when a table and a `meta` key are given, compare the real row count against the count the file declares about itself |
 
 The point of the self-check: nobody hardcodes an expected row count anywhere in this library — the
 file states its own expected size. Which table and which key are the host's domain knowledge —
-values on the format, not anything the library assumes. Both shipped storage implementations carry
-zip-slip protection during extraction.
+values on the format, not anything the library assumes: the table is used as a name (a keyword or a name with
+spaces works) and the key as a bound value, never as SQL text. Both shipped storage implementations carry
+zip-slip protection during extraction. Empty directories in the archive are created too. Every entry
+is extracted or the commit fails; none is skipped. An archive that cannot be extracted as delivered — a
+truncated or corrupt entry (size or CRC-32 mismatch), an entry name that leaves the extraction
+directory, an unsupported compression method or an encrypted entry — fails the commit with
+`ResourceIntegrityException` and is deleted, so the engine downloads it once more and then reports
+`DownloadError.Corrupted`. An archive must end with its end of central directory record (one cut before it fails), and its entry names must
+be valid UTF-8. When the marker is not at the top and the archive holds exactly one non-empty top-level directory
+that contains it, that directory's contents are moved up; files and empty directories beside it stay where they
+are, and a name that exists at the top as a file fails the commit with `ResourceIntegrityException`. An archive
+whose extracted tree lacks the marker fails the commit
+with `ResourceIntegrityException` before anything at the final path is touched, so a resource already
+committed stays available; the engine downloads once more and then reports `DownloadError.Corrupted`.
 
 ### A stated hash — `DownloadUnit.sha256`
 
@@ -204,13 +224,15 @@ fixes that. The engine has no rule for a 416; see
 that restarts and re-reports where it already was, or reports `0`, has not moved. A repeated
 `Progress` still proves the transfer is alive — it restarts the stall timer — but it is not
 progress, so a downloader that repeats one value and then fails is stopped after three attempts.
+A fraction outside 0..1 is clamped into it, and a non-finite one (NaN, infinity) is ignored: it is
+never published and never counts as progress.
 Before every re-enqueue the engine waits 2 s, doubling per failure of the call up to 30 s.
 
 A commit whose bytes fail a check — a `sha256` or recorded-hash mismatch, a database that does not
 open or does not hold the rows it declares — deletes the temp file and downloads **once more**. A second failure is
 `DownloadError.Corrupted`: persisting across two fresh downloads, it is the server's bytes or the
 host's stated hash that is wrong, and no number of retries fixes either. Any other commit failure
-(a full disk, an unwritable path, an archive that will not extract) is `DownloadError.Storage` at
+(a full disk, an unwritable path) is `DownloadError.Storage` at
 once — downloading again is not the fix, so the complete temp file is **kept**: once the user has
 freed space, the next `ensureAvailable` commits it without a transfer. Both surfaces share this
 policy.
@@ -307,8 +329,8 @@ Three distinct operations:
   on the port: after its `cancelDownload`, `isDownloadInProgress` must be `false` and the cancelled
   transfer's `Cancelled` must not be replayed to the next subscriber.)
   A cancel of a unit this engine has never tracked (never requested, never observed) still cancels
-  the platform transfer, clears the stall count and deletes the unit's temp data, but starts no
-  tracking for it.
+  the platform transfer, clears the stall count and deletes the unit's temp data, but creates no
+  state flow for it (only the unit's lock object is kept).
 - **`cancelAllDownloads()`** — the **logout** entry point: cancels every group-level and per-unit
   download the engine tracks (each as above, so every running `ensureAvailable` ends with
   `DownloadCancelledException`), then the engine's own coroutines (a notification-shade Retry).

@@ -58,6 +58,8 @@ means `src/main/assets/sounds/chime.mp3`. The file must be stored uncompressed f
 to be openable — audio formats already are, so this only bites for something like a `.wav` inside a
 zip.
 
+**Seek range.** `MediaPlayer.seekTo` takes an `Int`, so the engine saturates the target to `0..Int.MAX_VALUE` rather than truncating it: a skip past the end of a source whose length is not known yet asks for the platform's own far end, never a wrapped-around earlier position. The iOS engine saturates to the same ceiling before building its `CMTime`.
+
 **Threading.** The `MediaPlayer` is created on `Dispatchers.IO`, which does blocking `setDataSource`
 work off the main thread and — because that thread has no `Looper` — makes the platform deliver its
 callbacks on the main looper. That is why the module needs no main dispatcher and therefore no
@@ -76,7 +78,7 @@ same way with a generation counter.
 
 **Playback speed** is applied via `PlaybackParams`, available since API 23. The module's `minSdk` is
 24, so there is no fallback path. The rate is pushed only while playing: assigning `playbackParams`
-to a paused `MediaPlayer` starts playback on several API levels.
+to a paused `MediaPlayer` starts playback on several API levels. A rate inside the configured range that the device's `PlaybackParams` refuses is ignored (playback keeps its previous rate) and `playbackSpeed` still reports the requested value.
 
 **Audio focus is not requested.** Playing while another app plays music results in both being
 audible. Request focus with `AudioManager` in the app if you need ducking or pausing — it is a
@@ -88,6 +90,10 @@ exposes no richer detail.
 ## iOS
 
 **Engine:** `AVFoundation.AVPlayer`, one `AVPlayerItem` per prepared source.
+
+**A blank `AudioSource.File` path** never reaches the engine: `NSURL.fileURLWithPath("")` raises an
+Objective-C exception that Kotlin/Native cannot catch, so the player refuses it with
+`Error(IllegalArgumentException)` on both platforms.
 
 **Assets** resolve through `NSBundle.URLForResource(name:withExtension:subdirectory:)`, so the
 extension in the path matters — `AudioSource.Asset("chime.mp3")` looks up `chime` with extension

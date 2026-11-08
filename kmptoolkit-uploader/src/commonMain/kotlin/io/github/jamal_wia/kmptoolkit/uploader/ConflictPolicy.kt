@@ -38,6 +38,15 @@ public enum class ConflictPolicy {
      * A superseded item whose upload an [UploadHandler]'s transport is running is cancelled, as
      * [Uploader.cancel] would: the old version must not keep uploading next to the new one.
      *
+     * Cancelling the superseded item's upload or running attempt is a side effect that happens at once and is
+     * not rolled back: if a transaction around the enqueue rolls back, the old row is restored and stays queued,
+     * its upload resuming no later than when its lease expires.
+     *
+     * A caller cancelled before the enqueue starts writes nothing. Once the write has started, cancelling the
+     * caller does not interrupt it: the replacement completes, and the stop of the superseded item's attempt and
+     * the cancel of its upload run to the end, though the call may report the cancellation (it cannot tell the
+     * caller whether the row landed).
+     *
      * This is the right choice for "only the latest value matters": a draft autosave, a presence
      * update, a settings sync.
      */

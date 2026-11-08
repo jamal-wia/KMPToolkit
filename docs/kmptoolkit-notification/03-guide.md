@@ -117,7 +117,8 @@ A source that can pause should re-post its current progress after `minProgressIn
 **Cancel and concurrent posts.** `cancel(id)` and `cancelAll()` are ordered against a post of the same id
 that is still in flight: a notification that was being built when you cancelled does not appear
 afterwards, and a post that a newer one for the id (typically the terminal "Done") has overtaken is
-dropped (`Coalesced`) rather than shown on top of it. A cancelled in-flight post is `Coalesced` too. All of this holds per `Notifier` instance. Posts for one id should still come from one
+dropped (`Coalesced`) rather than shown on top of it. A cancelled in-flight post is `Coalesced` too. A post counts as in flight from the moment `post` is
+called, including while it still waits for the permission check. All of this holds per `Notifier` instance. Posts for one id should still come from one
 coroutine at a time; that ordering is up to the caller.
 
 **Abandoned runs.** A run that ends without a terminal frame and without a `cancel` (a failed

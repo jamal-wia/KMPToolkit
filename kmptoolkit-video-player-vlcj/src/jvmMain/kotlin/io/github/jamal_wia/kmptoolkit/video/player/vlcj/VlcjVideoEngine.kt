@@ -62,6 +62,11 @@ import kotlinx.coroutines.withContext
  *   unreachable is synchronous.
  * - Native calls from the caller's thread go through [lock], and every one checks the session is
  *   still open first, so no call can reach a native player after its session closed.
+ *   That barrier waits for a native call in flight, so it relies on every native call made on the
+ *   caller's thread returning at once. libvlc 3's play, pause, set_time, rate, volume and time
+ *   controls only post work to the input thread or read its state, and the blocking ones (stop,
+ *   release) run only on [teardown]. Never add a call that can block (a synchronous stop, a
+ *   set_media that releases a running input) to a caller-thread path.
  * - VLCJ delivers events on its own event thread and pictures on libvlc's video-output thread;
  *   neither may call back into libvlc (VLCJ's documented rule). Events therefore only update cached
  *   values and notify the listener; a transport call that arrives on one of those threads (a
@@ -170,7 +175,11 @@ internal class VlcjVideoEngine(
         withOpenSession { s ->
             inOrder(s) {
                 if (!s.loaded) return@inOrder
+                // A start from rest (the first one, or from the end) is followed by a fresh Playing;
+                // a resume from pause, or a start while playing, is not.
+                val fromRest: Boolean = !s.started || s.ended
                 s.player?.play()
+                if (fromRest) s.outputBegun = false
                 s.started = true
                 // From the end, play() replays the source: it is not at the end any more from here
                 // on, so a pause() made after this start is applied rather than dropped as "ended".
@@ -201,10 +210,10 @@ internal class VlcjVideoEngine(
             s.timeMs = target
             inOrder(s) {
                 try {
-                    // Before the first start, and after the end, libvlc has no running input to seek
-                    // in: remember the target and apply it when playback begins. Nothing starts
-                    // playing here.
-                    if (!s.started || s.ended) {
+                    // Before the first start, between start() and the first Playing (no output yet),
+                    // while a looping source restarts, and after the end, libvlc has no running input to seek in: remember the target
+                    // and apply it when output begins. Nothing starts playing here.
+                    if (!s.started || s.ended || !s.outputBegun) {
                         s.pendingSeekMs = target
                         s.timeMs = target
                     } else {
@@ -225,11 +234,16 @@ internal class VlcjVideoEngine(
     // call runs last applies the last value set.
 
     override fun setSpeed(speed: Float) {
+        // The player clamps into a finite range; this is the boundary guard for any other caller.
+        // Checked before the value is stored, so a re-apply (after load, at Playing) never resurrects it.
+        if (!speed.isFinite() || speed <= 0f) return
         this.speed = speed
         withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
     }
 
     override fun setVolume(volume: Float) {
+        // NaN is not a volume and would make volumePercent throw; out-of-range values are clamped there.
+        if (volume.isNaN()) return
         this.volume = volume
         withOpenSession { s -> inOrder(s) { if (s.started) s.applySettings() } }
     }
@@ -253,7 +267,8 @@ internal class VlcjVideoEngine(
         // A seek still queued (RepeatMode.One restarts from the end this way) outranks "ended".
         val inFlight: Long? = synchronized(lock) { if (s.seeksInFlight > 0) s.seekTargetMs else null }
         if (inFlight != null) return inFlight
-        if (s.ended) return durationMs()
+        // An unknown length (0) is not an end position.
+        if (s.ended) return if (s.lengthMs > 0L) durationMs() else s.timeMs.coerceAtLeast(0L)
         if (s.started && !onVlcThread.get()) {
             withOpenSession { open ->
                 // The seek target stands until libvlc reports a time near it (see holdsSeekTarget).
@@ -284,7 +299,9 @@ internal class VlcjVideoEngine(
 
     /**
      * Releases, then frees the libvlc instance — after every native player, on the [teardown]
-     * thread. Final and idempotent: a [load] after it throws.
+     * thread. Final and idempotent: a [load] after it throws. Waits while another thread is still
+     * creating libvlc (the monitor [RuntimeHolder.acquire] holds); the player calls this only after
+     * every load has unwound, so through the player it never waits.
      */
     override fun dispose() {
         release()
@@ -399,6 +416,13 @@ internal class VlcjVideoEngine(
         @Volatile var loaded: Boolean = false
         @Volatile var started: Boolean = false
         @Volatile var ended: Boolean = false
+
+        /**
+         * Whether libvlc reported Playing since the last start from rest (the first start, a start
+         * from the end, or the replay of a looping source at its end); written inside [inOrder]
+         * actions under [lock].
+         */
+        @Volatile var outputBegun: Boolean = false
         @Volatile var pendingSeekMs: Long = -1L
         @Volatile var lengthMs: Long = 0L
         @Volatile var timeMs: Long = 0L
@@ -415,13 +439,16 @@ internal class VlcjVideoEngine(
         var seeksInFlight: Int = 0
         var seekTargetMs: Long = 0L
 
-        /** `System.nanoTime()` until which the target is still held after the seek ran; 0 for none. */
+        /**
+         * `System.nanoTime()` until which the target is still held after `setTime` ran (from seekTo, or
+         * from the pending seek applied at Playing); 0 for none.
+         */
         var seekHoldUntilNanos: Long = 0L
 
         /**
          * Whether the playhead is the latest seek's target rather than a clock reading: from the
          * call until libvlc reports a time near the target, or [SEEK_HOLD_NANOS] after `setTime`
-         * ran, whichever comes first. [lock] held.
+         * ran (from seekTo, or from the pending seek applied at Playing), whichever comes first. [lock] held.
          */
         fun holdsSeekTarget(): Boolean =
             seeksInFlight > 0 || (seekHoldUntilNanos != 0L && nanoTime() - seekHoldUntilNanos < 0L)
@@ -522,11 +549,17 @@ internal class VlcjVideoEngine(
             withOpenSession { open ->
                 if (open !== s) return@withOpenSession
                 inOrder(s) {
+                    s.outputBegun = true
                     s.applySettings()
                     val seek: Long = s.pendingSeekMs
                     if (seek >= 0L) {
                         s.player?.setTime(seek)
                         s.timeMs = seek
+                        s.seekTargetMs = seek
+                        // As for a seek during playback: libvlc 3 applies set_time asynchronously (see
+                        // seekTo). The hold fields come first, then pendingSeekMs is cleared, so a
+                        // timeChanged that finds no pending seek always finds the hold.
+                        s.seekHoldUntilNanos = nanoTime() + SEEK_HOLD_NANOS
                         s.pendingSeekMs = -1L
                     }
                 }
@@ -539,10 +572,21 @@ internal class VlcjVideoEngine(
 
         override fun finished() = onVlcCallback {
             s.setBuffering(false)
-            // While looping VLCJ's own handler replays the media; the end is not an end.
-            if (s.player?.repeat() == true) return@onVlcCallback
+            if (s.player?.repeat() == true) {
+                // While looping VLCJ's own handler replays the media: the end is not an end, but the
+                // replay is a start from rest. libvlc has no running input until it reports Playing
+                // again, so a seek made in that gap is parked like one made between start() and the
+                // first Playing. Through the ordered queue: a Playing of the cycle that just ended
+                // may still be waiting there, and must not set outputBegun back after this.
+                withOpenSession { open ->
+                    if (open !== s) return@withOpenSession
+                    inOrder(s) { s.outputBegun = false }
+                }
+                return@onVlcCallback
+            }
             s.ended = true
-            s.timeMs = s.lengthMs
+            // An unknown length (0) is not an end position: the last reported time stays.
+            if (s.lengthMs > 0L) s.timeMs = s.lengthMs
             notify(s) { it.onCompleted() }
         }
 

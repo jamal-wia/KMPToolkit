@@ -17,7 +17,8 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * @property type the owning handler's [UploaderHandler.type]. Renaming a type orphans every queued
  *   row of that type — they park with "no handler registered".
  * @property payload the encoded payload, produced by [UploaderHandler.encodePayload]. Opaque to the
- *   engine and to the store.
+ *   engine and to the store. It is text: a store may replace an unpaired surrogate (with U+FFFD, say), so encode
+ *   binary data as, for example, Base64.
  * @property schemaVersion the [UploaderHandler.schemaVersion] in force when this row was written. A
  *   row whose version exceeds the current handler's is parked rather than mis-decoded.
  * @property uniqueKey dedup identity together with [type], or `null` for an item that never
@@ -33,7 +34,9 @@ package io.github.jamal_wia.kmptoolkit.uploader
  *   the persisted backoff gate. `0` means "attemptable now".
  * @property createdAtEpochMillis when the item was enqueued. Diagnostic only: ordering comes from
  *   the store's insertion sequence, not from this field.
- * @property lastError a short diagnostic from the most recent failure or park, or `null`.
+ * @property lastError a short diagnostic from the most recent failure or park, or `null`. At most about
+ *   4096 characters: the engine truncates longer text (an exception message embedding a response body, say)
+ *   before it reaches a store, so a column of any size holds it.
  * @property leaseUntilEpochMillis epoch millis at which a detached executor's claim expires.
  *   Meaningful only in [UploaderItemState.IN_FLIGHT]; `0` otherwise.
  * @property claim the row's claim counter: `0` when inserted, advanced by exactly one by every

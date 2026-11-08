@@ -288,8 +288,10 @@ class VlcjVideoEngineSessionTest {
         assertEquals(FakeVlcRuntime.TASK_THREAD, player.threadOf("setTime(800)"))
         assertEquals(FakeVlcRuntime.TASK_THREAD, player.threadOf("setVolume(25)"))
 
+        // The applied seek's target is held for 500 ms (libvlc applies set_time asynchronously).
+        clockNanos += 600_000_000L
         player.playhead = 950L
-        assertEquals(950L, engine.positionMs(), "once applied, the playhead is libvlc's")
+        assertEquals(950L, engine.positionMs(), "once the hold expired, the playhead is libvlc's")
     }
 
     @Test

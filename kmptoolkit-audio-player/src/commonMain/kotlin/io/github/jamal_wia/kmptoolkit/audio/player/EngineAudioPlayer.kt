@@ -115,6 +115,13 @@ private class EngineAudioPlayer(
     @Volatile
     private var released: Boolean = false
 
+    /**
+     * The one `Error` every [prepare] after [release] reports. [PlayerState.Error] compares its cause by
+     * identity, so a fresh exception per call would be a new emission each time and a consumer that retries
+     * on `Error` would loop forever. Created lazily so the stack trace points at the first misuse. Guarded.
+     */
+    private var releasedError: PlayerState.Error? = null
+
     private val _stateFlow: MutableStateFlow<PlayerState> = MutableStateFlow(PlayerState.Idle)
     override val stateFlow: StateFlow<PlayerState> = _stateFlow.asStateFlow()
 
@@ -124,7 +131,7 @@ private class EngineAudioPlayer(
     // Written under the gate; volatile so the public getter, read on any thread without the lock,
     // sees the latest value.
     @Volatile
-    override var playbackSpeed: Float = NORMAL_PLAYBACK_SPEED
+    override var playbackSpeed: Float = NORMAL_PLAYBACK_SPEED.coerceIn(config.minPlaybackSpeed, config.maxPlaybackSpeed)
         private set
 
     init {
@@ -133,7 +140,9 @@ private class EngineAudioPlayer(
 
     override suspend fun prepare(source: AudioSource) {
         if (released) {
-            gate.exclusive { _stateFlow.value = PlayerState.Error(AudioPlayerReleasedException()) }
+            gate.exclusive {
+                _stateFlow.value = releasedError ?: PlayerState.Error(AudioPlayerReleasedException()).also { releasedError = it }
+            }
             return
         }
         // A child of the caller's job, so the caller's cancellation still reaches the engine, and a
@@ -223,18 +232,22 @@ private class EngineAudioPlayer(
         stopPositionUpdates()
         val position: Long = engine.positionMs()
         _playbackPositionFlow.value = position
-        _stateFlow.value = PlayerState.Paused(duration = current.duration, currentPosition = position)
+        _stateFlow.value = PlayerState.Paused(
+            duration = freshDuration(current.duration),
+            currentPosition = position,
+        )
     }
 
     override fun stop(): Unit = gate.exclusive {
         if (released) return@exclusive
-        if (!_stateFlow.value.isPlayable) return@exclusive
+        val current: PlayerState = _stateFlow.value
+        if (!current.isPlayable) return@exclusive
 
         engine.pause()
         stopPositionUpdates()
         engine.seekTo(0L)
         _playbackPositionFlow.value = 0L
-        _stateFlow.value = PlayerState.Ready(engine.durationMs())
+        _stateFlow.value = PlayerState.Ready(freshDuration(current.duration ?: 0L))
     }
 
     override fun seekTo(positionMs: Long): Unit = gate.exclusive { seekToLocked(positionMs) }
@@ -242,13 +255,17 @@ private class EngineAudioPlayer(
     override fun seekForward(amountMs: Long): Unit = gate.exclusive {
         if (released) return@exclusive
         if (!_stateFlow.value.isPlayable) return@exclusive
-        seekToLocked(engine.positionMs() + amountMs)
+        seekToLocked(saturatingAdd(engine.positionMs(), amountMs), relative = true)
     }
 
     override fun seekBackward(amountMs: Long): Unit = gate.exclusive {
         if (released) return@exclusive
         if (!_stateFlow.value.isPlayable) return@exclusive
-        seekToLocked(engine.positionMs() - amountMs)
+        // -Long.MIN_VALUE does not exist as a Long, so the largest amount stands in for it.
+        seekToLocked(
+            saturatingAdd(engine.positionMs(), if (amountMs == Long.MIN_VALUE) Long.MAX_VALUE else -amountMs),
+            relative = true,
+        )
     }
 
     override fun replay(): Unit = gate.exclusive {
@@ -259,6 +276,9 @@ private class EngineAudioPlayer(
     }
 
     override fun setPlaybackSpeed(speed: Float): Unit = gate.exclusive {
+        // NaN names no rate and coerceIn would pass it through, so it is ignored: the current rate
+        // (always inside the range) stays. Infinities clamp to the range ends like any large value.
+        if (speed.isNaN()) return@exclusive
         playbackSpeed = speed.coerceIn(config.minPlaybackSpeed, config.maxPlaybackSpeed)
         if (released) return@exclusive
         if (_stateFlow.value is PlayerState.Playing) engine.setSpeed(playbackSpeed)
@@ -291,11 +311,14 @@ private class EngineAudioPlayer(
     // They arrive on the engine's thread and are submitted, never waited for.
 
     override fun onCompleted(): Unit = gate.submit {
-        if (released || !_stateFlow.value.isPlayable) return@submit
+        val current: PlayerState = _stateFlow.value
+        if (released || !current.isPlayable) return@submit
         stopPositionUpdates()
-        val duration: Long = engine.durationMs()
-        _playbackPositionFlow.value = duration
-        _stateFlow.value = PlayerState.Completed(duration)
+        val known: Long = freshDuration(current.duration ?: 0L)
+        // A source of unknown length that played to its end has a length now: where it ended.
+        val end: Long = if (known > 0L) known else engine.positionMs().takeIf { it > 0L } ?: _playbackPositionFlow.value
+        _playbackPositionFlow.value = end
+        _stateFlow.value = PlayerState.Completed(end)
     }
 
     // Preparing counts as well: the engine installs its steady-state error callback when its load
@@ -315,7 +338,11 @@ private class EngineAudioPlayer(
         val current: PlayerState = _stateFlow.value
         if (!current.isPlayable || current is PlayerState.Playing) return
 
-        if (current is PlayerState.Completed) {
+        val duration: Long = freshDuration(current.duration ?: 0L)
+        // A seek onto the end of a completed source leaves Paused with the playhead at the end, which
+        // is the end just the same.
+        val atEnd: Boolean = duration > 0L && engine.positionMs() >= duration
+        if (current is PlayerState.Completed || atEnd) {
             // From the end there is nothing left to resume. MediaPlayer restarts from 0 on its own
             // while AVPlayer sits at the end without completing again, so rewind explicitly and make
             // both platforms mean the same thing.
@@ -325,38 +352,56 @@ private class EngineAudioPlayer(
         engine.start()
         engine.setSpeed(playbackSpeed)
         _stateFlow.value = PlayerState.Playing(
-            duration = engine.durationMs(),
+            duration = duration,
             currentPosition = engine.positionMs(),
         )
         startPositionUpdates()
     }
 
-    private fun seekToLocked(positionMs: Long) {
+    private fun seekToLocked(positionMs: Long, relative: Boolean = false) {
         if (released) return
         val current: PlayerState = _stateFlow.value
         if (!current.isPlayable) return
 
-        val duration: Long = engine.durationMs()
-        val target: Long = positionMs.coerceIn(0L, maxOf(0L, duration))
+        val duration: Long = freshDuration(current.duration ?: 0L)
+        // A length of 0 means the platform has not reported one yet (a live stream, a header not parsed).
+        // An absolute seek still clamps to 0..0 then, but a relative skip has no end to clamp to: moving
+        // from 30 s by +/-5 s must not land on 0, so its target goes to the engine, which knows better.
+        val target: Long = if (relative && duration <= 0L) {
+            positionMs.coerceAtLeast(0L)
+        } else {
+            positionMs.coerceIn(0L, maxOf(0L, duration))
+        }
         engine.seekTo(target)
         _playbackPositionFlow.value = target
 
         _stateFlow.value = when (current) {
-            is PlayerState.Playing -> current.copy(currentPosition = target)
-            is PlayerState.Paused -> current.copy(currentPosition = target)
+            is PlayerState.Playing -> current.copy(duration = duration, currentPosition = target)
+            is PlayerState.Paused -> current.copy(duration = duration, currentPosition = target)
             // Once the playhead has moved off the end, "completed" is no longer a true description
             // of the player — Paused is, and it is the state play() resumes from correctly.
-            is PlayerState.Completed -> PlayerState.Paused(current.duration, target)
+            is PlayerState.Completed -> PlayerState.Paused(duration, target)
+            // A Ready player picks up a length the platform learned since the load.
+            is PlayerState.Ready -> PlayerState.Ready(duration)
             else -> current
         }
     }
 
     /** Runs the engine's load, returning its failure instead of throwing it. Cancellation still throws. */
     private suspend fun loadCatching(source: AudioSource): Throwable? = try {
+        if (source is AudioSource.File && source.path.isBlank()) {
+            // NSURL.fileURLWithPath("") raises an Objective-C exception Kotlin/Native cannot catch, so a
+            // blank path never reaches an engine. release() keeps "a failed load leaves nothing loaded".
+            engine.release()
+            return IllegalArgumentException("AudioSource.File path is blank")
+        }
         engine.load(source)
         null
     } catch (cancellation: CancellationException) {
-        throw cancellation
+        // Active here means neither the caller nor this load (superseded, unload, release) was cancelled:
+        // the engine gave up on its own, which is a load failure like any other. Decided here, inside
+        // withContext(load.job), so the throwable never crosses that boundary and stays the engine's own.
+        if (currentCoroutineContext().isActive) cancellation else throw cancellation
     } catch (@Suppress("TooGenericExceptionCaught") failure: Throwable) {
         // Deliberately broad: an engine reports every load failure by throwing, and the whole point
         // of PlayerState.Error is to hand that Throwable to the consumer unchanged instead of
@@ -413,9 +458,20 @@ private class EngineAudioPlayer(
         val position: Long = engine.positionMs()
         // Compare-and-set as well as the lock: the tick must only ever refine the Playing state it
         // read, never replace a state another transition wrote.
-        if (!_stateFlow.compareAndSet(current, current.copy(currentPosition = position))) return
+        val refreshed: PlayerState.Playing =
+            current.copy(duration = freshDuration(current.duration), currentPosition = position)
+        if (!_stateFlow.compareAndSet(current, refreshed)) return
         _playbackPositionFlow.value = position
     }
+
+    /**
+     * Lock held. The length to publish: a positive platform value wins, because a length reported after
+     * playback started replaces the `0` of "not known yet"; `0` never overwrites a length already known,
+     * so a live stream that flaps back to `0` does not reset a progress bar. [reported] is a reading the
+     * caller already took.
+     */
+    private fun freshDuration(known: Long, reported: Long = engine.durationMs()): Long =
+        if (reported > 0L) reported else known
 
     /** Lock held. */
     private fun stopPositionUpdates() {
@@ -425,5 +481,16 @@ private class EngineAudioPlayer(
 
     private companion object {
         const val NORMAL_PLAYBACK_SPEED: Float = 1.0f
+    }
+}
+
+/** `a + b` that stops at [Long.MAX_VALUE] / [Long.MIN_VALUE] instead of wrapping around. */
+private fun saturatingAdd(a: Long, b: Long): Long {
+    val sum: Long = a + b
+    // Overflow happened exactly when both operands share a sign that the sum does not.
+    return if (((a xor sum) and (b xor sum)) < 0L) {
+        if (a < 0L) Long.MIN_VALUE else Long.MAX_VALUE
+    } else {
+        sum
     }
 }

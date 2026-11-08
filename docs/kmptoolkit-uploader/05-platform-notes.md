@@ -78,6 +78,20 @@ in one app. Give a second queue its own `uniqueWorkName`.
 reflectively by WorkManager, outside your object graph; without `UploaderEngineRegistry.register` it
 finds nothing and returns `Result.retry()` forever.
 
+Register the engine `createUploaderEngine` returned, not a wrapper around it: a decorator registered in its place
+serves wake jobs (`awaitDrained`), but upload transports and `UploadGateway` reach only the library's own engine and
+report it unavailable, so an `UploadHandler`'s uploads would retry and re-hand forever.
+
+**Hand-offs while a job is finishing.** The handler transport (`createWorkManagerUploadHandlerTransport`) serves a
+retry handed off while the item's job is still running: the job uploads it before it returns, which also means one job
+can run several attempts in a row and is subject to WorkManager's roughly ten-minute limit as a whole (a stopped job is
+re-run and replays its journal). A hand-off after the job finished serving replaces that job with a fresh one, so a
+retry with a short or zero backoff is not dropped while WorkManager still reports the previous job running. The legacy
+`createWorkManagerUploadTransport` still uses `ExistingWorkPolicy.KEEP`: a retry whose backoff is shorter than the
+moment WorkManager needs to finish the previous job can wait until the lease expires (15 minutes by default). Give it
+a non-zero backoff, or use the handler transport. Hand-offs are tracked per process; another process falls back to
+`KEEP` and the lease.
+
 **Reliability.** Good. WorkManager persists across reboots and runs in Doze maintenance windows. It
 is not instant, and it is not meant to be.
 
@@ -163,7 +177,9 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
 
 - **Android.** `UploadHandlerWorker` reads the response in the same attempt, before the connection is
   dropped: `inputStream` for a status below 400, `errorStream` for 400 and above (a missing one is an
-  empty body). At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
+  empty body; flagged truncated when the headers declared one the stack did not deliver). A redirect whose body the stack does not hand over is flagged truncated unless its headers declare an empty body. With a
+  process-wide `java.net.Authenticator` that answers challenges, or on a plain JVM, a 401/407 body is
+  unavailable and arrives empty and flagged truncated; the status still reaches `classify`. At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
   The body stays in the process and is never put into `WorkManager`'s data. A `WorkManager` worker has
   about **10 minutes**, and the module does not call `setForeground`: a long upload, or a server that
   answers slowly, can be stopped and retried. Keep the server's answer fast (`202` and a job id).
@@ -171,8 +187,10 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   response when the task completes. A body that arrived while the app was dead is delivered only if
   `BackgroundUploadRelaunch.handleEvents` is wired (see
   [`08-upload-transport.md`](08-upload-transport.md#the-relaunch-hook--required)); without it the
-  outcome waits for the lease and the item uploads again. **A force-quit cancels background transfers**:
-  iOS does not continue an upload for an app the user swiped away.
+  outcome waits for the lease and the item uploads again. A connection that breaks after the status
+  arrived (or a timeout that fires while the body arrives) keeps the status and headers and reports the body
+  truncated, as on Android; only a failure before any status is a transport failure. **A force-quit cancels
+  background transfers**: iOS does not continue an upload for an app the user swiped away.
 - **The outcome journal.** Once a handler transport has the server's answer it writes it to a small file
   *before* the engine settles the item, and deletes the file when the settlement landed. The file holds
   the status, the headers, the body and a timestamp, so **a response body rests briefly on disk**. The body is
@@ -186,11 +204,16 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   dies between the answer and the settlement, the next run **replays the file instead of uploading
   again**: the Android worker checks it before preparing the attempt, the iOS transport in a re-hand
   (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
-  created. The file is deleted just before the engine commits the settlement, so a retry that is
-  re-handed at once never meets it, and one replay per item runs at a time in a process. A replayed response reaches `classify` and
+  created. On Android the entry carries the attempt it answers and is deleted only after the engine commit
+  returned, so a death or stop before the commit leaves it for the next run, and a leftover of an attempt that was
+  already settled is recognised and dropped instead of replaying into the retry. On iOS the file is deleted just
+  before the engine commits the settlement and written back if the commit does not land (a process death in that
+  instant uploads again: at least once). One replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
-  file; so does the 7-day expiry. A file of an unknown format version, or an unreadable one, is ignored
-  and deleted. Nothing is journaled for a transport failure (there is no response), a write that fails
+  file; so does the 7-day expiry. A file of an unknown format version or a damaged one is ignored and
+  deleted. So is a file larger than 4 MiB, which no entry this journal wrote can be (it is deleted without being read). On Android a file that exists but cannot be read is waited for while the job has run fewer than 3 times (WorkManager's
+  run count, which also counts retries for other reasons) and then given
+  up (the item uploads again, at least once); iOS treats it as absent and uploads, for now. Nothing is journaled for a transport failure (there is no response), a write that fails
   leaves the behaviour of 3.0 (a re-upload after a lease expiry), and the legacy classifier transport
   has no journal.
 - **`Set-Cookie`.** Headers repeated under one name are joined with `", "`; that cannot be undone for a
@@ -220,7 +243,13 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   arithmetic saturates at `Long.MAX_VALUE`, so a `RetryPolicy.maxDelayMillis` of `Long.MAX_VALUE`
   ("no ceiling") works. A forwards jump merely runs some items early, which is harmless.
 - **A logger that throws does not stop the engine.** The engine calls the `Logger` from its drain
-  coroutine and from `enqueue`; an exception the logger throws (anything but cancellation) is
-  swallowed and costs only that log line.
+  coroutine and from `enqueue`; anything the logger throws, a `CancellationException` included (logging never
+  suspends, so it is never the caller's cancellation), is swallowed and costs only that log line. The same holds for every logger the module takes: the Android and
+  iOS transports, the wake schedulers and the outcome journal ignore a logger that throws, so a hand-off,
+  a wake or a replay is never stopped by a log line.
 - **Ids** are `java.util.UUID` on Android and `NSUUID` on iOS, both canonical UUID strings. Override
   `idGenerator` if your server wants a different idempotency-key shape.
+  Any id works on both platforms. The outcome journal names its file after the id, so an item whose id it
+  cannot use as a file name — empty, `.` or `..`, containing `/`, `\`, a space or a control character, or
+  longer than 200 characters — is uploaded and settled normally but its answer is not journaled: a process
+  death between the answer and the settlement uploads it again (at least once).

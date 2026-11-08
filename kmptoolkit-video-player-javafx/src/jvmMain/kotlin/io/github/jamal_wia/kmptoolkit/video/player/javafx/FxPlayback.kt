@@ -17,6 +17,12 @@ import javafx.scene.paint.Color
 import javafx.util.Duration
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -82,6 +88,10 @@ internal class FxPlayback private constructor(
     private var refreshUntilNanos: Long = 0L
     private var looping: Boolean = false
     private var atEnd: Boolean = false
+
+    // The ticket of the newest seekTo: taken on the caller's thread before posting, read on the FX thread
+    // (D-24: a value shared between threads, in a module with a coroutines dependency).
+    private val latestSeek: MutableStateFlow<Long> = MutableStateFlow(0L)
     private var buffering: Boolean = false
     private var reportedSize: VideoSize? = null
     private var failed: Boolean = false
@@ -107,8 +117,9 @@ internal class FxPlayback private constructor(
         media.setOnError { fail(media.error ?: player.error) }
         player.setOnEndOfMedia {
             // Fired at the end of every cycle, including while cycleCount is INDEFINITE and JavaFX
-            // is already starting the next one — that is not an end.
-            if (looping) return@setOnEndOfMedia
+            // is already starting the next one — that is not an end. A handler JavaFX queued before
+            // dispose() can still run after it, and must then do nothing.
+            if (disposed || looping) return@setOnEndOfMedia
             atEnd = true
             // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
             // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
@@ -152,13 +163,20 @@ internal class FxPlayback private constructor(
         if (!disposed) player.pause()
     }
 
-    fun seekTo(positionMs: Long): Unit = FxThread.post {
-        if (!disposed) {
-            atEnd = false
-            player.seek(Duration.millis(positionMs.toDouble()))
-            refreshPicture()
+    fun seekTo(positionMs: Long) {
+        val ticket: Long = latestSeek.updateAndGet { it + 1 }
+        FxThread.post {
+            // A newer seek is queued behind this one and overrides its position: skip the native work.
+            // The newer ticket is taken before its block is posted, and FxThread.post runs a block inline
+            // only when nothing is queued, so a block that sees a newer ticket always has that newer
+            // block still behind it. onSeekApplied still answers every seek, a skipped one included.
+            if (!disposed && ticket == latestSeek.value) {
+                atEnd = false
+                player.seek(Duration.millis(positionMs.toDouble()))
+                refreshPicture()
+            }
+            sink.onSeekApplied()
         }
-        sink.onSeekApplied()
     }
 
     fun setSpeed(speed: Float): Unit = FxThread.post {
@@ -195,6 +213,15 @@ internal class FxPlayback private constructor(
         stopPulse()
         ready.cancel()
         view.mediaPlayer = null
+        // OpenJFX race: MediaPlayer.dispose() sets DISPOSED, but a status update its native side had
+        // already queued (onPlaying / onPause) can run afterwards and overwrite it, after which the
+        // guards in seek() and pause() pass on a player whose native half is gone. A queued
+        // end-of-media then loops (seek -> NullPointerException on the FX thread) or reaches our
+        // handler. With one cycle and no handler an already queued end takes the plain non-looping
+        // branch, which never seeks. Plain property writes on a player that is not yet disposed. Do
+        // not "simplify" this away.
+        player.onEndOfMedia = null
+        player.cycleCount = 1
         player.dispose()
         image = null
         scratch = null
@@ -343,15 +370,35 @@ internal class FxPlayback private constructor(
                 // READY nor an error — so the wait is bounded. So is building the player: once the
                 // toolkit has exited, runLater drops the block silently and the call would never
                 // resume. A block that does run late finds its session closed and disposes itself
-                // (see JavaFxVideoEngine.Session.attach).
+                // (see JavaFxVideoEngine.Session.attach). An exit seen before this point fails the load
+                // at once (ToolkitJavaFxRuntime re-checks it on every call); only an exit that races
+                // the load itself, between that probe and this call, waits out the timeout.
                 withTimeoutOrNull(readyTimeoutMs) {
-                    val playback: FxPlayback = FxThread.call {
-                        FxPlayback(media, sink, maxFrameRate).also {
-                            created.set(it)
-                            onCreated(it)
+                    coroutineScope {
+                        // The toolkit can end at any moment, by implicit exit as well as
+                        // Platform.exit(); the wait then ends at once instead of at the timeout.
+                        // Silence is not taken for an exit while the FX thread runs this load's own
+                        // construction (see FxThread.hasExited).
+                        val exitWatch: Job = launch {
+                            while (true) {
+                                delay(EXIT_POLL_MS)
+                                if (FxThread.hasExited(wait = false)) {
+                                    throw JavaFxVideoPlayerException.RuntimeUnavailable(
+                                        IllegalStateException("The JavaFX toolkit has exited"),
+                                    )
+                                }
+                            }
                         }
+                        val playback: FxPlayback = FxThread.call {
+                            FxPlayback(media, sink, maxFrameRate).also {
+                                created.set(it)
+                                onCreated(it)
+                            }
+                        }
+                        playback.ready.await()
+                        exitWatch.cancel()
+                        playback
                     }
-                    playback.ready.await()
                 } ?: throw if (created.get() == null) {
                     JavaFxVideoPlayerException.RuntimeUnavailable(
                         IllegalStateException(
@@ -369,6 +416,8 @@ internal class FxPlayback private constructor(
                 throw e
             }
         }
+
+        private const val EXIT_POLL_MS: Long = 100L
 
         private fun Duration?.toMillisOrZero(): Long {
             if (this == null || isUnknown || isIndefinite) return 0L

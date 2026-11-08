@@ -34,10 +34,14 @@ internal class LifecycleActivityTracker(
     // is non-suspending, fed by main-thread lifecycle callbacks and called from any thread.
     // The other atomic / volatile fields below (listeners, released) follow it; Registration.cancelled is guarded by its lock.
     /**
-     * The only reference to an activity this class holds, and it is weak. Atomic so a caller on another
-     * thread clearing a stale activity cannot erase one that resumed in the meantime.
+     * The only references to activities this class holds, and they are weak: every tracked activity that
+     * is resumed right now, the most recently resumed last. Several windows of one app can be resumed at
+     * once (split screen, freeform and desktop windows), so one slot would forget the earlier window as
+     * soon as the later one paused. Always an immutable list, replaced as a whole by a pure function
+     * (`updateAndGet`), so a caller on another thread clearing a stale activity cannot erase one that
+     * resumed in the meantime.
      */
-    private val current: AtomicReference<WeakReference<Activity>?> = AtomicReference(null)
+    private val resumed: AtomicReference<List<WeakReference<Activity>>> = AtomicReference(emptyList())
 
     /**
      * Copy-on-write so a listener that subscribes or cancels during dispatch cannot break it. Each
@@ -56,13 +60,40 @@ internal class LifecycleActivityTracker(
     }
 
     override fun <R> withActivity(block: (Activity) -> R): R? {
-        val reference: WeakReference<Activity> = current.get() ?: return null
-        val activity: Activity = reference.get() ?: return null
-        if (activity.isFinishing || activity.isDestroyed) {
-            current.compareAndSet(reference, null)
-            return null
-        }
+        val activity: Activity = newestLive() ?: return null
         return block(activity)
+    }
+
+    override fun forEachResumedActivity(block: (Activity) -> Unit) {
+        val stale: MutableList<WeakReference<Activity>> = mutableListOf()
+        val live: MutableList<Activity> = mutableListOf()
+        for (reference in resumed.get()) {
+            val activity: Activity? = reference.get()
+            if (activity == null || activity.isFinishing || activity.isDestroyed) stale += reference else live += activity
+        }
+        if (stale.isNotEmpty()) resumed.updateAndGet { list -> list.filterNot { entry -> stale.any { it === entry } } }
+        live.forEach(block)
+    }
+
+    /**
+     * The most recently resumed activity that is still alive: not collected, not finishing, not
+     * destroyed. The dead or finishing references walked past are dropped by identity, so a resume that
+     * happened in between is never removed.
+     */
+    private fun newestLive(): Activity? {
+        val stale: MutableList<WeakReference<Activity>> = mutableListOf()
+        var live: Activity? = null
+        for (reference in resumed.get().asReversed()) {
+            val activity: Activity? = reference.get()
+            if (activity == null || activity.isFinishing || activity.isDestroyed) {
+                stale += reference
+            } else {
+                live = activity
+                break
+            }
+        }
+        if (stale.isNotEmpty()) resumed.updateAndGet { list -> list.filterNot { entry -> stale.any { it === entry } } }
+        return live
     }
 
     /**
@@ -70,6 +101,11 @@ internal class LifecycleActivityTracker(
      * it is synchronous, as before. Called from anywhere else, it is posted — running it on the
      * caller's thread would hand a window-touching listener the activity off the main thread, which
      * is exactly what the interface promises never happens.
+     *
+     * A listener that throws during the synchronous replay is not left subscribed: the exception
+     * propagates out of this call and the registration is cancelled, because the caller never gets a
+     * handle to cancel it with. (A posted replay that throws crashes on the main looper like any
+     * throwing resume delivery.)
      *
      * A posted replay is skipped if the subscription is cancelled first, if the activity is no longer
      * resumed by the time it runs, or if a real resume has already reached the listener in between —
@@ -79,7 +115,7 @@ internal class LifecycleActivityTracker(
         if (released.get()) return NoopSubscription
         beforeListenerAddedForTest()
         val onMainThread: Boolean = Looper.myLooper() == Looper.getMainLooper()
-        val registration = Registration(listener, replayPending = !onMainThread)
+        val registration = Registration(this, listener, replayPending = !onMainThread)
         listeners.add(registration)
         // release() may have run between the check above and the add. It sets the flag before it
         // clears the list, so either that clear already removed this registration, or this re-check
@@ -92,7 +128,13 @@ internal class LifecycleActivityTracker(
             return NoopSubscription
         }
         if (onMainThread) {
-            replayCurrentTo(registration)
+            try {
+                replayCurrentTo(registration)
+            } catch (failure: Throwable) {
+                // Nothing the caller cannot cancel may stay subscribed: it never receives the handle.
+                registration.cancel()
+                throw failure
+            }
         } else {
             mainHandler.post { if (registration.replayPending) replayCurrentTo(registration) }
         }
@@ -106,7 +148,7 @@ internal class LifecycleActivityTracker(
         // A tracker-wide lock would deadlock with that re-entrant call, hence the repeated loop.
         if (released.compareAndSet(false, true)) {
             application.unregisterActivityLifecycleCallbacks(this)
-            current.set(null)
+            resumed.set(emptyList())
         }
         // Through markCancelled(), not a bare flag: like cancel() it must not return while a delivery
         // to the listener is still running on the main thread.
@@ -121,8 +163,17 @@ internal class LifecycleActivityTracker(
      * covered, so it is not reachable while covered either; it becomes current again when it resumes.
      */
     override fun onActivityResumed(activity: Activity) {
-        if (!isTracked(activity)) return
-        current.set(WeakReference(activity))
+        if (released.get() || !isTracked(activity)) return
+        val reference = WeakReference(activity)
+        resumed.updateAndGet { list -> list.withoutActivity(activity) + reference }
+        // A resume already in flight when release() ran gets here after release() cleared the slot (the
+        // framework dispatches from a snapshot, so unregistering does not stop it). release() sets the
+        // flag before it clears the slot, so either its clear comes after the set above, or this re-check
+        // sees the flag: either way a released tracker does not keep, or hand out, an activity.
+        if (released.get()) {
+            resumed.updateAndGet { list -> list.filterNot { entry -> entry === reference } }
+            return
+        }
         // The loop walks a snapshot: a listener cancelled by an earlier one in this very loop is
         // still in it, and "cancel stops the listener from being called again" must hold for it too.
         // deliver() re-checks the flag under the registration's lock, so it also holds for a cancel()
@@ -135,12 +186,12 @@ internal class LifecycleActivityTracker(
      * no longer the one the user is interacting with.
      */
     override fun onActivityPaused(activity: Activity) {
-        clearIfCurrent(activity)
+        forget(activity)
     }
 
     /** Belt and braces: an activity destroyed without a matching pause still clears the slot. */
     override fun onActivityDestroyed(activity: Activity) {
-        clearIfCurrent(activity)
+        forget(activity)
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?): Unit = Unit
@@ -152,16 +203,19 @@ internal class LifecycleActivityTracker(
      * Identity comparison, not equality: two activity instances of the same class are different
      * objects, and during a configuration change both exist at once.
      */
-    private fun clearIfCurrent(activity: Activity) {
-        val reference: WeakReference<Activity>? = current.get()
-        if (reference?.get() === activity) current.compareAndSet(reference, null)
+    private fun forget(activity: Activity) {
+        resumed.updateAndGet { list -> list.withoutActivity(activity) }
     }
 
+    /** [this] without [activity] and without references that were collected; a pure function for `updateAndGet`. */
+    private fun List<WeakReference<Activity>>.withoutActivity(activity: Activity): List<WeakReference<Activity>> =
+        filter { entry -> entry.get().let { other -> other != null && other !== activity } }
+
     /**
-     * Test seam: the actual field, so a test can prove the tracker holds nothing but a weak
-     * reference.
+     * Test seam: the newest actual reference, so a test can prove the tracker holds nothing but weak
+     * references.
      */
-    internal fun activityReferenceForTest(): WeakReference<Activity>? = current.get()
+    internal fun activityReferenceForTest(): WeakReference<Activity>? = resumed.get().lastOrNull()
 
     /** Test seam: how many listeners the tracker holds strongly right now. */
     internal fun listenerCountForTest(): Int = listeners.size
@@ -179,14 +233,16 @@ internal class LifecycleActivityTracker(
 
     /**
      * One subscription. Identity, not equality, is what [listeners] compares, which is why this is a
-     * plain class and not a data class.
+     * plain class and not a data class. Nested, not inner, and it lets go of the tracker as it lets go
+     * of the listener: a handle the caller keeps after cancel() or release() pins neither.
      *
      * @param replayPending whether a posted immediate replay is still owed. Set at construction —
      *   before the registration is visible to [onActivityResumed] — so a resume delivered in between
      *   can clear it without a later write putting it back. Main thread only after construction; the
      *   constructor value is published by the listeners add and the Handler post.
      */
-    private inner class Registration(
+    private class Registration(
+        tracker: LifecycleActivityTracker,
         listener: (Activity) -> Unit,
         var replayPending: Boolean,
     ) : ActivitySubscription {
@@ -200,6 +256,9 @@ internal class LifecycleActivityTracker(
 
         /** Dropped by [markCancelled] (under [lock]) so a handle the caller keeps does not pin what the listener captured. */
         private var listener: ((Activity) -> Unit)? = listener
+
+        /** Dropped by [markCancelled] (under [lock]) so a handle the caller keeps does not pin the tracker, its application or its predicate. */
+        private var tracker: LifecycleActivityTracker? = tracker
 
         /** Set by [markCancelled] only, and only under [lock]; every delivery re-checks it under the same lock. */
         private var cancelled: Boolean = false
@@ -217,22 +276,23 @@ internal class LifecycleActivityTracker(
         fun deliverReplay() {
             lock.withLock {
                 replayPending = false
-                if (cancelled || this !in listeners) return
-                current.get()?.get()?.let { activity ->
-                    if (!activity.isFinishing && !activity.isDestroyed) listener?.invoke(activity)
-                }
+                val owner: LifecycleActivityTracker = tracker ?: return
+                if (cancelled || this !in owner.listeners) return
+                owner.newestLive()?.let { activity -> listener?.invoke(activity) }
             }
         }
 
-        /** Waits for a delivery already running, then makes every later one a no-op. */
-        fun markCancelled(): Unit = lock.withLock {
+        /** Waits for a delivery already running, then makes every later one a no-op. Returns the tracker it was let go of. */
+        fun markCancelled(): LifecycleActivityTracker? = lock.withLock {
             cancelled = true
             listener = null
+            val owner: LifecycleActivityTracker? = tracker
+            tracker = null
+            owner
         }
 
         override fun cancel() {
-            markCancelled()
-            listeners.remove(this)
+            markCancelled()?.listeners?.remove(this)
         }
     }
 

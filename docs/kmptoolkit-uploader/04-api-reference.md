@@ -9,10 +9,10 @@ The narrow interface features depend on.
 
 | Member | Signature | Notes |
 |---|---|---|
-| `enqueue` | `suspend fun <P : Any> enqueue(handler: UploaderHandler<P>, payload: P, uniqueKey: String? = null, tag: String? = null, conflictPolicy: ConflictPolicy = KEEP): String?` | Suspends until persisted. Returns the new item id, or `null` when a `KEEP` conflict left the queued item in place. The drain trigger and the platform wake are armed even if the caller is cancelled (or the write fails) mid-call, because a row may already have committed. |
+| `enqueue` | `suspend fun <P : Any> enqueue(handler: UploaderHandler<P>, payload: P, uniqueKey: String? = null, tag: String? = null, conflictPolicy: ConflictPolicy = KEEP): String?` | Suspends until persisted. Returns the new item id, or `null` when a `KEEP` conflict left the queued item in place. The drain trigger and the platform wake are armed even if the caller is cancelled (or the write fails) mid-call, because a row may already have committed. A caller cancelled before the write starts writes nothing; once the write has started, cancelling the caller does not interrupt it: the row is queued as a normal pending item and the call may return normally. With `REPLACE`, the stop of the superseded item's attempt and the cancel of its upload run to the end too. |
 | `observe` | `fun observe(type: String): Flow<List<UploaderItem>>` | All states, insertion order. Does not suspend — the query runs on collection. |
-| `cancel` | `suspend fun cancel(id: String)` | Since 2.0.0. Withdraws one item in any state: deletes its row, then cancels its upload on its `UploadHandler`'s transport. Touches nothing else. Unknown id: no-op. Best effort for bytes already sent. |
-| `cancelByTag` | `suspend fun cancelByTag(tag: String)` | Since 2.0.0. `cancel` for every item with that exact tag — the logout wipe. |
+| `cancel` | `suspend fun cancel(id: String)` | Since 2.0.0. Withdraws one item in any state: deletes its row, then cancels its upload on its `UploadHandler`'s transport. Touches nothing else. Unknown id: no-op. Best effort for bytes already sent. A caller cancelled before the call starts removes nothing; once the removal has begun, cancelling the caller does not stop it halfway: the delete, the stop of the running attempt and the cancel of the upload complete together, and the call may return normally. A cancelled attempt records nothing whatever its handler answers, except that a `Success` has its row deleted. |
+| `cancelByTag` | `suspend fun cancelByTag(tag: String)` | Since 2.0.0. `cancel` for every item with that exact tag — the logout wipe. Once the wipe has started, a cancelled caller does not interrupt it. Residual: if the store itself fails after the wipe committed, the list of removed items is lost, so those uploads run until they settle (their settle is a no-op); a cancelled caller cannot cause this. |
 | `trigger` | `fun trigger()` | Conflated, non-suspending, safe from anywhere. |
 
 **Suspension rule:** an operation that touches storage suspends; one that only moves in-memory state
@@ -29,7 +29,7 @@ whether a call can block.
 | `drain` | `suspend fun drain()` | One full pass. **Do not call on a started engine** — it breaks single-flight. For tests and diagnostics. |
 | `settle` | `suspend fun settle(id: String, claim: Long, result: SettleResult)` | Reports a detached delivery, with the `id` and `claim` from the executor's `AttemptContext`. Every race degrades to a no-op; see below. |
 | `awaitDrained` | `suspend fun awaitDrained(timeout: Duration): Boolean` | For a wake job. An `IN_FLIGHT` item counts as **not** drained. An already empty queue is `true` even for a zero timeout. A failing store read never throws: it counts as "not drained" and is re-read at `drainPollInterval`, so a persistent failure ends in `false` at the timeout. |
-| `close` | `fun close()` | Idempotent, non-suspending. Stops the engine, leaves the queue and your scope alone. |
+| `close` | `fun close()` | Idempotent, non-suspending. Stops the engine, leaves the queue and your scope alone. An attempt running at close is cancelled and records nothing (apart from a `Success` delete); nothing is claimed or launched afterwards; an upload whose claim was being written is released so the next engine starts it at once. |
 
 ### `settle` guards
 
@@ -63,6 +63,9 @@ fun createUploaderEngine(
 ): UploaderEngine
 ```
 
+`idGenerator` must return a new unique id on every call; never derive it from the domain object (use `uniqueKey`
+for that).
+
 Returns a constructed but **not started** engine. Throws `IllegalArgumentException` if two handlers
 share a `type` or two providers share a `key` — both are wiring bugs whose symptom would otherwise
 be delayed, silent data loss.
@@ -76,7 +79,7 @@ be delayed, silent data loss.
 | `retryPolicy: RetryPolicy` | `ExponentialBackoffRetryPolicy()` | Per effect type. |
 | `constraintKeys: Set<String>` | `emptySet()` | All must be satisfied. Unknown key ⇒ satisfied + logged error. |
 | `encodePayload(P): String` | — | Any format; the engine never inspects it. |
-| `decodePayload(String): P` | — | Throwing parks the item with the failure attached. |
+| `decodePayload(String): P` | — | Throwing parks the item with the failure attached; so does a `CancellationException` thrown while the engine itself is not cancelled. |
 | `orderingKey(P): String?` | `null` | Called once at enqueue and persisted. |
 | `execute(AttemptContext, P): AttemptResult` | — | Must be at-least-once tolerant, bounded, and should return rather than throw. |
 
@@ -172,10 +175,10 @@ public sealed interface UploadPreparation {
 | `prepareUpload` | at hand-off, and again when the transport runs the attempt (`wasDetached = true`) | hand-off: a retry; run time: the item stays in flight for the lease |
 | `classify(payload, result, response)` | with the raw outcome and the server's response, for every outcome; the default calls the two-argument `classify` | `SettleResult.Failed` |
 | `classify(payload, result)` | by the default three-argument `classify`; the default is `defaultUploadClassification(result)` | `SettleResult.Failed` |
-| `onUploadProgress` | per whole percent, while in flight | logged, ignored |
+| `onUploadProgress` | per whole percent, while in flight; do not block a thread here (on Android the hook runs on a small dedicated pool, so a blocked thread delays other items' progress, never a settlement): a hook still running 2 s after the transfer ended is cancelled and no longer awaited; one that ignores cancellation runs on in the background | logged, ignored |
 | `onDelivered(payload, response)` | for `Delivered`, before the row is removed; the default calls the one-argument `onDelivered` | logged, ignored — the response is then lost |
 | `onDelivered(payload)` | by the default two-argument `onDelivered` | logged, ignored |
-| `onSettled` | after the item settled; `attempts` as at hand-off | logged, ignored |
+| `onSettled` | after the item settled; a delivery or drop runs it once its `onDelivered` (if any) ran, even when the item was withdrawn during the settlement; a park or failure report that a newer settlement superseded runs no hook; `attempts` as at hand-off; at most once, in the process that committed the row (a stop of the job or a process death right after the commit can skip it, and nothing calls it later) | logged, ignored |
 
 `maxResponseBodyBytes` is the most body bytes the handler wants. The engine clamps it to `0..1 MiB` (a
 negative value is `0`, logged once), cuts a longer body to it and sets `UploadResponse.isBodyTruncated`;
@@ -258,7 +261,9 @@ public sealed interface UploadField {
 
 Declarative description of one multipart upload. `UploadField.File` streams from `path` at upload
 time — the request never carries file bytes, which is also what keeps it well under WorkManager's
-`Data` cap on Android.
+`Data` cap on Android. Field and file names are sent percent-escaped for `"`, CR and LF (`%22`, `%0D`, `%0A`)
+as browsers do, and CR and LF are removed from a file's `contentType`, on both platforms; text values are
+body content and go out untouched.
 
 ## `UploadResult` / `defaultUploadClassification`
 
@@ -305,6 +310,10 @@ positive.
 A data class of fourteen fields — see its KDoc for each; `claim` is the row's claim counter. States: `PENDING`, `IN_FLIGHT`, `PARKED`.
 There is deliberately no `RUNNING` state; a crash mid-execution needs no recovery pass because the
 row is still `PENDING` on the next launch.
+
+`lastError` is at most about 4096 characters: the engine truncates longer failure text (cutting on a character
+boundary and appending `… [truncated N chars]`) before it reaches a store, and reads an exception whose
+`message` getter throws safely. A custom store's `last_error` column can therefore stay plain `TEXT`.
 
 ## `ConflictPolicy`
 
@@ -355,6 +364,8 @@ Eleven functions; the full contract is in the interface KDoc and in
 - `getAllActive` returns `PENDING` + `IN_FLIGHT` in **insertion order** (a sequence, not a timestamp).
 - Every id-addressed write treats an absent row as a no-op and is idempotent.
 - Callable concurrently.
+- Cancellation: a call may throw `CancellationException` for a cancelled caller before its write or after it committed, or
+  not notice the cancellation at all; both are allowed, and the engine relies on neither.
 - Dedup identity is `(type, uniqueKey)`; a `null` key never conflicts.
 - Payload and tag are opaque.
 
@@ -367,7 +378,9 @@ nested call joins the outer transaction. `TransactionRunner.Direct` runs the blo
 
 `val key: String`, `val satisfied: StateFlow<Boolean>`. Cheap to read, emits on every change, read
 from arbitrary threads. Seed optimistically. If reading `satisfied` throws, the engine logs it and skips
-that item for the pass (as if unsatisfied) without affecting the items behind it.
+that item for the pass (as if unsatisfied) without affecting the items behind it. If the flow fails when
+collected, the subscription ends with a logged error and never reaches the scope's uncaught-exception handler;
+its items are still checked on every pass and heartbeat (only the transition latency is lost).
 
 ### `WakeScheduler`
 

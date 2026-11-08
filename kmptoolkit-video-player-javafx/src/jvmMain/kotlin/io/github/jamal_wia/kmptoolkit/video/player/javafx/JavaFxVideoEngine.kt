@@ -128,11 +128,16 @@ internal class JavaFxVideoEngine(
     }
 
     override fun setSpeed(speed: Float) {
+        // The player clamps into a finite range; this is the boundary guard for any other caller.
+        // Checked before the value is stored, so a re-apply after the load never resurrects it.
+        if (!speed.isFinite() || speed <= 0f) return
         this.speed = speed
         activePlayback()?.setSpeed(speed)
     }
 
     override fun setVolume(volume: Float) {
+        // Out-of-range values stay (JavaFX clamps volume itself); NaN is not a volume.
+        if (volume.isNaN()) return
         this.volume = volume
         activePlayback()?.setVolume(volume)
     }

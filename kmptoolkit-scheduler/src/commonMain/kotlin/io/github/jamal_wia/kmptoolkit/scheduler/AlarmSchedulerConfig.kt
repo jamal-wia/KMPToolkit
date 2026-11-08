@@ -27,8 +27,11 @@ package io.github.jamal_wia.kmptoolkit.scheduler
  *   it fires, finds no id, and is dropped without a trace.
  * @param alarmTypeKey key carrying [ScheduledAlarm.type], on the same terms as [alarmIdKey],
  *   including keeping it stable across app versions.
- * @throws IllegalArgumentException if a key is blank, the two keys are equal, or
- *   [alarmIntentScheme] is non-null and not a valid URI scheme. Failing at construction beats
+ * @throws IllegalArgumentException if a key is blank, the two keys are equal, a key is one of the
+ *   names this module writes into the same intent extras for its own use (`kmptoolkit_alarm_fire_at`,
+ *   `kmptoolkit_alarm_title`, `kmptoolkit_alarm_body`, `kmptoolkit_alarm_channel`,
+ *   `kmptoolkit_alarm_payload`: the key would overwrite or be overwritten by that entry and the alarm
+ *   would be corrupted or dropped), or [alarmIntentScheme] is non-null and not a valid URI scheme. Failing at construction beats
  *   failing months later on an alarm that silently never fired.
  */
 public data class AlarmSchedulerConfig(
@@ -41,6 +44,12 @@ public data class AlarmSchedulerConfig(
         require(alarmTypeKey.isNotBlank()) { "alarmTypeKey must not be blank." }
         require(alarmIdKey != alarmTypeKey) {
             "alarmIdKey and alarmTypeKey must differ; both were '$alarmIdKey'."
+        }
+        require(alarmIdKey !in AlarmExtraNames.ALL) {
+            "alarmIdKey '$alarmIdKey' is a name this module uses for its own extras."
+        }
+        require(alarmTypeKey !in AlarmExtraNames.ALL) {
+            "alarmTypeKey '$alarmTypeKey' is a name this module uses for its own extras."
         }
         require(alarmIntentScheme == null || URI_SCHEME.matches(alarmIntentScheme)) {
             "alarmIntentScheme '$alarmIntentScheme' is not a valid URI scheme."
@@ -83,3 +92,14 @@ private fun sanitizeScheme(raw: String): String {
 }
 
 private const val ASCII_LIMIT = 128
+
+/** The extra names [AlarmSchedulerConfig.alarmIdKey] and [AlarmSchedulerConfig.alarmTypeKey] must not take. */
+internal object AlarmExtraNames {
+    const val FIRE_AT: String = "kmptoolkit_alarm_fire_at"
+    const val TITLE: String = "kmptoolkit_alarm_title"
+    const val BODY: String = "kmptoolkit_alarm_body"
+    const val CHANNEL: String = "kmptoolkit_alarm_channel"
+    const val PAYLOAD: String = "kmptoolkit_alarm_payload"
+
+    val ALL: Set<String> = setOf(FIRE_AT, TITLE, BODY, CHANNEL, PAYLOAD)
+}

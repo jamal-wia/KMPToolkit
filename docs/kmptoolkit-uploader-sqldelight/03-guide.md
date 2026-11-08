@@ -218,12 +218,30 @@ Collecting `observeByType` from inside a transaction is fine — the flow recogn
 already on the database thread rather than dispatching onto it — though what it shows you is the
 uncommitted state your own transaction has written so far.
 
+Withdrawals are not transactional. `cancel`, `cancelByTag` and `REPLACE` called inside a transaction cancel a
+running upload or attempt at once. If that transaction later rolls back, the row is restored and stays queued, and
+its upload resumes no later than when its lease expires; the cancelled attempt spent nothing.
+
 ## Failures
 
 Nothing platform-specific escapes. A SQLite failure — a full disk, a corrupt file, a database that
 cannot be opened — arrives as `UploaderStorageException`, carrying the `UploaderStorageOperation` that
 was running and the platform cause. A corrupt database file is by default never deleted for you (see
 `createUploaderStorage(context, config)` in the API reference): the open fails and the file stays as found.
+
+### One row is at most 1 MiB
+
+The text columns of one row (payload, id, type, unique key, ordering key, tag and last error) may hold at most
+1 MiB of UTF-8 together. An insert over that is refused with `UploaderStorageException`. The limit exists because
+Android reads a row through a `CursorWindow` of about 2 MiB: a bigger row can be written but never read back, and
+because the queue is read as a whole, that one row would make every item unreadable and impossible to withdraw.
+The same limit holds on every platform so the queue behaves alike. Keep a large payload elsewhere (a file) and
+queue a reference to it. The engine itself bounds the failure text it stores to about 4096 characters. The bound also holds for later writes:
+a failure text or park reason written after the insert is cut (on a character boundary, or dropped) to whatever room
+the rest of the row leaves, so a row accepted at the limit never grows past it.
+
+A storage used after `close()` fails with `UploaderStorageException` whose cause is an `IllegalStateException`,
+never with a `CancellationException`.
 
 ### A corrupt database at launch
 

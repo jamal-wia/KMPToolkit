@@ -70,8 +70,8 @@ public interface AudioPlayer : AutoCloseable {
 
     /**
      * The playback rate in effect, already clamped to
-     * [AudioPlayerConfig.minPlaybackSpeed]`..`[AudioPlayerConfig.maxPlaybackSpeed]. `1.0` until
-     * [setPlaybackSpeed] is called; survives [prepare] so a chosen rate carries over to the next
+     * [AudioPlayerConfig.minPlaybackSpeed]`..`[AudioPlayerConfig.maxPlaybackSpeed]. `1.0` (clamped into
+     * the range) until [setPlaybackSpeed] is called; survives [prepare] so a chosen rate carries over to the next
      * source.
      */
     public val playbackSpeed: Float
@@ -92,6 +92,17 @@ public interface AudioPlayer : AutoCloseable {
      * loaded source is discarded, the state returns to [PlayerState.Idle], and the
      * `CancellationException` propagates — so a `LaunchedEffect` or a scoped `launch` that goes away
      * leaves no half-open native handle behind.
+     *
+     * **An engine's own cancellation is a failure.** A `CancellationException` thrown by the engine
+     * while the caller is still active (an engine's own timeout) is a load failure and arrives as
+     * [PlayerState.Error]; only the caller's own cancellation, or a newer [prepare], [unload] or
+     * [release], ends the call by cancellation.
+     *
+     * **A blank file path is refused.** An [AudioSource.File] whose path is blank ends in
+     * [PlayerState.Error] with an `IllegalArgumentException`, without reaching the platform.
+     *
+     * **After [release]**, every call reports the same [PlayerState.Error] instance
+     * ([AudioPlayerReleasedException]), so repeating the call emits nothing new.
      *
      * **There is no built-in deadline.** A remote load is bounded only by the platform's own network
      * timeouts, so a stalled stream can leave the player in [PlayerState.Preparing] for a long time.
@@ -143,14 +154,16 @@ public interface AudioPlayer : AutoCloseable {
     public fun seekTo(positionMs: Long)
 
     /**
-     * Moves the playhead [amountMs] later, clamped to the end of the source.
+     * Moves the playhead [amountMs] later, clamped to the end of the source. The arithmetic
+     * saturates, so `Long.MAX_VALUE` means "to the end" and never wraps around to the start.
      *
      * @param amountMs how far to skip ahead, in milliseconds.
      */
     public fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)
 
     /**
-     * Moves the playhead [amountMs] earlier, clamped to `0`.
+     * Moves the playhead [amountMs] earlier, clamped to `0`. The arithmetic saturates, so
+     * `Long.MAX_VALUE` means "to the start".
      *
      * @param amountMs how far to skip back, in milliseconds.
      */
@@ -169,6 +182,8 @@ public interface AudioPlayer : AutoCloseable {
      * Takes effect immediately while playing and is applied on the next [play] otherwise. It is
      * never an error to ask for a rate outside the range — the value is clamped, because a UI
      * offering a fixed set of speed buttons should not have to know the platform's limits.
+     * Infinities clamp to the range ends. `Float.NaN` names no rate and is ignored: the current
+     * rate stays in effect.
      *
      * @param speed rate multiplier: `1.0` is normal, `0.5` half, `2.0` double.
      */

@@ -117,10 +117,32 @@ What breaks delivery entirely:
 - **Aggressive OEM battery management** (Xiaomi, Huawei, Samsung and others) can suppress alarms for
   apps the user has not whitelisted. Nothing in the Android API can override it.
 
+### A refused cancel
+
+When a `schedule` replaces an alarm, the new alarm is armed first and the old one is cancelled
+after. If `AlarmManager` refuses that cancel (a `SecurityException` or `IllegalStateException`,
+logged), `schedule` still reports the new alarm, and the old one stays armed and may fire once more.
+`cancel(id)` is the same: a refusal is logged and the alarm may stay armed.
+
+- An id owns four `PendingIntent` slots. The new alarm goes into a slot the id does not occupy, and a
+  retirement the platform refused leaves its slot occupied.
+- When all four slots are occupied (three replacements in a row whose cancel was refused, with no successful
+  `schedule` or `cancel` of the id in between), a further `schedule` of that id answers
+  `Failed(PlatformError)` and changes nothing: the armed alarm stays exactly as it was. A healthy
+  `schedule` does not recover it, because the newest alarm cannot be told from the stale ones.
+- Recovery is `cancel(id)`, then `schedule` again. Between the two calls no alarm is armed for that
+  id, and if `cancel` is refused again the id stays saturated.
+
 What does **not** break delivery: an **app update**. Android keeps a package's alarms when the
 package is replaced. They are addressed to a receiver class, though — so if the update removed the
 class an alarm was armed for (typically: moving from an app's own receiver onto this module's), the
 alarm still fires but reaches nothing. Re-arm on `ACTION_MY_PACKAGE_REPLACED` in that release.
+
+Ids with an unpaired surrogate (for example an id cut from text in the middle of an emoji) get a
+different data URI since 3.1.0, so two such ids that differ only in those characters are now two
+alarms. An alarm armed for such an id by 3.0.x is still found: `schedule` retires it once the new
+alarm is armed, and `cancel` / `cancelAll` remove it. The lookup uses the old URI, so in 3.1.0 it may
+also retire a 3.0.x alarm that 3.0.x already treated as the same alarm.
 
 At fire time your `AlarmHandler` runs inside `goAsync()`, which keeps the process alive for roughly
 ten seconds. It is enough to post a notification or enqueue `WorkManager`; it is not enough for
@@ -159,6 +181,10 @@ Practical consequences:
   re-schedule them.
 - **A trigger in the past is clamped** to one second from now, because iOS rejects a non-positive
   interval outright. A missed reminder therefore appears immediately rather than throwing.
+- **`cancel` removes pending requests only.** A notification already delivered stays in Notification
+  Centre. To clear it too (for example on logout), call
+  `UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers:)` with the same ids;
+  the request identifier is the alarm id verbatim.
 - `Exact` on iOS means "the OS accepted the request for that instant" — it is not the same
   guarantee as an Android exact alarm, because it is a presentation, not an execution.
 

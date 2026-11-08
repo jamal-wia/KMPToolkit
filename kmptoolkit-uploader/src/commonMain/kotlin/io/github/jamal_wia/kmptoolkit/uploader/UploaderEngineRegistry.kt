@@ -42,8 +42,12 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * - **One slot.** Registering a second engine replaces the first; the replaced engine keeps
  *   working, it is simply no longer reachable through here. Two engines in one process is a
- *   supported configuration (two independent queues), but only one of them can own the platform
- *   wake entry points.
+ *   supported configuration (two independent queues, each over a store of its own), but only one of them can own
+ *   the platform wake entry points.
+ * - **Upload transports reach only the engine `createUploaderEngine` built.** A wrapper registered in its place
+ *   (a decorator around [UploaderEngine]) serves wake jobs ([UploaderEngine.awaitDrained]), but an upload
+ *   transport and [UploadGateway] find the library's engine behind it unavailable and retry. If you use an
+ *   [UploadHandler], register the engine itself.
  * - **Registration is explicit.** [createUploaderEngine] and [UploaderEngine.start] never register on
  *   your behalf — a library that installs itself into global state behind your back is impossible
  *   to reason about in a test, and impossible to use twice.

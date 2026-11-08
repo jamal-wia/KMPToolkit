@@ -90,7 +90,8 @@ internal fun BackgroundTaskWakeConfig.resolveTaskIdentifier(bundleId: String): S
  * 3. forward that handler to [BackgroundTaskWakeScheduler.handleWake].
  *
  * @param config how the task is submitted.
- * @param logger where submission failures are reported. Defaults to [NoopLogger].
+ * @param logger where submission failures are reported. Defaults to [NoopLogger]. A logger that throws is
+ *   ignored; it never stops a wake from being armed.
  * @return the scheduler; keep the reference, since [BackgroundTaskWakeScheduler.handleWake] is on
  *   it.
  */
@@ -114,8 +115,11 @@ public fun createBackgroundTaskWakeScheduler(
  */
 public class BackgroundTaskWakeScheduler internal constructor(
     private val config: BackgroundTaskWakeConfig,
-    private val logger: Logger,
+    logger: Logger,
 ) : WakeScheduler {
+
+    /** A logger that throws is ignored: a wake that cannot be logged is still armed. */
+    private val logger: Logger = logger.nonThrowing()
 
     /**
      * The resolved `BGTaskScheduler` identifier — the string that must be in `Info.plist` and in

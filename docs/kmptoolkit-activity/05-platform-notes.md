@@ -25,6 +25,15 @@ without a matching pause.
 The comparison is by identity, not equality: during a configuration change the outgoing and incoming
 activities both exist at once, and clearing on the old one's pause must not remove the new one.
 
+### Several windows at once
+
+Since API 29 several activities of one app can be resumed at the same time (split screen, freeform
+windows, desktop windowing, foldables). The tracker keeps every tracked activity that is resumed, weakly,
+the most recently resumed last, and answers with the newest one that is still alive. When that window
+pauses, the other one that is still resumed is the answer of `withActivity` and of a new listener's
+replay. No listener is called for that change, because no activity resumed. To reach every resumed
+window rather than the newest, use `forEachResumedActivity` (3.1.0).
+
 ### The weak reference
 
 The reference the tracker holds is a `WeakReference`, as a second line of defence rather than as the

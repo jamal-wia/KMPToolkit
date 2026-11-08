@@ -127,7 +127,7 @@ Changes as a result of an operation, or when the system ends a recording (to `In
 ### `elapsed: StateFlow<Duration>`
 
 Time recorded into the current file, for a timer. Advances only in `Recording`, republished every
-`config.durationUpdateInterval`. Freezes on `pause`, continues on `resume`, holds the final duration
+`config.durationUpdateInterval` (only the `elapsed` cadence; the free-space watchdog keeps its own). Freezes on `pause`, continues on `resume`, holds the final duration
 after `stop`, resets to `ZERO` on `prepare`, `cancel`, and `release`. When the system ends the
 recording it freezes at the moment the event was observed and stays there while `state` is
 `Interrupted`. For `MicrophoneSilenced` that moment is when the silencing began, which is up to the
@@ -212,21 +212,38 @@ filesystem error) is reported as `EngineFailure(PREPARE, cause)` too; `state` ne
 truncates it). When preparation fails or is cancelled, a file that was already there is not deleted by
 the library — only a file this call created is — though the platform may already have truncated it.
 
-**Handing an explicit path from one recorder to the next.** A recorder released while its `prepare()`
-is still opening the file finishes later and deletes the file it created. If a newer recorder has
-taken the same explicit `outputPath` in the meantime, the late tail leaves the file alone: each
-`prepare()` claims its path in an in-process registry before it looks at the file, a later claim on
-the same path takes it over, and a tail deletes only while its claim is still the current one. So a
-released recorder can never delete the newer recorder's recording. The cost, in the narrow case
-where the old attempt's engine had already created a zero-byte file when the new recorder started,
-is that this file is not cleaned up by the old tail (the new recorder's own recording replaces it).
-The registry lives only inside one process and only for the duration of a `prepare()` call; a path
-shared between processes, or reused by something other than a recorder of this library, is not
-protected. Generated paths are unique and never meet this case.
+**Handing an explicit path from one recorder to the next.** A recorder never deletes a file it no
+longer owns. Each `prepare()` claims its path in an in-process registry before it looks at the file,
+and a later claim on the same path (the next screen's recorder) takes it over. The takeover becomes
+final only when that `prepare()` succeeds, even if a still newer `prepare()` on the path is running at that
+moment (engines finish in any order; the newer one then sits on top, and if it fails the path goes back to
+the recorder that succeeded, never to one older than it). A later `prepare()` that fails or whose caller is cancelled
+gives the path back, so the earlier recorder, if it is still prepared, interrupted or recording,
+deletes its file on `release()`/`cancel()` as described here. If the earlier recorder is released or
+cancelled while the later `prepare()` is still running, it leaves the file alone, and if that later
+attempt then fails, the file stays. Two `prepare()` calls running at the same time on one explicit path are
+not supported: the library guarantees only that an earlier recorder never deletes the recording of a later one
+that succeeded. A successful `prepare()` keeps its claim for the whole session, and
+every deletion of the session's file goes
+through it: the late tail of a `prepare()` that was released while opening the file, the file removal
+of a `cancel()` whose finalization is still running when the recorder is released, the cleanup after
+the system ends a prepared recording, `release()` or a new `prepare()` on a recorder that is only
+prepared, and a failed `start()`. If a newer recorder has taken the same explicit `outputPath` in the
+meantime, the older recorder leaves the file alone, so a released recorder can never delete the newer
+recorder's recording. The cost, in the narrow case where the old attempt's engine had already created
+a zero-byte file when the new recorder started, is that this file is not cleaned up by the old
+recorder (the new recorder's own recording replaces it). The claim ends when the file is deleted or
+when the recorder is prepared again or released, so the registry holds at most one entry per live
+recorder. It lives only inside one process; a path shared between processes, or reused by something
+other than a recorder of this library, is not protected. Generated paths are unique and never meet
+this case. Two spellings of one path count as the same path: repeated separators, `.` and `..`
+segments and letter case are ignored. A file reached through a symbolic or hard link under a different
+path is not recognised as the same.
 
 Cancellable at every point, including while the directory and free-space checks are still pending:
 on cancellation the native recorder is released, the file is deleted, `state` returns to `Idle`, and
-`CancellationException` propagates.
+`CancellationException` propagates. A worker context that refuses the work (an executor that was
+shut down) is reported as `EngineFailure(PREPARE, cause)`, not as a cancellation of the caller.
 
 Preparing from `Ready` deletes the previously prepared file that was never recorded into. Preparing
 from `Completed` leaves the finished file alone.
@@ -284,6 +301,9 @@ cancellation no later than its next suspension point.
 
 Best-effort by design — an engine that throws while being stopped does not prevent the deletion or
 the return to `Idle`, and this still returns `Success`.
+
+A worker context that refuses the work (an executor that was shut down) still releases the recorder and
+deletes the file, on the calling thread.
 
 ### `fun release()`
 
@@ -432,7 +452,7 @@ public sealed interface InterruptionReason {
 |---|---|---|
 | `AudioSessionInterrupted` | the audio session was taken by the system: a call, Siri, an alarm, another app; also the app having been suspended without the `audio` background mode | iOS |
 | `MicrophoneSilenced` | the OS kept the recorder running but silenced its input — a call, another app with priority, or capture from the background without a microphone foreground service — and it stayed silenced for about 400 ms. `elapsed` is frozen at the moment the silencing began. Not raised from `Paused`; not detectable on API 24–28 | Android 10+ |
-| `StorageLow` | free space fell below the reserve the library keeps for finalizing (polled at most every two seconds while recording, counted from the start of the recording, not from each resume), or `MediaRecorder` reported `MAX_FILESIZE_REACHED`. That is usually the size limit set at prepare, but the platform has a limit of its own too: MPEG-4 recording stops at the largest file the volume can hold (about 4 GiB on FAT32, reached through `directoryPath` on removable storage), which is reported the same way. Switched off by `minimumFreeSpaceBytes = 0` | both |
+| `StorageLow` | free space fell below the reserve the library keeps for finalizing (polled every two seconds while recording, at most four apart, independent of `durationUpdateInterval`, counted from the start of the recording, not from each resume), or `MediaRecorder` reported `MAX_FILESIZE_REACHED`. That is usually the size limit set at prepare, but the platform has a limit of its own too: MPEG-4 recording stops at the largest file the volume can hold (about 4 GiB on FAT32, reached through `directoryPath` on removable storage), which is reported the same way. Switched off by `minimumFreeSpaceBytes = 0` | both |
 | `EngineDied(platformCode)` | the media service died or reported an error: Android `MEDIA_ERROR_SERVER_DIED` / `MEDIA_RECORDER_ERROR_UNKNOWN`, iOS encode error or a recorder that finished unsuccessfully, an `AVAudioSession` media-services reset | both |
 
 `EngineDied.platformCode` is the platform's own number, and `null` where it has none. Android: the
@@ -489,8 +509,8 @@ public data class RecordingStorage(
 )
 ```
 
-- `directoryPath` — absolute directory. `null` means `<app-private files>/<directoryName>`.
-- `directoryName` — subdirectory under the app-private base. `null` means the consumer's own
+- `directoryPath` — absolute directory; a blank or relative path is rejected in `init`. `null` means `<app-private files>/<directoryName>`.
+- `directoryName` — relative directory under the app-private base; may be nested (`a/b`) but must not start with `/` or contain a `.` or `..` segment; rejected in `init`. `null` means the consumer's own
   application id / bundle identifier. Ignored when `directoryPath` is set.
 - `fileNamePrefix` — leading part of a generated name (`<prefix>_<epochMillis>_<token>.<ext>`). Must not be
   blank and must not contain `/` or `\`.

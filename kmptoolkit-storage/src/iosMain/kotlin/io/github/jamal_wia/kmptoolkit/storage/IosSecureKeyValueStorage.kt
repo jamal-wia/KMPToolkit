@@ -90,6 +90,7 @@ internal class IosSecureKeyValueStorage(
     }
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {
+        unpairedSurrogateFailure(key, value)?.let { return@withContext it }
         val data: NSData = NSString.create(string = value)
             .dataUsingEncoding(NSUTF8StringEncoding)
             ?: return@withContext StorageResult.Failure(

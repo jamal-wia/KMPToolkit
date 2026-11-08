@@ -86,7 +86,9 @@ public interface UploaderHandler<P : Any> {
      * Encodes [payload] into the string stored in [UploaderItem.payload].
      *
      * The format is entirely yours — `kotlinx.serialization` JSON, protobuf in Base64, a single id.
-     * This module has no serialization dependency and never looks inside the result.
+     * This module has no serialization dependency and never looks inside the result. The result is text, and
+     * a store may replace an unpaired surrogate in it (for example with U+FFFD), so encode binary data as, for
+     * example, Base64.
      *
      * @param payload the value passed to [Uploader.enqueue].
      * @return the encoded form to persist.
@@ -97,7 +99,8 @@ public interface UploaderHandler<P : Any> {
      * Decodes what [encodePayload] wrote.
      *
      * Throwing is the correct way to report an undecodable payload: the engine parks that item
-     * with the failure attached instead of retrying it forever or deleting it. Configure your
+     * with the failure attached instead of retrying it forever or deleting it. A [kotlinx.coroutines.CancellationException]
+     * the decoder throws on its own counts as such a failure; only a cancellation of the engine's own scope propagates. Configure your
      * decoder to tolerate unknown fields so a row written by a newer app version with an added
      * field still reads.
      *

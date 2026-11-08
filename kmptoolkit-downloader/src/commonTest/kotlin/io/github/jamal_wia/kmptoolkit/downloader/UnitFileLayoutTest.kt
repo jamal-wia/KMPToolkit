@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -173,12 +174,10 @@ class UnitFileLayoutTest {
         for (path: String in listOf("resources/x.bin", "/abs/x", "a/./b", "a/../b", "tmp/foo.bin", "tmpx/a", "tmp.bin", "Tmp/x", "a..b/c")) {
             assertNull(reasonOf(sensitive, path = path, id = "own"), "path '$path'")
         }
-        assertTrue(
-            sensitive.inspectRelativePath(unit("own", path = "tmp/foo.bin")) === UnitFileLayout.PathInspection.AcceptedUnderTmp,
-        )
-        assertTrue(
-            sensitive.inspectRelativePath(unit("own", path = "a/x")) === UnitFileLayout.PathInspection.Accepted,
-        )
+        val underTmp = sensitive.inspectRelativePath(unit("own", path = "tmp/foo.bin"))
+        assertTrue(underTmp is UnitFileLayout.PathInspection.Accepted && underTmp.underTmp)
+        val plain = sensitive.inspectRelativePath(unit("own", path = "a/x"))
+        assertTrue(plain is UnitFileLayout.PathInspection.Accepted && !plain.underTmp)
     }
 
     @Test
@@ -249,4 +248,34 @@ class UnitFileLayoutTest {
                 override val units: List<DownloadUnit> = emptyList()
             }
         }
+
+    private fun normalizedOf(layout: UnitFileLayout, path: String): String {
+        val inspection: UnitFileLayout.PathInspection = layout.inspectRelativePath(unit("own", path = path))
+        assertTrue(inspection is UnitFileLayout.PathInspection.Accepted, "path '$path' was $inspection")
+        return inspection.normalizedPath
+    }
+
+    @Test
+    fun `every spelling of one path normalizes to it`() {
+        for (path: String in listOf(
+            "files/x/../a.bin", "a/b/../../files/a.bin", "/files/a.bin", "files//a.bin", "files/a.bin/",
+            "./files/a.bin", "files/a.bin",
+        )) {
+            assertEquals("files/a.bin", normalizedOf(sensitive, path), "path '$path'")
+        }
+    }
+
+    @Test
+    fun `normalizing never folds case`() {
+        assertEquals("Files/A.bin", normalizedOf(insensitive, "Files/A.bin"))
+        assertEquals("Files/A.bin", normalizedOf(insensitive, "Files/x/../A.bin"))
+    }
+
+    @Test
+    fun `an already canonical path comes back as the same instance`() {
+        val path: String = "files/a" + ".bin"
+        val inspection: UnitFileLayout.PathInspection = sensitive.inspectRelativePath(unit("own", path = path))
+        assertTrue(inspection is UnitFileLayout.PathInspection.Accepted)
+        assertSame(path, inspection.normalizedPath)
+    }
 }

@@ -32,7 +32,10 @@ public interface DownloaderStorage {
     public fun isResourceAvailable(unit: DownloadUnit): Boolean
 
     /**
-     * Absolute path of the committed resource — a file, or a directory for an archive unit.
+     * Absolute path of the committed resource — a file, or a directory for an archive unit. It is
+     * the base directory plus the lexically normalized [DownloadUnit.relativePath] (`.`, `..` and
+     * empty segments resolved), and the shipped storages use exactly this path for every file
+     * operation on the resource.
      *
      * @throws InvalidDownloadUnitException when [DownloadUnit.relativePath] cannot be used safely.
      *   The shipped storages also throw it from [commitResource] and [deleteResource], answer `false`
@@ -122,7 +125,8 @@ public interface DownloaderStorage {
      * The [BackgroundResourceDownloader] calls this when the last byte is written and before it
      * emits [BackgroundDownloadEvent.FileReady] or commits on its own; it is the one party that saw
      * the whole response, and so the one that can check the length against `Content-Length` first.
-     * Idempotent once complete. Throws when there is no file to mark.
+     * Idempotent once complete, also when two callers mark the same file at once (the loser of the
+     * rename returns normally). Throws when there is no file to mark.
      */
     public fun markTempFileComplete(unit: DownloadUnit)
 
@@ -136,8 +140,7 @@ public interface DownloaderStorage {
      *
      * The shipped storages also remove the extraction staging an interrupted archive commit of
      * [unit] left behind, unless a commit of [unit] is running in this process (the removal never
-     * waits for it, and it may also be skipped for an instant while the process's commit
-     * registry is busy; the next call or the next commit reclaims the staging). A custom storage that
+     * waits for it; the next call or the next commit reclaims the staging). A custom storage that
      * extracts archives through a staging area should do the same, or an interrupted extraction of
      * a unit that is then dropped stays on disk. They also sweep `tmp/trash/`, where a detached
      * extraction tree lands before its delete, so a tree whose delete a process kill or an I/O error
@@ -155,7 +158,16 @@ public interface DownloaderStorage {
      * Before anything reaches the final path — before an archive is extracted, a database opened or
      * a file moved — the bytes are hashed once and checked against every expectation there is:
      * [DownloadUnit.sha256] when the unit states one, and the hash recorded by [beginTempFile].
-     * A [ResourceFormat.SqliteDatabase] is then checked as well. A failed check deletes the temp
+     * A [ResourceFormat.SqliteDatabase] is then checked as well. A [ResourceFormat.ZipArchive] whose
+     * extracted tree (after a single root directory is moved up: when the marker is not at the top and the archive holds
+     * exactly one non-empty top-level directory that contains it, that directory's contents are moved up; files and empty
+     * directories beside it stay where they are, and a name that exists at the top as a file fails the commit with
+     * [ResourceIntegrityException]) lacks the marker fails the same way,
+     * before anything at the final path is touched, so a resource already committed stays available.
+     * So does an archive that cannot be extracted as delivered: a truncated or corrupt entry (size or
+     * CRC-32 mismatch), an entry name that leaves the extraction directory or is not valid UTF-8, an unsupported
+     * compression method, an encrypted entry, or a file without its end of central directory record. Every entry is extracted or the commit fails; none is skipped.
+     * A failed check deletes the temp
      * file and throws [ResourceIntegrityException], which the engine answers with a fresh download
      * rather than a failure; so does a recorded expectation that exists but cannot be read, which is
      * never treated as "no check". With no record at all (a partial from before the record existed,
@@ -205,8 +217,9 @@ public sealed interface TempFileState {
 
 /**
  * Thrown by [DownloaderStorage.commitResource] when the downloaded bytes fail a check: a
- * [DownloadUnit.sha256] or recorded hash mismatch, or a [ResourceFormat.SqliteDatabase] that does not open or does
- * not hold the rows it declares. The temp file is already gone when this is thrown.
+ * [DownloadUnit.sha256] or recorded hash mismatch, a [ResourceFormat.SqliteDatabase] that does not open or does
+ * not hold the rows it declares, or a [ResourceFormat.ZipArchive] whose extracted tree lacks its marker or that
+ * cannot be extracted as delivered. The temp file is already gone when this is thrown.
  *
  * Its own type because the right answer differs from every other commit failure: downloading again
  * is the fix for corrupt bytes, and not for a full disk. The engine retries once and then reports

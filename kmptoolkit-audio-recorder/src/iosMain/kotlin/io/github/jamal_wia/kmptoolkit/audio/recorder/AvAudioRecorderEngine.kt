@@ -149,7 +149,8 @@ internal class AvAudioRecorderEngine(
         if (listener != null) created.delegate = delegate
 
         if (!created.prepareToRecord()) {
-            created.deleteRecording()
+            // No deletion here: DefaultAudioRecorder.undoPreparation deletes the file, and only when this
+            // attempt created it and still owns the path (OutputPathOwners).
             deactivateAudioSession()
             error("AVAudioRecorder.prepareToRecord() failed")
         }

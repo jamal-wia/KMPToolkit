@@ -69,7 +69,9 @@ public interface Downloader {
      * retry backoff or committing. The exception is a call whose last commit has already succeeded:
      * every unit is on disk, so there is nothing to cancel and it completes and publishes
      * [GroupDownloadState.Completed]. A per-unit [ensureAvailable] running for one of the group's
-     * units is cancelled too.
+     * units is cancelled too. A request that is starting its transfer at that very instant stops it
+     * and returns to Idle at its next checkpoint, microseconds later; [cancelAllDownloads], which can
+     * suspend, waits for that.
      */
     public fun cancelDownload(group: ResourceGroup)
 
@@ -82,6 +84,12 @@ public interface Downloader {
      * [ensureAvailable] ends with [DownloadCancelledException], unless its last commit has already
      * succeeded: then it completes and publishes [GroupDownloadState.Completed] (or
      * [UnitDownloadState.Completed] for a unit).
+     *
+     * It also waits for a request that is starting its transfer at that instant, so when it returns
+     * no call it cancelled shows Downloading, holds a transfer in the [BackgroundResourceDownloader]
+     * or has a start notification posted. Do not call it blocking (`runBlocking`) from inside a
+     * [BackgroundResourceDownloader] or `DownloadNotifier` callback: that callback may be the start
+     * being waited for.
      */
     public suspend fun cancelAllDownloads()
 
@@ -109,9 +117,12 @@ public interface Downloader {
      *
      * Also the way to release a unit the host no longer wants: it deletes the unit's partial temp
      * data (and an interrupted archive extraction), which nothing else sweeps. A unit the engine has
-     * never tracked is cancelled and cleaned up the same way, without the engine starting to track
-     * it. The engine keeps a small state flow and lock for every unit id it tracks, for its whole
-     * lifetime, so ids must come from a stable catalogue (see [DownloadUnit.id]).
+     * never tracked is cancelled and cleaned up the same way, without the engine creating a state flow
+     * for it (it keeps only the unit's lock object).
+     * The engine keeps a small state flow and lock for every unit id it tracks, for its whole
+     * lifetime, so ids must come from a stable catalogue (see [DownloadUnit.id]). A request that is
+     * starting its transfer at that very instant stops it and returns to Idle at its next
+     * checkpoint, microseconds later; [cancelAllDownloads], which can suspend, waits for that.
      */
     public fun cancelDownload(unit: DownloadUnit)
 

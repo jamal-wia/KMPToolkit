@@ -31,7 +31,7 @@ import io.github.jamal_wia.kmptoolkit.uploader.UploadTransport
  * (it is `null` in `classify` and `onDelivered`); use the `UploadResponse` overload to test code that
  * reads the server's answer.
  *
- * **Not thread-safe**, like the other doubles here.
+ * **Not thread-safe**, unlike [MutableUploaderClock] and [RecordingWakeScheduler].
  *
  * @param leaseMillis the lease hand-offs are claimed under.
  * @since 1.5.0

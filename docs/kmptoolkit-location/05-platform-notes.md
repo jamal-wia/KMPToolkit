@@ -18,18 +18,28 @@ permission is your app's job — or `kmptoolkit-permission`'s, see below.
 
 ```xml
 <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<!-- Or, if a city-level fix is enough for your feature: -->
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 ```
 
-**Behavior when it is missing:** `LocationManager.getLastKnownLocation` and
-`requestLocationUpdates` both throw `SecurityException`. `AndroidLocationProvider` catches it at
+**Behavior when no location permission is granted:** `LocationManager.getLastKnownLocation` and
+`requestLocationUpdates` throw `SecurityException`. `AndroidLocationProvider` catches it at
 every call site, logs a warning to the `Logger` you passed (nothing, by default), and returns
 `null` / emits `null` instead of letting the exception escape. `observeLocation()` registers the GPS and
-network providers one after the other; if a later registration fails (a `SecurityException`, or any
-other exception, which reaches the collector), the listener of the provider already registered is
-removed before the flow ends, so a failed collection leaves nothing registered with `LocationManager`. If that removal itself
-throws (a dead system server), it never changes the outcome: on the `SecurityException` path the flow
-still emits `null`, and on the other path the original exception is rethrown with the removal failure
-attached as suppressed.
+network providers one after the other; if a later registration fails with any exception other than a
+`SecurityException`, that exception reaches the collector and the listener of the provider already
+registered is removed before the flow ends, so a failed collection leaves nothing registered with
+`LocationManager`. When every provider refuses with a `SecurityException`, the same removal runs and the flow
+emits `null` and ends. If the removal itself throws (a dead system server), it never changes the outcome: on
+the all-refused path the flow still emits `null`, and on the other path the original exception is rethrown
+with the removal failure attached as suppressed.
+
+**`ACCESS_COARSE_LOCATION` alone.** Android 10 and lower refuse the GPS provider to a coarse-only app
+(`SecurityException`); Android 11 and later serve it a coarsened fix from every provider.
+`AndroidLocationProvider` skips a provider that refuses and serves the others, so both calls keep answering, at
+network accuracy. Only when every provider refuses does `getCurrentLocation()` return `null` and
+`observeLocation()` emit `null` and end. A collection reports `null` when every provider it could register is
+switched off.
 
 ### iOS — you must request authorization yourself
 
@@ -66,7 +76,7 @@ This module never asks for location permission; `kmptoolkit-permission` does, fr
 "always" — see
 [`docs/kmptoolkit-permission/05-platform-notes.md`](../kmptoolkit-permission/05-platform-notes.md).
 An approximate-only grant reads `PermissionStatus.Limited` there, and this module still delivers
-fixes with it, at reduced accuracy — check `isUsable`, not `isGranted`, before calling in. There is
+fixes with it, at reduced accuracy (on Android 10 and lower, from the network provider only) — check `isUsable`, not `isGranted`, before calling in. There is
 no code dependency between the two modules: request the permission with either that module or your
 own platform code, then hand the `LocationProvider` to shared code.
 
@@ -290,6 +300,14 @@ picks the single-fix provider — biased towards GPS so a fix can still be obtai
 at the cost of a slower cold fix than network-based positioning. `observeLocation()` requests
 updates from **both** tracked providers at once and forwards whichever reports first, so losing one
 (GPS indoors, say) does not silence the flow as long as the other is still enabled.
+
+`getCurrentLocation()` first answers with the freshest cached fix of any enabled tracked provider;
+only when there is none does it request a single fix from the provider `getBestProvider(...)`
+picks. Freshest means youngest by the fix's `elapsedRealtimeNanos` (the platform's monotonic clock),
+not by its `time`, which jumps when the device clock is corrected.
+
+Every `LocationListener` callback is implemented, so a provider switched on or off while a
+collection is live is safe on every supported API level (24+).
 
 ## Update throttling and the single-fix timeout
 

@@ -42,11 +42,12 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
 
     /** What [inspectRelativePath] decided. */
     sealed interface PathInspection {
-        /** Accepted, nothing to report. */
-        data object Accepted : PathInspection
-
-        /** Accepted, but under `tmp/`, which the storage reserves; the caller logs a warning. */
-        data object AcceptedUnderTmp : PathInspection
+        /**
+         * Accepted. [normalizedPath] is the path every file operation must use: the segments kept
+         * after `.`, `..` and empty ones are resolved lexically, joined with `/`, in their original
+         * case. [underTmp] is true under `tmp/`, which the storage reserves; the caller logs a warning.
+         */
+        class Accepted(val normalizedPath: String, val underTmp: Boolean) : PathInspection
 
         class Rejected(val reason: InvalidDownloadUnitException.Reason) : PathInspection
     }
@@ -78,41 +79,49 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
     }
 
     /**
-     * The key two commits (or a commit and a cancel) of the same unit must share. Folded to lowercase
-     * on a case-insensitive volume, where `Model` and `model` are one file; over-serializing two
+     * The key two commits (or a commit and a cancel) of the same unit must share. Folded through
+     * uppercase then lowercase on a case-insensitive volume (the full case mapping: `ß`/`ss`,
+     * `ſ`/`s`, the sigma forms), where `Model` and `model` are one file; over-serializing two
      * distinct ids is harmless. Unicode normalization variants are not folded (no `Normalizer` in
      * common code), which the platform notes document.
      */
-    fun lockKey(unit: DownloadUnit): String = if (caseInsensitive) unit.id.lowercase() else unit.id
+    fun lockKey(unit: DownloadUnit): String = if (caseInsensitive) foldCase(unit.id) else unit.id
 
     /** A new entry's path under the trash directory. The id is not part of it, so its length never matters. */
     fun trashEntry(number: ULong): String = "$TRASH_DIRECTORY/$number"
 
     /**
      * Decides whether [DownloadUnit.relativePath] may be used. Lexical only: the segments are
-     * normalized for the check, and the caller keeps using the original string.
+     * normalized, and the accepted result carries the normalized path, so the check and every file
+     * operation agree on one path whether or not a `..` segment's directory exists, and a symbolic
+     * link below the base can never turn a `..` into an escape the check did not see.
      */
     fun inspectRelativePath(unit: DownloadUnit): PathInspection {
         val path: String = unit.relativePath
         if (path.indexOf('\u0000') >= 0) return reject(InvalidDownloadUnitException.Reason.INVALID_CHARACTER)
         val segments: ArrayList<String> = ArrayList()
+        var changed = false
         var start = 0
         while (start <= path.length) {
             var end: Int = path.indexOf('/', start)
             if (end < 0) end = path.length
             val length: Int = end - start
             when {
-                length == 0 || (length == 1 && path[start] == '.') -> Unit
+                length == 0 || (length == 1 && path[start] == '.') -> changed = true
                 length == 2 && path[start] == '.' && path[start + 1] == '.' -> {
                     if (segments.isEmpty()) return reject(InvalidDownloadUnitException.Reason.ESCAPES_BASE_DIRECTORY)
                     segments.removeAt(segments.lastIndex)
+                    changed = true
                 }
                 else -> segments.add(path.substring(start, end))
             }
             start = end + 1
         }
         if (segments.isEmpty()) return reject(InvalidDownloadUnitException.Reason.EMPTY)
-        if (fold(segments[0]) != TMP) return PathInspection.Accepted
+        // No empty, `.` or `..` segment: no leading, trailing or doubled `/` either, so the original
+        // string is already the normalized path.
+        val normalized: String = if (changed) segments.joinToString("/") else path
+        if (fold(segments[0]) != TMP) return PathInspection.Accepted(normalized, underTmp = false)
         if (segments.size == 1) return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)
         val second: String = fold(segments[1])
         if (isReservedBelowTmp(second)) return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)
@@ -133,7 +142,7 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
                 return reject(InvalidDownloadUnitException.Reason.RESERVED_INTERNAL_PATH)
             }
         }
-        return PathInspection.AcceptedUnderTmp
+        return PathInspection.Accepted(normalized, underTmp = true)
     }
 
     /**
@@ -196,7 +205,16 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
     private fun reject(reason: InvalidDownloadUnitException.Reason): PathInspection =
         PathInspection.Rejected(reason)
 
-    private fun fold(segment: String): String = if (caseInsensitive) segment.lowercase() else segment
+    /**
+     * Folds a path segment on a case-insensitive volume through lowercase, uppercase, lowercase, the full
+     * case mapping: `ß`, the capital sharp s `ẞ` and `ss`, `ſ` (long s) and `s`, and the sigma forms each end up
+     * equal, as the volume treats them. Two names whose uppercase forms after lowercasing are equal share a key;
+     * over-folding is harmless. Checked against the full case-folding table of the Unicode version of the JDK used
+     * (no group that folds to one string is split). Unicode normalization variants are not folded.
+     */
+    private fun fold(segment: String): String = if (caseInsensitive) foldCase(segment) else segment
+
+    private fun foldCase(text: String): String = text.lowercase().uppercase().lowercase()
 
     companion object {
         private const val TMP: String = "tmp"

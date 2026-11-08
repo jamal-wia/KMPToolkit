@@ -10,6 +10,10 @@ What differs between platforms, and what the consuming app has to declare.
   source, whatever the engine does with its own state between loads.
 - Buffering and picture-size reports are dropped when no source is loaded, so a late platform
   callback cannot resurrect a state.
+- A failure or stall the engine reports after its load succeeded but before `prepare` publishes
+  `Ready` is applied in order at that step: a failure wins over `Ready`, a stall is kept. A new
+  `prepare` on a still-loaded source first releases the engine, so a late report of the old source
+  cannot be taken for the new one.
 - Polling runs only while `Playing`.
 
 ## Permissions — the library declares none of its own
@@ -109,6 +113,7 @@ so a surface attached to it stays attached. `release()` releases the ExoPlayer i
 | `STATE_READY` during a load | the load returns |
 | `onPlayerError` during a load | the load throws the `PlaybackException` → `VideoPlayerState.Error` |
 | `onPlayerError` after a load | `onFailed` → `VideoPlayerState.Error` |
+| any event after `release()` returned | not forwarded, including one already queued on a busy looper behind the reset |
 | `STATE_BUFFERING` / leaving it | `isBufferingFlow` `true` / `false` (a seek buffers briefly too) |
 | `onVideoSizeChanged` | `videoSizeFlow`: width × `pixelWidthHeightRatio` by height; a zero size is `null`. Media3 applies rotation before reporting. |
 | `STATE_ENDED` | `Completed`. The engine also clears `playWhenReady`, so a later seek does not resume playback on its own. Never reached with `RepeatMode.One` (`REPEAT_MODE_ONE`). |

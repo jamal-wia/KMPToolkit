@@ -122,7 +122,7 @@ The effective configuration is a **base** with a stack of overrides folded on to
 | `setBaseConfig(config)` | Replaces the base. The theme's call, not a screen's. A base equal to the current one is a no-op |
 | `updateBaseConfig(transform)` | Reads and replaces the base atomically; retries against the winner if another writer got there first. `transform` must be pure — it may run more than once. Use this over `setBaseConfig(currentConfig.copy(...))` when more than one writer exists |
 | `applyOverride(override)` | Pushes a layer on top and returns its handle. Position is fixed at call time. The caller must release it |
-| `release()` | Drops every override, resets the base to defaults, detaches from the platform. Atomic with concurrent pushes; ids are never reused. Does not repaint: the window keeps the last applied configuration while `config` reports defaults. Idempotent; the controller is unusable afterwards |
+| `release()` | Drops every override, resets the base to defaults, detaches from the platform. Atomic with concurrent pushes; ids are never reused. Does not repaint: the window keeps the last applied configuration while `config` reports the defaults. A window write already queued to the main thread when `release()` is called is dropped, and the controller never touches the window afterwards; a write already running on the main thread at that moment may still finish. Idempotent; the controller is unusable afterwards |
 
 **Thread safety.** Every method is safe from any thread; transitions are a compare-and-set over the
 whole layer stack, so concurrent writers cannot lose an axis. Platform work is dispatched to the
@@ -212,7 +212,7 @@ axis it claims. See [`03-guide.md`](03-guide.md#automatic-icon-styling).
 | `controller` | Receives the derived styles |
 | `probe` | The on-demand trigger source — see [`createStatusBarLuminanceProbe`](#statusbarluminanceprobe) |
 | `enabled` | `false` disables sampling and pushes no override; `content` still composes and is still recorded into the internal layer every frame |
-| `intervalMs` | Periodic sample cadence — [`DEFAULT_SAMPLE_INTERVAL_MS`] (300 ms) by default |
+| `intervalMs` | Periodic sample cadence in milliseconds — [`DEFAULT_SAMPLE_INTERVAL_MS`] (300 ms) by default; must be positive, otherwise the call throws `IllegalArgumentException` |
 | `onSampled` | Diagnostics hook called after every sample with how long it took, in nanoseconds. `null` (the default) costs nothing. Not a restart key: a new lambda each recomposition does not restart sampling. Samples never overlap (one readback at a time) |
 
 Sampling runs only while the host's `Lifecycle` is at least `STARTED`. Place this once, near the

@@ -115,8 +115,10 @@ public class FakeVideoPlaybackEngine(
 
     /**
      * How many times [VideoPlaybackEngine.release] has been called. The player releases its engine
-     * once per unload, once for a cancelled load and once for its own release — however often a
-     * consumer calls `release()`/`close()`.
+     * once per unload, once for a cancelled load, once when a new `prepare` replaces a source that is
+     * still loaded (or a load still in flight) before loading the next one, and once for its own
+     * release — however often a consumer calls `release()`/`close()`. A first `prepare`, or one after
+     * an unload, adds none.
      */
     public var releaseCount: Int = 0
         private set
@@ -226,18 +228,26 @@ public class FakeVideoPlaybackEngine(
     }
 
     /**
-     * Moves the playhead forward by [amountMs], never past [durationMs] when a duration is known.
+     * Moves the playhead forward by [amountMs], never past [durationMs] when a duration is known. The
+     * sum saturates, so an enormous step stops at the duration (or at [Long.MAX_VALUE] when no
+     * duration is known) rather than wrapping around to a negative position.
      *
      * @param amountMs how far to advance, in milliseconds.
      */
     public fun advancePositionBy(amountMs: Long) {
-        val advanced: Long = positionMs + amountMs
+        val sum: Long = positionMs + amountMs
+        val advanced: Long = when {
+            amountMs > 0L && sum < positionMs -> Long.MAX_VALUE
+            amountMs < 0L && sum > positionMs -> Long.MIN_VALUE
+            else -> sum
+        }
         positionMs = if (durationMs > 0L) advanced.coerceAtMost(durationMs) else advanced
     }
 
     /**
      * Reports that the source played to its end. Like a real engine, a looping fake starts over from
-     * `0` without reporting anything; otherwise the playhead moves to [durationMs] and
+     * `0` without reporting anything; otherwise the playhead moves to [durationMs] when that is known
+     * (on an unknown length, `0`, it stays where it is, as on the real engines) and
      * [VideoPlaybackEngineListener.onCompleted] is called.
      *
      * Does nothing observable when no listener is attached — the case after the player is released,
@@ -248,7 +258,7 @@ public class FakeVideoPlaybackEngine(
             positionMs = 0L
             return
         }
-        positionMs = durationMs
+        if (durationMs > 0L) positionMs = durationMs
         isPlaying = false
         listener?.onCompleted()
     }

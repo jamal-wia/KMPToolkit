@@ -16,8 +16,8 @@ composed in, for as long as it stays in composition.
 
 | Platform | Behaviour |
 |---|---|
-| Android, inside a `Dialog` / `ModalBottomSheet` / `DatePickerDialog` / other window with a `DialogWindowProvider` | Wraps the window's `Window.Callback`; key dispatch goes to the interceptor first. On dispose, restores the original callback if the wrapper is still installed. A window already wrapped by another effect is left as it is. |
-| Android API 28+, inside a focusable `Popup` or the Activity's own content | Adds a `ViewCompat` unhandled-key listener on the composition's view; removes it on dispose. |
+| Android, inside a `Dialog` / `ModalBottomSheet` / `DatePickerDialog` / other window with a `DialogWindowProvider` | Wraps the window's `Window.Callback` unless its outermost callback is already one of the effect's wrappers; key dispatch goes to the interceptor first, and the policy runs once per key however many wrappers the chain holds. When the last effect leaves, its wrappers on top are removed; one under another library's decorator stays, inert. |
+| Android API 28+, inside a focusable `Popup` or the Activity's own content | Adds a platform `View.OnUnhandledKeyEventListener` on the composition's view (one per view, shared by every effect composed on it); removes it when the last of them leaves. The policy consulted is the one read by the most recently composed effect still on that view. |
 | Android below API 28, inside a `Popup` or the Activity's own content | No-op. |
 | Android, no policy installed | No-op. |
 | iOS | No-op. |
@@ -51,4 +51,5 @@ Call once from `Application.onCreate`. A second call replaces the first.
 #### `uninstall()`
 
 Removes the policy. Windows composed afterwards get stock key handling; windows already composed keep
-the interceptor they captured until they leave composition.
+the interceptor they captured until they leave composition. To switch a policy off at runtime, keep it
+installed and return `false` from the lambda instead.

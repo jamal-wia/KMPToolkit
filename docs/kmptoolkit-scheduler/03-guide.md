@@ -153,7 +153,8 @@ manifest, and only you know which alarms are still wanted after however long the
 
 - **`id`** is identity. Same id twice means "replace", not "add" — that is the mechanism for
   editing a reminder's time. Derive it from your own domain key (`"reminder-$reminderId"`), never
-  from the fire time, or moving a reminder leaves the old alarm armed.
+  from the fire time, or moving a reminder leaves the old alarm armed. If `schedule` keeps
+  answering `Failed(PlatformError)` for one id, `cancel(id)` and schedule again.
 - **`type`** is routing. One stable value per feature, matched exactly and case-sensitively against
   `AlarmHandler.type`. It is not a category for display.
 
@@ -178,7 +179,9 @@ manifest, and only you know which alarms are still wanted after however long the
   key names is read with the new ones when it fires, finds no id or type, and is dropped without a
   trace. Keep both stable, like the scheme.
 - **Expecting `cancelAll()` to clear everything.** It cancels exactly the ids you pass. There is no
-  "cancel all mine" on Android.
+  "cancel all mine" on Android. Like `cancel`, it removes only alarms that have not fired yet: on iOS a
+  notification already delivered stays in Notification Centre (see the iOS notes in
+  [`05-platform-notes.md`](05-platform-notes.md) for how to clear it, for example on logout).
 - **Assuming an alarm survives force-stop or reboot.** Neither is true on Android. Reconcile at
   startup and re-arm at boot.
 - **Scheduling hundreds of alarms on iOS.** At most 64 pending local notifications per app: iOS

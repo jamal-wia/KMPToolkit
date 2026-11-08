@@ -14,8 +14,6 @@ import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.w
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.updateAndGet
 
 /**
  * The library's own [PermissionRequestHost]: it shows each dialog from the `ComponentActivity`
@@ -28,8 +26,10 @@ import kotlinx.coroutines.flow.updateAndGet
  *   recreation, and this host registers for the answer again on the next activity that resumes, so the
  *   answer still reaches the waiting request. (Not across process death: nothing in the new process
  *   is waiting.)
- * - **It gives up when the activity is finished** (not recreated) while the dialog is up — whether it
- *   is destroyed first or another activity resumes before it is: nothing can
+ * - **It gives up when the activity the dialog was shown from (or its recreated instance) is finished**
+ *   (not recreated) while the dialog is up — whether it
+ *   is destroyed first or another activity resumes before it is. Another activity of the app that comes
+ *   and goes meanwhile never ends the request. Nothing can
  *   answer then, so the request ends as interrupted — an empty answer, `RESULT_CANCELED` — and the
  *   host takes the next one.
  * - **One request at a time.** A launch while another is pending returns `false` and shows nothing.
@@ -38,7 +38,11 @@ import kotlinx.coroutines.flow.updateAndGet
  * - **Holds an activity only while its dialog is showing.** It asks [activityAccess] for the resumed
  *   one at each launch and keeps that activity with the registration (which belongs to its registry)
  *   until the dialog's answer arrives or the request is abandoned as above; nothing is kept between
- *   requests.
+ *   requests. An activity the system destroys to recreate it (a configuration change, a reclaim) is let
+ *   go at its destroy: the request stays pending and the answer is picked up from the recreated
+ *   activity when it resumes. An activity that another live one has covered stays registered until the
+ *   request ends, because the answer is delivered to the registry the dialog was started from; the
+ *   registration is dropped when the request ends, however the answer arrived.
  * - **A cancelled caller does not withdraw a dialog.** A system dialog already on screen cannot be
  *   taken back, so the request stays pending until the user answers (or the activity is finished) and
  *   the answer is then dropped. A launch in that window returns `false`, as for any pending request;
@@ -59,36 +63,53 @@ public class ActivityResultPermissionRequestHost(
     private val logger: Logger = NoopLogger,
 ) : PermissionRequestHost {
 
-    /** Unique per host, so two hosts in one app never answer each other's requests. */
-    private val keyPrefix: String = "io.github.jamal_wia.kmptoolkit.permission.host#${instances.updateAndGet { it + 1 }}"
+    /**
+     * Unique per host and per process, so two hosts in one app never answer each other's requests and a
+     * dead process's parked answer never matches a key of this one (see [PermissionHostKeys]).
+     */
+    private val keyPrefix: String = PermissionHostKeys.nextPrefix()
 
     private var pending: PendingRequest<*, *>? = null
 
     override fun launch(androidPermissions: List<String>, onResult: (Map<String, Boolean>) -> Unit): Boolean =
         start(
-            key = "$keyPrefix.permissions",
+            kind = "permissions",
             contract = ActivityResultContracts.RequestMultiplePermissions(),
             input = androidPermissions.toTypedArray(),
             onResult = onResult,
             // What `settle` reads as "interrupted, record nothing".
-            abandoned = emptyMap(),
+            onAbandoned = { onResult(emptyMap()) },
         )
 
     override fun launchForResult(intent: Intent, onResult: (resultCode: Int) -> Unit): Boolean =
         start(
-            key = "$keyPrefix.result",
+            kind = "result",
             contract = ActivityResultContracts.StartActivityForResult(),
             input = intent,
             onResult = { result: ActivityResult -> onResult(result.resultCode) },
-            abandoned = ActivityResult(Activity.RESULT_CANCELED, null),
+            onAbandoned = { onResult(Activity.RESULT_CANCELED) },
+        )
+
+    /**
+     * [launchForResult] for the controller: a request that is interrupted (its activity finished with the
+     * screen up) reports `null` instead of `RESULT_CANCELED`, which a user backing out also produces, so
+     * an interruption is never recorded as a refusal. Same request slot as [launchForResult].
+     */
+    internal fun launchForResultOrInterrupted(intent: Intent, onResult: (resultCode: Int?) -> Unit): Boolean =
+        start(
+            kind = "result",
+            contract = ActivityResultContracts.StartActivityForResult(),
+            input = intent,
+            onResult = { result: ActivityResult -> onResult(result.resultCode) },
+            onAbandoned = { onResult(null) },
         )
 
     private fun <I, O> start(
-        key: String,
+        kind: String,
         contract: ActivityResultContract<I, O>,
         input: I,
         onResult: (O) -> Unit,
-        abandoned: O,
+        onAbandoned: () -> Unit,
     ): Boolean {
         if (pending != null) {
             logger.w { "A permission request is already showing; not launching another" }
@@ -98,10 +119,12 @@ public class ActivityResultPermissionRequestHost(
             logger.w { "No resumed ComponentActivity to show the permission request from" }
             return false
         }
-        val request = PendingRequest(key, contract, onResult, abandoned)
+        val request = PendingRequest("$keyPrefix.$kind", contract, onResult, onAbandoned)
         pending = request
         val launched: Boolean = try {
-            request.attach(activity).launch(input)
+            // null: the registry handed a parked answer to the new registration and the request is over
+            // already. A key that was never used cannot hold one in this process, so this is defensive.
+            request.attach(activity)?.launch(input)
             true
         } catch (cause: Exception) {
             logger.w(cause) { "Launching the permission request threw" }
@@ -123,88 +146,144 @@ public class ActivityResultPermissionRequestHost(
     /**
      * One request in flight. After a recreation the new activity's registry holds the answer under
      * [key] until something registers for it there; [attach] is that registration.
+     *
+     * It is registered with every live activity it was shown from or moved to: a dialog started from
+     * activity A is answered to A's registry even when another activity B has covered A since, so A's
+     * registration has to stay until the request ends. An activity the system destroys to recreate it
+     * is let go at its destroy instead (the saved registry gives the answer to its successor).
      */
     private inner class PendingRequest<I, O>(
         private val key: String,
         private val contract: ActivityResultContract<I, O>,
         private val onResult: (O) -> Unit,
-        private val abandoned: O,
+        private val onAbandoned: () -> Unit,
     ) {
         var resumes: ActivitySubscription? = null
-        private var attachedTo: Activity? = null
-        private var destroyWatch: LifecycleEventObserver? = null
-        private var launcher: ActivityResultLauncher<I>? = null
+        private val attachments: MutableList<Attachment> = mutableListOf()
+
+        /**
+         * The attachment the dialog was launched from (or its recreated instance): the only registry that
+         * can ever deliver the answer, so the only activity whose finishing ends the request. Another
+         * activity of the app coming and going while the dialog is up is attached to, never judged.
+         */
+        private var origin: Attachment? = null
+
+        /**
+         * What is remembered of an origin the system destroyed to recreate it: a class and a task id, which
+         * pin no activity. The next activity of that class in that task is the recreated instance, and its
+         * restored registry owns the answer, so it becomes the origin.
+         */
+        private var lostOriginClass: Class<out Activity>? = null
+        private var lostOriginTaskId: Int = 0
+
+        /** The registration with one activity's registry, and the observer that lets go of it at that activity's destroy. */
+        private inner class Attachment(val activity: ComponentActivity) {
+            var launcher: ActivityResultLauncher<I>? = null
+
+            val destroyWatch: LifecycleEventObserver = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_DESTROY) onDestroyed(this)
+            }
+
+            fun release() {
+                activity.lifecycle.removeObserver(destroyWatch)
+                val registered: ActivityResultLauncher<I> = launcher ?: return
+                launcher = null
+                registered.unregister()
+            }
+        }
 
         /**
          * Another activity resumed. Android resumes the next screen before it stops and destroys the
-         * one that finished, so by the time this runs the activity the dialog belonged to is already
-         * finishing and its destroy event would find [watchDestroy] removed by the move: its answer
-         * can never be delivered, so give up here. A configuration change is not this case — the old
-         * instance is not finishing.
+         * one that finished, so by the time this runs the activity the dialog came from ([origin]) may
+         * already be finishing: its answer can never be delivered, so give up here. A configuration
+         * change is not this case — the old instance is not finishing. Any other activity finishing is
+         * not this case either: it never held the answer.
          */
         fun onResumed(activity: ComponentActivity) {
-            val leaving: Activity? = attachedTo
+            val leaving: Activity? = origin?.activity
             if (leaving != null && leaving !== activity && leaving.isFinishing && !leaving.isChangingConfigurations) {
                 finish()
-                onResult(abandoned)
+                onAbandoned()
                 return
             }
             attach(activity)
         }
 
-        fun attach(activity: ComponentActivity): ActivityResultLauncher<I> {
-            launcher?.takeIf { attachedTo === activity }?.let { return it }
-            unwatch()
-            attachedTo = activity
-            watchDestroy(activity)
-            return activity.activityResultRegistry.register(key, contract) { output: O ->
-                if (pending !== this) return@register
-                finish()
-                onResult(output)
-            }.also { launcher = it }
-        }
-
         /**
-         * An activity that is finished, not recreated, while its dialog is up never hears the answer:
-         * the registry that would deliver it is gone with it, and no other registry holds it. Left
-         * alone, [pending] would refuse every later launch for the life of the process. A system-
-         * reclaimed or configuration-change destroy is not this case: the registry restores the answer.
+         * Registers with [activity]'s registry, unless it already is. Returns `null` when the registry
+         * delivered a parked answer from inside `register` and so ended the request.
          */
-        private fun watchDestroy(activity: ComponentActivity) {
-            val watch = LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_DESTROY && activity.isFinishing && !activity.isChangingConfigurations &&
-                    pending === this
-                ) {
+        fun attach(activity: ComponentActivity): ActivityResultLauncher<I>? {
+            attachments.firstOrNull { it.activity === activity }?.let { known: Attachment ->
+                return known.launcher
+            }
+            // An activity destroyed since it was attached is no longer a registry anything can be answered to.
+            attachments.filter { it.activity.isDestroyed }.forEach { gone: Attachment -> detach(gone) }
+            val attachment = Attachment(activity)
+            attachments += attachment
+            if (origin == null && (attachments.size == 1 && lostOriginClass == null || isRecreatedOrigin(activity))) {
+                origin = attachment
+                lostOriginClass = null
+            }
+            activity.lifecycle.addObserver(attachment.destroyWatch)
+            val registered: ActivityResultLauncher<I> = activity.activityResultRegistry.register(key, contract) { output: O ->
+                if (pending === this) {
                     finish()
-                    onResult(abandoned)
+                    onResult(output)
                 }
             }
-            destroyWatch = watch
-            activity.lifecycle.addObserver(watch)
+            attachment.launcher = registered
+            // `register` hands a parked answer to the callback before it returns, so `finish` ran with no
+            // launcher to unregister: do it now that there is one.
+            if (pending !== this) {
+                attachment.release()
+                return null
+            }
+            return registered
         }
 
-        private fun unwatch() {
-            val watch: LifecycleEventObserver = destroyWatch ?: return
-            (attachedTo as? ComponentActivity)?.lifecycle?.removeObserver(watch)
-            destroyWatch = null
+        /** The first launch has no lost origin to match; afterwards only the recreated instance of the lost one qualifies. */
+        private fun isRecreatedOrigin(activity: ComponentActivity): Boolean =
+            lostOriginClass == activity.javaClass && lostOriginTaskId == activity.taskId
+
+        /**
+         * The origin activity that is finished, not recreated, while its dialog is up never hears the answer:
+         * the registry that would deliver it is gone with it, and no other registry holds it. Left
+         * alone, [pending] would refuse every later launch for the life of the process. An activity the
+         * system destroys to recreate it (a configuration change, a reclaim) is only let go of: the
+         * registry restores the answer, and the request stays pending until the next resume re-attaches.
+         */
+        private fun onDestroyed(attachment: Attachment) {
+            if (pending !== this) return
+            val activity: ComponentActivity = attachment.activity
+            if (attachment !== origin) {
+                // Never held the answer, whether or not it is finishing: nothing to end.
+                detach(attachment)
+            } else if (activity.isFinishing && !activity.isChangingConfigurations) {
+                finish()
+                onAbandoned()
+            } else {
+                lostOriginClass = activity.javaClass
+                lostOriginTaskId = activity.taskId
+                detach(attachment)
+            }
+        }
+
+        private fun detach(attachment: Attachment) {
+            attachments.remove(attachment)
+            if (origin === attachment) origin = null
+            attachment.release()
         }
 
         fun finish() {
-            unwatch()
             pending = null
             resumes?.cancel()
             resumes = null
-            launcher?.unregister()
-            launcher = null
-            attachedTo = null
+            val all: List<Attachment> = attachments.toList()
+            attachments.clear()
+            origin = null
+            lostOriginClass = null
+            all.forEach { it.release() }
         }
-    }
-
-    private companion object {
-        /**
-         * Numbered, never random: the registry hands a pending result back by key after recreation, so hosts
-         * built in the same order must get the same keys. `updateAndGet` keeps the constructor non-suspending.
-         */
-        val instances: MutableStateFlow<Int> = MutableStateFlow(0)
     }
 }

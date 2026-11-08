@@ -122,7 +122,11 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/RecordingWake
 
 public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStoreContract {
 	public fun <init> (Lkotlin/jvm/functions/Function0;)V
+	public final fun aListHandedOutIsASnapshot (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun attemptsGatesAndLeasesAreStoredAsGiven (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun clearAllEmptiesTheStore (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun concurrentClaimsOfOneRowHaveExactlyOneWinner (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun concurrentKeepsOfOneKeyHaveExactlyOneWinner (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun deleteByIdIsIdempotent (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun deleteByIdRemovesOnlyThatItem (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun deleteByTagLeavesOtherTagsAlone (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -131,10 +135,13 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStore
 	public final fun freshStoreIsEmpty (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getAllActiveExcludesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getAllActiveIncludesInFlight (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun getByIdMatchesTheWholeId (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun getByIdReturnsNullForUnknownId (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun guardedWritesChangeOnlyTheirOwnFields (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun guardsCompareTheClaimNotTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertKeepIsRefusedByInFlight (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertKeepIsRefusedByPending (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertKeepOverAParkedItemEntersAtTheTail (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertKeepSupersedesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertReplaceReturnsNullWhenNothingWasSuperseded (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertReplaceReturnsWhatItSuperseded (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -142,6 +149,7 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStore
 	public final fun insertReplaceSupersedesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertReplaceSupersedesPendingAtTheTail (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertedItemRoundTripsUnchanged (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertionOrderIgnoresCreationTime (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertionOrderSurvivesSameMillisecondInserts (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun item (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;IJJJ)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;
 	public static synthetic fun item$default (Lio/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStoreContract;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItemState;IJJJILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;
@@ -155,6 +163,7 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStore
 	public final fun observeByTypeEmitsEmptyForAnUnknownType (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun observeByTypeFiltersAndOrders (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun observeByTypeIncludesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun observeByTypeIsLiveAndNeverCompletes (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun parkIsRejectedWhenTheClaimMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun parkIsRejectedWhenTheStateMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun parkKeepsTheItemAndClearsTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -168,8 +177,11 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStore
 	public final fun recordFailureIsRejectedWhenTheStateMoved (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureOnAnAbsentRowReturnsFalse (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun recordFailureWritesEveryFieldAndClearsTheLease (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun tagsAreMatchedExactly (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun theClaimAdvancesByOneOnEveryAppliedWriteAndNoOther (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun uniqueKeysAreMatchedExactly (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun uniqueKeysAreScopedPerType (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun valuesRoundTripVerbatim (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun verifyAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 

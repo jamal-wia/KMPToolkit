@@ -21,7 +21,9 @@ package io.github.jamal_wia.kmptoolkit.language
  * wrong for your purposes or does not know about — see [isRightToLeft] for exactly what it knows.
  *
  * @param code BCP-47 / ISO language tag (`"en"`, `"ar"`, `"pt-BR"`, `"az-Arab"`, …). Never `null`:
- *   "follow the device" is [AppLanguage.System], which has no direction of its own to derive.
+ *   "follow the device" is [AppLanguage.System], which has no direction of its own to derive. An
+ *   underscore is read as a hyphen (`ar_EG` is `ar-EG`), for direction, matching and the platform
+ *   locale alike; the code itself is kept as given.
  */
 public fun AppLanguage(code: String): AppLanguage =
     AppLanguage(code = code, isLtr = !isRightToLeft(code))
@@ -29,14 +31,19 @@ public fun AppLanguage(code: String): AppLanguage =
 /**
  * Whether [code] names a language written right-to-left.
  *
- * An explicit script subtag decides on its own, because it is the writing system that has a
+ * An explicit script subtag decides on its own (the four-letter subtag right after the language, as
+ * BCP-47 places it; a four-letter subtag inside a `-u-` extension such as `ar-u-nu-latn`, or after the
+ * private-use `-x-`, is not a script and is ignored), because it is the writing system that has a
  * direction and not the language: `az-Arab` is right-to-left where `az` is not, and `pa-Arab`
  * (Shahmukhi) where `pa` (Gurmukhi) is not. Only when there is no script subtag does the primary
  * language subtag decide, using its default script.
  *
  * What it knows is the set of right-to-left scripts and languages in actual use for user interfaces,
  * not every script ever encoded: the right-to-left scripts `Arab`, `Hebr`, `Thaa`, `Syrc`, `Nkoo`,
- * `Adlm`, `Mand`, `Samr`, `Rohg`, `Yezi`, `Mend`, and the languages that default to one of them.
+ * `Adlm`, `Mand`, `Samr`, `Rohg`, `Yezi`, `Mend`, and the languages that default to one of them,
+ * including regional languages whose default script is right-to-left (Egyptian Arabic `arz`, South
+ * Azerbaijani `azb`, Western Punjabi `pnb`, ...), checked against the Android platform's
+ * likely-subtags data in the tests.
  * Anything it does not recognise is reported left-to-right, which is the safe direction to be wrong
  * in: an unexpected language renders in the majority layout rather than mirrored. If you need a
  * language it does not cover, pass `isLtr` explicitly.
@@ -48,16 +55,34 @@ public fun isRightToLeft(code: String): Boolean {
     val subtags: List<String> = code.split('-', '_').filter(String::isNotEmpty)
     if (subtags.isEmpty()) return false
 
-    // A script subtag is the four-letter one, and there is at most one. Checked before the language,
-    // because a language written in a script it does not default to follows the script.
-    val script: String? = subtags.drop(1).firstOrNull { subtag -> subtag.length == SCRIPT_TAG_LENGTH }
+    // The script is the subtag in the BCP-47 script position: exactly four letters right after the
+    // language and its optional three-letter extlangs, before any region or variant. Checked before the
+    // language, because a language written in a script it does not default to follows the script. The
+    // search stops there: a four-letter subtag inside a `-u-` extension (`ar-u-nu-latn`, a numbering
+    // system) or after `-x-` (private use) is not a script and never decides the direction.
+    val position: Int = positionAfterExtlangs(subtags)
+    val script: String? = subtags.getOrNull(position)?.takeIf { subtag -> subtag.isScriptSubtag() }
     if (script != null) return script.lowercase() in RIGHT_TO_LEFT_SCRIPTS
 
     return subtags[0].lowercase() in RIGHT_TO_LEFT_LANGUAGES
 }
 
-/** ISO 15924 script subtags are always four letters; nothing else in a tag is. */
+/** ISO 15924 script subtags are always four letters. */
 private const val SCRIPT_TAG_LENGTH: Int = 4
+
+/** BCP-47 allows at most three extended language subtags (three letters each) after the language. */
+private const val MAX_EXTLANGS: Int = 3
+
+/** The index of the subtag after the language and its optional three-letter extlangs: where a script would be. */
+internal fun positionAfterExtlangs(subtags: List<String>): Int {
+    var position = 1
+    while (position < subtags.size && position <= MAX_EXTLANGS && subtags[position].isExtlang()) position++
+    return position
+}
+
+internal fun String.isScriptSubtag(): Boolean = length == SCRIPT_TAG_LENGTH && all(Char::isLetter)
+
+private fun String.isExtlang(): Boolean = length == 3 && all(Char::isLetter)
 
 /** Lowercased ISO 15924 codes for the right-to-left scripts a user interface is written in. */
 private val RIGHT_TO_LEFT_SCRIPTS: Set<String> = setOf(
@@ -92,11 +117,48 @@ private val RIGHT_TO_LEFT_LANGUAGES: Set<String> = setOf(
     "he", "iw", // Hebrew, modern and legacy
     "ks", // Kashmiri
     "nqo", // N'Ko
-    "prs", // Dari
+    "prs", // Dari (the platform's likely-subtags data reports it left-to-right; Dari is Persian, written in Arabic script)
     "ps", // Pashto
     "sd", // Sindhi
     "syr", // Syriac
     "ug", // Uyghur
     "ur", // Urdu
     "yi", "ji", // Yiddish, modern and legacy
+    // Regional languages whose default script is right-to-left; each one is reported right-to-left by the
+    // Android platform's likely-subtags data (RtlDefaultScriptLanguagesTest).
+    "azb", // South Azerbaijani, default script Arabic
+    "pnb", // Western Punjabi, default script Arabic
+    "skr", // Saraiki, default script Arabic
+    "mzn", // Mazanderani, default script Arabic
+    "glk", // Gilaki, default script Arabic
+    "lrc", // Northern Luri, default script Arabic
+    "bgn", // Western Balochi, default script Arabic
+    "bal", // Balochi, default script Arabic
+    "bqi", // Bakhtiari, default script Arabic
+    "luz", // Southern Luri, default script Arabic
+    "sdh", // Southern Kurdish, default script Arabic
+    "brh", // Brahui, default script Arabic
+    "khw", // Khowar, default script Arabic
+    "hno", // Northern Hindko, default script Arabic
+    "bft", // Balti, default script Arabic
+    "trw", // Torwali, default script Arabic
+    "rhg", // Rohingya, default script Hanifi Rohingya
+    "arz", // Egyptian Arabic, default script Arabic
+    "ary", // Moroccan Arabic, default script Arabic
+    "apc", // North Levantine Arabic, default script Arabic
+    "ajp", // South Levantine Arabic, default script Arabic
+    "aeb", // Tunisian Arabic, default script Arabic
+    "arq", // Algerian Arabic, default script Arabic
+    "acm", // Mesopotamian Arabic, default script Arabic
+    "ayp", // North Mesopotamian Arabic, default script Arabic
+    "afb", // Gulf Arabic, default script Arabic
+    "apd", // Sudanese Arabic, default script Arabic
+    "ars", // Najdi Arabic, default script Arabic
+    "acq", // Ta'izzi-Adeni Arabic, default script Arabic
+    "ayl", // Libyan Arabic, default script Arabic
+    "shu", // Chadian Arabic, default script Arabic
+    "ssh", // Shihhi Arabic, default script Arabic
+    "abv", // Baharna Arabic, default script Arabic
+    "ayh", // Hadrami Arabic, default script Arabic
+    "adf", // Dhofari Arabic, default script Arabic
 )

@@ -105,6 +105,9 @@ class MyApplication : Application() {
 The same applies to `createScreenWakeLockController`, and to any `ActivityAccess` you create
 yourself for either. `ControllerCreationOrderTest` pins this down, including the late-created case.
 
+With several windows of the app resumed (split screen, freeform, activity embedding), the wake-lock
+hold flags each of them, not only the newest one; the release takes the flag off each again.
+
 Insets themselves are Compose's job, not this module's: `WindowInsets.statusBars`,
 `WindowInsets.safeDrawing`, `Modifier.windowInsetsPadding`.
 
@@ -261,7 +264,9 @@ Backed by `Window.FLAG_KEEP_SCREEN_ON`, applied through an activity tracker. Eve
 (`createScreenWakeLockController(context)` and `createSystemBarsController(context)`) shares one
 tracker per `Application`, so however many controllers you create, and however often you create and
 release them, one `ActivityLifecycleCallbacks` stays registered. A tracker you build yourself and pass
-to the `ActivityAccess` overloads is yours, as before.
+to the `ActivityAccess` overloads is yours, as before: it must outlive the controllers built on it, so clear
+the wake lock (`setKeepScreenOn(false)`) or release the system-bars controller before you `release()` the
+access. A controller over a released access can no longer reach any window, so a flag it set stays on it.
 
 The controller subscribes to resume events only while there is something to re-apply: while the flag
 is wanted, and afterwards until a release that arrived with no activity resumed has reached the
@@ -269,8 +274,17 @@ window that carried the flag. A window that is finishing or destroyed will never
 owed to it (an activity that finishes, pauses, and only then has its owner release the flag) is dropped at
 once instead of waiting for a resume that cannot come. A controller that was cleared with `setKeepScreenOn(false)` therefore
 holds no subscription and is ordinary garbage, so creating one per screen or per session is
-supported. One dropped while still `true` stays registered and keeps the screen awake, which is why
+supported. The one case that waits: the window that was owed a release is destroyed without finishing
+(the system reclaiming a stopped activity) and no window resumes afterwards. The platform gives no destroy
+signal to act on, so the subscription is released at the next resume of any window; until then the
+controller is retained, with a weak reference to the dead window and no activity pinned. One dropped while still `true` stays registered and keeps the screen awake, which is why
 callers must clear it.
+
+Several controllers count as one owner of the flag per window. A controller's release clears
+`FLAG_KEEP_SCREEN_ON` only when no other live controller still holds that window, so per-screen
+controllers with overlapping lifetimes (the new screen holds before the old one is torn down, as during a
+navigation transition) do not undo each other, in either release order. The registry behind this is
+weak and main-thread only, and keeps no controller alive.
 
 The controller remembers whether it last set the flag on the *specific* activity it wrote to
 (a weak reference), which is what makes rotation safe in both directions: a `true` held by the

@@ -240,12 +240,19 @@ call from the main thread and from any number of coroutines at once:
   (`InvalidKeyException`) is dropped from that cache and looked up again once — if another instance
   replaced an unrecoverable key meanwhile, the next use picks the new one up instead of failing until
   the process restarts.
+  A value that ends in a line break is stored by the plain store with one U+E000 appended, because
+  the framework's XML writer indents after a trailing line break; the store removes it on read. Code
+  reading the preferences file directly sees it.
 - **iOS.** `NSUserDefaults` and Keychain calls go through `cfprefsd` and `securityd`, both IPC. Two
   writers adding the same Keychain item at once — two coroutines, or an app extension sharing the
   access group — make the loser's `SecItemAdd` fail with `errSecDuplicateItem`; the store then
   updates the item instead, so neither write reports a failure.
 - **Desktop.** Instances over the same file share a coroutine `Mutex`, so their read-modify-write
-  cycles over the file never interleave.
+  cycles over the file never interleave. The lock is keyed by the path in Unicode NFC with the full
+  case mapping (`ß`, `ẞ` and `ss`, the Greek sigma forms, `Settings` and `settings` share it), so two
+  spellings of one name share it on a volume that folds case (macOS, Windows); on a case-sensitive volume they are two files behind one lock. A file that
+  cannot be parsed, including one that is not valid UTF-8, fails every operation on it, writes included, and is never replaced; `clear()` is
+  the way out, and a `DeviceIdProvider` over such a file yields a new id per call until then.
 
 A secure-store call is still a cipher round trip on Android and an IPC hop to `securityd` on iOS:
 fine at startup, wrong in a loop or per list item.

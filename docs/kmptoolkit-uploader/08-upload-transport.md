@@ -57,6 +57,7 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
     }
 
     override suspend fun onSettled(payload: AvatarUpload, attempts: Int, result: SettleResult) {
+        // At most once: a stop right after the commit skips it, so also sweep leftover files at app start.
         if (result is SettleResult.Delivered) File(payload.path).delete()
     }
 }
@@ -75,7 +76,10 @@ What the engine does with it:
    nothing. A preparation that throws here counts as a failed attempt under the handler's retry policy, exactly as a
    failing preparation in the drain does: it spends retry budget, so a persistent failure ends in the give-up policy.
 3. **Progress.** Each whole percent goes to `onUploadProgress` through `UploadGateway.progress`.
-   Best effort, never after the item has settled.
+   Best effort, never after the item has settled. On Android the hooks run on a small dedicated pool, so a hook that
+   blocks its thread delays other items' progress, never a settlement. The answer is journaled as soon as the transfer
+   returns. On both platforms a progress hook still running 2 s after the transfer ended is cancelled and no longer
+   awaited, so it cannot hold up the settlement (one that ignores cancellation runs on in the background).
 4. **Settle.** What the transport saw goes to `UploadGateway.complete` — with the server's
    `UploadResponse` when it answered, with a bare `UploadResult.TransportFailure` when it did not.
    The engine then:
@@ -105,7 +109,8 @@ What the engine does with it:
    gateway would take one executor's report for another's.
 
 `UploadGateway` reaches the engine through `UploaderEngineRegistry`, so **register the engine** after
-creating it. An engine that is not `createUploaderEngine`'s reads as unavailable.
+creating it. An engine that is not `createUploaderEngine`'s reads as unavailable; that includes a decorator
+registered in its place, which serves wake jobs only. Register the engine itself.
 
 ### Reading the response
 
@@ -125,8 +130,26 @@ backup-excluded Application Support directory on iOS). If the process dies in be
 worker at the start of `doWork`, the iOS transport in a hand-off, in `handleEvents` and once at
 creation (on iOS only a re-hand is owed a replay). The file holds the body only up to the handler's
 `maxResponseBodyBytes` (on iOS, after a brief window in which the whole captured body is on disk; see
-[`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted just before the engine commits the settlement, on `cancel`, and after 7 days; an item the
-engine no longer knows settles nothing and its file is deleted. The response body therefore rests
+[`05-platform-notes.md`](05-platform-notes.md#the-servers-response)). It is deleted on `cancel` and after 7 days, and
+when the settlement is done:
+
+- **Android** entries carry the attempt they answer and are deleted only after the commit lands. A death or a stop
+  anywhere before the commit is durable leaves the entry, and the next run settles it. A leftover from an attempt
+  that was already settled (a delete that failed after the commit) is recognised by its attempt, dropped, and the
+  job uploads. An unreadable entry is waited for while the job has run fewer than 3 times (WorkManager's run count,
+  which also counts retries for other reasons), then given up and the item uploads again (at least once). A status
+  received while the job is stopped during the response body is journaled and settled by the re-run. **One job per
+  item runs at a time in a process:** WorkManager reports a stopped job finished while its transfer or settlement still
+  runs, and a second job for the item then waits for the first instead of uploading the file again, then replays what
+  it left or finds nothing owed. A stamped answer is settled from the job's memory unless the entry on disk is
+  provably its own, and never deletes another answer's entry; settling the same stamped answer twice is harmless. Two
+  processes overlapping one item stay at least once. A status that arrives after the watchdog dropped the connection
+  is a transport failure, never an answer.
+- **iOS** entries are deleted just before the commit and written back if it does not land; a process death in that
+  microsecond window uploads again (at least once).
+
+An entry file larger than 4 MiB cannot be one the journal wrote (a body is at most 1 MiB and the headers are capped); it is
+deleted without being read, on both platforms, instead of failing every attempt of its item. An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
 briefly on disk; see [`05-platform-notes.md`](05-platform-notes.md#the-servers-response). Your own
 transport has no journal: keep your own record if it needs one.
 
@@ -173,8 +196,11 @@ val transport: UploadTransport = createWorkManagerUploadHandlerTransport(
 )
 ```
 
-One WorkManager job per item, unique-keyed by item id with `ExistingWorkPolicy.KEEP`: a re-hand while
-the job is alive joins it, and after a dead job it re-enqueues. The job's input data is the item id
+One WorkManager job per item, unique-keyed by item id: a hand-off while the item's job is still serving it is
+absorbed, and that job serves it before it returns; a hand-off after the job finished serving replaces it with a
+fresh one (`ExistingWorkPolicy.REPLACE`), so a retry is never left waiting for the lease because WorkManager still
+reported the old job running. Hand-offs are tracked per process; across processes the lease is the bound. The
+job's input data is the item id
 plus timeouts — nothing of the request, so no token at rest in WorkManager's database and no 10 KB
 `Data` limit to fit under. `UploadHandlerWorker` prepares through the gateway, streams the multipart
 body from disk over `HttpURLConnection`, reads the response, and settles. It returns `Result.retry()` when no engine is
@@ -186,7 +212,16 @@ line, and the body from `errorStream` for a status of 400 and above (no stream i
 `WorkManager`'s data. Reading the body stops once the read timeout has passed in total (at most one more
 read timeout for a read already waiting) or, between reads, when the job is cancelled, and a body that
 cannot be read completely — the connection broke, or the time ran out —
-is reported as truncated with the bytes read so far, not as a transport failure. A `WorkManager` worker has about 10 minutes and this module does not call
+is reported as truncated with the bytes read so far, not as a transport failure. A status that carries no content (`1xx`,
+`204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
+A redirect (`3xx` other than `304`) whose body the stack does not hand over is flagged truncated unless its headers declare an empty body (`Content-Length: 0`).
+The status line and headers must arrive within twice the read timeout after the body is sent: a server that
+trickles them longer fails the attempt as a transport failure (no status was received). A server that answers before the
+body is complete and closes the connection is heard: whatever final status it sent (a `413`, a
+redirect, an early `200`) is its answer and reaches `classify`. When the upload fails on this side
+(the source file vanished or could not be read), the connection is dropped without completing the
+request, so the server never receives a truncated body as a whole one, and the attempt is a transport
+failure. A `WorkManager` worker has about 10 minutes and this module does not call
 `setForeground`, so keep the upload and the server's answer short.
 
 `cancel(itemId)` cancels that item's unique work and deletes its journaled outcome, if any — and nothing else. A job already uploading stops
@@ -222,12 +257,16 @@ val transport: UploadTransport = createBackgroundUploadTransport(
 
 One background `NSURLSession` per item, its identifier the prefix plus the item id. The system daemon
 `nsurlsessiond` keeps uploading after the app is suspended or killed. The multipart body is written to
-a temporary file — background uploads must come from a file — streamed from the source files in
+a temporary file — background uploads must come from a file, named after the item id, or after a hash of it when
+the id is not a plain file name — streamed from the source files in
 chunks, so a large recording is never held in memory, and removed when the upload completes.
 
 The delegate accumulates the response body as the session delivers it (at most 1 MiB, converted once
 when the task completes) and builds the response from the final `NSHTTPURLResponse` before the session
-is invalidated; only headers whose names and values are strings are kept. **A force-quit cancels
+is invalidated; only headers whose names and values are strings are kept. A task that ends with an error after
+its status arrived (the connection broke while the body was arriving, or a timeout fired) is still that status's
+answer: it is reported with the bytes received so far and `isBodyTruncated = true`, except for a status that
+carries no content, and only an error before any status is a transport failure. **A force-quit cancels
 background transfers** — iOS does not continue an upload for an app the user swiped away.
 
 Create the transport once per process. A second `createBackgroundUploadTransport` call becomes the
@@ -360,7 +399,8 @@ Both Android workers run the body write under a watchdog. `HttpURLConnection` ha
 peer that stops reading would otherwise pin the thread for the kernel's retransmission time (minutes) and
 make `cancel` or a WorkManager stop wait for it. The watchdog closes the connection when the job is
 cancelled, and when no chunk of the body has moved for the read timeout (counted from the moment the
-connection is up and the body starts, so the connect keeps its own connect timeout); the upload then ends as a
+connection is up and the body starts, so the connect keeps its own connect timeout), and when the status line and
+headers have not arrived within twice the read timeout after the body was sent; the upload then ends as a
 transport failure, which the retry policy handles.
 
 Its limits are the reason `UploadHandler` exists:

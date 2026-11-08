@@ -92,7 +92,8 @@ user for access to protected folders (Desktop, Documents, removable volumes) the
 
 VLC delivers events on its own event thread and pictures on its video-output thread, and neither may
 call back into libvlc. The player reacts to some events by calling the engine from that thread — for
-`RepeatMode.One`, a rewind and a restart when the end is reported — and those calls are handed to
+`RepeatMode.One` switched on just as the end is reported, a rewind and a restart (looping itself is
+VLCJ's repeat support and reports no end) — and those calls are handed to
 VLCJ's task thread, a single thread that runs its work first in, first out.
 
 Transport calls reach libvlc **in the order they were made**, whichever threads made them. A call
@@ -108,6 +109,10 @@ reading already on its way) can still show the old time for a moment, and calls 
 seek have not reached it yet. The engine holds the target until libvlc reports a time within one
 second of it, or for 500 ms after the `setTime` call, whichever comes first. A `seekForward()` made
 right after a seek therefore steps from the target, and the progress bar does not jump back.
+
+A seek made before playback has begun (before the first `start()`, between `start()` and libvlc
+reporting Playing, or after the end) is applied when output begins, and its target is held from then
+on in exactly the same way.
 
 ## Rendering
 

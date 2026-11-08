@@ -14,6 +14,8 @@ import platform.Foundation.NSDataWritingFileProtectionCompleteUntilFirstUserAuth
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileProtectionCompleteUntilFirstUserAuthentication
 import platform.Foundation.NSFileProtectionKey
+import platform.Foundation.NSFileSize
+import platform.Foundation.NSNumber
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
@@ -47,7 +49,15 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
     }
 
     override fun read(itemId: String): ByteArray? {
-        val data: NSData = NSData.dataWithContentsOfFile("$dir/$itemId") ?: return null
+        val path = "$dir/$itemId"
+        // The size first: a file larger than any entry the journal writes is not read at all, where reading it
+        // would be an out-of-memory abort Kotlin/Native cannot catch.
+        val attributes: Map<Any?, *> = files.attributesOfItemAtPath(path, error = null) ?: return null
+        val declared: Long? = (attributes[NSFileSize] as? NSNumber)?.longLongValue
+        if (declared != null && declared > MAX_ENCODED_ENTRY_BYTES) return ByteArray(0)
+        val data: NSData = NSData.dataWithContentsOfFile(path) ?: return null
+        // A second guard for a file that grew between the two calls.
+        if (data.length.toLong() > MAX_ENCODED_ENTRY_BYTES) return ByteArray(0)
         val size: Int = data.length.toInt()
         if (size == 0) return ByteArray(0)
         val out = ByteArray(size)

@@ -53,7 +53,9 @@ public fun createSystemBarsController(
  * The [ActivityAccess] is yours: this controller does not release it, so one instance can back
  * several controllers, and [SystemBarsController.release] leaves it registered. It has to exist
  * before the first activity resumes — create it, and this controller, in `Application.onCreate`;
- * see the other overload for why.
+ * see the other overload for why. The access must outlive the controller: release the controller
+ * before you `release()` the access, because a controller over a released access can no longer reach
+ * any window.
  *
  * @param activityAccess where the window to style comes from.
  * @param initialConfig the base configuration to start from, before your theme sets one.
@@ -99,7 +101,9 @@ private class AndroidSystemBarsController(
             // main thread applies inline, before the posted one runs. The posted block then lands
             // last. Applied as captured, it would leave the window showing a configuration the
             // controller no longer holds until the next resume.
-            activity.runOnUiThread { apply(activity, currentConfig) }
+            //
+            // A release() that ran after the write was queued wins: the write is dropped.
+            activity.runOnUiThread { if (!isReleased) apply(activity, currentConfig) }
         }
     }
 

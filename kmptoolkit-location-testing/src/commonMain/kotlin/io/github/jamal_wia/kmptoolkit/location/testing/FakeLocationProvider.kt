@@ -3,9 +3,10 @@ package io.github.jamal_wia.kmptoolkit.location.testing
 import io.github.jamal_wia.kmptoolkit.location.GeoCoordinates
 import io.github.jamal_wia.kmptoolkit.location.LocationProvider
 import io.github.jamal_wia.kmptoolkit.location.LocationServicePrompt
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * A [LocationProvider] a test drives by hand — no GPS chip, no location permission, no
@@ -26,7 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * **Not thread-safe**, deliberately, unlike the real providers it stands in for: [openSettingsCount],
  * [promptCount], [locationEnabled] and [servicePromptAnswer] are plain fields. Drive it from one
  * thread — or one test coroutine — and assert after the work under test has finished. Only the fix
- * itself, behind [emit], is a `StateFlow` and safe to publish from anywhere. Making the counters
+ * itself, behind [emit], is a replay-1 `SharedFlow` and safe to publish from anywhere. Making the counters
  * concurrent would mean an atomic dependency in an artifact whose value is being trivial.
  *
  * @param current what [getCurrentLocation] returns and what [observeLocation] starts from.
@@ -38,7 +39,13 @@ public class FakeLocationProvider(
     public var locationEnabled: Boolean = true,
 ) : LocationProvider {
 
-    private val mutableLocation: MutableStateFlow<GeoCoordinates?> = MutableStateFlow(current)
+    // Replay 1 + DROP_OLDEST: a new collector starts on the current fix, a busy one ends on the newest
+    // (the documented conflation), and unlike a StateFlow an equal fix is delivered again, as a real
+    // provider delivers every update. tryEmit always succeeds with DROP_OLDEST and is thread-safe.
+    private val mutableLocation: MutableSharedFlow<GeoCoordinates?> = MutableSharedFlow<GeoCoordinates?>(
+        replay = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    ).also { flow -> flow.tryEmit(current) }
 
     /** How many times [openLocationSettings] has been called. */
     public var openSettingsCount: Int = 0
@@ -66,15 +73,16 @@ public class FakeLocationProvider(
 
     /**
      * Publishes [coordinates] as the current fix: the next [getCurrentLocation] call returns it,
-     * and every [observeLocation] collector receives it immediately.
+     * and every [observeLocation] collector receives it immediately. A fix equal to the previous one
+     * is delivered again, as a real provider delivers every update.
      */
     public fun emit(coordinates: GeoCoordinates?) {
-        mutableLocation.value = coordinates
+        mutableLocation.tryEmit(coordinates)
     }
 
-    override suspend fun getCurrentLocation(): GeoCoordinates? = mutableLocation.value
+    override suspend fun getCurrentLocation(): GeoCoordinates? = mutableLocation.replayCache.last()
 
-    override fun observeLocation(): Flow<GeoCoordinates?> = mutableLocation.asStateFlow()
+    override fun observeLocation(): Flow<GeoCoordinates?> = mutableLocation.asSharedFlow()
 
     override suspend fun isLocationEnabled(): Boolean = locationEnabled
 

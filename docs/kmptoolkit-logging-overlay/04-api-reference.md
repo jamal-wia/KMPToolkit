@@ -55,7 +55,8 @@ Records one event.
   the text is kept. The `Throwable` itself is not retained, so a record never holds an exception's
   captured frames alive.
 - Callable from any thread. The append is atomic: concurrent calls neither lose a record nor produce
-  a torn list. The relative order of two genuinely concurrent calls is unspecified.
+  a torn list. The relative order of two genuinely concurrent calls is unspecified; the list order is the order the
+  overlay decided, and `elapsedMillis` never decreases along it.
 
 ### `fun clear()`
 
@@ -71,7 +72,11 @@ Callable from any thread. This module ships no trigger that calls them — see
 
 A [`LogSink`](../kmptoolkit-logging/04-api-reference.md#fun-interface-logsink) that delegates
 straight to `record`, so it honors this state's `minLevel` and bound. It never throws, so the
-logger's error containment never has to engage.
+logger's error containment never has to engage. A throwable that cannot render its own stack trace (its
+`toString()` or `message` throws) does not cost the event: the record keeps its message and a
+`throwableText` that names the throwable's class and says the trace was unavailable. A throwable whose
+cause chain is too deep to render (more than 64 nested causes) is recorded as its first 64 causes,
+without stack frames.
 
 Each call returns a new instance; all of them feed the same buffer. Install it **alongside**
 `platformLogSink()`, not instead of it:
@@ -164,10 +169,13 @@ The panel on its own, for placing inside your own bottom sheet, developer screen
 
 - **Ignores `state.isVisible`** — whether it is composed is your decision. Its close button still
   calls `hide()`, so drive your container from `isVisible` and the two stay consistent.
-- Renders records **newest first**.
+- Renders records **newest first**. While the list shows its top, a record that arrives is scrolled
+  into view at the top; a reader who has scrolled down into the history is not moved.
 - A row whose record has a `throwableText` expands to show it on tap and collapses on a second tap.
   Which row is expanded is composition-local state, not part of `LogOverlayState`, so two panels
-  over the same buffer can expand different rows.
+  over the same buffer can expand different rows. The expanded row is remembered as the record itself,
+  not its id, so after `clear()` (ids restart at `1`) or a swapped `LogOverlayState` a new record never
+  inherits the expansion of an older one.
 
 ## Level colors
 

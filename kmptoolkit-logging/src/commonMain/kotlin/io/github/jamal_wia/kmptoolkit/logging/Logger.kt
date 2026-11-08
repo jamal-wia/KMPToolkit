@@ -1,7 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.logging
 
-import kotlin.time.TimedValue
-import kotlin.time.measureTimedValue
+import kotlin.time.Duration
+import kotlin.time.TimeSource
 
 /**
  * A tagged logger — the type your code depends on.
@@ -59,7 +59,9 @@ public fun Logger.e(throwable: Throwable? = null, message: () -> String): Unit =
  *
  * The measurement itself is unconditional — only the resulting log event is filtered — so the
  * duration reported is the real one and not an artifact of a disabled logger. [block]'s result is
- * returned unchanged, and an exception thrown by [block] propagates without a log event.
+ * returned unchanged. An exception thrown by [block] propagates without a log event. Leaving [block]
+ * with a non-local `return` (or `break` / `continue`) is a completion like any other and is logged as
+ * control leaves it.
  *
  * Declared `inline` so [block] may suspend and may `return` non-locally — timing a suspending call
  * is the common case, and a non-inline version silently cannot do it.
@@ -69,9 +71,21 @@ public inline fun <T> Logger.logTimed(
     level: LogLevel = LogLevel.DEBUG,
     block: () -> T,
 ): T {
-    val timed: TimedValue<T> = measureTimedValue(block)
-    log(level, null) { "$label [${timed.duration}]" }
-    return timed.value
+    val start: TimeSource.Monotonic.ValueTimeMark = TimeSource.Monotonic.markNow()
+    var failed = false
+    try {
+        return block()
+    } catch (failure: Throwable) {
+        // A non-local `return` skips any "completed" assignment after block(), so the flag marks the
+        // one exit that must stay silent; the rethrow keeps the failure untouched.
+        failed = true
+        throw failure
+    } finally {
+        if (!failed) {
+            val elapsed: Duration = start.elapsedNow()
+            log(level, null) { "$label [$elapsed]" }
+        }
+    }
 }
 
 /**

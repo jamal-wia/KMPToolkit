@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import io.github.jamal_wia.kmptoolkit.video.player.DEFAULT_SEEK_AMOUNT_MS
+import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState
 import io.github.jamal_wia.kmptoolkit.video.player.isPlayable
 
@@ -40,7 +41,9 @@ import io.github.jamal_wia.kmptoolkit.video.player.isPlayable
  * @param onFullscreenClick shows [FullscreenButton] and is called when it is tapped. `null` (the
  *   default) hides the button: fullscreen is your app's to implement.
  * @param isFullscreen picks the fullscreen button's icon and label.
- * @param speeds speeds [SpeedButton] cycles through.
+ * @param speeds speeds [SpeedButton] cycles through. Entries outside the player's
+ *   [VideoPlayer.playbackSpeedRange] are not offered (the player would clamp them and the button could not
+ *   advance past them); when none is inside it, the range's two bounds are offered.
  * @param seekStepMs step of the seek-back and seek-forward buttons.
  * @param showSeekButtons, showMuteButton, showSpeedButton, showTime hide individual parts.
  * @param formatSpeed the speed button's label; see [SpeedButton].
@@ -185,7 +188,7 @@ public fun VideoControlsScope.DefaultVideoControls(
                         SpeedButton(
                             speed = playbackSpeed,
                             onSpeedChange = controls::setPlaybackSpeed,
-                            speeds = speeds,
+                            speeds = speedsWithin(speeds, controls.player.playbackSpeedRange),
                             enabled = playable,
                             formatSpeed = formatSpeed,
                             colors = colors,
@@ -217,4 +220,15 @@ public fun VideoControlsScope.DefaultVideoControls(
             )
         }
     }
+}
+
+/**
+ * The entries of [speeds] inside [range], the speeds a player with that [VideoPlayer.playbackSpeedRange]
+ * accepts. Falls back to the range's two bounds when no entry is inside it, so the button still cycles.
+ * An empty [speeds] is returned as it is, for [SpeedButton] to refuse.
+ */
+internal fun speedsWithin(speeds: List<Float>, range: ClosedFloatingPointRange<Float>): List<Float> {
+    if (speeds.isEmpty()) return speeds
+    val inside: List<Float> = speeds.filter { it in range }
+    return inside.ifEmpty { listOf(range.start, range.endInclusive).distinct() }
 }

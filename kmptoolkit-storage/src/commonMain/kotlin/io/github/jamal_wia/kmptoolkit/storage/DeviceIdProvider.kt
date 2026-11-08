@@ -43,7 +43,9 @@ public class DeviceIdProvider(
      * Always returns an id — there is no failure case for a caller to handle, because a header that
      * must be sent cannot wait for storage to recover. What can fail is the *persistence*: if the
      * store cannot be written, the returned id is still valid for this call but a later call
-     * produces a different one. The same holds when the entry cannot be read *right now*
+     * produces a different one. A store that cannot be written at all, such as a desktop store file
+     * that can no longer be parsed, therefore yields a new id on every call until the host repairs or
+     * clears it; the provider never clears a store on its own. The same holds when the entry cannot be read *right now*
      * ([StorageError.Unavailable], for example a keystore that is momentarily not answering): the id
      * returned is fresh for this call and the stored one is left alone, so it is found again once the
      * store recovers. An id that changes is a degraded signal, not a broken app, which is why this is
@@ -53,30 +55,43 @@ public class DeviceIdProvider(
      * [KeyValueStorage.clear] takes effect at the very next call rather than at the next process
      * start. Every call is one small read.
      *
-     * Concurrent first calls agree: the read-generate-write runs under one process-wide lock, so two
-     * coroutines asking at once — or two providers over the same store — both get the id that was
-     * persisted, never one each. Without it the loser's id would already be in a request header
-     * while the store holds the winner's.
+     * A call that finds its id returns it without taking any lock. Only creating an id takes one
+     * process-wide lock, re-reading under it, so concurrent first calls, and providers over the same
+     * store (also over a wrapper of it), all get the id that was persisted, never one each. Without
+     * it the loser's id would already be in a request header while the store holds the winner's. A
+     * store whose read never answers holds up only its own caller; one that hangs while an id is
+     * being created for it holds up id creation for other stores until it answers.
      */
     @OptIn(ExperimentalUuidApi::class)
-    public suspend fun current(): String = generation.withLock {
-        val read: StorageResult<String?> = storage.get(key)
+    public suspend fun current(): String {
+        // No lock for the common case: an id that is stored is the answer, whoever else is busy.
+        answerFrom(storage.get(key))?.let { return it }
+        return generation.withLock {
+            // Re-read under the lock: a concurrent first call may have created the id meanwhile.
+            answerFrom(storage.get(key))?.let { return@withLock it }
+
+            // Reached when the key is absent, when the entry is permanently unreadable, and when it
+            // holds a blank value — a store hand-edited in a debug build, or a partial restore. All of
+            // them mean "there is no usable id here", and overwriting is the only way out of the last two.
+            val generated: String = Uuid.random().toString()
+            storage.put(key, generated)
+            generated
+        }
+    }
+
+    /** The stored id, a fresh unpersisted id on [StorageError.Unavailable], or null when an id must be created. */
+    @OptIn(ExperimentalUuidApi::class)
+    private fun answerFrom(read: StorageResult<String?>): String? {
         val stored: String? = read.getOrNull()
-        if (stored != null && stored.isNotBlank()) return@withLock stored
+        if (stored != null && stored.isNotBlank()) return stored
 
         // A transient failure is not "no id here": the stored id is probably fine and a later read
         // will find it, so overwriting it would rotate the id on a keystore hiccup. Answer a fresh id
         // for this call only — the documented degradation of an id that could not be persisted.
         if (read is StorageResult.Failure && read.error is StorageError.Unavailable) {
-            return@withLock Uuid.random().toString()
+            return Uuid.random().toString()
         }
-
-        // Reached when the key is absent, when the entry is permanently unreadable, and when it holds
-        // a blank value — a store hand-edited in a debug build, or a partial restore. All of them mean
-        // "there is no usable id here", and overwriting is the only way out of the last two.
-        val generated: String = Uuid.random().toString()
-        storage.put(key, generated)
-        generated
+        return null
     }
 
     public companion object {
@@ -84,10 +99,12 @@ public class DeviceIdProvider(
         public const val DEFAULT_KEY: String = "kmptoolkit.storage.device_id"
 
         /**
-         * One lock for every provider in the process rather than one per instance: two providers built
-         * over the same store are as likely as one shared provider, and a per-instance lock would let
-         * them race. Holding it costs one small read per call, so sharing it across unrelated stores
-         * costs nothing worth a lock map.
+         * One lock for every provider in the process rather than one per instance, taken only while an
+         * id is created (after a lock-free read found none, and re-reading under it): two providers
+         * built over the same store — or over a wrapper of it, which carries no identity of its own —
+         * are as likely as one shared provider, and a per-instance lock would let them race. Creating
+         * an id happens once per installation, so sharing the lock across unrelated stores costs
+         * nothing worth a lock map.
          */
         private val generation: Mutex = Mutex()
     }

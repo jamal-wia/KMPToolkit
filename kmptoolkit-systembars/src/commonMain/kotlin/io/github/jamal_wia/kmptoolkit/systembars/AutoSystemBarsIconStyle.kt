@@ -88,7 +88,8 @@ import kotlin.time.TimeSource
  * @param probe the on-demand trigger source — see [createStatusBarLuminanceProbe].
  * @param enabled when `false`, no sampling happens and no override is ever pushed onto [controller];
  *   the wrapper still composes [content] and still records it into its layer every frame.
- * @param intervalMs periodic sample cadence.
+ * @param intervalMs periodic sample cadence in milliseconds; must be positive, otherwise the call throws
+ *   [IllegalArgumentException].
  * @param onSampled diagnostics hook — called after every sample with how long the whole sample took
  *   (layer readback + both strips + any controller write), in nanoseconds, on the composition's
  *   thread. `null` (the default) costs nothing.
@@ -102,6 +103,9 @@ public fun AutoSystemBarsIconStyle(
     onSampled: ((durationNanos: Long) -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
+    // First, before any early return: the validity of a parameter must not depend on the device's
+    // insets. Not coerced: a clamp would turn a hang into a 1 ms CPU hog and hide the bug.
+    require(intervalMs > 0L) { "intervalMs must be positive, was $intervalMs" }
     val layer: GraphicsLayer = rememberGraphicsLayer()
     // Strip-sized scratch layer the sampler renders into — see `sampleOnce`.
     val stripLayer: GraphicsLayer = rememberGraphicsLayer()

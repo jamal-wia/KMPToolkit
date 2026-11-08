@@ -169,6 +169,47 @@ abstract class KeyValueStorageContractTest {
         assertEquals(value, storage.get("k").getOrNull())
     }
 
+    private fun assertPutRejected(result: StorageResult<Unit>, key: String) {
+        val error: StorageError? = result.errorOrNull()
+        assertTrue(
+            error is StorageError.OperationFailed && error.operation == StorageOperation.PUT && error.key == key,
+            "expected OperationFailed(PUT, $key), was $result",
+        )
+    }
+
+    @Test
+    fun `a value with an unpaired surrogate is rejected and the stored value stays readable`() = runTest {
+        val storage: KeyValueStorage = create()
+        storage.write("k", "old")
+
+        for (bad: String in listOf("a\uD800b", "a\uDC00b", "\uD800", "x\uDC00", "\uDC00\uD800")) {
+            assertPutRejected(storage.put("k", bad), "k")
+        }
+
+        assertEquals(StorageResult.Success("old"), storage.get("k"))
+        assertEquals(StorageResult.Success("old"), create().get("k"))
+    }
+
+    @Test
+    fun `a key with an unpaired surrogate is rejected and nothing is stored`() = runTest {
+        val storage: KeyValueStorage = create()
+        storage.write("k", "old")
+
+        assertPutRejected(storage.put("\uD800", "v"), "\uD800")
+        assertPutRejected(storage.put("a\uDC00", "v"), "a\uDC00")
+
+        assertEquals(StorageResult.Success("old"), create().get("k"))
+    }
+
+    @Test
+    fun `a well-formed surrogate pair is stored and read back`() = runTest {
+        val storage: KeyValueStorage = create()
+
+        storage.write("k", "😀a😀")
+
+        assertEquals(StorageResult.Success("😀a😀"), create().get("k"))
+    }
+
     /**
      * [KeyValueStorage.put], asserting that it succeeded.
      *

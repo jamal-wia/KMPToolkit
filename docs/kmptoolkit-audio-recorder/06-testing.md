@@ -67,7 +67,7 @@ and observation:
 | Property | Records |
 |---|---|
 | `preparedPaths` | every path `prepare` opened, in order |
-| `deletedPaths` | every path thrown away: by `cancel`, by re-preparing over an unused file, by a scripted `prepare`/`start` failure, and by `simulateInterruption`/`simulateRecordingLost` from `Ready`. A failed `stop` keeps its file: it is carried on the `Failed` state, and `cancel()` then deletes it |
+| `deletedPaths` | every path thrown away: by `cancel`, by `release` from `Ready`, by re-preparing over an unused file, by a scripted `EngineFailure` of `prepare` or any scripted failure of `start` (the other `prepare` errors happen before the real recorder opens a file), and by `simulateInterruption`/`simulateRecordingLost` from `Ready`. A failed `stop` keeps its file: it is carried on the `Failed` state, and `cancel()` then deletes it |
 | `completedRecordings` | every `RecordedFile` produced by `stop` |
 | `releaseCount` | whether the code under test released the recorder — at most `1`, since `release` is idempotent |
 
@@ -168,6 +168,10 @@ recorder.
   exists on disk. Code that reads the recorded file back needs its own seam.
 - **No filesystem checks.** `DirectoryNotWritable` and `InsufficientStorage` never occur on their
   own; script them with `failNextOperationWith`.
+  The shape of an explicit path is checked, though: `prepare` with a blank or non-absolute path is refused
+  with `DirectoryNotWritable`, like the real recorder (and consumes no scripted failure). The `directory`
+  constructor argument must be absolute; a trailing or repeated separator in `directory` is dropped from
+  generated paths, as the real recorder does.
 - **No format validation.** `UnsupportedFormat` likewise.
 - **Not safe to call from several threads**, exactly like the recorder it replaces.
 - **No subscription-driven metering.** The real recorder samples the microphone only while `level`

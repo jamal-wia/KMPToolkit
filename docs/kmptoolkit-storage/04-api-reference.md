@@ -20,7 +20,7 @@ A string-keyed, string-valued store whose contents survive a process restart.
 | Member | Contract |
 |---|---|
 | `get` | `Success(null)` when the key was never written. `Failure` only when the store could not be read — never for a missing key |
-| `put` | Overwrites. The value is readable by any instance over the same config once this returns |
+| `put` | Overwrites. The value is readable by any instance over the same config once this returns. A key or value containing an unpaired UTF-16 surrogate cannot be stored by any backend; `put` answers `OperationFailed` and changes nothing |
 | `remove` | Idempotent; succeeds for a key that is not there |
 | `clear` | Removes only this store's entries. Never another store's, never the iOS standard defaults |
 

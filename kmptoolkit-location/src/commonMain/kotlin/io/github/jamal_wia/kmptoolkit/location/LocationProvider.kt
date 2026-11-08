@@ -22,7 +22,8 @@ public interface LocationProvider {
     /**
      * Returns a single location fix, or `null` if none could be obtained.
      *
-     * Prefers a cached fix the platform already has; falls back to requesting a fresh one, capped
+     * Prefers the freshest cached fix the platform already has (on Android, across the GPS and network
+     * providers that are switched on); falls back to requesting a fresh one, capped
      * by [LocationProviderConfig.singleFixTimeoutMillis] so a device with no signal cannot hang
      * this call forever. Never throws for a missing permission or a disabled location service —
      * both come back as `null`.
@@ -32,6 +33,8 @@ public interface LocationProvider {
     /**
      * Hot stream of location updates. Emits `null` when no fix is available (permission revoked,
      * location service disabled, no signal) so a collector never sits without an answer.
+     * The stream is conflated: a collector that is busy skips intermediate positions and always
+     * ends on the newest one (including a newer `null`), never on a stale fix.
      * Implementations stop the underlying location request when the flow is cancelled.
      */
     public fun observeLocation(): Flow<GeoCoordinates?>

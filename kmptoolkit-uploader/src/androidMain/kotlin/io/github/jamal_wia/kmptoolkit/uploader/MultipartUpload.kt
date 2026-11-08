@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.uploader
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.HttpURLConnection
@@ -54,6 +55,9 @@ internal class MultipartOutcome(val result: UploadResult, val response: UploadRe
  *
  * The handler's own limit is applied later, in the engine; this reads at most the engine's ceiling plus
  * one byte, enough to know the body was longer.
+ *
+ * After a failure the connection is dropped without asking for the status, unless a write to the peer failed:
+ * asking would send the closing chunk and hand the server a complete, truncated request.
  */
 internal fun performMultipartUploadCapturing(
     request: UploadRequest,
@@ -67,7 +71,7 @@ internal fun performMultipartUploadCapturing(
     // Pre-flight the file parts so a vanished source reads as a transport failure the handler can react
     // to, instead of an exception mid-stream.
     request.fields.filterIsInstance<UploadField.File>().forEach { part ->
-        if (!File(part.path).canRead()) {
+        if (!File(part.path).let { it.isFile && it.canRead() }) {
             return MultipartOutcome(UploadResult.TransportFailure("source file missing/unreadable: ${part.path}"), null)
         }
     }
@@ -91,9 +95,20 @@ internal fun performMultipartUploadCapturing(
         // Closed only once the body is whole. Closing a chunked stream sends its final chunk, so closing
         // it on a cancellation or a failed write would hand the server a complete, truncated request;
         // the disconnect below drops the connection instead.
-        out.close()
+        try {
+            out.close()
+        } catch (e: IOException) {
+            throw PeerWriteFailure(e) // the final chunk is a write to the peer
+        }
         watch?.finishWriting()
         val status: Int = connection.responseCode
+        // A status read after the watchdog dropped the connection is no answer: the headers were cut short by the drop.
+        if (watch != null && !watch.answered()) {
+            return MultipartOutcome(
+                UploadResult.TransportFailure("no complete answer within the watchdog bound (status $status)"),
+                null,
+            )
+        }
         MultipartOutcome(
             UploadResult.Completed(status),
             if (captureResponse) readResponse(connection, status, isCancelled, readTimeoutMillis) else null,
@@ -101,13 +116,16 @@ internal fun performMultipartUploadCapturing(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        // A server can reject-and-close before the chunked body finishes (size cap, proxy 4xx) — the
-        // write then throws, but a status may still be readable. Prefer the real status so a permanent
-        // rejection can be classified instead of retried forever as a transport failure.
-        // Not after the watchdog dropped the connection: the peer is not answering, and asking for its status
-        // would wait out the whole read timeout on a socket that was closed on purpose.
-        val lateStatus: Int? = connection?.takeUnless { watch?.wasDropped == true }?.let { conn ->
-            runCatching { conn.responseCode }.getOrNull()?.takeIf { it >= HTTP_BAD_REQUEST }
+        // Only a write the peer broke may have an answer waiting: a final status sent before the body ended
+        // is the server's answer, a rejection to classify or an early acceptance or redirect that must not
+        // upload the file again. After any other failure the connection is dropped without asking: asking for
+        // the status closes the chunked stream, which would send the final chunk and hand the server a
+        // complete, truncated request.
+        // Not after the watchdog dropped the connection either: the peer is not answering, and asking for its
+        // status would wait out the whole read timeout on a socket that was closed on purpose.
+        val lateStatus: Int? = connection?.takeIf { e is PeerWriteFailure && watch?.wasDropped != true }?.let { conn ->
+            // A drop that landed while this status was awaited cut it short: it is no answer either.
+            runCatching { conn.responseCode }.getOrNull()?.takeIf { it in HTTP_FINAL_STATUSES && watch?.wasDropped != true }
         }
         if (lateStatus != null) {
             // Best effort: the connection was torn down mid-request, so the body may be unreadable — then
@@ -126,8 +144,12 @@ internal fun performMultipartUploadCapturing(
 
 /**
  * The answer on [connection] (whose status is [status]): headers without the status line's null key, and the
- * body from `errorStream` for a 4xx/5xx — `null` when the server sent none — or `inputStream` otherwise.
- * A body that fails to read is reported as truncated rather than thrown.
+ * body from `errorStream` for a 4xx/5xx or `inputStream` otherwise — an empty body when the server sent none,
+ * and also when the headers declared one the stack did not deliver, in which case it is flagged truncated.
+ * A body that fails to read is reported as truncated rather than thrown. A redirect whose body the stack
+ * does not hand over is flagged truncated unless its headers declare an empty body. A status that carries no content
+ * (1xx, 204, 205, 304) is never read and never flagged: whatever length its headers name belongs to the
+ * entity it stands for, not to a body it sent.
  */
 private fun readResponse(
     connection: HttpURLConnection,
@@ -142,10 +164,15 @@ private fun readResponse(
             }
         }
     }.getOrDefault(emptyMap())
+    if (statusCarriesNoContent(status)) {
+        return UploadResponse(status, headers, ByteArray(0), false)
+    }
     var read = ReadBody(ByteArray(0), cut = false)
+    var opened = false
     try {
         val stream: InputStream? = if (status >= HTTP_BAD_REQUEST) connection.errorStream else connection.inputStream
         if (stream != null) {
+            opened = true
             read = stream.use { input -> readAtMost(input, MAX_RESPONSE_BODY_BYTES, isCancelled, deadlineMillis) }
             // A server that closes early may end a fixed-length body without any error on some stacks:
             // fewer bytes than it declared is an incomplete body. Skipped when the stack decoded the
@@ -154,13 +181,43 @@ private fun readResponse(
             if (declared != null && connection.contentEncoding == null && read.bytes.size < declared && !read.cut) {
                 read = ReadBody(read.bytes, cut = true)
             }
+        } else if (declaresBody(connection)) {
+            // The stack kept the body from us (a 401 or 407 on a stack that dropped the connection to
+            // retry): say so, instead of reporting that the server sent nothing.
+            read = ReadBody(read.bytes, cut = true)
         }
     } catch (e: Exception) {
-        // No stream to read from: the status stands, the body is unknown.
-        read = ReadBody(read.bytes, cut = true)
+        // The stack refused the stream (a redirect in streaming mode raises HttpRetryException): the status
+        // stands and the body is unknown, unless the headers prove there is none. A failure after the stream
+        // was opened keeps the flag: bytes may have been lost.
+        read = ReadBody(read.bytes, cut = opened || !declaresEmptyBody(connection))
     }
     return UploadResponse(status, headers, read.bytes, read.cut)
 }
+
+/**
+ * Whether the response's headers prove the body empty: a `Content-Length` of exactly `0` and no chunked transfer
+ * encoding. Stricter than the negation of [declaresBody] on purpose: a close-delimited body (no length, no
+ * chunking) may have been sent and withheld by the stack.
+ */
+private fun declaresEmptyBody(connection: HttpURLConnection): Boolean = runCatching {
+    val length: Long? = connection.getHeaderField("Content-Length")?.trim()?.toLongOrNull()
+    val chunked: Boolean = connection.getHeaderField("Transfer-Encoding")?.contains("chunked", ignoreCase = true) == true
+    length == 0L && !chunked
+}.getOrDefault(false)
+
+/** Whether the response's headers announce a body: a positive `Content-Length` or a chunked transfer encoding. */
+private fun declaresBody(connection: HttpURLConnection): Boolean {
+    val length: Long? = connection.getHeaderField("Content-Length")?.trim()?.toLongOrNull()
+    if (length != null) return length > 0
+    return connection.getHeaderField("Transfer-Encoding")?.contains("chunked", ignoreCase = true) == true
+}
+
+/**
+ * A write to the connection failed, so the peer closed or reset it mid-body. The only failure after which the
+ * server may already have answered.
+ */
+private class PeerWriteFailure(cause: IOException) : IOException(cause.message, cause)
 
 private class ReadBody(val bytes: ByteArray, val cut: Boolean)
 
@@ -205,9 +262,18 @@ private fun writeMultipartBody(
     fun ensureNotCancelled() {
         if (isCancelled()) throw CancellationException("Upload cancelled mid-body.")
     }
+    // Every write to the connection goes through here, so only these failures count as the peer breaking
+    // the write; reads of the source, the cancellation poll and the progress hooks stay outside.
+    fun send(bytes: ByteArray, length: Int = bytes.size) {
+        try {
+            out.write(bytes, 0, length)
+        } catch (e: IOException) {
+            throw PeerWriteFailure(e)
+        }
+    }
     fun writeText(text: String) {
         ensureNotCancelled()
-        out.write(text.encodeToByteArray())
+        send(text.encodeToByteArray())
     }
     val progress = WholePercentProgress(
         totalBytes = request.fields.filterIsInstance<UploadField.File>().sumOf { File(it.path).length() },
@@ -217,20 +283,23 @@ private fun writeMultipartBody(
         writeText("--$boundary\r\n")
         when (field) {
             is UploadField.Text -> {
-                writeText("Content-Disposition: form-data; name=\"${field.name}\"\r\n\r\n")
+                writeText("Content-Disposition: form-data; name=\"${multipartQuotedValue(field.name)}\"\r\n\r\n")
                 writeText(field.value)
             }
 
             is UploadField.File -> {
-                writeText("Content-Disposition: form-data; name=\"${field.name}\"; filename=\"${field.fileName}\"\r\n")
-                writeText("Content-Type: ${field.contentType}\r\n\r\n")
+                writeText(
+                    "Content-Disposition: form-data; name=\"${multipartQuotedValue(field.name)}\"; " +
+                        "filename=\"${multipartQuotedValue(field.fileName)}\"\r\n",
+                )
+                writeText("Content-Type: ${multipartHeaderValue(field.contentType)}\r\n\r\n")
                 File(field.path).inputStream().use { input ->
                     val buffer = ByteArray(COPY_BUFFER_BYTES)
                     while (true) {
                         val read: Int = input.read(buffer)
                         if (read < 0) break
                         ensureNotCancelled()
-                        out.write(buffer, 0, read)
+                        send(buffer, read)
                         watch?.touch()
                         progress.add(read.toLong())
                     }
@@ -243,6 +312,7 @@ private fun writeMultipartBody(
 }
 
 private const val HTTP_BAD_REQUEST: Int = 400
+private val HTTP_FINAL_STATUSES: IntRange = 200..599
 private const val COPY_BUFFER_BYTES: Int = 8 * 1024
 private const val NANOS_PER_MILLI: Long = 1_000_000L
 
@@ -262,6 +332,12 @@ internal class WriteWatch {
 
     @Volatile
     private var lastActivityNanos: Long = System.nanoTime()
+
+    @Volatile
+    private var awaitingAnswer: Boolean = false
+
+    @Volatile
+    private var awaitingSinceNanos: Long = 0L
 
     @Volatile
     private var dropped: Boolean = false
@@ -289,8 +365,22 @@ internal class WriteWatch {
         lastActivityNanos = System.nanoTime()
     }
 
+    /** The body is whole: from here the transfer waits for the status line and headers, under [stalledFor]'s second limit. */
     fun finishWriting() {
         writing = false
+        awaitingSinceNanos = System.nanoTime()
+        awaitingAnswer = true
+    }
+
+    /**
+     * The status line and headers arrived; the body read that follows has its own deadline.
+     *
+     * @return `false` when [drop] ran first: `drop` writes `dropped` before it closes the socket, so a status or
+     *   headers cut short by the drop are always seen here.
+     */
+    fun answered(): Boolean {
+        awaitingAnswer = false
+        return !dropped
     }
 
     /** Closes the socket; the blocked write throws and the transfer reports through its ordinary failure path. */
@@ -299,13 +389,21 @@ internal class WriteWatch {
         connection.get()?.disconnect()
     }
 
+    /**
+     * Whether the transfer is stuck: the body write made no progress for [limitMillis], or — once the body is
+     * sent — the status line and headers have not arrived within twice that. The first [limitMillis] of the
+     * wait is the server's silent processing, which the per-read timeout already allows; the second is what a
+     * server that drips its headers a byte at a time (each byte resetting that timeout) can still take.
+     */
     fun stalledFor(limitMillis: Int): Boolean =
-        writing && (System.nanoTime() - lastActivityNanos) / NANOS_PER_MILLI > limitMillis
+        (writing && (System.nanoTime() - lastActivityNanos) / NANOS_PER_MILLI > limitMillis) ||
+            (awaitingAnswer && (System.nanoTime() - awaitingSinceNanos) / NANOS_PER_MILLI > 2L * limitMillis)
 }
 
 /**
  * Runs the blocking transfer in [block] under a watchdog that closes its connection when the surrounding
- * coroutine is cancelled, or when the body write makes no progress for [stallMillis]. The watchdog is a child
+ * coroutine is cancelled, when the body write makes no progress for [stallMillis], or when the server takes
+ * longer than twice that to send its status line and headers once the body is sent. The watchdog is a child
  * of this scope, so cancellation reaches it even while the transfer's own thread is blocked.
  */
 internal suspend fun <T> withWriteWatchdog(stallMillis: Int, block: suspend (WriteWatch) -> T): T = coroutineScope {

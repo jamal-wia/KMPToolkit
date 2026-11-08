@@ -52,7 +52,9 @@ is where these live.
 
 Temp files live under `<base>/tmp/`: an unfinished transfer at `<unit.id>.<unit.tempExtension>`,
 and the same file renamed to `<unit.id>.<unit.tempExtension>.complete` once
-`markTempFileComplete` declares it finished. The rename is atomic within one directory on both
+`markTempFileComplete` declares it finished. The extension is part of that name, so keep it stable
+per id, as you keep `relativePath` stable: instances of one id that return different extensions see
+different temp files. The rename is atomic within one directory on both
 platforms, so a crash leaves either a partial file or a complete one. A `ZipArchive` unit stages
 its extraction under `<base>/tmp/staging-<unit.id>/` — per unit, so two archives extracting at the
 same time never collide, and two commits of the same unit never share it, since commits of one unit
@@ -60,9 +62,9 @@ are serialized across every storage instance over the base directory in the proc
 mid-extraction leaves the tree behind; the next commit of that unit replaces it, and
 `deleteTempFile(unit)` (so `cancelDownload`) removes it — unless a commit of that unit is running in
 the process at that moment: the removal never waits for it (it would be deleting the tree the commit
-is extracting into), so it is skipped and the next cancel or commit reclaims the tree. The same
-skip happens, very rarely and for microseconds, while another unit's commit is registering or
-leaving. The tree is only renamed to `tmp/kmptoolkit-internal/trash/<random number>` under the lock and
+is extracting into), so it is skipped and the next cancel or commit reclaims the tree. Another
+unit's commit registering or leaving the lock registry never causes a skip (that probe is retried).
+The tree is only renamed to `tmp/kmptoolkit-internal/trash/<random number>` under the lock and
 deleted after it is released, so a large extraction never stalls other units' commits (the entry is
 named by a number alone, so no id's length can make the rename fail). If the process dies or the
 delete fails midway, the remainder stays in `tmp/kmptoolkit-internal/trash/`; every later
@@ -120,7 +122,9 @@ Known limits that are not fixed: two units whose id and extension join to the sa
 normalization share files on a case-insensitive volume. On such a volume (iOS asks the volume once
 per storage; an unanswerable volume counts as case-insensitive) the commit lock of `Model` and
 `model` is shared, so they never commit or detach a staging tree at the same time, and a
-`relativePath` such as `TMP/Expect/x` is rejected like `tmp/expect/x`. Android is case-sensitive.
+`relativePath` such as `TMP/Expect/x` is rejected like `tmp/expect/x` (case is folded with the full
+mapping, so `tmp/ſtaging-x` is rejected too, and ids such as `ß`, `ẞ`, `straße` and `STRASSE` share a commit
+lock). Android is case-sensitive.
 
 On iOS the OS may restart a background download from zero while claiming to resume it from
 `resumeData`. The bytes of the new file then do not match the hash recorded for the first one, so
@@ -172,7 +176,36 @@ data.
 
 ZIP extraction is `java.util.zip` on Android and a hand-written streaming extractor over zlib's raw
 `inflate` on iOS (Kotlin/Native has no `java.util.zip`). Both stream through a single reusable
-buffer rather than loading an entry into memory, and both carry zip-slip protection.
+buffer rather than loading an entry into memory, both extract every entry or fail the commit, and both
+treat an entry that would leave the extraction directory as a failure (names are resolved lexically on
+`/` only: `a/../inner.txt` extracts to `inner.txt`, `release..notes.txt` is an ordinary name, `../evil.txt`
+fails). Both check each entry's sizes and CRC-32; an entry written with a data descriptor (a streaming
+writer's layout, as `java.util.zip.ZipOutputStream` produces) is supported for DEFLATED entries. A
+truncated or corrupt archive, an unsupported compression method, an encrypted entry or a traversal name
+fails the commit with `ResourceIntegrityException` (one fresh download, then `DownloadError.Corrupted`).
+iOS does not read ZIP64 archives (entries or archives over 4 GiB): such an archive fails the commit there.
+The walk is the one `java.util.zip.ZipInputStream` makes: local headers in order, the central directory
+never read. An archive must end with its end of central directory record (a comment cut short is tolerated, and
+so are bytes after the record); an archive cut anywhere before it, its central directory included, fails the
+commit with `ResourceIntegrityException` on both platforms. This is decided from the file alone before anything is
+extracted: a signature `PK\5\6` with 22 bytes after it, within the last 69,633 bytes, whose central directory
+offset plus size equals its own position (a ZIP64 record counts when its locator precedes it). Self-extracting
+archives (a stub in front of the first header) fail on their first bytes. Entry names are read as UTF-8 whether
+or not the archive sets the UTF-8 flag; a name that is not valid UTF-8 (an archive written in a legacy code page)
+fails the commit. Android 14 and later (`targetSdk` 34+) also refuse entry names containing `..` segments or
+starting with `/` inside `java.util.zip` (Zip path validation); on those devices such archives fail as
+`Corrupted`, while older devices and iOS extract them under their normalized names.
+
+When the marker is not at the top and the archive holds exactly one non-empty top-level directory that
+contains it, that directory's contents are moved up; files and empty directories beside it stay where they
+are, and a name that exists at the top as a file fails the commit with `ResourceIntegrityException`. An empty
+directory of the same name is replaced; a non-empty directory is never deleted.
+
+A `SqliteDatabase` file must be at least 100 bytes long and start with the 16-byte SQLite header
+(`SQLite format 3` and a NUL); an empty or cut body fails the commit, before the database is opened. The row
+count table is used as a name (resolved through `sqlite_master`, then quoted: a keyword or a name with spaces
+works) and the meta key is bound as a value, so neither is ever SQL text. A table value that names no table is
+still used as SQL text, as in 3.0.0, for compatibility only.
 
 ## Both platforms
 
@@ -187,8 +220,11 @@ buffer rather than loading an entry into memory, and both carry zip-slip protect
 - **No disk-space precondition.** Neither platform checks free space before enqueueing; a full disk
   fails during the transfer or during commit, and surfaces as whatever your
   `BackgroundResourceDownloader` reports (commonly `DownloadError.Unknown` unless your
-  implementation's error message is recognisable) or, for a commit-time failure (a `ZipArchive`
-  extraction, a move into place), as `DownloadError.Storage`.
+  implementation's error message is recognisable) or, for a commit-time failure (a write during a
+  `ZipArchive` extraction, a move into place), as `DownloadError.Storage`. Extraction writes are checked
+  on both platforms, so a full disk during extraction fails the commit instead of leaving a truncated
+  file. An archive whose bytes cannot be extracted at all is not a storage failure but
+  `ResourceIntegrityException` (above).
 - **`DownloaderStorage` keys everything by the unit's own properties (`id`, `relativePath`), never
   by object identity or by any internal per-instance map.** Two `DownloadUnit` instances with the
   same `id` — a host constructing a fresh instance per call is common and expected — always resolve

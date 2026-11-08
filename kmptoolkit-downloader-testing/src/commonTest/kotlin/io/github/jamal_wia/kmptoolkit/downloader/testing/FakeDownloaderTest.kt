@@ -115,7 +115,7 @@ class FakeDownloaderTest {
         val storage = FakeDownloaderStorage()
         storage.beginTempFile(unit, null)
 
-        storage.markTempFileComplete(unit)
+        assertFailsWith<IllegalStateException> { storage.markTempFileComplete(unit) }
 
         assertEquals(TempFileState.None, storage.tempFileState(unit))
     }

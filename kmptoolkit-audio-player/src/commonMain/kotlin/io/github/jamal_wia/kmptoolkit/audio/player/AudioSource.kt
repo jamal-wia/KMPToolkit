@@ -23,7 +23,9 @@ public sealed interface AudioSource {
     /**
      * Audio already written to device storage.
      *
-     * @property path absolute file path. The library never creates, downloads, or cleans up this
+     * @property path absolute file path. Must not be blank: a blank path ends in [PlayerState.Error] with
+     *   an `IllegalArgumentException`, without reaching the platform. The library never creates,
+     *   downloads, or cleans up this
      *   file — see the "What this is not" section of `01-overview.md`.
      */
     public data class File(val path: String) : AudioSource

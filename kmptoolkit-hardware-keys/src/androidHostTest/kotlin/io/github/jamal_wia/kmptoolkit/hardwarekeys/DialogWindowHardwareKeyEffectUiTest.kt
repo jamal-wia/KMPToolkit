@@ -202,7 +202,7 @@ class DialogWindowHardwareKeyEffectUiTest {
         }
         waitForIdle()
         val shown: Window = assertNotNull(window)
-        val later = KeyInterceptingWindowCallback(shown.callback) { false }
+        val later = object : Window.Callback by shown.callback {}
         shown.callback = later
 
         withEffect = false
@@ -239,6 +239,47 @@ class DialogWindowHardwareKeyEffectUiTest {
         assertEquals(1, logger.errors.size)
         assertSame(second, DialogWindowHardwareKeyPolicy.interceptor)
     }
+
+    @Test
+    fun `uninstall does not reach a dialog already composed but a dialog composed afterwards is stock`() =
+        runComposeUiTest {
+            var calls = 0
+            DialogWindowHardwareKeyPolicy.install { calls++; true }
+            var first: Window? = null
+            var second: Window? = null
+            var showFirst by mutableStateOf(true)
+            var showSecond by mutableStateOf(false)
+            setContent {
+                if (showFirst) {
+                    Dialog(onDismissRequest = {}) {
+                        first = dialogWindow()
+                        DialogWindowHardwareKeyEffect()
+                    }
+                }
+                if (showSecond) {
+                    Dialog(onDismissRequest = {}) {
+                        second = dialogWindow()
+                        DialogWindowHardwareKeyEffect()
+                    }
+                }
+            }
+            waitForIdle()
+            val volumeUp = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP)
+
+            DialogWindowHardwareKeyPolicy.uninstall()
+            calls = 0
+            // Documented: a window already composed keeps the interceptor it read until it leaves.
+            assertTrue(assertNotNull(first).callback.dispatchKeyEvent(volumeUp))
+            assertEquals(1, calls)
+
+            showFirst = false
+            waitForIdle()
+            showSecond = true
+            waitForIdle()
+            calls = 0
+            assertFalse(assertNotNull(second).callback is KeyInterceptingWindowCallback)
+            assertEquals(0, calls)
+        }
 
     @Test
     fun `uninstall removes the policy`() {

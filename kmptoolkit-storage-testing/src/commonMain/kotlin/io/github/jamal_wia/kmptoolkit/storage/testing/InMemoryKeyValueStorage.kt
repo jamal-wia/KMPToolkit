@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.storage.testing
 import io.github.jamal_wia.kmptoolkit.storage.KeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.SecureKeyValueStorage
 import io.github.jamal_wia.kmptoolkit.storage.StorageError
+import io.github.jamal_wia.kmptoolkit.storage.StorageOperation
 import io.github.jamal_wia.kmptoolkit.storage.StorageResult
 
 /**
@@ -13,7 +14,8 @@ import io.github.jamal_wia.kmptoolkit.storage.StorageResult
  * the very thing that does not exist in a unit test.
  *
  * It keeps the documented contract — absent reads back as `null`, `""` reads back as `""`, [put]
- * overwrites, [remove] of an absent key succeeds, [clear] empties only this instance — so a test
+ * overwrites, [remove] of an absent key succeeds, [clear] empties only this instance, and [put] of a
+ * key or value with an unpaired UTF-16 surrogate fails with [StorageError.OperationFailed] — so a test
  * that passes against it is testing behavior the real stores also have.
  *
  * What it adds is control over failure, which no real store gives you on demand:
@@ -68,6 +70,18 @@ public class InMemoryKeyValueStorage : SecureKeyValueStorage {
         scripted() ?: StorageResult.Success(entries[key])
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> {
+        // Like the real stores, before anything else: a key or value with an unpaired surrogate cannot
+        // be stored by any backend, so it fails with OperationFailed, changes nothing and does not
+        // consume an armed failNextOperationWith.
+        if (hasUnpairedSurrogate(key) || hasUnpairedSurrogate(value)) {
+            return StorageResult.Failure(
+                StorageError.OperationFailed(
+                    StorageOperation.PUT,
+                    key = key,
+                    cause = IllegalArgumentException("Unpaired UTF-16 surrogate in the key or value"),
+                ),
+            )
+        }
         scripted()?.let { return it }
         entries[key] = value
         recordedWrites += key
@@ -92,4 +106,21 @@ public class InMemoryKeyValueStorage : SecureKeyValueStorage {
         failNextOperationWith = null
         return StorageResult.Failure(error)
     }
+}
+
+// A private copy of the real stores' rule (the helper there is internal): the fake mirrors the real
+// stores, so it refuses what none of them can keep.
+private fun hasUnpairedSurrogate(text: String): Boolean {
+    var index = 0
+    while (index < text.length) {
+        val char: Char = text[index]
+        when {
+            char.isHighSurrogate() -> {
+                if (index + 1 < text.length && text[index + 1].isLowSurrogate()) index++ else return true
+            }
+            char.isLowSurrogate() -> return true
+        }
+        index++
+    }
+    return false
 }

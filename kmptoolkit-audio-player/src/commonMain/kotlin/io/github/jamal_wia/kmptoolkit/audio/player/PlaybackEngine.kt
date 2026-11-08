@@ -49,6 +49,10 @@ public interface PlaybackEngine {
     /**
      * Loads [source] and suspends until it is ready to play, discarding anything loaded before.
      *
+     * A `CancellationException` thrown while the calling coroutine is still active (an engine's own
+     * timeout) counts as a load failure, like any other throwable; the player surfaces it as
+     * [PlayerState.Error].
+     *
      * @param source what to load.
      * @throws Throwable any platform error — surfaced by the player as [PlayerState.Error].
      */
@@ -61,14 +65,17 @@ public interface PlaybackEngine {
     public fun pause()
 
     /**
-     * Moves the playhead. The caller has already clamped [positionMs] to `0..`[durationMs].
+     * Moves the playhead. [positionMs] is never negative. It is clamped to `0..`[durationMs] while the
+     * length is known; while [durationMs] is `0` a relative skip passes its target unclamped, up to
+     * [Long.MAX_VALUE]. An engine whose platform takes a narrower type must saturate, not truncate.
      *
      * @param positionMs target position in milliseconds.
      */
     public fun seekTo(positionMs: Long)
 
     /**
-     * Sets the output rate. The caller has already clamped [speed] to the configured range.
+     * Sets the output rate. The caller has already clamped [speed] to the configured range. Must not
+     * throw: a rate the platform refuses is ignored and playback keeps its previous rate.
      *
      * @param speed rate multiplier.
      */

@@ -50,6 +50,14 @@ public interface VideoPlayer : AutoCloseable {
     /** Rate in effect, already clamped to the configured range. `1.0` until [setPlaybackSpeed]. */
     public val playbackSpeedFlow: StateFlow<Float>
 
+    /**
+     * The configured [VideoPlayerConfig.minPlaybackSpeed]`..`[VideoPlayerConfig.maxPlaybackSpeed]; every
+     * value of [playbackSpeedFlow] lies in it. Lets a speed menu offer only rates the player accepts.
+     *
+     * @since 3.1.0
+     */
+    public val playbackSpeedRange: ClosedFloatingPointRange<Float>
+
     /** Output volume in `0f..1f`, independent of [isMutedFlow]. `1.0` until [setVolume]. */
     public val volumeFlow: StateFlow<Float>
 

@@ -6,6 +6,7 @@ import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
+import io.github.jamal_wia.kmptoolkit.logging.w
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -333,9 +334,18 @@ internal class DefaultDownloaderEngine(
         // running past logout would keep transferring under just-revoked credentials. The unit
         // cancel is synchronous, so its effects are in place before cancelChildren() below runs.
         unitEntries.value.values.forEach { entry: UnitEntry -> cancelUnitNow(entry) }
+        // Every epoch is bumped: a start not in this snapshot registers after the bumps and sees
+        // them at its first check, so it never enqueues; one that is in it is waited for below.
+        val inFlight: Set<TransferStart> = transferStarts.value
         // Cancel any in-flight retry coroutine on our own scope (a notification-shade Retry) so it can't
         // re-enqueue a download after logout; the scope itself stays usable for later downloads.
         scope.coroutineContext.cancelChildren()
+        // A start in flight leaves its window only after its post-enqueue check has stopped its
+        // transfer and taken its state back. Only the snapshot is awaited, so requests made after
+        // this cancel can never hold it up.
+        if (inFlight.isNotEmpty()) {
+            transferStarts.first { current: Set<TransferStart> -> inFlight.none { it in current } }
+        }
         logger.i { "All downloads cancelled" }
     }
 
@@ -549,8 +559,22 @@ internal class DefaultDownloaderEngine(
         val announceStart: suspend () -> Unit = {
             if (!announced) {
                 announced = true
-                groupState.value = GroupDownloadState.Downloading(progress = progressBase)
-                notifyProgress(group, progressBase)
+                // One atomic write that gives way to a cancel: a start that lost to a cancel must
+                // not publish Downloading over the cancel's Idle (nor post a notification).
+                var published = false
+                groupState.update { current: GroupDownloadState ->
+                    published = !token.isCancelled
+                    if (published) GroupDownloadState.Downloading(progress = progressBase) else current
+                }
+                if (published) notifyProgress(group, progressBase)
+            }
+        }
+        // A cancel that lands while the transfer is starting: take the start back (the state and
+        // the notification), see transferStarts.
+        val undoStart: () -> Unit = {
+            if (announced) {
+                groupState.value = GroupDownloadState.Idle
+                notifyRemove(group)
             }
         }
 
@@ -570,6 +594,7 @@ internal class DefaultDownloaderEngine(
                 enqueue = enqueueThisAttempt,
                 token = token,
                 beforeEnqueue = announceStart,
+                undoStart = undoStart,
             )
             // Whatever ended the attempt, a cancel requested meanwhile ends the call.
             throwIfGroupCancelled(group, groupState, token, unit)
@@ -668,6 +693,7 @@ internal class DefaultDownloaderEngine(
         enqueue: Boolean,
         token: CancelToken,
         beforeEnqueue: suspend () -> Unit,
+        undoStart: () -> Unit,
     ): DownloadAttemptResult {
         var madeProgress = false
 
@@ -676,15 +702,18 @@ internal class DefaultDownloaderEngine(
             enqueue = enqueue,
             token = token,
             beforeEnqueue = beforeEnqueue,
+            undoStart = undoStart,
         ) { event ->
             // Progress that arrives after a cancel (buffered ahead of its Cancelled, or from a
             // call that has not noticed yet) must not bring the group back to Downloading.
             if (token.isCancelled) return@awaitTerminalEvent
-            if (event.fraction > progressMark.highWater) {
-                progressMark.highWater = event.fraction
+            // NaN or infinity is ignored: it neither counts as progress nor moves the high-water mark.
+            val fraction: Float = usableFraction(event.fraction) ?: return@awaitTerminalEvent
+            if (fraction > progressMark.highWater) {
+                progressMark.highWater = fraction
                 madeProgress = true
             }
-            val scaledProgress: Float = progressBase + event.fraction * progressScale
+            val scaledProgress: Float = (progressBase + fraction * progressScale).coerceAtMost(1f)
             // Guard: never report progress lower than the current value.
             // On retry, the new attempt starts at fraction=0 before real
             // progress is reported — without this check the UI would
@@ -705,6 +734,9 @@ internal class DefaultDownloaderEngine(
             stalled = wait.stalled,
         )
     }
+
+    /** A port's fraction as the engine uses it: null for NaN or infinity (ignored entirely), otherwise clamped to 0..1. */
+    private fun usableFraction(fraction: Float): Float? = if (fraction.isFinite()) fraction.coerceIn(0f, 1f) else null
 
     /** One attempt's terminal event, and whether it is the engine's own stall error. */
     private class TerminalWait(
@@ -757,6 +789,7 @@ internal class DefaultDownloaderEngine(
         enqueue: Boolean,
         token: CancelToken,
         beforeEnqueue: suspend () -> Unit,
+        undoStart: () -> Unit,
         onProgress: suspend (BackgroundDownloadEvent.Progress) -> Unit,
     ): TerminalWait = coroutineScope {
         val events: Channel<Any> = Channel(Channel.UNLIMITED)
@@ -791,27 +824,40 @@ internal class DefaultDownloaderEngine(
                 startTransfer = true
             }
             if (startTransfer) {
-                if (token.isCancelled) return@coroutineScope cancelledWait(unit)
-                beforeEnqueue()
-                if (token.isCancelled) return@coroutineScope cancelledWait(unit)
-                // Nothing is suspended between this drain and the enqueue, so what is dropped here
-                // was delivered at subscription (a replay), never by this attempt's transfer.
-                var subscriptionEnded = false
-                while (true) {
-                    val dropped: Any = events.tryReceive().getOrNull() ?: break
-                    if (dropped === ObserveCompleted) subscriptionEnded = true
-                }
-                backgroundDownloader.enqueueDownload(unit)
-                // A flow that ended on a leftover terminal (a per-unit state flow that completes on
-                // its last outcome) has nothing left to say: subscribe again, now that the transfer
-                // exists, and a port that replays its current state delivers this attempt's.
-                if (subscriptionEnded) subscription = subscribe()
-                if (token.isCancelled) {
-                    // The cancel came after the check above: it either saw this transfer (and
-                    // stopped it) or did not (and this stops it). cancelDownload bumps the epoch
-                    // before it cancels the port, so one of the two always happens.
-                    cancelTransfer(unit)
-                    return@coroutineScope cancelledWait(unit)
+                // The start is registered before its first token check and released after its last
+                // one, so cancelAllDownloads can wait for a start that is in flight (see
+                // transferStarts).
+                val ticket = TransferStart()
+                transferStarts.update { current: Set<TransferStart> -> current + ticket }
+                try {
+                    if (token.isCancelled) return@coroutineScope cancelledWait(unit)
+                    beforeEnqueue()
+                    if (token.isCancelled) {
+                        undoStart()
+                        return@coroutineScope cancelledWait(unit)
+                    }
+                    // Nothing is suspended between this drain and the enqueue, so what is dropped here
+                    // was delivered at subscription (a replay), never by this attempt's transfer.
+                    var subscriptionEnded = false
+                    while (true) {
+                        val dropped: Any = events.tryReceive().getOrNull() ?: break
+                        if (dropped === ObserveCompleted) subscriptionEnded = true
+                    }
+                    backgroundDownloader.enqueueDownload(unit)
+                    // A flow that ended on a leftover terminal (a per-unit state flow that completes on
+                    // its last outcome) has nothing left to say: subscribe again, now that the transfer
+                    // exists, and a port that replays its current state delivers this attempt's.
+                    if (subscriptionEnded) subscription = subscribe()
+                    if (token.isCancelled) {
+                        // The cancel came after the check above: it either saw this transfer (and
+                        // stopped it) or did not (and this stops it). cancelDownload bumps the epoch
+                        // before it cancels the port, so one of the two always happens.
+                        cancelTransfer(unit)
+                        undoStart()
+                        return@coroutineScope cancelledWait(unit)
+                    }
+                } finally {
+                    transferStarts.update { current: Set<TransferStart> -> current - ticket }
                 }
             }
             // A cancel ends the wait at once instead of leaving it to the port to report a
@@ -880,6 +926,17 @@ internal class DefaultDownloaderEngine(
             events.cancel()
         }
     }
+
+    /** One request that is starting a transfer; plain class, so two starts are never equal. */
+    private class TransferStart
+
+    /**
+     * The starts in flight: from just before a request's first pre-enqueue cancel check to just
+     * after its post-enqueue one (which stops the transfer a cancel beat and takes the start's
+     * state back). cancelAllDownloads waits for the starts that were in flight when it bumped the
+     * epochs, so when it returns nothing it cancelled still shows Downloading or holds a transfer.
+     */
+    private val transferStarts: MutableStateFlow<Set<TransferStart>> = MutableStateFlow(emptySet())
 
     /** Queued when a cancel of the unit's group (or of the unit) is requested while it is awaited. */
     private object CancelRequested
@@ -1200,7 +1257,9 @@ internal class DefaultDownloaderEngine(
     // same state and the same mutex regardless of how the host implemented equals. Each is an
     // immutable map in a StateFlow with a compare-and-set get-or-put, so a lookup never suspends
     // (cancelDownload(unit) is not a suspend function and must act at once) and the type works in
-    // commonMain on Kotlin/Native, which ConcurrentHashMap would not.
+    // commonMain on Kotlin/Native, which ConcurrentHashMap would not. Adding a new id copies the map,
+    // so its cost grows with the ids already tracked: negligible for thousands, noticeable only past
+    // tens of thousands.
     private val unitEntries: MutableStateFlow<Map<String, UnitEntry>> = MutableStateFlow(emptyMap())
     private val unitMutexes: MutableStateFlow<Map<String, Mutex>> = MutableStateFlow(emptyMap())
 
@@ -1347,24 +1406,22 @@ internal class DefaultDownloaderEngine(
             cancelUnitNow(entry)
             return
         }
-        // Never tracked, so no call is running for it (a running call always has an entry) and
-        // there is no state to reset. Release what the platform and the disk may hold, without
-        // creating an entry or a mutex that would then live as long as the engine.
-        val mutex: Mutex? = unitMutexes.value[unit.id]
-        val ownsUnit: Boolean = mutex?.tryLock() ?: true
+        // Never tracked, so there is no state to reset. Release what the platform and the disk may
+        // hold, without creating an entry (a state flow that would then live as long as the engine);
+        // only the unit's lock object is created, so the delete below is guarded exactly like the
+        // tracked path's. A request on another thread creates its entry BEFORE it locks the unit:
+        // either it holds the lock now (tryLock fails, nothing is deleted under its commit, and the
+        // late cancel below bumps its epoch), or it waits behind this delete and starts clean.
+        val mutex: Mutex = unitMutex(unit)
+        val ownsUnit: Boolean = mutex.tryLock()
         try {
             cancelTransfer(unit)
             clearStallCount(unit)
-            // With no mutex there was nothing to lock, so a request on another thread may have
-            // started tracking the unit since the snapshot above; deleting now would run unguarded
-            // against its commit. Leave the files to the tracked path below.
-            val startedMeanwhile: Boolean =
-                mutex == null && (unitEntries.value[unit.id] != null || unitMutexes.value[unit.id] != null)
-            if (ownsUnit && !startedMeanwhile) safeDeleteTempFile(unit)
+            if (ownsUnit) safeDeleteTempFile(unit)
         } finally {
-            if (mutex != null && ownsUnit) mutex.unlock()
+            if (ownsUnit) mutex.unlock()
         }
-        if (mutex == null) unitEntries.value[unit.id]?.let { late: UnitEntry -> cancelUnitNow(late) }
+        unitEntries.value[unit.id]?.let { late: UnitEntry -> cancelUnitNow(late) }
     }
 
     private fun cancelUnitNow(entry: UnitEntry) {
@@ -1412,11 +1469,19 @@ internal class DefaultDownloaderEngine(
             unit = unit,
             enqueue = enqueue,
             token = token,
-            beforeEnqueue = { stateFlow.value = UnitDownloadState.Downloading(progress = 0f) },
+            // One atomic write that gives way to a cancel (see the group's announceStart).
+            beforeEnqueue = {
+                stateFlow.update { current: UnitDownloadState ->
+                    if (token.isCancelled) current else UnitDownloadState.Downloading(progress = 0f)
+                }
+            },
+            // The call holds the unit's mutex, so no other call owns this state.
+            undoStart = { stateFlow.value = UnitDownloadState.Idle },
         ) { event ->
             // One atomic write that gives way to a cancel (see the group handler).
+            val fraction: Float = usableFraction(event.fraction) ?: return@awaitTerminalEvent
             stateFlow.update { current: UnitDownloadState ->
-                if (token.isCancelled) current else UnitDownloadState.Downloading(progress = event.fraction)
+                if (token.isCancelled) current else UnitDownloadState.Downloading(progress = fraction)
             }
         }
         // Whatever ended the attempt, a cancel requested meanwhile ends the call.
@@ -1522,7 +1587,13 @@ internal class DefaultDownloaderEngine(
         stateStore.readInt(stallCountKey(unit), 0)
 
     private fun incrementStallCount(unit: DownloadUnit): Int {
-        val newCount: Int = getStallCount(unit) + 1
+        val stored: Int = getStallCount(unit)
+        // The engine only ever writes 1..MAX_STALL_RETRIES + 1. Anything else is a damaged host store:
+        // read as the nearest valid value, so it can neither grant endless retries (negative) nor
+        // overflow into them (Int.MAX_VALUE + 1).
+        val previous: Int = stored.coerceIn(0, MAX_STALL_RETRIES + 1)
+        if (previous != stored) logger.w { "Stored failure count $stored of $unit is out of range, read as $previous" }
+        val newCount: Int = previous + 1
         stateStore.writeInt(stallCountKey(unit), newCount)
         return newCount
     }
@@ -1561,9 +1632,11 @@ internal class DefaultDownloaderEngine(
  * `status 502`, `status code: 410`. The status word must start a word and the digits must follow it
  * directly (only `error` / `status` / `code` and separators in between), so a three-digit run inside
  * a URL (`https://cdn/assets/40123.zip`), an id or a byte count is never taken for a status.
+ * Written so no whitespace run can be split between two quantifiers: matching stays linear in the
+ * message length.
  */
 private val HTTP_STATUS: Regex =
-    Regex("\\b(?:http(?:/\\d(?:\\.\\d)?)?|status)(?:\\s+(?:error|status|code)){0,2}\\s*[:=]?\\s*(\\d{3})\\b")
+    Regex("\\b(?:http(?:/\\d(?:\\.\\d)?)?|status)(?:\\s+(?:error|status|code)){0,2}\\s*(?:[:=]\\s*)?(\\d{3})\\b")
 
 /**
  * Classifies a platform-emitted [BackgroundDownloadEvent.Error.message] into a [DownloadError].

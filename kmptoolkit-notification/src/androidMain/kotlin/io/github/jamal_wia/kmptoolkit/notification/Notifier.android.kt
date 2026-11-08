@@ -147,8 +147,11 @@ internal class AndroidNotifier(
         // Outside the guard below, and before anything else: a blank id is a bug in the caller, and
         // require() throws IllegalArgumentException, which the guard would otherwise swallow.
         requireValidNotificationId(id)
+        // The post is in flight from here on: a cancel that returns while it is still in the
+        // permission check, before the coalescer would hear of it, is ordered against it all the same.
+        val claim: ProgressCoalescer.PostClaim = coalescer.claim(id)
         return try {
-            postGated(id, notification, options)
+            postGated(id, notification, options, claim)
         } catch (e: CancellationException) {
             // Cancellation is not a notification failure: kotlinx's CancellationException is a
             // RuntimeException, so it has to be re-thrown before the catch below sees it.
@@ -157,6 +160,8 @@ internal class AndroidNotifier(
             // Anything the framework throws — a SecurityException if the permission is revoked
             // mid-call, a dead binder when a system service restarts, a payload notify() refuses.
             NotificationResult.Failed(e)
+        } finally {
+            coalescer.release(claim)
         }
     }
 
@@ -167,6 +172,7 @@ internal class AndroidNotifier(
         id: String,
         notification: LocalNotification,
         options: NotificationOptions,
+        claim: ProgressCoalescer.PostClaim,
     ): NotificationResult {
         if (!mayPostNotifications()) return NotificationResult.PermissionDenied
         if (!notificationManager.areNotificationsEnabled()) {
@@ -186,7 +192,7 @@ internal class AndroidNotifier(
             )
         }
         val ticket: ProgressCoalescer.PostTicket =
-            coalescer.prepare(id, notification.progress, content) ?: return NotificationResult.Coalesced
+            coalescer.prepare(id, notification.progress, content, claim) ?: return NotificationResult.Coalesced
         try {
             // Built outside the lock: real work (PendingIntents, bitmaps).
             val built: Notification = renderer.build(id, notification, options, iconResId)
@@ -203,18 +209,18 @@ internal class AndroidNotifier(
                 }
                 // notify() returned, so the platform has accepted the frame: nothing can undo it.
                 coalescer.complete(ticket, acknowledged = true)
+                // The frame is on the tray, so now it may decide where a tap opens the app. Written
+                // here, inside the lock and after the accept, so the one tap target of the id is
+                // never written for a frame that was dropped or refused, and accepted frames write it
+                // in the order they reached the tray.
+                applyTapTarget(id, notification)
                 true
             }
-            if (!shown) {
-                // Built but never shown: its tap target must not stand in for the frame on the tray.
-                restoreTapTarget(id)
-                return NotificationResult.Coalesced
-            }
+            if (!shown) return NotificationResult.Coalesced
         } catch (e: Throwable) {
             // Nothing reached the tray, so the frame must not stand as the baseline: a retry of the
             // same progress has to post. A no-op if cancel/clear or a newer post got there first.
             coalescer.rollback(ticket)
-            restoreTapTarget(id)
             throw e
         }
         // The frame is on the tray; a refused sweep must not turn that into a failure. An entry is
@@ -228,24 +234,25 @@ internal class AndroidNotifier(
     }
 
     /**
-     * Writes the tap target of the frame the tray is known to show back into its `PendingIntent`.
+     * Writes the tap target of the frame the platform has just accepted into the id's `PendingIntent`.
      *
-     * A tap target is one `PendingIntent` per id that `FLAG_UPDATE_CURRENT` rewrites when a frame is
-     * rendered, which happens before the platform has accepted that frame. A frame that is then
-     * refused or dropped would leave the frame still showing opening the app with *its* extras. The
-     * coalescer hands over the shown frame's content only while no other frame of the id is in
-     * flight (that frame renders its own target, and a restore here would overwrite it), and does so
-     * under its lock, so a frame prepared meanwhile renders after this write. Unknown after a process
-     * restart, where the tray frame's content is not remembered; nothing is restored then.
+     * A tap target is one `PendingIntent` per id, shared by every frame of it, and a write to it
+     * (`FLAG_UPDATE_CURRENT`) changes where the frame already on the tray opens the app. The renderer
+     * therefore only obtains it while building a frame, and this is the one place that writes it:
+     * after `notify` returned, never for a frame that was dropped, overtaken or refused. Nothing has
+     * to be restored afterwards, whatever order frames were built and dropped in, and it holds after a
+     * process restart too. Between `notify` and this write the notification carries the extras of the
+     * frame it replaced, for the microseconds of one `PendingIntent` lookup.
+     *
+     * A refusal here is logged and ignored: the frame is on the tray and a failing write must not
+     * turn that into a failure or roll the frame back.
      */
-    private fun restoreTapTarget(id: String) {
+    private fun applyTapTarget(id: String, notification: LocalNotification) {
+        val extras: Map<String, String> = notification.contentExtras ?: return
         try {
-            coalescer.withShownContent(id) { content: Any? ->
-                val extras: Map<String, String>? = (content as? CoalescingKey)?.notification?.contentExtras
-                if (extras != null) renderer.restoreContentIntent(id, extras)
-            }
+            renderer.applyContentIntent(id, extras)
         } catch (e: RuntimeException) {
-            Log.w(LOG_TAG, "Could not restore the tap target of notification '$id'.", e)
+            Log.w(LOG_TAG, "Could not write the tap target of notification '$id'.", e)
         }
     }
 

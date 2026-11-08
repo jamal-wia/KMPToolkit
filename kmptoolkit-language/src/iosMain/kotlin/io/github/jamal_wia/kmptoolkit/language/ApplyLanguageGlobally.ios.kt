@@ -7,8 +7,9 @@ import platform.Foundation.preferredLanguages
 
 public actual fun applyLanguageGlobally(language: AppLanguage) {
     val defaults: NSUserDefaults = NSUserDefaults.standardUserDefaults
-    if (language.code != null) {
-        defaults.setObject(listOf(language.code), forKey = APPLE_LANGUAGES_KEY)
+    val tag: String? = language.platformTag()
+    if (tag != null) {
+        defaults.setObject(listOf(tag), forKey = APPLE_LANGUAGES_KEY)
     } else {
         defaults.removeObjectForKey(APPLE_LANGUAGES_KEY)
     }

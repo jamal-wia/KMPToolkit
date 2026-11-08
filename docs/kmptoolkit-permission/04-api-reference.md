@@ -190,7 +190,11 @@ public interface PermissionController {
   nothing to show) it returns that status at once.
 - **`request(permissions)`** — one entry per distinct permission, in iteration order. On Android every
   runtime permission that can still prompt shares one system dialog; background location and
-  background body sensors never join it. Everything else is requested in order, one at a time.
+  background body sensors never join it. Entries that stand for one Android permission on the
+  running API level (a Bluetooth scan below API 31 is location) are one request with one answer, so
+  the user is never asked the same thing twice in a call. A batch waits for an activity at most once
+  (when the app is in the background after a refusal), not once per permission. Everything else is
+  requested in order, one at a time.
 - **Requests are serialized.** A request made while another is in flight — through the same
   controller — waits for it, so two prompts never overlap. That includes a request cancelled while
   its system dialog is still up: the dialog cannot be taken back, so the next request waits (at most
@@ -199,21 +203,27 @@ public interface PermissionController {
   nothing shown, the status returned unchanged.
 - **`observe`** emits the current status on collection, then each *different* status: on every
   activity resume on Android, every time the app becomes active on iOS, and after every request
-  through the same controller that covered the permission (or the entry it stands for on this API
-  level). It never shows UI.
+  through the same controller that asked Android for a permission it depends on: the entry itself,
+  the entry it stands for on this API level, or another catalog entry asking for the same Android
+  permission (a `Runtime(name)` is re-read only at the next resume). It never shows UI.
 - **`openSettings`** opens the most specific system screen for `permission`: a special access's own
   page, the app's notification page for `Notifications`, the default-apps screen for a role, and
   otherwise the app's details page. `true` means a screen was handed to the system, not that the user
   saw it or changed anything. `false` for a type the controller does not know.
 - **Nothing throws** for a platform failure — a missing activity, a launcher that cannot fire, a
-  screen no app handles — it arrives as a status or as `false`, and is logged.
+  screen no app handles — it arrives as a status or as `false`, and is logged. A platform read that
+  throws (the notification switch, a policy or rationale lookup, a protection-level lookup) reads as
+  the status it would have when the platform cannot tell, and is logged once.
 - **Cancellation.** Cancelling the coroutine that called `request` abandons the *result*, not the
   system UI: the user's answer still reaches the OS, nothing is recorded for an unanswered dialog, and
   the next `check` sees what happened. A dialog still waiting to be posted to the main thread when
   the caller is cancelled (Android, caller off the main thread) is not shown at all.
 - **Callers on any thread.** On Android a request for a special access subscribes to the activity's
   resume and opens the Settings screen on the main thread, so a caller on `Dispatchers.Default` or `IO`
-  returns only once the user is back, never early because of a late resume notification. `observe`
+  returns only once the user is back, never early because of a late resume notification. "Back" is the
+  first resume of an activity of the app after the screen opened: with several windows of the app on
+  screen, a window beside Settings that is recreated counts, and the request then returns the status
+  unchanged (`observe` sees the user's choice at the next resume). `observe`
   subscribes to request results before it first reads the status, so a request that resolves in between
   is not missed.
 
@@ -254,7 +264,7 @@ reached, identical to `state.value` once it returns.
 | `Requesting` | request permanently denied | `AwaitingSettings` |
 | `Requesting` | request restricted or unavailable | `Unavailable` |
 | `Requesting` | request denied or unanswered | `Denied` |
-| `Requesting` | the calling coroutine is cancelled | `Idle` (nothing was decided; `refresh()` reads the real choice) |
+| `Requesting` | the calling coroutine is cancelled, or the controller throws | `Idle` (nothing was decided; the exception reaches the caller; `refresh()` reads the real choice) |
 | `AwaitingRationale` | `rationaleAcknowledged()` | `Requesting`, then the request outcome |
 | `AwaitingRationale` | `rationaleDismissed()` | `Denied` |
 | `AwaitingSettings` | `openSettings()` | `AwaitingSettings` (the app is backgrounded) |
@@ -268,7 +278,7 @@ never an exception.
 `openSettings()` returns `false` both when the flow is not in `AwaitingSettings` (nothing is opened)
 and when the controller could not open a screen. It calls `controller.openSettings(permission)`.
 
-**Concurrent drivers.** Drive one flow from one coroutine where you can. A `refresh()` on resume racing a `start()` on tap is tolerated: each transition after a suspension publishes only if the state is still the one it started from, so a stale result never overwrites a live `Requesting` or its outcome (the newer state is returned). The synchronous transitions (`reset()`, `rationaleDismissed()`, `settingsDeclined()`) check and write in one atomic step, so a `start()` or `rationaleAcknowledged()` landing at the same moment can never be overwritten, and no second request goes in flight. It holds no platform resource.
+**Concurrent drivers.** Drive one flow from one coroutine where you can. A `refresh()` on resume racing a `start()` on tap is tolerated: each transition after a suspension publishes only if nothing was published since it started (it compares the identity of the last publish, not the state value), so a stale result never overwrites a live `Requesting`, its outcome, or the state a start-and-cancel round trip returned to (the newer state is returned). The synchronous transitions (`reset()`, `rationaleDismissed()`, `settingsDeclined()`) check and write in one atomic step, so a `start()` or `rationaleAcknowledged()` landing at the same moment can never be overwritten, and no second request goes in flight. It holds no platform resource.
 
 ## `PermissionFlowState`
 
@@ -319,7 +329,9 @@ Every collaborator but `context` and `storage` has a default:
   [guide](03-guide.md#a-kiosk-lock-task-app).
 - **`config`** — see `AndroidPermissionConfig`.
 - **`logger`** — where an undeclared permission, a dialog that could not be shown, an unreadable flag
-  and a launcher failure are reported.
+  and a launcher failure are reported. A flag the storage cannot read, write or remove is treated as
+  not set and logged as a warning once per flag, so a storage that is down is visible without a line
+  on every check.
 
 ### `AndroidPermissionConfig` (Android only)
 

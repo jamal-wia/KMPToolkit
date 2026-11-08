@@ -48,8 +48,9 @@ Withdrawals are recorded too: `cancelled` lists the ids passed to `cancel`, `can
 passed to `cancelByTag`.
 
 `FakeUploader` is safe to use from several threads: every call, read and `trigger()` is atomic, and the
-result function runs outside any lock, so it may call back into the fake. `RecordingUploadTransport` and
-the other doubles are not thread-safe.
+result function runs outside any lock, so it may call back into the fake. `MutableUploaderClock` and
+`RecordingWakeScheduler` are thread-safe too (the engine calls both from the caller's thread and from its drain at once);
+`RecordingUploadTransport` is not.
 
 ## Testing with the real engine
 
@@ -76,6 +77,10 @@ fun `a failing effect is retried with a backoff gate`() = runTest {
     assertTrue(item.nextRunAtEpochMillis > 0L)
 }
 ```
+
+`InMemoryUploaderStore` never notices a cancelled caller, whereas a store that hops to a database thread does,
+even after its write committed. The engine is built for both, so a test against the in-memory store pins the
+SPI invariants, not cancellation timing.
 
 Three habits make these tests deterministic:
 
@@ -120,7 +125,7 @@ engine.settle(first.id, first.claim, SettleResult.Failed()) // superseded: chang
 
 ## Testing your own store
 
-If you implemented `UploaderStore`, run the contract against it. One test gets you forty-six invariants:
+If you implemented `UploaderStore`, run the contract against it. One test gets you fifty-eight checks, covering every invariant the `UploaderStore` KDoc states except durability:
 
 ```kotlin
 class MyUploaderStoreTest {
@@ -153,6 +158,13 @@ private val contract = UploaderStoreContract { MyUploaderStore(freshDatabase()) 
 It is deliberately not a JUnit base class: `kotlin.test`'s JVM annotations are typealiases to a
 framework's own, so publishing one would put JUnit on the compile classpath of every consumer,
 including their iOS build.
+
+Since 3.1.0 the contract also checks what a mutated store used to slip past it: exact tag and unique-key matching,
+verbatim payloads, whole-row equality after every guarded write, absolute attempts/gates/leases, insertion order
+under falling creation times, a live observation that never completes, the tail revival of a parked key, exact
+point reads, snapshot lists and the one-winner races of concurrent claims and keeps. The new checks are additive
+public functions of `UploaderStoreContract`; a store that passed the old 46 may now fail one of them, which is the
+check doing its job.
 
 **What the contract cannot check** is durability across a process restart — no in-process check can
 observe that. If your store buffers writes anywhere, prove that separately; the engine's central

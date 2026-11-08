@@ -84,6 +84,9 @@ captures lives as long as the tracker does. Capture the `ActivityAccess`, not an
 
 ## Threading
 
+To act on every window of the app that is resumed (split screen, freeform, activity embedding) rather
+than the newest one, use `forEachResumedActivity { activity -> ... }`.
+
 `withActivity` runs the block on the calling thread and does not move you to the main thread —
 most `Activity` APIs require it, so hop yourself if you are not already there. Listeners are invoked
 synchronously on whatever thread the framework delivers `onActivityResumed` on, which is the main
@@ -97,8 +100,11 @@ the listener is never called again, and if the listener is running on the main t
 cancelling from another thread while holding a lock the listener also takes. `release()` behaves the
 same for all listeners, for every caller: a second `release()` racing the first, or made from inside a
 listener, does not return before the listeners are stopped, and a listener added while `release()`
-runs is never called. Cancelling also drops the listener itself, so a handle you keep does not pin
-what it captured.
+runs is never called. Cancelling (or releasing) also drops the listener itself and the access it
+belongs to, so a handle you keep pins neither what the listener captured nor the released access. A
+resume that was already in flight when `release()` ran does not put its activity back: a released
+access reports no activity. Release an access only after everything built on it is torn down: a controller over
+a released access can no longer reach any window, so a window flag it set stays on that window.
 
 ## Opening system screens
 
