@@ -230,8 +230,11 @@ internal fun acquireInstallation(
 ): KeyPolicyRecord.Hold {
     val hook: WindowKeyHook = WindowHooks.hookFor(window)
     val hold: KeyPolicyRecord.Hold = hook.take(interceptor)
-    if ((window.callback as? KeyInterceptingWindowCallback)?.hook !== hook) {
-        window.callback = KeyInterceptingWindowCallback(window.callback, hook)
+    // A window whose callback someone cleared dispatches keys straight to its views; there is nothing to
+    // wrap, so the policy does not act in it.
+    val current: Window.Callback = window.callback ?: return hold
+    if ((current as? KeyInterceptingWindowCallback)?.hook !== hook) {
+        window.callback = KeyInterceptingWindowCallback(current, hook)
     }
     return hold
 }
