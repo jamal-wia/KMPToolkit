@@ -65,6 +65,7 @@ class AndroidAlarmSchedulerChaosRecoveryStormAdversarialTest {
                 barrier.await(10, TimeUnit.SECONDS)
                 while (!stop.get()) {
                     ChaosShadowAlarmManager.mode.set(Mode.values()[random.nextInt(Mode.values().size)])
+                    ShadowAlarmManager.setCanScheduleExactAlarms(random.nextInt(3) != 0)
                     Thread.sleep(0, 200_000)
                 }
             }
@@ -95,6 +96,7 @@ class AndroidAlarmSchedulerChaosRecoveryStormAdversarialTest {
             stop.set(true)
             chaos.join(10_000)
             ChaosShadowAlarmManager.mode.set(Mode.HEALTHY)
+            ShadowAlarmManager.setCanScheduleExactAlarms(true)
             assertTrue(workers.none { it.isAlive } && !chaos.isAlive, "round $round: a thread is stuck")
             assertEquals(emptyList(), escaped.toList(), "round $round: a platform refusal escaped")
 
@@ -119,7 +121,7 @@ class AndroidAlarmSchedulerChaosRecoveryStormAdversarialTest {
         assertTrue(saturatedSeen.get() > 0, "the storm never saturated an id, so it did not exercise the saturated rule")
     }
 
-    enum class Mode { HEALTHY, REFUSE_SET, REFUSE_CANCEL, REFUSE_BOTH }
+    enum class Mode { HEALTHY, REFUSE_SET, REFUSE_CANCEL, REFUSE_BOTH, REVOKED }
 
     @Implements(AlarmManager::class)
     class ChaosShadowAlarmManager : ShadowAlarmManager() {
@@ -127,8 +129,17 @@ class AndroidAlarmSchedulerChaosRecoveryStormAdversarialTest {
         public override fun setExactAndAllowWhileIdle(type: Int, triggerAtTime: Long, operation: PendingIntent?) {
             val m = mode.get()
             if (m == Mode.REFUSE_SET || m == Mode.REFUSE_BOTH) throw IllegalStateException("Maximum limit of concurrent alarms 500 reached.")
+            if (m == Mode.REVOKED) throw SecurityException("exact alarms revoked")
             insideSet.set(true)
             try { super.setExactAndAllowWhileIdle(type, triggerAtTime, operation) } finally { insideSet.set(false) }
+        }
+
+        @Implementation
+        public override fun setAndAllowWhileIdle(type: Int, triggerAtTime: Long, operation: PendingIntent?) {
+            val m = mode.get()
+            if (m == Mode.REFUSE_SET || m == Mode.REFUSE_BOTH) throw IllegalStateException("Maximum limit of concurrent alarms 500 reached.")
+            insideSet.set(true)
+            try { super.setAndAllowWhileIdle(type, triggerAtTime, operation) } finally { insideSet.set(false) }
         }
 
         @Implementation

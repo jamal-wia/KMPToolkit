@@ -28,7 +28,7 @@ import org.robolectric.shadows.ShadowAlarmManager
  * a refused retirement leaves its alarm armed, a saturated id answers Failed and changes nothing until cancel(id).
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], shadows = [AndroidAlarmSchedulerLookAlikeChaosAdversarialTest.ModeShadowAlarmManager::class])
+@Config(sdk = [24, 28, 31, 33, 35], shadows = [AndroidAlarmSchedulerLookAlikeChaosAdversarialTest.ModeShadowAlarmManager::class])
 class AndroidAlarmSchedulerLookAlikeChaosAdversarialTest {
 
     private val context: Context = RuntimeEnvironment.getApplication()
