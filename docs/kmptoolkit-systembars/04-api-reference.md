@@ -212,7 +212,7 @@ axis it claims. See [`03-guide.md`](03-guide.md#automatic-icon-styling).
 | `controller` | Receives the derived styles |
 | `probe` | The on-demand trigger source — see [`createStatusBarLuminanceProbe`](#statusbarluminanceprobe) |
 | `enabled` | `false` disables sampling and pushes no override; `content` still composes and is still recorded into the internal layer every frame |
-| `intervalMs` | Periodic sample cadence — [`DEFAULT_SAMPLE_INTERVAL_MS`] (300 ms) by default |
+| `intervalMs` | Periodic sample cadence in milliseconds — [`DEFAULT_SAMPLE_INTERVAL_MS`] (300 ms) by default; must be positive, otherwise the call throws `IllegalArgumentException` |
 | `onSampled` | Diagnostics hook called after every sample with how long it took, in nanoseconds. `null` (the default) costs nothing. Not a restart key: a new lambda each recomposition does not restart sampling. Samples never overlap (one readback at a time) |
 
 Sampling runs only while the host's `Lifecycle` is at least `STARTED`. Place this once, near the
