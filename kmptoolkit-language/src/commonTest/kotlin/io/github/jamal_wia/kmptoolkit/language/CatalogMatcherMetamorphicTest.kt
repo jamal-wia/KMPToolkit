@@ -58,7 +58,7 @@ class CatalogMatcherMetamorphicTest {
         createAppLanguageCatalog(supported = supported, systemLanguageCode = { device })
 
     @Test
-    fun `case, underscore and extension spelling of the device tag never changes the answer`() {
+    fun `case underscore and extension spelling of the device tag never changes the answer`() {
         val random = Random(1)
         repeat(20_000) { index ->
             val supported: List<AppLanguage> = supportedList(random)
@@ -73,7 +73,7 @@ class CatalogMatcherMetamorphicTest {
     }
 
     @Test
-    fun `case, underscore and extension spelling of the supported codes never changes the answer`() {
+    fun `case underscore and extension spelling of the supported codes never changes the answer`() {
         val random = Random(2)
         repeat(20_000) { index ->
             val supported: List<AppLanguage> = supportedList(random)
@@ -99,7 +99,7 @@ class CatalogMatcherMetamorphicTest {
     }
 
     @Test
-    fun `the answer is a supported entry of the device language, or the fallback, and a script is never crossed`() {
+    fun `the answer is a supported entry of the device language or the fallback and a script is never crossed`() {
         val random = Random(4)
         repeat(30_000) { index ->
             val supported: List<AppLanguage> = supportedList(random)
