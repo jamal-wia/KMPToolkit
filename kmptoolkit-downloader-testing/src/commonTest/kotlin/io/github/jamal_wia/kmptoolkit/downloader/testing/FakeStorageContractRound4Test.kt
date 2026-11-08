@@ -14,7 +14,7 @@ class FakeStorageContractRound4Test {
     private val unit = TestUnit("u", group)
 
     @Test
-    fun `marking a transfer complete when no file exists throws, as the real storages do`() {
+    fun `marking a transfer complete when no file exists throws as the real storages do`() {
         val storage = FakeDownloaderStorage()
         storage.beginTempFile(unit, null)
         // Begun, nothing written: the state is None, there is no file to mark.
