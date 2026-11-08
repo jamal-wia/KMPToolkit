@@ -37,6 +37,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.runner.RunWith
 
 /**
@@ -306,6 +307,76 @@ class UploaderConcurrencyStormRound3AdversarialTest {
 
 
 
+    // W1 (D-59, P10): eight jobs for one item in one process run one after the other: the file is uploaded once.
+    @Test
+    fun `eight concurrent jobs for one item upload it once`() {
+        serve(beforeAnswer = { Thread.sleep(40L) })
+        val store = TestUploaderStore()
+        val handler = StormHandler()
+        startEngine(store, handler)
+        val results = runMany(8)
+        results.forEach { assertIs<ListenableWorker.Result.Success>(it) }
+        assertEquals(1, connections.get(), "one connection: the other seven jobs waited and found nothing owed")
+        assertEquals(1, handler.delivered.get(), "onDelivered once")
+        assertEquals(1, handler.settled.get(), "onSettled once")
+        assertNull(store.find("item-1"))
+        assertTrue(journalFiles().isEmpty(), "no entry left: ${journalFiles()}")
+    }
+
+    // R3-03: the same without an answer: every job reports a transport failure for the one attempt.
+    @Test
+    fun `eight concurrent transport failures of one attempt run onSettled once`() {
+        val deadPort: Int = ServerSocket(0).use { it.localPort }
+        val arrived = AtomicInteger(0)
+        val handler = StormHandler(
+            port = { deadPort },
+            onClassify = {
+                arrived.incrementAndGet()
+                withTimeoutOrNull(1_000L) { while (arrived.get() < 8) delay(5L) }
+            },
+        )
+        val store = TestUploaderStore()
+        startEngine(store, handler)
+        runMany(8).forEach { assertIs<ListenableWorker.Result.Success>(it) }
+        assertEquals(1, store.find("item-1")?.attempts, "one attempt, one charge")
+        assertEquals(1, handler.settled.get(), "the settlement landed once; onSettled is 'after the row was committed'")
+    }
+
+    // R3-10: as R3-09 but the hook blocks its thread, for more jobs than Default has threads.
+    @Test
+    fun `more items than threads with blocking progress hooks still settle within the bound`() {
+        serve()
+        val count: Int = Runtime.getRuntime().availableProcessors() + 2
+        val ids = (1..count).map { "b-$it" }
+        val handler = StormHandler(
+            fields = { listOf(UploadField.File("f", "f.bin", "application/octet-stream", file(300_000).path)) },
+            onProgress = { Thread.sleep(5_000L) },
+        )
+        startEngine(TestUploaderStore(), handler, ids)
+        val startedAt = System.nanoTime()
+        val delivered = runBlocking {
+            withContext(Dispatchers.IO) {
+                val jobs = ids.map { id -> async(Dispatchers.IO) { uploads.async { worker(id).doWork() }.await() } }
+                withTimeout(25_000L) { jobs.awaitAll() }
+            }
+        }
+        val tookMillis: Long = (System.nanoTime() - startedAt) / 1_000_000L
+        delivered.forEach { assertIs<ListenableWorker.Result.Success>(it) }
+        assertTrue(tookMillis < 4_000L, "a progress hook must not hold up settlements: took $tookMillis ms for $count items")
+    }
+
+    // R3-22: another job settled the item between this job's preparation and the start of its transfer.
+    @Test
+    fun `a job whose item settled between preparation and transfer uploads nothing`() {
+        serve()
+        val store = TestUploaderStore()
+        val handler = StormHandler(onPrepared = { call -> if (call == 2) store.deleteById("item-1") })
+        startEngine(store, handler)
+        val result = runBlocking { withTimeout(20_000L) { worker("item-1").doWork() } }
+        assertIs<ListenableWorker.Result.Success>(result)
+        assertEquals(0, connections.get(), "the item is gone: its file must not be uploaded again")
+    }
+
     // R3-12: the per-item lock table does not keep entries of cancelled waiters.
     @Test
     fun `cancelled waiters leave no entry in the item lock table`() {
@@ -503,7 +574,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         val first = StormHandler()
         val engineA = startEngine(backing, first)
         val jobs = (1..6).map { uploads.async { worker("item-1", engineWaitMillis = 20_000L).doWork() } }
-        runBlocking { withTimeout(10_000L) { while (connections.get() < 6) delay(10L) } }
+        runBlocking { withTimeout(10_000L) { while (connections.get() < 1) delay(10L) } }
         UploaderEngineRegistry.unregister(engineA as DefaultUploaderEngine)
         release.countDown()
         runBlocking { delay(300L) }
@@ -513,6 +584,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
         UploaderEngineRegistry.register(engineB)
         val results = runBlocking { withTimeout(30_000L) { jobs.awaitAll() } }
         results.forEach { assertIs<ListenableWorker.Result.Success>(it) }
+        assertEquals(1, connections.get(), "one upload; the other five jobs waited and found nothing owed")
         assertEquals(1, second.delivered.get(), "one delivery through the second engine")
         assertEquals(0, first.delivered.get())
         assertNull(backing.find("item-1"))
