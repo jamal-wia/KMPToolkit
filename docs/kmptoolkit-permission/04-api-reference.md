@@ -258,7 +258,7 @@ reached, identical to `state.value` once it returns.
 | `Requesting` | request permanently denied | `AwaitingSettings` |
 | `Requesting` | request restricted or unavailable | `Unavailable` |
 | `Requesting` | request denied or unanswered | `Denied` |
-| `Requesting` | the calling coroutine is cancelled | `Idle` (nothing was decided; `refresh()` reads the real choice) |
+| `Requesting` | the calling coroutine is cancelled, or the controller throws | `Idle` (nothing was decided; the exception reaches the caller; `refresh()` reads the real choice) |
 | `AwaitingRationale` | `rationaleAcknowledged()` | `Requesting`, then the request outcome |
 | `AwaitingRationale` | `rationaleDismissed()` | `Denied` |
 | `AwaitingSettings` | `openSettings()` | `AwaitingSettings` (the app is backgrounded) |

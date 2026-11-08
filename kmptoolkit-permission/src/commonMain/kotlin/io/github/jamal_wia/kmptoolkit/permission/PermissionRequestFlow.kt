@@ -1,6 +1,5 @@
 package io.github.jamal_wia.kmptoolkit.permission
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,7 +46,7 @@ import kotlinx.coroutines.flow.StateFlow
  * | `Requesting` | request permanently denied | `AwaitingSettings` |
  * | `Requesting` | request restricted or unavailable | `Unavailable` |
  * | `Requesting` | request denied or unanswered | `Denied` |
- * | `Requesting` | the calling coroutine is cancelled | `Idle` (nothing was decided; `refresh()` reads the real choice) |
+ * | `Requesting` | the calling coroutine is cancelled, or the controller throws | `Idle` (nothing was decided; the exception reaches the caller; `refresh()` reads the real choice) |
  * | `AwaitingRationale` | `rationaleAcknowledged()` | `Requesting`, then the request outcome |
  * | `AwaitingRationale` | `rationaleDismissed()` | `Denied` |
  * | `AwaitingSettings` | `openSettings()` | `AwaitingSettings` (the app is backgrounded) |
@@ -69,7 +68,8 @@ import kotlinx.coroutines.flow.StateFlow
  * returned to — the newer state wins and is what the call returns. The synchronous transitions ([reset], [rationaleDismissed],
  * [settingsDeclined]) check and write in one atomic step too, so none of them can overwrite a
  * `Requesting` published at the same moment. The controller underneath serializes requests, so no two
- * dialogs ever overlap. If the calling coroutine is cancelled while the dialog is up, the flow goes
+ * dialogs ever overlap. If the calling coroutine is cancelled while the dialog is up, or the
+ * controller throws, the flow goes
  * back to [PermissionFlowState.Idle] (nothing was decided) instead of staying `Requesting` forever;
  * the next [refresh] reads what the user actually chose.
  *
@@ -248,12 +248,13 @@ public class PermissionRequestFlow(
         if (!mutableState.compareAndSet(from, requesting)) return mutableState.value.state
         val answer: PermissionStatus = try {
             controller.request(permission)
-        } catch (cancellation: CancellationException) {
-            // The caller went away with the dialog up: nobody is left to receive the answer and
-            // nothing was decided. Left at Requesting, every method would refuse to move the flow
-            // for the life of its holder. CAS, so a concurrent writer is not overwritten.
+        } catch (failure: Throwable) {
+            // The caller went away with the dialog up, or the controller failed: either way nothing was
+            // decided and nobody is left to receive an answer. Left at Requesting, every method would
+            // refuse to move the flow for the life of its holder. CAS, so a concurrent writer is not
+            // overwritten; the failure still reaches the caller.
             mutableState.compareAndSet(requesting, Published(PermissionFlowState.Idle))
-            throw cancellation
+            throw failure
         }
         // CAS from Requesting, like every other transition after a suspension: a state written in the
         // meantime is the newer word and is returned instead.
