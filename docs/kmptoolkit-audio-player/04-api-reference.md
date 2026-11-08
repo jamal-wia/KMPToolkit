@@ -89,10 +89,10 @@ public sealed interface PlayerState
 | `Ready` | `duration` | Loaded, never started (or stopped back to the start). A length known earlier is kept by `stop()`. |
 | `Playing` | `duration`, `currentPosition` | Advancing; position refreshed each poll, and a length the platform reports late replaces a `0` duration (once a length is known for the loaded source, no state reverts it to `0`). |
 | `Paused` | `duration`, `currentPosition` | Suspended at `currentPosition`. A length known earlier is kept, also by a seek out of `Completed`. |
-| `Completed` | `duration` | Played to the end; the source stays loaded. A length known earlier is kept. |
+| `Completed` | `duration` | Played to the end; the source stays loaded. A length known earlier is kept; a source of unknown length completes with the position where it ended as its length (`playbackPositionFlow` stays there). |
 | `Error` | `cause: Throwable` | Load or playback failed. **No display string** — the cause is the platform's own exception. |
 
-A `duration` of `0` means the platform has not reported one, not an error.
+A `duration` of `0` means the platform has not reported one, not an error. A length the platform reports later replaces it at the next position update, pause or seek (a `Ready` player picks it up at a seek); once a length is known for the loaded source, no state reverts it to `0`. A source of unknown length that plays to its end completes as `Completed(duration = where it ended)`, and that length then counts as known (`replay` and `stop` keep it).
 
 ### Extension properties
 

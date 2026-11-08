@@ -67,6 +67,8 @@ abstract interface io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer : kot
         abstract fun <get-playbackPositionFlow>(): kotlinx.coroutines.flow/StateFlow<kotlin/Long> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.playbackPositionFlow.<get-playbackPositionFlow>|<get-playbackPositionFlow>(){}[0]
     abstract val playbackSpeedFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.playbackSpeedFlow|{}playbackSpeedFlow[0]
         abstract fun <get-playbackSpeedFlow>(): kotlinx.coroutines.flow/StateFlow<kotlin/Float> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.playbackSpeedFlow.<get-playbackSpeedFlow>|<get-playbackSpeedFlow>(){}[0]
+    abstract val playbackSpeedRange // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.playbackSpeedRange|{}playbackSpeedRange[0]
+        abstract fun <get-playbackSpeedRange>(): kotlin.ranges/ClosedFloatingPointRange<kotlin/Float> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.playbackSpeedRange.<get-playbackSpeedRange>|<get-playbackSpeedRange>(){}[0]
     abstract val repeatModeFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.repeatModeFlow|{}repeatModeFlow[0]
         abstract fun <get-repeatModeFlow>(): kotlinx.coroutines.flow/StateFlow<io.github.jamal_wia.kmptoolkit.video.player/RepeatMode> // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.repeatModeFlow.<get-repeatModeFlow>|<get-repeatModeFlow>(){}[0]
     abstract val stateFlow // io.github.jamal_wia.kmptoolkit.video.player/VideoPlayer.stateFlow|{}stateFlow[0]

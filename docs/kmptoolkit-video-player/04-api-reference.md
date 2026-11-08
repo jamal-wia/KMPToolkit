@@ -29,10 +29,11 @@ any thread.
 | Member | Initial | Contract |
 |---|---|---|
 | `stateFlow: StateFlow<VideoPlayerState>` | `Idle` | The transport state. |
-| `playbackPositionFlow: StateFlow<Long>` | `0` | Playhead, refreshed every `positionUpdateIntervalMs` while `Playing`; set directly by seeks, `stop()` and completion (to the duration); `0` after `prepare`, `unload`, `release`. |
+| `playbackPositionFlow: StateFlow<Long>` | `0` | Playhead, refreshed every `positionUpdateIntervalMs` while `Playing`; set directly by seeks, `stop()` and completion (to the length, or, on a source of unknown length, to where it ended); `0` after `prepare`, `unload`, `release`. |
 | `bufferedPositionFlow: StateFlow<Long>` | `0` | Buffered-ahead position. Polled with the playhead while `Playing`, snapshotted when a load finishes and on `pause()`; `0` when nothing is loaded and after a playback failure. |
 | `isBufferingFlow: StateFlow<Boolean>` | `false` | Whether a **loaded** source is stalled waiting for data. Independent of `stateFlow` (a stalled stream is still `Playing`). Not shown while preparing (a stall of the just-loaded source that the engine reports before `Ready` is published is kept and shown with `Ready`); `false` when idle, on completion and on failure; a stall the engine reports after the end is ignored while the state is `Completed`. |
 | `videoSizeFlow: StateFlow<VideoSize?>` | `null` | Displayed picture size once the platform reports one — usually while `Preparing`. Kept on `Completed`; `null` again when a new `prepare` starts, on a failure, `unload`, `release`. |
+| `playbackSpeedRange: ClosedFloatingPointRange<Float>` | the configured `minPlaybackSpeed..maxPlaybackSpeed` | Not a flow: fixed for the player's life. Every value of `playbackSpeedFlow` lies in it. *(since 3.1.0)* |
 | `playbackSpeedFlow: StateFlow<Float>` | `1.0`, clamped into the configured range | Rate in effect, clamped to the configured range — the initial value too, so a range that excludes `1.0` starts at its nearest bound. |
 | `volumeFlow: StateFlow<Float>` | `1.0` | Output volume in `0f..1f`, independent of mute. |
 | `isMutedFlow: StateFlow<Boolean>` | `false` | Whether output is muted. |
@@ -50,6 +51,7 @@ resets the playhead, buffered position, buffering and picture size.
   `CancellationException` propagates.
 - **A newer `prepare` replaces this one** — the older load is cancelled and fully unwound before the
   newer one starts; the replaced call returns normally without writing any state.
+- **Frees the previous source first, whatever state it left the player in** (including `Error`), so a source that failed during playback is released before the next load.
 - On success, pushes the current volume (or `0f` if muted), repeat mode and speed to the platform.
 - After `release()`: sets `Error(VideoPlayerReleasedException)` and loads nothing.
 
@@ -62,7 +64,7 @@ Every call below is **ignored** unless the state `isPlayable`, and ignored entir
 | `fun play()` | `Ready`/`Paused`/`Completed` → `Playing`, starts polling, applies the speed. Ignored while already `Playing`. From `Completed`, or with the playhead on the end of the source, it starts over from `0`. |
 | `fun pause()` | `Playing` → `Paused(duration, position)`, stops polling. Ignored in any other state. |
 | `fun stop()` | Any playable → `Ready(duration)` with the playhead at `0`; the source stays loaded. |
-| `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`, `Ready` stays `Ready`. |
+| `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`, `Ready` stays `Ready` (picking up a length learned since the load). |
 | `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`, saturating instead of overflowing. On a source of unknown length (`duration` `0`) there is no end to clamp to: the target is `position + amountMs` floored at `0`, not `0`. |
 | `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`, saturating instead of overflowing; on a source of unknown length the target is floored at `0` only. |
 | `fun replay()` | Seek to `0` and play, from any playable state. |
@@ -83,8 +85,8 @@ even after `release()`, survive `prepare` and `unload`, and are pushed to every 
 
 | Member | Contract |
 |---|---|
-| `fun unload()` | Abandons a load in flight (that `prepare` returns without writing state), frees the loaded source, stops polling, resets to `Idle` and every source flow to its initial value. Keeps the settings; the next `prepare` works. Drops platform callbacks already posted for the old source. No effect after `release()`. |
-| `fun release()` | Frees every native resource, cancels polling, detaches from the engine, resets to `Idle`. **Idempotent.** Not reversible. |
+| `fun unload()` | Abandons a load in flight (that `prepare` returns without writing state), frees the loaded source, stops polling, resets to `Idle` and every source flow to its initial value. Keeps the settings; the next `prepare` works. Drops platform callbacks already posted for the old source. Resets to `Idle` even when the engine's `release()` throws (rethrown afterwards), so the next `prepare` never waits on it. No effect after `release()`. |
+| `fun release()` | Frees every native resource, cancels polling, detaches from the engine, resets to `Idle` — even when the engine throws (the exception is rethrown afterwards). **Idempotent.** Not reversible. |
 | `override fun close()` | Alias for `release()`, for `use { }`. |
 
 **Threading.** Every member is safe to call from any thread, and each call is one atomic transition:
@@ -93,7 +95,7 @@ wrote (a poll tick can no longer turn `Completed` or `Paused` back into `Playing
 its transition applied — after `pause()`, `stateFlow` already holds `Paused`. An engine event that
 arrives while a call is running is applied right after it. The flows are safe to collect anywhere.
 `release()` cannot double-free; a call racing a release from another thread is applied or dropped
-as a whole, never half-way, and nothing reaches the engine after the release.
+as a whole, never half-way, and nothing reaches the engine after the release. A completion the platform reported before a seek away from the end (or a `stop()`, or the rewind of a `play()` from the end) is dropped as stale; a seek onto the end does not make a completion stale. A `stateFlow` collector on an immediate dispatcher may call the player from inside the update; every transition has finished its other writes by then, so such a call is never undone.
 
 ---
 
@@ -113,7 +115,7 @@ public sealed interface VideoPlayerState
 | `Completed` | `duration` | Played to the end with `RepeatMode.Off`; the source stays loaded. |
 | `Error` | `cause: Throwable` | Load or playback failed. **No display string.** |
 
-A `duration` of `0` means the platform has not reported one (a live stream), not an error. A length the platform reports later replaces it at the next position update, pause or seek; a later `0` never overwrites a known length.
+A `duration` of `0` means the platform has not reported one (a live stream), not an error. A length the platform reports later replaces it at the next position update, pause or seek; once a length is known for the loaded source, no state reverts it to `0` (only a new `prepare` starts from the engine's value again). A source of unknown length that plays to its end completes with the position where it ended as its length: `Completed(duration = end)` with `playbackPositionFlow` left at `end`; that length then counts as known (`replay` and `stop` keep it, an absolute seek clamps to `0..end`). If the end is still `0`, it is `Completed(0)`.
 
 | Extension | Returns |
 |---|---|
@@ -180,7 +182,7 @@ pixels. Both dimensions must be positive (`IllegalArgumentException` otherwise).
 | Entry | Meaning |
 |---|---|
 | `Off` | Stop at the end: the state becomes `Completed`. The default. |
-| `One` | Start the same source over, without passing through `Completed`. |
+| `One` | Start the same source over, without passing through `Completed`. Only a source that was playing restarts: a completion reported while paused rewinds to `0` and stays paused, and one reported while `Ready` or `Completed` is ignored. |
 
 ---
 
@@ -295,9 +297,9 @@ public interface VideoPlaybackEngineListener {
 }
 ```
 
-Failures while loading are thrown from `load` instead. An engine must not call the listener after
+Failures while loading are thrown from `load` instead. Only `load` reports failure by throwing. If another method throws anyway, the player still settles: `prepare` ends in `Error`, `release()` disposes the engine and resets to `Idle`, `unload()` resets to `Idle`; the last two then rethrow the engine's exception. An engine must not call the listener after
 `release()`, including callbacks already queued on a platform thread. The player drops reports that
-arrive when no source is loaded, so a late one cannot resurrect a state.
+arrive when no source is loaded, so a late one cannot resurrect a state. It also drops every report of a source it has since told the engine to drop (an `unload`, a `release`, or the start of a newer `prepare`), including one the engine made while that `release()` was running, so a report of the old source can never become the next `prepare`'s outcome. A call already running on another thread must have returned before `release()` returns.
 
 **Threading.** The player calls the engine from whichever thread a transition runs on — the app's,
 the polling coroutine's, or the thread an event was reported on — but never two calls at once; an

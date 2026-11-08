@@ -18,13 +18,20 @@ package io.github.jamal_wia.kmptoolkit.video.player
  * - **[load] honors cancellation**, throws to report failure, and leaves nothing playable behind in
  *   either case. The player never runs two loads at once.
  * - **Never call the listener after [release]**, including callbacks already queued on a platform
- *   thread.
+ *   thread; a call already running on another thread has returned before [release] returns. The player
+ *   drops every report of a source it has told the engine to drop, but cannot see a call that has not
+ *   yet reached it.
  * - **Transport and settings calls tolerate the wrong state** — swallow the platform's
- *   "illegal state" rather than throwing.
+ *   "illegal state" rather than throwing. Only [load] reports failure by throwing. If another method throws
+ *   anyway, the player still settles: `prepare` ends in `Error`, `release()` disposes the engine and resets to
+ *   `Idle`, `unload()` resets to `Idle`; the last two then rethrow the engine's exception.
  * - **[durationMs], [positionMs] and [bufferedPositionMs] return `0` when unknown** and are cheap:
  *   they are polled from the player's coroutine context, so an engine whose platform object is
  *   confined to one thread answers from values it caches on that thread.
  * - **[setLooping]** makes the platform restart the source at its end without reporting completion.
+ * - **A completion** describes the playhead when it was reported: one reported while a seek away from the
+ *   end is being applied is dropped as stale. Do not report it synchronously from inside [seekTo]
+ *   unless the seek lands on the end.
  * - **Any method may be called from any thread** — the app's, the polling coroutine's, or the thread
  *   an event was reported on — though never two at once: the player serializes its calls. An engine
  *   whose platform object is confined to one thread marshals onto it.

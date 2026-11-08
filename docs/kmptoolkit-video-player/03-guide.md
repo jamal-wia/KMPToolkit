@@ -213,7 +213,7 @@ player.playbackSpeedFlow.value   // 1.5f — the clamped value in effect
 ```
 
 Clamped to `VideoPlayerConfig`'s `minPlaybackSpeed..maxPlaybackSpeed` (`0.25f..3.0f` by default),
-never rejected; `NaN` is ignored. The rate a player starts with (`1.0`) is clamped the same way, so a range such as `2f..3f` starts at `2f`. As in the audio player, the rate reaches the platform only while
+never rejected; `NaN` is ignored. `player.playbackSpeedRange` is that configured range, for a speed menu that should offer only rates the player accepts. The rate a player starts with (`1.0`) is clamped the same way, so a range such as `2f..3f` starts at `2f`. As in the audio player, the rate reaches the platform only while
 playing, on every `play()` and when a source loads — on `AVPlayer` a non-zero rate on a paused player
 starts it.
 
@@ -278,7 +278,8 @@ The player takes ownership of the engine: it installs itself as the listener, an
 - **Calling `play()` right after `prepare()` without checking the state.** `prepare` can end in
   `Error`, and `play()` there is a no-op.
 - **Treating `duration == 0` as an error.** It means the platform has not reported a length — normal
-  for a live stream.
+  for a live stream. A source of unknown length that plays to its end completes with the position
+  where it ended as its length (`Completed(duration = end)`), so a progress or "watched" check still works.
 - **Keying "watched" on `Completed` with `RepeatMode.One`.** A looping player never completes.
 - **Releasing a shared player from one of its screens.** `release()` is permanent; use `unload()` for
   a player you do not own.

@@ -190,6 +190,9 @@ public fun FullscreenButton(
 /**
  * Shows the current [speed] and, on tap, calls [onSpeedChange] with the next entry of [speeds]
  * (wrapping around after the last). A speed not in [speeds] moves to the first entry above it.
+ * The button is stateless: the list is offered as given, so a caller whose player has a narrower
+ * [io.github.jamal_wia.kmptoolkit.video.player.VideoPlayer.playbackSpeedRange] filters it first, as
+ * [DefaultVideoControls] does.
  *
  * @param formatSpeed turns a speed into the label drawn on the button;
  *   [VideoControlsDefaults.formatSpeed] by default (`1.5×`).

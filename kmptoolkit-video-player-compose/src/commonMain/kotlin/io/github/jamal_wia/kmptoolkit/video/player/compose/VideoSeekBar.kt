@@ -140,6 +140,9 @@ public fun VideoSeekBar(
                 progressBarRangeInfo = ProgressBarRangeInfo(displayedFraction, 0f..1f)
                 if (active) {
                     setProgress { value ->
+                        // A non-numeric progress (a buggy accessibility service) is refused; infinities and
+                        // out-of-range values are clamped by commit.
+                        if (value.isNaN()) return@setProgress false
                         commit(value)
                         true
                     }

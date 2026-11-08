@@ -204,7 +204,7 @@ public fun VideoControlsScope.DefaultVideoControls(
     textStyle: TextStyle = VideoControlsDefaults.ControlTextStyle,
     onFullscreenClick: (() -> Unit)? = null,
     isFullscreen: Boolean = false,
-    speeds: List<Float> = VideoControlsDefaults.Speeds,
+    speeds: List<Float> = VideoControlsDefaults.Speeds, // entries outside player.playbackSpeedRange are not offered
     seekStepMs: Long = DEFAULT_SEEK_AMOUNT_MS,
     showSeekButtons: Boolean = true,
     showMuteButton: Boolean = true,
@@ -220,7 +220,7 @@ and the seek-forward button; along the bottom, the position (the drag position w
 `VideoSeekBar`, the duration, `MuteButton`, `SpeedButton` and — only when `onFullscreenClick` is
 not `null` — `FullscreenButton`. Always, while buffering or `Preparing`: a `BufferingIndicator` in
 the centre in place of the centre button. Transport controls are disabled while the state is not
-playable (`Idle`, `Preparing`, `Error`); mute is always enabled.
+playable (`Idle`, `Preparing`, `Error`); mute is always enabled. `speeds` entries outside the player's `playbackSpeedRange` are not offered (the player would clamp them and the button could not advance past them); when none is inside the range, its two bounds are offered.
 
 ## Building blocks
 
@@ -252,7 +252,7 @@ the matching `VideoControlsLabels` field (`null` → role only).
   until `positionMs` next changes, or the bar stops being active (`enabled` turns `false` or
   `durationMs` drops to `0`) — a seek the player rejected, because it left its playable states as
   the seek committed, never moves `positionMs`.
-- Accessibility: `ProgressBarRangeInfo(fraction, 0f..1f)` and a `SetProgress` action that seeks.
+- Accessibility: `ProgressBarRangeInfo(fraction, 0f..1f)` and a `SetProgress` action that seeks; the progress is clamped to `0f..1f`, and a non-numeric (`NaN`) progress is refused (the action returns `false`) instead of throwing.
 - Disabled (no gestures, no `SetProgress`, `disabled()` semantics) while `durationMs <= 0` or
   `!enabled`.
 - Mirrored in RTL.

@@ -246,7 +246,8 @@ public class FakeVideoPlaybackEngine(
 
     /**
      * Reports that the source played to its end. Like a real engine, a looping fake starts over from
-     * `0` without reporting anything; otherwise the playhead moves to [durationMs] and
+     * `0` without reporting anything; otherwise the playhead moves to [durationMs] when that is known
+     * (on an unknown length, `0`, it stays where it is, as on the real engines) and
      * [VideoPlaybackEngineListener.onCompleted] is called.
      *
      * Does nothing observable when no listener is attached — the case after the player is released,
@@ -257,7 +258,7 @@ public class FakeVideoPlaybackEngine(
             positionMs = 0L
             return
         }
-        positionMs = durationMs
+        if (durationMs > 0L) positionMs = durationMs
         isPlaying = false
         listener?.onCompleted()
     }
