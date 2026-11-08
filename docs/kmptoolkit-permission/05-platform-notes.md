@@ -139,6 +139,10 @@ it there — which is why the Android factory takes a `KeyValueStorage`.
   `Calendar` as one through `CalendarWriteOnly`. The reverse direction is not mirrored (the full calendar
   can still show a dialog for the read string), and neither is a partial answer. A `Runtime(name)` you
   build for a string a catalog entry already covers keeps its own flags, so ask through one of the two.
+  `observe` follows the same model: a request through one of these entries re-reads every observer of
+  an entry that asks for at least one of the same strings (`AudioLibrary` and `PhotoLibrary` below
+  API 33, `Calendar` and `CalendarWriteOnly`), so an observer is never behind `check` until the next
+  resume. A `Runtime(name)` is not in the catalog and is re-read only at a resume.
 - A role reuses the two keys: `asked` after its first refusal, `rationale` after its second.
   A role dialog interrupted by its activity finishing with it up records nothing: the default host
   tells an interruption from the user backing out. A host of your own has only a result code, so what it

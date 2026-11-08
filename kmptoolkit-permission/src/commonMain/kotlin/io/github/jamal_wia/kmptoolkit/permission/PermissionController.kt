@@ -77,7 +77,9 @@ public interface PermissionController {
      * Emits the current status when collected, then again — only when it differs — at the points where
      * a platform can change it behind the app's back or where this controller changed it: on Android
      * every activity resume, on iOS every time the app becomes active, and on both after every request
-     * through this controller that covered [permission]. Never shows UI.
+     * through this controller that covered [permission]. On Android that is a request for the entry itself,
+     * for the entry it stands for on this API level, or for another catalog entry that asks Android for the
+     * same permission (a `Runtime(name)` is re-read only at the next resume). Never shows UI.
      */
     public fun observe(permission: Permission): Flow<PermissionStatus>
 

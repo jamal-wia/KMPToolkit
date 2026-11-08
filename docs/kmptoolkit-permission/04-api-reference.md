@@ -203,8 +203,9 @@ public interface PermissionController {
   nothing shown, the status returned unchanged.
 - **`observe`** emits the current status on collection, then each *different* status: on every
   activity resume on Android, every time the app becomes active on iOS, and after every request
-  through the same controller that covered the permission (or the entry it stands for on this API
-  level). It never shows UI.
+  through the same controller that asked Android for a permission it depends on: the entry itself,
+  the entry it stands for on this API level, or another catalog entry asking for the same Android
+  permission (a `Runtime(name)` is re-read only at the next resume). It never shows UI.
 - **`openSettings`** opens the most specific system screen for `permission`: a special access's own
   page, the app's notification page for `Notifications`, the default-apps screen for a role, and
   otherwise the app's details page. `true` means a screen was handed to the system, not that the user

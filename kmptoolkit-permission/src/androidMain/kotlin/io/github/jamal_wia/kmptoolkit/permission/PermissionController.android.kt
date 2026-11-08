@@ -494,6 +494,26 @@ internal class AndroidPermissionController(
 
     // --- requests -------------------------------------------------------------------------------
 
+    /**
+     * Tells every [observe] that [source]'s request resolved, and those of every other catalog entry that
+     * asks Android for at least one of the strings [source]'s dialog asked for: they are one question to
+     * the platform, so a request through one is a reason for the others to re-read. A re-read is side
+     * effect free, so the match is an intersection, broader than the containment [coveredBy] needs for
+     * its writes. A `Runtime(name)` is not in the catalog and is re-read only at the next resume.
+     */
+    private fun announceResolved(source: Permission) {
+        requestsResolved.tryEmit(source)
+        val dialog: RuntimeRule.Dialog = ruleOf(source) as? RuntimeRule.Dialog ?: return
+        val strings: List<String> = declaredQuietly(dialog.androidPermissions)
+        if (strings.isEmpty()) return
+        for (entry: Permission in MIRRORABLE_ENTRIES) {
+            val entrySource: Permission = entry.statusSource()
+            if (entrySource == source) continue
+            val entryRule: RuntimeRule.Dialog = ruleOf(entrySource) as? RuntimeRule.Dialog ?: continue
+            if (declaredQuietly(entryRule.androidPermissions).any { it in strings }) requestsResolved.tryEmit(entrySource)
+        }
+    }
+
     /** One permission, with [requestMutex] held. */
     private suspend fun requestOne(permission: Permission, resumeWait: MutableStateFlow<Boolean>): PermissionStatus {
         val source: Permission = permission.statusSource()
@@ -504,7 +524,7 @@ internal class AndroidPermissionController(
             ruleOf(source) != null -> requestRuntime(source, requested = permission, resumeWait = resumeWait)
             else -> PermissionStatus.Unavailable
         }
-        requestsResolved.tryEmit(source)
+        announceResolved(source)
         return status
     }
 
@@ -534,7 +554,7 @@ internal class AndroidPermissionController(
             ?: return dialogs.mapValues { (source, _) -> runtimeStatus(source) }
         return dialogs.mapValues { (source, strings) ->
             settle(source, strings, answers.filterKeys { it in strings }, resumeWait)
-                .also { requestsResolved.tryEmit(source) }
+                .also { announceResolved(source) }
         }
     }
 
