@@ -199,7 +199,8 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   instant uploads again: at least once). One replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
   file; so does the 7-day expiry. A file of an unknown format version or a damaged one is ignored and
-  deleted. On Android a file that exists but cannot be read is waited for over 3 runs of the job and then given
+  deleted. On Android a file that exists but cannot be read is waited for while the job has run fewer than 3 times (WorkManager's
+  run count, which also counts retries for other reasons) and then given
   up (the item uploads again, at least once); iOS treats it as absent and uploads, for now. Nothing is journaled for a transport failure (there is no response), a write that fails
   leaves the behaviour of 3.0 (a re-upload after a lease expiry), and the legacy classifier transport
   has no journal.
