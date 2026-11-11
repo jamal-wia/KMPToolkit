@@ -72,6 +72,39 @@ class AndroidStorageRound7Test {
         }
     }
 
+    /**
+     * The encrypted value of one key moved to another key by something that can edit the file: the
+     * moved entry must not read as the other key's value. A store that encrypts without binding the
+     * ciphertext to its key lets one secret be presented as another (a token read as a password).
+     */
+    @Test
+    fun `a ciphertext moved to another key does not decrypt as that key's value`() {
+        val name: String = uniqueName("swap")
+        val key: javax.crypto.SecretKey = TestKeys.generate()
+        val preferences: SharedPreferences =
+            context.getSharedPreferences(secureStoreId(name), Context.MODE_PRIVATE)
+        val storage: SecureKeyValueStorage = AndroidSecureKeyValueStorage(
+            preferences = preferences,
+            cipher = KeystoreValueCipher(TestKeys.fixedSource(key)),
+            dispatcher = Dispatchers.IO,
+        )
+        runBlocking {
+            withTimeout(30_000) {
+                assertTrue(storage.put("access_token", "token-value") is StorageResult.Success)
+                assertTrue(storage.put("password", "password-value") is StorageResult.Success)
+                val tokenCipher: String = preferences.getString("access_token", null)!!
+                assertTrue(preferences.edit().putString("password", tokenCipher).commit())
+
+                val read: StorageResult<String?> = storage.get("password")
+
+                assertTrue(
+                    read.getOrNull() != "token-value",
+                    "the token's ciphertext was accepted as the password's value",
+                )
+            }
+        }
+    }
+
     /** A store name near the file-name limit must fail the same way for every operation, and never throw. */
     @Test
     fun `a plain store with a very long name never throws and reads agree with writes`() {
