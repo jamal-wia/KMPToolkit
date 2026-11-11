@@ -27,19 +27,22 @@ internal class IosKeyValueStorage(
 ) : KeyValueStorage {
 
     override suspend fun get(key: String): StorageResult<String?> = withContext(dispatcher) {
-        val direct: String? = defaults.stringForKey(key)
-        // A key another domain holds a non-string for (`AppleLanguages` is an array in the argument and global
-        // domains, and that shadows the suite's own string in the search list) reads null although the suite has
-        // it: ask the suite's own domain then. Only for such keys, so an absent key costs nothing extra.
-        if (direct != null || defaults.objectForKey(key) == null) {
-            StorageResult.Success(direct)
-        } else {
-            StorageResult.Success(defaults.persistentDomainForName(suiteName)?.get(key) as? String)
-        }
+        StorageResult.Success(defaults.stringForKey(key))
     }
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {
         unpairedSurrogateFailure(key, value)?.let { return@withContext it }
+        // The system owns this name (the preferred languages, an array): a string stored under it never reads back, so
+        // it is refused instead of reporting a Success the next get would contradict.
+        if (key in SYSTEM_RESERVED_KEYS) {
+            return@withContext StorageResult.Failure(
+                StorageError.OperationFailed(
+                    StorageOperation.PUT,
+                    key = key,
+                    cause = IllegalArgumentException("The key is reserved by NSUserDefaults"),
+                ),
+            )
+        }
         defaults.setObject(value, forKey = key)
         StorageResult.Success(Unit)
     }
@@ -54,3 +57,6 @@ internal class IosKeyValueStorage(
         StorageResult.Success(Unit)
     }
 }
+
+/** Key names `NSUserDefaults` handles specially, so that a value put under them does not read back as written. */
+private val SYSTEM_RESERVED_KEYS: Set<String> = setOf("AppleLanguages")
