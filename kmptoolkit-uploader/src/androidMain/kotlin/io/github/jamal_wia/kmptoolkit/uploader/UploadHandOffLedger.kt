@@ -29,14 +29,19 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
      * One item's state: [activeJobs] jobs of this item are inside `doWork` in this process, [handOffs] hand-offs
      * arrived while one was serving, and [finishedAtNanos] is when the last job finished serving (still reported
      * running by `WorkManager`, perhaps), or `null`. [latestRequest] is the request of the newest hand-off counted
-     * for a serving job, kept for a job that carries no row to read it from (the classic transport's), or `null`.
+     * for a serving job, kept for a job that carries no row to read it from (the classic transport's), or `null`;
+     * [latestAttempt] is the row's `attempts` that hand-off was made for, or `null` when the transport was not told.
      */
     data class Entry(
         val activeJobs: Int,
         val handOffs: Long,
         val finishedAtNanos: Long?,
         val latestRequest: UploadRequest? = null,
+        val latestAttempt: Int? = null,
     )
+
+    /** The newest counted hand-off of an item: its [request] and the [attempt] (`attempts` of the row) it is for. */
+    class HandOff(val request: UploadRequest, val attempt: Int?)
 
     /** What a job learns when it closes an iteration that ended in success. */
     enum class Finish {
@@ -59,7 +64,10 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
     fun jobStarted(itemId: String) {
         entries.mutate { map ->
             val entry: Entry = map[itemId] ?: Entry(0, 0L, null)
-            map + (itemId to entry.copy(activeJobs = entry.activeJobs + 1, finishedAtNanos = null))
+            // A job that starts with no other job active begins from its own request: what an earlier job counted
+            // (possibly for an item since cancelled and enqueued again) is not carried over.
+            val fresh: Entry = if (entry.activeJobs == 0) entry.copy(latestRequest = null, latestAttempt = null) else entry
+            map + (itemId to fresh.copy(activeJobs = fresh.activeJobs + 1, finishedAtNanos = null))
         }
     }
 
@@ -68,6 +76,13 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
      * atomic step as the count, so a job that sees the count sees the request.
      */
     fun latestRequest(itemId: String): UploadRequest? = entries.value[itemId]?.latestRequest
+
+    /** The newest counted hand-off with its attempt stamp, read in one step, or `null`. */
+    fun latestHandOff(itemId: String): HandOff? {
+        val entry: Entry = entries.value[itemId] ?: return null
+        val request: UploadRequest = entry.latestRequest ?: return null
+        return HandOff(request, entry.latestAttempt)
+    }
 
     /** The hand-off counter a serving iteration read before it looked at the row. */
     fun handOffsSeen(itemId: String): Long = entries.value[itemId]?.handOffs ?: 0L
@@ -100,9 +115,10 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
     /**
      * The policy for a hand-off of [itemId], deciding atomically what the entry becomes: nothing for an item without
      * a job in this process (`KEEP`); `REPLACE` once for an item whose job finished serving; otherwise the hand-off
-     * is counted for the serving job and the policy is `KEEP`. A counted hand-off stores [request] with the count.
+     * is counted for the serving job and the policy is `KEEP`. A counted hand-off stores [request] and
+     * [attempt] (the row's `attempts` it is for, when known) with the count.
      */
-    fun policyForHandOff(itemId: String, request: UploadRequest? = null): ExistingWorkPolicy =
+    fun policyForHandOff(itemId: String, request: UploadRequest? = null, attempt: Int? = null): ExistingWorkPolicy =
         entries.transact { map ->
             val now: Long = nanoTime()
             val entry: Entry = map[itemId] ?: return@transact pruned(map, now) to ExistingWorkPolicy.KEEP
@@ -113,7 +129,17 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
                         if (cleared.activeJobs == 0) map - itemId else map + (itemId to cleared)
                     pruned(next, now) to ExistingWorkPolicy.REPLACE
                 }
-                else -> map + (itemId to entry.copy(handOffs = entry.handOffs + 1, latestRequest = request)) to ExistingWorkPolicy.KEEP
+                else -> {
+                    // A hand-off of an older attempt (a duplicate that arrives late) is counted but never replaces
+                    // the request of a newer attempt that was handed off already.
+                    val older: Boolean = attempt != null && entry.latestAttempt != null && attempt < entry.latestAttempt
+                    val counted: Entry = if (older) {
+                        entry.copy(handOffs = entry.handOffs + 1)
+                    } else {
+                        entry.copy(handOffs = entry.handOffs + 1, latestRequest = request, latestAttempt = attempt)
+                    }
+                    map + (itemId to counted) to ExistingWorkPolicy.KEEP
+                }
             }
         }
 
@@ -121,7 +147,11 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
     fun forget(itemId: String) {
         entries.mutate { map ->
             val entry: Entry = map[itemId] ?: return@mutate map
-            if (entry.activeJobs == 0) map - itemId else map + (itemId to entry.copy(finishedAtNanos = null))
+            if (entry.activeJobs == 0) {
+                map - itemId
+            } else {
+                map + (itemId to entry.copy(finishedAtNanos = null, latestRequest = null, latestAttempt = null))
+            }
         }
     }
 

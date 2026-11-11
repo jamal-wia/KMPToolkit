@@ -121,7 +121,7 @@ class WorkManagerClassicHandOffAdversarialTest {
     }
 
     /** Counts hand-offs, and tells the test when the second one happened. */
-    private class CountingTransport(private val inner: UploadTransport) : UploadTransport {
+    private class CountingTransport(private val inner: UploadTransport) : AttemptStampedTransport {
         val launches = AtomicInteger(0)
         val secondLaunch = CountDownLatch(1)
         override val leaseMillis: Long = inner.leaseMillis
@@ -136,11 +136,19 @@ class WorkManagerClassicHandOffAdversarialTest {
             inner.launch(itemId, isRehandOff, request)
             counted()
         }
+        override fun launch(itemId: String, isRehandOff: Boolean, attemptStamp: Int, request: UploadRequest) {
+            inner.launchAttempt(itemId, isRehandOff, attemptStamp, request)
+            counted()
+        }
         override fun cancel(itemId: String) = inner.cancel(itemId)
     }
 
     /** A classic handler: it hands each attempt to the transport with the attempt number in the URL. */
-    private inner class ClassicHandler(private val transport: UploadTransport) : UploaderHandler<String> {
+    private inner class ClassicHandler(
+        private val transport: UploadTransport,
+        /** Runs in `execute` before the attempt is handed to the transport. */
+        private val beforeHandOff: suspend (attempts: Int) -> Unit = {},
+    ) : UploaderHandler<String> {
         override val type: String = "wm-classic-ho"
         override val schemaVersion: Int = 1
         override val retryPolicy: RetryPolicy = ZeroBackoff()
@@ -148,9 +156,11 @@ class WorkManagerClassicHandOffAdversarialTest {
         override fun encodePayload(payload: String): String = payload
         override fun decodePayload(raw: String): String = raw
         override suspend fun execute(context: AttemptContext, payload: String): AttemptResult {
-            transport.launch(
+            beforeHandOff(context.attempts)
+            transport.launchAttempt(
                 context.id,
                 context.wasDetached,
+                context.attempts,
                 UploadRequest(url = "http://127.0.0.1:${server.localPort}/upload?attempt=${context.attempts}", fields = emptyList()),
             )
             return AttemptResult.Detached(transport.leaseMillis)
@@ -238,5 +248,51 @@ class WorkManagerClassicHandOffAdversarialTest {
         assertEquals(1, requestLines.size, "the duplicate of a delivered attempt uploaded again: $requestLines")
         assertNull(rows.find("item-1"))
         assertEquals(1, states("item-1").size, "no chain of jobs")
+    }
+
+    /**
+     * The retry (attempt 1) is handed off and claimed while the first job commits attempt 0's failure, and then a late
+     * duplicate hand-off of attempt 0 (a lease re-hand) arrives. The job must serve the retry's own request, once:
+     * neither the duplicate's request (prepared for attempt 0) nor nothing at all.
+     */
+    @Test
+    fun `a late duplicate hand-off of an older attempt does not replace the retry's own request`() {
+        val rows = TestUploaderStore()
+        serve { n, socket ->
+            // A classic handler hands off from inside `execute`, before the engine marks the row in flight, and a
+            // settle that beats the mark is judged stale. The first answer therefore waits for the mark.
+            if (n == 1) awaitTrue(5_000L) { rows.find("item-1")?.state == UploaderItemState.IN_FLIGHT }
+            answer(socket, if (n == 1) "503 Service Unavailable" else "201 Created")
+        }
+        val counting = CountingTransport(createWorkManagerUploadTransport(context, config))
+        val handler = ClassicHandler(counting)
+        rows.afterNextRecordFailure = {
+            withContext(Dispatchers.IO) {
+                // Attempt 1 is handed off and then marked in flight by the engine; only then the duplicate lands.
+                check(counting.secondLaunch.await(5, TimeUnit.SECONDS)) { "no retry hand-off" }
+                val deadline: Long = System.nanoTime() + 5_000_000_000L
+                while (rows.find("item-1")?.state != UploaderItemState.IN_FLIGHT && System.nanoTime() < deadline) {
+                    Thread.sleep(10)
+                }
+            }
+            counting.launch(
+                "item-1",
+                isRehandOff = true,
+                attemptStamp = 0,
+                request = UploadRequest(url = "http://127.0.0.1:${server.localPort}/upload?duplicate-of-0", fields = emptyList()),
+            )
+        }
+        val started: UploaderEngine = startEngine(rows, handler)
+
+        runBlocking { withTimeout(10_000L) { started.enqueue(handler, "payload") } }
+        val deadline: Long = System.nanoTime() + 8_000_000_000L
+        while (rows.find("item-1") != null && System.nanoTime() < deadline) Thread.sleep(20)
+
+        assertNull(rows.find("item-1"), "the retry was never delivered; requests=$requestLines")
+        assertEquals(
+            listOf("attempt=0", "attempt=1"),
+            requestLines.map { it.substringAfter("?").substringBefore(" ") },
+            "one upload per attempt, each with its own request: $requestLines",
+        )
     }
 }

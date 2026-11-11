@@ -60,7 +60,7 @@ internal class WorkManagerUploadTransport(
     private val context: Context,
     private val config: UploadTransportConfig,
     logger: Logger,
-) : UploadTransport {
+) : AttemptStampedTransport {
 
     /** A logger that throws is ignored: it never stops a hand-off. */
     private val logger: Logger = logger.nonThrowing()
@@ -68,6 +68,14 @@ internal class WorkManagerUploadTransport(
     override val leaseMillis: Long = config.leaseMillis
 
     override fun launch(itemId: String, request: UploadRequest) {
+        launch(itemId, request, attemptStamp = null)
+    }
+
+    override fun launch(itemId: String, isRehandOff: Boolean, attemptStamp: Int, request: UploadRequest) {
+        launch(itemId, request, attemptStamp)
+    }
+
+    private fun launch(itemId: String, request: UploadRequest, attemptStamp: Int?) {
         runCatching {
             val constraints: Constraints = Constraints.Builder()
                 .setRequiredNetworkType(if (config.requiresNetwork) NetworkType.CONNECTED else NetworkType.NOT_REQUIRED)
@@ -90,7 +98,7 @@ internal class WorkManagerUploadTransport(
             // Decided atomically with the serving job's close (see UploadHandOffLedger): a hand-off while the item's job
             // is still serving is absorbed and the job serves it before it returns; one after the job finished
             // serving replaces it, so it is never dropped because WorkManager still lists the old job as running.
-            val policy: ExistingWorkPolicy = UploadHandOffLedger.shared.policyForHandOff(itemId, request)
+            val policy: ExistingWorkPolicy = UploadHandOffLedger.shared.policyForHandOff(itemId, request, attemptStamp)
             WorkManager.getInstance(context).enqueueUniqueWork(
                 config.resolveUniqueWorkName(context.packageName, itemId),
                 policy,
@@ -176,11 +184,16 @@ public class UploaderUploadWorker(
                     // past `now` and found by the next finishServing. A hand-off that reached the transport before
                     // the settlement committed, for the attempt just settled, finds the row delivered, withdrawn
                     // or waiting out a backoff: nothing is owed and nothing uploads. One that found the row in
-                    // flight again is the retry's own and is uploaded once, with the newest request.
+                    // flight again at the attempt the hand-off was made for is the retry's own and is uploaded once,
+                    // with its request. A hand-off stamped with an older attempt (a duplicate that landed during a
+                    // zero-backoff commit) is not served for the newer attempt: the retry's own hand-off moves the
+                    // counter and is found by the next finishServing. An unstamped hand-off (a wrapped transport)
+                    // is served whenever the row is in flight.
                     val now: Long = ledger.handOffsSeen(itemId)
-                    val latest: UploadRequest? = ledger.latestRequest(itemId)
-                    if (latest != null && engine.isInFlight(itemId)) {
-                        next = latest
+                    val latest: UploadHandOffLedger.HandOff? = ledger.latestHandOff(itemId)
+                    val attempts: Int? = if (latest == null) null else engine.attemptsIfInFlight(itemId)
+                    if (latest != null && attempts != null && (latest.attempt == null || latest.attempt == attempts)) {
+                        next = latest.request
                         break
                     }
                     seen = now
