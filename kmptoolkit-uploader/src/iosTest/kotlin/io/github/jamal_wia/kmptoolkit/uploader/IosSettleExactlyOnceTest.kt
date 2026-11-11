@@ -149,8 +149,8 @@ class IosSettleExactlyOnceTest {
         dir: String,
         storage: OutcomeStorage,
         sessions: MutableList<FakeSession>,
+        prefix: String = "kmptoolkit.test.once.${NSUUID().UUIDString}.",
     ): BackgroundSessionUploadTransport {
-        val prefix = "kmptoolkit.test.once.${NSUUID().UUIDString}."
         return BackgroundSessionUploadTransport(
             identifierPrefix = prefix,
             config = BackgroundUploadConfig(sessionIdentifierPrefix = prefix),
@@ -279,5 +279,82 @@ class IosSettleExactlyOnceTest {
             assertEquals(0, outcome.commits)
             assertTrue(!outcome.leftover, "dying after journal operation $dieAfter left an entry behind for good")
         }
+    }
+
+    // --- A repeated or relaunched delivery of the same answer ----------------------------------------------
+
+    /** One item handed off through a real engine; what the two cases below start from. */
+    private class HandedOff(
+        val rows: TestUploaderStore,
+        val store: CommitStore,
+        val handler: Handler,
+        val sessions: MutableList<FakeSession>,
+        val itemId: String,
+        val dir: String,
+        val prefix: String,
+    )
+
+    private suspend fun handedOff(): HandedOff {
+        val dir: String = root + "/" + NSUUID().UUIDString() + "/outcomes"
+        val itemId = "once-" + NSUUID().UUIDString()
+        bodies += temporaryBodyPath(itemId)
+        val rows = TestUploaderStore()
+        val store = CommitStore(rows)
+        val sessions = mutableListOf<FakeSession>()
+        val prefix = "kmptoolkit.test.once.${NSUUID().UUIDString}."
+        val first: BackgroundSessionUploadTransport = transportOver(dir, IosOutcomeStorage(dir), sessions, prefix)
+        val handler = Handler(first)
+        val engine: UploaderEngine = testEngine(store, listOf(handler), scope, idGenerator = { itemId })
+        UploaderEngineRegistry.register(engine)
+        engine.enqueue(handler, "payload")
+        engine.drain()
+        assertEquals(1, sessions.size)
+        assertEquals(IN_FLIGHT, rows.find(itemId)?.state, "handed off and in flight")
+        return HandedOff(rows, store, handler, sessions, itemId, dir, prefix)
+    }
+
+    private suspend fun deliver(session: FakeSession, taskDescription: String?) {
+        val drained = CompletableDeferred<Unit>()
+        session.delegate.notifyWhenDrained { drained.complete(Unit) }
+        session.delegate.complete(
+            statusCode = 201L,
+            headerFields = mapOf("Content-Type" to "application/json"),
+            errorDescription = null,
+            taskDescription = taskDescription,
+        ) {}
+        withContext(Dispatchers.Default) { withTimeout(10_000L) { drained.await() } }
+    }
+
+    @Test
+    fun `the same answer delivered twice to one delegate is committed once`() = runTest {
+        val h: HandedOff = handedOff()
+        val session: FakeSession = h.sessions.single()
+        deliver(session, session.taskDescription)
+        deliver(session, session.taskDescription)
+        withContext(Dispatchers.Default) { delay(300L) }
+
+        assertNull(h.rows.find(h.itemId))
+        assertEquals(1, h.store.committed, "a duplicate callback committed the delivery again")
+        assertEquals(1, h.handler.settled.value, "onSettled must run once")
+        assertTrue(h.handler.delivered.value in 1..2, "onDelivered ran ${h.handler.delivered.value} times")
+        assertEquals(1, h.sessions.sumOf { it.tasksCreated }, "the file was uploaded again")
+    }
+
+    @Test
+    fun `an answer delivered to the delegate of the relaunched transport is committed once`() = runTest {
+        val h: HandedOff = handedOff()
+        // The first process is gone; the system relaunches the app for the session and the new transport's
+        // delegate receives the task's answer with the stamp the first process wrote on the task.
+        val relaunched: BackgroundSessionUploadTransport =
+            transportOver(h.dir, IosOutcomeStorage(h.dir), h.sessions, h.prefix)
+        relaunched.handleRelaunchEvents(h.itemId) {}
+        until { h.sessions.size >= 2 }
+        deliver(h.sessions.last(), attemptTaskDescription(0))
+        withContext(Dispatchers.Default) { delay(300L) }
+
+        assertNull(h.rows.find(h.itemId))
+        assertEquals(1, h.store.committed, "the relaunched delegate's answer must commit the delivery once")
+        assertEquals(1, h.handler.settled.value, "onSettled must run once")
+        assertEquals(1, h.sessions.sumOf { it.tasksCreated }, "the file was uploaded again")
     }
 }
