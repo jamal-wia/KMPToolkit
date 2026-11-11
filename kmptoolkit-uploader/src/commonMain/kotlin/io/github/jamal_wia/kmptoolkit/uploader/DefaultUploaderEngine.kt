@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -941,7 +942,7 @@ internal class DefaultUploaderEngine(
             return
         }
         try {
-            transport.launch(item.id, context.wasDetached, request)
+            transport.launchAttempt(item.id, context.wasDetached, context.attempts, request)
             logger.i { "Detached ${item.logName} under a ${lease}ms lease." }
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
@@ -1069,12 +1070,30 @@ internal class DefaultUploaderEngine(
     }
 
     /** An attempt the drain is running for one item, and whether a withdrawal has stopped it. */
-    private class RunningAttempt(val job: Job) {
+    private class RunningAttempt(val job: Job, val attempts: Int) {
         val withdrawn: MutableStateFlow<Boolean> = MutableStateFlow(false)
     }
 
     /** The attempts the drain is running right now, by item id: the handshake with [stopAttempt]. */
     private val runningAttempts: MutableStateFlow<Map<String, RunningAttempt>> = MutableStateFlow(emptyMap())
+
+    /**
+     * The `attempts` of the attempt the engine is running for [id] right now, or `null` when none runs. A transport
+     * launched from a handler's `execute` always runs inside that item's attempt, so this is the attempt that launch
+     * belongs to.
+     */
+    internal fun runningAttemptStamp(id: String): Int? = runningAttempts.value[id]?.attempts
+
+    /**
+     * Waits, at most [timeoutMillis], until the engine runs no attempt for [id]. A transport that a plain handler
+     * launches from `execute` can settle (or read the row) before the attempt wrote its `markInFlight`; once the
+     * attempt has ended the row is in flight under the next claim (or the claim missed), and a settle under the
+     * row's current claim is then correct. Returns at once when no attempt runs.
+     */
+    internal suspend fun awaitHandOff(id: String, timeoutMillis: Long) {
+        if (id !in runningAttempts.value) return
+        withTimeoutOrNull(timeoutMillis) { runningAttempts.first { id !in it } }
+    }
 
     /**
      * Stops the attempt the engine is running for [id], if any: marks it withdrawn and cancels it, without
@@ -1101,7 +1120,7 @@ internal class DefaultUploaderEngine(
             lateinit var entry: RunningAttempt
             // Lazy, so `entry` is assigned before the block can run.
             val attempt: Deferred<Unit> = async(start = CoroutineStart.LAZY) { block(entry) }
-            entry = RunningAttempt(attempt)
+            entry = RunningAttempt(attempt, item.attempts)
             runningAttempts.update { it + (item.id to entry) }
             try {
                 if (store.getById(item.id) != item) {
@@ -1442,6 +1461,21 @@ internal class DefaultUploaderEngine(
     } catch (e: Throwable) {
         logger.e(e) { "Settle($result) under the current claim for id=$id failed — store failure; the job retries." }
         false
+    }
+
+    /**
+     * The `attempts` of [id]'s row when it exists and is in flight right now (the item is owed an upload), else
+     * `null`. A store failure reads as `null`: the caller leaves the item to its lease rather than upload on a guess.
+     * Lets the classic transport's job decide whether a hand-off that arrived while it was finishing still asks for
+     * an upload, and only at the attempt the hand-off was made for.
+     */
+    internal suspend fun attemptsIfInFlight(id: String): Int? = try {
+        store.getById(id)?.takeIf { it.state == UploaderItemState.IN_FLIGHT }?.attempts
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        logger.e(e) { "In-flight check for id=$id failed — store failure; reading as not owed." }
+        null
     }
 
     /**

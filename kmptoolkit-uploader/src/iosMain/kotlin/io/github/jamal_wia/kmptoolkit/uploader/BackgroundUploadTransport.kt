@@ -52,6 +52,7 @@ import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDataDelegateProtocol
 import platform.Foundation.NSURLSessionDataTask
 import platform.Foundation.NSURLSessionTask
+import platform.Foundation.NSURLSessionUploadTask
 import platform.Foundation.NSUUID
 import platform.Foundation.appendData
 import platform.Foundation.inputStreamWithFileAtPath
@@ -296,7 +297,7 @@ internal class BackgroundSessionUploadTransport(
     private val invalidationWait: Duration = DEFAULT_INVALIDATION_WAIT,
     /** Called after a hand-off wrote its body and before it takes the lock to create the task. Test seam. */
     private val onBodyWritten: (String) -> Unit = {},
-) : UploadTransport {
+) : AttemptStampedTransport {
 
     /** A logger that throws is ignored: it never stops a hand-off, a settlement or the process. */
     private val logger: Logger = logger.nonThrowing()
@@ -346,13 +347,34 @@ internal class BackgroundSessionUploadTransport(
     }
 
     override fun launch(itemId: String, isRehandOff: Boolean, request: UploadRequest) {
+        launchWithStamp(itemId, isRehandOff, null, request)
+    }
+
+    /**
+     * The hand-off the engine makes: [attemptStamp] is the attempt the upload answers. It travels with the session
+     * task (its `taskDescription`, which the system keeps for a task that outlives the process), so the delegate
+     * that receives the answer in whichever process stamps the journal entry with it. A hand-off without one (a
+     * consumer driving the transport directly) leaves the entry unstamped, settled by the older delete-before-commit
+     * protocol.
+     */
+    override fun launch(itemId: String, isRehandOff: Boolean, attemptStamp: Int, request: UploadRequest) {
+        launchWithStamp(itemId, isRehandOff, attemptStamp, request)
+    }
+
+    private fun launchWithStamp(itemId: String, isRehandOff: Boolean, attemptStamp: Int?, request: UploadRequest) {
         // First of all: an outcome this item's earlier upload journaled is replayed INSTEAD of uploading — the
         // session it ran on is gone and its events will not come again. Nothing is started, not even a session.
         if (replayJournaled(itemId, isRehandOff)) return
-        handOff(itemId, isRehandOff, request)
+        handOff(itemId, isRehandOff, request, attemptStamp)
     }
 
-    private fun handOff(itemId: String, isRehandOff: Boolean, request: UploadRequest, deferredToken: Any? = null) {
+    private fun handOff(
+        itemId: String,
+        isRehandOff: Boolean,
+        request: UploadRequest,
+        attemptStamp: Int?,
+        deferredToken: Any? = null,
+    ) {
         val live: LiveUpload = when (val claim: HandOffClaim = claimForHandOff(itemId, deferredToken)) {
             HandOffClaim.Joined -> {
                 logger.i { "Upload hand-off joins the live session — item=$itemId" }
@@ -373,7 +395,7 @@ internal class BackgroundSessionUploadTransport(
                         forgetInvalidating(itemId, claim.predecessor)
                         claim.predecessor.closeProgress()
                     }
-                    handOff(itemId, isRehandOff, request, claim.token)
+                    handOff(itemId, isRehandOff, request, attemptStamp, claim.token)
                 }
                 return
             }
@@ -385,10 +407,10 @@ internal class BackgroundSessionUploadTransport(
                 running > 0 -> logger.i { "Rejoined a running upload — item=$itemId" }
                 isRehandOff -> scope.launch {
                     delay(config.rehandFlushWindow)
-                    if (!live.delegate.receivedAnyEvent) startUpload(live, itemId, request)
+                    if (!live.delegate.receivedAnyEvent) startUpload(live, itemId, request, attemptStamp)
                 }
 
-                else -> startUpload(live, itemId, request)
+                else -> startUpload(live, itemId, request, attemptStamp)
             }
         }
     }
@@ -648,7 +670,7 @@ internal class BackgroundSessionUploadTransport(
         }
     }
 
-    private fun startUpload(live: LiveUpload, itemId: String, request: UploadRequest) {
+    private fun startUpload(live: LiveUpload, itemId: String, request: UploadRequest, attemptStamp: Int?) {
         val url: NSURL = NSURL.URLWithString(request.url) ?: run {
             failBeforeStart(live, itemId, "malformed url: ${request.url}")
             return
@@ -684,7 +706,7 @@ internal class BackgroundSessionUploadTransport(
                 return
             }
             logger.i { "Starting upload — item=$itemId" }
-            live.session.startUploadTask(urlRequest, bodyPath)
+            live.session.startUploadTask(urlRequest, bodyPath, attemptStamp?.let(::attemptTaskDescription))
         } finally {
             liveLock.unlock()
         }
@@ -876,8 +898,11 @@ internal interface UploadSession {
     /** Cancels every task the session has and reports how many there were. */
     fun cancelTasks(callback: (Int) -> Unit)
 
-    /** Creates AND resumes an upload task for [bodyPath]; the real session raises on an invalidated one. */
-    fun startUploadTask(request: NSMutableURLRequest, bodyPath: String)
+    /**
+     * Creates AND resumes an upload task for [bodyPath], labelled [taskDescription] when there is one; the real
+     * session raises on an invalidated one.
+     */
+    fun startUploadTask(request: NSMutableURLRequest, bodyPath: String, taskDescription: String?)
 
     fun invalidateAndCancel()
 
@@ -916,8 +941,11 @@ internal class NsUrlUploadSession(private val session: NSURLSession) : UploadSes
         }
     }
 
-    override fun startUploadTask(request: NSMutableURLRequest, bodyPath: String) {
-        session.uploadTaskWithRequest(request, fromFile = NSURL.fileURLWithPath(bodyPath)).resume()
+    override fun startUploadTask(request: NSMutableURLRequest, bodyPath: String, taskDescription: String?) {
+        val task: NSURLSessionUploadTask = session.uploadTaskWithRequest(request, fromFile = NSURL.fileURLWithPath(bodyPath))
+        // Kept by nsurlsessiond with the task, so a delegate in a relaunched process reads it back.
+        if (taskDescription != null) task.taskDescription = taskDescription
+        task.resume()
     }
 
     override fun invalidateAndCancel() = session.invalidateAndCancel()
@@ -1063,15 +1091,24 @@ internal class UploadSessionDelegate(
             headerFields = httpResponse?.allHeaderFields,
             errorDescription = didCompleteWithError?.localizedDescription,
             invalidate = session::invalidateAndCancel,
+            taskDescription = task.taskDescription,
         )
     }
 
     /**
      * The terminal event, however the session delivered it: [statusCode] is [STATUS_UNKNOWN] without an HTTP
      * response, [errorDescription] is set for a transport error — with a status it marks the body as cut short,
-     * not the attempt as failed — and [invalidate] invalidates the session.
+     * not the attempt as failed — and [invalidate] invalidates the session. [taskDescription] is the finished
+     * task's `taskDescription`: it carries the attempt stamp the hand-off labelled the task with (see
+     * [attemptTaskDescription]); a task without one — an earlier version's — has its answer journaled unstamped.
      */
-    fun complete(statusCode: Long, headerFields: Map<Any?, *>?, errorDescription: String?, invalidate: () -> Unit) {
+    fun complete(
+        statusCode: Long,
+        headerFields: Map<Any?, *>?,
+        errorDescription: String?,
+        taskDescription: String? = null,
+        invalidate: () -> Unit,
+    ) {
         // Under the lock startUpload creates its task under: a hand-off that has not created its task yet sees
         // the terminal state and starts nothing, so no task is ever created on the session invalidated below —
         // which raises an Objective-C exception Kotlin/Native cannot catch. A hand-off that already created
@@ -1098,10 +1135,11 @@ internal class UploadSessionDelegate(
             null
         }
         val wasCancelled: Boolean = cancelled
+        val attemptStamp: Int? = attemptStampOf(taskDescription)
         // Written here, synchronously, before the session is invalidated and before any coroutine runs: the
         // process may be suspended or killed as soon as this callback returns, and the outcome would exist
         // nowhere else. A failed write leaves today's behaviour.
-        val journaled: Boolean = !wasCancelled && response != null && journal.record(itemId, response)
+        val journaled: Boolean = !wasCancelled && response != null && journal.record(itemId, response, attemptStamp = attemptStamp)
         logger.i { "Upload completed — item=$itemId, outcome=$outcome, transportError=${errorDescription != null}, cancelled=$wasCancelled" }
         // Before the settlement is launched, not after: the settlement can return the item to the queue,
         // and a re-hand landing at once replaces this session — terminal now — with a new one under the
@@ -1117,14 +1155,26 @@ internal class UploadSessionDelegate(
                 response != null && journaled -> {
                     // Written in full, synchronously; now that an engine can say what the handler asked
                     // for, the body is cut to it before the settlement.
-                    UploadGateway.responseBodyLimit(itemId, UploadGateway.DEFAULT_ENGINE_WAIT)
-                        ?.let { limit -> journal.restrictBody(itemId, limit) }
-                    journal.settleRecorded(itemId, response, settle = gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT))
+                    val limit: Int? = UploadGateway.responseBodyLimit(itemId, UploadGateway.DEFAULT_ENGINE_WAIT)
+                    if (limit != null) journal.restrictBody(itemId, limit)
+                    journal.settleRecorded(
+                        itemId,
+                        response,
+                        attemptStamp = attemptStamp,
+                        bodyLimit = limit ?: MAX_RESPONSE_BODY_BYTES,
+                        settle = gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT),
+                    )
                 }
 
-                response != null -> UploadGateway.complete(itemId, response)
-
-                else -> UploadGateway.complete(itemId, outcome)
+                // Not journaled (a failed write, or no answer at all): settled from memory, as the Android worker
+                // does, so a report of an attempt the item has moved past is not charged to the new one.
+                else -> UploadGateway.completeAttempt(
+                    itemId,
+                    outcome,
+                    response,
+                    attemptStamp,
+                    UploadGateway.DEFAULT_ENGINE_WAIT,
+                )
             }
             if (!landed) {
                 // The row stays in flight and the lease expiry re-hands it.
@@ -1188,6 +1238,21 @@ internal fun uploadResponseOf(
     val (bytes: ByteArray, cut: Boolean) = body.toBodyAndCut()
     return UploadResponse(statusCode, headers, bytes, cut || (transportBroke && !statusCarriesNoContent(statusCode)))
 }
+
+/**
+ * The `taskDescription` a hand-off labels its session task with: the attempt the upload answers. The system keeps
+ * it with the task, so the delegate of a relaunched process can stamp the journal entry without an engine.
+ */
+internal fun attemptTaskDescription(attemptStamp: Int): String = "$ATTEMPT_DESCRIPTION_PREFIX$attemptStamp"
+
+/** The attempt stamp [attemptTaskDescription] wrote, or `null` for a task without one (an earlier version's, or foreign). */
+internal fun attemptStampOf(taskDescription: String?): Int? =
+    taskDescription?.takeIf { it.startsWith(ATTEMPT_DESCRIPTION_PREFIX) }
+        ?.removePrefix(ATTEMPT_DESCRIPTION_PREFIX)
+        ?.toIntOrNull()
+        ?.takeIf { it >= 0 }
+
+private const val ATTEMPT_DESCRIPTION_PREFIX: String = "kmptoolkit-uploader-attempt:"
 
 /** Progress is quantized against a fixed basis, so byte totals above Int range stay exact. */
 private const val PERCENT_BASIS: Long = 10_000L

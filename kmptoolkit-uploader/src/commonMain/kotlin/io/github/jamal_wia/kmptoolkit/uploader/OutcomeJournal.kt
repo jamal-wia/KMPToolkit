@@ -109,9 +109,11 @@ internal enum class JournalSettleOutcome {
  *
  * Settlement protocol: an entry written by a worker carries the attempt it answers (an attempt stamp), and is
  * deleted only after the engine's commit returned, so a death or stop before the commit leaves it for the next
- * run, and a leftover after the commit is recognised as stale by its stamp and dropped. An unstamped entry (the
- * iOS delegate writes these in a process with no engine to read a stamp from) is deleted just before the commit
- * and written back when the commit did not land.
+ * run, and a leftover after the commit is recognised as stale by its stamp and dropped. The iOS delegate stamps
+ * too: the engine's hand-off labels the session task with its attempt, which the system keeps with the task, so a
+ * relaunched process with no engine reads the stamp back. Only an answer of a task without a label (started by an
+ * earlier version, or by a consumer driving the transport directly) is unstamped: it is deleted just before the
+ * commit and written back when the commit did not land, so a death in that window uploads again.
  *
  * An entry file too large to be one the journal wrote is treated as damaged and deleted without being read.
  *

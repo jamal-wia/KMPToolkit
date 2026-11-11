@@ -10,6 +10,7 @@ import io.github.jamal_wia.kmptoolkit.uploader.UploadHandler
 import io.github.jamal_wia.kmptoolkit.uploader.UploadPreparation
 import io.github.jamal_wia.kmptoolkit.uploader.UploadRequest
 import io.github.jamal_wia.kmptoolkit.uploader.UploadTransport
+import io.github.jamal_wia.kmptoolkit.uploader.UploaderConfig
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderEngine
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderEngineRegistry
 import io.github.jamal_wia.kmptoolkit.uploader.createUploaderEngine
@@ -17,6 +18,8 @@ import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import org.junit.runner.RunWith
 
@@ -92,14 +96,25 @@ class UploaderStorageCloseClaimRound5AdversarialTest {
         return createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { storages += it }
     }
 
-    private fun engineOver(storage: UploaderStorage, handler: UploadHandler<*>, direct: Boolean = false): UploaderEngine {
+    private fun engineOver(
+        storage: UploaderStorage,
+        handler: UploadHandler<*>,
+        direct: Boolean = false,
+        heartbeat: Duration = UploaderConfig.DEFAULT_HEARTBEAT_INTERVAL,
+    ): UploaderEngine {
         val job = Job().also { jobs += it }
         return createUploaderEngine(
             store = storage.store,
             handlers = listOf(handler),
             scope = CoroutineScope(Dispatchers.Default + job),
             transactionRunner = if (direct) io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner.Direct else storage.transactionRunner,
+            config = UploaderConfig(heartbeatInterval = heartbeat),
         ).also { engines += it }
+    }
+
+    private companion object {
+        /** Far more than a 100 ms heartbeat needs; the bound only stops a genuinely stranded item from hanging the test. */
+        val WAKE_BOUND: Duration = 10.seconds
     }
 
     private fun realTest(seconds: Int = 90, body: suspend CoroutineScope.() -> Unit) =
@@ -117,10 +132,19 @@ class UploaderStorageCloseClaimRound5AdversarialTest {
             first.start()
             delay(Random.nextLong(0, 25))
             first.close()
-            val second: UploaderEngine = engineOver(storage, handler)
+            // The replacement's heartbeat is the only wake-up it can get for a claim the closed engine releases after
+            // the replacement's first pass already skipped the row as in flight under an unexpired lease (an engine
+            // cannot signal another; see UploaderConfig.heartbeatInterval, the backstop for exactly a lost wake-up).
+            // So the check waits for that bounded wake-up, with a short heartbeat, instead of a fixed second that
+            // the contract never promised: what must hold is unchanged, that every owed item gets started.
+            val second: UploaderEngine = engineOver(storage, handler, heartbeat = 100.milliseconds)
             second.start()
-            delay(1_000)
-            val launched: Set<String> = transport.events.value.filter { it.startsWith("launch:") }.map { it.removePrefix("launch:") }.toSet()
+            fun launchedIds(): Set<String> =
+                transport.events.value.filter { it.startsWith("launch:") }.map { it.removePrefix("launch:") }.toSet()
+            withTimeoutOrNull(WAKE_BOUND) {
+                while (ids.any { it !in launchedIds() }) delay(20)
+            }
+            val launched: Set<String> = launchedIds()
             val stranded: List<String> = ids.filter { it !in launched }
             claimedWithoutLaunch += stranded.size
             assertEquals(emptyList(), stranded, "iteration $iteration: ${stranded.size} owed items were never started by either engine")
