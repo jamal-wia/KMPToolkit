@@ -142,6 +142,13 @@ internal interface RecordingFileSystem {
     fun parentOf(path: String): String?
 
     /**
+     * Whether [path] is absolute for this file system. The default is the POSIX rule (`/…`), which
+     * is the only one on iOS and on a device; the Android implementation defers to the running JVM
+     * so a Windows host (where host tests of the module run) accepts `C:\…`.
+     */
+    fun isAbsolute(path: String): Boolean = path.startsWith('/')
+
+    /**
      * Creates [path] and any missing parents, then reports whether the result is a directory that
      * can be written to. Returns `false` rather than throwing for an ordinary permission problem.
      */

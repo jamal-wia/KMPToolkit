@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -221,12 +223,14 @@ class RecorderPreconditionTest {
 
     @Test
     fun `a configured absolute directory replaces the app private base entirely`() {
+        // Absolute for the host: RecordingStorage refuses "/sdcard/notes" on a Windows JVM.
+        val directory: String = if (TestHost.pathSyntax == PathSyntax.WINDOWS) "C:\\sdcard\\notes" else "/sdcard/notes"
         val config = AudioRecorderConfig(
-            storage = RecordingStorage(directoryPath = "/sdcard/notes", directoryName = "ignored"),
+            storage = RecordingStorage(directoryPath = directory, directoryName = "ignored"),
         )
         runRecorderTest(config) { fixture ->
             assertEquals(
-                RecorderResult.Success("/sdcard/notes/$GENERATED_FILE_NAME"),
+                RecorderResult.Success("$directory/$GENERATED_FILE_NAME"),
                 fixture.recorder.prepare(),
             )
         }

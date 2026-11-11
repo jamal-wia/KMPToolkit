@@ -509,7 +509,7 @@ public data class RecordingStorage(
 )
 ```
 
-- `directoryPath` — absolute directory; a blank or relative path is rejected in `init`. `null` means `<app-private files>/<directoryName>`.
+- `directoryPath` — absolute directory (absolute on the file system the code runs on: `/…` on Android and iOS, `C:\…` or `\\server\share\…` on a Windows JVM, which is where host tests of an Android module run); a blank or relative path is rejected in `init`. `null` means `<app-private files>/<directoryName>`.
 - `directoryName` — relative directory under the app-private base; may be nested (`a/b`) but must not start with `/` or contain a `.` or `..` segment; rejected in `init`. `null` means the consumer's own
   application id / bundle identifier. Ignored when `directoryPath` is set.
 - `fileNamePrefix` — leading part of a generated name (`<prefix>_<epochMillis>_<token>.<ext>`). Must not be

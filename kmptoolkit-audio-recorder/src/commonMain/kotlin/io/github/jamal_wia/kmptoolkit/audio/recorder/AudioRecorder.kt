@@ -201,7 +201,7 @@ public interface AudioRecorder {
      * is deleted only when this call created it; a file that was already there is left in place,
      * though the platform may already have truncated it.
      *
-     * @param outputPath absolute path of the file to record into. Must be absolute and non-blank; a
+     * @param outputPath absolute path of the file to record into. Must be absolute for the running file system and non-blank; a
      *   blank or relative path fails with [RecorderError.DirectoryNotWritable] before the filesystem
      *   is touched, because `NSURL.fileURLWithPath("")` raises an Objective-C exception that
      *   Kotlin/Native cannot catch. `null` — the default — generates a path inside the configured

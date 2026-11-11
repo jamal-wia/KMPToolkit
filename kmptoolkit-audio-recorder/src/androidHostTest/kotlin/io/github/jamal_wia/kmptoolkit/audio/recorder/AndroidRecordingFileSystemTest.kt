@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.audio.recorder
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -33,12 +34,16 @@ class AndroidRecordingFileSystemTest {
 
     @Test
     fun `resolve joins a directory and a name`() {
-        assertEquals("/a/b/c.m4a", fileSystem.resolve("/a/b", "c.m4a"))
+        val base: String = context.filesDir.path
+
+        assertEquals(TestPaths.join(base, "b/c.m4a"), fileSystem.resolve(TestPaths.join(base, "b"), "c.m4a"))
     }
 
     @Test
     fun `parentOf reports the directory holding a file`() {
-        assertEquals("/a/b", fileSystem.parentOf("/a/b/c.m4a"))
+        val directory: String = TestPaths.join(context.filesDir.path, "a/b")
+
+        assertEquals(directory, fileSystem.parentOf(TestPaths.join(directory, "c.m4a")))
     }
 
     @Test

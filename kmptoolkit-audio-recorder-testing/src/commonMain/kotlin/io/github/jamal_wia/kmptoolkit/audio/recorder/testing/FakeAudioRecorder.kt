@@ -9,6 +9,8 @@ import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.isAbsoluteFilePath
 import kotlin.time.Duration
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -71,13 +73,14 @@ import kotlinx.coroutines.flow.asStateFlow
  *   app-private path against. A trailing or repeated separator is dropped from generated paths, as the
  *   real recorder's join does; `.` and `..` segments are not resolved, as neither platform join does.
  */
+@OptIn(ToolkitInternalApi::class)
 public class FakeAudioRecorder(
     private val config: AudioRecorderConfig = AudioRecorderConfig(),
     private val directory: String = DEFAULT_FAKE_DIRECTORY,
 ) : AudioRecorder {
 
     init {
-        require(directory.startsWith('/')) { "directory must be an absolute path, was '$directory'" }
+        require(isAbsolutePath(directory)) { "directory must be an absolute path, was '$directory'" }
     }
 
     private val _state: MutableStateFlow<RecorderState> = MutableStateFlow(RecorderState.Idle)
@@ -155,7 +158,7 @@ public class FakeAudioRecorder(
 
         if (!permissionGranted) return fail(RecorderError.PermissionDenied)
         // An argument refusal, like an illegal transition: it consumes no scripted failure.
-        if (outputPath != null && (outputPath.isBlank() || !outputPath.startsWith('/'))) {
+        if (outputPath != null && (outputPath.isBlank() || !isAbsolutePath(outputPath))) {
             return fail(RecorderError.DirectoryNotWritable(outputPath))
         }
 
@@ -384,6 +387,13 @@ public class FakeAudioRecorder(
         _level.value = value
         _levelSamples.tryEmit(value)
     }
+
+    /**
+     * Absolute for the running file system (`C:\x` on a Windows JVM) or a POSIX-style `/x`: the fake
+     * has no file system, and its own [DEFAULT_FAKE_DIRECTORY] is a `/` path that must keep working
+     * on a Windows build machine.
+     */
+    private fun isAbsolutePath(path: String): Boolean = path.startsWith('/') || isAbsoluteFilePath(path)
 
     private fun generatePath(): String {
         val storage: RecordingStorage = config.storage
