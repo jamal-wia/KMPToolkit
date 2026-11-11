@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 
 /**
  * [VideoPlaybackEngine.seekTo] says a target past the real end can reach the engine (the player
- * passes `seekForward` through while the duration is unknown, capped at `Long.MAX_VALUE / 1000`) and
+ * passes `seekForward` through while the duration is unknown, capped at `Long.MAX_VALUE / 1_000_000`) and
  * that the engine clamps it to the end or ignores it. A target that lands on the start instead is
  * neither: it would turn "skip ahead" into "start over". Driven straight at the engine, so the
  * player's own clamp is out of the way. The end is read from the ExoPlayer after the load, not

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
@@ -71,7 +72,7 @@ class AutoSystemBarsInsetsInjectionTest {
     fun `a status bar inset dispatched to the host view reaches WindowInsets statusBars`() {
         var seenTop: Int = -1
         composeTestRule.setContent {
-            val density = LocalDensity.current
+            val density: Density = LocalDensity.current
             seenTop = WindowInsets.statusBars.getTop(density)
             Box(Modifier.fillMaxSize())
         }
@@ -112,7 +113,7 @@ class AutoSystemBarsInsetsInjectionTest {
             if (shown) {
                 CompositionLocalProvider(LocalLifecycleOwner provides host) {
                     AutoSystemBarsIconStyle(controller = controller, probe = TestProbe()) {
-                        val density = LocalDensity.current
+                        val density: Density = LocalDensity.current
                         seenTop = WindowInsets.statusBars.getTop(density)
                         Box(Modifier.fillMaxSize())
                     }
