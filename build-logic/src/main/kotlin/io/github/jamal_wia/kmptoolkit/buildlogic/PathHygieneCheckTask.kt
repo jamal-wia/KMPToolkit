@@ -5,7 +5,9 @@ import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
 import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
@@ -31,6 +33,10 @@ internal abstract class PathHygieneCheckTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val sources: ConfigurableFileCollection
 
+    /** The module's Gradle path, for the failure message (read here, not from `Task.project` at execution time). */
+    @get:Input
+    abstract val projectPath: Property<String>
+
     /** A one-line-per-finding report; empty when the scan is clean. */
     @get:OutputFile
     abstract val report: RegularFileProperty
@@ -50,7 +56,7 @@ internal abstract class PathHygieneCheckTask : DefaultTask() {
         }
         if (sorted.isNotEmpty()) {
             throw GradleException(
-                "checkPathHygiene found ${sorted.size} path-hygiene problem(s) in ${project.path} " +
+                "checkPathHygiene found ${sorted.size} path-hygiene problem(s) in ${projectPath.get()} " +
                     "(paths relative to src/):\n" + sorted.joinToString("\n") { "  $it" } +
                     "\nFix the code, or suppress a legitimate case with a reason: " +
                     "'// path-hygiene-ignore: <rule> <reason>'. See CONTRIBUTING.md, " +
@@ -62,6 +68,7 @@ internal abstract class PathHygieneCheckTask : DefaultTask() {
 
 /** Registers `checkPathHygiene` on this module and makes `check` depend on it. */
 internal fun Project.registerPathHygieneCheck() {
+    val modulePath: String = path
     val scan = tasks.register<PathHygieneCheckTask>("checkPathHygiene") {
         group = "verification"
         description = "Scans Kotlin sources for separator and POSIX assumptions that break on Windows."
@@ -73,6 +80,7 @@ internal fun Project.registerPathHygieneCheck() {
                 PathHygieneScanner.SKIPPED_PREFIXES.forEach { exclude("$it*/**") }
             },
         )
+        projectPath.set(modulePath)
         report.set(layout.buildDirectory.file("reports/path-hygiene/report.txt"))
     }
     tasks.matching { it.name == "check" }.configureEach { dependsOn(scan) }

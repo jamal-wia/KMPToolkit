@@ -219,10 +219,6 @@ class PathHygieneScannerTest {
             "// path-hygiene-file: logical-paths fake file system, every path is a logical name",
         ).joinToString("\n")
         assertEquals(emptyList(), PathHygieneScanner.scan(test, text))
-        assertEquals(
-            emptyList(),
-            PathHygieneScanner.scan(main, "if (p.startsWith('/')) {}\n// path-hygiene-file: logical-paths logical names"),
-        )
     }
 
     @Test
@@ -251,5 +247,89 @@ class PathHygieneScannerTest {
     @Test
     fun `a suppression in an iOS source set is not even parsed`() {
         assertEquals(emptyList(), rules("iosMain/kotlin/A.kt", "// path-hygiene-ignore: PH1"))
+    }
+
+    // ---- review round 1: file exemption in production, PH5 forms, PH4 templates, regex gaps ----
+
+    @Test
+    fun `a file suppression in a production source set is a violation and exempts nothing`() {
+        for (set in listOf("commonMain", "androidMain", "jvmMain", "jvmShared")) {
+            val found: List<String> = rules(
+                "$set/kotlin/A.kt",
+                "if (p.startsWith('/')) {}",
+                "// path-hygiene-file: logical-paths logical names",
+            )
+            assertEquals(setOf("PH5", PathHygieneScanner.SUPPRESSION_RULE), found.toSet(), set)
+        }
+    }
+
+    @Test
+    fun `PH5 flags a named separator constant, a lone slash declaration and the index forms`() {
+        val samples: List<String> = listOf(
+            "if (!path.startsWith(PATH_SEPARATOR)) return",
+            "path.startsWith(SLASH)",
+            "path.startsWith(UNIX_PATH_SEPARATOR_CHAR)",
+            "const val PATH_SEPARATOR = \"/\"",
+            "private val sep: Char = '/'",
+            "val separator = \"/\"",
+            "if (path[0] == '/') {}",
+            "if (path.first() == '/') {}",
+        )
+        for (sample in samples) assertEquals(listOf("PH5"), rules(main, sample), sample)
+        assertEquals(listOf("PH5"), rules("jvmShared/kotlin/A.kt", "path.startsWith(PATH_SEPARATOR)"))
+    }
+
+    @Test
+    fun `PH5 ignores near misses of the new forms`() {
+        assertEquals(
+            emptyList(),
+            rules(
+                main,
+                "path.startsWith(PREFIX)",
+                "val sep = \"//\"",
+                "val url = \"/a\"",
+                "if (path[0] == 'a') {}",
+                "path.startsWith(separatorOf(x))",
+            ),
+        )
+        assertEquals(emptyList(), rules(test, "const val PATH_SEPARATOR = \"/\""))
+    }
+
+    @Test
+    fun `PH4 flags a dotted expression joined with a slash in a template`() {
+        val samples: List<String> = listOf(
+            "val f = \"\${tempDir.path}/x\"",
+            "val f = \"\${root.absolutePath}/x\"",
+            "val f = \"\${storage.getTempFilePath(unit)}/child\"",
+            "val f = \"\${UnitFileLayout.INTERNAL_DIRECTORY}/x\"",
+        )
+        for (sample in samples) assertEquals(listOf("PH4"), rules(test, sample), sample)
+        assertEquals(emptyList(), rules(test, "val u = \"http://h:\${server.localPort}/u\"", "val n = \"\${item.name}/x\""))
+    }
+
+    @Test
+    fun `PH3 flags the two argument forms`() {
+        assertEquals(listOf("PH3"), rules(test, "p.substringBeforeLast('/', \"\")"))
+        assertEquals(listOf("PH3"), rules(test, "p.lastIndexOf('/', i)"))
+        assertEquals(listOf("PH3"), rules(test, "p.split(\"/\", limit = 2)"))
+        assertEquals(emptyList(), rules(test, "p.substringBeforeLast('/x', \"\")"))
+    }
+
+    @Test
+    fun `PH2 flags the permission setters without a receiver but not a helper that shares the name`() {
+        assertEquals(listOf("PH2"), rules(test, "file.apply { setWritable(false) }"))
+        assertEquals(listOf("PH2"), rules(test, "run { setReadOnly() }"))
+        // A call of a local helper that merely shares the name is not the java.io setter.
+        assertEquals(emptyList(), rules(test, "setReadOnly(dir)", "override fun setWritable(writable: Boolean): Boolean = true"))
+    }
+
+    @Test
+    fun `PH1 flags the system property, the file system separator and the static import`() {
+        assertEquals(listOf("PH1"), rules(main, "val s = System.getProperty(\"file.separator\")"))
+        assertEquals(listOf("PH1"), rules(main, "val s = FileSystems.getDefault().separator"))
+        assertEquals(listOf("PH1"), rules(main, "import java.io.File.separator"))
+        assertEquals(listOf("PH1"), rules(main, "import java.io.File.separatorChar"))
+        assertEquals(emptyList(), rules(main, "import java.io.File"))
+        assertEquals(emptyList(), rules(main, "import java.io.File.createTempFile"))
     }
 }

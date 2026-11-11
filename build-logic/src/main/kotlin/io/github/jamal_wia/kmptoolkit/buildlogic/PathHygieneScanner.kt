@@ -45,15 +45,18 @@ internal data class PathHygieneViolation(
  * deliberately does not catch is listed in CONTRIBUTING.md § "Paths and the path-hygiene check".
  *
  * Rules (the source-set names below are the folder names under `src/`):
- *  - PH1, every scanned source set: `File.separator`, `File.separatorChar`.
+ *  - PH1, every scanned source set: `File.separator`, `File.separatorChar` (also as a
+ *    static import), `"file.separator"`, `FileSystems.getDefault().separator`.
  *  - PH2, every scanned source set: `PosixFilePermission(s)`, `setPosixFilePermissions`,
- *    `.setReadable(`, `.setWritable(`, `.setExecutable(`, `.setReadOnly(`, `UnixOperatingSystemMXBean`,
+ *    `setReadable(`, `setWritable(`, `setExecutable(`, `setReadOnly(` (with or without a receiver), `UnixOperatingSystemMXBean`,
  *    a string starting `"/proc/`, the string `"/dev/fd`.
  *  - PH3, source sets whose name ends in `Test`: `substringBeforeLast('/')`, `substringAfterLast('/')`,
- *    `lastIndexOf('/')`, `.split('/')` (and the `"/"` forms).
+ *    `lastIndexOf('/')`, `.split('/')` (and the `"/"` forms, with or without a second argument).
  *  - PH4, source sets whose name ends in `Test`: a path-like name (`dir`, `path`, `base`, `root`,
- *    `folder`, `tmp`, `temp`, ...) followed by `/` in a string template or a `+ "/..."` concatenation.
- *  - PH5, source sets whose name ends in `Main`: `startsWith('/')`, `startsWith("/")`.
+ *    `folder`, `tmp`, `temp`, ...) followed by `/` in a string template (including `${x.path}/`) or a `+ "/..."` concatenation.
+ *  - PH5, every scanned source set that is not a `*Test` one (`*Main`, `jvmShared`): `startsWith('/')`,
+ *    `startsWith("/")`, `startsWith(PATH_SEPARATOR)` and similar, a `val x = "/"` declaration, and
+ *    `[0] == '/'` / `.first() == '/'`.
  *
  * iOS (and other native) source sets are never scanned: their paths are POSIX by construction.
  * Comment-only lines and `import` / `package` lines are skipped.
@@ -61,8 +64,9 @@ internal data class PathHygieneViolation(
  * Suppressions, both requiring a reason (a bare one is itself a violation):
  *  - one line: `// path-hygiene-ignore: <rule>[,<rule>...] <reason>`, on the offending line or alone on
  *    the line directly above it;
- *  - one file: `// path-hygiene-file: logical-paths <reason>` anywhere in it, for a file whose
- *    strings are logical paths of a fake file system, not host paths. It exempts PH3, PH4 and PH5
+ *  - one file: `// path-hygiene-file: logical-paths <reason>` anywhere in a TEST file (in a production
+ *    source set it is itself a violation), for a file whose strings are logical paths of a fake file
+ *    system, not host paths. It exempts PH3, PH4 and PH5
  *    only; PH1 and PH2 are host-API rules and stay line-by-line.
  */
 internal object PathHygieneScanner {
@@ -76,19 +80,31 @@ internal object PathHygieneScanner {
 
     private const val PATH_NAMES: String = "dir|directory|path|base|root|folder|tmp|temp"
 
-    private val ph1: Regex = Regex("""\bFile\.separator(Char)?\b""")
+    private val ph1: Regex =
+        Regex("""\bFile\.separator(Char)?\b|"file\.separator"|FileSystems\.getDefault\(\)\.separator""")
+    private val ph1Import: Regex = Regex("""^\s*import\s+java\.io\.File\.separator(Char)?\b""")
     private val ph2: Regex = Regex(
-        """PosixFilePermission|setPosixFilePermissions|\.setReadable\(|\.setWritable\(|\.setExecutable\(|""" +
-            """\.setReadOnly\(|UnixOperatingSystemMXBean|"/proc/|"/dev/fd""",
+        """PosixFilePermission|setPosixFilePermissions|\.set(Readable|Writable|Executable|ReadOnly)\(|""" +
+            """(?<![.\w])(setReadable|setWritable|setExecutable)\(\s*(true|false)\b|(?<![.\w])setReadOnly\(\s*\)|""" +
+            """UnixOperatingSystemMXBean|"/proc/|"/dev/fd""",
     )
     private val ph3: Regex = Regex(
-        """\b(substringBeforeLast|substringAfterLast|lastIndexOf)\(\s*['"]/['"]\s*\)|\.split\(\s*['"]/['"]\s*\)""",
+        """\b(substringBeforeLast|substringAfterLast|lastIndexOf)\(\s*['"]/['"]\s*[,)]|\.split\(\s*['"]/['"]\s*[,)]""",
     )
     private val ph4: List<Regex> = listOf(
         Regex("""\$\{?\w*(?i:$PATH_NAMES)\w*(\(\))?\}?/"""),
+        Regex("""\$\{[^}]*(?i:$PATH_NAMES)[^}]*\}/"""),
         Regex("""(?i:$PATH_NAMES|absolutePath|canonicalPath)\w*(\(\))?\s*\+\s*"/"""),
     )
-    private val ph5: Regex = Regex("""\bstartsWith\(\s*['"]/['"]""")
+    private val ph5: List<Regex> = listOf(
+        Regex("""\bstartsWith\(\s*['"]/['"]"""),
+        // A named separator constant: path.startsWith(PATH_SEPARATOR).
+        Regex("""\bstartsWith\(\s*[A-Z_]*(SEPARATOR|SLASH)[A-Z_]*\s*\)"""),
+        // A declaration that names a lone slash, the constant behind the line above.
+        Regex("""\bval\s+\w+(\s*:\s*(String|Char))?\s*=\s*['"]/['"]"""),
+        // The index forms of the same check.
+        Regex("""(\[0\]|\.first\(\))\s*==\s*'/'"""),
+    )
 
     private val lineIgnore: Regex = Regex("""//\s*path-hygiene-ignore:(.*)$""")
     private val fileIgnore: Regex = Regex("""//\s*path-hygiene-file:(.*)$""")
@@ -110,7 +126,6 @@ internal object PathHygieneScanner {
         val sourceSet: String = relativePath.substringBefore('/')
         if (!isScanned(sourceSet)) return emptyList()
         val isTest: Boolean = sourceSet.endsWith("Test")
-        val isMain: Boolean = sourceSet.endsWith("Main")
         val lines: List<String> = text.lines()
         val found: MutableList<PathHygieneViolation> = mutableListOf()
 
@@ -127,6 +142,10 @@ internal object PathHygieneScanner {
                 parts.getOrNull(1).isNullOrBlank() -> found += PathHygieneViolation(
                     relativePath, index + 1, SUPPRESSION_RULE,
                     "path-hygiene-file: logical-paths needs a reason after it",
+                )
+                !isTest -> found += PathHygieneViolation(
+                    relativePath, index + 1, SUPPRESSION_RULE,
+                    "path-hygiene-file is for test source sets only; in production code suppress single lines",
                 )
                 else -> logicalPaths = true
             }
@@ -159,7 +178,13 @@ internal object PathHygieneScanner {
         }
 
         lines.forEachIndexed { index, rawLine ->
-            if (commentOnly.containsMatchIn(rawLine) || declarationOnly.containsMatchIn(rawLine)) return@forEachIndexed
+            if (declarationOnly.containsMatchIn(rawLine)) {
+                if (ph1Import.containsMatchIn(rawLine) && PathHygieneRule.PH1.id !in allowed[index]) {
+                    found += PathHygieneViolation(relativePath, index + 1, PathHygieneRule.PH1.id, PathHygieneRule.PH1.advice)
+                }
+                return@forEachIndexed
+            }
+            if (commentOnly.containsMatchIn(rawLine)) return@forEachIndexed
             val line: String = rawLine.replace(lineIgnore, "")
             fun hit(rule: PathHygieneRule) {
                 if (rule.id in allowed[index]) return
@@ -170,7 +195,7 @@ internal object PathHygieneScanner {
             if (!logicalPaths) {
                 if (isTest && ph3.containsMatchIn(line)) hit(PathHygieneRule.PH3)
                 if (isTest && ph4.any { it.containsMatchIn(line) }) hit(PathHygieneRule.PH4)
-                if (isMain && ph5.containsMatchIn(line)) hit(PathHygieneRule.PH5)
+                if (!isTest && ph5.any { it.containsMatchIn(line) }) hit(PathHygieneRule.PH5)
             }
         }
         return found.sortedBy { it.line }

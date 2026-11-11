@@ -44,11 +44,11 @@ rule id. iOS source sets are never scanned. The rules:
 
 | Rule | Where | Forbids |
 |---|---|---|
-| PH1 | every scanned source set | `File.separator`, `File.separatorChar` |
-| PH2 | every scanned source set | `PosixFilePermission(s)`, `setPosixFilePermissions`, `.setReadable(` / `.setWritable(` / `.setExecutable(` / `.setReadOnly(`, `UnixOperatingSystemMXBean`, `"/proc/`, `"/dev/fd` |
-| PH3 | `*Test` source sets | taking a path apart on `/`: `substringBeforeLast('/')`, `substringAfterLast('/')`, `lastIndexOf('/')`, `.split('/')` |
-| PH4 | `*Test` source sets | a path-like name (`dir`, `path`, `base`, `root`, `folder`, `tmp`, `temp`, ...) joined with `/` in a template or a `+ "/..."` |
-| PH5 | `*Main` source sets | `startsWith('/')` as an absolute-path check (use `isAbsoluteFilePath` from `kmptoolkit-core`) |
+| PH1 | every scanned source set | `File.separator`, `File.separatorChar` (also as a static import), `"file.separator"`, `FileSystems.getDefault().separator` |
+| PH2 | every scanned source set | `PosixFilePermission(s)`, `setPosixFilePermissions`, `.setReadable(` / `.setWritable(` / `.setExecutable(` / `.setReadOnly(` (also without a receiver, as `setWritable(false)` / `setReadOnly()`), `UnixOperatingSystemMXBean`, `"/proc/`, `"/dev/fd` |
+| PH3 | `*Test` source sets | taking a path apart on `/`: `substringBeforeLast('/')`, `substringAfterLast('/')`, `lastIndexOf('/')`, `.split('/')`, with or without further arguments |
+| PH4 | `*Test` source sets | a path-like name (`dir`, `path`, `base`, `root`, `folder`, `tmp`, `temp`, ...) joined with `/` in a template (`"$dir/x"`, `"${x.path}/x"`) or a `+ "/..."` |
+| PH5 | every scanned source set that is not a `*Test` one | `startsWith('/')` or `startsWith(PATH_SEPARATOR)` as an absolute-path check, `path[0] == '/'`, `path.first() == '/'`, and a `val x = "/"` declaration (use `isAbsoluteFilePath` from `kmptoolkit-core`) |
 
 When a hit is legitimate — a URL, a logical name, a fake file system, a POSIX-only test that skips
 itself on Windows — say so, with a reason (a suppression without one fails the task):
@@ -61,22 +61,30 @@ val last: String = url.substringAfterLast('/')
 The comment goes on the offending line or alone on the line above it; several rules are written
 `PH3,PH4`. A file whose strings are all logical paths of a fake file system takes one line,
 `// path-hygiene-file: logical-paths <reason>`, which exempts PH3, PH4 and PH5 in that file (never
-PH1 or PH2). Do not silence a hit you have not read: first try the migration the rule suggests.
+PH1 or PH2, and never in a production source set: there it is itself a violation). Prefer line
+suppressions in a file that mixes host paths and logical ones. Do not silence a hit you have not read: first try the migration the rule suggests.
 
-The scan is fast feedback, not proof, and it is meant to be. It does **not** catch:
+The scan is fast feedback, not proof, and it is meant to be: on the separator and POSIX failures of the
+first Windows run it would have caught about 71%. It does **not** catch:
 
-- a separator that reaches a path through a value or a function (`val sep = "/"`, `joinToString("/")`,
-  `buildString`), or a join whose operand is not named like a path (`"$parent/$name"`, `"$prefix/x"`,
-  `"${file.path}/x"`, `File(a + "/" + b)`);
+- a separator that reaches a path through a value or a function (`val sep = "/"` used later,
+  `joinToString("/")`, `buildString`), or a join whose operand is not named like a path
+  (`"$parent/$name"`, `"$prefix/x"`, `File(a + "/" + b)`); a name that merely contains a path word
+  (`attempts` contains `temp`) is caught, wrongly, and needs a suppression;
+- an absolute-path check spelled another way (`path.startsWith(root)`, `path.isNotEmpty() && path[0] ==
+  SEP`), or a separator constant that is not named `...SEPARATOR` / `...SLASH`;
 - a native path compared with a `/` literal (`assertEquals("/data/x", file.path)`), a tree listing
-  compared with `/`-separated names, or a `\` literal in code that builds POSIX paths;
+  compared with `/`-separated names, a `\` literal in code that builds POSIX paths;
+- a rule hit that spans lines (the scan is per line), and Kotlin code outside `src/*/kotlin` (Java sources,
+  resources, build scripts); the `jvmShared` folder of `:test-support` is scanned, iOS and other native
+  source sets never;
 - Windows limits that are not about the separator: the 260-character MAX_PATH of native code (the
   SQLite tests), names NTFS rejects or rewrites (trailing dots, `CON`, `:`), case-insensitive names,
   an open file that cannot be deleted, ACL semantics that differ from POSIX permission bits, `\r\n`
   line endings, a server resetting a connection instead of delivering an early reply;
-- a POSIX API that is not in the PH2 list (`ProcessBuilder("sh")`, a hard-coded `/tmp`), anything
-  outside `src/*/kotlin` (Java sources, resources, build scripts), and a stale suppression: one
-  that no longer silences anything is not reported.
+- a POSIX API that is not in the PH2 list (`ProcessBuilder("sh")`, a hard-coded `/tmp`), and a
+  suppression that no longer silences anything (not reported) or whose reason is not true (a reason is
+  required, not verified).
 
 The only complete check is to run the tests on Windows (`jvmTest testAndroidHostTest`).
 
