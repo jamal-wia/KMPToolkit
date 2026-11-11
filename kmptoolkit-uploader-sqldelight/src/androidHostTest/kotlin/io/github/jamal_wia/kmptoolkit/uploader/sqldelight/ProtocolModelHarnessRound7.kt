@@ -622,9 +622,9 @@ abstract class InterleavingTestBase {
      */
     private val deep: Boolean = java.io.File(System.getProperty("java.io.tmpdir"), "kmptoolkit-r7-deep").exists()
 
-    protected fun explore(declared: Scenario, cap: Int) = runBlocking { withTimeout(280.seconds) {
+    protected fun explore(declared: Scenario, cap: Int, inMemory: Boolean = false) = runBlocking { withTimeout(280.seconds) {
         val scenario: Scenario = if (deep) declared else declared.withBound(0)
-        val storage: UploaderStorage = open()
+        val storage: UploaderStorage = if (inMemory) InMemoryStorage() else open()
         // A scheduler of its own and runBlocking, not runTest: runTest skips virtual time whenever the body waits.
         val testScheduler = TestCoroutineScheduler()
         val runner = ScenarioRunner(storage, testScheduler, CoroutineScope(StandardTestDispatcher(testScheduler) + SupervisorJob()), scenario)
@@ -649,4 +649,11 @@ abstract class InterleavingTestBase {
         if (!deep) assertEquals(0, pending.size, "${scenario.name}: the bound was too large or too slow, ${pending.size} schedules left after $explored")
     } }
 
+}
+
+/** The in-memory store of the testing module behind the storage interface, for differential runs against SQLite. */
+class InMemoryStorage : UploaderStorage {
+    override val store: io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore = io.github.jamal_wia.kmptoolkit.uploader.testing.InMemoryUploaderStore()
+    override val transactionRunner: io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner = io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner.Direct
+    override fun close() = Unit
 }
