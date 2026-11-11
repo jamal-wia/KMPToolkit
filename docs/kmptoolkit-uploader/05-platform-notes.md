@@ -259,3 +259,9 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   cannot use as a file name — empty, `.` or `..`, containing `/`, `\`, a space or a control character, or
   longer than 200 characters — is uploaded and settled normally but its answer is not journaled: a process
   death between the answer and the settlement uploads it again (at least once).
+  On iOS, where the data container is usually a case-insensitive volume, ids that differ only by letter case
+  (`Photo-1` and `photo-1`) get different files: an id keeps its own text as the name of its temporary body and its
+  journal entry only when no other id can fold onto it (a canonical upper-case UUID, which is the default id, or an
+  id without an upper-case letter that is not shaped like a UUID); any other id gets a hashed body name and an
+  escaped journal name (`~` marks an escape), which the sweep maps back to the id. Entries a version before 4.1.0
+  wrote under the id's own spelling stay readable, are replayed by the sweep and are replaced when the id writes again.

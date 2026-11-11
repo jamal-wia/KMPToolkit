@@ -854,24 +854,20 @@ internal fun temporaryBodyPath(itemId: String): String = NSTemporaryDirectory() 
 
 /**
  * The name of the temporary body file of [itemId]. The id is the consumer's (`idGenerator`) and may be anything, so
- * an id that is not a plain file name — empty, longer than [MAX_PLAIN_ID_CHARS], a character outside
- * `[A-Za-z0-9._-]`, `.` or `..` — is named after the SHA-256 of its UTF-8 bytes instead: fixed length, never a path
- * separator, and deterministic, so every path that removes the file finds it without state. A canonical UUID (the
- * default id) keeps the name it always had, so a file written by an earlier version is still removed. The `~` cannot
- * occur in a plain name, so the two name spaces are disjoint.
+ * an id that is not its own file name ([keepsOwnFileName]: empty, longer than 200 characters, a character outside
+ * `[A-Za-z0-9._-]`, `.` or `..`, or a spelling that another id could share on a case-insensitive volume, which is
+ * any upper-case letter except in a canonical upper-case UUID) is named after the SHA-256 of its UTF-8 bytes instead:
+ * fixed length, never a path separator, and deterministic, so every path that removes the file finds it without
+ * state. A canonical UUID (the default id) keeps the name it always had, so a file written by an earlier version is
+ * still removed. The `~` cannot occur in a plain name, so the two name spaces are disjoint. (A body file an earlier
+ * version left for an id with an upper-case letter that is not a UUID keeps its old name and is not removed by this
+ * one; it sits in the temporary directory, which the system cleans.)
  */
 internal fun temporaryBodyFileName(itemId: String): String =
-    if (isPlainFileNameId(itemId)) {
+    if (keepsOwnFileName(itemId)) {
         "kmptoolkit_upload_$itemId.tmp"
     } else {
         "kmptoolkit_upload_~${sha256Hex(itemId.encodeToByteArray())}.tmp"
-    }
-
-private const val MAX_PLAIN_ID_CHARS: Int = 200
-
-private fun isPlainFileNameId(itemId: String): Boolean =
-    itemId.length in 1..MAX_PLAIN_ID_CHARS && itemId != "." && itemId != ".." && itemId.all { c ->
-        c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '.' || c == '_' || c == '-'
     }
 
 private const val SHA256_DIGEST_BYTES: Int = 32

@@ -32,6 +32,11 @@ import platform.posix.memcpy
  *
  * Each write is `NSDataWritingAtomic`: Foundation writes a temporary file and renames it over [dir]'s
  * entry, so a reader sees the previous entry, the whole new one, or nothing.
+ *
+ * An entry is named by [journalFileName]: the id itself when that cannot be the same file as another id's name on a
+ * case-insensitive volume (every default id), an escaped form of it otherwise, so ids that differ only by letter case
+ * never share an entry. An entry an earlier version wrote under an id's own spelling is still read, replayed by the
+ * sweep and deleted, and is replaced by the escaped name when the id writes again.
  */
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
@@ -45,11 +50,14 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
         } else {
             bytes.usePinned { pinned -> NSData.create(bytes = pinned.addressOf(0), length = bytes.size.convert()) }
         }
-        return data.writeToFile("$dir/$itemId", options = WRITE_OPTIONS, error = null)
+        val written: Boolean = data.writeToFile("$dir/${journalFileName(itemId)}", options = WRITE_OPTIONS, error = null)
+        // The entry an earlier version wrote under the id's own spelling is superseded by this one.
+        if (written) legacyPathOf(itemId)?.let { files.removeItemAtPath(it, error = null) }
+        return written
     }
 
     override fun read(itemId: String): ByteArray? {
-        val path = "$dir/$itemId"
+        val path: String = existingPathOf(itemId)
         // The size first: a file larger than any entry the journal writes is not read at all, where reading it
         // would be an out-of-memory abort Kotlin/Native cannot catch.
         val attributes: Map<Any?, *> = files.attributesOfItemAtPath(path, error = null) ?: return null
@@ -66,11 +74,32 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
     }
 
     override fun delete(itemId: String) {
-        files.removeItemAtPath("$dir/$itemId", error = null)
+        files.removeItemAtPath("$dir/${journalFileName(itemId)}", error = null)
+        legacyPathOf(itemId)?.let { files.removeItemAtPath(it, error = null) }
     }
 
     override fun itemIds(): List<String> =
-        files.contentsOfDirectoryAtPath(dir, error = null).orEmpty().filterIsInstance<String>().sorted()
+        directoryNames().map(::itemIdOfJournalFileName).distinct().sorted()
+
+    private fun directoryNames(): List<String> =
+        files.contentsOfDirectoryAtPath(dir, error = null).orEmpty().filterIsInstance<String>()
+
+    /**
+     * The path of the entry of [itemId]: its [journalFileName], or, when only an entry an earlier version wrote under
+     * the id's own spelling exists, that one.
+     */
+    private fun existingPathOf(itemId: String): String {
+        val path = "$dir/${journalFileName(itemId)}"
+        return if (files.fileExistsAtPath(path)) path else legacyPathOf(itemId) ?: path
+    }
+
+    /**
+     * The path of an entry an earlier version wrote for [itemId] under its own spelling, when that spelling is not
+     * the id's current file name and the directory lists exactly this spelling. The listing, not the path, decides:
+     * on a case-insensitive volume the path of one id opens the file of another that differs only by case.
+     */
+    private fun legacyPathOf(itemId: String): String? =
+        if (journalFileName(itemId) != itemId && itemId in directoryNames()) "$dir/$itemId" else null
 
     /** Atomic writes leave nothing behind that this code owns; the system cleans its own temporary file. */
     override fun purgeLeftovers() = Unit
