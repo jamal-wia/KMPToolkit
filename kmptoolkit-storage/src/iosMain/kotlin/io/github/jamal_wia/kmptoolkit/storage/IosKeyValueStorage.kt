@@ -27,7 +27,15 @@ internal class IosKeyValueStorage(
 ) : KeyValueStorage {
 
     override suspend fun get(key: String): StorageResult<String?> = withContext(dispatcher) {
-        StorageResult.Success(defaults.stringForKey(key))
+        val direct: String? = defaults.stringForKey(key)
+        // A key another domain holds a non-string for (`AppleLanguages` is an array in the argument and global
+        // domains, and that shadows the suite's own string in the search list) reads null although the suite has
+        // it: ask the suite's own domain then. Only for such keys, so an absent key costs nothing extra.
+        if (direct != null || defaults.objectForKey(key) == null) {
+            StorageResult.Success(direct)
+        } else {
+            StorageResult.Success(defaults.persistentDomainForName(suiteName)?.get(key) as? String)
+        }
     }
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {

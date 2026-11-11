@@ -41,6 +41,12 @@ The suffix on the plain store is load-bearing on iOS. `NSUserDefaults(suiteName:
 app and every embedded SDK ever wrote. Because the suffix is always appended, the resolved suite name
 can never equal the bundle id, even if you pass it explicitly as `name`.
 
+A key that `NSUserDefaults` knows from another domain with a value that is not a string (`AppleLanguages`, an array in the
+global domain) is shadowed by that domain in the search list, and a plain `stringForKey` read would return `null` for
+what `put` just stored. The plain iOS store therefore asks the suite's own domain for such a key, and `get` returns what
+`put` wrote. A string another domain holds under the same key name (an argument-domain override) would still win:
+do not name a key after a system default.
+
 ## Android: why not Tink, and why not `EncryptedSharedPreferences`
 
 The code this module was ported from used **Tink** (`com.google.crypto.tink:tink-android`) with an
