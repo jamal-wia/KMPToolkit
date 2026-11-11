@@ -390,10 +390,10 @@ internal class FxPlayback private constructor(
 
     companion object {
 
-        /** How long the pulse keeps copying after the picture changed while not playing (a seek). */
         /** How far the playhead must move, at normal speed, before a deferred rate is given (see [deferRate]). */
         private const val RATE_SETTLE_MS: Double = 200.0
 
+        /** How long the pulse keeps copying after the picture changed while not playing (a seek). */
         private const val REFRESH_WINDOW_NANOS: Long = 500_000_000L
 
         /** A quarter of a 60 Hz pulse. */

@@ -61,9 +61,10 @@ class JavaFxResumeAtSpeedR5AdversarialTest {
      * stood still.
      *
      * The speed is measured once the resume has settled (the playhead 600 ms past where it paused). A speed
-     * given to the native player during playback always costs a standstill of about 300 ms followed by a jump
-     * of about 500 ms (probe timelines in the fixer report; a resume at normal speed has neither), so a window
-     * that starts at the first move after the resume reads that standstill, never the speed.
+     * given to the native player during playback makes the playhead as JavaFX reports it hold still for about
+     * 300 ms and then catch up by about 500 ms (probe timelines in the fixer report; a resume at normal speed
+     * has neither), so a window that starts at the first move after the resume reads that held reading, not
+     * the speed. The jump lands before paused + 600.
      */
     @Test
     fun `a pause and resume at a speed of two keeps the speed`() {

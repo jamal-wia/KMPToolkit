@@ -157,9 +157,10 @@ decoder writes straight into memory without a render-and-read-back step.
   before a loop wraps, would be lost. The engine gives the speed to the native player again as one
   change after it has played for about 200 ms: a change made together with `play()`, or within the
   first ~100 ms of it, makes the playhead stand still for good (7 of 30 resumes in the measurements).
-  The cost is a start-up at normal speed, and a standstill of about 300 ms followed by a jump of about
-  500 ms of the playhead, when a player is started again (or wraps) at a speed other than 1; the speed
-  then holds. Until the native player has played, the engine's rate is 1.0.
+  The cost is a start-up at normal speed, and, when the speed is given, a playhead as JavaFX reports it
+  that holds still for about 300 ms and then catches up by about 500 ms (the native clock runs at the
+  new speed meanwhile); the speed holds from there. Until the native player has played, the engine's
+  rate is 1.0.
   A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
   passes one).
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from

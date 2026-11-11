@@ -55,6 +55,9 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
   is measured once the resume has settled, because a rate given to the native player during playback
   always costs a standstill of about 300 ms and a jump). The freeze is a race, so a run of 30
   resumes each at 2 and 4 was also made when the fix landed (0 of 60; the old code froze 7 of 30).
+- **Freeze after a resume** — `JavaFxResumeSettlesAtSpeedR5FixerTest`: after a pause and a start at 2 and at
+  4 (six fresh engines each, or `KMPTOOLKIT_FREEZE_TRIALS` for a longer run) the playhead passes where it
+  paused plus 1200 ms within 3 s, a point beyond the deferred speed change and the catch-up of the reported time.
 - **Unreadable file** — `SourceUrisUnreadableFileR5Test`: a `VideoSource.File` the process cannot read
   fails with `FileNotFoundException` before JavaFX is involved (JavaFX itself took 4 s to fail it).
 - **Reading JavaFX back.** Volume, rate and status have no getter on the engine contract; an
