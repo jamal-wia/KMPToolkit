@@ -173,6 +173,8 @@ usage-description string.
   [`04-api-reference.md`](04-api-reference.md#notifier). On iOS that check is what stands between a
   blank id and process death, because `UNNotificationRequest` rejects it with an Objective-C
   exception Kotlin/Native cannot catch.
+- A `PermissionController` that throws is a runtime failure like any other: `post` answers
+  `NotificationResult.Failed(cause)` on both platforms (cancellation is still rethrown).
 - Nothing is persisted. The module has no database, no list of what it has posted, and nothing to
   restore after a reboot or a process death — beyond in-memory progress-coalescing state, which is
   meant to be lost.

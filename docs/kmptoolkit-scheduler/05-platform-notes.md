@@ -167,7 +167,7 @@ Practical consequences:
   replaces it and is not counted, so it still succeeds at the cap. The count covers every pending local
   notification of the app, including ones created by your own code or another library, not only this
   scheduler's. The authorization check, the cap check and the add run under one process-wide lock, and
-  `cancel` / `cancelAll` take the same lock, so concurrent `schedule` calls through this library
+  `cancel` / `cancelAll` take the same lock (`cancelAll` copies its ids when it is called, before waiting for it), so concurrent `schedule` calls through this library
   cannot overshoot and a `cancel` of an id can never be overtaken by a `schedule` of it that was
   already in flight (the alarm is never left armed after `cancel` returned); notifications added by code outside it are not serialised
   with it and can still push the total past 64. Schedule a rolling window rather than

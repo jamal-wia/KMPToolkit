@@ -5,6 +5,7 @@ package io.github.jamal_wia.kmptoolkit.notification
 import io.github.jamal_wia.kmptoolkit.permission.CommonPermission
 import io.github.jamal_wia.kmptoolkit.permission.PermissionController
 import io.github.jamal_wia.kmptoolkit.permission.isUsable
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
@@ -91,6 +92,14 @@ internal class IosNotifier(
                 ),
                 claim,
             )
+        } catch (e: CancellationException) {
+            // Cancellation is not a notification failure; it is a RuntimeException in Kotlin, so it
+            // is re-thrown before the clause below sees it.
+            throw e
+        } catch (e: RuntimeException) {
+            // A permission controller (or anything else on this path) that throws is a runtime
+            // failure, and every runtime failure is a result, as on Android.
+            return NotificationResult.Failed(e)
         } finally {
             coalescer.release(claim)
         }

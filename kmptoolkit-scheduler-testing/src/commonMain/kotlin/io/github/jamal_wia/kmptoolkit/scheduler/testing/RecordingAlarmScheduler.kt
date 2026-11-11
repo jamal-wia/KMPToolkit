@@ -28,6 +28,11 @@ import io.github.jamal_wia.kmptoolkit.scheduler.ScheduledAlarm
  * it in [armed] rather than adding a second entry, and an alarm whose result is
  * [AlarmScheduleResult.Failed] is not armed at all — it appears in [scheduleCalls] only.
  *
+ * **Recordings are snapshots.** [scheduleCalls] and [armed] hold a copy of each alarm, taken when
+ * [schedule] is called, with its own copy of [ScheduledAlarm.payload]: a payload map your code edits
+ * or reuses afterwards does not change what was recorded, as it would not change what a real
+ * scheduler armed. The copy is equal (`==`) to the alarm passed in, but not the same instance.
+ *
  * **Not thread-safe.** It is a test double meant for one test's coroutine at a time; sharing one
  * instance across concurrently running coroutines on different threads will lose recordings.
  */
@@ -48,7 +53,7 @@ public class RecordingAlarmScheduler(
     public val armed: List<ScheduledAlarm>
         get() = armedById.values.toList()
 
-    /** Every [schedule] call in order, including ones that replaced or failed. */
+    /** Every [schedule] call in order, including ones that replaced or failed, as it was at the call. */
     public val scheduleCalls: List<ScheduledAlarm>
         get() = recordedScheduleCalls.toList()
 
@@ -61,10 +66,15 @@ public class RecordingAlarmScheduler(
         get() = recordedCancelledIds.toList()
 
     override suspend fun schedule(alarm: ScheduledAlarm): AlarmScheduleResult {
-        recordedScheduleCalls += alarm
-        val result: AlarmScheduleResult = resultFor(alarm)
+        // A copy with its own payload map: the recording must hold what this call was given, not the
+        // caller's map, which may be reused and edited for the next alarm. The real schedulers write
+        // the payload into the platform request at the call. A shallow copy is a full snapshot as
+        // long as the payload holds only strings.
+        val snapshot: ScheduledAlarm = alarm.copy(payload = alarm.payload.toMap())
+        recordedScheduleCalls += snapshot
+        val result: AlarmScheduleResult = resultFor(snapshot)
         if (result !is AlarmScheduleResult.Failed) {
-            armedById[alarm.id] = alarm
+            armedById[snapshot.id] = snapshot
         }
         return result
     }
