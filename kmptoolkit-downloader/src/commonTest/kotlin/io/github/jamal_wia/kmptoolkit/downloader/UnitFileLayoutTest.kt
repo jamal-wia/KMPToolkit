@@ -109,6 +109,7 @@ class UnitFileLayoutTest {
                     assertFalse(name.contains('\u0000'), name)
                     assertTrue(segments.all { it.encodeToByteArray().size <= 255 }, name)
                     if (names.anyHashed && (name == names.partial || name == names.complete) && names.tempHashed) {
+                        // path-hygiene-ignore: PH4 UnitFileLayout names are logical and '/'-separated on every platform by contract
                         assertTrue(name.startsWith("${UnitFileLayout.INTERNAL_DIRECTORY}/"), name)
                     }
                 }
@@ -125,7 +126,9 @@ class UnitFileLayoutTest {
         assertNotEquals(a.staging, b.staging)
 
         val legacy: UnitFileLayout.Names = sensitive.namesOf(unit("kmptoolkit-internal"))
+        // path-hygiene-ignore: PH4 UnitFileLayout names are logical and '/'-separated on every platform by contract
         assertFalse(legacy.partial.startsWith("${UnitFileLayout.INTERNAL_DIRECTORY}/"))
+        // path-hygiene-ignore: PH4 UnitFileLayout names are logical and '/'-separated on every platform by contract
         assertFalse(legacy.staging.startsWith("${UnitFileLayout.INTERNAL_DIRECTORY}/"))
         assertNotEquals(UnitFileLayout.INTERNAL_DIRECTORY, legacy.partial)
         assertNotEquals(UnitFileLayout.INTERNAL_DIRECTORY, legacy.staging)

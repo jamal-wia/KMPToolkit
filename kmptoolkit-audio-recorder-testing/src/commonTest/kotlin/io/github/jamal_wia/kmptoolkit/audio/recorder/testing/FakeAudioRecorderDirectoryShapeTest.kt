@@ -1,5 +1,4 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder.testing
-// path-hygiene-file: logical-paths the test runs on the recorder's fake file system, whose paths are logical '/'-separated names
 
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult
 import io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax
@@ -23,6 +22,7 @@ class FakeAudioRecorderDirectoryShapeTest {
 
         val generated: String = (recorder.prepare() as RecorderResult.Success).value
         assertTrue(generated.startsWith(directory), "generated path was $generated")
+        // path-hygiene-ignore: PH4 the fake recorder joins its generated path with '/' by documentation, whatever syntax the configured directory has (it may be host-absolute)
         assertEquals(RecorderResult.Success("$directory/own.m4a"), recorder.prepare("$directory/own.m4a"))
     }
 

@@ -379,6 +379,7 @@ class AndroidDownloaderContractRound4Test {
             val tmp = File(root, "tmp")
             val staging = File(root, "tmp/staging-h1/sub").apply { mkdirs() }
             File(staging, "f.bin").writeText("x")
+            // path-hygiene-ignore: PH4 UnitFileLayout.TRASH_DIRECTORY is a logical '/'-separated layout name; it is handed to TestPaths.join, which makes it native
             val trash = File(TestPaths.join(root.path, "${UnitFileLayout.TRASH_DIRECTORY}/9/inner")).apply { mkdirs() }
             File(trash, "f.bin").writeText("x")
             val partialAsDirectory = File(storage.getTempFilePath(unit))

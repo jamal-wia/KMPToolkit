@@ -495,11 +495,11 @@ abstract class DownloaderStorageContractTest {
         val unit = ContractUnit("stuck-delete")
         storage.beginTempFile(unit, OTHER)
         // A non-empty directory at the partial path cannot be deleted by either platform.
-        writeFile("${storage.getTempFilePath(unit)}/child", "x".encodeToByteArray())
+        writeFile(TestPaths.join(storage.getTempFilePath(unit), "child"), "x".encodeToByteArray())
 
         storage.deleteTempFile(unit)
 
-        assertTrue(pathExists("${storage.getTempFilePath(unit)}/child"), "the data file must have survived")
+        assertTrue(pathExists(TestPaths.join(storage.getTempFilePath(unit), "child")), "the data file must have survived")
         assertTrue(pathExists(recordPath(storage, unit)), "the record of a surviving file must be kept")
     }
 
@@ -920,7 +920,7 @@ abstract class DownloaderStorageContractTest {
         val id: String = "q".repeat(247)
         val unit = ContractUnit(id, format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "archives/p15")
         val staging: String = TestPaths.join(baseDirectory(), "tmp/staging-$id")
-        writeFile("$staging/nested/marker.txt", "half-extracted".encodeToByteArray())
+        writeFile(TestPaths.join(staging, "nested/marker.txt"), "half-extracted".encodeToByteArray())
 
         storage.deleteTempFile(unit)
 

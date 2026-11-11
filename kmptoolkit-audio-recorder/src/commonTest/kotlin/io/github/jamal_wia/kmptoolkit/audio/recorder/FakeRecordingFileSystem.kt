@@ -45,6 +45,7 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
         directory.trimEnd('/') + "/" + name
 
     override fun parentOf(path: String): String? =
+        // path-hygiene-ignore: PH3 the fake file system's paths are logical '/'-separated names by its documented contract
         path.substringBeforeLast('/', missingDelimiterValue = "").takeIf { it.isNotEmpty() }
 
     // This fake is POSIX-style ("/data/app/..."), and a test that needs a configured directory has to

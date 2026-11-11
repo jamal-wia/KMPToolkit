@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -81,7 +82,7 @@ class RecorderEndToEndTest {
                 result is RecorderResult.Failure && result.error is RecorderError.DirectoryNotWritable,
                 "result was $result",
             )
-            val inside = runBlocking { withTimeout(10_000) { recorder.prepare("${blocker.path}/inside.m4a") } }
+            val inside = runBlocking { withTimeout(10_000) { recorder.prepare(TestPaths.join(blocker.path, "inside.m4a")) } }
             assertTrue(
                 inside is RecorderResult.Failure && inside.error is RecorderError.DirectoryNotWritable,
                 "result was $inside",

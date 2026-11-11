@@ -1,5 +1,4 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
-// path-hygiene-file: logical-paths the recorder tests run on a fake RecorderFileSystem whose paths are logical '/'-separated names
 
 import io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax
 import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
@@ -231,6 +230,7 @@ class RecorderPreconditionTest {
         )
         runRecorderTest(config) { fixture ->
             assertEquals(
+                // path-hygiene-ignore: PH4 the fake recorder joins its generated path with '/' by documentation, whatever syntax the configured directory has (it may be host-absolute)
                 RecorderResult.Success("$directory/$GENERATED_FILE_NAME"),
                 fixture.recorder.prepare(),
             )
@@ -245,6 +245,7 @@ class RecorderPreconditionTest {
         )
         runRecorderTest(config) { fixture ->
             assertEquals(
+                // path-hygiene-ignore: PH4 the fake recorder joins its generated path with '/' by documentation, whatever syntax the configured directory has (it may be host-absolute)
                 RecorderResult.Success("$DEFAULT_DIRECTORY/note_${FIXED_EPOCH_MILLIS}_$FIXED_FILE_NAME_TOKEN.aac"),
                 fixture.recorder.prepare(),
             )

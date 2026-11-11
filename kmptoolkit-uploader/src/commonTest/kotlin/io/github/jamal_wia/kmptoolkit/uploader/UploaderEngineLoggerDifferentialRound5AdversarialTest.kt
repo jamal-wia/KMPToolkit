@@ -161,6 +161,7 @@ class UploaderEngineLoggerDifferentialRound5AdversarialTest {
             return buildList {
                 addAll(calls)
                 addAll(transport.events)
+                // path-hygiene-ignore: PH4 a state signature of an item, not a path ('attempts' contains 'temp')
                 addAll(store.items.map { "${it.id}/${it.type}/${it.state}/a${it.attempts}/n${it.nextRunAtEpochMillis}/c${it.claim}/l${it.leaseUntilEpochMillis}/${it.lastError}" })
                 add("wake:${wake.armed}")
             }
