@@ -379,7 +379,7 @@ class AndroidDownloaderContractRound4Test {
             val tmp = File(root, "tmp")
             val staging = File(root, "tmp/staging-h1/sub").apply { mkdirs() }
             File(staging, "f.bin").writeText("x")
-            val trash = File(root, UnitFileLayout.TRASH_DIRECTORY + "/9/inner").apply { mkdirs() }
+            val trash = File(TestPaths.join(root.path, "${UnitFileLayout.TRASH_DIRECTORY}/9/inner")).apply { mkdirs() }
             File(trash, "f.bin").writeText("x")
             val partialAsDirectory = File(storage.getTempFilePath(unit))
             try {

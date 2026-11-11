@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
 import java.io.File
 import java.io.RandomAccessFile
 import java.net.ServerSocket
@@ -33,6 +34,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.junit.Assume
 import org.junit.runner.RunWith
 
 /**
@@ -98,7 +100,12 @@ class UploaderWorkerScaleAdversarialTest {
             tempFiles += it
         }
 
-    private fun descriptors(): Int = File("/dev/fd").list()?.size ?: -1
+    // Open descriptors of this process; skips the test where the host cannot count them (Windows).
+    private fun descriptors(): Long {
+        val count: Long? = TestFs.openDescriptorCount()
+        Assume.assumeTrue("this host cannot count open file descriptors", count != null)
+        return count!!
+    }
 
     @Test
     fun `sixteen uploads with half of them cancelled at random moments free every thread and socket and finish the rest`() {
@@ -106,7 +113,7 @@ class UploaderWorkerScaleAdversarialTest {
         val file: File = source(24)
         val request = UploadRequest("http://127.0.0.1:${server.localPort}/u", fields = listOf(UploadField.File("f", "f.bin", "application/octet-stream", file.path)))
         runBlocking { performWarmUp(request) }
-        val fdBefore: Int = descriptors()
+        val fdBefore: Long = descriptors()
         val random = Random(42)
 
         val jobs: List<Deferred<MultipartOutcome>> = List(16) {
