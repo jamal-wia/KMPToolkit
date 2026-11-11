@@ -147,9 +147,12 @@ internal class IosDownloaderStorage(
 
     private val layout: UnitFileLayout by lazy { UnitFileLayout(caseInsensitive = volumeFoldsCase) }
 
-    override val transferLockScope: String get() = baseDir
+    override val transferLockScope: String get() = lockScope
 
     override fun transferLockKey(unit: DownloadUnit): String = layout.lockKey(unit)
+
+    /** [baseDir] as the volume sees it: spelled in one case on a volume that folds case, so every spelling shares the locks. */
+    private val lockScope: String by lazy { layout.lockScope(baseDir) }
 
     private val tmpPathWarnings: FirstSightings = FirstSightings()
 
@@ -337,7 +340,7 @@ internal class IosDownloaderStorage(
         // is retried, never taken for a running commit. Under the lock the tree is only renamed away; the recursive delete
         // runs after the lock is released so it cannot stall other units.
         UnitCommitLocks.tryDetachThenDispose(
-            baseDirectory = baseDir,
+            baseDirectory = lockScope,
             unitId = layout.lockKey(unit),
             detach = {
                 val trash = "$baseDir/${layout.trashEntry(Random.nextLong().toULong())}"
@@ -470,7 +473,7 @@ internal class IosDownloaderStorage(
         val names: UnitFileLayout.Names = names(unit)
         // Serialized per unit across every instance over this directory — see UnitCommitLocks for
         // who races here. Everything below is decided only once the lock is held.
-        UnitCommitLocks.withUnitLock(baseDir, layout.lockKey(unit)) {
+        UnitCommitLocks.withUnitLock(lockScope, layout.lockKey(unit)) {
             val tempFilePath = "$baseDir/${names.complete}"
             if (!fileExists(tempFilePath) && isResourceAvailable(unit)) {
                 // A concurrent commit finalized the unit while this one waited. Its record is

@@ -87,6 +87,13 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
      */
     fun lockKey(unit: DownloadUnit): String = if (caseInsensitive) foldCase(unit.id) else unit.id
 
+    /**
+     * The scope the cross-engine locks of one base directory are kept under: the directory's path, folded on a
+     * case-insensitive volume so two spellings of one directory (`Models` and `models`) share their locks, as ids
+     * that differ only in case already do (Unicode normalization variants are not folded).
+     */
+    fun lockScope(baseDirectory: String): String = if (caseInsensitive) foldCase(baseDirectory) else baseDirectory
+
     /** A new entry's path under the trash directory. The id is not part of it, so its length never matters. */
     fun trashEntry(number: ULong): String = "$TRASH_DIRECTORY/$number"
 
