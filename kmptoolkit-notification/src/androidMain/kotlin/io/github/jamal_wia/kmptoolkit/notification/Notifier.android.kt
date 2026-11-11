@@ -179,7 +179,21 @@ internal class AndroidNotifier(
             return NotificationResult.NotificationsDisabled
         }
         // Everything but the percentage: a frame that changes any of it is not held back by the bucket.
-        val content = CoalescingKey(notification.copy(progress = null), options)
+        // Built from copies: the baseline must hold what was shown, not the caller's own list or
+        // map, which may be edited in place before the next post (it would then equal itself).
+        val content = CoalescingKey(
+            notification.copy(
+                progress = null,
+                actions = notification.actions.toList(),
+                contentExtras = notification.contentExtras?.toMap(),
+            ),
+            NotificationOptions(
+                alertOnce = options.alertOnce,
+                dismissAction = options.dismissAction,
+                mediaStyle = options.mediaStyle,
+                actionIcons = options.actionIcons.toMap(),
+            ),
+        )
         // Asked here, acted on at the end: knowing the frame is redundant lets the channel *write*
         // be skipped, and a write cannot change any result. Every gate still runs, so a suppressed
         // frame never hides a real failure.
