@@ -555,8 +555,10 @@ internal class EngineVideoPlayer(
         // A length of 0 means the platform has not reported one yet (a live stream, a header not parsed).
         // An absolute seek still clamps to 0..0 then, but a relative skip has no end to clamp to: moving
         // from 30 s by +/-5 s must not land on 0, so its target goes to the engine, which knows better.
+        // It is still capped at MAX_ENGINE_POSITION_MS, because platforms convert to microseconds
+        // (ExoPlayer, libvlc) and add offsets of their own, and a larger value wraps.
         val target: Long = if (relative && duration <= 0L) {
-            positionMs.coerceAtLeast(0L)
+            positionMs.coerceIn(0L, MAX_ENGINE_POSITION_MS)
         } else {
             positionMs.coerceIn(0L, maxOf(0L, duration))
         }
@@ -712,6 +714,14 @@ internal class EngineVideoPlayer(
         const val NORMAL_PLAYBACK_SPEED: Float = 1.0f
         const val FULL_VOLUME: Float = 1.0f
         const val MUTED_VOLUME: Float = 0.0f
+
+        /**
+         * The largest position handed to [VideoPlaybackEngine.seekTo], about 292 years: in nanoseconds it
+         * still fits a [Long], which leaves platforms that convert to microseconds room for the offsets they
+         * add (ExoPlayer adds the window's offset into its period and a renderer offset, unchecked), and it
+         * converts to a [Double] exactly.
+         */
+        const val MAX_ENGINE_POSITION_MS: Long = Long.MAX_VALUE / 1_000_000L
 
         /** `a + b` without wrapping around, so a huge seek step clamps instead of flipping sign. */
         fun saturatingAdd(a: Long, b: Long): Long {

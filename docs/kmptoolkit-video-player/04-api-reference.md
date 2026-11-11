@@ -65,8 +65,8 @@ Every call below is **ignored** unless the state `isPlayable`, and ignored entir
 | `fun pause()` | `Playing` → `Paused(duration, position)`, stops polling. Ignored in any other state. |
 | `fun stop()` | Any playable → `Ready(duration)` with the playhead at `0`; the source stays loaded. |
 | `fun seekTo(positionMs: Long)` | Moves the playhead, clamped to `0..duration`. `Playing` stays `Playing`, `Paused` stays `Paused`, `Completed` becomes `Paused`, `Ready` stays `Ready` (picking up a length learned since the load). |
-| `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`, saturating instead of overflowing. On a source of unknown length (`duration` `0`) there is no end to clamp to: the target is `position + amountMs` floored at `0`, not `0`. |
-| `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`, saturating instead of overflowing; on a source of unknown length the target is floored at `0` only. |
+| `fun seekForward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position + amountMs)`, saturating instead of overflowing. On a source of unknown length (`duration` `0`) there is no end to clamp to: the target is `position + amountMs` floored at `0` and capped at `Long.MAX_VALUE / 1_000_000` (about 292 years), not `0`. |
+| `fun seekBackward(amountMs: Long = DEFAULT_SEEK_AMOUNT_MS)` | `seekTo(position - amountMs)`, saturating instead of overflowing; on a source of unknown length the target is floored at `0` and capped at `Long.MAX_VALUE / 1_000_000`. |
 | `fun replay()` | Seek to `0` and play, from any playable state. |
 
 ### Settings
@@ -280,7 +280,7 @@ The platform seam. It holds no state machine of its own.
 | `fun setListener(listener: VideoPlaybackEngineListener?)` | Installs, replaces, or (with `null`) detaches the event sink. |
 | `suspend fun load(source: VideoSource)` | Loads and suspends until playable. **Throws to report failure**, leaving nothing playable. Honors cancellation, leaving nothing loaded. Works again after `release()`. Never called while another `load` still runs. |
 | `fun start()` / `fun pause()` | Start or suspend output. Tolerate the wrong platform state. |
-| `fun seekTo(positionMs: Long)` | Move the playhead; already clamped by the caller. |
+| `fun seekTo(positionMs: Long)` | Move the playhead. Always in `0..Long.MAX_VALUE / 1_000_000` (about 292 years); also clamped to `0..durationMs` while the duration is known. While it is unknown (`0`) a relative `seekForward` / `seekBackward` arrives as `position ± amount`, so a target past the real end can arrive: clamp it to the end as the platform defines it, or ignore it, never throw. |
 | `fun setSpeed(speed: Float)` | Set the rate; already clamped. |
 | `fun setVolume(volume: Float)` | Effective output volume in `0f..1f` — `0f` while the player is muted. |
 | `fun setLooping(looping: Boolean)` | Restart the source at its end instead of completing. |

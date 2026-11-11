@@ -17,6 +17,10 @@ import org.robolectric.annotation.Config
  * is attached, asked once after `start()` and `resume()`, released on every way out — checked
  * against a stand-in for the platform class, which has no Robolectric shadow. Which silences end a
  * recording is decided in common code and tested there.
+ *
+ * The monitor exists only from API 29, so each test pins `sdk = [29, 35]` (a `minSdk` bound would
+ * make Robolectric run every image it ships, including ones this build cannot start); a sweep of
+ * the suite at a lower level leaves them on those levels.
  */
 @RunWith(AndroidJUnit4::class)
 class MediaRecorderEngineSilenceTest {
@@ -55,6 +59,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(sdk = [29, 35])
     fun `a monitor is registered when the listener is attached and not before`() = runTest {
         prepared()
         assertTrue(monitors.isEmpty(), "nothing is registered until someone listens")
@@ -66,6 +71,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(sdk = [29, 35])
     fun `the monitor is asked once after start and once after resume`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -80,6 +86,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(sdk = [29, 35])
     fun `the monitor is released when the listener is removed`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -92,6 +99,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(sdk = [29, 35])
     fun `the monitor is released before a normal stop`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -103,6 +111,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(sdk = [29, 35])
     fun `the monitor is released with the recorder`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -113,6 +122,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(sdk = [29, 35])
     fun `setting a listener twice does not leave two monitors registered`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -124,6 +134,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(sdk = [29, 35])
     fun `a change reported by the monitor reaches the listener`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -139,6 +150,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(sdk = [29, 35])
     fun `a change from a monitor of a replaced or removed listener reaches nobody`() = runTest {
         prepared()
         val first: MutableList<EngineEvent> = mutableListOf()

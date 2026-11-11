@@ -34,6 +34,21 @@ library never merges a permission into its consumers.
 
 ## Android
 
+### Icon styles depend on the API level
+
+The module's `minSdk` is 24, and the platform only learned to style the icons later than that:
+
+| | Works from | Below that level |
+|---|---|---|
+| Status bar icons (`statusBarIcons`) | API 23, so on every level this module supports | not applicable |
+| Navigation bar icons (`navigationBarIcons`) | **API 26** | the flag does not exist; `navigationBarIcons` is tracked on `config` and has no effect on API 24 and 25 |
+
+Nothing throws or warns on API 24 and 25 when a navigation-bar style is set, for the same reason
+an unsupported axis is silent on iOS and desktop: an app sharing one configuration across levels
+is the normal case. The status-bar axis therefore needs no version check in your code, and the
+navigation-bar axis is only worth a check if your design depends on the icon colour on API 24
+and 25, where it stays the system's own.
+
 ### Edge-to-edge is your call, not this module's
 
 This module sets icon appearance and bar visibility. It does **not** call `enableEdgeToEdge()`.

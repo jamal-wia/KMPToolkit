@@ -1,6 +1,9 @@
 plugins {
     id("kmptoolkit.library")
     id("kmptoolkit.publish")
+    // Robolectric for androidHostTest: the platform sink writes through android.util.Log, which is
+    // only assertable against its real code (the stack-trace rendering of a throwable chain).
+    id("kmptoolkit.androidtest")
 }
 
 kmptoolkitPublish {
