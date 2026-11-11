@@ -68,7 +68,10 @@ internal class WorkManagerUploadTransport(
     override val leaseMillis: Long = config.leaseMillis
 
     override fun launch(itemId: String, request: UploadRequest) {
-        launch(itemId, request, attemptStamp = null)
+        // A plain handler calls this from `execute`, which always runs inside the item's attempt: the engine's
+        // running attempt is the attempt this hand-off belongs to.
+        val stamp: Int? = (UploaderEngineRegistry.current as? DefaultUploaderEngine)?.runningAttemptStamp(itemId)
+        launch(itemId, request, attemptStamp = stamp)
     }
 
     override fun launch(itemId: String, isRehandOff: Boolean, attemptStamp: Int, request: UploadRequest) {
@@ -170,7 +173,7 @@ public class UploaderUploadWorker(
         try {
             var current: UploadRequest = request
             while (true) {
-                val served: Served = serveOnce(itemId, current, engine, classify, connectTimeoutMillis, readTimeoutMillis)
+                val served: Served = serveOnce(itemId, current, engine, classify, connectTimeoutMillis, readTimeoutMillis, engineWaitMillis)
                 if (served.result !is Result.Success) return served.result
                 // A hand-off the transport counted after this iteration's settlement began is served here, by the
                 // same job: WorkManager may still list this job as running and would drop the hand-off's own job.
@@ -190,6 +193,10 @@ public class UploaderUploadWorker(
                     // counter and is found by the next finishServing. An unstamped hand-off (a wrapped transport)
                     // is served whenever the row is in flight.
                     val now: Long = ledger.handOffsSeen(itemId)
+                    // A retry's hand-off is counted from `execute`, before the engine marks the row in flight: wait
+                    // (bounded) for that attempt to end, or the row would read as not owed and the retry would
+                    // wait for its lease.
+                    withContext(NonCancellable) { engine.awaitHandOff(itemId, engineWaitMillis) }
                     val latest: UploadHandOffLedger.HandOff? = ledger.latestHandOff(itemId)
                     val attempts: Int? = if (latest == null) null else engine.attemptsIfInFlight(itemId)
                     if (latest != null && attempts != null && (latest.attempt == null || latest.attempt == attempts)) {
@@ -216,6 +223,7 @@ public class UploaderUploadWorker(
         classify: (UploadResult) -> SettleResult,
         connectTimeoutMillis: Int,
         readTimeoutMillis: Int,
+        engineWaitMillis: Long,
     ): Served {
         // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO, polling
         // its own job so a cancelled job stops the body instead of finishing it unseen.
@@ -250,7 +258,13 @@ public class UploaderUploadWorker(
         // cancelled with the job. NonCancellable is the right tool for a short cleanup of a fact already
         // known. Unbounded, as the engine's own upload commit is: engineWait is only the wait for an engine
         // (above), and abandoning a slow commit would leave the row in flight and upload the file again.
-        val landed: Boolean = withContext(NonCancellable) { engine.settleUnderCurrentClaim(itemId, verdict) }
+        // A plain handler launches this job from `execute`, before the engine wrote the claim: the settle waits
+        // (bounded) for that attempt to end, or its Failed or Park would read the row under the old claim and be
+        // dropped as stale, leaving the item in flight with no job behind it until the lease ran out.
+        val landed: Boolean = withContext(NonCancellable) {
+            engine.awaitHandOff(itemId, engineWaitMillis)
+            engine.settleUnderCurrentClaim(itemId, verdict)
+        }
         return Served(if (landed) Result.success() else Result.retry(), seenBeforeSettle)
     }
 }

@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -1069,12 +1070,30 @@ internal class DefaultUploaderEngine(
     }
 
     /** An attempt the drain is running for one item, and whether a withdrawal has stopped it. */
-    private class RunningAttempt(val job: Job) {
+    private class RunningAttempt(val job: Job, val attempts: Int) {
         val withdrawn: MutableStateFlow<Boolean> = MutableStateFlow(false)
     }
 
     /** The attempts the drain is running right now, by item id: the handshake with [stopAttempt]. */
     private val runningAttempts: MutableStateFlow<Map<String, RunningAttempt>> = MutableStateFlow(emptyMap())
+
+    /**
+     * The `attempts` of the attempt the engine is running for [id] right now, or `null` when none runs. A transport
+     * launched from a handler's `execute` always runs inside that item's attempt, so this is the attempt that launch
+     * belongs to.
+     */
+    internal fun runningAttemptStamp(id: String): Int? = runningAttempts.value[id]?.attempts
+
+    /**
+     * Waits, at most [timeoutMillis], until the engine runs no attempt for [id]. A transport that a plain handler
+     * launches from `execute` can settle (or read the row) before the attempt wrote its `markInFlight`; once the
+     * attempt has ended the row is in flight under the next claim (or the claim missed), and a settle under the
+     * row's current claim is then correct. Returns at once when no attempt runs.
+     */
+    internal suspend fun awaitHandOff(id: String, timeoutMillis: Long) {
+        if (id !in runningAttempts.value) return
+        withTimeoutOrNull(timeoutMillis) { runningAttempts.first { id !in it } }
+    }
 
     /**
      * Stops the attempt the engine is running for [id], if any: marks it withdrawn and cancels it, without
@@ -1101,7 +1120,7 @@ internal class DefaultUploaderEngine(
             lateinit var entry: RunningAttempt
             // Lazy, so `entry` is assigned before the block can run.
             val attempt: Deferred<Unit> = async(start = CoroutineStart.LAZY) { block(entry) }
-            entry = RunningAttempt(attempt)
+            entry = RunningAttempt(attempt, item.attempts)
             runningAttempts.update { it + (item.id to entry) }
             try {
                 if (store.getById(item.id) != item) {
