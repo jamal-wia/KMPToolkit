@@ -259,9 +259,16 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   cannot use as a file name — empty, `.` or `..`, containing `/`, `\`, a space or a control character, or
   longer than 200 characters — is uploaded and settled normally but its answer is not journaled: a process
   death between the answer and the settlement uploads it again (at least once).
-  On iOS, where the data container is usually a case-insensitive volume, ids that differ only by letter case
+  On iOS, where the data container can be a case-insensitive volume (the simulator, an iOS app running on a Mac), ids that differ only by letter case
   (`Photo-1` and `photo-1`) get different files: an id keeps its own text as the name of its temporary body and its
   journal entry only when no other id can fold onto it (a canonical upper-case UUID, which is the default id, or an
-  id without an upper-case letter that is not shaped like a UUID); any other id gets a hashed body name and an
-  escaped journal name (`~` marks an escape), which the sweep maps back to the id. Entries a version before 4.1.0
-  wrote under the id's own spelling stay readable, are replayed by the sweep and are replaced when the id writes again.
+  id without an upper-case letter that is not shaped like a UUID); any other id gets a hashed body name (the SHA-256 of
+  its UTF-16 code units, so two ids that differ only by a lone surrogate keep apart) and an escaped journal name
+  (`~` marks an escape), which the sweep maps back to the id. An id whose escaped name would pass 230 characters (more than
+  about 38 accented letters or 114 upper-case ones; the file system allows 255 bytes) gets a hashed journal name instead
+  and its entry starts with the id, which is where the sweep reads it from; so every id the journal accepts is journaled.
+  Entries a version before 4.1.0 wrote under the id's own spelling stay readable, are replayed by the sweep and are replaced
+  when the id writes again; when an id with no upper-case letter writes while such an entry of an id that differs only by
+  case is on disk (`photo-1` beside a leftover `Photo-1`), that entry is first moved to its own escaped name, and `photo-1`
+  never reads, deletes or replaces it. The sweep never takes the temporary file of an atomic write (`<name>.sb-<hex>-<letters>`)
+  for an entry, and removes one a dead process left once it is five minutes old.

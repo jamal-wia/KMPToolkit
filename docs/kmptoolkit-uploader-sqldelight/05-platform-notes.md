@@ -40,11 +40,30 @@ These paths are an implementation detail, documented so you can find your own da
 depend on them. The suffix is what keeps a queue distinct from a database of yours that happens to
 share a name.
 
+Names are compared the way the volume compares file names, so two names are two queues only where they are two file
+names. Every Apple volume (iPhone, iPad, the simulator, and an iOS app running on a Mac) treats names that differ only
+in Unicode normalization as one name (`é` written as one character or as `e` plus a combining accent). The simulator
+and a Mac also ignore letter case, and so does any case-insensitive volume. There, `Queue` and `queue` are one file and
+therefore one queue. Android's `databases/` directory compares names byte for byte. Two queues that end up on one file
+are two storages over one file, which is not supported (see [`03-guide.md`](03-guide.md)). Give independent queues
+names that differ in more than case or accents. The default, your application id, never collides with itself.
+
 Android's `databases/` directory is inside the app sandbox and is **included in auto-backup** by
 default. A restored backup therefore arrives with somebody's — usually the same person's — queued
 effects in it, on a device that may have different credentials. If that matters for your app, add a
 `data_extraction_rules.xml` exclusion for the file, or wipe the queue on first launch after a
 restore. This module cannot decide that for you.
+
+## Texts are stored as given
+
+Every text of an item (`id`, `type`, `payload`, `uniqueKey`, `orderingKey`, `tag`, `lastError`) comes back from the
+queue exactly as it went in, like it does from `InMemoryUploaderStore`. The drivers alone would not keep some of them:
+SQLite drops a leading U+FEFF and reads a leading U+FFFE as a byte-order mark and the Android driver mangles a lone
+surrogate; the iOS driver ends a text at a NUL, drops a leading U+FEFF and turns a lone surrogate into U+FFFD. A text
+that holds one of these (a NUL or a lone surrogate anywhere, or a U+FEFF or U+FFFE first) is therefore stored in an escaped
+form that starts with U+FDD0 `kmp1` U+FDD1 and is decoded on the way out; every other text is stored as it is, so a row
+written by an earlier version reads back unchanged. The escape matters only if you query the table yourself, which is not
+supported: read the column of such a row through the store.
 
 ## Corrupt database file
 

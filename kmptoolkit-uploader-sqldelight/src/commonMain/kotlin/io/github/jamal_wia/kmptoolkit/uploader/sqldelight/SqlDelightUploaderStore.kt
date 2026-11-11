@@ -43,14 +43,14 @@ internal class SqlDelightUploaderStore(
             // could take the identity, and the KEEP decision would then be made against a row that
             // no longer describes the queue.
             database.transactionWithResult {
-                val key: String? = record.uniqueKey
+                val key: String? = toStoredTextOrNull(record.uniqueKey)
                 if (key == null) {
                     // A null unique key never conflicts — it is not even in the identity index.
                     queries.insert(record)
                     return@transactionWithResult true
                 }
                 val holder: String? =
-                    queries.selectByIdentity(type = record.type, uniqueKey = key)
+                    queries.selectByIdentity(type = toStoredText(record.type), uniqueKey = key)
                         .executeAsOneOrNull()
                         ?.state
                 when (holder) {
@@ -65,7 +65,7 @@ internal class SqlDelightUploaderStore(
                     // would swallow every future enqueue for it.
                     else -> {
                         if (holder != null) {
-                            queries.deleteByIdentity(type = record.type, uniqueKey = key)
+                            queries.deleteByIdentity(type = toStoredText(record.type), uniqueKey = key)
                         }
                         queries.insert(record)
                         true
@@ -78,7 +78,7 @@ internal class SqlDelightUploaderStore(
     override suspend fun insertReplace(record: UploaderItem): UploaderItem? = onDatabaseThread(confinement, UploaderStorageOperation.INSERT_REPLACE) {
         mapFailures(UploaderStorageOperation.INSERT_REPLACE) {
             record.requireWithinRowLimit()
-            val key: String? = record.uniqueKey
+            val key: String? = toStoredTextOrNull(record.uniqueKey)
             if (key == null) {
                 // Nothing to supersede — a keyless item conflicts with nothing — so this is a plain
                 // append and needs no transaction to be atomic.
@@ -92,10 +92,10 @@ internal class SqlDelightUploaderStore(
                 // transaction, so what is handed back is exactly what the delete removed.
                 database.transactionWithResult {
                     val superseded: UploaderItem? =
-                        queries.selectByIdentity(type = record.type, uniqueKey = key)
+                        queries.selectByIdentity(type = toStoredText(record.type), uniqueKey = key)
                             .executeAsOneOrNull()
                             ?.toUploaderItem()
-                    queries.deleteByIdentity(type = record.type, uniqueKey = key)
+                    queries.deleteByIdentity(type = toStoredText(record.type), uniqueKey = key)
                     queries.insert(record)
                     superseded
                 }
@@ -111,7 +111,7 @@ internal class SqlDelightUploaderStore(
 
     override suspend fun getById(id: String): UploaderItem? = onDatabaseThread(confinement, UploaderStorageOperation.GET_BY_ID) {
         mapFailures(UploaderStorageOperation.GET_BY_ID) {
-            queries.selectById(id).executeAsOneOrNull()?.toUploaderItem()
+            queries.selectById(toStoredText(id)).executeAsOneOrNull()?.toUploaderItem()
         }
     }
 
@@ -136,7 +136,7 @@ internal class SqlDelightUploaderStore(
             // reader connection — where it is always 0 — on both of this module's drivers.
             val changed: Long = when (disposition) {
                 FailureDisposition.DROP -> queries.dropOnFailure(
-                    id = id,
+                    id = toStoredText(id),
                     expectedState = expectedState.name,
                     expectedClaim = expectedClaim,
                 ).value
@@ -150,8 +150,8 @@ internal class SqlDelightUploaderStore(
                         },
                         attempts = attempts.toLong(),
                         nextRunAt = nextRunAtEpochMillis,
-                        lastError = fittedLastError(id, lastError),
-                        id = id,
+                        lastError = toStoredTextOrNull(fittedLastError(id, lastError)),
+                        id = toStoredText(id),
                         expectedState = expectedState.name,
                         expectedClaim = expectedClaim,
                     ).value
@@ -172,7 +172,7 @@ internal class SqlDelightUploaderStore(
             // affected-row count is the answer, so the claim is one atomic step.
             queries.markInFlight(
                 leaseUntil = leaseUntilEpochMillis,
-                id = id,
+                id = toStoredText(id),
                 expectedState = expectedState.name,
                 expectedClaim = expectedClaim,
             ).value > 0L
@@ -189,8 +189,8 @@ internal class SqlDelightUploaderStore(
             // Guarded like markInFlight: the WHERE clause is the guard, the affected-row count the answer.
             database.transactionWithResult {
                 queries.park(
-                    lastError = fittedLastError(id, lastError),
-                    id = id,
+                    lastError = toStoredTextOrNull(fittedLastError(id, lastError)),
+                    id = toStoredText(id),
                     expectedState = expectedState.name,
                     expectedClaim = expectedClaim,
                 ).value > 0L
@@ -205,13 +205,13 @@ internal class SqlDelightUploaderStore(
      */
     private fun fittedLastError(id: String, lastError: String?): String? {
         if (lastError == null) return null
-        val row: UploaderItem = queries.selectById(id).executeAsOneOrNull()?.toUploaderItem() ?: return lastError
+        val row: UploaderItem = queries.selectById(toStoredText(id)).executeAsOneOrNull()?.toUploaderItem() ?: return lastError
         return row.fitLastError(lastError)
     }
 
     override suspend fun deleteById(id: String): Unit = onDatabaseThread(confinement, UploaderStorageOperation.DELETE_BY_ID) {
         mapFailures(UploaderStorageOperation.DELETE_BY_ID) {
-            queries.deleteById(id)
+            queries.deleteById(toStoredText(id))
         }
     }
 
@@ -223,15 +223,15 @@ internal class SqlDelightUploaderStore(
             // one statement, but needs SQLite 3.35 — see recordFailure.)
             database.transactionWithResult {
                 val removed: List<UploaderItem> =
-                    queries.selectByTag(tag).executeAsList().map { row -> row.toUploaderItem() }
-                queries.deleteByTag(tag)
+                    queries.selectByTag(toStoredText(tag)).executeAsList().map { row -> row.toUploaderItem() }
+                queries.deleteByTag(toStoredText(tag))
                 removed
             }
         }
     }
 
     override fun observeByType(type: String): Flow<List<UploaderItem>> =
-        queries.selectByType(type)
+        queries.selectByType(toStoredText(type))
             .asFlow()
             // `onDatabaseThread` rather than coroutines-extensions' `mapToList(dispatcher)`: both
             // run the query on the thread every write runs on — so an emission can never observe a
@@ -259,36 +259,36 @@ internal class SqlDelightUploaderStore(
     private fun UploaderItemQueries.insert(record: UploaderItem) {
         // `sequence` is omitted so SQLite assigns the next one — see UploaderItem.sq.
         insert(
-            id = record.id,
-            type = record.type,
-            payload = record.payload,
+            id = toStoredText(record.id),
+            type = toStoredText(record.type),
+            payload = toStoredText(record.payload),
             schemaVersion = record.schemaVersion.toLong(),
-            uniqueKey = record.uniqueKey,
-            orderingKey = record.orderingKey,
-            tag = record.tag,
+            uniqueKey = toStoredTextOrNull(record.uniqueKey),
+            orderingKey = toStoredTextOrNull(record.orderingKey),
+            tag = toStoredTextOrNull(record.tag),
             state = record.state.name,
             attempts = record.attempts.toLong(),
             nextRunAt = record.nextRunAtEpochMillis,
             createdAt = record.createdAtEpochMillis,
-            lastError = record.lastError,
+            lastError = toStoredTextOrNull(record.lastError),
             leaseUntil = record.leaseUntilEpochMillis,
             claim = record.claim,
         )
     }
 
     private fun Kmptoolkit_uploader_item.toUploaderItem(): UploaderItem = UploaderItem(
-        id = id,
-        type = type,
-        payload = payload,
+        id = fromStoredText(id),
+        type = fromStoredText(type),
+        payload = fromStoredText(payload),
         schemaVersion = schema_version.toInt(),
-        uniqueKey = unique_key,
-        orderingKey = ordering_key,
-        tag = tag,
+        uniqueKey = fromStoredTextOrNull(unique_key),
+        orderingKey = fromStoredTextOrNull(ordering_key),
+        tag = fromStoredTextOrNull(tag),
         state = state.toStateOrParked(),
         attempts = attempts.toInt(),
         nextRunAtEpochMillis = next_run_at,
         createdAtEpochMillis = created_at,
-        lastError = last_error,
+        lastError = fromStoredTextOrNull(last_error),
         leaseUntilEpochMillis = lease_until,
         claim = claim,
     )
