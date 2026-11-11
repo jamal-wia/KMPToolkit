@@ -181,4 +181,23 @@ class MultipartSocketRound5AdversarialTest {
         assertEquals(true, outcome.response?.isBodyTruncated, "a body that never arrived must be flagged")
         assertTrue(tookMillis < 5_000, "the transfer took $tookMillis ms")
     }
+
+    /**
+     * A second response glued behind the first on one connection (a broken server or proxy): the body is the declared
+     * two bytes, not those plus whatever follows them. The JDK stack hands the stream over unbounded here.
+     */
+    @Test
+    fun `a second response glued behind the first never enlarges its body`() {
+        serve {
+            it.send(
+                "HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\nokHTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+        }
+
+        val outcome: MultipartOutcome = upload()
+
+        assertEquals(UploadResult.Completed(201), outcome.result)
+        assertEquals("ok", outcome.response?.body()?.decodeToString())
+        assertEquals(false, outcome.response?.isBodyTruncated, "the body is whole: bytes after its declared length are not part of it")
+    }
 }
