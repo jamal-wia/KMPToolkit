@@ -188,7 +188,7 @@ public abstract class UploadHandler<P : Any>(
                 } else {
                     // A throw here — the platform scheduler unavailable — propagates to the engine,
                     // which makes it a Retry for this item alone.
-                    transport.launch(context.id, context.wasDetached, preparation.request)
+                    transport.launchAttempt(context.id, context.wasDetached, context.attempts, preparation.request)
                     AttemptResult.Detached(lease)
                 }
             }

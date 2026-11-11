@@ -52,6 +52,11 @@ class UploadSessionSeamIosTest {
         private val created = AtomicInt(0)
         private val invalidationRequested = AtomicInt(0)
 
+        private val lastTaskDescription = kotlin.concurrent.AtomicReference<String?>(null)
+
+        /** The `taskDescription` the latest task was created with, as Foundation would report it back at completion. */
+        val taskDescription: String? get() = lastTaskDescription.value
+
         val tasksCreated: Int get() = created.value
         val invalidationWasRequested: Boolean get() = invalidationRequested.value == 1
 
@@ -59,8 +64,9 @@ class UploadSessionSeamIosTest {
 
         override fun cancelTasks(callback: (Int) -> Unit) = callback(0)
 
-        override fun startUploadTask(request: NSMutableURLRequest, bodyPath: String) {
+        override fun startUploadTask(request: NSMutableURLRequest, bodyPath: String, taskDescription: String?) {
             check(invalidationRequested.value == 0) { "a task was created on an invalidated session" }
+            lastTaskDescription.value = taskDescription
             created.incrementAndGet()
             tasks.incrementAndGet()
         }

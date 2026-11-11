@@ -206,9 +206,11 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
   created. On Android the entry carries the attempt it answers and is deleted only after the engine commit
   returned, so a death or stop before the commit leaves it for the next run, and a leftover of an attempt that was
-  already settled is recognised and dropped instead of replaying into the retry. On iOS the file is deleted just
-  before the engine commits the settlement and written back if the commit does not land (a process death in that
-  instant uploads again: at least once). One replay per item runs at a time in a process. A replayed response reaches `classify` and
+  already settled is recognised and dropped instead of replaying into the retry. On iOS the entry carries the attempt
+  too (the hand-off labels the session task with it, and the system keeps the label for a task that outlives the
+  process), so the same holds there: a death or stop before the commit leaves the entry for the next replay. Only the
+  answer of a task started by an earlier version, which has no label, is deleted just before the commit and written
+  back if it does not land (a process death in that instant uploads again: at least once). One replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
   file; so does the 7-day expiry. A file of an unknown format version or a damaged one is ignored and
   deleted. So is a file larger than 4 MiB, which no entry this journal wrote can be (it is deleted without being read). On Android a file that exists but cannot be read is waited for while the job has run fewer than 3 times (WorkManager's

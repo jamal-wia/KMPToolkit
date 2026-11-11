@@ -941,7 +941,7 @@ internal class DefaultUploaderEngine(
             return
         }
         try {
-            transport.launch(item.id, context.wasDetached, request)
+            transport.launchAttempt(item.id, context.wasDetached, context.attempts, request)
             logger.i { "Detached ${item.logName} under a ${lease}ms lease." }
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()

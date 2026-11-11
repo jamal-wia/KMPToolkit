@@ -31,7 +31,7 @@ class UploadItemIdIosRound4AdversarialTest {
         val tasks = AtomicInt(0)
         override fun getTaskCount(callback: (Int) -> Unit) = callback(tasks.value)
         override fun cancelTasks(callback: (Int) -> Unit) = callback(0)
-        override fun startUploadTask(request: NSMutableURLRequest, bodyPath: String) {
+        override fun startUploadTask(request: NSMutableURLRequest, bodyPath: String, taskDescription: String?) {
             tasks.incrementAndGet()
         }
         override fun invalidateAndCancel() = Unit

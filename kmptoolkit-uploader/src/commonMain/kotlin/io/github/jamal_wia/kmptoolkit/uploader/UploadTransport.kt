@@ -66,3 +66,24 @@ public interface UploadTransport {
      */
     public fun cancel(itemId: String)
 }
+
+/**
+ * A transport that wants to know the attempt an upload belongs to: the row's `attempts` when the engine handed
+ * it off. The iOS background transport stamps its session task with it, so a completed answer that reaches the
+ * outcome journal in a later process still says which attempt it answers (see [OutcomeJournal]). Internal: a
+ * transport of a consumer is launched through the public [UploadTransport.launch] as before.
+ */
+internal interface AttemptStampedTransport : UploadTransport {
+
+    /** [UploadTransport.launch] for the item's attempt number [attemptStamp] (`UploaderItem.attempts`). */
+    fun launch(itemId: String, isRehandOff: Boolean, attemptStamp: Int, request: UploadRequest)
+}
+
+/** Launches through [AttemptStampedTransport] when this transport is one, else through the public overload. */
+internal fun UploadTransport.launchAttempt(itemId: String, isRehandOff: Boolean, attemptStamp: Int, request: UploadRequest) {
+    if (this is AttemptStampedTransport) {
+        launch(itemId, isRehandOff, attemptStamp, request)
+    } else {
+        launch(itemId, isRehandOff, request)
+    }
+}
