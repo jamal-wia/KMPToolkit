@@ -1,6 +1,9 @@
 package io.github.jamal_wia.kmptoolkit.logging
 
 import android.util.Log
+import java.net.UnknownHostException
+
+private const val MAX_CHAIN_DEPTH: Int = 64
 
 /**
  * Writes to logcat via `android.util.Log`, mapping [LogLevel] onto the priority of the same name
@@ -14,9 +17,11 @@ import android.util.Log
  * message instead, so the chain is shown in full and never swallowed.
  */
 public actual fun platformLogSink(): LogSink = LogSink { level, tag, message, throwable ->
-    // `Log.getStackTraceString` is the platform's own rendering; asking it first keeps the output
-    // of every ordinary throwable exactly what a direct `Log.x(tag, message, throwable)` prints.
-    val unrendered: Boolean = throwable != null && Log.getStackTraceString(throwable).isEmpty()
+    // The platform's own rule, without rendering the trace to test it: `Log.getStackTraceString`
+    // gives up on a chain with an `UnknownHostException` in it. Bounded, so a cyclic cause chain
+    // cannot loop here.
+    val unrendered: Boolean =
+        throwable != null && generateSequence(throwable) { it.cause }.take(MAX_CHAIN_DEPTH).any { it is UnknownHostException }
     val text: String = if (throwable != null && unrendered) message + "\n" + throwable.stackTraceToString() else message
     val passed: Throwable? = if (unrendered) null else throwable
     when (level) {

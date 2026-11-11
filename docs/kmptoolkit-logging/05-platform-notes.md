@@ -31,7 +31,7 @@ Things to know:
   prints the message and no trace. For such a throwable the sink appends
   `throwable.stackTraceToString()` (the whole chain, causes included) to the message on its own
   lines and passes no `Throwable` to `android.util.Log`; every other throwable is passed through
-  unchanged. The one visible difference: that trace is part of the message text, so it is subject
+  unchanged. The trace is then part of the message text; logcat splits it into entries at line breaks as it does a platform-rendered trace.
   to logcat's per-entry length limit like any long message.
 - **Logcat has its own filter.** `android.util.Log` applies the device's per-tag log level on top of
   this module's `minLevel`. An event this module passes can still be dropped by the platform —

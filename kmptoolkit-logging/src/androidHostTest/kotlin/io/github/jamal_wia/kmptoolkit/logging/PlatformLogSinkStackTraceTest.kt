@@ -9,6 +9,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -45,8 +46,12 @@ class PlatformLogSinkStackTraceTest {
 
     @Test
     fun `an ordinary throwable is rendered with its stack trace`() {
-        sink.log(LogLevel.ERROR, "T", "boom", IllegalStateException("ordinary"))
+        val thrown = IllegalStateException("ordinary")
+        sink.log(LogLevel.ERROR, "T", "boom", thrown)
 
+        val logged: ShadowLog.LogItem = ShadowLog.getLogs().single()
+        assertSame(thrown, logged.throwable, "an ordinary throwable is passed to android.util.Log unchanged")
+        assertEquals("boom", logged.msg)
         val text: String = shown()
         assertTrue(text.contains("boom"), text)
         assertTrue(text.contains("IllegalStateException: ordinary"), text)
@@ -57,7 +62,10 @@ class PlatformLogSinkStackTraceTest {
     fun `an UnknownHostException is rendered with its stack trace`() {
         sink.log(LogLevel.ERROR, "T", "lookup failed", UnknownHostException("no.such.host"))
 
+        assertNull(ShadowLog.getLogs().single().throwable, "the trace is in the message, so no throwable is passed on")
         val text: String = shown()
+        val header = "java.net.UnknownHostException: no.such.host"
+        assertEquals(text.indexOf(header), text.lastIndexOf(header), "the trace appears once: $text")
         assertTrue(text.contains("lookup failed"), text)
         assertTrue(text.contains("UnknownHostException: no.such.host"), text)
         assertTrue(hasStackFrames(text), text)
