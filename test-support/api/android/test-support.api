@@ -20,6 +20,8 @@ public final class io/github/jamal_wia/kmptoolkit/testsupport/TestHost {
 	public final fun assumePosixFileSemantics (Ljava/lang/String;)V
 	public final fun getMaxNativePathLength ()Ljava/lang/Integer;
 	public final fun getPathSyntax ()Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;
+	public final fun isReservedDeviceNameOnly (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Z
+	public static synthetic fun isReservedDeviceNameOnly$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestHost;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Z
 	public final fun isValidHostFileName (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Z
 	public static synthetic fun isValidHostFileName$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestHost;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Z
 }

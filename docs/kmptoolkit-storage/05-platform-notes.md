@@ -221,7 +221,10 @@ app sharing that code with desktop could not compile it for desktop without the 
   neighbouring store's in-flight file. Every read reads the file afresh.
 - **Failures.** A corrupted or hand-edited file (a malformed `\uXXXX` escape), a name the file system
   rejects (`:` or `*` on Windows) and a denied security check arrive as `OperationFailed`, never as an
-  exception. The store is meant for a handful of small values; it is not a database.
+  exception. A name whose part before the first dot is a Windows device name (`CON`, `NUL`, `COM1`, `aux.txt`...)
+  is an ordinary file on Windows 11; earlier Windows versions resolve it to the device, and the write then fails
+  as `OperationFailed`. Avoid such names if the store must work on, or move between, older Windows versions.
+  The store is meant for a handful of small values; it is not a database.
 - **Concurrency.** Instances over the same file in one process share a `Mutex`. Two *processes* writing
   the same file are not coordinated — keep one writer per file.
 - **No secure store.** The JVM has no platform key store this module could keep a key in without

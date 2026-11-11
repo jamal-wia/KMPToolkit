@@ -25,6 +25,7 @@ final object io.github.jamal_wia.kmptoolkit.testsupport/TestHost { // io.github.
 
     final fun assumeNativePathFits(kotlin/String) // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.assumeNativePathFits|assumeNativePathFits(kotlin.String){}[0]
     final fun assumePosixFileSemantics(kotlin/String) // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.assumePosixFileSemantics|assumePosixFileSemantics(kotlin.String){}[0]
+    final fun isReservedDeviceNameOnly(kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.isReservedDeviceNameOnly|isReservedDeviceNameOnly(kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
     final fun isValidHostFileName(kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.isValidHostFileName|isValidHostFileName(kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
 }
 

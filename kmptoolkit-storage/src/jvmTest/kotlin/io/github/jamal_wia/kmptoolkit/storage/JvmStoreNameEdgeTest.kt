@@ -17,7 +17,11 @@ import kotlinx.coroutines.withTimeout
  *
  * Unlike the Android edge-name test this one does not drop names the host rejects: the desktop target
  * is the one place where a Windows host is a real deployment, so the unfiltered list is what finds a
- * defect. A name the host accepts must round-trip; a name it rejects must give a typed failure.
+ * defect. A name the host accepts must round-trip; a name it rejects must give a typed failure. A name whose only
+ * fault is a reserved Windows device stem (`CON`, `NUL`, `com1`, `aux.txt`) may go either way, because Windows 11
+ * makes it an ordinary file and earlier versions open the device: a failure must be typed, and a success must be
+ * real: a regular file in the directory that the same store and a fresh one read back. A success the device
+ * swallowed would fail that proof.
  */
 class JvmStoreNameEdgeTest {
 
@@ -43,21 +47,39 @@ class JvmStoreNameEdgeTest {
             withTimeout(60_000) {
                 for (name in names) {
                     try {
+                        val fileName: String = "${plainStoreId(name)}.properties"
                         val storage: KeyValueStorage = createKeyValueStorage(directory, StorageConfig(name))
                         val put: StorageResult<Unit> = storage.put("k", "v")
-                        val get: StorageResult<String?> = storage.get("k")
-                        // The outcome is part of the contract: a name the host accepts as a file name must
-                        // round-trip; one it does not must give a typed Failure (never a throw, never a
-                        // success that cannot be read back).
-                        val valid: Boolean = TestHost.isValidHostFileName("${plainStoreId(name)}.properties")
-                        if (valid) {
-                            if (put !is StorageResult.Success) {
-                                problems += "${describe(name)}: a host-valid name, but put gave $put"
-                            } else if (get.getOrNull() != "v") {
-                                problems += "${describe(name)}: put succeeded, get gave $get"
+                        val provenProblem: String? = if (put is StorageResult.Success) {
+                            val get: StorageResult<String?> = storage.get("k")
+                            val reread: StorageResult<String?> =
+                                createKeyValueStorage(directory, StorageConfig(name)).get("k")
+                            when {
+                                !File(directory, fileName).isFile ->
+                                    "put succeeded, but no regular file $fileName is in the directory"
+                                get.getOrNull() != "v" -> "put succeeded, get gave $get"
+                                reread.getOrNull() != "v" -> "put succeeded, a fresh store's get gave $reread"
+                                else -> null
                             }
-                        } else if (put !is StorageResult.Failure) {
-                            problems += "${describe(name)}: a host-invalid name, but put gave $put"
+                        } else {
+                            null
+                        }
+                        when {
+                            // A name the host accepts as a file name must round-trip.
+                            TestHost.isValidHostFileName(fileName) ->
+                                if (put !is StorageResult.Success) {
+                                    problems += "${describe(name)}: a host-valid name, but put gave $put"
+                                } else if (provenProblem != null) {
+                                    problems += "${describe(name)}: $provenProblem"
+                                }
+                            // Version-dependent on Windows: either a typed Failure or a success that proves itself.
+                            TestHost.isReservedDeviceNameOnly(fileName) ->
+                                if (provenProblem != null) problems += "${describe(name)}: $provenProblem"
+                            // Any other name the host rejects must give a typed Failure.
+                            else ->
+                                if (put !is StorageResult.Failure) {
+                                    problems += "${describe(name)}: a host-invalid name, but put gave $put"
+                                }
                         }
                         storage.clear()
                     } catch (error: Throwable) {

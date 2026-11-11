@@ -222,4 +222,15 @@ class TestPathsTest {
         assertEquals("", TestPaths.relativeLogical(".", "b/..", posix))
         assertEquals("a", TestPaths.relativeLogical("x/..", "a", posix))
     }
+
+    @Test
+    fun aReservedDeviceStemIsRecognisedOnlyWhenItIsTheOnlyFault() {
+        assertTrue(TestHost.isReservedDeviceNameOnly("CON.kmptoolkit.storage.properties", win))
+        assertTrue(TestHost.isReservedDeviceNameOnly("com1.x", win))
+        assertFalse(TestHost.isReservedDeviceNameOnly("CON:x", win))
+        assertFalse(TestHost.isReservedDeviceNameOnly("CONSOLE.x", win))
+        assertFalse(TestHost.isReservedDeviceNameOnly("a.CON", win))
+        assertFalse(TestHost.isReservedDeviceNameOnly("CON.x", posix))
+        assertFalse(TestHost.isReservedDeviceNameOnly("", win))
+    }
 }
