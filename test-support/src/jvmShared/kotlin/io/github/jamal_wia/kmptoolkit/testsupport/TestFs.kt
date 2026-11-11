@@ -23,13 +23,16 @@ import java.nio.file.attribute.UserPrincipal
 public object TestFs {
 
     /**
-     * Makes [dir] refuse the creation of files and sub-directories in it, and returns the restorer
-     * (call it in `finally` or `@AfterTest`; closing twice is harmless).
+     * Makes [dir] refuse the creation of files in it, and returns the restorer (call it in `finally`
+     * or `@AfterTest`; closing twice is harmless).
      *
-     * POSIX: removes the write bits. Windows: an ACL DENY entry (add file, add sub-directory, write
-     * data, append data, delete child) for the current user. Where neither is supported the running
-     * test is skipped. Running as a super-user defeats both; check with an attempt to create a file
-     * and skip when it succeeds, as the tests of this module do.
+     * POSIX: removes the write bits, which also blocks sub-directories and deleting entries.
+     * Windows: an ACL DENY entry (add file, add sub-directory, write data, append data, delete child)
+     * for the current user. Measured on Windows 11: that blocks creating a file, but NOT creating a
+     * sub-directory, and a file that already exists can still be deleted (the file grants DELETE
+     * itself). Where neither mechanism is supported the running test is skipped. Running as a
+     * super-user defeats both; check with an attempt to create a file and skip when it succeeds, as
+     * the tests of this module do.
      */
     public fun makeUnwritable(dir: File): AutoCloseable {
         require(dir.isDirectory) { "Not a directory: $dir" }
