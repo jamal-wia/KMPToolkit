@@ -1,0 +1,39 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <KMPToolkit:test-support>
+final enum class io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax : kotlin/Enum<io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax> { // io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax|null[0]
+    enum entry POSIX // io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax.POSIX|null[0]
+    enum entry WINDOWS // io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax.WINDOWS|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax> // io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax // io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax> // io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax.values|values#static(){}[0]
+}
+
+final object io.github.jamal_wia.kmptoolkit.testsupport/TestHost { // io.github.jamal_wia.kmptoolkit.testsupport/TestHost|null[0]
+    final val maxNativePathLength // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.maxNativePathLength|{}maxNativePathLength[0]
+        final fun <get-maxNativePathLength>(): kotlin/Int? // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.maxNativePathLength.<get-maxNativePathLength>|<get-maxNativePathLength>(){}[0]
+    final val pathSyntax // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.pathSyntax|{}pathSyntax[0]
+        final fun <get-pathSyntax>(): io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.pathSyntax.<get-pathSyntax>|<get-pathSyntax>(){}[0]
+
+    final fun assumeNativePathFits(kotlin/String) // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.assumeNativePathFits|assumeNativePathFits(kotlin.String){}[0]
+    final fun assumePosixFileSemantics(kotlin/String) // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.assumePosixFileSemantics|assumePosixFileSemantics(kotlin.String){}[0]
+    final fun isValidHostFileName(kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.testsupport/TestHost.isValidHostFileName|isValidHostFileName(kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
+}
+
+final object io.github.jamal_wia.kmptoolkit.testsupport/TestPaths { // io.github.jamal_wia.kmptoolkit.testsupport/TestPaths|null[0]
+    final fun fileName(kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/String // io.github.jamal_wia.kmptoolkit.testsupport/TestPaths.fileName|fileName(kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
+    final fun isInside(kotlin/String, kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.testsupport/TestPaths.isInside|isInside(kotlin.String;kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
+    final fun join(kotlin/String, kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/String // io.github.jamal_wia.kmptoolkit.testsupport/TestPaths.join|join(kotlin.String;kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
+    final fun normalize(kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/String // io.github.jamal_wia.kmptoolkit.testsupport/TestPaths.normalize|normalize(kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
+    final fun parent(kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/String? // io.github.jamal_wia.kmptoolkit.testsupport/TestPaths.parent|parent(kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
+    final fun relativeLogical(kotlin/String, kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/String? // io.github.jamal_wia.kmptoolkit.testsupport/TestPaths.relativeLogical|relativeLogical(kotlin.String;kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
+    final fun toLogical(kotlin/String, io.github.jamal_wia.kmptoolkit.testsupport/PathSyntax = ...): kotlin/String // io.github.jamal_wia.kmptoolkit.testsupport/TestPaths.toLogical|toLogical(kotlin.String;io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax){}[0]
+}
