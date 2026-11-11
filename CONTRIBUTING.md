@@ -64,15 +64,18 @@ The comment goes on the offending line or alone on the line above it; several ru
 PH1 or PH2, and never in a production source set: there it is itself a violation). Prefer line
 suppressions in a file that mixes host paths and logical ones. Do not silence a hit you have not read: first try the migration the rule suggests.
 
-The scan is fast feedback, not proof, and it is meant to be: on the separator and POSIX failures of the
-first Windows run it would have caught about 71%. It does **not** catch:
+The scan is fast feedback, not proof, and it is meant to be: of the 48 separator and POSIX failures of the
+first Windows run it catches about 43 (~90%) with the rules as shipped. It does **not** catch:
 
 - a separator that reaches a path through a value or a function (`val sep = "/"` used later,
   `joinToString("/")`, `buildString`), or a join whose operand is not named like a path
   (`"$parent/$name"`, `"$prefix/x"`, `File(a + "/" + b)`); a name that merely contains a path word
   (`attempts` contains `temp`) is caught, wrongly, and needs a suppression;
 - an absolute-path check spelled another way (`path.startsWith(root)`, `path.isNotEmpty() && path[0] ==
-  SEP`), or a separator constant that is not named `...SEPARATOR` / `...SLASH`;
+  SEP`), a separator constant that is not named `...SEPARATOR` / `...SLASH`, or one that is qualified
+  (`startsWith(Paths.PATH_SEPARATOR)`);
+- a permission setter called without a receiver and with a non-literal argument (`apply { setWritable(flag) }`);
+  `setWritable(false)` and `setReadOnly()` are caught;
 - a native path compared with a `/` literal (`assertEquals("/data/x", file.path)`), a tree listing
   compared with `/`-separated names, a `\` literal in code that builds POSIX paths;
 - a rule hit that spans lines (the scan is per line), and Kotlin code outside `src/*/kotlin` (Java sources,
