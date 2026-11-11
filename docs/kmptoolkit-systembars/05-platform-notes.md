@@ -49,6 +49,19 @@ is the normal case. The status-bar axis therefore needs no version check in your
 navigation-bar axis is only worth a check if your design depends on the icon colour on API 24
 and 25, where it stays the system's own.
 
+### `AutoSystemBarsIconStyle` and status-bar insets on API 24 to 29 (unverified on a device)
+
+`AutoSystemBarsIconStyle` only samples while `WindowInsets.statusBars` or `navigationBars` is
+non-zero, and it reads them through Compose's public inset API. In this module's Robolectric tests
+on API 28 (and 24), after the composable has left composition and come back several times, Compose's
+inset listener sometimes holds no inset at all until the window dispatches one again, so the
+composable claims nothing until then. Nothing in this module installs or feeds that listener, and on
+API 30 and above the same sequences pass. No behaviour of this kind has been seen on a physical
+device, and whether it can happen on one has not been checked: on API 24 to 29, if the icon colour
+of a screen that toggles `AutoSystemBarsIconStyle` stays stale after the toggle, a second
+`WindowInsets` reader (for example `Modifier.statusBarsPadding()` above it) keeps the listener
+installed and is the first thing to try.
+
 ### Edge-to-edge is your call, not this module's
 
 This module sets icon appearance and bar visibility. It does **not** call `enableEdgeToEdge()`.
