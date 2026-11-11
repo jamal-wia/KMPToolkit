@@ -47,7 +47,7 @@ class RecordingAlarmSchedulerRealWorldPinsAdversarialTest {
     }
 
     @Test
-    fun `an id cancelled and scheduled again moves to the end, a replaced one keeps its place`() = runTest {
+    fun `an id cancelled and scheduled again moves to the end while a replaced one keeps its place`() = runTest {
         val scheduler = RecordingAlarmScheduler()
         scheduler.schedule(alarm("a", "1"))
         scheduler.schedule(alarm("b", "1"))
