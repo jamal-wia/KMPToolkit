@@ -34,6 +34,8 @@ class JvmLibraryConventionPlugin : Plugin<Project> {
         with(target) {
             pluginManager.apply("org.jetbrains.kotlin.multiplatform")
 
+            shortenWindowsTestTmpDir()
+
             extensions.configure<KotlinMultiplatformExtension> {
                 explicitApi()
 
