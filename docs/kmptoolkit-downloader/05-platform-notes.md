@@ -81,12 +81,15 @@ the same unit at the same time: the second one waits for the first one's downloa
 returns because the resource is available. This holds for the storages returned by
 `createDownloaderStorage` only; with a storage you implement or wrap, use one engine per directory.
 A call that is cancelled while it waits for the other engine's transfer ends when that transfer
-ends. The lock lives in the process, not on disk, so two processes over one directory are still not
+ends. A cancel issued on an engine that is not the one transferring the unit (`cancelDownload`, or the
+cleanup of a call cancelled while it waited) never deletes the temp file of the transfer in flight: it
+leaves the file alone when another engine holds the unit's lock. The lock lives in the process, not on
+disk, so two processes over one directory are still not
 coordinated.
 
 #### Units whose id is not a plain file name
 
-The names above are those of a unit whose id has no `/` and no NUL, whose `<id>.<ext>.complete`
+The names above are those of a unit whose id has no `/`, no NUL and no unpaired surrogate (an id with one has no UTF-8 form: Android cannot create a file named by it and iOS would give two such ids one file), whose `<id>.<ext>.complete`
 (and `staging-<id>`) fit in 255 bytes, and whose `tempExtension` is one plain name. For every other
 unit the same files live under `<base>/tmp/kmptoolkit-internal/`, named by a key: the lowercase
 base32 SHA-256 of the id (52 characters of `a-z2-7`). So `models/v1` has its partial at
@@ -132,7 +135,9 @@ per storage; an unanswerable volume counts as case-insensitive) the commit lock 
 `model` is shared, so they never commit or detach a staging tree at the same time, and a
 `relativePath` such as `TMP/Expect/x` is rejected like `tmp/expect/x` (case is folded with the full
 mapping, so `tmp/ſtaging-x` is rejected too, and ids such as `ß`, `ẞ`, `straße` and `STRASSE` share a commit
-lock). Android is case-sensitive.
+lock). Android is case-sensitive. The same fold applies to the base directory's own path, so two storages over one
+directory spelled in different cases (`Models` and `models` as `baseDirectoryName`) share the commit lock and the
+cross-engine transfer lock.
 
 On iOS the OS may restart a background download from zero while claiming to resume it from
 `resumeData`. The bytes of the new file then do not match the hash recorded for the first one, so
@@ -204,10 +209,23 @@ fails the commit. Android 14 and later (`targetSdk` 34+) also refuse entry names
 starting with `/` inside `java.util.zip` (Zip path validation); on those devices such archives fail as
 `Corrupted`, while older devices and iOS extract them under their normalized names.
 
+An archive that cannot be laid out on the file system as delivered fails the commit with `ResourceIntegrityException` on both
+platforms, and its temp file is deleted (one fresh download, then `DownloadError.Corrupted`): one name that is a file in one
+entry and a directory in another (`a` and `a/`, or `a` and `a/b.txt`), a name or path longer than the volume allows, and two
+entries that differ only in case or Unicode normalization on a volume that treats them as one name (APFS on iOS, whose
+volume is case-insensitive by default; an Android device's `filesDir` is case-sensitive, so both are extracted there). The
+same entry name twice is not a conflict: the later bytes win, as in every unzip. The availability marker must be a regular
+file, spelled exactly like `availabilityMarker`: a directory of that name, or `MARKER.TXT` for `marker.txt` on a
+case-insensitive volume, does not make the resource available.
+
 When the marker is not at the top and the archive holds exactly one non-empty top-level directory that
 contains it, that directory's contents are moved up; files and empty directories beside it stay where they
 are, and a name that exists at the top as a file fails the commit with `ResourceIntegrityException`. An empty
 directory of the same name is replaced; a non-empty directory is never deleted.
+
+Verifying a `SqliteDatabase` leaves nothing beside the temp file: the `-wal`, `-shm` and `-journal` files SQLite keeps
+for a database in write-ahead-log mode are removed before and after the check (a stale one would otherwise be replayed
+into the next download of the unit), on both platforms.
 
 A `SqliteDatabase` file must be at least 100 bytes long and start with the 16-byte SQLite header
 (`SQLite format 3` and a NUL); an empty or cut body fails the commit, before the database is opened. The row

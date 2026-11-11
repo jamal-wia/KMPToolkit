@@ -41,6 +41,10 @@ The suffix on the plain store is load-bearing on iOS. `NSUserDefaults(suiteName:
 app and every embedded SDK ever wrote. Because the suffix is always appended, the resolved suite name
 can never equal the bundle id, even if you pass it explicitly as `name`.
 
+`NSUserDefaults` treats one key name specially: a string stored under `AppleLanguages` (the preferred languages, an array
+the system owns) never reads back, so the plain iOS store refuses `put` for that key with
+`StorageError.OperationFailed(PUT)` instead of answering `Success` and then `null`. Android and the JVM accept the name.
+
 ## Android: why not Tink, and why not `EncryptedSharedPreferences`
 
 The code this module was ported from used **Tink** (`com.google.crypto.tink:tink-android`) with an
@@ -92,6 +96,13 @@ Two further choices inside that implementation:
   token on the weaker device would only push you into storing it somewhere worse.
 
 ### The Android failure you must handle
+
+Since 4.1.0 a secure value is also bound to the key name it is stored under: the key name is authenticated
+associated data of the AES-GCM encryption, so a ciphertext copied from one key to another in the preferences file
+(for example the access token over the password) fails its tag and reads as `Undecryptable`. Nothing written earlier
+becomes unreadable: an entry that fails the bound check is read once more as an unbound one, which is what 4.0.0 and
+earlier wrote. Such an old entry stays movable between keys until it is written again. The format on disk is unchanged
+(`Base64(iv ‖ ciphertext‖tag)`), but a downgrade to 4.0.0 cannot read entries written by 4.1.0.
 
 The Keystore entry is destroyed when the user **adds, changes, or removes the device lock**, and an
 app restored to a new device from a backup carries the ciphertext without the key. In both cases the

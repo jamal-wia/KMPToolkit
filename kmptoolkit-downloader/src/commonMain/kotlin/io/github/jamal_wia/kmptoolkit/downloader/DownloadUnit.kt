@@ -18,7 +18,8 @@ package io.github.jamal_wia.kmptoolkit.downloader
  * an iOS background-session identifier, a persisted stall-count key. It must be stable across app
  * versions (it is written to disk and read back) and unique within the host's catalogue.
  *
- * Any string is accepted as an [id]; one that is not a plain file name (it contains `/` or NUL, or a
+ * Any string is accepted as an [id]; one that is not a plain file name (it contains `/`, NUL or an
+ * unpaired surrogate, or a
  * name derived from it would pass 255 bytes) is stored under a hashed name by the shipped storages,
  * so it never collides with another unit or leaves `tmp/`. Prefer `[A-Za-z0-9._-]`, and keep ids
  * unique ignoring case (and, on iOS, Unicode normalization): an iOS volume may treat `Model` and
@@ -116,10 +117,12 @@ public sealed interface ResourceFormat {
 
     /**
      * A ZIP archive: committing extracts it into [DownloadUnit.relativePath] as a directory (with
-     * zip-slip protection) and deletes the archive. [availabilityMarker] is a file the extraction
-     * is known to produce — its presence is what proves a directory resource is complete, since an
+     * zip-slip protection) and deletes the archive. [availabilityMarker] is a regular file the extraction
+     * is known to produce (a directory of that name, or another capitalization on a case-insensitive volume, does not count) — its presence is what proves a directory resource is complete, since an
      * interrupted extraction also leaves a directory behind. Every entry is extracted, or the commit fails
-     * with [ResourceIntegrityException]; an entry that would land outside the directory fails the commit.
+     * with [ResourceIntegrityException]; an entry that would land outside the directory fails the commit, and so does an
+     * archive the file system cannot hold as delivered (a name that is a file and a directory, a name or path that is too
+     * long, two entries it stores as one).
      *
      * The archive must end with its end of central directory record (a comment cut short is tolerated; an archive cut
      * anywhere before the record, its central directory included, fails), and entry names are read as UTF-8 whether

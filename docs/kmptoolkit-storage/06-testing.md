@@ -123,7 +123,7 @@ The suite is arranged around one shared contract class:
   contract against real `SharedPreferences` files, plus what is specific to each store: that the
   plain one stores plaintext, that the encrypted one does not, that ciphertext differs between two
   writes of the same value, that a corrupted or tampered entry is `Undecryptable` rather than
-  absent, and that removing and clearing still work when the key store does not.
+  absent, that a ciphertext moved to another key is `Undecryptable`, and that removing and clearing still work when the key store does not.
   `AndroidKeystoreKeySourceRaceTest` drives the key lookup from eight threads at once — on one
   instance, on eight, and during recovery from an unrecoverable alias — against a fake key store
   that holds every caller between "looked" and "generated", and asserts that exactly one key was

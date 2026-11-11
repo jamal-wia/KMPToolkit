@@ -73,4 +73,28 @@ class UnitTransferLocksTest {
         UnitTransferLocks.withTransferLock("scope-e", "u") { ran = true }
         assertTrue(ran)
     }
+
+    @Test
+    fun `tryWithTransferLock runs only when the lock is free and never waits`() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val holder: Job = launch { UnitTransferLocks.withTransferLock("scope-f", "u") { release.await() } }
+        runCurrent()
+
+        var ranWhileHeld = false
+        val whileHeld: Boolean = UnitTransferLocks.tryWithTransferLock("scope-f", "u") { ranWhileHeld = true }
+        assertFalse(whileHeld)
+        assertFalse(ranWhileHeld)
+
+        release.complete(Unit)
+        holder.join()
+
+        var ranWhenFree = false
+        val whenFree: Boolean = UnitTransferLocks.tryWithTransferLock("scope-f", "u") { ranWhenFree = true }
+        assertTrue(whenFree)
+        assertTrue(ranWhenFree)
+        // The try left nothing behind: a normal call still gets the lock at once.
+        var after = false
+        UnitTransferLocks.withTransferLock("scope-f", "u") { after = true }
+        assertTrue(after)
+    }
 }

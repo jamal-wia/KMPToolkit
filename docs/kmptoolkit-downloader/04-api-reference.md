@@ -87,7 +87,7 @@ compiled against) with value `equals` / `hashCode` / `toString`.
 
 | Member | Type | Notes |
 |---|---|---|
-| `id` | `String` | Durable identity — persisted, used as a background-session id. Any string is accepted: an id that is not a plain file name (it contains `/` or NUL, or a derived name would pass 255 bytes) is stored under a hashed name, so it never collides with another unit or escapes `tmp/`. Ids must be unique ignoring case, and on iOS ignoring Unicode normalization too (an iOS volume may treat `Model` and `model`, or NFC and NFD spellings, as one file). Prefer `[A-Za-z0-9._-]`. |
+| `id` | `String` | Durable identity — persisted, used as a background-session id. Any string is accepted: an id that is not a plain file name (it contains `/`, NUL or an unpaired surrogate, or a derived name would pass 255 bytes) is stored under a hashed name, so it never collides with another unit or escapes `tmp/`. Ids must be unique ignoring case, and on iOS ignoring Unicode normalization too (an iOS volume may treat `Model` and `model`, or NFC and NFD spellings, as one file). Prefer `[A-Za-z0-9._-]`. |
 | `apiPath` | `String` | Opaque; resolved by your `DownloadUrlResolver`. |
 | `relativePath` | `String` | Relative to the storage's own base directory, used as written once `.`, `..` and empty segments are resolved lexically (`files/x/../a.bin` is `files/a.bin` whether or not `x` exists; a leading `/` still means inside the base). Rejected with `InvalidDownloadUnitException` when it is empty or normalizes to nothing, contains NUL, leaves the base directory, or names something the storage manages (`tmp`, `tmp/expect`, `tmp/expect-staged`, `tmp/kmptoolkit-internal`, `tmp/staging-…`, or the unit's own temp files). Any other path under `tmp/` (including `tmp/trash/…`, which 3.0.0 never used) is accepted, with a warning, and stays reserved for a future major release. |
 | `tempExtension` | `String` | Default `"tmp"`. Carries no meaning of its own, but it is part of the temp file's name (`tmp/<id>.<ext>`), so every instance of one id must return the same value: instances that differ see different temp files, while the expected-hash record is shared by id. |
@@ -103,7 +103,9 @@ compiled against) with value `equals` / `hashCode` / `toString`.
 [`03-guide.md`](03-guide.md) for what commit does for each.
 
 Every entry of a `ZipArchive` is extracted, or the commit fails with `ResourceIntegrityException`; an entry that
-would land outside the directory fails the commit. An archive must end with its end of central directory record
+would land outside the directory fails the commit, and so does an archive the file system cannot hold as delivered (a name that
+is a file and a directory, a name or path that is too long, two entries it stores as one, such as names differing only in case
+on iOS). The `availabilityMarker` must be a regular file spelled exactly like that. An archive must end with its end of central directory record
 (a comment cut short is tolerated; an archive cut anywhere before the record, its central directory included, fails),
 and entry names are read as UTF-8 whether or not the archive sets the UTF-8 flag (a name that is not valid UTF-8
 fails the commit).
@@ -243,7 +245,7 @@ process (a custom or wrapping `DownloaderStorage` is not coordinated across engi
 directory): a second engine asked for a unit another engine is
 downloading waits, and then finds the resource available instead of starting a second transfer. So the
 port never sees two `enqueueDownload` calls for a unit whose first transfer finished but has not been
-committed yet. A call cancelled while it waits for the other engine's transfer ends when that transfer ends. Since 4.1.0.
+committed yet. A call cancelled while it waits for the other engine's transfer ends when that transfer ends. A cancel (or the cleanup of a cancelled call) on an engine that does not hold the unit's lock leaves the temp file alone: it belongs to the engine that is transferring. Since 4.1.0.
 
 `beginTempFile(unit, expectedSha256)` is called by the party that owns the writer, exactly when it
 is about to write from byte 0, and replaces whatever transfer was there: afterwards `tempFileState`

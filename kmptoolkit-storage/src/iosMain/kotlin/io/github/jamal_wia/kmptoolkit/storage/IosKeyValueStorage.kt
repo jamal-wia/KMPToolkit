@@ -32,6 +32,17 @@ internal class IosKeyValueStorage(
 
     override suspend fun put(key: String, value: String): StorageResult<Unit> = withContext(dispatcher) {
         unpairedSurrogateFailure(key, value)?.let { return@withContext it }
+        // The system owns this name (the preferred languages, an array): a string stored under it never reads back, so
+        // it is refused instead of reporting a Success the next get would contradict.
+        if (key in SYSTEM_RESERVED_KEYS) {
+            return@withContext StorageResult.Failure(
+                StorageError.OperationFailed(
+                    StorageOperation.PUT,
+                    key = key,
+                    cause = IllegalArgumentException("The key is reserved by NSUserDefaults"),
+                ),
+            )
+        }
         defaults.setObject(value, forKey = key)
         StorageResult.Success(Unit)
     }
@@ -46,3 +57,6 @@ internal class IosKeyValueStorage(
         StorageResult.Success(Unit)
     }
 }
+
+/** Key names `NSUserDefaults` handles specially, so that a value put under them does not read back as written. */
+private val SYSTEM_RESERVED_KEYS: Set<String> = setOf("AppleLanguages")
