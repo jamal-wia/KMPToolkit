@@ -179,7 +179,8 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
 
 - **Android.** `UploadHandlerWorker` reads the response in the same attempt, before the connection is
   dropped: `inputStream` for a status below 400, `errorStream` for 400 and above (a missing one is an
-  empty body; flagged truncated when the headers declared one the stack did not deliver). A redirect whose body the stack does not hand over is flagged truncated unless its headers declare an empty body. With a
+  empty body; flagged truncated when the headers declared one the stack did not deliver; a body with a declared
+  `Content-Length` and no content encoding or chunked transfer is read up to that length, never past it). A redirect whose body the stack does not hand over is flagged truncated unless its headers declare an empty body. With a
   process-wide `java.net.Authenticator` that answers challenges, or on a plain JVM, a 401/407 body is
   unavailable and arrives empty and flagged truncated; the status still reaches `classify`. At most 1 MiB is read; the handler's `maxResponseBodyBytes` is applied by the engine.
   The body stays in the process and is never put into `WorkManager`'s data. A `WorkManager` worker has
@@ -205,7 +206,8 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   the device is locked, so a stricter class would fail exactly when the file is needed). If the process
   dies between the answer and the settlement, the next run **replays the file instead of uploading
   again**: the Android worker checks it before preparing the attempt, the iOS transport in a re-hand
-  (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
+  (a first hand-off finds a stale file, deletes it and uploads; so does a re-hand that finds a file stamped with an
+  older attempt than its own, a late duplicate that reached the disk), in `handleEvents` and once when it is
   created. On Android the entry carries the attempt it answers and is deleted only after the engine commit
   returned, so a death or stop before the commit leaves it for the next run, and a leftover of an attempt that was
   already settled is recognised and dropped instead of replaying into the retry. On iOS the entry carries the attempt
@@ -257,3 +259,9 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   cannot use as a file name — empty, `.` or `..`, containing `/`, `\`, a space or a control character, or
   longer than 200 characters — is uploaded and settled normally but its answer is not journaled: a process
   death between the answer and the settlement uploads it again (at least once).
+  On iOS, where the data container is usually a case-insensitive volume, ids that differ only by letter case
+  (`Photo-1` and `photo-1`) get different files: an id keeps its own text as the name of its temporary body and its
+  journal entry only when no other id can fold onto it (a canonical upper-case UUID, which is the default id, or an
+  id without an upper-case letter that is not shaped like a UUID); any other id gets a hashed body name and an
+  escaped journal name (`~` marks an escape), which the sweep maps back to the id. Entries a version before 4.1.0
+  wrote under the id's own spelling stay readable, are replayed by the sweep and are replaced when the id writes again.

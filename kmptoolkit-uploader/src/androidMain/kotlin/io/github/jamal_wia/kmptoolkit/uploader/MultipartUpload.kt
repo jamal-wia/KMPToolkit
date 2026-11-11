@@ -181,11 +181,20 @@ private fun readResponse(
         val stream: InputStream? = if (status >= HTTP_BAD_REQUEST) connection.errorStream else connection.inputStream
         if (stream != null) {
             opened = true
-            read = stream.use { input -> readAtMost(input, MAX_RESPONSE_BODY_BYTES, isCancelled, deadlineMillis) }
+            // A body of a declared length ends there: some stacks (the JDK's) hand over the stream unbounded, so a
+            // confused server or proxy that sends more bytes behind it (a second response glued on) would enlarge the
+            // body. Not bounded when the stack decoded the body (a content encoding) or the transfer is chunked,
+            // where the declared length is not the length of what the stream delivers.
+            val declared: Long? = connection.getHeaderField("Content-Length")?.trim()?.toLongOrNull()
+            val delimitedByLength: Boolean = declared != null && connection.contentEncoding == null &&
+                connection.getHeaderField("Transfer-Encoding")?.contains("chunked", ignoreCase = true) != true
+            val bound: Int? = declared?.takeIf { delimitedByLength && it in 0 until MAX_RESPONSE_BODY_BYTES }?.toInt()
+            read = stream.use { input ->
+                readAtMost(input, bound ?: MAX_RESPONSE_BODY_BYTES, isCancelled, deadlineMillis, probeExcess = bound == null)
+            }
             // A server that closes early may end a fixed-length body without any error on some stacks:
             // fewer bytes than it declared is an incomplete body. Skipped when the stack decoded the
             // body (a content encoding), where the declared length is not the decoded one.
-            val declared: Long? = connection.getHeaderField("Content-Length")?.trim()?.toLongOrNull()
             if (declared != null && connection.contentEncoding == null && read.bytes.size < declared && !read.cut) {
                 read = ReadBody(read.bytes, cut = true)
             }
@@ -233,13 +242,20 @@ private class ReadBody(val bytes: ByteArray, val cut: Boolean)
  * Reads [limit] bytes of [input], and one more to learn whether there was more. Stops with what it has —
  * flagged as cut — when [isCancelled] reads `true`, when reading takes longer than [deadlineMillis] in
  * total (the per-read timeout alone would let a slow trickle hold the thread for as long as the server
- * likes, past the worker's own limit), or when the stream fails.
+ * likes, past the worker's own limit), or when the stream fails. With [probeExcess] `false` the limit is the
+ * body's declared length: reading stops at it without looking for more.
  */
-private fun readAtMost(input: InputStream, limit: Int, isCancelled: () -> Boolean, deadlineMillis: Int): ReadBody {
+private fun readAtMost(
+    input: InputStream,
+    limit: Int,
+    isCancelled: () -> Boolean,
+    deadlineMillis: Int,
+    probeExcess: Boolean = true,
+): ReadBody {
     val collected = ByteArrayOutputStream()
     val buffer = ByteArray(COPY_BUFFER_BYTES)
     val startedAt: Long = System.nanoTime()
-    var remaining: Int = limit + 1
+    var remaining: Int = if (probeExcess) limit + 1 else limit
     var interrupted = false
     try {
         while (remaining > 0) {

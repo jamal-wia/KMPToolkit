@@ -364,7 +364,7 @@ internal class BackgroundSessionUploadTransport(
     private fun launchWithStamp(itemId: String, isRehandOff: Boolean, attemptStamp: Int?, request: UploadRequest) {
         // First of all: an outcome this item's earlier upload journaled is replayed INSTEAD of uploading — the
         // session it ran on is gone and its events will not come again. Nothing is started, not even a session.
-        if (replayJournaled(itemId, isRehandOff)) return
+        if (replayJournaled(itemId, isRehandOff, attemptStamp)) return
         handOff(itemId, isRehandOff, request, attemptStamp)
     }
 
@@ -475,16 +475,25 @@ internal class BackgroundSessionUploadTransport(
      *
      * A lost settlement always leaves the item in flight until its lease expires, so only a re-hand can be
      * owed a replay: for a first hand-off an entry is stale, and is deleted so that it cannot stand in for
-     * the upload this hand-off was made for.
+     * the upload this hand-off was made for. Neither is an entry stamped with another attempt than the one this
+     * hand-off carries ([attemptStamp]): it answers an attempt the item has moved past (a late duplicate that reached
+     * the disk), so it is dropped here and the upload goes on, instead of a replay that applies nothing and leaves the
+     * item waiting for its next lease. An unstamped entry or hand-off is replayed as before.
      *
      * @return whether a replay was started — the caller then starts nothing. An unusable entry is deleted by
      *   the inspection and reads as none.
      */
-    private fun replayJournaled(itemId: String, isRehandOff: Boolean): Boolean {
+    private fun replayJournaled(itemId: String, isRehandOff: Boolean, attemptStamp: Int?): Boolean {
         val entry: JournalEntry = journal.inspect(itemId)
         if (entry !is JournalEntry.Valid) return false
         if (!isRehandOff) {
             logger.i { "Discarded a stale journaled outcome at a first hand-off — item=$itemId" }
+            journal.delete(itemId)
+            return false
+        }
+        val entryStamp: Int? = entry.attemptStamp
+        if (attemptStamp != null && entryStamp != null && entryStamp != attemptStamp) {
+            logger.i { "Discarded a journaled outcome of attempt $entryStamp at the re-hand of attempt $attemptStamp — item=$itemId" }
             journal.delete(itemId)
             return false
         }
@@ -845,24 +854,20 @@ internal fun temporaryBodyPath(itemId: String): String = NSTemporaryDirectory() 
 
 /**
  * The name of the temporary body file of [itemId]. The id is the consumer's (`idGenerator`) and may be anything, so
- * an id that is not a plain file name — empty, longer than [MAX_PLAIN_ID_CHARS], a character outside
- * `[A-Za-z0-9._-]`, `.` or `..` — is named after the SHA-256 of its UTF-8 bytes instead: fixed length, never a path
- * separator, and deterministic, so every path that removes the file finds it without state. A canonical UUID (the
- * default id) keeps the name it always had, so a file written by an earlier version is still removed. The `~` cannot
- * occur in a plain name, so the two name spaces are disjoint.
+ * an id that is not its own file name ([keepsOwnFileName]: empty, longer than 200 characters, a character outside
+ * `[A-Za-z0-9._-]`, `.` or `..`, or a spelling that another id could share on a case-insensitive volume, which is
+ * any upper-case letter except in a canonical upper-case UUID) is named after the SHA-256 of its UTF-8 bytes instead:
+ * fixed length, never a path separator, and deterministic, so every path that removes the file finds it without
+ * state. A canonical UUID (the default id) keeps the name it always had, so a file written by an earlier version is
+ * still removed. The `~` cannot occur in a plain name, so the two name spaces are disjoint. (A body file an earlier
+ * version left for an id with an upper-case letter that is not a UUID keeps its old name and is not removed by this
+ * one; it sits in the temporary directory, which the system cleans.)
  */
 internal fun temporaryBodyFileName(itemId: String): String =
-    if (isPlainFileNameId(itemId)) {
+    if (keepsOwnFileName(itemId)) {
         "kmptoolkit_upload_$itemId.tmp"
     } else {
         "kmptoolkit_upload_~${sha256Hex(itemId.encodeToByteArray())}.tmp"
-    }
-
-private const val MAX_PLAIN_ID_CHARS: Int = 200
-
-private fun isPlainFileNameId(itemId: String): Boolean =
-    itemId.length in 1..MAX_PLAIN_ID_CHARS && itemId != "." && itemId != ".." && itemId.all { c ->
-        c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '.' || c == '_' || c == '-'
     }
 
 private const val SHA256_DIGEST_BYTES: Int = 32

@@ -220,6 +220,8 @@ cannot be read completely — the connection broke, or the time ran out —
 is reported as truncated with the bytes read so far, not as a transport failure. A status that carries no content (`1xx`,
 `204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
 A redirect (`3xx` other than `304`) whose body the stack does not hand over is flagged truncated unless its headers declare an empty body (`Content-Length: 0`).
+A body with a declared `Content-Length` (and no content encoding or chunked transfer) is read up to that length and no
+further, so bytes a confused server or proxy sends behind it (a second response glued on) are not part of the body.
 The status line and headers must arrive within twice the read timeout after the body is sent: a server that
 trickles them longer fails the attempt as a transport failure (no status was received). A reply that is not a final HTTP
 status (a non-HTTP reply, or an interim `1xx` the platform stack hands back as the answer) is a transport failure too, not a
@@ -266,7 +268,8 @@ val transport: UploadTransport = createBackgroundUploadTransport(
 One background `NSURLSession` per item, its identifier the prefix plus the item id. The system daemon
 `nsurlsessiond` keeps uploading after the app is suspended or killed. The multipart body is written to
 a temporary file — background uploads must come from a file, named after the item id, or after a hash of it when
-the id is not a plain file name — streamed from the source files in
+the id is not a plain file name or could name the same file as another id on a case-insensitive volume (any upper-case
+letter other than in a canonical upper-case UUID) — streamed from the source files in
 chunks, so a large recording is never held in memory, and removed when the upload completes.
 
 The delegate accumulates the response body as the session delivers it (at most 1 MiB, converted once
