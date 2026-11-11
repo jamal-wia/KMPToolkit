@@ -53,7 +53,18 @@ public interface VideoPlaybackEngine {
     /** Suspends output, leaving the playhead in place. */
     public fun pause()
 
-    /** Moves the playhead; the caller has already clamped [positionMs] to `0..`[durationMs]. */
+    /**
+     * Moves the playhead to [positionMs], which the caller keeps in `0..Long.MAX_VALUE / 1_000_000`
+     * (about 292 years), so that it converts to microseconds or nanoseconds, and adds a platform's own
+     * offsets, without overflowing.
+     *
+     * While the duration is known the caller has also clamped [positionMs] to `0..`[durationMs]. While
+     * it is not (a live stream, a header not parsed yet: [durationMs] is `0`) an absolute seek arrives as
+     * `0`, but `seekForward` / `seekBackward` arrive as the playhead plus or minus the amount, so a target
+     * past the real end can reach the engine. The engine clamps such a target to the end of the source,
+     * as its platform defines the end (ExoPlayer stops 1 microsecond short of it), or ignores it; it does
+     * not throw.
+     */
     public fun seekTo(positionMs: Long)
 
     /** Sets the rate; the caller has already clamped [speed]. */

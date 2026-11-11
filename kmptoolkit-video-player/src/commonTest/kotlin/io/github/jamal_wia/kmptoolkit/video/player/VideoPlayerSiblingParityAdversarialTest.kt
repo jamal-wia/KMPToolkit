@@ -43,6 +43,44 @@ class VideoPlayerSiblingParityAdversarialTest {
     }
 
     @Test
+    fun `a huge relative skip on a source of unknown length is capped for the platform clocks`() = playerTest(
+        engine = RecordingVideoPlaybackEngine(duration = 0L),
+    ) { engine, player ->
+        val cap: Long = Long.MAX_VALUE / 1_000_000L
+        player.prepare(source)
+        player.play()
+        engine.position = 30_000L
+        player.seekForward(Long.MAX_VALUE)
+        assertEquals(cap, engine.seekTargets.last(), "seekForward(MAX) reached the engine as ${engine.seekTargets.last()}")
+        assertEquals(cap, player.playbackPositionFlow.value)
+
+        engine.position = 30_000L
+        player.seekBackward(Long.MIN_VALUE)
+        assertEquals(cap, engine.seekTargets.last(), "seekBackward(MIN) reached the engine as ${engine.seekTargets.last()}")
+        assertEquals(cap, player.playbackPositionFlow.value)
+
+        engine.position = Long.MAX_VALUE
+        player.seekBackward(5_000L)
+        assertEquals(cap, engine.seekTargets.last(), "from a position above the cap the skip reached the engine as ${engine.seekTargets.last()}")
+    }
+
+    @Test
+    fun `the cap on a relative skip of unknown length does not bite below it`() = playerTest(
+        engine = RecordingVideoPlaybackEngine(duration = 0L),
+    ) { engine, player ->
+        val cap: Long = Long.MAX_VALUE / 1_000_000L
+        player.prepare(source)
+        player.play()
+        engine.position = cap - 3_000L
+        player.seekForward(5_000L)
+        assertEquals(cap, engine.seekTargets.last())
+
+        engine.position = cap - 3_000L
+        player.seekForward(1_000L)
+        assertEquals(cap - 2_000L, engine.seekTargets.last(), "the cap bit early: ${engine.seekTargets.last()}")
+    }
+
+    @Test
     fun `play with the playhead sitting on the end of a paused source starts over from zero`() = playerTest { engine, player ->
         player.prepare(source)
         player.play()
