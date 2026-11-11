@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -14,9 +15,9 @@ import kotlinx.coroutines.withTimeout
  * is that an operation never throws, whatever the file system makes of the name, and that a write
  * which reports success can be read back.
  *
- * Unlike the Android edge-name test this one does not filter names by what the host accepts: the
- * desktop target is the one place where a Windows host is a real deployment, so the unfiltered list
- * is what finds a defect.
+ * Unlike the Android edge-name test this one does not drop names the host rejects: the desktop target
+ * is the one place where a Windows host is a real deployment, so the unfiltered list is what finds a
+ * defect. A name the host accepts must round-trip; a name it rejects must give a typed failure.
  */
 class JvmStoreNameEdgeTest {
 
@@ -45,8 +46,18 @@ class JvmStoreNameEdgeTest {
                         val storage: KeyValueStorage = createKeyValueStorage(directory, StorageConfig(name))
                         val put: StorageResult<Unit> = storage.put("k", "v")
                         val get: StorageResult<String?> = storage.get("k")
-                        if (put is StorageResult.Success && get.getOrNull() != "v") {
-                            problems += "${describe(name)}: put succeeded, get gave $get"
+                        // The outcome is part of the contract: a name the host accepts as a file name must
+                        // round-trip; one it does not must give a typed Failure (never a throw, never a
+                        // success that cannot be read back).
+                        val valid: Boolean = TestHost.isValidHostFileName("${plainStoreId(name)}.properties")
+                        if (valid) {
+                            if (put !is StorageResult.Success) {
+                                problems += "${describe(name)}: a host-valid name, but put gave $put"
+                            } else if (get.getOrNull() != "v") {
+                                problems += "${describe(name)}: put succeeded, get gave $get"
+                            }
+                        } else if (put !is StorageResult.Failure) {
+                            problems += "${describe(name)}: a host-invalid name, but put gave $put"
                         }
                         storage.clear()
                     } catch (error: Throwable) {
