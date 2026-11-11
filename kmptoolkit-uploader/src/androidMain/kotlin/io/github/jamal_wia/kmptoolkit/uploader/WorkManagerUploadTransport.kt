@@ -190,7 +190,7 @@ public class UploaderUploadWorker(
                     // flight again at the attempt the hand-off was made for is the retry's own and is uploaded once,
                     // with its request. A hand-off stamped with an older attempt (a duplicate that landed during a
                     // zero-backoff commit) is not served for the newer attempt: the retry's own hand-off moves the
-                    // counter and is found by the next finishServing. An unstamped hand-off (a wrapped transport)
+                    // counter and is found by the next finishServing. An unstamped hand-off (one launched outside an engine attempt)
                     // is served whenever the row is in flight.
                     val now: Long = ledger.handOffsSeen(itemId)
                     // A retry's hand-off is counted from `execute`, before the engine marks the row in flight: wait
