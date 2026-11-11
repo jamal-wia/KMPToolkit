@@ -73,7 +73,7 @@ class UploaderEngineTimeRound7AdversarialTest {
 
     private fun TestScope.scopeOn(parent: Job): CoroutineScope = CoroutineScope(StandardTestDispatcher(testScheduler) + parent)
 
-    /** R6-09's overlap at a given clock. The same overlap a few milliseconds from `Long.MAX_VALUE` is suspect R7-01. */
+    /** R6-09's overlap with the clock a few milliseconds from `Long.MAX_VALUE`: both leases saturate at the same value. */
     private fun lateReleaseAt(startMillis: Long) = runTest {
         val parent1 = Job()
         val parent2 = Job()
@@ -117,6 +117,10 @@ class UploaderEngineTimeRound7AdversarialTest {
     @Test
     fun `control - the late release of a closed engine leaves its replacement's claim alone at an ordinary clock`() =
         lateReleaseAt(1_000L)
+
+    @Test
+    fun `the late release of a closed engine leaves its replacement's claim alone when both leases saturate at Long MAX`() =
+        lateReleaseAt(Long.MAX_VALUE - 1_000L)
 
     @Test
     fun `many items with one identical timestamp in one ordering channel run in enqueue order`() = runTest {
