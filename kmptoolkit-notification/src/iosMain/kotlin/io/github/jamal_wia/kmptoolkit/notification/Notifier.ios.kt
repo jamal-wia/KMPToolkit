@@ -80,7 +80,17 @@ internal class IosNotifier(
         // permission check, before the coalescer would hear of it, is ordered against it all the same.
         val claim: ProgressCoalescer.PostClaim = coalescer.claim(id)
         try {
-            return postClaimed(id, notification, claim)
+            // One read of the caller's mutable lists and maps, before anything suspends: the baseline
+            // and the request are both made from this copy, so they describe one frame even if the
+            // caller edits (and edits back) its own collections while this post is in flight.
+            return postClaimed(
+                id,
+                notification.copy(
+                    actions = notification.actions.toList(),
+                    contentExtras = notification.contentExtras?.toMap(),
+                ),
+                claim,
+            )
         } finally {
             coalescer.release(claim)
         }
@@ -98,13 +108,8 @@ internal class IosNotifier(
         if (!permissions.check(CommonPermission.Notifications).isUsable) {
             return NotificationResult.PermissionDenied
         }
-        // A copy of the lists and maps too: the baseline must hold what was shown, not the caller's
-        // own mutable collections, which may be edited in place before the next post.
-        val baseline: LocalNotification = notification.copy(
-            progress = null,
-            actions = notification.actions.toList(),
-            contentExtras = notification.contentExtras?.toMap(),
-        )
+        // `notification` is the snapshot taken in post(), so the baseline and the request agree.
+        val baseline: LocalNotification = notification.copy(progress = null)
         val ticket: ProgressCoalescer.PostTicket =
             coalescer.prepare(id, notification.progress, baseline, claim)
                 ?: return NotificationResult.Coalesced

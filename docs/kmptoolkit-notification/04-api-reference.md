@@ -48,7 +48,7 @@ hides a real failure. On Android below API 33 the permission check is skipped: t
 `POST_NOTIFICATIONS` to lack, whatever the `PermissionController` answers.
 
 **Coalescing:** the bucket applies only to frames that differ from the one showing in nothing but the
-percentage; a changed title, body, button set or options bypasses it. The comparison is by value as of the previous post: a button list, extras map or action-icon map the caller edits in place between two posts counts as changed. The rate limit
+percentage; a changed title, body, button set or options bypasses it. The comparison is by value as of the previous post: a button list, extras map or action-icon map the caller edits in place between two posts counts as changed. Each post reads those lists and maps once, when it starts: the tray shows, and the baseline records, that one snapshot, so a collection edited (and edited back) while the call is still in flight cannot make the two describe different frames. The rate limit
 (`minProgressInterval`) applies to every determinate frame, changed or not. A frame becomes the
 baseline later frames are judged against when it is decided, and **a post that fails is rolled back**:
 if a post returns `Failed`, retrying the same progress posts it again instead of answering `Coalesced`.
