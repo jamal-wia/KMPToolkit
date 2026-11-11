@@ -11,7 +11,6 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -241,14 +240,16 @@ class AndroidDownloaderEngineAdversarialTest {
         private val real: DownloaderStorage,
         private val parked: CountDownLatch,
         private val release: CountDownLatch,
+        /** The tempFileState call to hold: the group surface reads the state twice before it decides. */
+        private val parkOnRead: Int = 1,
     ) : DownloaderStorage by real,
         TransferLockScope by (real as TransferLockScope),
         RelativePathChecking by (real as RelativePathChecking) {
-        private val first: AtomicBoolean = AtomicBoolean(true)
+        private val reads: AtomicInteger = AtomicInteger()
 
         override fun tempFileState(unit: DownloadUnit): TempFileState {
             val state: TempFileState = real.tempFileState(unit)
-            if (first.getAndSet(false)) {
+            if (reads.incrementAndGet() == parkOnRead) {
                 parked.countDown()
                 release.await(1, TimeUnit.SECONDS)
             }
@@ -266,12 +267,27 @@ class AndroidDownloaderEngineAdversarialTest {
         staleDecisionRace(beginsTempFile = true)
     }
 
+    @Test
+    fun `the group surface of an engine with a stale decision never fails the other caller`() {
+        // The group loop reads tempFileState twice before the read made by the transfer itself.
+        staleDecisionRace(beginsTempFile = true, viaGroup = true, parkOnRead = 3)
+    }
+
+    @Test
+    fun `the group surface of an engine with a stale decision leaves no partial temp file`() {
+        staleDecisionRace(beginsTempFile = false, viaGroup = true, parkOnRead = 3)
+    }
+
     /**
      * Engine B reads "no temp file yet" and is held; engine A then transfers the unit to completion;
      * B resumes with its stale decision. Without the cross-engine transfer lock B starts a second
      * transfer while A has not committed the first one yet.
+     *
+     * With the cross-engine lock this interleaving is unreachable: B parks on its read while holding
+     * the lock, so A cannot start, and the latches below time out (about 2.5 s); the test then only
+     * asserts the outcome. Do not shorten the timeouts to speed it up: the old-code interleaving needs them.
      */
-    private fun staleDecisionRace(beginsTempFile: Boolean) {
+    private fun staleDecisionRace(beginsTempFile: Boolean, viaGroup: Boolean = false, parkOnRead: Int = 1) {
         val payload: ByteArray = ByteArray(32 * 1024) { index: Int -> (index % 239).toByte() }
         val group = Group("catalogue")
         val unit = FileUnit("model", group).also { group.units = listOf(it) }
@@ -281,7 +297,7 @@ class AndroidDownloaderEngineAdversarialTest {
         val secondTransferStarted = CountDownLatch(1)
         val aReturned = CountDownLatch(1)
         val storageB: DownloaderStorage =
-            StaleFirstReadStorage(createDownloaderStorage(context, config), parked, firstTransferDone)
+            StaleFirstReadStorage(createDownloaderStorage(context, config), parked, firstTransferDone, parkOnRead)
         val service = SharedService(
             storage = storageA,
             bytes = payload,
@@ -305,10 +321,10 @@ class AndroidDownloaderEngineAdversarialTest {
         val outcomes: List<Result<Unit>>? = runBlocking {
             withTimeoutOrNull(20_000) {
                 withContext(Dispatchers.Default) {
-                    val b: Deferred<Result<Unit>> = async { runCatching { engineB.ensureAvailable(unit) } }
+                    val b: Deferred<Result<Unit>> = async { runCatching { if (viaGroup) engineB.ensureAvailable(group) else engineB.ensureAvailable(unit) } }
                     assertTrue(withContext(Dispatchers.IO) { parked.await(5, TimeUnit.SECONDS) }, "B never read the state")
                     val a: Deferred<Result<Unit>> = async {
-                        runCatching { engineA.ensureAvailable(unit) }.also { aReturned.countDown() }
+                        runCatching { if (viaGroup) engineA.ensureAvailable(group) else engineA.ensureAvailable(unit) }.also { aReturned.countDown() }
                     }
                     listOf(a.await(), b.await())
                 }

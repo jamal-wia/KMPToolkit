@@ -44,13 +44,13 @@ internal object UnitTransferLocks {
 
     private class Entry(val mutex: Mutex, val users: Int)
 
-    private val entries: MutableStateFlow<Map<Pair<Any, String>, Entry>> = MutableStateFlow(emptyMap())
+    private val entries: MutableStateFlow<Map<Pair<String, String>, Entry>> = MutableStateFlow(emptyMap())
 
     /** Runs [action] while no other call holds the transfer lock of [unitKey] under [scope]. */
-    suspend fun <T> withTransferLock(scope: Any, unitKey: String, action: suspend () -> T): T {
-        val key: Pair<Any, String> = scope to unitKey
+    suspend fun <T> withTransferLock(scope: String, unitKey: String, action: suspend () -> T): T {
+        val key: Pair<String, String> = scope to unitKey
         var registered: Mutex? = null
-        entries.update { current: Map<Pair<Any, String>, Entry> ->
+        entries.update { current: Map<Pair<String, String>, Entry> ->
             val entry: Entry? = current[key]
             val mutex: Mutex = entry?.mutex ?: Mutex()
             registered = mutex
@@ -62,7 +62,7 @@ internal object UnitTransferLocks {
         } finally {
             // NonCancellable: a call cancelled while waiting must still give its slot back.
             withContext(NonCancellable) {
-                entries.update { current: Map<Pair<Any, String>, Entry> ->
+                entries.update { current: Map<Pair<String, String>, Entry> ->
                     val entry: Entry = current.getValue(key)
                     if (entry.users <= 1) current - key else current + (key to Entry(entry.mutex, entry.users - 1))
                 }

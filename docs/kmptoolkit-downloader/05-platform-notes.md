@@ -64,11 +64,6 @@ mid-extraction leaves the tree behind; the next commit of that unit replaces it,
 the process at that moment: the removal never waits for it (it would be deleting the tree the commit
 is extracting into), so it is skipped and the next cancel or commit reclaims the tree. Another
 unit's commit registering or leaving the lock registry never causes a skip (that probe is retried).
-
-Two engines over one base directory in the same process (two DI graphs, for example) never transfer
-the same unit at the same time: the second one waits for the first one's download and commit, then
-returns because the resource is available. The lock lives in the process, not on disk, so two
-processes over one directory are still not coordinated.
 The tree is only renamed to `tmp/kmptoolkit-internal/trash/<random number>` under the lock and
 deleted after it is released, so a large extraction never stalls other units' commits (the entry is
 named by a number alone, so no id's length can make the rename fail). If the process dies or the
@@ -80,6 +75,14 @@ committed resource never goes missing while it is replaced. The lock is per proc
 `<base>/tmp/expect/<unit.id>.sha256`, keyed by id alone so a free-form `tempExtension` cannot make two
 units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>.sha256` and flushed to
 disk first, then moved into place by an atomic rename once the old temp files are gone.
+
+Two engines over one base directory in the same process (two DI graphs, for example) never transfer
+the same unit at the same time: the second one waits for the first one's download and commit, then
+returns because the resource is available. This holds for the storages returned by
+`createDownloaderStorage` only; with a storage you implement or wrap, use one engine per directory.
+A call that is cancelled while it waits for the other engine's transfer ends when that transfer
+ends. The lock lives in the process, not on disk, so two processes over one directory are still not
+coordinated.
 
 #### Units whose id is not a plain file name
 

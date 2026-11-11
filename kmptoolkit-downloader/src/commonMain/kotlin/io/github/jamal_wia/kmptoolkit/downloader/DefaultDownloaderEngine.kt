@@ -221,6 +221,9 @@ internal class DefaultDownloaderEngine(
                 // directory, so a second engine cannot start a transfer between the first one's
                 // transfer and its commit. Everything is decided again once the lock is held.
                 withTransferLock(unit) {
+                    // A cancel that came while this call waited for another engine's transfer ends
+                    // it here, instead of publishing Completed over the Idle the cancel set.
+                    throwIfGroupCancelled(group, groupState, token, unit)
                     if (storage.isResourceAvailable(unit)) {
                         logger.i { "Unit $unit was committed by another engine meanwhile" }
                         publishGroupCompletedIfAvailable(group, groupState)
@@ -1344,11 +1347,13 @@ internal class DefaultDownloaderEngine(
                 throwIfUnitCancelled(unit, entry.state, token)
                 // Exclusive with every other engine over this directory; see the group path.
                 withTransferLock(unit) {
+                    // A cancel that came while this call waited for another engine's transfer ends
+                    // it here, instead of publishing the unit as available over the Idle it set.
+                    throwIfUnitCancelled(unit, entry.state, token)
                     if (storage.isResourceAvailable(unit)) {
                         markUnitOnDisk(unit)
                         return@withTransferLock
                     }
-                    throwIfUnitCancelled(unit, entry.state, token)
                     fetchAndCommitUnit(unit, token)
                 }
             } catch (e: CancellationException) {
