@@ -90,7 +90,7 @@ backoff is not dropped while WorkManager still reports the previous job running.
 attempt from the row; the classic `createWorkManagerUploadTransport` job carries its request, so the transport hands the
 newest request of an absorbed hand-off to the job, and the job uploads it only when the item is still in flight: a
 duplicate hand-off of an attempt that has just been settled (a delivery, a withdrawal, a retry waiting out its backoff)
-uploads nothing. Hand-offs are tracked per process; another process falls back to `KEEP` and the lease.
+uploads nothing. A classic job that WorkManager re-runs after it served a later attempt (a retry, or a stop) starts again from the request it was enqueued with and uploads without asking the row, so that older request can be re-sent: the same at-least-once class as any classic retry. Hand-offs are tracked per process; another process falls back to `KEEP` and the lease.
 
 **Reliability.** Good. WorkManager persists across reboots and runs in Doze maintenance windows. It
 is not instant, and it is not meant to be.
@@ -210,7 +210,7 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   too (the hand-off labels the session task with it, and the system keeps the label for a task that outlives the
   process), so the same holds there: a death or stop before the commit leaves the entry for the next replay. Only the
   answer of a task started by an earlier version, which has no label, is deleted just before the commit and written
-  back if it does not land (a process death in that instant uploads again: at least once). One replay per item runs at a time in a process. A replayed response reaches `classify` and
+  back if it does not land (a process death in that instant uploads again: at least once). Hand the built-in transport itself to the handler: a wrapper around it is launched through the public overload, so its answers are unstamped and stay at least once. One replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
   file; so does the 7-day expiry. A file of an unknown format version or a damaged one is ignored and
   deleted. So is a file larger than 4 MiB, which no entry this journal wrote can be (it is deleted without being read). On Android a file that exists but cannot be read is waited for while the job has run fewer than 3 times (WorkManager's

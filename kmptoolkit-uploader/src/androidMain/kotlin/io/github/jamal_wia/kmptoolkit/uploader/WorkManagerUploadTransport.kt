@@ -28,9 +28,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Creates the Android [UploadTransport]: one WorkManager job per outbox item, keyed by item id with
- * [ExistingWorkPolicy.KEEP] — the idempotent-launch contract [UploadTransport.launch] requires,
- * for free. A hand-off that arrives while the item's job is finishing is not dropped: the job serves it before it
+ * Creates the Android [UploadTransport]: one WorkManager job per outbox item, keyed by item id: `KEEP` while a job
+ * serves the item (the idempotent-launch contract [UploadTransport.launch] requires), `REPLACE` once it finished
+ * serving. A hand-off that arrives while the item's job is finishing is not dropped: the job serves it before it
  * returns (when the item is still owed), and a hand-off after the job finished serving replaces it with a fresh job.
  * Hand-offs are tracked per process; across processes the lease is the bound.
  *

@@ -151,7 +151,7 @@ when the settlement is done:
   anywhere before the commit leaves the entry for the next hand-off, relaunch or creation sweep, and a leftover after
   the commit is recognised as stale and dropped. Only an upload whose task carries no label (one an earlier version
   started and is still running) is journaled unstamped, deleted just before the commit and written back if it does not
-  land; a process death in that microsecond window uploads again (at least once).
+  land; a process death in that microsecond window uploads again (at least once). Hand the built-in transport itself to the handler: a wrapper around it (a logging or counting decorator) is launched through the public overload, so its answers are unstamped and stay at least once.
 
 An entry file larger than 4 MiB cannot be one the journal wrote (a body is at most 1 MiB and the headers are capped); it is
 deleted without being read, on both platforms, instead of failing every attempt of its item. An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
