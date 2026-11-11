@@ -25,6 +25,14 @@ a `toString()`:
 
 Things to know:
 
+- **A chain with an `UnknownHostException` is rendered by the module, not by logcat.**
+  `android.util.Log.getStackTraceString` returns an empty string for any throwable that has an
+  `UnknownHostException` anywhere in its cause chain, so a plain `Log.e(tag, message, throwable)`
+  prints the message and no trace. For such a throwable the sink appends
+  `throwable.stackTraceToString()` (the whole chain, causes included) to the message on its own
+  lines and passes no `Throwable` to `android.util.Log`; every other throwable is passed through
+  unchanged. The one visible difference: that trace is part of the message text, so it is subject
+  to logcat's per-entry length limit like any long message.
 - **Logcat has its own filter.** `android.util.Log` applies the device's per-tag log level on top of
   this module's `minLevel`. An event this module passes can still be dropped by the platform —
   historically `VERBOSE` and `DEBUG` were suppressed unless enabled with
