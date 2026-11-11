@@ -1,9 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
-import com.sun.management.UnixOperatingSystemMXBean
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
-import java.lang.management.ManagementFactory
 import java.lang.ref.WeakReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -17,6 +16,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.Assume.assumeTrue
 
 /**
  * Resource starvation and lifecycle chaos on the real toolkit: file descriptors, threads and
@@ -51,8 +51,12 @@ class JavaFxResourceChaosAdversarialTest {
         assertTrue(done.await(10L, TimeUnit.SECONDS), "the FX thread did not drain")
     }
 
-    private fun openFiles(): Long =
-        (ManagementFactory.getOperatingSystemMXBean() as UnixOperatingSystemMXBean).openFileDescriptorCount
+    /** Open descriptors of this process; skips the test where the host cannot count them (Windows). */
+    private fun openFiles(): Long {
+        val count: Long? = TestFs.openDescriptorCount()
+        assumeTrue("this host cannot count open file descriptors", count != null)
+        return count!!
+    }
 
     /**
      * JavaFX holds a loaded source's file descriptor until its `Media` object is collected (it has
