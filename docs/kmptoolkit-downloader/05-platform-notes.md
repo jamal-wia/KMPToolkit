@@ -76,6 +76,14 @@ committed resource never goes missing while it is replaced. The lock is per proc
 units share or miss a record; it is written to `<base>/tmp/expect-staged/<unit.id>.sha256` and flushed to
 disk first, then moved into place by an atomic rename once the old temp files are gone.
 
+Two engines over one base directory in the same process (two DI graphs, for example) never transfer
+the same unit at the same time: the second one waits for the first one's download and commit, then
+returns because the resource is available. This holds for the storages returned by
+`createDownloaderStorage` only; with a storage you implement or wrap, use one engine per directory.
+A call that is cancelled while it waits for the other engine's transfer ends when that transfer
+ends. The lock lives in the process, not on disk, so two processes over one directory are still not
+coordinated.
+
 #### Units whose id is not a plain file name
 
 The names above are those of a unit whose id has no `/` and no NUL, whose `<id>.<ext>.complete`

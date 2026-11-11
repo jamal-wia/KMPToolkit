@@ -54,11 +54,15 @@ internal class AndroidDownloaderStorage(
     private val logger: Logger,
     /** Test seam: Android's `filesDir` is case-sensitive, so production never sets this. */
     caseInsensitive: Boolean = false,
-) : DownloaderStorage, RelativePathChecking {
+) : DownloaderStorage, RelativePathChecking, TransferLockScope {
 
     private val baseDir: File by lazy { File(context.filesDir, config.baseDirectoryName) }
 
     private val layout: UnitFileLayout = UnitFileLayout(caseInsensitive)
+
+    override val transferLockScope: String get() = baseDir.absolutePath
+
+    override fun transferLockKey(unit: DownloadUnit): String = layout.lockKey(unit)
 
     private val tmpPathWarnings: FirstSightings = FirstSightings()
 

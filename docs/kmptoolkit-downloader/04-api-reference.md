@@ -237,6 +237,14 @@ that finds the resource already committed by a concurrent one (no complete file,
 available) returns normally without touching anything. When the engine itself finds the resource already committed and a transfer of its own left a
 complete temp file behind, it deletes that file instead of leaving it on disk.
 
+Beyond the commit, the engine makes the whole transfer-and-commit of one unit exclusive across every
+engine whose storage is one returned by `createDownloaderStorage` over the same base directory in the
+process (a custom or wrapping `DownloaderStorage` is not coordinated across engines: use one engine per
+directory): a second engine asked for a unit another engine is
+downloading waits, and then finds the resource available instead of starting a second transfer. So the
+port never sees two `enqueueDownload` calls for a unit whose first transfer finished but has not been
+committed yet. A call cancelled while it waits for the other engine's transfer ends when that transfer ends. Since 4.1.0.
+
 `beginTempFile(unit, expectedSha256)` is called by the party that owns the writer, exactly when it
 is about to write from byte 0, and replaces whatever transfer was there: afterwards `tempFileState`
 is `None` and `getTempFileSize` is 0. It persists the expected hash (an explicit "none" marker when

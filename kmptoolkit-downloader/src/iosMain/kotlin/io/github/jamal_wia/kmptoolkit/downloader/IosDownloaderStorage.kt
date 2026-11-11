@@ -107,7 +107,7 @@ internal class IosDownloaderStorage(
     private val logger: Logger,
     /** Test seam: null asks the volume, which is what production does. */
     private val caseInsensitiveOverride: Boolean? = null,
-) : DownloaderStorage, RelativePathChecking {
+) : DownloaderStorage, RelativePathChecking, TransferLockScope {
 
     private val baseDir: String by lazy {
         // Application Support, not Documents: these are re-downloadable assets, and Apple
@@ -140,6 +140,10 @@ internal class IosDownloaderStorage(
     private val layout: UnitFileLayout by lazy {
         UnitFileLayout(caseInsensitive = caseInsensitiveOverride ?: !volumeIsCaseSensitive(baseDir))
     }
+
+    override val transferLockScope: String get() = baseDir
+
+    override fun transferLockKey(unit: DownloadUnit): String = layout.lockKey(unit)
 
     private val tmpPathWarnings: FirstSightings = FirstSightings()
 
