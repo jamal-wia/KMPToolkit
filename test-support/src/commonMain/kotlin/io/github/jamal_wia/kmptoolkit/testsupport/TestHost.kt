@@ -29,14 +29,24 @@ public object TestHost {
         hostAssume(pathSyntax == PathSyntax.POSIX, "needs POSIX file semantics: $reason")
     }
 
-    /** Skips the test when [path] is longer than [maxNativePathLength] (native code could not open it). */
+    /**
+     * Skips the test when [path] is longer than [maxNativePathLength] (native code could not open it),
+     * but only while the build has not switched on the short test temp folder
+     * (`-Pkmptoolkit.windowsTestTmpDir`, see `shortenWindowsTestTmpDir` in build-logic). With that folder
+     * on, a path that is still too long is the build's configuration to fix, so the test runs and fails
+     * visibly instead of being skipped. Inert on every host without a limit and for a path that fits.
+     */
     public fun assumeNativePathFits(path: String) {
         val limit: Int? = maxNativePathLength
         hostAssume(
-            limit == null || path.length <= limit,
+            limit == null || path.length <= limit || shortTestTmpDirIsOn(),
             "native path is ${path.length} characters, over the host limit of $limit: $path",
         )
     }
+
+    private fun shortTestTmpDirIsOn(): Boolean = hostSystemProperty(SHORT_TMP_DIR_PROPERTY) != null
+
+    private const val SHORT_TMP_DIR_PROPERTY: String = "kmptoolkit.windowsTestTmpDir"
 
     /**
      * True when [name] can be created as a single file or directory name on the host: on
@@ -67,3 +77,6 @@ internal expect fun hostPathSyntax(): PathSyntax
 
 /** Skips the running test with [message] when [condition] is false (no-op where tests cannot be skipped). */
 internal expect fun hostAssume(condition: Boolean, message: String)
+
+/** A JVM system property of the test process, or `null` (always `null` on iOS, which has no limit to lift). */
+internal expect fun hostSystemProperty(name: String): String?

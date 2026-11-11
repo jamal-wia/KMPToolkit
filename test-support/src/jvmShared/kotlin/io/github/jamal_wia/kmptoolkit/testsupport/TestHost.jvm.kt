@@ -9,3 +9,5 @@ internal actual fun hostPathSyntax(): PathSyntax =
 internal actual fun hostAssume(condition: Boolean, message: String) {
     Assume.assumeTrue(message, condition)
 }
+
+internal actual fun hostSystemProperty(name: String): String? = System.getProperty(name)

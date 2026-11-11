@@ -6,3 +6,5 @@ internal actual fun hostPathSyntax(): PathSyntax = PathSyntax.POSIX
 internal actual fun hostAssume(condition: Boolean, message: String) {
     check(condition) { message }
 }
+
+internal actual fun hostSystemProperty(name: String): String? = null

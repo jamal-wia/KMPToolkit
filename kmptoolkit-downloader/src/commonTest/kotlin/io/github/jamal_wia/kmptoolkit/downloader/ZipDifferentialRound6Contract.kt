@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.downloader
 
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -53,16 +55,16 @@ abstract class ZipDifferentialRound6Contract {
     }
 
     private fun text(storage: DownloaderStorage, unit: DownloadUnit, entry: String): String? =
-        readFile(storage.getResourcePath(unit) + "/" + entry)?.decodeToString()
+        readFile(TestPaths.join(storage.getResourcePath(unit), entry))?.decodeToString()
 
     private fun baseOf(storage: DownloaderStorage, unit: DownloadUnit): String =
-        storage.getResourcePath(unit).substringBeforeLast('/').substringBeforeLast('/')
+        TestPaths.parent(TestPaths.parent(storage.getResourcePath(unit))!!)!!
 
     private suspend fun assertRejected(storage: DownloaderStorage, unit: DownloadUnit, what: String) {
         val failure: Throwable? = runCatching { storage.commitResource(unit) }.exceptionOrNull()
         assertTrue(failure is ResourceIntegrityException, "$what: expected ResourceIntegrityException, was $failure")
         assertEquals(TempFileState.None, storage.tempFileState(unit), "$what: the worthless temp file must be deleted")
-        assertFalse(pathExists("${baseOf(storage, unit)}/tmp/staging-${unit.id}"), "$what: staging left behind")
+        assertFalse(pathExists(TestPaths.join(baseOf(storage, unit), "tmp/staging-${unit.id}")), "$what: staging left behind")
         assertFalse(storage.isResourceAvailable(unit), "$what: a rejected archive must not be available")
     }
 
@@ -191,8 +193,6 @@ abstract class ZipDifferentialRound6Contract {
             ZipEntryRound6("...", "dots\n"),
             ZipEntryRound6("..x", "dotx\n"),
             ZipEntryRound6("y..", "ydot\n"),
-            ZipEntryRound6("back\\slash.txt", "bs\n"),
-            ZipEntryRound6("..\\up.txt", "up\n"),
             ZipEntryRound6("f/.../g.txt", "fg\n"),
         )
 
@@ -205,10 +205,25 @@ abstract class ZipDifferentialRound6Contract {
         assertEquals("dots\n", text(storage, unit, "..."))
         assertEquals("dotx\n", text(storage, unit, "..x"))
         assertEquals("ydot\n", text(storage, unit, "y.."))
+        assertEquals("fg\n", text(storage, unit, "f/.../g.txt"))
+        assertFalse(pathExists(TestPaths.join(baseOf(storage, unit), "abs.txt")), "an absolute name must not leave the extraction tree")
+    }
+
+    @Test
+    fun `backslash names are ordinary file name characters and stay inside the extraction tree`() = runTest {
+        // Only a POSIX file system (a device, macOS, Linux) keeps a backslash as a name character;
+        // on Windows it is a separator, so "..\\up.txt" means something else there.
+        TestHost.assumePosixFileSemantics("a backslash is a file-name character")
+        val entries: List<ZipEntryRound6> = listOf(
+            marker(),
+            ZipEntryRound6("back\\slash.txt", "bs\n"),
+            ZipEntryRound6("..\\up.txt", "up\n"),
+        )
+
+        val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("backslash", ZipBytesRound6.build(entries).bytes)
+
         assertEquals("bs\n", text(storage, unit, "back\\slash.txt"))
         assertEquals("up\n", text(storage, unit, "..\\up.txt"))
-        assertEquals("fg\n", text(storage, unit, "f/.../g.txt"))
-        assertFalse(pathExists("${baseOf(storage, unit)}/abs.txt"), "an absolute name must not leave the extraction tree")
     }
 
     @Test
@@ -226,8 +241,8 @@ abstract class ZipDifferentialRound6Contract {
             if (mustFail && failure !is ResourceIntegrityException) problems += "'$name': expected ResourceIntegrityException, was $failure"
             if (!mustFail && failure != null) problems += "'$name': expected success, was $failure"
         }
-        assertFalse(pathExists("${baseOf(storage, ArchiveUnit("out0"))}/x.txt"))
-        assertFalse(pathExists("${baseOf(storage, ArchiveUnit("out0"))}/tmp/x.txt"))
+        assertFalse(pathExists(TestPaths.join(baseOf(storage, ArchiveUnit("out0")), "x.txt")))
+        assertFalse(pathExists(TestPaths.join(baseOf(storage, ArchiveUnit("out0")), "tmp/x.txt")))
         assertTrue(problems.isEmpty(), problems.joinToString("\n"))
     }
 
@@ -276,7 +291,7 @@ abstract class ZipDifferentialRound6Contract {
             if (length < built.endRecordStart + 22) {
                 if (failure !is ResourceIntegrityException) problems += "cut $length: expected rejection, was $failure"
                 else if (storage.tempFileState(unit) != TempFileState.None) problems += "cut $length: temp file kept"
-                else if (pathExists("${baseOf(storage, unit)}/tmp/staging-cut$length")) problems += "cut $length: staging left"
+                else if (pathExists(TestPaths.join(baseOf(storage, unit), "tmp/staging-cut$length"))) problems += "cut $length: staging left"
             } else {
                 if (failure != null) problems += "cut $length: expected the archive to commit, was $failure"
                 else if (text(storage, unit, "marker.txt") != "marker\n" || text(storage, unit, "dir/TOP") != "second\n") {

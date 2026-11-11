@@ -6,10 +6,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.attribute.PosixFilePermission
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
@@ -56,18 +56,22 @@ class AndroidDownloaderContractRound4Test {
         outside.deleteRecursively()
     }
 
+    private val restorers: MutableList<AutoCloseable> = mutableListOf()
+
+    /** Undoes every [setReadOnly] so the tree can be deleted; [dir] is kept for the call sites' sake. */
+    @Suppress("UNUSED_PARAMETER")
     private fun makeTreeWritable(dir: File) {
-        if (!dir.exists()) return
-        dir.walkTopDown().forEach { entry: File ->
-            runCatching { Files.setPosixFilePermissions(entry.toPath(), PosixFilePermission.values().toSet()) }
-        }
+        restorers.asReversed().forEach { restorer: AutoCloseable -> runCatching { restorer.close() } }
+        restorers.clear()
     }
 
+    /**
+     * POSIX permissions, or an ACL deny on Windows (see [TestFs.makeUnwritable]): on Windows that blocks
+     * creating files in [dir], not creating sub-directories or deleting existing files, so the tests
+     * below assert only what holds on both.
+     */
     private fun setReadOnly(dir: File) {
-        Files.setPosixFilePermissions(
-            dir.toPath(),
-            setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_EXECUTE),
-        )
+        restorers += TestFs.makeUnwritable(dir)
     }
 
     private class Group(override val key: String) : ResourceGroup {
@@ -471,7 +475,7 @@ class AndroidDownloaderContractRound4Test {
                 }
             }
             val files: List<String> = root.walkTopDown().filter { it.isFile }
-                .map { it.relativeTo(root).path }.sorted().toList()
+                .map { TestPaths.relativeLogical(root.path, it.path)!! }.sorted().toList()
             assertEquals(listOf(UnitFileLayout.LEGACY_LAYOUT_MARKER), files)
         }
     }
