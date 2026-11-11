@@ -393,6 +393,7 @@ public class FakeAudioRecorder(
      * has no file system, and its own [DEFAULT_FAKE_DIRECTORY] is a `/` path that must keep working
      * on a Windows build machine.
      */
+    // path-hygiene-ignore: PH5 the fake's logical paths are POSIX-style; the host's own absolute form is covered by isAbsoluteFilePath on the same line
     private fun isAbsolutePath(path: String): Boolean = path.startsWith('/') || isAbsoluteFilePath(path)
 
     private fun generatePath(): String {

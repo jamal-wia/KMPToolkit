@@ -146,6 +146,7 @@ internal interface RecordingFileSystem {
      * is the only one on iOS and on a device; the Android implementation defers to the running JVM
      * so a Windows host (where host tests of the module run) accepts `C:\…`.
      */
+    // path-hygiene-ignore: PH5 the documented default is the POSIX rule (iOS, a device); the Android implementation overrides it with the JVM's own
     fun isAbsolute(path: String): Boolean = path.startsWith('/')
 
     /**

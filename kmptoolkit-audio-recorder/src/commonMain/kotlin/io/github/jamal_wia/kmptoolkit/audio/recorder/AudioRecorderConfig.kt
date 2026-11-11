@@ -162,6 +162,7 @@ public data class RecordingStorage(
         }
         require(
             directoryName == null ||
+                // path-hygiene-ignore: PH5 directoryName is a logical name inside the app-private base, not a host path: '/' is its separator on every platform
                 (!directoryName.startsWith('/') && directoryName.split('/').none { it == "." || it == ".." }),
         ) {
             "directoryName must be a relative directory inside the app-private base " +

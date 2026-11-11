@@ -68,6 +68,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
 
     @AfterTest
     fun cleanUp() {
+        // path-hygiene-ignore: PH2 restores the flags a POSIX-only test cleared; harmless on Windows, where it only touches the legacy read-only flag
         journalRoot.walkTopDown().forEach { it.setReadable(true); it.setWritable(true) }
         uploads.cancel()
         server.close()

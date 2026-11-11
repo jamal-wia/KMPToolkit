@@ -1,4 +1,5 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder.testing
+// path-hygiene-file: logical-paths the test runs on the recorder's fake file system, whose paths are logical '/'-separated names
 
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult
 import io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax

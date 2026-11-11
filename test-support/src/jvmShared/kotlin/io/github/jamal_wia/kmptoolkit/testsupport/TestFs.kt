@@ -39,8 +39,11 @@ public object TestFs {
         return restrict(
             target = dir,
             posixRemove = setOf(
+                // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
                 PosixFilePermission.OWNER_WRITE,
+                // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
                 PosixFilePermission.GROUP_WRITE,
+                // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
                 PosixFilePermission.OTHERS_WRITE,
             ),
             aclDeny = setOf(
@@ -62,8 +65,11 @@ public object TestFs {
         return restrict(
             target = file,
             posixRemove = setOf(
+                // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
                 PosixFilePermission.OWNER_READ,
+                // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
                 PosixFilePermission.GROUP_READ,
+                // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
                 PosixFilePermission.OTHERS_READ,
             ),
             aclDeny = setOf(AclEntryPermission.READ_DATA),
@@ -78,6 +84,7 @@ public object TestFs {
     public fun openDescriptorCount(): Long? {
         if (TestHost.pathSyntax == PathSyntax.WINDOWS) return null
         fromManagementBean()?.let { return it }
+        // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
         for (directory: String in listOf("/proc/self/fd", "/dev/fd")) {
             File(directory).list()?.let { return it.size.toLong() }
         }
@@ -86,6 +93,7 @@ public object TestFs {
 
     private fun restrict(
         target: File,
+        // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
         posixRemove: Set<PosixFilePermission>,
         aclDeny: Set<AclEntryPermission>,
     ): AutoCloseable {
@@ -93,6 +101,7 @@ public object TestFs {
 
         val posix: PosixFileAttributeView? = Files.getFileAttributeView(path, PosixFileAttributeView::class.java)
         if (posix != null) {
+            // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
             val original: Set<PosixFilePermission> = posix.readAttributes().permissions()
             posix.setPermissions(original - posixRemove)
             return AutoCloseable { posix.setPermissions(original) }
@@ -123,6 +132,7 @@ public object TestFs {
         val bean: Any? = Class.forName("java.lang.management.ManagementFactory")
             .getMethod("getOperatingSystemMXBean")
             .invoke(null)
+        // path-hygiene-ignore: PH2 TestFs is the one place that wraps the POSIX file API for tests, and it falls back to the Windows ACL where that differs
         val unix: Class<*> = Class.forName("com.sun.management.UnixOperatingSystemMXBean")
         if (unix.isInstance(bean)) unix.getMethod("getOpenFileDescriptorCount").invoke(bean) as Long else null
     } catch (_: Throwable) {

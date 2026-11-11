@@ -103,6 +103,7 @@ class UnitFileLayoutTest {
                 val names: UnitFileLayout.Names = sensitive.namesOf(unit(id, extension = extension))
                 for (name: String in listOf(names.partial, names.complete, names.staging, names.record, names.stagedRecord)) {
                     assertTrue(name.startsWith("tmp/"), "$name of '$id'/'$extension'")
+                    // path-hygiene-ignore: PH3 UnitFileLayout names are logical and '/'-separated on every platform by contract
                     val segments: List<String> = name.split('/')
                     assertFalse(segments.any { it == ".." || it == "." || it.isEmpty() }, name)
                     assertFalse(name.contains('\u0000'), name)

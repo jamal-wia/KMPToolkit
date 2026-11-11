@@ -630,6 +630,7 @@ internal class AndroidDownloaderStorage(
     }
 
     private fun requireInside(unit: DownloadUnit, output: File, dirPath: String, entryName: String) {
+        // path-hygiene-ignore: PH1 a prefix check on canonical host paths built with the same separator; java.nio.file.Path is missing below API 26
         if (!output.path.startsWith(dirPath + File.separator)) {
             throw ResourceIntegrityException("Archive of $unit has an entry that attempts path traversal: $entryName")
         }

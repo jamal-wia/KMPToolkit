@@ -1,4 +1,5 @@
 package io.github.jamal_wia.kmptoolkit.testsupport
+// path-hygiene-file: logical-paths TestPaths works on both path syntaxes through an explicit PathSyntax; its '/' literals are the POSIX branch of the converter
 
 /**
  * Converts between **logical** and **native** file paths in tests.
