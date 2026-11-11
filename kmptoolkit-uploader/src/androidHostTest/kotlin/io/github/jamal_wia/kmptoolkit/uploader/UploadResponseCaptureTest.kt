@@ -7,7 +7,6 @@ import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
 import java.net.ServerSocket
-import java.net.Socket
 import kotlin.concurrent.thread
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -42,23 +41,6 @@ class UploadResponseCaptureTest {
 
     private fun request(): UploadRequest = UploadRequest(url = "http://127.0.0.1:${server.localPort}/upload", fields = emptyList())
 
-    /**
-     * Ends a server's side of a connection the way a well-behaved server does: its answer is followed by a FIN and
-     * whatever the client still sends is read and thrown away until the client closes. Closing a socket with unread
-     * input makes the stack send a RST instead, and a RST may destroy an answer the client has not read yet — whether
-     * it does is up to the stack and the timing, which made these tests fail now and then for no reason of the code
-     * under test. A test that wants to see a reset says so itself.
-     */
-    private fun finishAnswer(socket: Socket) {
-        runCatching {
-            socket.shutdownOutput()
-            socket.soTimeout = 2_000
-            val sink = ByteArray(8 * 1024)
-            val input = socket.getInputStream()
-            while (input.read(sink) >= 0) { /* discard */ }
-        }
-    }
-
     /** Reads one request to the end of its chunked body, answers with [raw] and closes. */
     private fun answer(raw: ByteArray) {
         thread(isDaemon = true) {
@@ -73,7 +55,6 @@ class UploadResponseCaptureTest {
                 }
                 socket.getOutputStream().write(raw)
                 socket.getOutputStream().flush()
-                finishAnswer(socket)
             }
         }
     }
@@ -231,11 +212,9 @@ class UploadResponseCaptureTest {
         try {
             thread(isDaemon = true) {
                 server.accept().use { socket ->
-                    // Answers without reading the request, so the answer comes before the body ends; it then reads the
-                    // rest and discards it, so that closing does not reset the connection under the answer.
+                    // Answers without reading the request, then closes with the body still unread.
                     socket.getOutputStream().write(http("413 Payload Too Large", emptyList(), "too big".encodeToByteArray()))
                     socket.getOutputStream().flush()
-                    finishAnswer(socket)
                 }
             }
             val outcome: MultipartOutcome = performMultipartUploadCapturing(
@@ -248,7 +227,7 @@ class UploadResponseCaptureTest {
             )
 
             // Whether the write fails first is up to the socket stack; either way a received 413 must
-            // never be read as a retryable transport failure. The server drains the request, so the 413 is received.
+            // never be read as a retryable transport failure.
             assertEquals(UploadResult.Completed(413), outcome.result)
             val response: UploadResponse = assertNotNull(outcome.response)
             assertEquals(413, response.statusCode)
