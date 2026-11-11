@@ -287,7 +287,7 @@ the queue is the wrong place to retry it from.
 
 ## Two queues in one app
 
-Give them different names, and they get different files and different threads:
+Give them names that differ in more than letter case or accents, and they get different files and different threads:
 
 ```kotlin
 val chat: UploaderStorage = createUploaderStorage(context, UploaderDatabaseConfig("com.example.chat"))

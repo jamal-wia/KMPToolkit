@@ -40,6 +40,14 @@ These paths are an implementation detail, documented so you can find your own da
 depend on them. The suffix is what keeps a queue distinct from a database of yours that happens to
 share a name.
 
+Names are compared the way the volume compares file names, so two names are two queues only where they are two file
+names. Every Apple volume (iPhone, iPad, the simulator, and an iOS app running on a Mac) treats names that differ only
+in Unicode normalization as one name (`é` written as one character or as `e` plus a combining accent). The simulator
+and a Mac also ignore letter case, and so does any case-insensitive volume. There, `Queue` and `queue` are one file and
+therefore one queue. Android's `databases/` directory compares names byte for byte. Two queues that end up on one file
+are two storages over one file, which is not supported (see [`03-guide.md`](03-guide.md)). Give independent queues
+names that differ in more than case or accents. The default, your application id, never collides with itself.
+
 Android's `databases/` directory is inside the app sandbox and is **included in auto-backup** by
 default. A restored backup therefore arrives with somebody's — usually the same person's — queued
 effects in it, on a device that may have different credentials. If that matters for your app, add a

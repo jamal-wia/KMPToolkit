@@ -125,7 +125,8 @@ omit every argument (`UploaderDatabaseConfig()`, `copy()`); no recompile is need
 would write the queue outside the directory the platform expects — and that is a bug in a literal
 you wrote, not a runtime condition to recover from.
 
-Two different names give two different files. The resolved file name always carries this module's
+Two names that the file system tells apart give two different files (names that differ only in letter case or in Unicode
+normalization can be one file, see [`05-platform-notes.md`](05-platform-notes.md)). The resolved file name always carries this module's
 own namespace, so a name that happens to match one of your other databases still gets a distinct
 file.
 
