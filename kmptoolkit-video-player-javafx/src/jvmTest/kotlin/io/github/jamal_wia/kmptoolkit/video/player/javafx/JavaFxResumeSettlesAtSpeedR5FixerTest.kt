@@ -10,11 +10,11 @@ import kotlinx.coroutines.withTimeout
 
 /**
  * Round 5, ruling D-16 (condition 1): the breaker's freeze methods count a resume as moved at paused + 150, which
- * the playhead passes at normal speed before the deferred speed is given to the native player. This class checks
- * what comes after: a pause and a start at a speed other than 1 must carry the playhead past paused + 1200 within
- * 3 s, a point beyond the speed change and the catch-up of the reported time, so a playhead that freezes at the
- * change fails it. The number of fresh engines per speed is 6, or the environment variable
- * `KMPTOOLKIT_FREEZE_TRIALS` (the 30 + 30 run of the fix).
+ * the playhead passes at normal speed before a freeze at the speed change shows. This class checks what comes
+ * after: a pause and a start at a speed other than 1 must carry the playhead past paused + 1200 within 3 s, so a
+ * playhead that freezes when the speed is given fails it (the engine seeks the native player to where it stands
+ * before the start, see ruling d2-r5-advice-2). The number of fresh engines per speed is 6, or the environment
+ * variable `KMPTOOLKIT_FREEZE_TRIALS` (the 30 + 30 run of the fix).
  */
 @OptIn(ToolkitInternalApi::class)
 class JavaFxResumeSettlesAtSpeedR5FixerTest {
