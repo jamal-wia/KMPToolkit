@@ -207,7 +207,8 @@ class IosDownloaderStorageTempFileTest {
         NSFileManager.defaultManager.createDirectoryAtPath(staging, true, null, null)
         val gate = CompletableDeferred<Unit>()
         val commit: Job = launch(Dispatchers.Unconfined) {
-            UnitCommitLocks.withUnitLock(baseDir, "model") { gate.await() }
+            // The scope is the storage's own: the base directory, folded on a volume that folds case.
+            UnitCommitLocks.withUnitLock((storage as TransferLockScope).transferLockScope, "model") { gate.await() }
         }
 
         storage.deleteTempFile(unit)
