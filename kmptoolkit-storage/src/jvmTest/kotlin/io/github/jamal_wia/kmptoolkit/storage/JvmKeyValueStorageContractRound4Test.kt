@@ -1,8 +1,10 @@
 package io.github.jamal_wia.kmptoolkit.storage
 
+import io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import java.nio.file.Files
-import java.nio.file.attribute.PosixFilePermission
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -19,21 +21,27 @@ class JvmKeyValueStorageContractRound4Test {
 
     private val directory: File = Files.createTempDirectory("jvm-r4-").toFile()
 
+    private var restore: AutoCloseable? = null
+
     @AfterTest
     fun cleanUp() {
-        makeWritable(directory)
+        makeWritable()
         directory.deleteRecursively()
     }
 
-    private fun makeWritable(dir: File) {
-        runCatching { Files.setPosixFilePermissions(dir.toPath(), PosixFilePermission.values().toSet()) }
+    private fun makeWritable() {
+        restore?.close()
+        restore = null
     }
 
-    private fun makeReadOnly(dir: File) {
-        Files.setPosixFilePermissions(
-            dir.toPath(),
-            setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_EXECUTE),
-        )
+    /**
+     * POSIX permissions, or an ACL deny on Windows (see [TestFs.makeUnwritable]): on Windows that
+     * blocks creating a file, which is what every write here needs, but not deleting the store's
+     * existing file.
+     */
+    private fun makeReadOnly() {
+        makeWritable()
+        restore = TestFs.makeUnwritable(directory)
     }
 
     private fun store(name: String = "r4"): KeyValueStorage = createKeyValueStorage(directory, StorageConfig(name))
@@ -98,7 +106,7 @@ class JvmKeyValueStorageContractRound4Test {
         runBlocking {
             withTimeout(30_000) {
                 assertTrue(storage.put("kept", "old") is StorageResult.Success)
-                makeReadOnly(directory)
+                makeReadOnly()
                 try {
                     repeat(20) { round: Int ->
                         val put: StorageResult<Unit> = storage.put("kept", "new$round")
@@ -107,10 +115,14 @@ class JvmKeyValueStorageContractRound4Test {
                         assertTrue(storage.put("other$round", "x") is StorageResult.Failure, "round $round: new key")
                         assertEquals("old", storage.get("kept").getOrNull(), "round $round: old value lost")
                     }
-                    val clear: StorageResult<Unit> = storage.clear()
-                    assertTrue(clear is StorageResult.Failure, "clear on a read-only directory gave $clear")
+                    // clear() deletes the existing file; a Windows ACL deny does not stop that (measured), so
+                    // the "clear fails" half of the contract is only checkable on POSIX file semantics.
+                    if (TestHost.pathSyntax == PathSyntax.POSIX) {
+                        val clear: StorageResult<Unit> = storage.clear()
+                        assertTrue(clear is StorageResult.Failure, "clear on a read-only directory gave $clear")
+                    }
                 } finally {
-                    makeWritable(directory)
+                    makeWritable()
                 }
                 assertEquals("old", storage.get("kept").getOrNull())
                 assertEquals(listOf("r4.kmptoolkit.storage.properties"), directory.list()!!.sorted())
@@ -124,12 +136,12 @@ class JvmKeyValueStorageContractRound4Test {
         val provider = DeviceIdProvider(storage)
         runBlocking {
             withTimeout(30_000) {
-                makeReadOnly(directory)
+                makeReadOnly()
                 val seen: MutableSet<String> = mutableSetOf()
                 try {
                     repeat(10) { seen += provider.current() }
                 } finally {
-                    makeWritable(directory)
+                    makeWritable()
                 }
                 assertTrue(seen.all { it.isNotBlank() })
                 val first: String = provider.current()
