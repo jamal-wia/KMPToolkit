@@ -53,6 +53,9 @@ internal class MultipartOutcome(val result: UploadResult, val response: UploadRe
  * same attempt — before the connection is dropped — and a body that cannot be read never turns a received
  * status into a [UploadResult.TransportFailure], which would upload an accepted file again.
  *
+ * A reply whose status is not a final HTTP status (200..599) is a [UploadResult.TransportFailure] with no response,
+ * as on the late-status path and on iOS.
+ *
  * The handler's own limit is applied later, in the engine; this reads at most the engine's ceiling plus
  * one byte, enough to know the body was longer.
  *
@@ -108,6 +111,11 @@ internal fun performMultipartUploadCapturing(
                 UploadResult.TransportFailure("no complete answer within the watchdog bound (status $status)"),
                 null,
             )
+        }
+        // Not a final HTTP status (a non-HTTP reply reads as -1, an interim 1xx other than 100 is handed back as the
+        // answer): the server said something that is no answer. The body is whole, so this is no truncation risk.
+        if (status !in HTTP_FINAL_STATUSES) {
+            return MultipartOutcome(UploadResult.TransportFailure("no final HTTP status (status $status)"), null)
         }
         MultipartOutcome(
             UploadResult.Completed(status),

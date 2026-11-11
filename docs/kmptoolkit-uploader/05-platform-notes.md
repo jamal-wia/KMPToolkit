@@ -82,15 +82,17 @@ Register the engine `createUploaderEngine` returned, not a wrapper around it: a 
 serves wake jobs (`awaitDrained`), but upload transports and `UploadGateway` reach only the library's own engine and
 report it unavailable, so an `UploadHandler`'s uploads would retry and re-hand forever.
 
-**Hand-offs while a job is finishing.** The handler transport (`createWorkManagerUploadHandlerTransport`) serves a
-retry handed off while the item's job is still running: the job uploads it before it returns, which also means one job
-can run several attempts in a row and is subject to WorkManager's roughly ten-minute limit as a whole (a stopped job is
-re-run and replays its journal). A hand-off after the job finished serving replaces that job with a fresh one, so a
-retry with a short or zero backoff is not dropped while WorkManager still reports the previous job running. The legacy
-`createWorkManagerUploadTransport` still uses `ExistingWorkPolicy.KEEP`: a retry whose backoff is shorter than the
-moment WorkManager needs to finish the previous job can wait until the lease expires (15 minutes by default). Give it
-a non-zero backoff, or use the handler transport. Hand-offs are tracked per process; another process falls back to
-`KEEP` and the lease.
+**Hand-offs while a job is finishing.** Both WorkManager transports serve a retry handed off while the item's job is
+still running: the job uploads it before it returns, which also means one job can run several attempts in a row and is
+subject to WorkManager's roughly ten-minute limit as a whole (a stopped job is re-run; the handler transport replays its
+journal). A hand-off after the job finished serving replaces that job with a fresh one, so a retry with a short or zero
+backoff is not dropped while WorkManager still reports the previous job running. The handler transport prepares the
+attempt from the row; the classic `createWorkManagerUploadTransport` job carries its request, so the transport hands the
+newest request of an absorbed hand-off to the job, and the job uploads it only when the item is still in flight: a
+duplicate hand-off of an attempt that has just been settled (a delivery, a withdrawal, a retry waiting out its backoff)
+uploads nothing, and one that is stamped with an older attempt than the row's (a late lease re-hand) never replaces or serves the newer attempt's request: the transport stamps each hand-off with the `attempts` of the attempt the engine is running (the public `launch` is called from `execute`, inside that attempt), and a hand-off made outside any attempt (for example one a wrapper launches later, from its own scope) carries no stamp and is served whenever the row is in flight. A job that settles or closes its iteration while `execute` has not returned yet (the engine writes the claim after `execute`) waits, bounded by `engineWait`, for that attempt to end, so a fast failure is counted and a retry's hand-off is found instead of both waiting for the lease. A classic job that WorkManager re-runs after it served a later attempt (a retry, or a stop) starts again from the request it was enqueued with and uploads without asking the row, so that older request can be re-sent: the same at-least-once class as any classic retry. Hand-offs are tracked per process; another process falls back to `KEEP` and the lease.
+
+**Early server answers.** A server that answers and closes the connection while the request body is still unread (an early `413`, say) can lose its answer to a connection reset: the receiving stack may discard unread reply bytes when the reset arrives, and the attempt then reads as a transport failure and uploads again. Servers should drain the request before closing. This is a property of the platform's TCP and HTTP stack, not something the transport can undo.
 
 **Reliability.** Good. WorkManager persists across reboots and runs in Doze maintenance windows. It
 is not instant, and it is not meant to be.
@@ -206,9 +208,11 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
   created. On Android the entry carries the attempt it answers and is deleted only after the engine commit
   returned, so a death or stop before the commit leaves it for the next run, and a leftover of an attempt that was
-  already settled is recognised and dropped instead of replaying into the retry. On iOS the file is deleted just
-  before the engine commits the settlement and written back if the commit does not land (a process death in that
-  instant uploads again: at least once). One replay per item runs at a time in a process. A replayed response reaches `classify` and
+  already settled is recognised and dropped instead of replaying into the retry. On iOS the entry carries the attempt
+  too (the hand-off labels the session task with it, and the system keeps the label for a task that outlives the
+  process), so the same holds there: a death or stop before the commit leaves the entry for the next replay. Only the
+  answer of a task started by an earlier version, which has no label, is deleted just before the commit and written
+  back if it does not land (a process death in that instant uploads again: at least once). Hand the built-in transport itself to the handler: a wrapper around it is launched through the public overload, so its answers are unstamped and stay at least once. One replay per item runs at a time in a process. A replayed response reaches `classify` and
   `onDelivered` like the live one, so `onDelivered` must stay idempotent. `Uploader.cancel` deletes the
   file; so does the 7-day expiry. A file of an unknown format version or a damaged one is ignored and
   deleted. So is a file larger than 4 MiB, which no entry this journal wrote can be (it is deleted without being read). On Android a file that exists but cannot be read is waited for while the job has run fewer than 3 times (WorkManager's
