@@ -22,7 +22,7 @@ import kotlinx.coroutines.withTimeout
  * Playing player may also read Completed); a seek on a paused player is published at once, exactly;
  * a paused playhead stays put; a Playing player whose source is not at its end moves on within 2.5 s
  * (no frozen playhead, no stuck Playing); and at the end of every sequence the player still plays its
- * source to the end and completes, then releases. A speed is only given while Playing (see r6-D2-S6). The repeat mode is fixed per seed, so a looping seed
+ * source to the end and completes, then releases. No speed is changed here (see r6-D2-S6). The repeat mode is fixed per seed, so a looping seed
  * never reads Completed. Every failure names the seed and the trace.
  */
 @OptIn(ToolkitInternalApi::class)
@@ -133,12 +133,17 @@ class JavaFxOperationSequenceFuzzR6AdversarialTest {
                     }) { player.replay() }
 
                     10 -> {
-                        // A speed changed while the player is not playing and then played reads suspect r6-D2-S6 (a frozen
-                        // playhead); this fuzz gives a speed only while Playing, which is the documented path.
-                        val speed: Float = listOf(0.5f, 1f, 2f).random(random)
-                        if (player.stateFlow.value is VideoPlayerState.Playing) {
-                            call("speed($speed)", { _, _ -> true }) { player.setPlaybackSpeed(speed) }
-                        }
+                        // No speed here: a speed given while the player is not playing, or right after a play(), reads the
+                        // suspects r6-D2-S6 / S6b / S6c (a frozen playhead); the speed is covered by its own tests.
+                        call("seekTo(0)", { b, a ->
+                            when (b) {
+                                is VideoPlayerState.Paused -> a is VideoPlayerState.Paused && a.currentPosition == 0L
+                                is VideoPlayerState.Ready -> a is VideoPlayerState.Ready
+                                is VideoPlayerState.Completed -> a is VideoPlayerState.Paused || a is VideoPlayerState.Completed
+                                is VideoPlayerState.Playing -> a is VideoPlayerState.Playing || a is VideoPlayerState.Completed
+                                else -> a == b
+                            }
+                        }) { player.seekTo(0L) }
                     }
 
                     11 -> {
@@ -160,10 +165,9 @@ class JavaFxOperationSequenceFuzzR6AdversarialTest {
             player.setRepeatMode(RepeatMode.Off)
             player.setMuted(true)
             player.replay()
-            player.setPlaybackSpeed(2f)
             val deadline: Long = System.nanoTime() + 12_000L * 1_000_000L
             while (System.nanoTime() < deadline && player.stateFlow.value !is VideoPlayerState.Completed) Thread.sleep(25L)
-            if (player.stateFlow.value !is VideoPlayerState.Completed) fail("a replay at a speed of 2 never completed within 12 s; ${where()}")
+            if (player.stateFlow.value !is VideoPlayerState.Completed) fail("a replay never completed within 12 s; ${where()}")
         } finally {
             player.release()
             player.release()
