@@ -34,7 +34,6 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.junit.Assume
 import org.junit.runner.RunWith
 
 /**
@@ -100,12 +99,8 @@ class UploaderWorkerScaleAdversarialTest {
             tempFiles += it
         }
 
-    // Open descriptors of this process; skips the test where the host cannot count them (Windows).
-    private fun descriptors(): Long {
-        val count: Long? = TestFs.openDescriptorCount()
-        Assume.assumeTrue("this host cannot count open file descriptors", count != null)
-        return count!!
-    }
+    // Open descriptors of this process; skips on a host that cannot count them (Windows), fails on one that should.
+    private fun descriptors(): Long = TestFs.requireOpenDescriptorCount()
 
     @Test
     fun `sixteen uploads with half of them cancelled at random moments free every thread and socket and finish the rest`() {

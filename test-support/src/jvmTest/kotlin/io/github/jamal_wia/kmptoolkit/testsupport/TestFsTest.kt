@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.testsupport
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermissions
 import org.junit.Assume.assumeTrue
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -25,12 +26,33 @@ class TestFsTest {
         false
     }
 
+    /**
+     * True on a POSIX host that ignores directory permissions (a super-user). Measured with a control
+     * folder restricted directly through java.nio, NOT through the helper under test: if the helper
+     * stopped restricting, the tests below must fail, not skip. Never true on Windows, where an ACL
+     * DENY also binds administrators.
+     */
+    private fun hostIgnoresPermissions(): Boolean {
+        if (TestHost.pathSyntax == PathSyntax.WINDOWS) return false
+        val control: File = File(dir, "control-${System.nanoTime()}").also { it.mkdirs() }
+        // path-hygiene-ignore: PH2 the control folder is restricted without the helper under test; this branch runs on POSIX hosts only
+        Files.setPosixFilePermissions(control.toPath(), emptySet())
+        try {
+            return canCreateFileIn(control) || runCatching { control.list() }.getOrNull() != null
+        } finally {
+            // path-hygiene-ignore: PH2 restores the control folder on a POSIX host
+            Files.setPosixFilePermissions(control.toPath(), PosixFilePermissions.fromString("rwx------"))
+        }
+    }
+
     @Test
     fun makeUnwritableBlocksCreatingAFileAndRestores() {
+        val superUser: Boolean = hostIgnoresPermissions() // before the folder is restricted: it creates a control folder in it
         val restore: AutoCloseable = TestFs.makeUnwritable(dir)
         try {
-            // A super-user ignores the permission; there is nothing to prove on such a host.
-            assumeTrue("the host ignores directory permissions (super-user)", !canCreateFileIn(dir))
+            // A super-user ignores the permission; there is nothing to prove on such a host. Detected
+            // independently of the helper, so a helper that restricts nothing fails here.
+            assumeTrue("the host ignores directory permissions (super-user)", !superUser)
             assertFailsWith<IOException> { File(dir, "a.bin").writeText("x") }
             if (TestHost.pathSyntax == PathSyntax.POSIX) {
                 // Measured on Windows: the ACL deny blocks creating a file but not a sub-directory.
@@ -46,11 +68,11 @@ class TestFsTest {
 
     @Test
     fun makeUnreadableBlocksReadingAndRestores() {
+        val superUser: Boolean = hostIgnoresPermissions()
         val file: File = File(dir, "secret.txt").also { it.writeText("hidden") }
         val restore: AutoCloseable = TestFs.makeUnreadable(file)
         try {
-            val readable: Boolean = runCatching { file.readText() }.isSuccess
-            assumeTrue("the host ignores file permissions (super-user)", !readable)
+            assumeTrue("the host ignores file permissions (super-user)", !superUser)
             assertFailsWith<IOException> { file.readText() }
         } finally {
             restore.close()

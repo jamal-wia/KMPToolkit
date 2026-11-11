@@ -37,7 +37,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.Assume
 import org.junit.runner.RunWith
 
 /**
@@ -501,12 +500,8 @@ class UploadHandlerWorkerChaosAdversarialTest {
                 started.drain()
             }
         }
-        // Open descriptors of this process; skips the test where the host cannot count them (Windows).
-        fun descriptors(): Long {
-            val count: Long? = TestFs.openDescriptorCount()
-            Assume.assumeTrue("this host cannot count open file descriptors", count != null)
-            return count!!
-        }
+        // Open descriptors of this process; skips on a host that cannot count them (Windows), fails on one that should.
+        fun descriptors(): Long = TestFs.requireOpenDescriptorCount()
         runWorker("item-1") // warm up pools and class loading
         val fdBefore: Long = descriptors()
         val threadsBefore: Int = Thread.getAllStackTraces().size

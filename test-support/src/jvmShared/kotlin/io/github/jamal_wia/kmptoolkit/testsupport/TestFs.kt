@@ -31,8 +31,10 @@ public object TestFs {
      * for the current user. Measured on Windows 11: that blocks creating a file, but NOT creating a
      * sub-directory, and a file that already exists can still be deleted (the file grants DELETE
      * itself). Where neither mechanism is supported the running test is skipped. Running as a
-     * super-user defeats both; check with an attempt to create a file and skip when it succeeds, as
-     * the tests of this module do.
+     * super-user defeats the POSIX mechanism: detect that with a control folder you restrict
+     * yourself (not with the helper under test, or a broken helper would turn into a silent skip), and skip
+     * only then, as the tests of this module do. On Windows never skip for that reason: an ACL DENY also
+     * binds administrators.
      */
     public fun makeUnwritable(dir: File): AutoCloseable {
         require(dir.isDirectory) { "Not a directory: $dir" }
@@ -89,6 +91,22 @@ public object TestFs {
             File(directory).list()?.let { return it.size.toLong() }
         }
         return null
+    }
+
+    /**
+     * [openDescriptorCount] for a test that needs the number: skips the running test on a host that is
+     * known not to count descriptors (Windows) and FAILS on any other host, where a count that cannot
+     * be read is a broken environment, not a reason to skip a leak test silently.
+     *
+     * @since 4.1.0
+     */
+    public fun requireOpenDescriptorCount(): Long {
+        val count: Long? = openDescriptorCount()
+        if (count != null) return count
+        if (TestHost.pathSyntax == PathSyntax.WINDOWS) {
+            hostAssume(false, "this host cannot count open file descriptors")
+        }
+        throw AssertionError("the open descriptor count could not be read on a POSIX host (no management bean, no /proc/self/fd, no /dev/fd)")
     }
 
     private fun restrict(

@@ -16,7 +16,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.Assume.assumeTrue
 
 /**
  * Resource starvation and lifecycle chaos on the real toolkit: file descriptors, threads and
@@ -51,12 +50,8 @@ class JavaFxResourceChaosAdversarialTest {
         assertTrue(done.await(10L, TimeUnit.SECONDS), "the FX thread did not drain")
     }
 
-    /** Open descriptors of this process; skips the test where the host cannot count them (Windows). */
-    private fun openFiles(): Long {
-        val count: Long? = TestFs.openDescriptorCount()
-        assumeTrue("this host cannot count open file descriptors", count != null)
-        return count!!
-    }
+    /** Open descriptors of this process; skips on a host that cannot count them (Windows), fails on one that should. */
+    private fun openFiles(): Long = TestFs.requireOpenDescriptorCount()
 
     /**
      * JavaFX holds a loaded source's file descriptor until its `Media` object is collected (it has

@@ -11,6 +11,7 @@ public final class io/github/jamal_wia/kmptoolkit/testsupport/TestFs {
 	public final fun makeUnreadable (Ljava/io/File;)Ljava/lang/AutoCloseable;
 	public final fun makeUnwritable (Ljava/io/File;)Ljava/lang/AutoCloseable;
 	public final fun openDescriptorCount ()Ljava/lang/Long;
+	public final fun requireOpenDescriptorCount ()J
 }
 
 public final class io/github/jamal_wia/kmptoolkit/testsupport/TestHost {

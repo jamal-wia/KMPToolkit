@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.Assume.assumeTrue
 import org.junit.runner.RunWith
 
 /**
@@ -191,12 +190,8 @@ class AndroidDownloaderHostileBaseRound4Test {
 
     // -- Descriptors ---------------------------------------------------------------------------------
 
-    /** Open descriptors of this process; skips the test where the host cannot count them (Windows). */
-    private fun openDescriptors(): Int {
-        val count: Long? = TestFs.openDescriptorCount()
-        assumeTrue("this host cannot count open file descriptors", count != null)
-        return count!!.toInt()
-    }
+    /** Open descriptors of this process; skips on a host that cannot count them (Windows), fails on one that should. */
+    private fun openDescriptors(): Int = TestFs.requireOpenDescriptorCount().toInt()
 
     @Test
     fun `hundreds of failing commits of every kind hold no descriptor afterwards`() {
