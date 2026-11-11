@@ -282,7 +282,7 @@ internal class DefaultDownloaderEngine(
         val mutex: Mutex = unitMutex(unit)
         if (mutex.tryLock()) {
             try {
-                safeDeleteTempFile(unit)
+                deleteTempFileUnlessTransferHeld(unit)
             } finally {
                 mutex.unlock()
             }
@@ -1244,6 +1244,23 @@ internal class DefaultDownloaderEngine(
         }
     }
 
+    /**
+     * Deletes the temp file of [unit] from a place that does not hold its cross-engine transfer lock
+     * (a cancel, or a cleanup after the lock was released), unless another engine holds that lock:
+     * the file is then the partial or complete transfer of that engine, which a cancel on this
+     * engine must not take away. Storages without a [TransferLockScope] are not shared, so the
+     * delete is plain.
+     */
+    private fun deleteTempFileUnlessTransferHeld(unit: DownloadUnit) {
+        val scope: TransferLockScope = storage as? TransferLockScope
+            ?: return safeDeleteTempFile(unit)
+        val ran: Boolean = UnitTransferLocks.tryWithTransferLock(
+            scope = scope.transferLockScope,
+            unitKey = scope.transferLockKey(unit),
+        ) { safeDeleteTempFile(unit) }
+        if (!ran) logger.i { "Leaving the temp file of $unit: another engine is transferring it" }
+    }
+
     private fun safeDeleteTempFile(unit: DownloadUnit) {
         try {
             storage.deleteTempFile(unit)
@@ -1344,7 +1361,7 @@ internal class DefaultDownloaderEngine(
                 return
             }
             try {
-                throwIfUnitCancelled(unit, entry.state, token)
+                throwIfUnitCancelled(unit, entry.state, token, transferHeld = false)
                 // Exclusive with every other engine over this directory; see the group path.
                 withTransferLock(unit) {
                     // A cancel that came while this call waited for another engine's transfer ends
@@ -1358,7 +1375,9 @@ internal class DefaultDownloaderEngine(
                 }
             } catch (e: CancellationException) {
                 if (token.isCancelled) {
-                    withContext(NonCancellable) { cleanUpCancelledUnit(unit, entry.state) }
+                    withContext(NonCancellable) {
+                        cleanUpCancelledUnit(unit, entry.state, transferHeld = false)
+                    }
                 }
                 throw e
             }
@@ -1366,21 +1385,29 @@ internal class DefaultDownloaderEngine(
     }
 
     /** What a cancelled unit call leaves behind: no temp file, no failure count, state Idle. */
-    private fun cleanUpCancelledUnit(unit: DownloadUnit, stateFlow: MutableStateFlow<UnitDownloadState>) {
+    private fun cleanUpCancelledUnit(
+        unit: DownloadUnit,
+        stateFlow: MutableStateFlow<UnitDownloadState>,
+        transferHeld: Boolean,
+    ) {
         clearStallCount(unit)
-        safeDeleteTempFile(unit)
+        if (transferHeld) safeDeleteTempFile(unit) else deleteTempFileUnlessTransferHeld(unit)
         stateFlow.value = UnitDownloadState.Idle
     }
 
-    /** The per-unit twin of [throwIfGroupCancelled]. */
+    /**
+     * The per-unit twin of [throwIfGroupCancelled]. [transferHeld] is true (the default) for a
+     * checkpoint inside the cross-engine transfer lock of [unit].
+     */
     private fun throwIfUnitCancelled(
         unit: DownloadUnit,
         stateFlow: MutableStateFlow<UnitDownloadState>,
         token: CancelToken,
+        transferHeld: Boolean = true,
     ) {
         if (!token.isCancelled) return
         logger.i { "Download of $unit cancelled while running" }
-        cleanUpCancelledUnit(unit, stateFlow)
+        cleanUpCancelledUnit(unit, stateFlow, transferHeld)
         throw DownloadCancelledException(group = unit.group, unit = unit)
     }
 
@@ -1455,7 +1482,7 @@ internal class DefaultDownloaderEngine(
         try {
             cancelTransfer(unit)
             clearStallCount(unit)
-            if (ownsUnit) safeDeleteTempFile(unit)
+            if (ownsUnit) deleteTempFileUnlessTransferHeld(unit)
         } finally {
             if (ownsUnit) mutex.unlock()
         }
@@ -1472,7 +1499,7 @@ internal class DefaultDownloaderEngine(
             cancelTransfer(unit)
             clearStallCount(unit)
             // A running call deletes the temp file itself, after any commit in flight.
-            if (ownsUnit) safeDeleteTempFile(unit)
+            if (ownsUnit) deleteTempFileUnlessTransferHeld(unit)
             entry.state.value = UnitDownloadState.Idle
         } finally {
             if (ownsUnit) mutex.unlock()

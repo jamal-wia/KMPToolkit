@@ -81,7 +81,10 @@ the same unit at the same time: the second one waits for the first one's downloa
 returns because the resource is available. This holds for the storages returned by
 `createDownloaderStorage` only; with a storage you implement or wrap, use one engine per directory.
 A call that is cancelled while it waits for the other engine's transfer ends when that transfer
-ends. The lock lives in the process, not on disk, so two processes over one directory are still not
+ends. A cancel issued on an engine that is not the one transferring the unit (`cancelDownload`, or the
+cleanup of a call cancelled while it waited) never deletes the temp file of the transfer in flight: it
+leaves the file alone when another engine holds the unit's lock. The lock lives in the process, not on
+disk, so two processes over one directory are still not
 coordinated.
 
 #### Units whose id is not a plain file name

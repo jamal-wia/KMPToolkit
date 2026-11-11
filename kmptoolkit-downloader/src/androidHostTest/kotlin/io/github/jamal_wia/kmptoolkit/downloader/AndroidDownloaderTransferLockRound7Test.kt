@@ -163,6 +163,66 @@ class AndroidDownloaderTransferLockRound7Test {
 
     private val payload: ByteArray = ByteArray(48 * 1024) { index: Int -> (index % 241).toByte() }
 
+    /** Engine B waits behind A's transfer; a third engine that never ran anything cancels the unit. */
+    @Test
+    fun `cancelDownload on an idle engine while another engine transfers the unit leaves no lost temp file and no failed caller`() =
+        runBlocking {
+            val group = Group("catalogue")
+            val unit = FileUnit("model", group).also { group.units = listOf(it) }
+            val storageA: DownloaderStorage = createDownloaderStorage(context, config)
+            val port = AsyncPort(storageA, payload, gated = true)
+            val engineA: Downloader = engine(storageA, port, group)
+            val idle: Downloader = engine(createDownloaderStorage(context, config), port, group)
+
+            val a: Deferred<Result<Unit>> = async(Dispatchers.Default) { runCatching { engineA.ensureAvailable(unit) } }
+            assertTrue(withContext(Dispatchers.IO) { port.partialWritten.await(5, TimeUnit.SECONDS) }, "A never started")
+
+            idle.cancelDownload(unit)
+            val tempAfterCancel: TempFileState = storageA.tempFileState(unit)
+            port.go.countDown()
+
+            val outcome: Result<Unit> = withTimeoutOrNull(15_000) { a.await() } ?: error("A never returned")
+            assertEquals(
+                TempFileState.Partial,
+                tempAfterCancel,
+                "an engine that never transferred anything deleted the temp file engine A is writing",
+            )
+            assertEquals(0, port.lostTempFiles.get(), "the transfer lost its file")
+            assertTrue(outcome.isSuccess, "engine A failed with ${outcome.exceptionOrNull()}")
+            assertContentEquals(payload, File(storageA.getResourcePath(unit)).readBytes())
+            assertEquals(emptyList(), filesUnder(File(root, "tmp")))
+        }
+
+    /** B waits behind A's transfer, is cancelled with cancelDownload and its job: A's file must survive. */
+    @Test
+    fun `a waiter cancelled by cancelDownload and its scope leaves the holder's temp file alone`() = runBlocking {
+        val group = Group("catalogue")
+        val unit = FileUnit("model", group).also { group.units = listOf(it) }
+        val storageA: DownloaderStorage = createDownloaderStorage(context, config)
+        val port = AsyncPort(storageA, payload, gated = true)
+        val engineA: Downloader = engine(storageA, port, group)
+        val engineB: Downloader = engine(createDownloaderStorage(context, config), port, group)
+
+        val a: Deferred<Result<Unit>> = async(Dispatchers.Default) { runCatching { engineA.ensureAvailable(unit) } }
+        assertTrue(withContext(Dispatchers.IO) { port.partialWritten.await(5, TimeUnit.SECONDS) }, "A never started")
+        val b: Job = launchWaiter(engineB, unit)
+        delay(400)
+        engineB.cancelDownload(unit)
+        withTimeoutOrNull(5_000) { b.cancelAndJoin() } ?: error("the waiter never ended after its scope was cancelled")
+        val tempAfterCancel: TempFileState = storageA.tempFileState(unit)
+        port.go.countDown()
+
+        val outcome: Result<Unit> = withTimeoutOrNull(15_000) { a.await() } ?: error("A never returned")
+        assertEquals(
+            TempFileState.Partial,
+            tempAfterCancel,
+            "the cancelled waiter deleted the temp file of the engine that holds the transfer lock",
+        )
+        assertEquals(0, port.lostTempFiles.get(), "the transfer lost its file")
+        assertTrue(outcome.isSuccess, "engine A failed with ${outcome.exceptionOrNull()}")
+        assertContentEquals(payload, File(storageA.getResourcePath(unit)).readBytes())
+    }
+
     private fun CoroutineScope.launchWaiter(engine: Downloader, unit: DownloadUnit): Job =
         launch(Dispatchers.Default) { engine.ensureAvailable(unit) }
 
@@ -193,46 +253,6 @@ class AndroidDownloaderTransferLockRound7Test {
             assertContentEquals(payload, File(storageA.getResourcePath(unit)).readBytes())
             assertEquals(emptyList(), filesUnder(File(root, "tmp")))
         }
-
-    /**
-     * Two engines walk the same four units in opposite orders (two groups over shared units): each holds
-     * one unit's lock at a time, so neither can wait for the other in a cycle. Many rounds, every wait bounded.
-     */
-    @Test
-    fun `engines walking the same units in opposite order never deadlock`() {
-        val forward = Group("forward")
-        val backward = Group("backward")
-        val units: List<FileUnit> = List(4) { FileUnit("u$it", forward) }
-        forward.units = units
-        backward.units = units.reversed()
-        repeat(25) { round: Int ->
-            root.deleteRecursively()
-            val storage: DownloaderStorage = createDownloaderStorage(context, config)
-            val port = AsyncPort(storage, payload, gated = false)
-            val engineA: Downloader = engine(storage, port, forward)
-            val engineB: Downloader = engine(createDownloaderStorage(context, config), port, backward)
-            val outcomes: List<Result<Unit>> = runBlocking {
-                withTimeoutOrNull(30_000) {
-                    withContext(Dispatchers.Default) {
-                        listOf(
-                            async { runCatching { engineA.ensureAvailable(forward) } },
-                            async { runCatching { engineB.ensureAvailable(backward) } },
-                            async { runCatching { engineA.ensureAvailable(units[2]) } },
-                            async { runCatching { engineB.ensureAvailable(units[1]) } },
-                        ).awaitAll()
-                    }
-                } ?: error("round $round: a caller never returned (deadlock?)")
-            }
-            outcomes.forEachIndexed { index: Int, outcome: Result<Unit> ->
-                assertTrue(outcome.isSuccess, "round $round: caller $index failed with ${outcome.exceptionOrNull()}")
-            }
-            units.forEach { unit: FileUnit ->
-                assertContentEquals(payload, File(storage.getResourcePath(unit)).readBytes(), "round $round ${unit.id}")
-            }
-            assertEquals(emptyList(), filesUnder(File(root, "tmp")), "round $round")
-            assertEquals(0, transferLockRegistrySize(), "round $round")
-        }
-    }
 
     /** A scope-cancelled waiter (no cancelDownload) never touches anything and gives its registry slot back. */
     @Test

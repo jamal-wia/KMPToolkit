@@ -69,4 +69,35 @@ internal object UnitTransferLocks {
             }
         }
     }
+
+    /**
+     * Runs [action] only if the transfer lock of [unitKey] under [scope] is free right now, and says
+     * whether it ran. Never waits, so it can be used where nothing may suspend (a cancel). A caller
+     * that finds the lock held leaves the unit's files alone: they belong to the transfer in flight.
+     */
+    fun tryWithTransferLock(scope: String, unitKey: String, action: () -> Unit): Boolean {
+        val key: Pair<String, String> = scope to unitKey
+        var registered: Mutex? = null
+        entries.update { current: Map<Pair<String, String>, Entry> ->
+            val entry: Entry? = current[key]
+            val mutex: Mutex = entry?.mutex ?: Mutex()
+            registered = mutex
+            current + (key to Entry(mutex, (entry?.users ?: 0) + 1))
+        }
+        val mutex: Mutex = checkNotNull(registered)
+        val locked: Boolean = mutex.tryLock()
+        try {
+            if (locked) action()
+            return locked
+        } finally {
+            try {
+                if (locked) mutex.unlock()
+            } finally {
+                entries.update { current: Map<Pair<String, String>, Entry> ->
+                    val entry: Entry = current.getValue(key)
+                    if (entry.users <= 1) current - key else current + (key to Entry(entry.mutex, entry.users - 1))
+                }
+            }
+        }
+    }
 }
