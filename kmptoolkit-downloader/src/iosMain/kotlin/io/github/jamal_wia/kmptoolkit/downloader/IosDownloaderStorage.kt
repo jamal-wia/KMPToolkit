@@ -700,6 +700,8 @@ internal class IosDownloaderStorage(
      */
     private fun verifySqlite(tempFilePath: String, format: ResourceFormat.SqliteDatabase) {
         requireSqliteHeader(tempFilePath)
+        // A leftover -wal would be replayed into this file, and opening it may leave its own: neither stays.
+        deleteSqliteSidecars(tempFilePath)
         val counts: Pair<Int, Int?>? = try {
             val connection: SQLiteConnection = BundledSQLiteDriver().open(tempFilePath)
             try {
@@ -729,6 +731,8 @@ internal class IosDownloaderStorage(
                 "Downloaded resource failed integrity check: not a valid database (${e.message})",
                 e,
             )
+        } finally {
+            deleteSqliteSidecars(tempFilePath)
         }
         val (actualCount: Int, declaredCount: Int?) = counts ?: return
         if (declaredCount == null || actualCount != declaredCount) {
@@ -738,6 +742,11 @@ internal class IosDownloaderStorage(
                     "$actualCount rows, meta declares $declaredCount",
             )
         }
+    }
+
+    /** Removes the write-ahead log, shared-memory and journal files SQLite keeps next to [databasePath]. */
+    private fun deleteSqliteSidecars(databasePath: String) {
+        for (suffix: String in SQLITE_SIDECAR_SUFFIXES) NSFileManager.defaultManager.removeItemAtPath(databasePath + suffix, error = null)
     }
 
     /** Deletes the file and throws when it does not start with the 16-byte SQLite header or is shorter than 100 bytes. */
@@ -1203,6 +1212,7 @@ internal class IosDownloaderStorage(
 
 private const val LOCAL_HEADER_SIZE: Int = 30
 private const val SQLITE_MIN_BYTES: Int = 100
+private val SQLITE_SIDECAR_SUFFIXES: List<String> = listOf("-wal", "-shm", "-journal")
 private const val FLAG_ENCRYPTED: Int = 0x0001
 private const val FLAG_DATA_DESCRIPTOR: Int = 0x0008
 private const val METHOD_STORED: Int = 0

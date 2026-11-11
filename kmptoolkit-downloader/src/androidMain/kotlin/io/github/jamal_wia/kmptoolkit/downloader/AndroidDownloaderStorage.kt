@@ -500,6 +500,8 @@ internal class AndroidDownloaderStorage(
      */
     private fun verifySqlite(tempFile: File, format: ResourceFormat.SqliteDatabase) {
         requireSqliteHeader(tempFile)
+        // A leftover -wal would be replayed into this file, and opening it may leave its own: neither stays.
+        deleteSqliteSidecars(tempFile)
         val counts: Pair<Int, Int?>? = try {
             SQLiteDatabase.openDatabase(tempFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
                 .use { db: SQLiteDatabase ->
@@ -526,6 +528,8 @@ internal class AndroidDownloaderStorage(
                 "Downloaded resource failed integrity check: not a valid database (${e.message})",
                 e,
             )
+        } finally {
+            deleteSqliteSidecars(tempFile)
         }
         val (actualCount: Int, declaredCount: Int?) = counts ?: return
         if (declaredCount == null || actualCount != declaredCount) {
@@ -535,6 +539,11 @@ internal class AndroidDownloaderStorage(
                     "$actualCount rows, meta declares $declaredCount",
             )
         }
+    }
+
+    /** Removes the write-ahead log, shared-memory and journal files SQLite keeps next to [database]. */
+    private fun deleteSqliteSidecars(database: File) {
+        for (suffix: String in SQLITE_SIDECAR_SUFFIXES) File(database.path + suffix).delete()
     }
 
     /** Deletes [tempFile] and throws when it does not start with the 16-byte SQLite header or is shorter than 100 bytes. */
@@ -697,6 +706,8 @@ internal class AndroidDownloaderStorage(
     private companion object {
         /** The sibling name the single root directory is moved to while its children go up; a free variant is chosen. */
         const val TEMPORARY_ROOT_NAME: String = ".kmptoolkit-up"
+
+        val SQLITE_SIDECAR_SUFFIXES: List<String> = listOf("-wal", "-shm", "-journal")
 
         /** What a [FileNotFoundException] says when the name or the path cannot exist, as opposed to a full or read-only disk. */
         val UNLAYABLE_REASONS: List<String> =

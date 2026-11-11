@@ -221,6 +221,10 @@ contains it, that directory's contents are moved up; files and empty directories
 are, and a name that exists at the top as a file fails the commit with `ResourceIntegrityException`. An empty
 directory of the same name is replaced; a non-empty directory is never deleted.
 
+Verifying a `SqliteDatabase` leaves nothing beside the temp file: the `-wal`, `-shm` and `-journal` files SQLite keeps
+for a database in write-ahead-log mode are removed before and after the check (a stale one would otherwise be replayed
+into the next download of the unit), on both platforms.
+
 A `SqliteDatabase` file must be at least 100 bytes long and start with the 16-byte SQLite header
 (`SQLite format 3` and a NUL); an empty or cut body fails the commit, before the database is opened. The row
 count table is used as a name (resolved through `sqlite_master`, then quoted: a keyword or a name with spaces
