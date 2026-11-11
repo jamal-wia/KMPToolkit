@@ -15,6 +15,7 @@ import java.io.BufferedOutputStream
 import java.io.EOFException
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -125,7 +126,7 @@ internal class AndroidDownloaderStorage(
         }
         return if (unit.isDirectoryResource) {
             val pagesDir = File(path)
-            pagesDir.exists() && File(pagesDir, unit.archiveMarker()).exists()
+            pagesDir.exists() && File(pagesDir, unit.archiveMarker()).isFile
         } else {
             File(path).exists()
         }
@@ -377,10 +378,10 @@ internal class AndroidDownloaderStorage(
                 // Handle nested directory: ZIP may contain a root directory prefix
                 // (e.g., entries like "pages/page001.webp" instead of "page001.webp"),
                 // causing files to land in staging/pages/ instead of staging/.
-                if (!File(stagingDir, unit.archiveMarker()).exists()) moveSingleRootUp(stagingDir, unit)
+                if (!File(stagingDir, unit.archiveMarker()).isFile) moveSingleRootUp(stagingDir, unit)
                 // The tree must be what the unit declares before anything at the final path is touched:
                 // a directory without its marker is not "ready", and it must not replace one that is.
-                if (!File(stagingDir, unit.archiveMarker()).exists()) {
+                if (!File(stagingDir, unit.archiveMarker()).isFile) {
                     throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
                 }
                 // Atomic swap: remove old target, rename staging to target
@@ -425,7 +426,7 @@ internal class AndroidDownloaderStorage(
             stagingDir.listFiles { f: File -> f.isDirectory && !f.list().isNullOrEmpty() } ?: emptyArray()
         if (candidates.size != 1) return
         val root: File = candidates[0]
-        if (!File(root, unit.archiveMarker()).exists()) return
+        if (!File(root, unit.archiveMarker()).isFile) return
         logger.i { "Detected nested directory '${root.name}', moving contents up" }
         val taken: Set<String> = (stagingDir.list().orEmpty().toList() + root.list().orEmpty().toList())
             .map { name: String -> name.lowercase() }
@@ -594,6 +595,7 @@ internal class AndroidDownloaderStorage(
         // is tight.
         val copyBuffer = ByteArray(WRITE_BUFFER_SIZE)
 
+        val entryLayout = ZipEntryLayout()
         ZipInputStream(FileInputStream(tempFile).buffered()).use { zipStream: ZipInputStream ->
             var entry: ZipEntry? = readingArchive(unit) { zipStream.nextEntry }
             while (entry != null) {
@@ -608,13 +610,17 @@ internal class AndroidDownloaderStorage(
                     // An empty directory is part of the tree. A `./` or `/` entry is the target itself.
                     if (output.path != dirPath) {
                         requireInside(unit, output, dirPath, entryName)
-                        output.mkdirs()
+                        requireLayout(unit, entryLayout, dir, entryName, isDirectory = true)
+                        if (!output.isDirectory && !output.mkdirs() && !output.isDirectory) {
+                            throw ResourceIntegrityException("Archive of $unit cannot be extracted: '$entryName' cannot be created on this file system")
+                        }
                     }
                 } else {
                     // Zip slip protection
                     requireInside(unit, output, dirPath, entryName)
+                    requireLayout(unit, entryLayout, dir, entryName, isDirectory = false)
                     output.parentFile?.mkdirs()
-                    FileOutputStream(output).use { out: FileOutputStream ->
+                    openOutput(unit, output, entryName).use { out: FileOutputStream ->
                         var bytesRead: Int
                         while (readingArchive(unit) { zipStream.read(copyBuffer) }.also { bytesRead = it } != -1) {
                             out.write(copyBuffer, 0, bytesRead)
@@ -627,6 +633,28 @@ internal class AndroidDownloaderStorage(
             }
         }
         logger.i { "ZIP extraction complete" }
+    }
+
+    /** Fails with [ResourceIntegrityException] when [entryName] cannot be laid out next to what was already extracted; see [ZipEntryLayout]. */
+    private fun requireLayout(unit: DownloadUnit, entryLayout: ZipEntryLayout, dir: File, entryName: String, isDirectory: Boolean) {
+        val segments: List<String> = resolveEntrySegments(entryName) ?: return
+        if (segments.isEmpty()) return
+        val reason: String? = entryLayout.conflict(segments, isDirectory) { path: String -> File(dir, path).exists() }
+        if (reason != null) throw ResourceIntegrityException("Archive of $unit cannot be extracted: $reason")
+    }
+
+    /**
+     * Opens the file of one entry. A name or path the file system cannot hold (too long, a parent that could not be
+     * created) is the archive's fault, [ResourceIntegrityException]; a full disk or a denied write stays the plain exception.
+     */
+    private fun openOutput(unit: DownloadUnit, output: File, entryName: String): FileOutputStream = try {
+        FileOutputStream(output)
+    } catch (e: FileNotFoundException) {
+        val reason: String = e.message.orEmpty().lowercase()
+        if (UNLAYABLE_REASONS.any { it in reason }) {
+            throw ResourceIntegrityException("Archive of $unit cannot be extracted: '$entryName' cannot be created on this file system (${e.message})", e)
+        }
+        throw e
     }
 
     private fun requireInside(unit: DownloadUnit, output: File, dirPath: String, entryName: String) {
@@ -669,5 +697,9 @@ internal class AndroidDownloaderStorage(
     private companion object {
         /** The sibling name the single root directory is moved to while its children go up; a free variant is chosen. */
         const val TEMPORARY_ROOT_NAME: String = ".kmptoolkit-up"
+
+        /** What a [FileNotFoundException] says when the name or the path cannot exist, as opposed to a full or read-only disk. */
+        val UNLAYABLE_REASONS: List<String> =
+            listOf("file name too long", "no such file or directory", "not a directory", "is a directory")
     }
 }

@@ -13,6 +13,8 @@ class AndroidZipDifferentialRound7Test : ZipDifferentialRound7Contract() {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val config = DownloaderStorageConfig(baseDirectoryName = "zip_round7")
 
+    override val hostVolumeIsNotTheTarget: Boolean = true
+
     override fun newStorage(): DownloaderStorage = createDownloaderStorage(context, config)
 
     override fun writeFile(path: String, bytes: ByteArray) {

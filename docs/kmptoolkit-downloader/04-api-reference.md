@@ -103,7 +103,9 @@ compiled against) with value `equals` / `hashCode` / `toString`.
 [`03-guide.md`](03-guide.md) for what commit does for each.
 
 Every entry of a `ZipArchive` is extracted, or the commit fails with `ResourceIntegrityException`; an entry that
-would land outside the directory fails the commit. An archive must end with its end of central directory record
+would land outside the directory fails the commit, and so does an archive the file system cannot hold as delivered (a name that
+is a file and a directory, a name or path that is too long, two entries it stores as one, such as names differing only in case
+on iOS). The `availabilityMarker` must be a regular file spelled exactly like that. An archive must end with its end of central directory record
 (a comment cut short is tolerated; an archive cut anywhere before the record, its central directory included, fails),
 and entry names are read as UTF-8 whether or not the archive sets the UTF-8 flag (a name that is not valid UTF-8
 fails the commit).

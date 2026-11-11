@@ -49,14 +49,20 @@ import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.Foundation.NSURLVolumeSupportsCaseSensitiveNamesKey
+import platform.Foundation.decomposedStringWithCanonicalMapping
 import platform.Foundation.timeIntervalSince1970
 import platform.Foundation.NSUserDomainMask
+import platform.posix.EISDIR
+import platform.posix.ENAMETOOLONG
+import platform.posix.ENOENT
+import platform.posix.ENOTDIR
 import platform.posix.FILE
 import platform.posix.SEEK_CUR
 import platform.posix.SEEK_END
 import platform.posix.SEEK_SET
 import platform.posix.ftell
 import platform.posix.fclose
+import platform.posix.errno
 import platform.posix.ferror
 import platform.posix.fflush
 import platform.posix.fileno
@@ -137,9 +143,9 @@ internal class IosDownloaderStorage(
      * case-variant `TMP/...` paths, while the opposite guess could let two case variants of an id
      * commit at once over the same files.
      */
-    private val layout: UnitFileLayout by lazy {
-        UnitFileLayout(caseInsensitive = caseInsensitiveOverride ?: !volumeIsCaseSensitive(baseDir))
-    }
+    private val volumeFoldsCase: Boolean by lazy { caseInsensitiveOverride ?: !volumeIsCaseSensitive(baseDir) }
+
+    private val layout: UnitFileLayout by lazy { UnitFileLayout(caseInsensitive = volumeFoldsCase) }
 
     override val transferLockScope: String get() = baseDir
 
@@ -215,7 +221,7 @@ internal class IosDownloaderStorage(
             return false
         }
         return if (unit.isDirectoryResource) {
-            fileExists("$path/${unit.archiveMarker()}")
+            markerIsFile(path, unit.archiveMarker())
         } else {
             fileExists(path)
         }
@@ -500,10 +506,10 @@ internal class IosDownloaderStorage(
                 // Handle nested directory: ZIP may contain a root directory prefix
                 // (e.g., entries like "pages/page001.webp" instead of "page001.webp"),
                 // causing files to land in staging/pages/ instead of staging/.
-                if (!fileExists("$stagingDir/${unit.archiveMarker()}")) moveSingleRootUp(stagingDir, unit)
+                if (!markerIsFile(stagingDir, unit.archiveMarker())) moveSingleRootUp(stagingDir, unit)
                 // The tree must be what the unit declares before anything at the final path is touched:
                 // a directory without its marker is not "ready", and it must not replace one that is.
-                if (!fileExists("$stagingDir/${unit.archiveMarker()}")) {
+                if (!markerIsFile(stagingDir, unit.archiveMarker())) {
                     throw ResourceIntegrityException("Archive of $unit has no '${unit.archiveMarker()}' after extraction")
                 }
                 // Atomic swap: remove old target, rename staging to target
@@ -562,7 +568,7 @@ internal class IosDownloaderStorage(
         if (candidates.size != 1) return
         val rootName: String = candidates[0]
         val root = "$stagingDir/$rootName"
-        if (!fileExists("$root/${unit.archiveMarker()}")) return
+        if (!markerIsFile(root, unit.archiveMarker())) return
         logger.i { "Detected nested directory '$rootName', moving contents up" }
         val children: List<String> = manager.contentsOfDirectoryAtPath(root, error = null)
             ?.filterIsInstance<String>() ?: emptyList()
@@ -595,6 +601,34 @@ internal class IosDownloaderStorage(
         check(isEmptyDirectory(temporary)) { "The root directory of $unit still holds entries after moving its contents up" }
         check(manager.removeItemAtPath(temporary, error = null)) { "Could not remove the emptied root directory of $unit" }
     }
+
+    private fun isRegularFile(path: String): Boolean =
+        (NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null)?.get(NSFileType) as? String) == NSFileTypeRegular
+
+    private fun isDirectoryAt(path: String): Boolean =
+        (NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null)?.get(NSFileType) as? String) == NSFileTypeDirectory
+
+    /**
+     * True when [marker] (relative to [directory]) is a regular file spelled exactly like that. A directory of the
+     * marker's name does not count, and neither does `MARKER.TXT` for `marker.txt` on a volume that folds case, where
+     * `fileExists` alone would say yes (a case-sensitive volume says no). Unicode normalization is not told apart: the
+     * volume treats the spellings as one name for every read too.
+     */
+    private fun markerIsFile(directory: String, marker: String): Boolean {
+        if (!isRegularFile("$directory/$marker")) return false
+        if (!volumeFoldsCase) return true
+        var current: String = directory
+        for (segment: String in marker.split('/').filter { part: String -> part.isNotEmpty() && part != "." }) {
+            val names: List<String> = NSFileManager.defaultManager.contentsOfDirectoryAtPath(current, error = null)
+                ?.filterIsInstance<String>() ?: return false
+            val wanted: String = canonicalForm(segment)
+            val found: String = names.firstOrNull { name: String -> canonicalForm(name) == wanted } ?: return false
+            current = "$current/$found"
+        }
+        return true
+    }
+
+    private fun canonicalForm(name: String): String = (name as NSString).decomposedStringWithCanonicalMapping
 
     /** True when [path] is a directory with something in it. */
     private fun isNonEmptyDirectory(path: String): Boolean =
@@ -810,8 +844,9 @@ internal class IosDownloaderStorage(
      * Every entry is extracted or the call fails with [ResourceIntegrityException]; nothing is skipped.
      * A truncated header, name, data or data descriptor, a size or CRC-32 that disagrees with the
      * bytes, a stream that does not end where it declares, an unsupported method, an encrypted or
-     * ZIP64 entry and a name that leaves [targetDir] all fail. A full disk or a file that cannot be
-     * created is [IllegalStateException]: the bytes were fine.
+     * ZIP64 entry, a name that leaves [targetDir], two entries the volume would store as one (names that differ only
+     * in case or Unicode normalization, or one name that is a file and a directory) and a name or path the volume cannot
+     * hold all fail. A full disk is [IllegalStateException]: the bytes were fine.
      */
     private fun extractZip(filePath: String, targetDir: String) {
         logger.i { "Extracting ZIP to $targetDir..." }
@@ -831,6 +866,7 @@ internal class IosDownloaderStorage(
             throw e
         }
 
+        val entryLayout = ZipEntryLayout()
         val headerBuf = ByteArray(LOCAL_HEADER_SIZE)
         val ioBuf = ByteArray(WRITE_BUFFER_SIZE)
         val outBuf = ByteArray(WRITE_BUFFER_SIZE)
@@ -883,9 +919,15 @@ internal class IosDownloaderStorage(
                 if (fileName.indexOf('\u0000') >= 0) zipFail(fileName, "the name contains a NUL character")
 
                 val isDirectory: Boolean = fileName.endsWith("/")
-                val segments: List<String> = normalizedSegments(fileName)
+                val segments: List<String> = resolveEntrySegments(fileName)
                     ?: zipFail(fileName, "ZIP entry attempts path traversal")
                 if (segments.isEmpty() && !isDirectory) zipFail(fileName, "the name has no file part")
+                if (segments.isNotEmpty()) {
+                    val conflict: String? = entryLayout.conflict(segments, isDirectory) { path: String ->
+                        fileExists("$targetDir/$path")
+                    }
+                    if (conflict != null) zipFail(fileName, conflict)
+                }
                 val outputPath: String = if (segments.isEmpty()) targetDir else "$targetDir/${segments.joinToString("/")}"
 
                 // A directory entry is created (an empty directory is part of the tree) under the same rule
@@ -898,6 +940,7 @@ internal class IosDownloaderStorage(
                         attributes = null,
                         error = null,
                     )
+                    if (!isDirectoryAt(outputPath)) zipFail(fileName, "the directory cannot be created on this volume")
                 } else {
                     NSFileManager.defaultManager.createDirectoryAtPath(
                         path = outputPath.substringBeforeLast('/'),
@@ -905,7 +948,14 @@ internal class IosDownloaderStorage(
                         attributes = null,
                         error = null,
                     )
-                    outFile = fopen(outputPath, "wb") ?: error("Failed to create output file: $outputPath")
+                    outFile = fopen(outputPath, "wb") ?: run {
+                        val code: Int = errno
+                        // A name or path the volume cannot hold is the archive's fault; a full disk is not.
+                        if (code == ENAMETOOLONG || code == ENOENT || code == ENOTDIR || code == EISDIR) {
+                            zipFail(fileName, "the file cannot be created on this volume (errno $code)")
+                        }
+                        error("Failed to create output file: $outputPath (errno $code)")
+                    }
                 }
                 val sink = EntrySink(outFile, outputPath)
                 var completed = false
@@ -946,26 +996,6 @@ internal class IosDownloaderStorage(
             buf[1].toInt() and 0xFF == 0x4B &&
             buf[2].toInt() and 0xFF == 0x03 &&
             buf[3].toInt() and 0xFF == 0x04
-
-    /**
-     * An entry name as the segments left after resolving it lexically, splitting on `/` only: empty and `.`
-     * segments are dropped, `..` removes one, and null when a `..` has nothing to remove (the entry would land
-     * outside the extraction directory). A name that merely contains two dots is an ordinary name.
-     */
-    private fun normalizedSegments(name: String): List<String>? {
-        val segments: ArrayList<String> = ArrayList()
-        for (segment: String in name.split('/')) {
-            when (segment) {
-                "", "." -> Unit
-                ".." -> {
-                    if (segments.isEmpty()) return null
-                    segments.removeAt(segments.lastIndex)
-                }
-                else -> segments.add(segment)
-            }
-        }
-        return segments
-    }
 
     /** Fails when the bytes written for [entry] are not the CRC-32 and size its header declared. */
     private fun checkEntry(entry: String, sink: EntrySink, expectedCrc: Long, expectedSize: Long) {

@@ -9,10 +9,14 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 /**
- * Round 7 differential contract, second pass: archive layouts a real writer or a hostile server can
- * produce that the first pass did not lay out, committed through both shipped storages with one expected
- * outcome. Derived from the documented promise (ResourceFormat.ZipArchive KDoc, 04-api-reference): every
- * entry is extracted or the commit fails with [ResourceIntegrityException] and leaves nothing behind.
+ * Round 7 differential contract, second pass: archives whose entries collide in ways that depend on what
+ * the file system compares (case, Unicode normalization, NUL, name length, entry type), and a marker that
+ * the archive did not produce as a file. The promise they are derived from (ResourceFormat.ZipArchive KDoc,
+ * 04-api-reference): every entry is extracted or the commit fails with [ResourceIntegrityException] and
+ * leaves nothing behind; the availability marker "is a file the extraction is known to produce".
+ *
+ * A commit may either succeed with every entry readable under its own name and content, or fail cleanly:
+ * what it must never do is succeed with an entry missing, merged into another, or renamed.
  */
 abstract class ZipDifferentialRound7Contract {
 
@@ -22,6 +26,13 @@ abstract class ZipDifferentialRound7Contract {
     protected abstract fun pathExists(path: String): Boolean
     protected abstract fun listNames(path: String): List<String>
     protected abstract fun deleteTestDirectory()
+
+    /**
+     * True when the volume the test runs on is not the volume the platform runs on: Robolectric runs the
+     * Android storage on the developer's (case- and normalization-insensitive) volume, where a real device
+     * has a case-sensitive one, so the tests about folded names say nothing about Android there.
+     */
+    protected open val hostVolumeIsNotTheTarget: Boolean = false
 
     @AfterTest
     fun cleanUp() {
@@ -71,6 +82,88 @@ abstract class ZipDifferentialRound7Contract {
         readFile(storage.getResourcePath(unit) + "/" + entry)?.decodeToString()
 
     @Test
+    fun `a directory named like the marker does not satisfy the availability marker`() = runTest {
+        val (storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?) = commitOutcome(
+            "markerdir",
+            listOf(
+                ZipEntryRound6("marker.txt/".encodeToByteArray(), ByteArray(0)),
+                ZipEntryRound6("other.txt", "other\n"),
+            ),
+        )
+
+        assertRejectedCleanly(storage, unit, failure, "an archive whose 'marker.txt' is a directory")
+    }
+
+    @Test
+    fun `a marker spelled in other capitals is not the marker`() = runTest {
+        if (hostVolumeIsNotTheTarget) return@runTest
+        val (storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?) = commitOutcome(
+            "markercase",
+            listOf(ZipEntryRound6("MARKER.TXT", "marker\n"), ZipEntryRound6("other.txt", "o\n")),
+        )
+
+        assertRejectedCleanly(storage, unit, failure, "an archive that only has MARKER.TXT")
+    }
+
+    @Test
+    fun `a directory entry and a file entry of one name never both succeed silently`() = runTest {
+        val (storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?) = commitOutcome(
+            "dirthenfile",
+            listOf(
+                marker(),
+                ZipEntryRound6("a/".encodeToByteArray(), ByteArray(0)),
+                ZipEntryRound6("a", "file\n"),
+            ),
+        )
+
+        assertRejectedCleanly(storage, unit, failure, "a directory entry then a file of the same name")
+    }
+
+    @Test
+    fun `a file entry and a child under that name fail the commit`() = runTest {
+        val (storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?) = commitOutcome(
+            "filethenchild",
+            listOf(marker(), ZipEntryRound6("a", "file\n"), ZipEntryRound6("a/b.txt", "child\n")),
+        )
+
+        assertRejectedCleanly(storage, unit, failure, "a file entry then an entry below it")
+    }
+
+    @Test
+    fun `entry names differing only in case are both extracted or the commit fails`() = runTest {
+        if (hostVolumeIsNotTheTarget) return@runTest
+        val (storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?) = commitOutcome(
+            "twocases",
+            listOf(marker(), ZipEntryRound6("Data.txt", "upper\n"), ZipEntryRound6("data.txt", "lower\n")),
+        )
+
+        if (failure != null) {
+            assertRejectedCleanly(storage, unit, failure, "names that differ only in case")
+        } else {
+            assertEquals("upper\n", text(storage, unit, "Data.txt"), "Data.txt lost its own content")
+            assertEquals("lower\n", text(storage, unit, "data.txt"), "data.txt lost its own content")
+        }
+    }
+
+    @Test
+    fun `entry names differing only in Unicode normalization are both extracted or the commit fails`() = runTest {
+        if (hostVolumeIsNotTheTarget) return@runTest
+        val composed = "café.txt"
+        val decomposed = "café.txt"
+        val (storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?) = commitOutcome(
+            "twoforms",
+            listOf(marker(), ZipEntryRound6(composed, "composed\n"), ZipEntryRound6(decomposed, "decomposed\n")),
+        )
+
+        if (failure != null) {
+            assertRejectedCleanly(storage, unit, failure, "names that differ only in normalization")
+        } else {
+            val names: List<String> = listNames(storage.getResourcePath(unit))
+            assertTrue(names.contains(composed) && names.contains(decomposed), "an entry was merged into the other: $names")
+        }
+    }
+
+    @Test
     fun `a NUL inside an entry name fails the commit instead of cutting the name`() = runTest {
         val name: ByteArray = byteArrayOf('a'.code.toByte(), 0, 'b'.code.toByte())
         val (storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?) = commitOutcome(
@@ -80,6 +173,37 @@ abstract class ZipDifferentialRound7Contract {
 
         assertRejectedCleanly(storage, unit, failure, "an entry name holding a NUL")
         assertFalse(pathExists(storage.getResourcePath(unit)), "a cut name must not leave a half extracted tree")
+    }
+
+    @Test
+    fun `a name component of 300 bytes fails the commit cleanly or extracts under its whole name`() = runTest {
+        val long: String = "n".repeat(300) + ".txt"
+        val (storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?) = commitOutcome(
+            "longname",
+            listOf(marker(), ZipEntryRound6(long, "long\n")),
+        )
+
+        if (failure != null) {
+            assertRejectedCleanly(storage, unit, failure, "a 300-byte name component")
+        } else {
+            assertEquals("long\n", text(storage, unit, long))
+        }
+    }
+
+    @Test
+    fun `a path of six hundred nested directories fails cleanly or extracts whole`() = runTest {
+        if (hostVolumeIsNotTheTarget) return@runTest
+        val deep: String = "d/".repeat(600) + "leaf.txt"
+        val (storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?) = commitOutcome(
+            "deep",
+            listOf(marker(), ZipEntryRound6(deep, "leaf\n")),
+        )
+
+        if (failure != null) {
+            assertRejectedCleanly(storage, unit, failure, "a path longer than a path limit")
+        } else {
+            assertEquals("leaf\n", text(storage, unit, deep))
+        }
     }
 
     @Test
