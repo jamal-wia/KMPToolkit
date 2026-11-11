@@ -66,6 +66,14 @@ given, and `NotificationOptions.DEFAULT` for the two-argument one — so a remin
 every time is one assertion: `assertFalse(notifier.posted.last().options.alertOnce)`. It is kept out
 of `PostedNotification`'s constructor, and therefore out of its `equals`; compare it on its own.
 
+**Recordings are snapshots.** `posted` and `showing` hold a copy of each notification taken when
+`post` is called, with its own copies of `actions` and `contentExtras`, and `options` holds its own
+copy of `actionIcons`. A button list or extras map your code edits between posts is recorded as it
+was at each post, as the real notifiers, which read those collections once at the start of a post,
+would show it. A recorded notification is equal (`==`) to the one your code passed, not the same
+instance: compare with `assertEquals`, not `assertSame`. `NotificationOptions.DEFAULT` is recorded
+as itself.
+
 **It coalesces nothing.** The double does not replicate the bucket/interval rule, on purpose: a test
 that has to reason about a 500 ms throttle to know what its subject posted is testing the fixture
 instead of its subject. Set `result = NotificationResult.Coalesced` when you want your code to face
