@@ -34,7 +34,7 @@ import kotlinx.coroutines.withTimeout
 @OptIn(ToolkitInternalApi::class)
 class VlcjDifferentialModelFuzzR6AdversarialTest {
 
-    private class Ideal : VideoPlaybackEngine {
+    private class Ideal(private val knownLength: Boolean) : VideoPlaybackEngine {
         var sink: VideoPlaybackEngineListener? = null
         var loaded: Boolean = false
         var duration: Long = DURATION
@@ -80,7 +80,7 @@ class VlcjDifferentialModelFuzzR6AdversarialTest {
             this.loops = looping
         }
 
-        override fun durationMs(): Long = if (loaded) duration else 0L
+        override fun durationMs(): Long = if (loaded && knownLength) duration else 0L
 
         override fun positionMs(): Long = if (loaded) position else 0L
 
@@ -114,7 +114,7 @@ class VlcjDifferentialModelFuzzR6AdversarialTest {
         }
     }
 
-    private class ModelRuntime : VlcRuntime {
+    private class ModelRuntime(val knownLength: Boolean) : VlcRuntime {
         val eventThread: ExecutorService = Executors.newSingleThreadExecutor { Thread(it, "model-vlc-events").apply { isDaemon = true } }
         val taskThread: ExecutorService = Executors.newSingleThreadExecutor { Thread(it, "model-vlc-tasks").apply { isDaemon = true } }
 
@@ -182,7 +182,7 @@ class VlcjDifferentialModelFuzzR6AdversarialTest {
             return true
         }
 
-        override fun parsedInfo(): VlcParsedInfo = VlcParsedInfo(durationMs = DURATION, trackCount = 1, videoSize = null)
+        override fun parsedInfo(): VlcParsedInfo = VlcParsedInfo(durationMs = if (runtime.knownLength) DURATION else 0L, trackCount = 1, videoSize = null)
 
         @Synchronized
         override fun play() {
@@ -220,6 +220,8 @@ class VlcjDifferentialModelFuzzR6AdversarialTest {
             live("setTime")
             if (state != S.Playing && state != S.Paused) return
             clock = timeMs.coerceIn(0L, DURATION)
+            val reading: Long = clock
+            fire { timeChanged(reading) }
             if (clock >= DURATION && state == S.Playing) end()
         }
 
@@ -290,7 +292,12 @@ class VlcjDifferentialModelFuzzR6AdversarialTest {
         fun advance(ms: Long) {
             if (state != S.Playing) return
             val next: Long = clock + (ms * rateApplied).toLong()
-            if (next >= DURATION) end() else clock = next
+            if (next >= DURATION) {
+                end()
+            } else {
+                clock = next
+                fire { timeChanged(next) }
+            }
         }
 
         /** EndReached: VLCJ's reset (or its repeat replay) is queued on the task thread before our handler runs. */
@@ -310,6 +317,7 @@ class VlcjDifferentialModelFuzzR6AdversarialTest {
                         }
                     }
                 }
+                callbacks.timeChanged(DURATION)
                 callbacks.finished()
             }
         }
@@ -333,11 +341,11 @@ class VlcjDifferentialModelFuzzR6AdversarialTest {
         else -> state.toString()
     }
 
-    private fun runSeed(seed: Int, steps: Int) {
+    private fun runSeed(seed: Int, steps: Int, knownLength: Boolean) {
         val random = Random(seed)
-        val ideal = Ideal()
+        val ideal = Ideal(knownLength)
         val idealPlayer: VideoPlayer = createVideoPlayer(ideal, VideoPlayerConfig(positionUpdateIntervalMs = 3_600_000L))
-        val runtime = ModelRuntime()
+        val runtime = ModelRuntime(knownLength)
         val virtualNanos = AtomicLong(0L)
         val vlc = VlcjVideoEngine(
             vlcArgs = emptyList(),
@@ -447,8 +455,14 @@ class VlcjDifferentialModelFuzzR6AdversarialTest {
                     8 -> {
                         val amount: Long = random.nextLong(1L, 1_500L)
                         name = "seekForward($amount)"
-                        outputBeforeSeekToTheEnd(ideal.positionMs() + amount >= DURATION)
-                        both(name) { it.seekForward(amount) }
+                        if (knownLength) {
+                            outputBeforeSeekToTheEnd(ideal.positionMs() + amount >= DURATION)
+                            both(name) { it.seekForward(amount) }
+                        } else {
+                            // Without a length a relative skip can overshoot an end nobody but the stream knows; the SPI lets
+                            // an engine clamp it or ignore it, and libvlc is simply asked: nothing here is comparable.
+                            trace.append("seekForward-skipped ")
+                        }
                     }
                     9 -> {
                         val amount: Long = random.nextLong(1L, 1_500L)
@@ -560,12 +574,17 @@ class VlcjDifferentialModelFuzzR6AdversarialTest {
     }
 
     @Test
-    fun `the vlc engine on a model of libvlc is indistinguishable from an ideal engine through the player`() {
+    fun `the vlc engine on a model of libvlc is indistinguishable from an ideal engine through the player`() = differ(knownLength = true)
+
+    @Test
+    fun `the same for a source whose length libvlc does not know`() = differ(knownLength = false)
+
+    private fun differ(knownLength: Boolean) {
         val firstOfKind: MutableMap<String, String> = linkedMapOf()
         val counts: MutableMap<String, Int> = linkedMapOf()
         for (seed: Int in 1..SEEDS) {
             try {
-                runSeed(seed, steps = 80)
+                runSeed(seed, steps = 80, knownLength = knownLength)
             } catch (divergence: Divergence) {
                 counts[divergence.key] = (counts[divergence.key] ?: 0) + 1
                 firstOfKind.putIfAbsent(divergence.key, divergence.message.orEmpty())
