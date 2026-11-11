@@ -117,4 +117,19 @@ class UploadHandOffLedgerTest {
 
         assertEquals(ExistingWorkPolicy.REPLACE, ledger.policyForHandOff("recent"))
     }
+
+    @Test
+    fun `a counted hand-off keeps the newest request for the serving job, and an uncounted one keeps none`() {
+        val first = UploadRequest(url = "https://upload.invalid/1", fields = emptyList())
+        val second = UploadRequest(url = "https://upload.invalid/2", fields = emptyList())
+        assertEquals(ExistingWorkPolicy.KEEP, ledger.policyForHandOff("a", first))
+        assertNull(ledger.latestRequest("a"), "no job serves the item: nothing is counted or kept")
+
+        ledger.jobStarted("a")
+        ledger.policyForHandOff("a", first)
+        ledger.policyForHandOff("a", second)
+
+        assertEquals(second, ledger.latestRequest("a"))
+        assertEquals(2L, ledger.handOffsSeen("a"))
+    }
 }

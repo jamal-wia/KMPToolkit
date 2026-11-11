@@ -30,7 +30,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Creates the Android [UploadTransport]: one WorkManager job per outbox item, keyed by item id with
  * [ExistingWorkPolicy.KEEP] — the idempotent-launch contract [UploadTransport.launch] requires,
- * for free.
+ * for free. A hand-off that arrives while the item's job is finishing is not dropped: the job serves it before it
+ * returns (when the item is still owed), and a hand-off after the job finished serving replaces it with a fresh job.
+ * Hand-offs are tracked per process; across processes the lease is the bound.
  *
  * `classify` is remembered process-wide (the worker that actually calls it is instantiated
  * reflectively by WorkManager and cannot see this call's closure) — the last-created transport's
@@ -85,15 +87,20 @@ internal class WorkManagerUploadTransport(
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, config.workBackoff.inWholeMilliseconds, TimeUnit.MILLISECONDS)
                 .addTag(config.resolveWorkTag(context.packageName))
                 .build()
+            // Decided atomically with the serving job's close (see UploadHandOffLedger): a hand-off while the item's job
+            // is still serving is absorbed and the job serves it before it returns; one after the job finished
+            // serving replaces it, so it is never dropped because WorkManager still lists the old job as running.
+            val policy: ExistingWorkPolicy = UploadHandOffLedger.shared.policyForHandOff(itemId, request)
             WorkManager.getInstance(context).enqueueUniqueWork(
                 config.resolveUniqueWorkName(context.packageName, itemId),
-                ExistingWorkPolicy.KEEP,
+                policy,
                 work,
             )
         }.onFailure { failure -> logger.w(failure) { "Could not enqueue upload for item=$itemId" } }
     }
 
     override fun cancel(itemId: String) {
+        UploadHandOffLedger.shared.forget(itemId)
         runCatching {
             WorkManager.getInstance(context).cancelUniqueWork(config.resolveUniqueWorkName(context.packageName, itemId))
         }.onFailure { failure -> logger.w(failure) { "Could not cancel the upload of item=$itemId" } }
@@ -150,6 +157,53 @@ public class UploaderUploadWorker(
             inputData.readConnectTimeoutMillis(UploadTransportConfig.DEFAULT_CONNECT_TIMEOUT_MILLIS)
         val readTimeoutMillis: Int = inputData.readReadTimeoutMillis(UploadTransportConfig.DEFAULT_READ_TIMEOUT_MILLIS)
 
+        val ledger: UploadHandOffLedger = UploadHandOffLedger.shared
+        ledger.jobStarted(itemId)
+        try {
+            var current: UploadRequest = request
+            while (true) {
+                val served: Served = serveOnce(itemId, current, engine, classify, connectTimeoutMillis, readTimeoutMillis)
+                if (served.result !is Result.Success) return served.result
+                // A hand-off the transport counted after this iteration's settlement began is served here, by the
+                // same job: WorkManager may still list this job as running and would drop the hand-off's own job.
+                // Only a success finishes the job; a retry keeps its WorkSpec for WorkManager's own re-run.
+                var seen: Long = served.handOffsSeenBeforeSettle
+                var next: UploadRequest? = null
+                while (true) {
+                    if (ledger.finishServing(itemId, seen, isStopped) != UploadHandOffLedger.Finish.MISSED) break
+                    if (isStopped) break
+                    // The counter first, the row second: a hand-off that lands after the row was read is counted
+                    // past `now` and found by the next finishServing. A hand-off that reached the transport before
+                    // the settlement committed, for the attempt just settled, finds the row delivered, withdrawn
+                    // or waiting out a backoff: nothing is owed and nothing uploads. One that found the row in
+                    // flight again is the retry's own and is uploaded once, with the newest request.
+                    val now: Long = ledger.handOffsSeen(itemId)
+                    val latest: UploadRequest? = ledger.latestRequest(itemId)
+                    if (latest != null && engine.isInFlight(itemId)) {
+                        next = latest
+                        break
+                    }
+                    seen = now
+                }
+                current = next ?: return served.result
+            }
+        } finally {
+            ledger.jobEnded(itemId)
+        }
+    }
+
+    /** What one serving iteration of the classic job did. */
+    private class Served(val result: Result, val handOffsSeenBeforeSettle: Long)
+
+    /** One iteration: transfer [request], classify the outcome and settle it under the item's current claim. */
+    private suspend fun serveOnce(
+        itemId: String,
+        request: UploadRequest,
+        engine: DefaultUploaderEngine,
+        classify: (UploadResult) -> SettleResult,
+        connectTimeoutMillis: Int,
+        readTimeoutMillis: Int,
+    ): Served {
         // CoroutineWorker runs on Dispatchers.Default; a blocking transfer of minutes belongs on IO, polling
         // its own job so a cancelled job stops the body instead of finishing it unseen.
         val outcome: UploadResult = withWriteWatchdog(readTimeoutMillis) { watch ->
@@ -175,12 +229,15 @@ public class UploaderUploadWorker(
         } catch (e: Throwable) {
             SettleResult.Failed(e)
         }
+        // Read before the commit: a hand-off counted after this point may be for the retry the commit creates,
+        // and the job must find it when it closes the iteration.
+        val seenBeforeSettle: Long = UploadHandOffLedger.shared.handOffsSeen(itemId)
         // The upload already happened, so the write that records it must not be lost to a stop of this job
         // (WorkManager stops a job whose constraints went away): it runs to completion instead of being
         // cancelled with the job. NonCancellable is the right tool for a short cleanup of a fact already
         // known. Unbounded, as the engine's own upload commit is: engineWait is only the wait for an engine
         // (above), and abandoning a slow commit would leave the row in flight and upload the file again.
         val landed: Boolean = withContext(NonCancellable) { engine.settleUnderCurrentClaim(itemId, verdict) }
-        return if (landed) Result.success() else Result.retry()
+        return Served(if (landed) Result.success() else Result.retry(), seenBeforeSettle)
     }
 }

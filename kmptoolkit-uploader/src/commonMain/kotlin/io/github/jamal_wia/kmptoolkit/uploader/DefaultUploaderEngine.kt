@@ -1445,6 +1445,20 @@ internal class DefaultUploaderEngine(
     }
 
     /**
+     * Whether [id]'s row exists and is in flight right now — the item is owed an upload. A store failure reads as
+     * `false`: the caller leaves the item to its lease rather than upload on a guess. Lets the classic transport's job
+     * decide whether a hand-off that arrived while it was finishing still asks for an upload.
+     */
+    internal suspend fun isInFlight(id: String): Boolean = try {
+        store.getById(id)?.state == UploaderItemState.IN_FLIGHT
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        logger.e(e) { "In-flight check for id=$id failed — store failure; reading as not owed." }
+        false
+    }
+
+    /**
      * The body limit the handler of [id] enforces, or `null` when the item is gone, has no upload handler or
      * the store cannot say. Lets a transport hold the outcome journal to the same limit.
      */

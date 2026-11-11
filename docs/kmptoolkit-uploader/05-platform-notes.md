@@ -82,15 +82,15 @@ Register the engine `createUploaderEngine` returned, not a wrapper around it: a 
 serves wake jobs (`awaitDrained`), but upload transports and `UploadGateway` reach only the library's own engine and
 report it unavailable, so an `UploadHandler`'s uploads would retry and re-hand forever.
 
-**Hand-offs while a job is finishing.** The handler transport (`createWorkManagerUploadHandlerTransport`) serves a
-retry handed off while the item's job is still running: the job uploads it before it returns, which also means one job
-can run several attempts in a row and is subject to WorkManager's roughly ten-minute limit as a whole (a stopped job is
-re-run and replays its journal). A hand-off after the job finished serving replaces that job with a fresh one, so a
-retry with a short or zero backoff is not dropped while WorkManager still reports the previous job running. The legacy
-`createWorkManagerUploadTransport` still uses `ExistingWorkPolicy.KEEP`: a retry whose backoff is shorter than the
-moment WorkManager needs to finish the previous job can wait until the lease expires (15 minutes by default). Give it
-a non-zero backoff, or use the handler transport. Hand-offs are tracked per process; another process falls back to
-`KEEP` and the lease.
+**Hand-offs while a job is finishing.** Both WorkManager transports serve a retry handed off while the item's job is
+still running: the job uploads it before it returns, which also means one job can run several attempts in a row and is
+subject to WorkManager's roughly ten-minute limit as a whole (a stopped job is re-run; the handler transport replays its
+journal). A hand-off after the job finished serving replaces that job with a fresh one, so a retry with a short or zero
+backoff is not dropped while WorkManager still reports the previous job running. The handler transport prepares the
+attempt from the row; the classic `createWorkManagerUploadTransport` job carries its request, so the transport hands the
+newest request of an absorbed hand-off to the job, and the job uploads it only when the item is still in flight: a
+duplicate hand-off of an attempt that has just been settled (a delivery, a withdrawal, a retry waiting out its backoff)
+uploads nothing. Hand-offs are tracked per process; another process falls back to `KEEP` and the lease.
 
 **Reliability.** Good. WorkManager persists across reboots and runs in Doze maintenance windows. It
 is not instant, and it is not meant to be.

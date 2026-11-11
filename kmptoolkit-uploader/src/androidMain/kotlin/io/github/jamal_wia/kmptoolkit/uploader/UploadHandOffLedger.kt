@@ -28,9 +28,15 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
     /**
      * One item's state: [activeJobs] jobs of this item are inside `doWork` in this process, [handOffs] hand-offs
      * arrived while one was serving, and [finishedAtNanos] is when the last job finished serving (still reported
-     * running by `WorkManager`, perhaps), or `null`.
+     * running by `WorkManager`, perhaps), or `null`. [latestRequest] is the request of the newest hand-off counted
+     * for a serving job, kept for a job that carries no row to read it from (the classic transport's), or `null`.
      */
-    data class Entry(val activeJobs: Int, val handOffs: Long, val finishedAtNanos: Long?)
+    data class Entry(
+        val activeJobs: Int,
+        val handOffs: Long,
+        val finishedAtNanos: Long?,
+        val latestRequest: UploadRequest? = null,
+    )
 
     /** What a job learns when it closes an iteration that ended in success. */
     enum class Finish {
@@ -56,6 +62,12 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
             map + (itemId to entry.copy(activeJobs = entry.activeJobs + 1, finishedAtNanos = null))
         }
     }
+
+    /**
+     * The request of the newest hand-off that was counted for [itemId]'s serving job, or `null`. Written in the same
+     * atomic step as the count, so a job that sees the count sees the request.
+     */
+    fun latestRequest(itemId: String): UploadRequest? = entries.value[itemId]?.latestRequest
 
     /** The hand-off counter a serving iteration read before it looked at the row. */
     fun handOffsSeen(itemId: String): Long = entries.value[itemId]?.handOffs ?: 0L
@@ -88,9 +100,9 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
     /**
      * The policy for a hand-off of [itemId], deciding atomically what the entry becomes: nothing for an item without
      * a job in this process (`KEEP`); `REPLACE` once for an item whose job finished serving; otherwise the hand-off
-     * is counted for the serving job and the policy is `KEEP`.
+     * is counted for the serving job and the policy is `KEEP`. A counted hand-off stores [request] with the count.
      */
-    fun policyForHandOff(itemId: String): ExistingWorkPolicy =
+    fun policyForHandOff(itemId: String, request: UploadRequest? = null): ExistingWorkPolicy =
         entries.transact { map ->
             val now: Long = nanoTime()
             val entry: Entry = map[itemId] ?: return@transact pruned(map, now) to ExistingWorkPolicy.KEEP
@@ -101,7 +113,7 @@ internal class UploadHandOffLedger(private val nanoTime: () -> Long = System::na
                         if (cleared.activeJobs == 0) map - itemId else map + (itemId to cleared)
                     pruned(next, now) to ExistingWorkPolicy.REPLACE
                 }
-                else -> map + (itemId to entry.copy(handOffs = entry.handOffs + 1)) to ExistingWorkPolicy.KEEP
+                else -> map + (itemId to entry.copy(handOffs = entry.handOffs + 1, latestRequest = request)) to ExistingWorkPolicy.KEEP
             }
         }
 
