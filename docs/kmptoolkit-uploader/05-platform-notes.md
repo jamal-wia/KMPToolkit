@@ -206,7 +206,8 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   the device is locked, so a stricter class would fail exactly when the file is needed). If the process
   dies between the answer and the settlement, the next run **replays the file instead of uploading
   again**: the Android worker checks it before preparing the attempt, the iOS transport in a re-hand
-  (a first hand-off finds a stale file, deletes it and uploads), in `handleEvents` and once when it is
+  (a first hand-off finds a stale file, deletes it and uploads; so does a re-hand that finds a file stamped with an
+  older attempt than its own, a late duplicate that reached the disk), in `handleEvents` and once when it is
   created. On Android the entry carries the attempt it answers and is deleted only after the engine commit
   returned, so a death or stop before the commit leaves it for the next run, and a leftover of an attempt that was
   already settled is recognised and dropped instead of replaying into the retry. On iOS the entry carries the attempt

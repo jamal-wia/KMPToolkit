@@ -364,7 +364,7 @@ internal class BackgroundSessionUploadTransport(
     private fun launchWithStamp(itemId: String, isRehandOff: Boolean, attemptStamp: Int?, request: UploadRequest) {
         // First of all: an outcome this item's earlier upload journaled is replayed INSTEAD of uploading — the
         // session it ran on is gone and its events will not come again. Nothing is started, not even a session.
-        if (replayJournaled(itemId, isRehandOff)) return
+        if (replayJournaled(itemId, isRehandOff, attemptStamp)) return
         handOff(itemId, isRehandOff, request, attemptStamp)
     }
 
@@ -475,16 +475,25 @@ internal class BackgroundSessionUploadTransport(
      *
      * A lost settlement always leaves the item in flight until its lease expires, so only a re-hand can be
      * owed a replay: for a first hand-off an entry is stale, and is deleted so that it cannot stand in for
-     * the upload this hand-off was made for.
+     * the upload this hand-off was made for. Neither is an entry stamped with another attempt than the one this
+     * hand-off carries ([attemptStamp]): it answers an attempt the item has moved past (a late duplicate that reached
+     * the disk), so it is dropped here and the upload goes on, instead of a replay that applies nothing and leaves the
+     * item waiting for its next lease. An unstamped entry or hand-off is replayed as before.
      *
      * @return whether a replay was started — the caller then starts nothing. An unusable entry is deleted by
      *   the inspection and reads as none.
      */
-    private fun replayJournaled(itemId: String, isRehandOff: Boolean): Boolean {
+    private fun replayJournaled(itemId: String, isRehandOff: Boolean, attemptStamp: Int?): Boolean {
         val entry: JournalEntry = journal.inspect(itemId)
         if (entry !is JournalEntry.Valid) return false
         if (!isRehandOff) {
             logger.i { "Discarded a stale journaled outcome at a first hand-off — item=$itemId" }
+            journal.delete(itemId)
+            return false
+        }
+        val entryStamp: Int? = entry.attemptStamp
+        if (attemptStamp != null && entryStamp != null && entryStamp != attemptStamp) {
+            logger.i { "Discarded a journaled outcome of attempt $entryStamp at the re-hand of attempt $attemptStamp — item=$itemId" }
             journal.delete(itemId)
             return false
         }

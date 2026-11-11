@@ -189,4 +189,33 @@ class IosSettleReorderRound5AdversarialTest {
         val journal = OutcomeJournal(IosOutcomeStorage(s.dir), UploaderClock.System)
         assertTrue(journal.inspect(s.itemId) is JournalEntry.Absent, "the stale duplicate left an entry behind")
     }
+
+    /**
+     * A leftover stamped with an OLDER attempt sits in the journal when a relaunched process re-hands the newer attempt
+     * (its lease ran out). The leftover is not that attempt's answer: it must be dropped and the upload must start (or
+     * rejoin the task the system still runs), not be swallowed into a replay that applies nothing.
+     */
+    @Test
+    fun `a stale leftover entry does not swallow the re-hand of the attempt it is older than`() = runTest {
+        val s: Setup = setup()
+        failFirstAttempt(s)
+        // The late duplicate of attempt 0 reached the disk, and the process died before the engine dropped it.
+        val journal = OutcomeJournal(IosOutcomeStorage(s.dir), UploaderClock.System)
+        assertTrue(journal.record(s.itemId, UploadResponse(500, emptyMap(), ByteArray(0), false), attemptStamp = 0))
+        // The relaunch: a new transport over the same directory; the engine re-hands attempt 1 after its lease.
+        val sessions = mutableListOf<FakeSession>()
+        val relaunched: BackgroundSessionUploadTransport = transportOver(s.dir, sessions, s.prefix)
+        relaunched.launch(
+            s.itemId,
+            isRehandOff = true,
+            attemptStamp = 1,
+            request = UploadRequest(url = "https://upload.invalid/x", fields = listOf(UploadField.Text("a", "b"))),
+        )
+        withContext(Dispatchers.Default) { delay(1_000L) } // the flush window is 100 ms
+
+        assertTrue(
+            sessions.sumOf { it.tasksCreated } >= 1,
+            "the re-hand of attempt 1 started no upload: the stale leftover of attempt 0 was replayed instead (item waits for its lease)",
+        )
+    }
 }
