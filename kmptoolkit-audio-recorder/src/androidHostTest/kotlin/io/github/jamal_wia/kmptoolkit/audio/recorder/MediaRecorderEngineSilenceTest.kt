@@ -55,6 +55,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `a monitor is registered when the listener is attached and not before`() = runTest {
         prepared()
         assertTrue(monitors.isEmpty(), "nothing is registered until someone listens")
@@ -66,6 +67,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `the monitor is asked once after start and once after resume`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -80,6 +82,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `the monitor is released when the listener is removed`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -92,6 +95,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `the monitor is released before a normal stop`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -103,6 +107,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `the monitor is released with the recorder`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -113,6 +118,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `setting a listener twice does not leave two monitors registered`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -124,6 +130,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `a change reported by the monitor reaches the listener`() = runTest {
         prepared()
         engine.setEventListener { event: EngineEvent -> events += event }
@@ -139,6 +146,7 @@ class MediaRecorderEngineSilenceTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `a change from a monitor of a replaced or removed listener reaches nobody`() = runTest {
         prepared()
         val first: MutableList<EngineEvent> = mutableListOf()

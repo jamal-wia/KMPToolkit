@@ -11,6 +11,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.robolectric.Shadows
+import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowMediaRecorder
 
 /**
@@ -59,6 +60,7 @@ class MediaRecorderEngineChaosTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `callbacks of an earlier recording reach nobody once a later recording has its own listener`() = runTest {
         repeat(CYCLES) { cycle: Int ->
             val received: MutableList<String> = mutableListOf()
@@ -92,6 +94,7 @@ class MediaRecorderEngineChaosTest {
     }
 
     @Test
+    @Config(minSdk = 29)
     fun `callbacks captured before a listener is replaced never reach the replacement or the original`() = runTest {
         repeat(CYCLES) { cycle: Int ->
             engine.prepare("/tmp/replace-$cycle.m4a", AudioRecorderConfig(), null)
