@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -53,7 +54,7 @@ class RecorderStorageNameEscapeTest {
             if (path != null) {
                 val parent: String = File(path).canonicalFile.parentFile!!.path
                 assertTrue(
-                    parent == base || parent.startsWith("$base/"),
+                    parent == base || TestPaths.isInside(base, parent),
                     "directoryName '$name' made the recorder write to $parent, outside $base",
                 )
                 File(parent).takeIf { it.path != base && it.name.startsWith("escaped-by-name") }?.deleteRecursively()

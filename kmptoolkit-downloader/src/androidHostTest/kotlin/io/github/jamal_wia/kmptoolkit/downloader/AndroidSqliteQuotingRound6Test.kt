@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -44,6 +45,7 @@ class AndroidSqliteQuotingRound6Test {
 
     private fun database(table: String, metaKey: String, rows: Int, declared: Int = rows): ByteArray {
         val file = File(context.cacheDir, "q6-${System.nanoTime()}.db")
+        TestHost.assumeNativePathFits(file.path)
         val db: SQLiteDatabase = SQLiteDatabase.openOrCreateDatabase(file, null)
         try {
             db.execSQL("CREATE TABLE \"$table\" (id INTEGER PRIMARY KEY)")
@@ -72,6 +74,8 @@ class AndroidSqliteQuotingRound6Test {
             val storage: DownloaderStorage = createDownloaderStorage(context, config)
             val unit = DbUnit(id, ResourceFormat.SqliteDatabase(rowCountTable, metaKey))
             storage.beginTempFile(unit, null)
+            // The commit opens the completed temp file with native SQLite: skip where that path cannot be opened.
+            TestHost.assumeNativePathFits(storage.getTempFilePath(unit) + ".complete-shm")
             File(storage.getTempFilePath(unit)).apply { parentFile!!.mkdirs() }
                 .writeBytes(database(table, metaKey, 3, declared))
             storage.markTempFileComplete(unit)

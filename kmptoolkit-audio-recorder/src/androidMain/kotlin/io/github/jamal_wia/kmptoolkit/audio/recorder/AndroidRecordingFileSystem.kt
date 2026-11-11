@@ -1,9 +1,12 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import android.content.Context
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.isAbsoluteFilePath
 import java.io.File
 
 /** [RecordingFileSystem] over `java.io.File`, rooted at the app's private storage. */
+@OptIn(ToolkitInternalApi::class)
 internal class AndroidRecordingFileSystem(
     private val context: Context,
 ) : RecordingFileSystem {
@@ -16,6 +19,8 @@ internal class AndroidRecordingFileSystem(
         File(directory, name).path
 
     override fun parentOf(path: String): String? = File(path).parent
+
+    override fun isAbsolute(path: String): Boolean = isAbsoluteFilePath(path)
 
     override fun ensureWritableDirectory(path: String): Boolean {
         val directory = File(path)

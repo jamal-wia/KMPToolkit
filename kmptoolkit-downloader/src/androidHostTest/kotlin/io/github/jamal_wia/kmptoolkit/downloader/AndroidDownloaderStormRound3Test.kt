@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -322,7 +323,7 @@ class AndroidDownloaderStormRound3Test {
             assertEquals(null, failure.get()?.stackTraceToString()?.take(2500), "round $round: an operation threw")
             // Every thread ended with a delete, so whatever the interleaving, nothing of the unit stays.
             val left: List<String> = root.walkTopDown().filter { it.isFile && it.name != "legacy-layout" && it.name != "seed.tmp" }
-                .map { it.relativeTo(root).path }.sorted().toList()
+                .map { TestPaths.relativeLogical(root.path, it.path)!! }.sorted().toList()
             assertEquals(emptyList(), left, "round $round: files left behind")
             assertEquals(TempFileState.None, storages[0].tempFileState(unit), "round $round")
         }

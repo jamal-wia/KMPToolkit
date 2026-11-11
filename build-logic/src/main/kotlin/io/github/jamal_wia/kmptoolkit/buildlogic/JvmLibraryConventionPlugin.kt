@@ -24,6 +24,9 @@ import org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation
  * artifact and the multiplatform module it builds on (`kmptoolkit-video-player`) always share one
  * bytecode level.
  *
+ * It registers `checkPathHygiene` exactly like `kmptoolkit.library` does (see
+ * [registerPathHygieneCheck]).
+ *
  * This is not a way around docs/01-architecture.md § "Desktop targets": that rule is about *adding*
  * a desktop target to a multiplatform module. A JVM-only module is by definition something only a
  * desktop build asks for.
@@ -33,6 +36,9 @@ class JvmLibraryConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) {
         with(target) {
             pluginManager.apply("org.jetbrains.kotlin.multiplatform")
+
+            shortenWindowsTestTmpDir()
+            registerPathHygieneCheck()
 
             extensions.configure<KotlinMultiplatformExtension> {
                 explicitApi()

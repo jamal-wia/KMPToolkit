@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -205,7 +206,7 @@ class AndroidDownloaderResourcesRound4Test {
                 }
             }.joinAll()
             assertEquals(0, lockRegistrySize())
-            val files: List<String> = root.walkTopDown().filter { it.isFile }.map { it.relativeTo(root).path }.toList()
+            val files: List<String> = root.walkTopDown().filter { it.isFile }.map { TestPaths.relativeLogical(root.path, it.path)!! }.toList()
             assertEquals(listOf(UnitFileLayout.LEGACY_LAYOUT_MARKER), files)
         }
     }

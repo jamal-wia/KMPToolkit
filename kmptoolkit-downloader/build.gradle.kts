@@ -58,6 +58,8 @@ kotlin {
         // engine tests here build their own small, local fakes instead.
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // Not published; the path converter, file-system helpers and host assumptions of the tests.
+            implementation(project(":test-support"))
         }
     }
 }

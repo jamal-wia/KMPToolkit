@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.downloader
 
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.test.AfterTest
@@ -61,8 +62,8 @@ abstract class ZipExtractionRound5Contract {
     private suspend fun assertRejected(storage: DownloaderStorage, unit: DownloadUnit) {
         assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
         assertEquals(TempFileState.None, storage.tempFileState(unit), "the worthless temp file must be deleted")
-        val base: String = storage.getResourcePath(unit).substringBeforeLast('/').substringBeforeLast('/')
-        assertFalse(pathExists("$base/tmp/staging-${unit.id}"), "no staging directory may stay behind")
+        val base: String = TestPaths.parent(TestPaths.parent(storage.getResourcePath(unit))!!)!!
+        assertFalse(pathExists(TestPaths.join(base, "tmp/staging-${unit.id}")), "no staging directory may stay behind")
         assertFalse(storage.isResourceAvailable(unit), "a rejected archive must not be available")
     }
 
@@ -130,8 +131,8 @@ abstract class ZipExtractionRound5Contract {
 
         assertRejected(storage, unit)
 
-        val base: String = storage.getResourcePath(unit).substringBeforeLast('/').substringBeforeLast('/')
-        assertFalse(pathExists("$base/tmp/evil.txt"), "an entry must never leave the extraction tree")
+        val base: String = TestPaths.parent(TestPaths.parent(storage.getResourcePath(unit))!!)!!
+        assertFalse(pathExists(TestPaths.join(base, "tmp/evil.txt")), "an entry must never leave the extraction tree")
     }
 
     @Test
@@ -142,8 +143,8 @@ abstract class ZipExtractionRound5Contract {
 
         storage.commitResource(unit)
 
-        assertTrue(pathExists(storage.getResourcePath(unit) + "/empty"))
-        assertTrue(pathExists(storage.getResourcePath(unit) + "/deep/er"))
+        assertTrue(pathExists(TestPaths.join(storage.getResourcePath(unit), "empty")))
+        assertTrue(pathExists(TestPaths.join(storage.getResourcePath(unit), "deep/er")))
     }
 
     @Test

@@ -47,6 +47,8 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // Not published; host path rules and the unwritable-directory helper for the file tests.
+            implementation(project(":test-support"))
         }
     }
 }

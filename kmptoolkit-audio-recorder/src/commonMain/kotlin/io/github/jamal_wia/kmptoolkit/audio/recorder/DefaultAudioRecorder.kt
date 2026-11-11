@@ -224,7 +224,7 @@ internal class DefaultAudioRecorder(
             // Guarded before the filesystem is touched: NSURL.fileURLWithPath raises on a blank path,
             // and Kotlin/Native cannot catch an Objective-C exception, so an unchecked blank string
             // would kill the process instead of producing a RecorderError.
-            if (path.isBlank() || !path.startsWith(PATH_SEPARATOR)) {
+            if (path.isBlank() || !fileSystem.isAbsolute(path)) {
                 return failPrepare(RecorderError.DirectoryNotWritable(path))
             }
             val directory: String = fileSystem.parentOf(path)
@@ -1125,8 +1125,6 @@ internal class DefaultAudioRecorder(
     }
 
     private companion object {
-        const val PATH_SEPARATOR = "/"
-
         /** About three seconds of samples at the default interval; see [_levelSamples]. */
         const val LEVEL_SAMPLE_BUFFER = 64
         val SUCCESS: RecorderResult<Unit> = RecorderResult.Success(Unit)

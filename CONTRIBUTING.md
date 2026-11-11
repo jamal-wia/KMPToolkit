@@ -31,6 +31,69 @@ compatibility, branching, testing, documentation).
    updated `api/` dump alongside the code change — don't hand-edit the dump file.
 6. Add an entry under `## [Unreleased]` in `CHANGELOG.md`.
 
+## Paths and the path-hygiene check
+
+Tests and code that handle file paths must work on Windows as well as on macOS and Linux. Build a
+path with `File(parent, child)` or `Path.resolve`, never by gluing a string with `/` or
+`File.separator`; in tests use the helpers of the unpublished `:test-support` module (`TestPaths`,
+`TestHost`, `TestFs`) instead of hand-written separators, POSIX permission bits or `/proc`.
+
+`./gradlew build` enforces the most common mistakes: every module registers `checkPathHygiene`
+(attached to `check`), a lexical scan of `src/<sourceSet>/kotlin` that fails with `file:line` and the
+rule id. iOS source sets are never scanned. The rules:
+
+| Rule | Where | Forbids |
+|---|---|---|
+| PH1 | every scanned source set | `File.separator`, `File.separatorChar` (also as a static import), `"file.separator"`, `FileSystems.getDefault().separator` |
+| PH2 | every scanned source set | `PosixFilePermission(s)`, `setPosixFilePermissions`, `.setReadable(` / `.setWritable(` / `.setExecutable(` / `.setReadOnly(` (also without a receiver, as `setWritable(false)` / `setReadOnly()`), `UnixOperatingSystemMXBean`, `"/proc/`, `"/dev/fd` |
+| PH3 | `*Test` source sets | taking a path apart on `/`: `substringBeforeLast('/')`, `substringAfterLast('/')`, `lastIndexOf('/')`, `.split('/')`, with or without further arguments |
+| PH4 | `*Test` source sets | a path-like name (`dir`, `path`, `base`, `root`, `folder`, `tmp`, `temp`, ...) joined with `/` in a template (`"$dir/x"`, `"${x.path}/x"`) or a `+ "/..."` |
+| PH5 | every scanned source set that is not a `*Test` one | `startsWith('/')` or `startsWith(PATH_SEPARATOR)` as an absolute-path check, `path[0] == '/'`, `path.first() == '/'`, and a `val x = "/"` declaration (use `isAbsoluteFilePath` from `kmptoolkit-core`) |
+
+When a hit is legitimate — a URL, a logical name, a fake file system, a POSIX-only test that skips
+itself on Windows — say so, with a reason (a suppression without one fails the task):
+
+```kotlin
+// path-hygiene-ignore: PH3 the value is a URL, not a file path
+val last: String = url.substringAfterLast('/')
+```
+
+The comment goes on the offending line or alone on the line above it; several rules are written
+`PH3,PH4`. A file whose strings are all logical paths of a fake file system takes one line,
+`// path-hygiene-file: logical-paths <reason>`, which exempts PH3, PH4 and PH5 in that file (never
+PH1 or PH2, and never in a production source set: there it is itself a violation). Prefer line
+suppressions in a file that mixes host paths and logical ones. Do not silence a hit you have not read: first try the migration the rule suggests.
+
+The scan is fast feedback, not proof, and it is meant to be: of the 48 separator and POSIX failures of the
+first Windows run it catches about 43 (~90%) with the rules as shipped. It does **not** catch:
+
+- a separator that reaches a path through a value or a function (`val sep = "/"` used later,
+  `joinToString("/")`, `buildString`), or a join whose operand is not named like a path
+  (`"$parent/$name"`, `"$prefix/x"`, `File(a + "/" + b)`); a name that merely contains a path word
+  (`attempts` contains `temp`) is caught, wrongly, and needs a suppression;
+- an absolute-path check spelled another way (`path.startsWith(root)`, `path.isNotEmpty() && path[0] ==
+  SEP`), a separator constant that is not named `...SEPARATOR` / `...SLASH`, or one that is qualified
+  (`startsWith(Paths.PATH_SEPARATOR)`);
+- a permission setter called without a receiver and with a non-literal argument (`apply { setWritable(flag) }`);
+  `setWritable(false)` and `setReadOnly()` are caught;
+- a native path compared with a `/` literal (`assertEquals("/data/x", file.path)`), a tree listing
+  compared with `/`-separated names, a `\` literal in code that builds POSIX paths;
+- a rule hit that spans lines (the scan is per line), and Kotlin code outside `src/*/kotlin` (Java sources,
+  resources, build scripts); the `jvmShared` folder of `:test-support` is scanned, iOS and other native
+  source sets never;
+- Windows limits that are not about the separator: the 260-character MAX_PATH of native code (the
+  SQLite tests), names NTFS rejects or rewrites (trailing dots, `CON`, `:`), case-insensitive names,
+  an open file that cannot be deleted, ACL semantics that differ from POSIX permission bits, `\r\n`
+  line endings, a server resetting a connection instead of delivering an early reply;
+- a POSIX API that is not in the PH2 list (`ProcessBuilder("sh")`, a hard-coded `/tmp`), and a
+  suppression that no longer silences anything (not reported) or whose reason is not true (a reason is
+  required, not verified).
+
+The only complete check is to run the tests on Windows (`jvmTest testAndroidHostTest`).
+
+The scanner's own unit tests live in `build-logic` and run through `./gradlew checkBuildLogic`, which
+`./gradlew check` and `./gradlew build` include.
+
 ## Code style
 
 SOLID / KISS / YAGNI, composition over inheritance, immutability by default, explicit type

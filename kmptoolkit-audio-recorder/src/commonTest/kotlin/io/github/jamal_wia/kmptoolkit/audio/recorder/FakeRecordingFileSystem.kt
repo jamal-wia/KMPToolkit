@@ -1,5 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.core.isAbsoluteFilePath
+
 /**
  * An in-memory [RecordingFileSystem] using `/` as its separator, so path handling, directory
  * creation, free-space refusal, and deletion of partial files can all be asserted without touching
@@ -42,7 +45,13 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
         directory.trimEnd('/') + "/" + name
 
     override fun parentOf(path: String): String? =
+        // path-hygiene-ignore: PH3 the fake file system's paths are logical '/'-separated names by its documented contract
         path.substringBeforeLast('/', missingDelimiterValue = "").takeIf { it.isNotEmpty() }
+
+    // This fake is POSIX-style ("/data/app/..."), and a test that needs a configured directory has to
+    // give a host-absolute one ("C:\..." on Windows, where RecordingStorage rejects "/x"): accept both.
+    @OptIn(ToolkitInternalApi::class)
+    override fun isAbsolute(path: String): Boolean = path.startsWith('/') || isAbsoluteFilePath(path)
 
     override fun ensureWritableDirectory(path: String): Boolean {
         onEnsureWritableDirectory()

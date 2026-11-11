@@ -5,6 +5,9 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.jamal_wia.kmptoolkit.testsupport.PathSyntax
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -80,6 +83,9 @@ class RecorderApiMatrixTest {
         grant()
         val base: String = context.filesDir.canonicalPath
         for (name in listOf("a\\..\\b", "a/%2e%2e", "...", ".hidden", "a b/ c", "a/", "..a", "a..", "~", "a/b/")) {
+            // A backslash is a file-name character on a device but a separator on a Windows host, where
+            // "a\..\b" is the real path "b": this case only means something on a POSIX file system.
+            if (name.contains('\\') && TestHost.pathSyntax == PathSyntax.WINDOWS) continue
             val recorder: AudioRecorder = createAudioRecorder(
                 context,
                 AudioRecorderConfig(storage = RecordingStorage(directoryName = name)),
@@ -87,7 +93,7 @@ class RecorderApiMatrixTest {
             try {
                 val result = runBlocking { withTimeout(10_000) { recorder.prepare() } }
                 val path: String = (result as? RecorderResult.Success)?.value ?: error("'$name': prepare gave $result")
-                assertTrue(File(path).canonicalPath.startsWith("$base/"), "'$name' escaped: $path")
+                assertTrue(TestPaths.isInside(base, File(path).canonicalPath), "'$name' escaped: $path")
                 assertTrue(File(path).parentFile!!.isDirectory, "'$name': directory was not created")
                 runBlocking { recorder.cancel() }
             } finally {
@@ -110,7 +116,7 @@ class RecorderApiMatrixTest {
                 val result = runBlocking { withTimeout(10_000) { recorder.prepare() } }
                 when (result) {
                     is RecorderResult.Success ->
-                        assertTrue(File(result.value).canonicalPath.startsWith("$base/"), "'$name' escaped: ${result.value}")
+                        assertTrue(TestPaths.isInside(base, File(result.value).canonicalPath), "'$name' escaped: ${result.value}")
                     is RecorderResult.Failure ->
                         assertTrue(result.error is RecorderError.DirectoryNotWritable, "'$name' failed with ${result.error}")
                 }

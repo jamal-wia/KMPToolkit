@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -296,7 +297,7 @@ class AndroidDownloaderResumeStormRound3Test {
                 assertContentEquals(payload, File(storages[0].getResourcePath(unit)).readBytes(), "round $round: ${unit.id}")
             }
             val left: List<String> = File(root, "tmp").walkTopDown().filter { it.isFile && it.name != "legacy-layout" && it.name != "seed.tmp" }
-                .map { it.relativeTo(root).path }.sorted().toList()
+                .map { TestPaths.relativeLogical(root.path, it.path)!! }.sorted().toList()
             assertEquals(emptyList(), left, "round $round: temp files or records left")
         }
     }

@@ -1,0 +1,46 @@
+public final class io/github/jamal_wia/kmptoolkit/testsupport/PathSyntax : java/lang/Enum {
+	public static final field POSIX Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;
+	public static final field WINDOWS Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;
+	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/testsupport/TestFs {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/testsupport/TestFs;
+	public final fun makeUnreadable (Ljava/io/File;)Ljava/lang/AutoCloseable;
+	public final fun makeUnwritable (Ljava/io/File;)Ljava/lang/AutoCloseable;
+	public final fun openDescriptorCount ()Ljava/lang/Long;
+	public final fun requireOpenDescriptorCount ()J
+}
+
+public final class io/github/jamal_wia/kmptoolkit/testsupport/TestHost {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/testsupport/TestHost;
+	public final fun assumeNativePathFits (Ljava/lang/String;)V
+	public final fun assumePosixFileSemantics (Ljava/lang/String;)V
+	public final fun getMaxNativePathLength ()Ljava/lang/Integer;
+	public final fun getPathSyntax ()Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;
+	public final fun isReservedDeviceNameOnly (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Z
+	public static synthetic fun isReservedDeviceNameOnly$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestHost;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Z
+	public final fun isValidHostFileName (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Z
+	public static synthetic fun isValidHostFileName$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestHost;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Z
+}
+
+public final class io/github/jamal_wia/kmptoolkit/testsupport/TestPaths {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/testsupport/TestPaths;
+	public final fun fileName (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Ljava/lang/String;
+	public static synthetic fun fileName$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestPaths;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Ljava/lang/String;
+	public final fun isInside (Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Z
+	public static synthetic fun isInside$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestPaths;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Z
+	public final fun join (Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Ljava/lang/String;
+	public static synthetic fun join$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestPaths;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Ljava/lang/String;
+	public final fun normalize (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Ljava/lang/String;
+	public static synthetic fun normalize$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestPaths;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Ljava/lang/String;
+	public final fun parent (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Ljava/lang/String;
+	public static synthetic fun parent$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestPaths;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Ljava/lang/String;
+	public final fun relativeLogical (Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Ljava/lang/String;
+	public static synthetic fun relativeLogical$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestPaths;Ljava/lang/String;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Ljava/lang/String;
+	public final fun toLogical (Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;)Ljava/lang/String;
+	public static synthetic fun toLogical$default (Lio/github/jamal_wia/kmptoolkit/testsupport/TestPaths;Ljava/lang/String;Lio/github/jamal_wia/kmptoolkit/testsupport/PathSyntax;ILjava/lang/Object;)Ljava/lang/String;
+}
+

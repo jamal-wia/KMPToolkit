@@ -68,7 +68,6 @@ class UploaderConcurrencyStormRound3AdversarialTest {
 
     @AfterTest
     fun cleanUp() {
-        journalRoot.walkTopDown().forEach { it.setReadable(true); it.setWritable(true) }
         uploads.cancel()
         server.close()
         engines.forEach { runCatching { it.close() } }

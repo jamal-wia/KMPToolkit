@@ -8,6 +8,7 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
 import java.io.File
 import java.io.RandomAccessFile
 import java.net.InetAddress
@@ -499,9 +500,10 @@ class UploadHandlerWorkerChaosAdversarialTest {
                 started.drain()
             }
         }
-        fun descriptors(): Int = File("/dev/fd").list()?.size ?: -1
+        // Open descriptors of this process; skips on a host that cannot count them (Windows), fails on one that should.
+        fun descriptors(): Long = TestFs.requireOpenDescriptorCount()
         runWorker("item-1") // warm up pools and class loading
-        val fdBefore: Int = descriptors()
+        val fdBefore: Long = descriptors()
         val threadsBefore: Int = Thread.getAllStackTraces().size
 
         for (index in 2..30) assertIs<ListenableWorker.Result.Success>(runWorker("item-$index"))

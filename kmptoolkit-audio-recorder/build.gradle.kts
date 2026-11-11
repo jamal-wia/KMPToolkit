@@ -38,6 +38,8 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // Not published; the path converter and host assumptions for the file-system tests.
+            implementation(project(":test-support"))
         }
     }
 }

@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.downloader
 
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -479,14 +480,14 @@ abstract class DownloaderStorageContractTest {
         // java.io.File.delete() and POSIX remove(3) (which is rmdir(2) for a directory) both
         // refuse it, remove(3) with ENOTEMPTY, and neither deletes recursively.
         val partial: String = storage.getTempFilePath(unit)
-        writeFile("$partial/child", "x".encodeToByteArray())
-        val tmpDirectory: String = partial.substringBeforeLast('/')
+        writeFile(TestPaths.join(partial, "child"), "x".encodeToByteArray())
+        val tmpDirectory: String = TestPaths.parent(partial)!!
 
         assertFailsWith<IllegalStateException> { storage.beginTempFile(unit, null) }
 
-        assertFalse(pathExists("$tmpDirectory/expect/${unit.id}.sha256"), "the new record must not be paired with the surviving old file")
-        assertFalse(pathExists("$tmpDirectory/expect-staged/${unit.id}.sha256"), "the staged record must be dropped")
-        assertTrue(pathExists("$partial/child"), "the obstacle must still be there: nothing may remove it another way")
+        assertFalse(pathExists(TestPaths.join(tmpDirectory, "expect/${unit.id}.sha256")), "the new record must not be paired with the surviving old file")
+        assertFalse(pathExists(TestPaths.join(tmpDirectory, "expect-staged/${unit.id}.sha256")), "the staged record must be dropped")
+        assertTrue(pathExists(TestPaths.join(partial, "child")), "the obstacle must still be there: nothing may remove it another way")
     }
 
     @Test
@@ -494,11 +495,11 @@ abstract class DownloaderStorageContractTest {
         val unit = ContractUnit("stuck-delete")
         storage.beginTempFile(unit, OTHER)
         // A non-empty directory at the partial path cannot be deleted by either platform.
-        writeFile("${storage.getTempFilePath(unit)}/child", "x".encodeToByteArray())
+        writeFile(TestPaths.join(storage.getTempFilePath(unit), "child"), "x".encodeToByteArray())
 
         storage.deleteTempFile(unit)
 
-        assertTrue(pathExists("${storage.getTempFilePath(unit)}/child"), "the data file must have survived")
+        assertTrue(pathExists(TestPaths.join(storage.getTempFilePath(unit), "child")), "the data file must have survived")
         assertTrue(pathExists(recordPath(storage, unit)), "the record of a surviving file must be kept")
     }
 
@@ -508,7 +509,7 @@ abstract class DownloaderStorageContractTest {
         writeTemp(storage, unit, "abc")
         storage.markTempFileComplete(unit)
         // A directory where the record belongs: reading it fails on both platforms.
-        writeFile("${recordPath(storage, unit)}/child", "x".encodeToByteArray())
+        writeFile(TestPaths.join(recordPath(storage, unit), "child"), "x".encodeToByteArray())
 
         assertFailsWith<ResourceIntegrityException> { storage.commitResource(unit) }
 
@@ -563,7 +564,7 @@ abstract class DownloaderStorageContractTest {
         val unit = ContractUnit("pages", format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "archives/pages")
         commitTwiceConcurrently(unit, zipOf("marker.txt", "hello".encodeToByteArray()))
 
-        assertEquals("hello", readFile(storage.getResourcePath(unit) + "/marker.txt")?.decodeToString())
+        assertEquals("hello", readFile(TestPaths.join(storage.getResourcePath(unit), "marker.txt"))?.decodeToString())
     }
 
     /**
@@ -665,9 +666,9 @@ abstract class DownloaderStorageContractTest {
     fun `an id with dot-dot never puts its temp file outside the tmp directory`() {
         val unit = ContractUnit("../x", relativePath = "resources/p4.bin")
 
-        val path: String = normalized(storage.getTempFilePath(unit))
+        val path: String = TestPaths.normalize(storage.getTempFilePath(unit))
 
-        assertTrue(path.startsWith(baseDirectory() + "/tmp/"), "temp path was $path")
+        assertTrue(TestPaths.isInside(TestPaths.join(baseDirectory(), "tmp"), path), "temp path was $path")
     }
 
     // 5
@@ -701,9 +702,9 @@ abstract class DownloaderStorageContractTest {
     fun `a temp extension with a slash completes the flow and the record stays keyed by the id alone`() = runTest {
         val unit = ContractUnit("model7", tempExtension = "a/b", relativePath = "resources/p7.bin")
         storage.beginTempFile(unit, ABC)
-        assertTrue(pathExists(baseDirectory() + "/tmp/expect/model7.sha256"), "the record is tmp/expect/<id>.sha256")
+        assertTrue(pathExists(TestPaths.join(baseDirectory(), "tmp/expect/model7.sha256")), "the record is tmp/expect/<id>.sha256")
         assertTrue(
-            pathExists(storage.getTempFilePath(unit).substringBeforeLast('/')),
+            pathExists(TestPaths.parent(storage.getTempFilePath(unit))!!),
             "beginTempFile must leave the directory of the temp path in place, so a writer can open the file",
         )
         writeTemp(storage, unit, "abc")
@@ -711,7 +712,7 @@ abstract class DownloaderStorageContractTest {
         finish(storage, unit)
 
         assertTrue(storage.isResourceAvailable(unit))
-        assertFalse(pathExists(baseDirectory() + "/tmp/expect/model7.sha256"))
+        assertFalse(pathExists(TestPaths.join(baseDirectory(), "tmp/expect/model7.sha256")))
     }
 
     // 8 (guard)
@@ -720,16 +721,16 @@ abstract class DownloaderStorageContractTest {
         val unit = ContractUnit("model-1", relativePath = "resources/p8.bin")
         val base: String = baseDirectory()
 
-        assertEquals("$base/tmp/model-1.tmp", storage.getTempFilePath(unit))
+        assertEquals(TestPaths.join(base, "tmp/model-1.tmp"), storage.getTempFilePath(unit))
         storage.beginTempFile(unit, ABC)
-        assertTrue(pathExists("$base/tmp/expect/model-1.sha256"))
+        assertTrue(pathExists(TestPaths.join(base, "tmp/expect/model-1.sha256")))
         writeTemp(storage, unit, "abc")
         storage.markTempFileComplete(unit)
-        assertTrue(pathExists("$base/tmp/model-1.tmp.complete"))
-        assertFalse(pathExists("$base/tmp/model-1.tmp"))
+        assertTrue(pathExists(TestPaths.join(base, "tmp/model-1.tmp.complete")))
+        assertFalse(pathExists(TestPaths.join(base, "tmp/model-1.tmp")))
         // The one thing under the internal directory is the layout marker; no hashed name, record or staging dir.
-        assertTrue(pathExists("$base/${UnitFileLayout.LEGACY_LAYOUT_MARKER}"), "the layout marker is written on first use")
-        assertFalse(pathExists("$base/tmp/kmptoolkit-internal/trash"), "a plain id never touches the hashed subtree")
+        assertTrue(pathExists(TestPaths.join(base, "${UnitFileLayout.LEGACY_LAYOUT_MARKER}")), "the layout marker is written on first use")
+        assertFalse(pathExists(TestPaths.join(base, "tmp/kmptoolkit-internal/trash")), "a plain id never touches the hashed subtree")
     }
 
     // 9
@@ -741,14 +742,14 @@ abstract class DownloaderStorageContractTest {
             Triple("models/v1-t9-bad", OTHER, false),
         )) {
             val unit = ContractUnit(id, relativePath = "resources/p9-${id.substringAfterLast('-')}.bin")
-            writeLegacyFile("$base/tmp/$id.tmp", "abc".encodeToByteArray())
-            writeLegacyFile("$base/tmp/expect/$id.sha256", "sha256:${recorded.hex}\n".encodeToByteArray())
+            writeLegacyFile(TestPaths.join(base, "tmp/$id.tmp"), "abc".encodeToByteArray())
+            writeLegacyFile(TestPaths.join(base, "tmp/expect/$id.sha256"), "sha256:${recorded.hex}\n".encodeToByteArray())
 
             assertEquals(TempFileState.Partial, storage.tempFileState(unit), id)
             assertEquals(3L, storage.getTempFileSize(unit), id)
-            assertFalse(pathExists("$base/tmp/$id.tmp"), "the legacy partial of $id must be gone")
-            assertFalse(pathExists("$base/tmp/expect/$id.sha256"), "the legacy record of $id must be gone")
-            assertTrue(storage.getTempFilePath(unit).startsWith("$base/tmp/kmptoolkit-internal/"), id)
+            assertFalse(pathExists(TestPaths.join(base, "tmp/$id.tmp")), "the legacy partial of $id must be gone")
+            assertFalse(pathExists(TestPaths.join(base, "tmp/expect/$id.sha256")), "the legacy record of $id must be gone")
+            assertTrue(TestPaths.isInside(TestPaths.join(base, "tmp/kmptoolkit-internal"), storage.getTempFilePath(unit)), id)
 
             if (passes) {
                 finish(storage, unit)
@@ -763,8 +764,8 @@ abstract class DownloaderStorageContractTest {
     @Test
     fun `migration never touches another unit's staging tree or record`() {
         val base: String = baseDirectory()
-        writeLegacyFile("$base/tmp/staging-a/b.tmp", "xyz".encodeToByteArray())
-        writeLegacyFile("$base/tmp/expect/foo.sha256", "sha256:${OTHER.hex}\n".encodeToByteArray())
+        writeLegacyFile(TestPaths.join(base, "tmp/staging-a/b.tmp"), "xyz".encodeToByteArray())
+        writeLegacyFile(TestPaths.join(base, "tmp/expect/foo.sha256"), "sha256:${OTHER.hex}\n".encodeToByteArray())
         val inStaging = ContractUnit("staging-a/b", relativePath = "resources/p10a.bin")
         val namedLikeARecord = ContractUnit("expect/foo", tempExtension = "sha256", relativePath = "resources/p10b.bin")
 
@@ -773,8 +774,8 @@ abstract class DownloaderStorageContractTest {
             assertEquals(0L, storage.getTempFileSize(unit), "$unit")
         }
 
-        assertEquals("xyz", readFile("$base/tmp/staging-a/b.tmp")?.decodeToString())
-        assertEquals("sha256:${OTHER.hex}\n", readFile("$base/tmp/expect/foo.sha256")?.decodeToString())
+        assertEquals("xyz", readFile(TestPaths.join(base, "tmp/staging-a/b.tmp"))?.decodeToString())
+        assertEquals("sha256:${OTHER.hex}\n", readFile(TestPaths.join(base, "tmp/expect/foo.sha256"))?.decodeToString())
     }
 
     // 11
@@ -785,35 +786,35 @@ abstract class DownloaderStorageContractTest {
 
         val resumed = ContractUnit("models/v1-t11", relativePath = "resources/p11a.bin")
         val resumedNames: UnitFileLayout.Names = layout.namesOf(resumed)
-        writeLegacyFile("$base/${resumedNames.record}", "sha256:${ABC.hex}\n".encodeToByteArray())
-        writeLegacyFile("$base/tmp/models/v1-t11.tmp", "abc".encodeToByteArray())
+        writeLegacyFile(TestPaths.join(base, "${resumedNames.record}"), "sha256:${ABC.hex}\n".encodeToByteArray())
+        writeLegacyFile(TestPaths.join(base, "tmp/models/v1-t11.tmp"), "abc".encodeToByteArray())
         assertEquals(3L, storage.getTempFileSize(resumed))
-        assertFalse(pathExists("$base/tmp/models/v1-t11.tmp"))
+        assertFalse(pathExists(TestPaths.join(base, "tmp/models/v1-t11.tmp")))
         finish(storage, resumed)
         assertTrue(storage.isResourceAvailable(resumed), "the commit verifies against the record that was already moved")
 
         val both = ContractUnit("models/v1-t11b", relativePath = "resources/p11b.bin")
-        writeFile("$base/${layout.namesOf(both).partial}", "new!".encodeToByteArray())
-        writeLegacyFile("$base/tmp/models/v1-t11b.tmp", "old".encodeToByteArray())
+        writeFile(TestPaths.join(base, "${layout.namesOf(both).partial}"), "new!".encodeToByteArray())
+        writeLegacyFile(TestPaths.join(base, "tmp/models/v1-t11b.tmp"), "old".encodeToByteArray())
         assertEquals(4L, storage.getTempFileSize(both), "the destination is authoritative")
-        assertFalse(pathExists("$base/tmp/models/v1-t11b.tmp"), "the stale legacy file is deleted")
+        assertFalse(pathExists(TestPaths.join(base, "tmp/models/v1-t11b.tmp")), "the stale legacy file is deleted")
     }
 
     // a no-replace move is the primitive the migration's "never overwrites" rests on
     @Test
     fun `renameNoReplace never replaces an existing destination and moves to a free one`() {
         val base: String = baseDirectory()
-        writeFile("$base/nr/from.bin", "legacy".encodeToByteArray())
-        writeFile("$base/nr/taken.bin", "authoritative".encodeToByteArray())
+        writeFile(TestPaths.join(base, "nr/from.bin"), "legacy".encodeToByteArray())
+        writeFile(TestPaths.join(base, "nr/taken.bin"), "authoritative".encodeToByteArray())
 
-        assertFalse(renameNoReplace("$base/nr/from.bin", "$base/nr/taken.bin"), "the destination exists")
-        assertEquals("authoritative", readFile("$base/nr/taken.bin")?.decodeToString(), "it must not be replaced")
-        assertEquals("legacy", readFile("$base/nr/from.bin")?.decodeToString(), "the source must stay")
+        assertFalse(renameNoReplace(TestPaths.join(base, "nr/from.bin"), TestPaths.join(base, "nr/taken.bin")), "the destination exists")
+        assertEquals("authoritative", readFile(TestPaths.join(base, "nr/taken.bin"))?.decodeToString(), "it must not be replaced")
+        assertEquals("legacy", readFile(TestPaths.join(base, "nr/from.bin"))?.decodeToString(), "the source must stay")
 
-        assertTrue(renameNoReplace("$base/nr/from.bin", "$base/nr/free.bin"))
-        assertEquals("legacy", readFile("$base/nr/free.bin")?.decodeToString())
-        assertFalse(pathExists("$base/nr/from.bin"), "the source name is gone after a successful move")
-        assertFalse(renameNoReplace("$base/nr/missing.bin", "$base/nr/other.bin"), "a missing source fails")
+        assertTrue(renameNoReplace(TestPaths.join(base, "nr/from.bin"), TestPaths.join(base, "nr/free.bin")))
+        assertEquals("legacy", readFile(TestPaths.join(base, "nr/free.bin"))?.decodeToString())
+        assertFalse(pathExists(TestPaths.join(base, "nr/from.bin")), "the source name is gone after a successful move")
+        assertFalse(renameNoReplace(TestPaths.join(base, "nr/missing.bin"), TestPaths.join(base, "nr/other.bin")), "a missing source fails")
     }
 
     // 12
@@ -821,7 +822,7 @@ abstract class DownloaderStorageContractTest {
     fun `concurrent first touches of the same unsafe unit converge on one migrated file`() = runTest {
         val base: String = baseDirectory()
         val unit = ContractUnit("models/v1-t12", relativePath = "resources/p12.bin")
-        writeLegacyFile("$base/tmp/models/v1-t12.tmp", "hello".encodeToByteArray())
+        writeLegacyFile(TestPaths.join(base, "tmp/models/v1-t12.tmp"), "hello".encodeToByteArray())
 
         val sizes: List<Long> = withContext(Dispatchers.Default) {
             withTimeout(10.seconds) {
@@ -838,14 +839,14 @@ abstract class DownloaderStorageContractTest {
         }
 
         assertEquals(listOf(5L, 5L, 5L, 5L), sizes)
-        assertFalse(pathExists("$base/tmp/models/v1-t12.tmp"))
+        assertFalse(pathExists(TestPaths.join(base, "tmp/models/v1-t12.tmp")))
         assertEquals("hello", readFile(storage.getTempFilePath(unit))?.decodeToString())
     }
 
     // 13
     @Test
     fun `a relativePath that can never be used is rejected by every resource method and touches nothing`() = runTest {
-        val outside: String = baseDirectory().substringBeforeLast('/') + "/x"
+        val outside: String = TestPaths.join(TestPaths.parent(baseDirectory())!!, "x")
         writeFile(outside, "sentinel".encodeToByteArray())
         try {
             val reasons = InvalidDownloadUnitException.Reason.entries
@@ -907,7 +908,7 @@ abstract class DownloaderStorageContractTest {
 
             finish(storage, unit)
 
-            assertTrue(storage.getResourcePath(unit).endsWith("/$normalized"), "path '$path' must be used as '$normalized'")
+            assertTrue(TestPaths.toLogical(storage.getResourcePath(unit)).endsWith("/$normalized"), "path '$path' must be used as '$normalized'")
             assertTrue(storage.isResourceAvailable(unit), "path '$path'")
             assertEquals("abc", readFile(storage.getResourcePath(unit))?.decodeToString(), "path '$path'")
         }
@@ -918,8 +919,8 @@ abstract class DownloaderStorageContractTest {
     fun `the staging tree of a 247 byte id is reclaimed by a cancel`() {
         val id: String = "q".repeat(247)
         val unit = ContractUnit(id, format = ResourceFormat.ZipArchive("marker.txt"), relativePath = "archives/p15")
-        val staging: String = baseDirectory() + "/tmp/staging-" + id
-        writeFile("$staging/nested/marker.txt", "half-extracted".encodeToByteArray())
+        val staging: String = TestPaths.join(baseDirectory(), "tmp/staging-$id")
+        writeFile(TestPaths.join(staging, "nested/marker.txt"), "half-extracted".encodeToByteArray())
 
         storage.deleteTempFile(unit)
 
@@ -936,20 +937,7 @@ abstract class DownloaderStorageContractTest {
 
         assertTrue(storage.isResourceAvailable(unit))
         assertEquals(TempFileState.None, storage.tempFileState(unit))
-        assertFalse(pathExists(baseDirectory() + "/tmp/pages"), "nothing of a hashed id is created under its raw name")
-    }
-
-    /** Resolves `.` and `..` lexically, as a canonical path would. */
-    private fun normalized(path: String): String {
-        val segments: ArrayList<String> = ArrayList()
-        for (segment: String in path.split('/')) {
-            when (segment) {
-                "", "." -> Unit
-                ".." -> if (segments.isNotEmpty()) segments.removeAt(segments.lastIndex)
-                else -> segments.add(segment)
-            }
-        }
-        return "/" + segments.joinToString("/")
+        assertFalse(pathExists(TestPaths.join(baseDirectory(), "tmp/pages")), "nothing of a hashed id is created under its raw name")
     }
 
     // -- helpers -----------------------------------------------------------------------------
@@ -968,18 +956,18 @@ abstract class DownloaderStorageContractTest {
 
     /** Where the contract says the record lives: `tmp/expect/<id>.sha256`, next to the temp files. */
     private fun recordPath(on: DownloaderStorage, unit: DownloadUnit): String =
-        tmpDirectory(on, unit) + "/expect/" + unit.id + ".sha256"
+        TestPaths.join(tmpDirectory(on, unit), "expect/${unit.id}.sha256")
 
     /** Where the record is staged before it is renamed into place. */
     private fun stagedRecordPath(on: DownloaderStorage, unit: DownloadUnit): String =
-        tmpDirectory(on, unit) + "/expect-staged/" + unit.id + ".sha256"
+        TestPaths.join(tmpDirectory(on, unit), "expect-staged/${unit.id}.sha256")
 
     /** The `tmp` directory; ids may contain a separator, so it is not simply the temp file's parent. */
     private fun tmpDirectory(on: DownloaderStorage, unit: DownloadUnit): String {
         val tempPath: String = on.getTempFilePath(unit)
         val idDepth: Int = unit.id.count { it == '/' }
         var directory: String = tempPath
-        repeat(idDepth + 1) { directory = directory.substringBeforeLast('/') }
+        repeat(idDepth + 1) { directory = TestPaths.parent(directory)!! }
         return directory
     }
 
@@ -1016,12 +1004,12 @@ abstract class DownloaderStorageContractTest {
 
         finish(storage, unit)
 
-        assertTrue(storage.getResourcePath(unit).endsWith("/files/a.bin"), storage.getResourcePath(unit))
+        assertTrue(TestPaths.toLogical(storage.getResourcePath(unit)).endsWith("/files/a.bin"), storage.getResourcePath(unit))
         assertTrue(storage.isResourceAvailable(unit))
-        assertEquals("abc", readFile("${baseDirectory()}/files/a.bin")?.decodeToString())
+        assertEquals("abc", readFile(TestPaths.join(baseDirectory(), "files/a.bin"))?.decodeToString())
         assertEquals(3L, storage.getResourceSize(unit))
         storage.deleteResource(unit)
-        assertFalse(pathExists("${baseDirectory()}/files/a.bin"))
+        assertFalse(pathExists(TestPaths.join(baseDirectory(), "files/a.bin")))
     }
 
     private companion object {

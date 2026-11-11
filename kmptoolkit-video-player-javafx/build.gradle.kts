@@ -57,6 +57,8 @@ kotlin {
         }
         jvmTest.dependencies {
             implementation(libs.junit)
+            // Not published; descriptor counting that also answers "cannot tell" on Windows.
+            implementation(project(":test-support"))
             implementation(openJfx(libs.openjfx.base)) { isTransitive = false }
             implementation(openJfx(libs.openjfx.graphics)) { isTransitive = false }
             implementation(openJfx(libs.openjfx.media)) { isTransitive = false }

@@ -1,4 +1,5 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
+// path-hygiene-file: logical-paths the recorder tests run on a fake RecorderFileSystem whose paths are logical '/'-separated names
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom

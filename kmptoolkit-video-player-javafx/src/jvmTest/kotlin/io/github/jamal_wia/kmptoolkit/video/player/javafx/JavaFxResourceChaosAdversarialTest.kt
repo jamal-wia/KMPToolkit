@@ -1,9 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.video.player.javafx
 
-import com.sun.management.UnixOperatingSystemMXBean
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
-import java.lang.management.ManagementFactory
 import java.lang.ref.WeakReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -51,8 +50,8 @@ class JavaFxResourceChaosAdversarialTest {
         assertTrue(done.await(10L, TimeUnit.SECONDS), "the FX thread did not drain")
     }
 
-    private fun openFiles(): Long =
-        (ManagementFactory.getOperatingSystemMXBean() as UnixOperatingSystemMXBean).openFileDescriptorCount
+    /** Open descriptors of this process; skips on a host that cannot count them (Windows), fails on one that should. */
+    private fun openFiles(): Long = TestFs.requireOpenDescriptorCount()
 
     /**
      * JavaFX holds a loaded source's file descriptor until its `Media` object is collected (it has
