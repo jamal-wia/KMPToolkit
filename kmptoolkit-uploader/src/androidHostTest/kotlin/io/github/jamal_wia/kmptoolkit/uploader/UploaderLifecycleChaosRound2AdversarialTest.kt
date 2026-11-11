@@ -8,6 +8,7 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import java.io.RandomAccessFile
 import java.net.InetAddress
@@ -429,6 +430,7 @@ class UploaderLifecycleChaosRound2AdversarialTest {
     // R2-S3: an entry that exists but cannot be read at the start of a job is not "nothing owed"
     @Test
     fun `an entry that cannot be read at the start of a job does not make the job upload again`() {
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         serve()
         val backing = TestUploaderStore()
         val handler = ChaosHandler()
@@ -447,6 +449,7 @@ class UploaderLifecycleChaosRound2AdversarialTest {
 
     @Test
     fun `an entry that stays unreadable for three runs is given up and the item uploads once`() {
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         serve()
         val backing = TestUploaderStore()
         val handler = ChaosHandler()
@@ -469,6 +472,7 @@ class UploaderLifecycleChaosRound2AdversarialTest {
     // R2-S4 (rewritten): the contract is that a journal entry must not replay into the next attempt
     @Test
     fun `an entry the journal could not delete after the commit does not replay into the next attempt`() {
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         serve(raw = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
         val backing = TestUploaderStore()
         val clock = TestClock(1_000L)

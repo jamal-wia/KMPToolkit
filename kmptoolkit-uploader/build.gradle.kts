@@ -52,6 +52,8 @@ kotlin {
         }
         androidHostTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // Not published; host assumptions for tests that only mean something on a POSIX file system.
+            implementation(project(":test-support"))
             // WorkManagerTestInitHelper and TestListenableWorkerBuilder, for the upload-handler worker.
             implementation(libs.androidx.work.testing)
         }

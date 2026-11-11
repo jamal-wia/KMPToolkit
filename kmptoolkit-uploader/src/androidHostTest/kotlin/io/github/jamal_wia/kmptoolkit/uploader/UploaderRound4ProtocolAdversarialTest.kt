@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
 import androidx.work.ExistingWorkPolicy
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import java.io.File
 import java.io.RandomAccessFile
 import java.net.InetAddress
@@ -225,6 +226,7 @@ class UploaderRound4ProtocolAdversarialTest {
 
     @Test
     fun `a failed rename after a good write leaves no partial file and reports the outcome as unprotected`() {
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         val root: File = tempDir()
         val (journal, _) = journalOn(root)
         File(root, "outcomes").mkdirs()
@@ -243,6 +245,7 @@ class UploaderRound4ProtocolAdversarialTest {
 
     @Test
     fun `an unwritable leftovers directory reports the outcome as unprotected without throwing`() {
+        TestHost.assumePosixFileSemantics("File.setWritable(false) / setReadable(false) change nothing on Windows (they set only the legacy read-only flag), so there is no unwritable or unreadable file to test")
         val root: File = tempDir()
         val (journal, _) = journalOn(root)
         File(root, "outcomes").mkdirs()
