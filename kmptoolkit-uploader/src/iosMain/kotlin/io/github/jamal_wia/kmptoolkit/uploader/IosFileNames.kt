@@ -43,16 +43,19 @@ private const val ESCAPE: Char = '~'
 
 private const val HEX_WIDTH: Int = 4
 
+/** Starts every escaped name, so none equals a kept name (a lower-case UUID needs no escaping inside) or a dot name. */
+private const val NAME_PREFIX: String = "~_"
+
 /**
  * The file name of the journal entry of [itemId]. An id that [keepsOwnFileName] is its own name (every entry an
- * earlier version wrote for a default id keeps its name); any other id is escaped into a name made only of
+ * earlier version wrote for a default id keeps its name); any other id is escaped into a name that starts with `~_` and is made only of
  * `[a-z0-9._-~]`, so it is never equal to another id's name even case-insensitively, and [itemIdOfJournalFileName]
  * reads the id back: an upper-case letter `X` becomes `~x`, every other character outside `[a-z0-9._-]` becomes
  * `~~` and the four hex digits of its UTF-16 code unit.
  */
 internal fun journalFileName(itemId: String): String {
     if (keepsOwnFileName(itemId)) return itemId
-    val escaped: String = buildString {
+    return NAME_PREFIX + buildString {
         for (c in itemId) {
             when {
                 c in 'A'..'Z' -> append(ESCAPE).append(c.lowercaseChar())
@@ -61,8 +64,6 @@ internal fun journalFileName(itemId: String): String {
             }
         }
     }
-    // A name that is the directory itself ("." and "..") is no entry: escape the dots too.
-    return if (escaped == "." || escaped == "..") itemId.map { "~~" + it.code.toString(16).padStart(HEX_WIDTH, '0') }.joinToString("") else escaped
 }
 
 /**
@@ -71,8 +72,8 @@ internal fun journalFileName(itemId: String): String {
  * itself.
  */
 internal fun itemIdOfJournalFileName(fileName: String): String {
-    if (ESCAPE !in fileName) return fileName
-    val decoded: String = decodeEscapedName(fileName) ?: return fileName
+    if (!fileName.startsWith(NAME_PREFIX)) return fileName
+    val decoded: String = decodeEscapedName(fileName.removePrefix(NAME_PREFIX)) ?: return fileName
     return if (journalFileName(decoded) == fileName) decoded else fileName
 }
 
