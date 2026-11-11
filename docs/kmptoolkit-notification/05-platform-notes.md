@@ -178,3 +178,11 @@ usage-description string.
   meant to be lost.
 - A notification that was accepted may still not be drawn: Do Not Disturb, a Focus mode, a paired
   watch. Neither platform reports that back, so neither does this module.
+- **Android caps the notifications an app may show at once** (50 on current platform versions, a
+  platform-defined number that was lower on old ones). A *new* notification posted while the app
+  already has that many active is dropped by the system without an exception or a return value, so
+  `notify` returns normally and the notifier answers `Posted`; this module has no way to detect it
+  and offers no signal. An update of a notification that is already showing is not affected. Keep
+  the number of distinct ids on the tray bounded, and `cancel` the ones that are finished. The
+  scheduler's equivalent platform caps are in
+  [`kmptoolkit-scheduler`](../kmptoolkit-scheduler/05-platform-notes.md).

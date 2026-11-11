@@ -98,8 +98,15 @@ internal class IosNotifier(
         if (!permissions.check(CommonPermission.Notifications).isUsable) {
             return NotificationResult.PermissionDenied
         }
+        // A copy of the lists and maps too: the baseline must hold what was shown, not the caller's
+        // own mutable collections, which may be edited in place before the next post.
+        val baseline: LocalNotification = notification.copy(
+            progress = null,
+            actions = notification.actions.toList(),
+            contentExtras = notification.contentExtras?.toMap(),
+        )
         val ticket: ProgressCoalescer.PostTicket =
-            coalescer.prepare(id, notification.progress, notification.copy(progress = null), claim)
+            coalescer.prepare(id, notification.progress, baseline, claim)
                 ?: return NotificationResult.Coalesced
 
         val request: UNNotificationRequest = UNNotificationRequest.requestWithIdentifier(
