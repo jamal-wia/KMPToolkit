@@ -8,7 +8,8 @@ import java.net.URL
 
 /**
  * The URI JavaFX Media opens for [source], checked as far as can be without JavaFX: a missing local
- * file or classpath resource fails here with [FileNotFoundException], and headers are rejected before
+ * file (a directory, or one that cannot be read) or classpath resource fails here with
+ * [FileNotFoundException], and headers are rejected before
  * any connection is made.
  *
  * JavaFX has no asset directory of its own, so [VideoSource.Asset.path] is a classpath resource path —
@@ -30,6 +31,8 @@ internal fun resolveSourceUri(source: VideoSource, classLoader: ClassLoader): St
         require(source.path.isNotBlank()) { "File path is blank" }
         val file = File(source.path)
         if (!file.isFile) throw FileNotFoundException(source.path)
+        // JavaFX would take such a file and fail it with a MediaException after several seconds.
+        if (!file.canRead()) throw FileNotFoundException("File is not readable: ${source.path}")
         file.toURI().toString()
     }
 

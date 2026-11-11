@@ -31,9 +31,12 @@ promise that every source decodes: formats are OS-dependent (see
 | Source | Resolved as | Missing / malformed |
 |---|---|---|
 | `VideoSource.Asset(path)` | a **classpath resource** (`src/jvmMain/resources/…`), leading `/` optional; works from a directory and from inside a jar | `FileNotFoundException` |
-| `VideoSource.File(path)` | the file at that absolute path | `FileNotFoundException` (also for a directory) |
+| `VideoSource.File(path)` | the file at that absolute path | `FileNotFoundException` (also for a directory, and for a file that cannot be read) |
 | `VideoSource.Remote(url)` | `http://`, `https://`, or an HLS playlist — passed to JavaFX as is | `MediaException` from JavaFX |
 | `VideoSource.Remote(url, headers)` with any header | — | `JavaFxVideoPlayerException.HeadersNotSupported` |
+
+An `Asset` path that names a directory of the class path (or `/`) is not checked up front: JavaFX
+fails that load at once with its own `MediaException` (an empty or unrecognised file signature).
 
 A blank path or URL is an `IllegalArgumentException`. All of these arrive the core module's usual
 way — as `VideoPlayerState.Error(cause)` after `prepare`, never as a crash.
