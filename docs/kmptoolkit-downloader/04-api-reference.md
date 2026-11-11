@@ -238,8 +238,8 @@ available) returns normally without touching anything. When the engine itself fi
 complete temp file behind, it deletes that file instead of leaving it on disk.
 
 Beyond the commit, the engine makes the whole transfer-and-commit of one unit exclusive across every
-engine whose storage is a shipped one over the same base directory in the process (any other
-`DownloaderStorage` is scoped by its own instance): a second engine asked for a unit another engine is
+engine whose storage is a shipped one over the same base directory in the process (a custom
+`DownloaderStorage` is not coordinated across engines): a second engine asked for a unit another engine is
 downloading waits, and then finds the resource available instead of starting a second transfer. So the
 port never sees two `enqueueDownload` calls for a unit whose first transfer finished but has not been
 committed yet. Since 4.1.0.

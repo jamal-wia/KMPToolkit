@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
  * engine so that [UnitTransferLocks] can serialize transfers across engines over one directory.
  *
  * Implemented by the shipped storages, whose scope is their base directory; any other
- * [DownloaderStorage] is scoped by its own instance, since nothing is known about what it shares.
+ * [DownloaderStorage] is not locked across engines, since nothing is known about what it shares.
  */
 internal interface TransferLockScope {
     /** The storage's absolute base directory: equal for every storage instance over one directory. */

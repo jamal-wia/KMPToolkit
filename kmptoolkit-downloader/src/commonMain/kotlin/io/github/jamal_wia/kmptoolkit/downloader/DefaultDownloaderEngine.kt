@@ -1298,14 +1298,16 @@ internal class DefaultDownloaderEngine(
         unitEntry(unit).state
 
     /**
-     * Runs [action] holding the process-wide transfer lock of [unit] (see [UnitTransferLocks]). The
-     * scope is the storage's base directory when it is a shipped one, otherwise the storage itself.
+     * Runs [action] holding the process-wide transfer lock of [unit] (see [UnitTransferLocks]) when
+     * the storage names the directory it works over, i.e. a shipped one. Any other [DownloaderStorage]
+     * shares nothing the engine can name, so there is nothing to serialize across engines and
+     * [action] runs as is.
      */
     private suspend fun <T> withTransferLock(unit: DownloadUnit, action: suspend () -> T): T {
-        val shipped: TransferLockScope? = storage as? TransferLockScope
+        val scope: TransferLockScope = storage as? TransferLockScope ?: return action()
         return UnitTransferLocks.withTransferLock(
-            scope = shipped?.transferLockScope ?: storage,
-            unitKey = shipped?.transferLockKey(unit) ?: unit.id,
+            scope = scope.transferLockScope,
+            unitKey = scope.transferLockKey(unit),
             action = action,
         )
     }
