@@ -217,14 +217,24 @@ internal class DefaultDownloaderEngine(
                     publishGroupCompletedIfAvailable(group, groupState)
                     return@withLock
                 }
-                fetchAndCommitGroupUnit(
-                    group = group,
-                    groupState = groupState,
-                    unit = unit,
-                    progressBase = progressBase,
-                    progressScale = progressScale,
-                    token = token,
-                )
+                // Transfer and commit of the unit are exclusive across every engine over this
+                // directory, so a second engine cannot start a transfer between the first one's
+                // transfer and its commit. Everything is decided again once the lock is held.
+                withTransferLock(unit) {
+                    if (storage.isResourceAvailable(unit)) {
+                        logger.i { "Unit $unit was committed by another engine meanwhile" }
+                        publishGroupCompletedIfAvailable(group, groupState)
+                        return@withTransferLock
+                    }
+                    fetchAndCommitGroupUnit(
+                        group = group,
+                        groupState = groupState,
+                        unit = unit,
+                        progressBase = progressBase,
+                        progressScale = progressScale,
+                        token = token,
+                    )
+                }
             }
         }
         // The unit surface may have committed the last missing unit between the previous unit's
@@ -1287,6 +1297,19 @@ internal class DefaultDownloaderEngine(
     private fun unitStateFlow(unit: DownloadUnit): MutableStateFlow<UnitDownloadState> =
         unitEntry(unit).state
 
+    /**
+     * Runs [action] holding the process-wide transfer lock of [unit] (see [UnitTransferLocks]). The
+     * scope is the storage's base directory when it is a shipped one, otherwise the storage itself.
+     */
+    private suspend fun <T> withTransferLock(unit: DownloadUnit, action: suspend () -> T): T {
+        val shipped: TransferLockScope? = storage as? TransferLockScope
+        return UnitTransferLocks.withTransferLock(
+            scope = shipped?.transferLockScope ?: storage,
+            unitKey = shipped?.transferLockKey(unit) ?: unit.id,
+            action = action,
+        )
+    }
+
     private fun unitMutex(unit: DownloadUnit): Mutex {
         unitMutexes.value[unit.id]?.let { return it }
         val candidate = Mutex()
@@ -1317,7 +1340,15 @@ internal class DefaultDownloaderEngine(
             }
             try {
                 throwIfUnitCancelled(unit, entry.state, token)
-                fetchAndCommitUnit(unit, token)
+                // Exclusive with every other engine over this directory; see the group path.
+                withTransferLock(unit) {
+                    if (storage.isResourceAvailable(unit)) {
+                        markUnitOnDisk(unit)
+                        return@withTransferLock
+                    }
+                    throwIfUnitCancelled(unit, entry.state, token)
+                    fetchAndCommitUnit(unit, token)
+                }
             } catch (e: CancellationException) {
                 if (token.isCancelled) {
                     withContext(NonCancellable) { cleanUpCancelledUnit(unit, entry.state) }
