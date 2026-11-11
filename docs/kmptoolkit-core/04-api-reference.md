@@ -67,6 +67,20 @@ A plain reentrant lock: `java.util.concurrent.locks.ReentrantLock` on Android an
 `NSRecursiveLock` on iOS. The building block of `StateMachineLock`; exposed only because it is
 `expect`/`actual` public.
 
+## `isAbsoluteFilePath()`
+
+```kotlin
+@ToolkitInternalApi
+public expect fun isAbsoluteFilePath(path: String): Boolean
+```
+
+Since 4.1.0. True when `path` is absolute for the file system the code runs on: `java.io.File(path).isAbsolute`
+on Android and `jvm`, `path.startsWith('/')` on iOS. An empty string is never absolute. This is the one
+place the suite decides "absolute" instead of `startsWith('/')`, which is wrong on a Windows JVM, where
+`C:\data` and `\\server\share\x` are absolute and `/data` is not. It is for a path the file system handed
+out or the consumer passed in; a name the code makes up itself (`tmp/expect/<id>.sha256`) is a logical,
+always `/`-separated path and is joined with `File(parent, child)`.
+
 ## `SharedIdleTimer`, `IdleTimerHolder`, `IdleTimerHold` (iOS only)
 
 ```kotlin
