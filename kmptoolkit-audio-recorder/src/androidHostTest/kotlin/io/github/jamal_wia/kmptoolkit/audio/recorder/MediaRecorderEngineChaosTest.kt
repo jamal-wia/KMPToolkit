@@ -19,6 +19,7 @@ import org.robolectric.shadows.ShadowMediaRecorder
  * listener, or released the recorder it came from, must reach nobody - not the listener that was
  * replaced, and above all not the listener of the next recording. The platform listener objects are
  * captured before the engine lets go of them and invoked afterwards, which is that interleaving.
+ * Pinned to `sdk = [29, 35]`: the silence monitor these tests drive exists only from API 29.
  */
 @RunWith(AndroidJUnit4::class)
 class MediaRecorderEngineChaosTest {
@@ -60,7 +61,7 @@ class MediaRecorderEngineChaosTest {
     }
 
     @Test
-    @Config(minSdk = 29)
+    @Config(sdk = [29, 35])
     fun `callbacks of an earlier recording reach nobody once a later recording has its own listener`() = runTest {
         repeat(CYCLES) { cycle: Int ->
             val received: MutableList<String> = mutableListOf()
@@ -94,7 +95,7 @@ class MediaRecorderEngineChaosTest {
     }
 
     @Test
-    @Config(minSdk = 29)
+    @Config(sdk = [29, 35])
     fun `callbacks captured before a listener is replaced never reach the replacement or the original`() = runTest {
         repeat(CYCLES) { cycle: Int ->
             engine.prepare("/tmp/replace-$cycle.m4a", AudioRecorderConfig(), null)
