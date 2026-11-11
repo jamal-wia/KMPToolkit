@@ -92,6 +92,8 @@ newest request of an absorbed hand-off to the job, and the job uploads it only w
 duplicate hand-off of an attempt that has just been settled (a delivery, a withdrawal, a retry waiting out its backoff)
 uploads nothing, and one that is stamped with an older attempt than the row's (a late lease re-hand) never replaces or serves the newer attempt's request: the engine stamps each hand-off with the row's `attempts`, and a transport wrapper that hides the stamp is served whenever the row is in flight. A classic job that WorkManager re-runs after it served a later attempt (a retry, or a stop) starts again from the request it was enqueued with and uploads without asking the row, so that older request can be re-sent: the same at-least-once class as any classic retry. Hand-offs are tracked per process; another process falls back to `KEEP` and the lease.
 
+**Early server answers.** A server that answers and closes the connection while the request body is still unread (an early `413`, say) can lose its answer to a connection reset: the receiving stack may discard unread reply bytes when the reset arrives, and the attempt then reads as a transport failure and uploads again. Servers should drain the request before closing. This is a property of the platform's TCP and HTTP stack, not something the transport can undo.
+
 **Reliability.** Good. WorkManager persists across reboots and runs in Doze maintenance windows. It
 is not instant, and it is not meant to be.
 

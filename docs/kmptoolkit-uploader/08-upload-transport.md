@@ -221,9 +221,12 @@ is reported as truncated with the bytes read so far, not as a transport failure.
 `204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
 A redirect (`3xx` other than `304`) whose body the stack does not hand over is flagged truncated unless its headers declare an empty body (`Content-Length: 0`).
 The status line and headers must arrive within twice the read timeout after the body is sent: a server that
-trickles them longer fails the attempt as a transport failure (no status was received). A server that answers before the
-body is complete and closes the connection is heard: whatever final status it sent (a `413`, a
-redirect, an early `200`) is its answer and reaches `classify`. When the upload fails on this side
+trickles them longer fails the attempt as a transport failure (no status was received). A reply that is not a final HTTP
+status (a non-HTTP reply, or an interim `1xx` the platform stack hands back as the answer) is a transport failure too, not a
+completed attempt. A server that answers before the body is complete and closes the connection is heard when the platform
+still delivers its answer: whatever final status it sent (a `413`, a redirect, an early `200`) is then its answer and
+reaches `classify`. A server that closes immediately with the request body unread can lose its answer to a connection
+reset (RFC 9112 section 9.6); the attempt is then a transport failure and uploads again. When the upload fails on this side
 (the source file vanished or could not be read), the connection is dropped without completing the
 request, so the server never receives a truncated body as a whole one, and the attempt is a transport
 failure. A `WorkManager` worker has about 10 minutes and this module does not call

@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -232,6 +233,16 @@ class MultipartBodyAdversarialTest {
 
         assertEquals(UploadResult.Completed(201), outcome.result)
         assertEquals("ok", assertNotNull(outcome.response).body().decodeToString())
+    }
+
+    @Test
+    fun `a reply that is not an HTTP status is a transport failure, never a completed attempt`() {
+        answer("garbage-reply-not-http\r\n\r\n")
+
+        val outcome: MultipartOutcome = upload(UploadRequest(url(), fields = listOf(UploadField.Text("a", "b"))))
+
+        assertIs<UploadResult.TransportFailure>(outcome.result, "a non-HTTP reply reached classify as ${outcome.result}")
+        assertNull(outcome.response)
     }
 
     @Test
