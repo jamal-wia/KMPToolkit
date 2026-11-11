@@ -19,6 +19,9 @@ On desktop an asset is a **classpath resource**: `VideoSource.Asset("video/intro
 to the library's own. Put the file under `src/desktopMain/resources/` (or `src/jvmMain/resources/`)
 and it is on the classpath.
 
+An asset path that names a directory is not checked up front: VLC is asked to open it and the
+prepare fails with `VlcPlaybackException` (no playable track).
+
 VLC can only open real files, so:
 
 - run from a build directory (Gradle `run`, the IDE), the resource *is* a file and is opened in

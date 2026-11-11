@@ -92,6 +92,10 @@ tested against `FakeVlcRuntime`, which keeps VLC's threading shape (events on an
   frame source, touches neither discovery nor libvlc before `prepare`; without VLC, `prepare` settles
   on `Error(VlcUnavailableException)`; a seek after completion leaves the player `Paused` with VLC not
   playing; the frame source survives `unload`.
+- `VlcjSeekDuringEndR5AdversarialTest` — a seek in flight while the end is reported (a model libvlc whose
+  `setTime` blocks and then leaves the input ended): the player reads `Playing` at the seek's target, the
+  engine restarts the ended input, and the parked seek is applied when `Playing` is reported again, for a
+  target of 0 and of 1000 ms.
 - `VlcjVideoEngineWithoutVlcTest` — with a discovery that finds nothing, `load` fails with
   `VlcUnavailableException` without calling the listener; source errors are reported before VLC is
   looked for; transport, settings and getters before a load are no-ops; `release` is idempotent.

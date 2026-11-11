@@ -49,6 +49,16 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
   release, load after release, replacing a source, cancelling a load mid-way, release during a
   load, and every frame owning its pixel array. Through the whole `VideoPlayer`: the public factory,
   the frame source staying the engine across sources, and `Completed` → seek → `Paused` → `play`.
+- **Playback speed across a loop and a resume** — `JavaFxLoopSpeedR5AdversarialTest` (a speed of 4
+  holds in the second cycle of a looping source) and `JavaFxResumeAtSpeedR5AdversarialTest` (a pause
+  and start at a speed other than 1 never freezes the playhead, six fresh engines each; at 2 the speed
+  is measured once the resume has settled; D-16 moved that window). The freeze is a race, so a run of 30
+  resumes each at 2 and 4 was also made when the fix landed (0 of 60; the old code froze 7 of 30).
+- **Freeze after a resume** — `JavaFxResumeSettlesAtSpeedR5FixerTest`: after a pause and a start at 2 and at
+  4 (six fresh engines each, or `KMPTOOLKIT_FREEZE_TRIALS` for a longer run) the playhead passes where it
+  paused plus 1200 ms within 3 s, so a playhead that freezes after the speed is given fails it.
+- **Unreadable file** — `SourceUrisUnreadableFileR5Test`: a `VideoSource.File` the process cannot read
+  fails with `FileNotFoundException` before JavaFX is involved (JavaFX itself took 4 s to fail it).
 - **Reading JavaFX back.** Volume, rate and status have no getter on the engine contract; an
   internal `inspectPlayback()` reads them from the `MediaPlayer` on the FX thread for the tests.
 

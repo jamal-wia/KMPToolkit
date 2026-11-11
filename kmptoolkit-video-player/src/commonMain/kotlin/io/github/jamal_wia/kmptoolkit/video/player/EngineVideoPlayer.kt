@@ -428,7 +428,24 @@ internal class EngineVideoPlayer(
     override fun onCompleted() {
         val source: Long = sourceEpoch.value
         val transport: Long = transportEpoch.value
-        gate.submit { if (source == sourceEpoch.value && transport == transportEpoch.value) completedLocked() }
+        gate.submit {
+            if (source != sourceEpoch.value) return@submit
+            if (transport == transportEpoch.value) completedLocked() else staleCompletionLocked()
+        }
+    }
+
+    /**
+     * A completion that a transport call made after it was reported superseded. The engine reached its
+     * end before that call (a seek that was being applied as the end came), so the call wins and the
+     * completion is dropped. A platform that stops at its end (libvlc, JavaFX, AVPlayer) does not resume
+     * by itself on a seek made around it, so a player that is Playing asserts the start again: the same
+     * pair [playLocked] makes. A no-op on an engine that is already playing. A player that is not
+     * Playing is left alone: a paused one must not start.
+     */
+    private fun staleCompletionLocked() {
+        if (released || _stateFlow.value !is VideoPlayerState.Playing) return
+        engine.start()
+        engine.setSpeed(_playbackSpeedFlow.value)
     }
 
     private fun completedLocked() {
