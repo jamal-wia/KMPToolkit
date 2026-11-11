@@ -32,6 +32,8 @@ package io.github.jamal_wia.kmptoolkit.video.player
  * - **A completion** describes the playhead when it was reported: one reported while a seek away from the
  *   end is being applied is dropped as stale. Do not report it synchronously from inside [seekTo]
  *   unless the seek lands on the end.
+ *   When the player drops such a completion while playing, it calls [start] again; an engine whose platform
+ *   stops at its end must then resume output from the seek's target (not replay from the start, not ignore it).
  * - **Any method may be called from any thread** — the app's, the polling coroutine's, or the thread
  *   an event was reported on — though never two at once: the player serializes its calls. An engine
  *   whose platform object is confined to one thread marshals onto it.

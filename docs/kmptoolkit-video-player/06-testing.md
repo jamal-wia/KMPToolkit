@@ -156,6 +156,10 @@ stays `0`) nor detaches the listener (`hasListener` stays `true`), and the next 
 The fake substitutes the platform, so nothing below it is exercised: Media3's and `AVPlayer`'s own
 behavior, codecs, HLS parsing, asset resolution, cleartext policy, what the surface draws.
 
+`VideoPlayerStaleCompletionRestartTest` pins the other half of the stale-completion rule: a completion
+dropped while `Playing` makes the player call `start()` and `setSpeed` again, one dropped while paused,
+stopped or of a released source starts nothing.
+
 The module's own tests take the same split. The state machine, the release contract, settings,
 buffering and picture size are covered in `commonTest`, on every target — including, with real
 threads, an end of media, a pause and a release racing the position poll, and engine events
