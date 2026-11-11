@@ -4,6 +4,7 @@ import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.video.player.VideoFrame
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSize
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.abs
 import javafx.animation.AnimationTimer
 import javafx.scene.Group
 import javafx.scene.Scene
@@ -89,6 +90,18 @@ internal class FxPlayback private constructor(
     private var looping: Boolean = false
     private var atEnd: Boolean = false
 
+    /**
+     * The speed to give the native player once it plays, while the rate property holds 1.0 until then
+     * (see [deferRate]). Null when the property holds the speed.
+     */
+    private var deferredRate: Double? = null
+
+    /** Where the playhead stood on the first tick after [deferredRate] was set; NaN until then. */
+    private var deferredFrom: Double = Double.NaN
+
+    /** Whether [deferredRate] waits for the playhead to wrap to the start of a looping source first. */
+    private var deferredAfterWrap: Boolean = false
+
     // The ticket of the newest seekTo: taken on the caller's thread before posting, read on the FX thread
     // (D-24: a value shared between threads, in a module with a coroutines dependency).
     private val latestSeek: MutableStateFlow<Long> = MutableStateFlow(0L)
@@ -119,7 +132,13 @@ internal class FxPlayback private constructor(
             // Fired at the end of every cycle, including while cycleCount is INDEFINITE and JavaFX
             // is already starting the next one — that is not an end. A handler JavaFX queued before
             // dispose() can still run after it, and must then do nothing.
-            if (disposed || looping) return@setOnEndOfMedia
+            if (disposed) return@setOnEndOfMedia
+            if (looping) {
+                // The native player starts the next cycle at normal speed (macOS), so a speed other than 1 is lost
+                // here unless it is given again.
+                deferRate(afterWrap = true)
+                return@setOnEndOfMedia
+            }
             atEnd = true
             // JavaFX leaves its status at PLAYING after the last cycle ends. The player reports
             // Completed, and a seek from there reports Paused — so JavaFX must be paused too, or a
@@ -133,9 +152,12 @@ internal class FxPlayback private constructor(
             setBuffering(status == MediaPlayer.Status.STALLED)
             // JavaFX reports PLAYING some time after play(): a pulse in between may already have
             // stopped, and a stall longer than the refresh window stops it too.
-            if (status == MediaPlayer.Status.PLAYING) startPulse()
+            if (status == MediaPlayer.Status.PLAYING) {
+                startPulse()
+            }
         }
         player.currentTimeProperty().addListener { _, _, _ ->
+            applyDeferredRate()
             reportTimes()
             if (player.status != MediaPlayer.Status.PLAYING) refreshPicture()
         }
@@ -155,8 +177,8 @@ internal class FxPlayback private constructor(
         }
         // Keeps the pulse alive until the status turns PLAYING (the listener restarts it then).
         refreshPicture()
+        if (player.status != MediaPlayer.Status.PLAYING) deferRate(afterWrap = false)
         player.play()
-        reapplyRate()
     }
 
     fun pause(): Unit = FxThread.post {
@@ -180,7 +202,8 @@ internal class FxPlayback private constructor(
     }
 
     fun setSpeed(speed: Float): Unit = FxThread.post {
-        if (!disposed) player.rate = speed.toDouble()
+        if (disposed) return@post
+        if (deferredRate != null) deferredRate = speed.toDouble() else player.rate = speed.toDouble()
     }
 
     fun setVolume(volume: Float): Unit = FxThread.post {
@@ -228,15 +251,42 @@ internal class FxPlayback private constructor(
     }
 
     /**
-     * Pushes the rate JavaFX already holds down to the native player again. On macOS, play() starts
-     * the native player at normal speed whatever the rate property says — a rate set while paused
-     * (every rate set before the first play) is silently lost. The property only forwards a change,
-     * so it is nudged away and back.
+     * Makes the native player play at the speed in force, which it does not by itself: on macOS
+     * play() and the start of a loop's next cycle begin at normal speed whatever the rate property
+     * says (a rate set while paused, every rate set before the first play, is silently lost). The
+     * property only forwards a change, so the property is put to 1.0 here and the speed is given back
+     * as one change by [applyDeferredRate], once the native player has played for a moment — a rate
+     * change made together with play(), or within the first ~100 ms after it, makes the playhead stand
+     * still for good (measured: 7 of 30 resumes at 2x and 4x, none when the change waits 100 ms of
+     * playback). [afterWrap] is for the end of a cycle of a looping source: the change then also waits
+     * for the playhead to wrap.
      */
-    private fun reapplyRate() {
-        val rate: Double = player.rate
+    private fun deferRate(afterWrap: Boolean) {
+        val rate: Double = deferredRate ?: player.rate
         if (rate == 1.0) return
+        deferredRate = rate
+        deferredFrom = Double.NaN
+        deferredAfterWrap = afterWrap
         player.rate = 1.0
+    }
+
+    /** Called on every tick of the playhead: gives the native player the deferred speed once it is safe. */
+    private fun applyDeferredRate() {
+        val rate: Double = deferredRate ?: return
+        if (player.status != MediaPlayer.Status.PLAYING) return
+        val position: Double = player.currentTime.toMillis()
+        if (position.isNaN()) return
+        if (deferredAfterWrap) {
+            if (position > media.duration.toMillis() / 2.0) return
+            deferredAfterWrap = false
+        }
+        if (deferredFrom.isNaN()) {
+            deferredFrom = position
+            return
+        }
+        // Either direction: a seek during the wait moves the playhead without the native player having settled.
+        if (abs(position - deferredFrom) < RATE_SETTLE_MS) return
+        deferredRate = null
         player.rate = rate
     }
 
@@ -341,6 +391,9 @@ internal class FxPlayback private constructor(
     companion object {
 
         /** How long the pulse keeps copying after the picture changed while not playing (a seek). */
+        /** How far the playhead must move, at normal speed, before a deferred rate is given (see [deferRate]). */
+        private const val RATE_SETTLE_MS: Double = 200.0
+
         private const val REFRESH_WINDOW_NANOS: Long = 500_000_000L
 
         /** A quarter of a 60 Hz pulse. */

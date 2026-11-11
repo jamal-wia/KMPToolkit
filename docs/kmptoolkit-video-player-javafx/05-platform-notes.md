@@ -152,9 +152,14 @@ decoder writes straight into memory without a render-and-read-back step.
   it opened stays open after `release()` until the garbage collector reclaims it. Under the usual
   descriptor limits this matters only for an app that loads thousands of sources between two
   collections.
-- **Playback speed.** On macOS, `MediaPlayer.play()` starts the native player at normal speed
-  whatever rate JavaFX holds, so a speed set while paused would be lost; the engine applies the rate
-  again after every `play()`.
+- **Playback speed.** On macOS, `MediaPlayer.play()` and the start of the next cycle of a looping
+  source begin at normal speed whatever rate JavaFX holds, so a speed set while paused, or one set
+  before a loop wraps, would be lost. The engine gives the speed to the native player again as one
+  change after it has played for about 200 ms: a change made together with `play()`, or within the
+  first ~100 ms of it, makes the playhead stand still for good (7 of 30 resumes in the measurements).
+  The cost is a start-up at normal speed, and a standstill of about 300 ms followed by a jump of about
+  500 ms of the playhead, when a player is started again (or wraps) at a speed other than 1; the speed
+  then holds. Until the native player has played, the engine's rate is 1.0.
   A rate that is not finite and positive, or a NaN volume, is ignored at the engine (the player never
   passes one).
 - **Buffering** is reported from JavaFX's `STALLED` status; the buffered position comes from

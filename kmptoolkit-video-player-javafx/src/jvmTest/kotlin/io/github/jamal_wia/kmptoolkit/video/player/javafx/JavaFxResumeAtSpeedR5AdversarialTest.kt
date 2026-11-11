@@ -1,0 +1,92 @@
+package io.github.jamal_wia.kmptoolkit.video.player.javafx
+
+import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
+import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+
+/**
+ * SUSPECT r5-D2-S2: on macOS a pause followed by a start at a speed other than 1 sometimes leaves the
+ * playhead standing still for good while JavaFX reports PLAYING (probe: speed 4, playhead frozen at 373
+ * for 3.5 s). The engine's start() calls `player.play()` and then [FxPlayback.reapplyRate] nudges the rate
+ * to 1.0 and back to the speed straight away. The control at speed 1 (no nudge) never stalls.
+ */
+@OptIn(ToolkitInternalApi::class)
+class JavaFxResumeAtSpeedR5AdversarialTest {
+
+    @BeforeTest
+    fun setUp() {
+        assumeJavaFxMedia()
+    }
+
+    /** How many of [trials] fresh engines, paused once and started again at [speed], never moved on. */
+    private fun stalledResumes(speed: Float, trials: Int): List<String> {
+        val stalled: MutableList<String> = mutableListOf()
+        repeat(trials) { trial: Int ->
+            val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)
+            try {
+                runBlocking { withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.ASSET)) } }
+                engine.setSpeed(speed)
+                engine.start()
+                awaitTrue(message = { "trial $trial: the clip never advanced" }) { engine.positionMs() > 300L }
+                engine.pause()
+                Thread.sleep(300L)
+                val paused: Long = engine.positionMs()
+                engine.start()
+                val deadline: Long = System.nanoTime() + 2_500L * 1_000_000L
+                while (System.nanoTime() < deadline && engine.positionMs() <= paused + 150L) Thread.sleep(20L)
+                if (engine.positionMs() <= paused + 150L) stalled += "trial $trial stood at ${engine.positionMs()} from $paused"
+            } finally {
+                engine.release()
+            }
+        }
+        return stalled
+    }
+
+    @Test
+    fun `a resume at a speed of four moves the playhead on every time`() {
+        assertEquals(emptyList(), stalledResumes(speed = 4f, trials = 6))
+    }
+
+    @Test
+    fun `a resume at normal speed moves the playhead on every time`() {
+        assertEquals(emptyList(), stalledResumes(speed = 1f, trials = 6))
+    }
+
+    /**
+     * Measured on the old code in three runs: the playhead moved 0.99 and 0.91 ms per ms after the resume, and once
+     * stood still.
+     *
+     * The speed is measured once the resume has settled (the playhead 600 ms past where it paused). A speed
+     * given to the native player during playback always costs a standstill of about 300 ms followed by a jump
+     * of about 500 ms (probe timelines in the fixer report; a resume at normal speed has neither), so a window
+     * that starts at the first move after the resume reads that standstill, never the speed.
+     */
+    @Test
+    fun `a pause and resume at a speed of two keeps the speed`() {
+        val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)
+        try {
+            runBlocking { withTimeout(20_000L) { engine.load(VideoSource.Asset(TestClip.ASSET)) } }
+            engine.setSpeed(2f)
+            engine.start()
+            awaitTrue(message = { "the clip never advanced" }) { engine.positionMs() > 300L }
+            engine.pause()
+            Thread.sleep(300L)
+            val paused: Long = engine.positionMs()
+            engine.start()
+            awaitTrue(message = { "the playhead never moved on after the resume: ${engine.positionMs()} from $paused" }) {
+                engine.positionMs() > paused + 600L
+            }
+            val first: Long = engine.positionMs()
+            val begin: Long = System.nanoTime()
+            Thread.sleep(400L)
+            val speed: Double = (engine.positionMs() - first) / ((System.nanoTime() - begin) / 1_000_000.0)
+            kotlin.test.assertTrue(speed > 1.5, "after a resume the playhead moved $speed ms per ms at a speed of 2")
+        } finally {
+            engine.release()
+        }
+    }
+}
