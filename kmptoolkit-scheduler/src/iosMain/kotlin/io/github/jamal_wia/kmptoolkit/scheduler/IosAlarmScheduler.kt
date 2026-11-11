@@ -95,8 +95,11 @@ internal class IosAlarmScheduler(
     }
 
     override suspend fun cancelAll(ids: Collection<String>) {
-        if (ids.isEmpty()) return
-        scheduleLock.withLock { center.remove(ids.toList()) }
+        // Copied now, not after the lock is won: the caller may edit its collection while this
+        // call waits behind a schedule in flight.
+        val snapshot: List<String> = ids.toList()
+        if (snapshot.isEmpty()) return
+        scheduleLock.withLock { center.remove(snapshot) }
     }
 
     private fun contentFor(alarm: ScheduledAlarm): UNMutableNotificationContent =
