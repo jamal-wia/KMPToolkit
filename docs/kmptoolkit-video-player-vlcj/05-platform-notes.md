@@ -120,6 +120,13 @@ A seek made before playback has begun (before the first `start()`, between `star
 reporting Playing, or after the end) is applied when output begins, and its target is held from then
 on in exactly the same way.
 
+A seek that is in flight when the source's end is reported is not lost: libvlc 3 makes `set_time` wait
+for the running end-of-media callback and then ignores the seek on the ended input. The engine keeps the
+seek's target as a pending seek, like a seek made after the end; the player drops the stale completion and
+starts the engine again, which replays the media, and the target is applied when libvlc reports Playing.
+Known limit: a completion that the player reads after the seek has finished is accepted, so the player
+reads `Completed` and the seek is lost (a window of nanoseconds; `play()` replays).
+
 ## Rendering
 
 The engine asks VLC for 32-bit RGB frames of the decoded picture size and copies each one into an

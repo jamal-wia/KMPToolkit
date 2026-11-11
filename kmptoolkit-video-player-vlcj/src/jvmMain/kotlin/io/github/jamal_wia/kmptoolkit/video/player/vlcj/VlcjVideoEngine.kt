@@ -233,7 +233,18 @@ internal class VlcjVideoEngine(
                 Plan({ s.player?.setTime(target) }) { applied: Boolean ->
                     // Still above 0 until here, so a clock reading taken before the seek is rejected.
                     s.seeksInFlight--
-                    if (applied) {
+                    if (applied && s.ended) {
+                        // The decision found the source running, so its end was reported while setTime
+                        // was in flight: libvlc 3 makes set_time wait for the running EndReached callback
+                        // and then ignores the seek on the ended input (probe seekend5.c). The seek wins:
+                        // park its target like a seek made after the end, so the next start (the player
+                        // asserts one when it drops the completion as stale, or a play) resumes from it.
+                        // With a newer seek still in flight, that one parks its own target when decided.
+                        if (s.seeksInFlight == 0) {
+                            s.pendingSeekMs = target
+                            s.timeMs = target
+                        }
+                    } else if (applied) {
                         // A seek made meanwhile from a VLC thread has recorded a newer target already.
                         if (s.seeksInFlight == 0) s.timeMs = target
                         // libvlc 3 applies set_time asynchronously on its input thread, so the clock
