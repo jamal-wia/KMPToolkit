@@ -186,6 +186,11 @@ public interface DownloaderStorage {
      * nothing. A committed resource is never removed before its replacement is ready to take its
      * place. The shipped storages serialize across every instance over the same base directory in
      * the process; a custom implementation must give the same guarantee.
+     *
+     * The engine additionally serializes the whole transfer-and-commit of one unit across engines,
+     * but only for the storages returned by `createDownloaderStorage`. With a storage you implement
+     * or wrap (a logging decorator, for example) two engines over one directory are not coordinated:
+     * use one engine per directory.
      */
     public suspend fun commitResource(unit: DownloadUnit)
 

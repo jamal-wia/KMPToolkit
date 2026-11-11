@@ -34,6 +34,34 @@ library never merges a permission into its consumers.
 
 ## Android
 
+### Icon styles depend on the API level
+
+The module's `minSdk` is 24, and the platform only learned to style the icons later than that:
+
+| | Works from | Below that level |
+|---|---|---|
+| Status bar icons (`statusBarIcons`) | API 23, so on every level this module supports | not applicable |
+| Navigation bar icons (`navigationBarIcons`) | **API 26** | the flag does not exist; `navigationBarIcons` is tracked on `config` and has no effect on API 24 and 25 |
+
+Nothing throws or warns on API 24 and 25 when a navigation-bar style is set, for the same reason
+an unsupported axis is silent on iOS and desktop: an app sharing one configuration across levels
+is the normal case. The status-bar axis therefore needs no version check in your code, and the
+navigation-bar axis is only worth a check if your design depends on the icon colour on API 24
+and 25, where it stays the system's own.
+
+### `AutoSystemBarsIconStyle` and status-bar insets on API 24 to 29 (unverified on a device)
+
+`AutoSystemBarsIconStyle` only samples while `WindowInsets.statusBars` or `navigationBars` is
+non-zero, and it reads them through Compose's public inset API. In this module's Robolectric tests
+on API 28 (and 24), after the composable has left composition and come back several times, Compose's
+inset listener sometimes holds no inset at all until the window dispatches one again, so the
+composable claims nothing until then. Nothing in this module installs or feeds that listener, and on
+API 30 and above the same sequences pass. No behaviour of this kind has been seen on a physical
+device, and whether it can happen on one has not been checked: on API 24 to 29, if the icon colour
+of a screen that toggles `AutoSystemBarsIconStyle` stays stale after the toggle, a second
+`WindowInsets` reader (for example `Modifier.statusBarsPadding()` above it) keeps the listener
+installed and is the first thing to try.
+
 ### Edge-to-edge is your call, not this module's
 
 This module sets icon appearance and bar visibility. It does **not** call `enableEdgeToEdge()`.
