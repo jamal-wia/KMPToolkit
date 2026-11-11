@@ -89,7 +89,7 @@ coordinated.
 
 #### Units whose id is not a plain file name
 
-The names above are those of a unit whose id has no `/` and no NUL, whose `<id>.<ext>.complete`
+The names above are those of a unit whose id has no `/`, no NUL and no unpaired surrogate (an id with one has no UTF-8 form: Android cannot create a file named by it and iOS would give two such ids one file), whose `<id>.<ext>.complete`
 (and `staging-<id>`) fit in 255 bytes, and whose `tempExtension` is one plain name. For every other
 unit the same files live under `<base>/tmp/kmptoolkit-internal/`, named by a key: the lowercase
 base32 SHA-256 of the id (52 characters of `a-z2-7`). So `models/v1` has its partial at

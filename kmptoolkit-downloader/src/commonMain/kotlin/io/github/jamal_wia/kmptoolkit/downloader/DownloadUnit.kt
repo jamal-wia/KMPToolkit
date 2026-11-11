@@ -18,7 +18,8 @@ package io.github.jamal_wia.kmptoolkit.downloader
  * an iOS background-session identifier, a persisted stall-count key. It must be stable across app
  * versions (it is written to disk and read back) and unique within the host's catalogue.
  *
- * Any string is accepted as an [id]; one that is not a plain file name (it contains `/` or NUL, or a
+ * Any string is accepted as an [id]; one that is not a plain file name (it contains `/`, NUL or an
+ * unpaired surrogate, or a
  * name derived from it would pass 255 bytes) is stored under a hashed name by the shipped storages,
  * so it never collides with another unit or leaves `tmp/`. Prefer `[A-Za-z0-9._-]`, and keep ids
  * unique ignoring case (and, on iOS, Unicode normalization): an iOS volume may treat `Model` and

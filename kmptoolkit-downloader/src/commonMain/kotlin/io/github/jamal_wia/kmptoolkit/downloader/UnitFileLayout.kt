@@ -282,7 +282,27 @@ internal class UnitFileLayout(private val caseInsensitive: Boolean) {
         private fun hashedExtension(extension: String): String =
             if (isPlain(extension) && utf8Length(extension) <= MAX_HASHED_EXTENSION_BYTES) extension else "tmp"
 
-        private fun isPlain(text: String): Boolean = text.indexOf('/') < 0 && text.indexOf('\u0000') < 0
+        /**
+         * A name that can be a file name as it is: no `/`, no NUL, and no unpaired surrogate. A lone surrogate has no
+         * UTF-8 form, so a file system either refuses the name (Android) or maps it to a replacement character that
+         * other ids share (iOS); such an id is stored under a hashed name, which is injective over UTF-16 units.
+         */
+        private fun isPlain(text: String): Boolean =
+            text.indexOf('/') < 0 && text.indexOf('\u0000') < 0 && !hasLoneSurrogate(text)
+
+        private fun hasLoneSurrogate(text: String): Boolean {
+            var index = 0
+            while (index < text.length) {
+                val char: Char = text[index]
+                if (char.isHighSurrogate() && index + 1 < text.length && text[index + 1].isLowSurrogate()) {
+                    index += 2
+                    continue
+                }
+                if (char.isSurrogate()) return true
+                index++
+            }
+            return false
+        }
 
         /** UTF-8 length, counting a lone surrogate as 3 bytes (the worst case). */
         private fun utf8Length(text: String): Int {

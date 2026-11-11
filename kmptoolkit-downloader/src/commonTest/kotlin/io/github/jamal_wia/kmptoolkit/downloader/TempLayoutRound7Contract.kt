@@ -64,4 +64,23 @@ abstract class TempLayoutRound7Contract {
             storage.deleteResource(unit)
         }
     }
+
+    @Test
+    fun `units whose ids differ only in a lone surrogate or the character it turns into never share a temp file`() = runTest {
+        val storage: DownloaderStorage = newStorage()
+        val ids: List<String> = listOf("x\uD800", "x\uD801", "x\uDFFF", "x?", "x�")
+        val units: List<IdUnit> = ids.mapIndexed { number: Int, id: String -> IdUnit(id, number) }
+        val paths: List<String> = units.map { storage.getTempFilePath(it) }
+        assertEquals(paths.size, paths.toSet().size, "two ids share one temp path: $paths")
+
+        units.forEachIndexed { number: Int, unit: IdUnit ->
+            storage.beginTempFile(unit, null)
+            writeFile(storage.getTempFilePath(unit), ByteArray(10) { number.toByte() })
+        }
+        units.forEachIndexed { number: Int, unit: IdUnit ->
+            assertContentEquals(ByteArray(10) { number.toByte() }, readFile(storage.getTempFilePath(unit)), "$unit")
+        }
+        units.forEach { storage.deleteTempFile(it) }
+        units.forEach { assertEquals(TempFileState.None, storage.tempFileState(it), "$it") }
+    }
 }
