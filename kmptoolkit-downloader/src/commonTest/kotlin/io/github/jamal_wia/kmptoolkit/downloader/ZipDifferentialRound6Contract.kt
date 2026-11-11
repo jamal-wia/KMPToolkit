@@ -184,16 +184,13 @@ abstract class ZipDifferentialRound6Contract {
     // ---- names -----------------------------------------------------------------------------------------
 
     @Test
-    fun `absolute dotted doubled-slash and backslash names land where the lexical rules put them`() = runTest {
+    fun `absolute dotted and doubled-slash names land where the lexical rules put them`() = runTest {
         val entries: List<ZipEntryRound6> = listOf(
             ZipEntryRound6("./marker.txt", "marker\n"),
             ZipEntryRound6("/abs.txt", "abs\n"),
             ZipEntryRound6("a//b.txt", "ab\n"),
             ZipEntryRound6("c/./d/../e.txt", "ce\n"),
-            ZipEntryRound6("...", "dots\n"),
             ZipEntryRound6("..x", "dotx\n"),
-            ZipEntryRound6("y..", "ydot\n"),
-            ZipEntryRound6("f/.../g.txt", "fg\n"),
         )
 
         val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("lex", ZipBytesRound6.build(entries).bytes)
@@ -202,28 +199,31 @@ abstract class ZipDifferentialRound6Contract {
         assertEquals("abs\n", text(storage, unit, "abs.txt"))
         assertEquals("ab\n", text(storage, unit, "a/b.txt"))
         assertEquals("ce\n", text(storage, unit, "c/e.txt"))
-        assertEquals("dots\n", text(storage, unit, "..."))
         assertEquals("dotx\n", text(storage, unit, "..x"))
-        assertEquals("ydot\n", text(storage, unit, "y.."))
-        assertEquals("fg\n", text(storage, unit, "f/.../g.txt"))
         assertFalse(pathExists(TestPaths.join(baseOf(storage, unit), "abs.txt")), "an absolute name must not leave the extraction tree")
     }
 
     @Test
-    fun `backslash names are ordinary file name characters and stay inside the extraction tree`() = runTest {
-        // Only a POSIX file system (a device, macOS, Linux) keeps a backslash as a name character;
-        // on Windows it is a separator, so "..\\up.txt" means something else there.
-        TestHost.assumePosixFileSemantics("a backslash is a file-name character")
+    fun `names with a backslash or a trailing dot are ordinary file names and stay inside the extraction tree`() = runTest {
+        // Only a POSIX file system (a device, macOS, Linux) keeps a backslash as a name character and
+        // can create "..." or "y..": on Windows a backslash is a separator and a trailing dot is dropped.
+        TestHost.assumePosixFileSemantics("a backslash or a trailing dot is part of a file name")
         val entries: List<ZipEntryRound6> = listOf(
             marker(),
             ZipEntryRound6("back\\slash.txt", "bs\n"),
             ZipEntryRound6("..\\up.txt", "up\n"),
+            ZipEntryRound6("...", "dots\n"),
+            ZipEntryRound6("y..", "ydot\n"),
+            ZipEntryRound6("f/.../g.txt", "fg\n"),
         )
 
         val (storage: DownloaderStorage, unit: DownloadUnit) = commitOk("backslash", ZipBytesRound6.build(entries).bytes)
 
         assertEquals("bs\n", text(storage, unit, "back\\slash.txt"))
         assertEquals("up\n", text(storage, unit, "..\\up.txt"))
+        assertEquals("dots\n", text(storage, unit, "..."))
+        assertEquals("ydot\n", text(storage, unit, "y.."))
+        assertEquals("fg\n", text(storage, unit, "f/.../g.txt"))
     }
 
     @Test

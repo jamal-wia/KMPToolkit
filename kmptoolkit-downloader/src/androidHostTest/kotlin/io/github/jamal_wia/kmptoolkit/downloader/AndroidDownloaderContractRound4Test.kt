@@ -7,6 +7,7 @@ import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadDispatchers
 import io.github.jamal_wia.kmptoolkit.downloader.spi.DownloadStateStore
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.testsupport.TestFs
+import io.github.jamal_wia.kmptoolkit.testsupport.TestHost
 import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -342,6 +343,8 @@ class AndroidDownloaderContractRound4Test {
 
     @Test
     fun `an unwritable target directory fails the commit as a storage error, keeps the temp file and commits it later without a transfer`() = runBlocking {
+        // Measured on Windows: an ACL deny on the directory does not stop a file being moved into it.
+        TestHost.assumePosixFileSemantics("moving a file into a read-only directory must fail")
         withTimeout(60_000) {
             val storage: DownloaderStorage = storage()
             val group = Group("g")
