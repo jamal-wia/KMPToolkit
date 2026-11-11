@@ -46,6 +46,17 @@ effects in it, on a device that may have different credentials. If that matters 
 `data_extraction_rules.xml` exclusion for the file, or wipe the queue on first launch after a
 restore. This module cannot decide that for you.
 
+## Texts are stored as given
+
+Every text of an item (`id`, `type`, `payload`, `uniqueKey`, `orderingKey`, `tag`, `lastError`) comes back from the
+queue exactly as it went in, like it does from `InMemoryUploaderStore`. The drivers alone would not keep some of them:
+SQLite drops a leading U+FEFF and reads a leading U+FFFE as a byte-order mark and the Android driver mangles a lone
+surrogate; the iOS driver ends a text at a NUL, drops a leading U+FEFF and turns a lone surrogate into U+FFFD. A text
+that holds one of these (a NUL or a lone surrogate anywhere, or a U+FEFF or U+FFFE first) is therefore stored in an escaped
+form that starts with U+FDD0 `kmp1` U+FDD1 and is decoded on the way out; every other text is stored as it is, so a row
+written by an earlier version reads back unchanged. The escape matters only if you query the table yourself, which is not
+supported: read the column of such a row through the store.
+
 ## Corrupt database file
 
 The default contract is the same on both platforms: a file that is not a usable database fails
