@@ -1,5 +1,4 @@
 package io.github.jamal_wia.kmptoolkit.testsupport
-// path-hygiene-file: logical-paths TestPaths works on both path syntaxes through an explicit PathSyntax; its '/' literals are the POSIX branch of the converter
 
 /**
  * Converts between **logical** and **native** file paths in tests.
@@ -34,7 +33,9 @@ public object TestPaths {
         require(!isLogicalAbsolute(logical, syntax)) { "A logical path must be relative, was: $logical" }
         val parsed: Parsed = parse(base, syntax)
         val extra: List<String> = logical.split('/').filter { it.isNotEmpty() }
-        return format(parsed.root, parsed.segments + extra, syntax)
+        val result: String = format(parsed.root, parsed.segments + extra, syntax)
+        // java.io.File keeps no trailing separator on a UNC share: File("\\\\srv\\share").path is that string.
+        return if ((parsed.segments + extra).isEmpty()) uncShare(result, syntax) else result
     }
 
     /**
@@ -45,7 +46,8 @@ public object TestPaths {
     public fun parent(path: String, syntax: PathSyntax = TestHost.pathSyntax): String? {
         val parsed: Parsed = parse(path, syntax)
         if (parsed.segments.isEmpty()) return null
-        if (parsed.segments.size == 1) return parsed.root.ifEmpty { null }
+        // The parent of a file directly under a UNC share is the share without a trailing separator (as java.io.File).
+        if (parsed.segments.size == 1) return uncShare(parsed.root, syntax).ifEmpty { null }
         return format(parsed.root, parsed.segments.dropLast(1), syntax)
     }
 
@@ -111,8 +113,8 @@ public object TestPaths {
      * @since 4.1.0
      */
     public fun relativeLogical(base: String, path: String, syntax: PathSyntax = TestHost.pathSyntax): String? {
-        val b: Parsed = parse(normalize(base, syntax), syntax)
-        val p: Parsed = parse(normalize(path, syntax), syntax)
+        val b: Parsed = parseNormalized(base, syntax)
+        val p: Parsed = parseNormalized(path, syntax)
         if (!same(b.root, p.root, syntax)) return null
         if (p.segments.size < b.segments.size) return null
         for (i: Int in b.segments.indices) {
@@ -131,14 +133,25 @@ public object TestPaths {
 
     // -- internals ---------------------------------------------------------------------------
 
+    /** [normalize] then parse, reading the `.` of a relative path that cancels out as no segments at all. */
+    private fun parseNormalized(path: String, syntax: PathSyntax): Parsed {
+        val normalized: String = normalize(path, syntax)
+        return if (normalized == ".") Parsed("", emptyList(), false) else parse(normalized, syntax)
+    }
+
+    private fun uncShare(root: String, syntax: PathSyntax): String =
+        if (syntax == PathSyntax.WINDOWS && root.startsWith("\\\\")) root.trimEnd('\\') else root
+
     private class Parsed(val root: String, val segments: List<String>, val rooted: Boolean)
 
     private fun same(a: String, b: String, syntax: PathSyntax): Boolean =
         a.equals(b, ignoreCase = syntax == PathSyntax.WINDOWS)
 
     private fun isLogicalAbsolute(logical: String, syntax: PathSyntax): Boolean = when (syntax) {
+        // path-hygiene-ignore: PH5 TestPaths parses an explicit PathSyntax; this is its POSIX/logical branch, not a host-path check
         PathSyntax.POSIX -> logical.startsWith('/')
         PathSyntax.WINDOWS ->
+            // path-hygiene-ignore: PH5 TestPaths parses an explicit PathSyntax; this is its POSIX/logical branch, not a host-path check
             logical.startsWith('/') || logical.startsWith('\\') ||
                 (logical.length >= 2 && logical[0].isLetter() && logical[1] == ':')
     }
@@ -152,6 +165,7 @@ public object TestPaths {
 
     private fun parse(path: String, syntax: PathSyntax): Parsed = when (syntax) {
         PathSyntax.POSIX -> {
+            // path-hygiene-ignore: PH5 TestPaths parses an explicit PathSyntax; this is its POSIX/logical branch, not a host-path check
             val rooted: Boolean = path.startsWith('/')
             Parsed(if (rooted) "/" else "", path.split('/').filter { it.isNotEmpty() }, rooted)
         }

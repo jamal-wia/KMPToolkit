@@ -67,7 +67,7 @@ class TestPathsTest {
         assertEquals("C:\\a", TestPaths.parent("C:\\a\\b", win))
         assertEquals("C:\\", TestPaths.parent("C:\\a", win))
         assertNull(TestPaths.parent("C:\\", win))
-        assertEquals("\\\\srv\\share\\", TestPaths.parent("\\\\srv\\share\\a", win))
+        assertEquals("\\\\srv\\share", TestPaths.parent("\\\\srv\\share\\a", win))
         assertNull(TestPaths.parent("name", win))
         assertEquals("/a", TestPaths.parent("/a/b", posix))
         assertEquals("/", TestPaths.parent("/a", posix))
@@ -206,5 +206,20 @@ class TestPathsTest {
     fun theHostLimitMatchesTheHostSyntax() {
         val limit: Int? = TestHost.maxNativePathLength
         if (TestHost.pathSyntax == PathSyntax.WINDOWS) assertEquals(259, limit) else assertNull(limit)
+    }
+
+    @Test
+    fun aUncShareKeepsNoTrailingSeparatorWhenNothingFollowsIt() {
+        assertEquals("\\\\srv\\share", TestPaths.join("\\\\srv\\share", "", win))
+        assertEquals("\\\\srv\\share", TestPaths.join("\\\\srv\\share\\", "", win))
+        assertEquals("\\\\srv\\share\\a", TestPaths.join("\\\\srv\\share", "a", win))
+        assertEquals("C:\\", TestPaths.parent("C:\\a", win))
+    }
+
+    @Test
+    fun aRelativeDotIsAnEmptyRelativePath() {
+        assertEquals("a", TestPaths.relativeLogical(".", "a", posix))
+        assertEquals("", TestPaths.relativeLogical(".", "b/..", posix))
+        assertEquals("a", TestPaths.relativeLogical("x/..", "a", posix))
     }
 }
