@@ -30,6 +30,15 @@ class RecorderConfigContractTest {
     }
 
     @Test
+    fun `a slash path is absolute on POSIX and rejected as drive-relative on a Windows JVM`() {
+        if (TestHost.pathSyntax == PathSyntax.WINDOWS) {
+            assertFailsWith<IllegalArgumentException> { RecordingStorage(directoryPath = "/recordings") }
+        } else {
+            assertEquals("/recordings", RecordingStorage(directoryPath = "/recordings").directoryPath)
+        }
+    }
+
+    @Test
     fun `a directory name inside the base is accepted whether nested or with a trailing separator`() {
         for (name in listOf("voice-notes", "audio/notes", "notes/")) {
             assertEquals(name, RecordingStorage(directoryName = name).directoryName)

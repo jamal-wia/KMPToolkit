@@ -170,8 +170,8 @@ recorder.
   own; script them with `failNextOperationWith`.
   The shape of an explicit path is checked, though: `prepare` with a blank or non-absolute path is refused
   with `DirectoryNotWritable`, like the real recorder (and consumes no scripted failure). The `directory`
-  constructor argument must be absolute: either for the running file system (so a Windows build machine can pass `tempDir.path`) or a POSIX-style `/…` path (the default `/fake/recordings` keeps working everywhere); a trailing or repeated separator in `directory` is dropped from
-  generated paths, as the real recorder does.
+  constructor argument must be absolute: either for the running file system (so a Windows build machine can pass `tempDir.path`) or a POSIX-style `/…` path (the default `/fake/recordings` keeps working everywhere); a trailing or repeated `/` in `directory` is dropped from
+  generated paths, as the real recorder does (a trailing backslash of a host-absolute Windows directory is kept; the fake has no file system and joins with `/`). Note that `RecordingStorage(directoryPath = "/…")` is rejected on a Windows JVM (see `04-api-reference.md`), so a host test on Windows that configures a storage directory needs a host-absolute path; the fake's own `directory` argument still accepts `/…`.
 - **No format validation.** `UnsupportedFormat` likewise.
 - **Not safe to call from several threads**, exactly like the recorder it replaces.
 - **No subscription-driven metering.** The real recorder samples the microphone only while `level`
