@@ -1284,7 +1284,7 @@ internal class DefaultUploaderEngine(
 
     /**
      * @return the request, the row's `attempts` it was prepared at and the body limit read with them, or
-     *   `null` when nothing is to be uploaded: the row is gone or no longer in flight, the handler dropped or
+     *   `null` when nothing is to be uploaded: the row is gone, no longer in flight or not an upload item, the handler dropped or
      *   parked it (applied here), or preparation failed (charged to the row as a failed attempt, guarded by
      *   its claim). The row is read again after the handler prepared, so a settlement or withdrawal that landed
      *   meanwhile is [PreparedRequest.NothingOwed] and a charge is [PreparedRequest.MovedOn]; what remains is the
@@ -1681,14 +1681,24 @@ internal class DefaultUploaderEngine(
     private val negativeLimitLogged: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     /**
-     * The upload handler for [record] and its decoded payload, or `null` after parking a row that has
-     * no upload handler or an undecodable payload — both wiring or migration bugs to keep visible.
+     * The upload handler for [record] and its decoded payload, or `null` when the gateway has nothing to do
+     * with the row. A row whose type has a plain [UploaderHandler] is not an upload item: it is left exactly as
+     * it is (its own executor settles it through [settle], and a lapsed lease re-hands it), so a stray or
+     * outdated gateway call cannot strand it. A row whose type has no handler at all, or whose payload cannot be
+     * decoded, is parked as read: a wiring or migration bug to keep visible, parked the same way the drain parks it.
      */
     @Suppress("UNCHECKED_CAST")
     private suspend fun uploadHandlerAndPayload(record: UploaderItem, phase: String): Pair<UploadHandler<Any>, Any>? {
-        val handler: UploadHandler<Any> = handlersByType[record.type] as? UploadHandler<Any> ?: run {
-            parkAsRead(record, "$phase for non-upload type '${record.type}'")
-            logger.e { "Parked ${record.logName} — $phase for a type with no UploadHandler." }
+        val registered: UploaderHandler<*>? = handlersByType[record.type]
+        val handler: UploadHandler<Any> = registered as? UploadHandler<Any> ?: run {
+            if (registered != null) {
+                // A plain handler's item: not this channel's, so nothing is written (the store row, its lease and
+                // its claim stay as they are).
+                logger.w { "Ignored $phase for ${record.logName} — its type has a plain UploaderHandler, not an UploadHandler." }
+                return null
+            }
+            parkAsRead(record, "$phase: no handler registered for type '${record.type}'")
+            logger.e { "Parked ${record.logName} — $phase for a type with no handler." }
             return null
         }
         val payload: Any = try {

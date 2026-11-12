@@ -207,9 +207,12 @@ public sealed interface UploadAttempt {
 ```
 
 How a transport for `UploadHandler` items reaches the engine registered in `UploaderEngineRegistry`.
-`prepareAttempt` is `NothingOwed` for an item gone, not in flight, dropped or parked by its handler, or
-whose preparation threw. `complete` returns `false` only when no engine registered within the wait, or
-its store failed; an unknown or already settled id is a no-op that returns `true`. `complete(itemId,
+`prepareAttempt` is `NothingOwed` for an item gone, not in flight, dropped or parked by its handler,
+whose preparation threw, or whose type has a plain `UploaderHandler` rather than an `UploadHandler`.
+`complete` returns `false` only when no engine registered within the wait, or its store failed; an
+unknown or already settled id, or the id of a plain handler's item, is a no-op that returns `true`. A
+plain handler's item is never changed by the gateway (it settles through `UploaderEngine.settle`); an
+item whose type has no handler registered at all is parked, as the drain parks it. `complete(itemId,
 response)` (since 4.0.0) reports what the server answered — the engine builds
 `UploadResult.Completed(response.statusCode)` from it — while `complete(itemId, result)` is the
 status-only form, for a `TransportFailure` or a transport that cannot read the body. `progress` is best
