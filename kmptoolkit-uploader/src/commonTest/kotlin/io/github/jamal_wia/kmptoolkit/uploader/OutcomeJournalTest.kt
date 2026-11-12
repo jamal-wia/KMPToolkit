@@ -537,7 +537,9 @@ class OutcomeJournalTest {
         val handler = DeliveryRecorder()
         val store = DeleteFaultStore(TestUploaderStore())
         val inner: TestUploaderStore = store.innerStore()
-        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_000L))
+        // A distinct creation time: the undelivered commit leaves a process-wide delivered-but-unconfirmed entry
+        // (intended), and the other tests reuse item-1 with the same payload.
+        val started: DefaultUploaderEngine = startedEngine(store, handler, TestClock(1_001L))
         store.failWith = CancellationException("the store's own scope")
 
         val outcome: JournalSettleOutcome = started.settleJournaled("item-1", response(status = 201), 0) { }
