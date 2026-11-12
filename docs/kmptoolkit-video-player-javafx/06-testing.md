@@ -66,6 +66,10 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
   button handler: the playhead moves on at the speed asked for) and `JavaFxFxThreadNudgeR8FixerTest` (a listener
   on the native rate property: a replay at a new speed from the FX thread gives the native player one
   away-and-back to the new speed, never the replaced old one).
+- **Resume keeps the playhead** — `JavaFxResumeKeepsPositionR10AdversarialTest`: after a pause and a speed
+  change (while playing, while paused, or both) the playhead 600 ms after `play()` is not more than 300 ms
+  below the paused position (a native seek would land on the key frame before it: a pause at 1540 ms resumed
+  at 1000 ms with the 3 s clip, whose key frames are a second apart).
 - **Unreadable file** — `SourceUrisUnreadableFileR5Test`: a `VideoSource.File` the process cannot read
   fails with `FileNotFoundException` before JavaFX is involved (JavaFX itself took 4 s to fail it).
 - **Reading JavaFX back.** Volume, rate and status have no getter on the engine contract; an

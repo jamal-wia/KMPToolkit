@@ -146,7 +146,8 @@ decoder writes straight into memory without a render-and-read-back step.
   it until the seek has reached the JavaFX application thread: a playhead reading JavaFX took before
   the seek, but delivered after it because that thread was busy, never puts the old position back.
   JavaFX then seeks asynchronously, so the one reading after that — about 100 ms later — can still
-  show the old playhead before the new one arrives.
+  show the old playhead before the new one arrives. A `pause()` followed by `play()` is not a seek: the
+  clip resumes from exactly where it was paused, at any speed (see "Playback speed" below).
 - **Looping** (`RepeatMode.One`) uses JavaFX's own `cycleCount = INDEFINITE`, so JavaFX restarts
   the source itself, and `Completed` is never reported while it is on.
 - **End of media.** JavaFX leaves its own status at `PLAYING` when the last cycle ends; the engine
@@ -158,17 +159,28 @@ decoder writes straight into memory without a render-and-read-back step.
   collections.
 - **Playback speed.** On macOS, `MediaPlayer.play()` and the start of the next cycle of a looping
   source begin at normal speed whatever rate JavaFX holds, so a speed set while paused, or one set
-  before a loop wraps, would be lost. On a resume at a speed other than 1 the engine seeks the native
-  player to where it already stands (unless a seek is already pending) and gives the speed right after
-  `play()`: a rate change right after a plain `play()` can freeze the playhead for good (about one resume
-  in four in the measurements), while one right after a native seek did not in any run. The shared player
-  gives a speed it changed while paused only after `start()`, so the engine does the same for a speed that
-  arrives within about 600 ms of a plain `play()` (the speed was changed while paused or ready, or right
-  after a play): it seeks the native player to where it stands, issues `play()` again and gives the speed
-  right after, and a speed that follows `start()` immediately replaces the one `start()` was about to give,
-  whichever thread made the calls (on the FX thread, where `start()` runs at once and the next call queues,
-  the pending speed is given two FX tasks later, so the speed that follows still gets in front of it and the
-  native player sees one away-and-back, not three rate changes next to `play()`).
+  before a loop wraps, would be lost. A rate change right after a plain `play()` can freeze the playhead
+  for good (about one resume in four in the measurements), while one right after a native seek did not in
+  any run, and one after the playhead had moved on for a while did not either. A native seek is no cure for a resume
+  that was paused part-way through a key-frame interval, though: it lands on the key frame at or before
+  the position, so the clip would resume from there. So the engine gives the speed to a resume in one of
+  two ways. When a native seek is already pending (the caller's own `seekTo`, or the restart after the
+  source ended), it issues `play()` and gives the speed right after it, as one away-and-back; the shared
+  player gives a speed it changed meanwhile only after `start()`, and a speed that follows `start()`
+  immediately replaces the one `start()` was about to give, whichever thread made the calls (on the FX
+  thread, where `start()` runs at once and the next call queues, the pending speed is given two FX tasks
+  later, so the speed that follows still gets in front of it and the native player sees one away-and-back,
+  not three rate changes next to `play()`); the same holds when the playhead stands within about 100 ms of
+  the start (the first play, a replay), where a seek to it moves nothing visible. When no seek is pending
+  and the playhead is further on, a resume at a speed other than 1
+  (including a speed that arrives within about 600 ms of a plain `play()`: it was changed while paused or
+  ready, or right after a play) plays from exactly where it was paused with no native seek, and the speed
+  is given as one away-and-back once the playhead has moved about 200 ms at normal speed (on a tick of the
+  playhead, so a little later). For that time the playhead advances at normal speed, then the reported time
+  catches up; a pause meanwhile keeps the speed for the next start, and a seek meanwhile restarts the wait.
+  A `play()` that follows a speed written while paused within about 200 ms waits for the rest of those
+  200 ms (a `play()` right next to a rate write froze the playhead at a speed of 8 in the measurements), so
+  a `setPlaybackSpeed()` immediately followed by `play()` starts up to 200 ms late.
   After a loop wrap the speed is given again as one change once the playhead has wrapped and moved about
   200 ms, and no sooner than 300 ms after a seek made meanwhile (a rate change within about 100 ms of a
   native seek can freeze the playhead too); the reported time of a loop's second cycle can hold still for
