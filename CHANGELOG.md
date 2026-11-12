@@ -73,6 +73,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   versions are read and swept as before.
 - `kmptoolkit-uploader` (Android): temporary journal files in `outcomes-partial` are named
   `.kmptoolkit-<digits>.tmp`; leftovers of either naming are swept after an hour, as before.
+- `kmptoolkit-downloader` now depends on `kmptoolkit-files` (its lock registries, the Android tree walk, the no-replace
+  rename and the SQLite sidecar names). No on-disk format, file name or directory layout changes.
 - `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes.
 - `kmptoolkit-core` no longer contains `isAbsoluteFilePath` (internal API without a compatibility promise); use
   `Paths.isAbsolute` from `kmptoolkit-files`.
@@ -85,6 +87,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
+- `kmptoolkit-downloader` (Android): the resource-size walk no longer follows a symbolic link inside a resource
+  directory: a link counted its target's size, and a link cycle recursed until the stack overflowed. Recursive deletes,
+  which already removed a link as a link, now share the same walk.
 - `kmptoolkit-uploader`: a `KEEP` enqueue that supersedes a `PARKED` item now withdraws it like a `REPLACE` does:
   its running attempt is stopped and its upload is cancelled (an item parked at its re-hand and then enqueued again
   under the default `KEEP` no longer uploads twice). A `KEEP` refused by a `PENDING` or `IN_FLIGHT` holder cancels

@@ -1,5 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.downloader
 
+import io.github.jamal_wia.kmptoolkit.files.Paths
+import io.github.jamal_wia.kmptoolkit.testsupport.TestPaths
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -59,7 +61,7 @@ abstract class ZipDifferentialRound7Contract {
     }
 
     private fun baseOf(storage: DownloaderStorage, unit: DownloadUnit): String =
-        storage.getResourcePath(unit).substringBeforeLast('/').substringBeforeLast('/')
+        Paths.parentOf(Paths.parentOf(storage.getResourcePath(unit))!!)!!
 
     private fun marker(): ZipEntryRound6 = ZipEntryRound6("marker.txt", "marker\n")
 
@@ -73,7 +75,7 @@ abstract class ZipDifferentialRound7Contract {
 
     private fun assertRejectedCleanly(storage: DownloaderStorage, unit: DownloadUnit, failure: Throwable?, what: String) {
         assertEquals(TempFileState.None, storage.tempFileState(unit), "$what: the worthless temp file must be deleted (failure: $failure)")
-        assertFalse(pathExists("${baseOf(storage, unit)}/tmp/staging-${unit.id}"), "$what: staging left behind (failure: $failure)")
+        assertFalse(pathExists(TestPaths.join(baseOf(storage, unit), "tmp/staging-${unit.id}")), "$what: staging left behind (failure: $failure)")
         assertFalse(storage.isResourceAvailable(unit), "$what: a rejected archive must not be available (failure: $failure)")
         assertTrue(failure is ResourceIntegrityException, "$what: expected ResourceIntegrityException, was $failure")
     }

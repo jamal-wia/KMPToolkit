@@ -26,7 +26,6 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.joinAll
@@ -104,12 +103,7 @@ class AndroidDownloaderResourcesRound4Test {
             logger = NoopLogger,
         )
 
-    @Suppress("UNCHECKED_CAST")
-    private fun lockRegistrySize(): Int {
-        val field = UnitCommitLocks::class.java.getDeclaredField("entries")
-        field.isAccessible = true
-        return ((field.get(null) as MutableStateFlow<Map<*, *>>).value).size
-    }
+    private fun lockRegistrySize(): Int = UnitCommitLocks.activeKeyCount
 
     private fun engineScopeChildren(engine: Downloader): Int {
         val field = engine.javaClass.getDeclaredField("scope")

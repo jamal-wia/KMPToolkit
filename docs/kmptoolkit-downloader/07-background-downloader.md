@@ -276,6 +276,30 @@ Stop writing as soon as `cancelDownload` is called. The engine may delete the te
 record right after; a write that lands after that leaves bytes with no record, which would later
 resume or commit with only `DownloadUnit.sha256` checked.
 
+### Handing an existing file to the storage
+
+A downloader that fetched the bytes somewhere else (a system download manager, another app directory, possibly
+another volume) puts them into the unit's temp path with `kmptoolkit-files` and then marks the temp file complete.
+`FileAccess.move` falls back to a synced copy when the volumes differ, so this is safe across volumes. The module
+`kmptoolkit-downloader` does not export `kmptoolkit-files`, so the app adds it as its own dependency:
+
+```kotlin
+// Needs kmptoolkit-files as your own dependency (version from the BOM): implementation("io.github.jamal-wia:kmptoolkit-files")
+val moved: FileResult<Unit> =
+    files.move(location, storage.getTempFilePath(unit), MoveOptions(createParentDirectories = true)) // cross-volume safe
+if (moved is FileResult.Failure) {
+    // Never mark here: the temp path may still hold an older partial file, and marking would promote it.
+    // Report the transfer as failed through your downloader's failure path; the engine then calls deleteTempFile.
+    return reportFailure(unit, moved.error)
+}
+storage.markTempFileComplete(unit)   // the temp path now holds exactly the finished download
+```
+
+On success the move replaced whatever stood at the temp path atomically, so the mark applies to the new bytes only.
+`files` is a `FileAccess` from `createFileAccess()`, and `reportFailure` stands for your downloader's own failure event.
+The storage has no method for this on purpose: its temp path may be a hashed one under `tmp/`, and only
+`getTempFilePath(unit)` names it.
+
 ## A worked skeleton (Android)
 
 The shape most Android implementations converge on: a foreground service so the OS does not kill

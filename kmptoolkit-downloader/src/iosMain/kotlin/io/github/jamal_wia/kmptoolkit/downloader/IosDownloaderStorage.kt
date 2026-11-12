@@ -1,6 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.downloader
 
 import androidx.sqlite.SQLiteConnection
+import io.github.jamal_wia.kmptoolkit.files.SqliteFiles
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
@@ -749,7 +750,7 @@ internal class IosDownloaderStorage(
 
     /** Removes the write-ahead log, shared-memory and journal files SQLite keeps next to [databasePath]. */
     private fun deleteSqliteSidecars(databasePath: String) {
-        for (suffix: String in SQLITE_SIDECAR_SUFFIXES) NSFileManager.defaultManager.removeItemAtPath(databasePath + suffix, error = null)
+        for (sidecar: String in SqliteFiles.sidecarsOf(databasePath)) NSFileManager.defaultManager.removeItemAtPath(sidecar, error = null)
     }
 
     /** Deletes the file and throws when it does not start with the 16-byte SQLite header or is shorter than 100 bytes. */
@@ -1215,7 +1216,6 @@ internal class IosDownloaderStorage(
 
 private const val LOCAL_HEADER_SIZE: Int = 30
 private const val SQLITE_MIN_BYTES: Int = 100
-private val SQLITE_SIDECAR_SUFFIXES: List<String> = listOf("-wal", "-shm", "-journal")
 private const val FLAG_ENCRYPTED: Int = 0x0001
 private const val FLAG_DATA_DESCRIPTOR: Int = 0x0008
 private const val METHOD_STORED: Int = 0

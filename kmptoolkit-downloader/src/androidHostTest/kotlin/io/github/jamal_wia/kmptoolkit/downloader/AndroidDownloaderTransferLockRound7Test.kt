@@ -155,11 +155,7 @@ class AndroidDownloaderTransferLockRound7Test {
         directory.walkTopDown().filter { it.isFile && it.name != "legacy-layout" }
             .map { it.relativeTo(directory).path }.sorted().toList()
 
-    private fun transferLockRegistrySize(): Int {
-        val field = UnitTransferLocks::class.java.getDeclaredField("entries").apply { isAccessible = true }
-        val flow = field.get(UnitTransferLocks) as kotlinx.coroutines.flow.StateFlow<*>
-        return (flow.value as Map<*, *>).size
-    }
+    private fun transferLockRegistrySize(): Int = UnitTransferLocks.activeKeyCount
 
     private val payload: ByteArray = ByteArray(48 * 1024) { index: Int -> (index % 241).toByte() }
 
