@@ -127,7 +127,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S2a and its fix tests), the boss round 1 and 2 suites of
  *   the delivered memory, UploadHandlerTest.
  * - **P9, Turn.** In one call of `drain()` (and in one pass of the engine's own loop) an item gets **at most one
- *   turn**, decided in one place in [drainPass], before any work on the item: an attempt that ran, an attempt that
+ *   turn**, decided in one place in [drainPass] through [DrainCall], before any work on the item: an attempt that ran, an attempt that
  *   failed (outside its handler or not), or a confirming delete that failed uses it up; a later sweep of the same call
  *   leaves the item for the next trigger or alarm. A confirming delete that **succeeded** uses nothing (the row is
  *   gone, and the tail of its ordering channel must still run in the same call). The turn bounds every clock: the
@@ -520,12 +520,8 @@ internal class DefaultUploaderEngine(
 
     /** One call's worth of drain work: the body of [drain], and of every pass of the engine's own loop. */
     private suspend fun drainPass() {
-        // Per call of drain(), rule P9: ids that had their turn in this call (an attempt that ran or failed, or a
-        // failed confirming delete) and ids already skipped once as "moved". An item gets one turn per pass of work;
-        // a second turn waits for the next trigger or alarm, so neither a zero backoff, nor a clock at Long.MAX_VALUE
-        // (every gate reads as due), nor a store whose point read disagrees with its list read can keep one call spinning.
-        val ranThisDrain: MutableSet<String> = HashSet()
-        val movedThisDrain: MutableSet<String> = HashSet()
+        // Per call of drain(), rule P9: the turns used so far (see DrainCall).
+        val call = DrainCall()
         while (true) {
             // A store whose calls never suspend gives cancellation no other place to be seen: without this a
             // close() (or a cancelled scope) from inside a handler would not stop the pass.
@@ -605,7 +601,7 @@ internal class DefaultUploaderEngine(
                 // P9: the one place the turn is checked. The item already had its turn in this call and is due again at
                 // once (a retry whose policy returned no delay, or a failure whose gate reads as due on this clock): its
                 // next try waits for the next trigger or alarm instead of repeating in this loop.
-                if (item.id in ranThisDrain) {
+                if (call.hasHadTurn(item.id)) {
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, saturatingAdd(nowMillis, failedPassRetryMillis(1)))
                     continue
                 }
@@ -620,11 +616,11 @@ internal class DefaultUploaderEngine(
                     } catch (e: CancellationException) {
                         currentCoroutineContext().ensureActive()
                         logger.e(e) { "Confirming the delivery of ${item.logName} leaked a cancellation; retrying later." }
-                        ranThisDrain += item.id // P9
+                        call.spendTurn(item.id) // P9
                         soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
                     } catch (e: Throwable) {
                         logger.e(e) { "Confirming the delivery of ${item.logName} failed again; retrying later." }
-                        ranThisDrain += item.id // P9
+                        call.spendTurn(item.id) // P9
                         soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
                     }
                     executedAny = true
@@ -634,8 +630,8 @@ internal class DefaultUploaderEngine(
                     val ran: Boolean = attemptRegistry.runUnlessMoved(item) { attempt -> executeItem(item, handler, attempt) }
                     outsideFailures.update { it - item.id }
                     if (ran) {
-                        ranThisDrain += item.id
-                    } else if (!movedThisDrain.add(item.id)) {
+                        call.spendTurn(item.id)
+                    } else if (call.skippedAsMovedBefore(item.id)) {
                         // Skipped as "moved" twice in one call although nothing else changed it: the store's point
                         // read keeps disagreeing with its list read. Leave the item alone for now and say so; the
                         // alarm asks again, and a consistent store will have caught up by then.
@@ -646,11 +642,11 @@ internal class DefaultUploaderEngine(
                 } catch (e: CancellationException) {
                     currentCoroutineContext().ensureActive()
                     logger.e(e) { "Attempt of ${item.logName} leaked a cancellation; retrying later." }
-                    ranThisDrain += item.id // P9
+                    call.spendTurn(item.id) // P9
                     bumpOutsideFailure(item.id)
                 } catch (e: Throwable) {
                     logger.e(e) { "Attempt of ${item.logName} failed outside its handler; retrying later." }
-                    ranThisDrain += item.id // P9
+                    call.spendTurn(item.id) // P9
                     bumpOutsideFailure(item.id)
                 }
                 executedAny = true
