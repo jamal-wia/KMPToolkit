@@ -20,7 +20,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 /** M-1..M-10: the contract of [KeyedMutex]. Every wait is bounded in real time. */
 @OptIn(ExperimentalAtomicApi::class)
@@ -129,14 +131,15 @@ class KeyedMutexTest {
         val release: CompletableDeferred<Unit> = CompletableDeferred()
         val holder: Job = launch { mutex.withLock("k") { holding.complete(Unit); release.await() } }
         holding.await()
+        // The waiter is registered and suspended in lock().
         val waiter: Job = launch(start = CoroutineStart.UNDISPATCHED) { mutex.withLock("k") { } }
-        // The holder finishes, but the waiter has not run yet: the key is awaited, not held.
+        assertTrue(waiter.isActive, "the waiter must be suspended behind the holder")
+        assertFalse(mutex.tryWithLock("k") { }, "held by the holder and awaited")
+        // The holder is released but nothing has been resumed yet: no yield, no join before the check.
         release.complete(Unit)
+        assertTrue(waiter.isActive && holder.isActive, "the test dispatcher has resumed nobody yet")
+        assertFalse(mutex.tryWithLock("k") { }, "released but still awaited: the key is registered")
         holder.join()
-        // Single-threaded test dispatcher: the waiter is registered and not yet resumed here or already done.
-        if (waiter.isActive) {
-            assertFalse(mutex.tryWithLock("k") { })
-        }
         waiter.join()
         assertTrue(mutex.tryWithLock("k") { })
         assertEquals(0, mutex.activeKeyCount)
@@ -146,16 +149,19 @@ class KeyedMutexTest {
     fun `a withLock that arrives while a try action runs waits for it`() = runTest(timeout = 60.seconds) {
         val mutex: KeyedMutex<String> = KeyedMutex()
         val order: MutableList<String> = mutableListOf()
-        val waiterStarted: CompletableDeferred<Unit> = CompletableDeferred()
+        val reachedLock: CompletableDeferred<Unit> = CompletableDeferred()
         var waiter: Job? = null
         withContext(Dispatchers.Default) {
             val ran: Boolean = mutex.tryWithLock("k") {
                 waiter = launch {
-                    waiterStarted.complete(Unit)
+                    reachedLock.complete(Unit)
                     mutex.withLock("k") { order += "waiter" }
                 }
-                // Give the waiter every chance to overtake: it may only run after this action returns.
-                while (!waiterStarted.isCompleted) Unit
+                while (!reachedLock.isCompleted) Unit
+                // The waiter is about to call withLock; the action is allowed to be short, 200 ms is enough for it
+                // to register and suspend. An implementation that does not hold the key lets it run right away.
+                val begin = TimeSource.Monotonic.markNow()
+                while (begin.elapsedNow() < 200.milliseconds) Unit
                 order += "try-end"
             }
             assertTrue(ran)

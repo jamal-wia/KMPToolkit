@@ -82,7 +82,18 @@ internal class FaultOps(private val real: FileSystemOps) : FileSystemOps {
     override fun createDirectory(path: String) = intercept(Op.CreateDirectory, path) { real.createDirectory(path) }
 
     override fun createNew(path: String, protection: FileProtection): WritableFile {
-        val inner: WritableFile = intercept(Op.CreateNew, path) { real.createNew(path, protection) }
+        before(Op.CreateNew, path)
+        val inner: WritableFile = real.createNew(path, protection)
+        try {
+            after(Op.CreateNew)
+        } catch (e: SimulatedKill) {
+            // The harness releases the handle of the dead process, so no descriptor outlives the test.
+            try {
+                inner.close()
+            } catch (_: Exception) {
+            }
+            throw e
+        }
         return object : WritableFile {
             override fun write(bytes: ByteArray, offset: Int, length: Int) =
                 intercept(Op.Write, path) { inner.write(bytes, offset, length) }
