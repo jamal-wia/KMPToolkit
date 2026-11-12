@@ -1,8 +1,11 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
+import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
@@ -163,6 +166,70 @@ class EngineBossRound3SuspectsAdversarialTest {
         }
     }
 
+    /** Fails the next [deleteFailures] deletes and the next [failureWrites] failure writes: a locked database. */
+    private class FlakyStore(private val inner: TestUploaderStore) : UploaderStore by inner {
+        var deleteFailures: Int = 0
+        var deleteCalls: Int = 0
+        var failureWrites: Int = 0
+        override suspend fun deleteById(id: String) {
+            deleteCalls++
+            if (deleteFailures > 0) {
+                deleteFailures--
+                throw IllegalStateException("database is locked")
+            }
+            inner.deleteById(id)
+        }
+
+        override suspend fun recordFailure(
+            id: String,
+            attempts: Int,
+            nextRunAtEpochMillis: Long,
+            lastError: String?,
+            expectedState: UploaderItemState,
+            expectedClaim: Long,
+            disposition: FailureDisposition,
+        ): Boolean {
+            if (failureWrites > 0) {
+                failureWrites--
+                throw IllegalStateException("database is locked")
+            }
+            return inner.recordFailure(id, attempts, nextRunAtEpochMillis, lastError, expectedState, expectedClaim, disposition)
+        }
+    }
+
+    @Test
+    fun `bn3-S2a a delivery a detached executor reported is not re-handed when its delete failed`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            var handed: AttemptContext? = null
+            val handler = TestHandler(onExecute = { context, _ ->
+                handed = context
+                AttemptResult.Detached(60_000L)
+            })
+            val clock = TestClock(1_000_000L)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s2a")::next)
+            val id: String = assertNotNull(engine.enqueue(handler, "send-video"))
+            engine.drain()
+            val context: AttemptContext = assertNotNull(handed, "setup: handed off")
+
+            store.deleteFailures = 1
+            assertFailsWith<IllegalStateException> { engine.settle(id, context.claim, SettleResult.Delivered) }
+            assertNotNull(inner.find(id), "setup: the delivered row could not be deleted")
+
+            clock.millis += 61_000L // the executor is done and gone; its lease runs out
+            engine.drain()
+
+            assertEquals(
+                1, handler.payloads.size,
+                "the engine was told the effect was delivered, yet re-handed it in the same process (settle KDoc: re-handing would send it twice)",
+            )
+        } finally {
+            parent.cancel()
+        }
+    }
+
     /** A handler whose preparation is a script; counts what the upload's delivery reported. */
     private class ScriptedUploadHandler(
         transport: UploadTransport,
@@ -256,6 +323,122 @@ class EngineBossRound3SuspectsAdversarialTest {
 
             assertEquals(null, store.find(id), "the delivery deleted the parked row")
             assertEquals(1, handler.delivered, "onDelivered ran exactly once")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `bn3-S2 fix a dropped item reported through settle is not re-handed when its delete failed`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            var handed: AttemptContext? = null
+            val handler = TestHandler(onExecute = { context, _ ->
+                handed = context
+                AttemptResult.Detached(60_000L)
+            })
+            val clock = TestClock(1_000_000L)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s2d")::next)
+            val id: String = assertNotNull(engine.enqueue(handler, "send-video"))
+            engine.drain()
+            val context: AttemptContext = assertNotNull(handed, "setup: handed off")
+
+            store.deleteFailures = 1
+            assertFailsWith<IllegalStateException> { engine.settle(id, context.claim, SettleResult.Drop("not owed any more")) }
+            assertNotNull(inner.find(id), "setup: the dropped row could not be deleted")
+            clock.millis += 61_000L
+            engine.drain()
+
+            assertEquals(1, handler.payloads.size, "a drop reported through settle must not be re-handed (P7)")
+            assertEquals(null, inner.find(id), "the next pass only retried the delete")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `bn3-S2 fix an engine built to replace the first one confirms a settled delivery without a run`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            var handed: AttemptContext? = null
+            val handler = TestHandler(onExecute = { context, _ ->
+                handed = context
+                AttemptResult.Detached(60_000L)
+            })
+            val clock = TestClock(1_000_000L)
+            val first: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s2r")::next)
+            val id: String = assertNotNull(first.enqueue(handler, "send-video"))
+            first.drain()
+            val context: AttemptContext = assertNotNull(handed, "setup: handed off")
+            store.deleteFailures = 1
+            assertFailsWith<IllegalStateException> { first.settle(id, context.claim, SettleResult.Delivered) }
+            first.close()
+
+            val replacement: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s2r2")::next)
+            clock.millis += 61_000L
+            replacement.drain()
+
+            assertEquals(1, handler.payloads.size, "the replacement engine re-handed a delivery the first one was told about")
+            assertEquals(null, inner.find(id), "the replacement engine confirmed the delivery by deleting the row")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `bn3-S2 fix an upload delivery whose commit failed is confirmed by the drain once its lease is out`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            val transport = LiveTransport()
+            val handler = ScriptedUploadHandler(transport) { proceed() }
+            val clock = TestClock(1_000_000L)
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), clock, idGenerator = SequentialIds("bn3s2u")::next)
+            val id: String = assertNotNull(engine.enqueue(handler, "avatar", uniqueKey = "avatar"))
+            engine.drain()
+            assertEquals(listOf("launch:$id"), transport.events, "setup: the transfer was launched")
+
+            store.deleteFailures = 1
+            assertEquals(false, (engine as DefaultUploaderEngine).settleUpload(id, UploadResult.Completed(200)), "setup: the commit did not land")
+            assertNotNull(inner.find(id), "setup: the delivered row is still there")
+            assertEquals(1, handler.delivered, "setup: onDelivered ran before the commit")
+            clock.millis += 61_000L
+            engine.drain()
+
+            assertEquals(null, inner.find(id), "the drain confirmed the delivery")
+            assertEquals(listOf("launch:$id"), transport.events, "the delivered upload was not relaunched")
+            assertEquals(1, handler.delivered, "onDelivered ran exactly once")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `bn3-S2 fix a later successful settle forgets the remembered delivery`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyStore(inner)
+            val transport = LiveTransport()
+            val handler = ScriptedUploadHandler(transport) { proceed() }
+            val engine: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parent), TestClock(1_000_000L), idGenerator = SequentialIds("bn3s2f")::next)
+            val id: String = assertNotNull(engine.enqueue(handler, "avatar", uniqueKey = "avatar"))
+            engine.drain()
+            val row: UploaderItem = assertNotNull(inner.find(id), "setup: the item is in flight")
+
+            store.deleteFailures = 1
+            assertEquals(false, (engine as DefaultUploaderEngine).settleUpload(id, UploadResult.Completed(200)), "setup: the commit did not land")
+            assertTrue(DeliveredUnconfirmed.matches(row), "setup: the failed delete is remembered")
+
+            assertTrue(engine.settleUpload(id, UploadResult.Completed(200)), "the repeated settle lands")
+
+            assertEquals(null, inner.find(id), "the repeated settle deleted the row")
+            assertTrue(!DeliveredUnconfirmed.matches(row), "a successful delete forgets the entry")
         } finally {
             parent.cancel()
         }

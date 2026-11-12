@@ -163,7 +163,8 @@ public abstract class UploadHandler<P : Any>(
      *
      * Runs at most once, after the item's row was committed, in the process that committed it. A delivery or drop runs it
      * once its [onDelivered] (if any) ran, even when the item was withdrawn during the settlement; a park or failure
-     * report that a newer settlement superseded runs no hook. A stop of
+     * report that a newer settlement superseded runs no hook, and neither does a delivery whose commit failed and that the
+     * engine confirmed later. A stop of
      * the platform job, an engine close or a process death right after the commit can skip it, and nothing
      * calls it later. Do not make it the only place that frees a resource such as the uploaded source file;
      * reconcile leftovers at start, or free on [onDelivered] (at least once, before the commit) where that fits.

@@ -116,6 +116,16 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   a re-hand of an expired lease that **drops** the item (the preparation answered `Drop`, or a failure the engine
  *   gave up on with a drop): the item is gone, so the earlier claim's transfer is cancelled, once the drop applied.
  *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S1a, S1b, S1c) and UploaderCancelTest.
+ * - **P7, Confirm.** Every row the engine deletes because its effect ran or was dropped goes through one funnel,
+ *   [deleteAfterEffect], whichever path reports it: a handler's `Success` or `Drop`, a `Delivered` or `Drop` settled
+ *   through [settle] (an executor's own report, the upload channel's included), an upload preparation's `Drop`. A
+ *   delete that fails is **remembered for this process** ([DeliveredUnconfirmed], also seen by an engine built to
+ *   replace this one) and a delete that succeeds forgets it, so the row is never handed out again: the drain's next
+ *   turn for it only retries the delete, and the call that reported the effect still throws the store's failure (a
+ *   repeated `settle` is harmless). The funnel is for a row whose effect is a fact; a withdrawal (P8) and the drain's
+ *   own confirming retry are not calls to it: the first never remembers or forgets, the second is the retry itself.
+ *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S2a and its fix tests), the boss round 1 and 2 suites of
+ *   the delivered memory, UploadHandlerTest.
  */
 internal class DefaultUploaderEngine(
     private val store: UploaderStore,
@@ -333,6 +343,7 @@ internal class DefaultUploaderEngine(
         currentCoroutineContext().ensureActive()
         // Row first: a transport job that starts after this finds nothing owed.
         val failure: Throwable? = try {
+            // P8, not P7: a withdrawal removes a row whose effect is not a fact; it never remembers or forgets.
             withContext(NonCancellable) { store.deleteById(id) }
             null
         } catch (e: Throwable) {
@@ -452,13 +463,13 @@ internal class DefaultUploaderEngine(
             // Facts about the effect, so they stand from any claim: a superseded executor that delivered
             // has still delivered, and re-handing the item would send it twice.
             is SettleResult.Delivered -> {
-                store.deleteById(id)
+                deleteAfterEffect(record) // P7
                 logger.i { "Settled ${record.logName} as delivered." }
                 true
             }
 
             is SettleResult.Drop -> {
-                store.deleteById(id)
+                deleteAfterEffect(record) // P7
                 logger.i { "Settled ${record.logName} as dropped — ${result.reason}." }
                 true
             }
@@ -638,6 +649,7 @@ internal class DefaultUploaderEngine(
                     // The effect succeeded in this process (in this engine or one it replaced) and only its
                     // confirming delete failed: repeating the effect would send it twice, so only the delete is retried.
                     try {
+                        // P7: this is the confirming retry of a remembered delete, so it forgets on success itself.
                         store.deleteById(item.id)
                         DeliveredUnconfirmed.forget(item)
                         outsideFailures.update { it - item.id }
@@ -1278,9 +1290,10 @@ internal class DefaultUploaderEngine(
     }
 
     /**
-     * Deletes the row of an item whose handler has finished with it (delivered, or dropped). A delete that
-     * fails is remembered as such, per process ([DeliveredUnconfirmed]): the effect already ran in this process, so
-     * the drain, this engine's or a replacement's, retries only the delete and never the handler.
+     * Rule P7, the one place a row is deleted because its effect ran or was dropped (delivered, or dropped). A delete
+     * that fails is remembered as such, per process ([DeliveredUnconfirmed]): the effect already ran in this process,
+     * so the drain, this engine's or a replacement's, retries only the delete and never the handler, and a delete
+     * that succeeds forgets the entry. The failure is rethrown to the caller. Deleting an absent row is a no-op.
      */
     private suspend fun deleteAfterEffect(item: UploaderItem) {
         try {
@@ -1430,7 +1443,7 @@ internal class DefaultUploaderEngine(
                 }
             }
             is UploadPreparation.Drop -> {
-                store.deleteById(id)
+                deleteAfterEffect(record) // P7: the same rule as the drain's own Drop, though no effect ran here
                 logger.i { "Dropped ${record.logName} at upload attempt — ${preparation.reason}." }
                 trigger()
                 null

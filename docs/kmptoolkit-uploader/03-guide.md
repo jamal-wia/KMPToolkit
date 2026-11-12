@@ -241,6 +241,10 @@ val engine: UploaderEngine = UploaderEngineRegistry.await(5.seconds) ?: return R
 engine.settle(itemId, claim, SettleResult.Delivered)
 ```
 
+A `Delivered` or `Drop` whose delete fails throws, and this process still remembers it: the row is deleted
+at a later pass, by this engine or one built to replace it, and never handed out again. Calling `settle`
+again is harmless.
+
 **The lease is a claim, not a lock.** While it is unexpired the drain leaves the item alone. Once it
 expires the item becomes attemptable again and `execute` runs afresh with
 `context.wasDetached == true` — which is precisely why the hand-off must be idempotent. A previous
@@ -303,7 +307,8 @@ class AvatarUploadHandler(transport: UploadTransport, private val auth: Auth) :
 ```
 
 `onSettled` runs at most once, after the row was committed, in the process that committed it: a stop of the
-platform job or a process death right after the commit can skip it, and nothing calls it later. Do not make it
+platform job or a process death right after the commit can skip it, and nothing calls it later. A delivery whose
+commit failed and that the engine confirmed later at a drain pass runs no `onSettled`. Do not make it
 the only place that deletes the uploaded source file. Reconcile leftover files when your app starts, or free the
 file in `onDelivered` (at least once, before the commit) where that fits.
 
