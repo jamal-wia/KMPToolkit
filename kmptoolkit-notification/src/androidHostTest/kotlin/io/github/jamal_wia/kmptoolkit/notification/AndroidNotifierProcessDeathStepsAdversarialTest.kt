@@ -39,7 +39,7 @@ import org.robolectric.shadows.ShadowNotificationManager
  * notification per id with the newest frame's tap target, and cancel what the dead process left.
  */
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [33], shadows = [AndroidNotifierProcessDeathStepsAdversarialTest.DyingShadowNotificationManager::class])
+@Config(sdk = [24, 29, 35], shadows = [AndroidNotifierProcessDeathStepsAdversarialTest.DyingShadowNotificationManager::class])
 class AndroidNotifierProcessDeathStepsAdversarialTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
@@ -93,6 +93,10 @@ class AndroidNotifierProcessDeathStepsAdversarialTest {
     private fun post(notifier: Notifier, id: String, frame: LocalNotification): NotificationResult =
         runBlocking { notifier.post(id, frame) }
 
+    /** A channel exists from API 26 only; below it that step of a post does not exist to die in. */
+    private fun firstPostKills(): List<Kill> =
+        listOfNotNull(Kill.BEFORE_CHANNEL.takeIf { android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O }, Kill.BEFORE_NOTIFY, Kill.AFTER_NOTIFY)
+
     private fun diesDuring(kill: Kill, block: () -> Unit) {
         DyingShadowNotificationManager.kill.set(kill)
         try {
@@ -105,7 +109,7 @@ class AndroidNotifierProcessDeathStepsAdversarialTest {
     @Test
     fun `a death at any step of the first post leaves a process that posts the same frame and owns one notification`() {
         registerLauncher()
-        for (kill: Kill in listOf(Kill.BEFORE_CHANNEL, Kill.BEFORE_NOTIFY, Kill.AFTER_NOTIFY)) {
+        for (kill: Kill in firstPostKills()) {
             shadowOf(manager).notificationChannels.toList().forEach { manager.deleteNotificationChannel(it.id) }
             manager.cancelAll()
             val dead: Notifier = relaunch()
@@ -123,7 +127,7 @@ class AndroidNotifierProcessDeathStepsAdversarialTest {
     @Test
     fun `an Error the host survives leaves the same notifier able to post the same frame again`() {
         registerLauncher()
-        for (kill: Kill in listOf(Kill.BEFORE_CHANNEL, Kill.BEFORE_NOTIFY, Kill.AFTER_NOTIFY)) {
+        for (kill: Kill in firstPostKills()) {
             shadowOf(manager).notificationChannels.toList().forEach { manager.deleteNotificationChannel(it.id) }
             manager.cancelAll()
             val notifier: Notifier = relaunch()
