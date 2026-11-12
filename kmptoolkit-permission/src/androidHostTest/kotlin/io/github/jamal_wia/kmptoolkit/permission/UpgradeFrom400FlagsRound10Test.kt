@@ -72,10 +72,17 @@ class UpgradeFrom400FlagsRound10Test {
         )
     }
 
-    private fun controllerOver(storage: InMemoryKeyValueStorage): PermissionController {
-        val controller: PermissionController = createPermissionController(app, storage)
-        controllers += Robolectric.buildActivity(Activity::class.java).setup()
-        return controller
+    /** The default factory over its own access and a resumed activity, both let go before the next one: nothing piles up in the JVM. */
+    private fun <T> over(storage: InMemoryKeyValueStorage, block: (PermissionController) -> T): T {
+        val access: io.github.jamal_wia.kmptoolkit.activity.ActivityAccess = createActivityAccess(app)
+        val controller: PermissionController = createPermissionController(app, storage, activityAccess = access)
+        val activity: ActivityController<Activity> = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            return block(controller)
+        } finally {
+            activity.close()
+            access.release()
+        }
     }
 
     private fun prefix(): String = "${app.packageName}.kmptoolkit.permission"
@@ -89,9 +96,9 @@ class UpgradeFrom400FlagsRound10Test {
                 storage.put("${prefix()}.asked.$id", "dialog-shown")
                 storage.put("${prefix()}.rationale.$id", "true")
             }
-            val controller: PermissionController = controllerOver(storage)
+            val status: PermissionStatus = over(storage) { controller -> bounded { controller.check(entry) } }
 
-            assertEquals(PermissionStatus.PermanentlyDenied, bounded { controller.check(entry) }, "$entry with flags under $id")
+            assertEquals(PermissionStatus.PermanentlyDenied, status, "$entry with flags under $id")
         }
     }
 
@@ -101,13 +108,13 @@ class UpgradeFrom400FlagsRound10Test {
         for ((entry, id) in dialogEntries) {
             val legacy = InMemoryKeyValueStorage()
             bounded { legacy.put("${prefix()}.asked.$id", "true") }
-            assertEquals(PermissionStatus.PermanentlyDenied, bounded { controllerOver(legacy).check(entry) }, "$entry legacy asked flag")
+            assertEquals(PermissionStatus.PermanentlyDenied, over(legacy) { bounded { it.check(entry) } }, "$entry legacy asked flag")
 
             val dismissed = InMemoryKeyValueStorage()
             bounded { dismissed.put("${prefix()}.asked.$id", "dialog-shown") }
-            assertEquals(PermissionStatus.NotDetermined, bounded { controllerOver(dismissed).check(entry) }, "$entry dismissed dialog")
+            assertEquals(PermissionStatus.NotDetermined, over(dismissed) { bounded { it.check(entry) } }, "$entry dismissed dialog")
 
-            assertEquals(PermissionStatus.NotDetermined, bounded { controllerOver(InMemoryKeyValueStorage()).check(entry) }, "$entry fresh install")
+            assertEquals(PermissionStatus.NotDetermined, over(InMemoryKeyValueStorage()) { bounded { it.check(entry) } }, "$entry fresh install")
         }
     }
 
@@ -120,12 +127,13 @@ class UpgradeFrom400FlagsRound10Test {
             storage.put("${prefix()}.asked.CAMERA", "true")
             storage.put("${prefix()}.rationale.CAMERA", "true")
         }
-        val controller: PermissionController = controllerOver(storage)
-        assertEquals(PermissionStatus.PermanentlyDenied, bounded { controller.check(CommonPermission.Camera) })
+        over(storage) { controller ->
+            assertEquals(PermissionStatus.PermanentlyDenied, bounded { controller.check(CommonPermission.Camera) })
 
-        org.robolectric.Shadows.shadowOf(app).grantPermissions(Manifest.permission.CAMERA)
+            org.robolectric.Shadows.shadowOf(app).grantPermissions(Manifest.permission.CAMERA)
 
-        assertEquals(PermissionStatus.Granted, bounded { controller.check(CommonPermission.Camera) })
+            assertEquals(PermissionStatus.Granted, bounded { controller.check(CommonPermission.Camera) })
+        }
         assertEquals(null, bounded { storage.get("${prefix()}.asked.CAMERA") }.getOrNull())
         assertEquals(null, bounded { storage.get("${prefix()}.rationale.CAMERA") }.getOrNull())
         assertEquals("true", bounded { storage.get("com.someone.else.kmptoolkit.permission.asked.CAMERA") }.getOrNull())
