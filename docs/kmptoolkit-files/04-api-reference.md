@@ -252,9 +252,9 @@ public object SqliteFiles { public fun sidecarsOf(databasePath: String): List<St
 ```
 
 `PathKey.of`: a key under which spellings of one file compare equal — `normalizeLexically(path)`, then
-for `CaseFolding.Always` NFC, lowercase, uppercase, lowercase, NFC (locale-independent), so `ß`/`ẞ`/`ss`,
+for `CaseFolding.Always` NFD, lowercase, uppercase, lowercase, NFC (locale-independent), so `ß`/`ẞ`/`ss`,
 the sigma forms, `ſ`/`s`, the Kelvin sign and `k`, and NFC/NFD spellings share a key on every platform.
-Over-folding only costs parallelism. Lexical: canonicalize first if symbolic links matter. For
+Over-folding only costs parallelism. Lexical: it does not equate 8.3 short names, administrative shares or links; canonicalize first if symbolic links matter. For
 in-memory comparison only; never persist it. `CaseFolding.Never` keeps case.
 
 `SqliteFiles.sidecarsOf`: `databasePath` + `-wal`, `-shm`, `-journal`, in that order.

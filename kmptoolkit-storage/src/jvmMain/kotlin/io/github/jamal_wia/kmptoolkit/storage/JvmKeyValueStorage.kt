@@ -154,7 +154,7 @@ internal class JvmKeyValueStorage(
 
 /**
  * The key of the lock shared by every store over one file: the canonical path (or the absolute one),
- * Unicode-normalized (NFC) and folded through the full case mapping, by `PathKey.of(path, CaseFolding.Always)` of
+ * Unicode-normalized and folded through the full case mapping, by `PathKey.of(path, CaseFolding.Always)` of
  * kmptoolkit-files (lowercase, uppercase, lowercase, then
  * NFC again, because case mapping can leave a decomposed sequence): `ß`, the capital sharp s `ẞ` and `ss`,
  * the Greek sigma forms, the long s `ſ` and `s`, the Kelvin sign and `k` each get one key. Two paths whose

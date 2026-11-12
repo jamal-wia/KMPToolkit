@@ -21,9 +21,10 @@ public enum class CaseFolding {
 public object PathKey {
     /**
      * A key under which spellings of one file compare equal: [Paths.normalizeLexically] of [path], then for
-     * [CaseFolding.Always] NFC, lowercase, uppercase, lowercase, NFC (locale-independent), so `ß`/`ẞ`/`ss`, the
+     * [CaseFolding.Always] NFD, lowercase, uppercase, lowercase, NFC (locale-independent), so `ß`/`ẞ`/`ss`, the
      * sigma forms, `ſ`/`s`, the Kelvin sign/`k` and NFC/NFD spellings share a key on every platform. Over-folding
-     * only costs parallelism. Lexical: canonicalize first if symbolic links matter. For in-memory comparison only;
+     * only costs parallelism. Lexical: canonicalize first if symbolic links matter (it does not equate 8.3 short
+     * names, administrative shares or links). For in-memory comparison only;
      * never persist it.
      */
     public fun of(path: String, folding: CaseFolding): String {
@@ -36,4 +37,6 @@ public object PathKey {
 }
 
 internal fun foldCase(text: String): String =
-    normalizeNfc(normalizeNfc(text).lowercase().uppercase().lowercase())
+    // NFD first: canonical caseless matching is defined on decomposed text (U+0345 case-maps to a letter, and from NFC
+    // the special casing of U+1FB7, U+1FC7 and U+1FF7 moves the perispomeni to another base letter).
+    normalizeNfc(normalizeNfd(text).lowercase().uppercase().lowercase())

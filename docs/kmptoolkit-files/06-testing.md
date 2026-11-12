@@ -44,8 +44,9 @@ It models inodes (a rename carries content and sync state; hard links share them
 per-file synced content and per-directory synced entries — enough to simulate a power loss. Names over
 255 UTF-8 bytes are `NameTooLong` in every lookup, as on ext4. `FakeFileAccess(caseSensitive = false)` models a
 case-insensitive volume: `/d/A` and `/d/a` are one entry and the spelling of creation is listed. Names are
-folded with one fixed rule (NFC, lowercase, uppercase, lowercase, NFC) that does not depend on the host, so a
-name with a backslash stays a different name from its prefix on a Windows test host too.
+folded with one fixed rule (NFD, lowercase, uppercase, lowercase, NFC) that does not depend on the host, so a
+name with a backslash stays a different name from its prefix on a Windows test host too. The rule folds slightly
+more than APFS or NTFS (for example dotless `ı` and `I` are one name), never less.
 
 ### Seeding
 

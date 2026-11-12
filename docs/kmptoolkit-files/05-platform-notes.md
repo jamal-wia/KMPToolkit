@@ -98,8 +98,8 @@ log `cause`. iOS and Android API 24–25 map by `errno` and do not depend on tex
 
 ## Case-insensitive volumes and Unicode
 
-No function folds case or normalizes Unicode except `PathKey.of(path, CaseFolding.Always)` (NFC in the
-JDK's `java.text.Normalizer`, `precomposedStringWithCanonicalMapping` on iOS; case mapping is Kotlin's
+No function folds case or normalizes Unicode except `PathKey.of(path, CaseFolding.Always)` (NFD first and NFC last: the
+JDK's `java.text.Normalizer`, `decomposedStringWithCanonicalMapping` and `precomposedStringWithCanonicalMapping` on iOS; case mapping is Kotlin's
 locale-independent `lowercase()`/`uppercase()` on every target). On a case-insensitive volume (APFS by
 default, NTFS) the platform decides: `move("/d/File", "/d/file")` with `Replace` renames the spelling;
 with `Fail` it is `AlreadyExists` there (the same entry) and a plain move on a case-sensitive volume.
