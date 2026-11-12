@@ -31,7 +31,7 @@ class NameTooLongClassificationTest {
         val cjk: String = "\u4e2d".repeat(200) // 200 units, 600 bytes
         assertFalse(segmentTooLong("C:\\d\\$cjk", windows = true))
         assertTrue(segmentTooLong("/d/$cjk", windows = false))
-        assertTrue(mapNioError(german, "/d/$cjk", windows = false) is FileError.NameTooLong)
+        assertTrue(mapNioError(german, "/d/$cjk", windows = false, codePoints = false) is FileError.NameTooLong)
         assertTrue(mapNioError(german, "C:\\d\\$cjk", windows = true) is FileError.Io, "NTFS accepts it, so it is not a name error")
         val emoji: String = "\uD83D\uDE00".repeat(130) // 260 units
         assertTrue(segmentTooLong("C:\\d\\$emoji", windows = true))
@@ -49,5 +49,30 @@ class NameTooLongClassificationTest {
     fun `typed exceptions are never reclassified by length`() {
         val path: String = "/d/" + "a".repeat(256)
         assertEquals(FileError.NotFound(path), mapNioError(java.nio.file.NoSuchFileException("x"), path, windows = false))
+    }
+
+    @Test
+    fun `a byte counting host and a code point counting host judge a 200 character CJK name differently`() {
+        val cjk: String = "\u4e2d".repeat(200) // 200 code points, 600 UTF-8 bytes
+        assertTrue(segmentTooLong("/d/$cjk", windows = false, codePoints = false))
+        assertFalse(segmentTooLong("/d/$cjk", windows = false, codePoints = true), "APFS counts characters, not bytes")
+        assertTrue(mapNioError(german, "/d/$cjk", windows = false, codePoints = true) is FileError.Io)
+        // 256 code points are over the limit under every rule, also for a character outside the BMP.
+        assertTrue(segmentTooLong("/d/" + "\uD83D\uDE00".repeat(256), windows = false, codePoints = true))
+        assertFalse(segmentTooLong("/d/" + "\uD83D\uDE00".repeat(255), windows = false, codePoints = true))
+    }
+
+    @Test
+    fun `a failure of a read write sync or close of an open file is never classified by a long segment`() {
+        val longPath: String = "/d/" + "\u4e2d".repeat(100) + "/f" // a folder of 300 bytes on a host that accepts it
+        val diskFull: FileSystemException = FileSystemException("a", "b", "No space left on device")
+        assertEquals(
+            FileError.NoSpace(longPath),
+            mapNioError(diskFull, longPath, windows = false, namesEntry = false, codePoints = false),
+        )
+        val untyped: FileSystemException = FileSystemException("a", "b", "Der Vorgang ist fehlgeschlagen")
+        assertTrue(mapNioError(untyped, longPath, windows = false, namesEntry = false, codePoints = false) is FileError.Io)
+        // The same failure of an operation that names an entry is still classified by length.
+        assertTrue(mapNioError(untyped, longPath, windows = false, namesEntry = true, codePoints = false) is FileError.NameTooLong)
     }
 }

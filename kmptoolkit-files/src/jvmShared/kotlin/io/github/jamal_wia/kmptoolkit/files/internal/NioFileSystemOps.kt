@@ -196,18 +196,18 @@ internal class NioFileSystemOps : FileSystemOps {
 @OptIn(ToolkitInternalApi::class)
 private class NioWritableFile(private val channel: FileChannel, private val path: String) : WritableFile {
     override fun write(bytes: ByteArray, offset: Int, length: Int) {
-        nio(path) {
+        nio(path, namesEntry = false) {
             val buffer: ByteBuffer = ByteBuffer.wrap(bytes, offset, length)
             while (buffer.hasRemaining()) channel.write(buffer)
         }
     }
 
     override fun sync(full: Boolean) {
-        nio(path) { channel.force(true) }
+        nio(path, namesEntry = false) { channel.force(true) }
     }
 
     override fun close() {
-        nio(path) { channel.close() }
+        nio(path, namesEntry = false) { channel.close() }
     }
 }
 
@@ -218,11 +218,11 @@ private class NioReadableFile(
     private val permit: PathAccessGate.Permit?,
 ) : ReadableFile {
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-        nio(path) { channel.read(ByteBuffer.wrap(buffer, offset, length)) }
+        nio(path, namesEntry = false) { channel.read(ByteBuffer.wrap(buffer, offset, length)) }
 
     override fun close() {
         try {
-            nio(path) { channel.close() }
+            nio(path, namesEntry = false) { channel.close() }
         } finally {
             permit?.release()
         }
