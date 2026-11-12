@@ -77,6 +77,7 @@ class AndroidAlarmSchedulerSoakAdversarialTest {
         val steps: Int = System.getProperty("kmptoolkit.soak.steps")?.toIntOrNull()
             ?: System.getenv("KMPTOOLKIT_SOAK_STEPS")?.toIntOrNull()
             ?: DEFAULT_STEPS
+        println("soak steps=$steps")
         val threadsBefore: Int = Thread.activeCount()
         val recorder = Recorder("T")
         val scheduler: AlarmScheduler = createAlarmScheduler(context, handlers = listOf(recorder))
@@ -90,7 +91,7 @@ class AndroidAlarmSchedulerSoakAdversarialTest {
                     in 0 until 60 -> {
                         val id: String = ids[random.nextInt(ids.size)]
                         val armed = Armed(
-                            title = "t$step", at = random.nextInt(100_000) * 100_000L + step,
+                            title = "t$step", at = random.nextInt(1_000_000) * 10_000_000_000L + step,
                             payload = if (random.nextBoolean()) emptyMap() else mapOf("n" to "$step", "id" to id),
                         )
                         val result: AlarmScheduleResult = scheduler.schedule(

@@ -113,6 +113,7 @@ class NotificationScaleAndSoakAdversarialTest {
         val steps: Int = System.getProperty("kmptoolkit.soak.steps")?.toIntOrNull()
             ?: System.getenv("KMPTOOLKIT_SOAK_STEPS")?.toIntOrNull()
             ?: DEFAULT_STEPS
+        println("soak steps=$steps")
         for (seed in 0 until SEEDS) {
             val random = Random(seed)
             val time = TestTimeSource()
