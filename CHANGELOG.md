@@ -34,13 +34,6 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   file name longer than 232 UTF-8 bytes the file name in it is shortened (cut to 215 bytes, then `~` and 16 hex
   characters of its SHA-256), so every store name that fits a file name stays writable.
 
-### Fixed
-
-- `kmptoolkit-storage` (`jvm`): `clear()` also removes the temporary files of a killed 4.x write whose random part has
-  20 digits; they were missed before.
-- `kmptoolkit-files`: `FileAccessConfig.tempPrefix` and `WriteOptions.tempPrefix` accept up to 232 UTF-8 bytes
-  (`FileAccessConfig.MAX_TEMP_PREFIX_BYTES`), so every temporary name fits 255 bytes.
-
 ## [4.0.0]
 
 Source compatible with 3.0.x, except for implementations of the opt-in `ToolkitInheritanceApi` interface
