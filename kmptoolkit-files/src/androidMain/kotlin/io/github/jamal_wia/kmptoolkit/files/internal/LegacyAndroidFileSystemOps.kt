@@ -55,8 +55,11 @@ internal class LegacyAndroidFileSystemOps : FileSystemOps {
     override fun list(directory: String): List<String>? {
         val found: FileMetadata = metadata(directory, true) ?: return null
         if (found.kind != FileKind.Directory) throw FileOpException(FileError.NotADirectory(directory))
-        val names: Array<String> = File(directory).list() ?: throw FileOpException(FileError.AccessDenied(directory))
-        return names.toList()
+        val names: Array<String>? = File(directory).list()
+        if (names != null) return names.toList()
+        // A directory that vanished since the check above is absent, not refused.
+        if (metadata(directory, true) == null) return null
+        throw FileOpException(FileError.AccessDenied(directory))
     }
 
     override fun createDirectory(path: String) {
@@ -157,7 +160,17 @@ private class OsWritableFile(private val descriptor: FileDescriptor, private val
     override fun close() {
         if (closed) return
         closed = true
-        os(path) { Os.close(descriptor) }
+        closeOnce(descriptor, path)
+    }
+}
+
+/** close(2) is never retried: libcore clears the descriptor first, so a retry would close descriptor -1. */
+@OptIn(ToolkitInternalApi::class)
+private fun closeOnce(descriptor: FileDescriptor, path: String) {
+    try {
+        Os.close(descriptor)
+    } catch (e: ErrnoException) {
+        throw FileOpException(errnoError(e.errno, path))
     }
 }
 
@@ -173,6 +186,6 @@ private class OsReadableFile(private val descriptor: FileDescriptor, private val
     override fun close() {
         if (closed) return
         closed = true
-        os(path) { Os.close(descriptor) }
+        closeOnce(descriptor, path)
     }
 }

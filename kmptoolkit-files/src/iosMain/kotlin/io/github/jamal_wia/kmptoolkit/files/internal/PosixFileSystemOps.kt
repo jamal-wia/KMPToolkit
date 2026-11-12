@@ -9,7 +9,7 @@ import io.github.jamal_wia.kmptoolkit.files.spi.FileOpException
 import io.github.jamal_wia.kmptoolkit.files.spi.FileSystemOps
 import io.github.jamal_wia.kmptoolkit.files.spi.ReadableFile
 import io.github.jamal_wia.kmptoolkit.files.spi.WritableFile
-import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
@@ -29,6 +29,7 @@ import platform.Foundation.NSFileProtectionNone
 import platform.Foundation.NSFileSystemFreeSize
 import platform.Foundation.NSNumber
 import platform.Foundation.timeIntervalSince1970
+import platform.posix.DIR
 import platform.posix.EACCES
 import platform.posix.EDQUOT
 import platform.posix.EEXIST
@@ -52,6 +53,7 @@ import platform.posix.O_EXCL
 import platform.posix.O_RDONLY
 import platform.posix.O_WRONLY
 import platform.posix.close
+import platform.posix.dirent
 import platform.posix.closedir
 import platform.posix.errno
 import platform.posix.fcntl
@@ -86,7 +88,7 @@ internal class PosixFileSystemOps : FileSystemOps {
 
     override fun metadata(path: String, followLinks: Boolean): FileMetadata? = memScoped {
         val info: stat = alloc<stat>()
-        val result: Int = if (followLinks) stat(path, info.ptr) else lstat(path, info.ptr)
+        val result: Int = retryInterrupted { if (followLinks) stat(path, info.ptr) else lstat(path, info.ptr) }
         if (result != 0) {
             val code: Int = errno
             if (code == ENOENT || code == ENOTDIR) return@memScoped null
@@ -107,7 +109,7 @@ internal class PosixFileSystemOps : FileSystemOps {
     }
 
     override fun list(directory: String): List<String>? {
-        val handle = opendir(directory)
+        val handle: CPointer<DIR>? = opendir(directory)
         if (handle == null) {
             val code: Int = errno
             if (code == ENOENT) return null
@@ -116,7 +118,7 @@ internal class PosixFileSystemOps : FileSystemOps {
         val names: MutableList<String> = mutableListOf()
         try {
             while (true) {
-                val entry = readdir(handle) ?: break
+                val entry: CPointer<dirent> = readdir(handle) ?: break
                 val name: String = entry.pointed.d_name.toKString()
                 if (name != "." && name != "..") names += name
             }
@@ -127,11 +129,11 @@ internal class PosixFileSystemOps : FileSystemOps {
     }
 
     override fun createDirectory(path: String) {
-        if (mkdir(path, DIRECTORY_MODE.convert()) != 0) throw FileOpException(posixError(errno, path))
+        if (retryInterrupted { mkdir(path, DIRECTORY_MODE.convert()) } != 0) throw FileOpException(posixError(errno, path))
     }
 
     override fun createNew(path: String, protection: FileProtection): WritableFile {
-        val descriptor: Int = open(path, O_WRONLY or O_CREAT or O_EXCL or O_CLOEXEC, FILE_MODE)
+        val descriptor: Int = retryInterrupted { open(path, O_WRONLY or O_CREAT or O_EXCL or O_CLOEXEC, FILE_MODE) }
         if (descriptor < 0) throw FileOpException(posixError(errno, path))
         val file: PosixWritableFile = PosixWritableFile(descriptor, path)
         if (protection != FileProtection.Default) {
@@ -141,8 +143,13 @@ internal class PosixFileSystemOps : FileSystemOps {
                 error = null,
             )
             if (!applied) {
-                file.close()
-                unlink(path)
+                try {
+                    file.close()
+                } catch (_: Exception) {
+                    // The unlink below is what matters: the engine never learned this temp name.
+                } finally {
+                    unlink(path)
+                }
                 throw FileOpException(FileError.Io(path))
             }
         }
@@ -158,27 +165,27 @@ internal class PosixFileSystemOps : FileSystemOps {
     }
 
     override fun openForRead(path: String): ReadableFile {
-        val descriptor: Int = open(path, O_RDONLY or O_CLOEXEC)
+        val descriptor: Int = retryInterrupted { open(path, O_RDONLY or O_CLOEXEC) }
         if (descriptor < 0) throw FileOpException(posixError(errno, path))
         return PosixReadableFile(descriptor, path)
     }
 
     override fun rename(from: String, to: String) {
-        if (platform.posix.rename(from, to) != 0) throw FileOpException(posixError(errno, from))
+        if (retryInterrupted { platform.posix.rename(from, to) } != 0) throw FileOpException(posixError(errno, from))
     }
 
     override fun link(existing: String, newPath: String) {
-        if (platform.posix.link(existing, newPath) != 0) throw FileOpException(posixError(errno, newPath, forLink = true))
+        if (retryInterrupted { platform.posix.link(existing, newPath) } != 0) throw FileOpException(posixError(errno, newPath, forLink = true))
     }
 
     override fun remove(path: String) {
         val found: FileMetadata = metadata(path, false) ?: throw FileOpException(FileError.NotFound(path))
-        val result: Int = if (found.kind == FileKind.Directory) rmdir(path) else unlink(path)
+        val result: Int = retryInterrupted { if (found.kind == FileKind.Directory) rmdir(path) else unlink(path) }
         if (result != 0) throw FileOpException(posixError(errno, path))
     }
 
     override fun syncDirectory(directory: String, full: Boolean) {
-        val descriptor: Int = open(directory, O_RDONLY or O_CLOEXEC)
+        val descriptor: Int = retryInterrupted { open(directory, O_RDONLY or O_CLOEXEC) }
         if (descriptor < 0) throw FileOpException(posixError(errno, directory))
         try {
             syncDescriptor(descriptor, full, directory)
@@ -191,6 +198,15 @@ internal class PosixFileSystemOps : FileSystemOps {
         val attributes: Map<Any?, *> =
             NSFileManager.defaultManager.attributesOfFileSystemForPath(path, error = null) ?: return null
         return (attributes[NSFileSystemFreeSize] as? NSNumber)?.longLongValue
+    }
+}
+
+/** Repeats a system call that failed with EINTR. */
+private inline fun retryInterrupted(call: () -> Int): Int {
+    while (true) {
+        val result: Int = call()
+        if (result == -1 && errno == EINTR) continue
+        return result
     }
 }
 
