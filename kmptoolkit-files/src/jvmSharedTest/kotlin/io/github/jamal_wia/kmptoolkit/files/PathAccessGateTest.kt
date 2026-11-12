@@ -117,4 +117,39 @@ class PathAccessGateTest {
         gate.exclusive("/d/x").release()
         assertFalse(gate.activeKeyCount != 0)
     }
+
+    @Test
+    fun `a shared permit released by another thread is really released`() {
+        val permit: PathAccessGate.Permit = gate.shared("/d/x")
+        val releaser: Thread = thread { permit.release() }
+        releaser.join(20_000)
+        val acquired: CountDownLatch = CountDownLatch(1)
+        val writer: Thread = thread {
+            gate.exclusive("/d/x").release()
+            acquired.countDown()
+        }
+        assertTrue(acquired.await(20, TimeUnit.SECONDS), "a replace must not be blocked by a permit closed on another thread")
+        writer.join(20_000)
+        assertEquals(0, gate.activeKeyCount)
+    }
+
+    @Test
+    fun `an exclusive permit released by another thread is really released and two releases at once free it once`() {
+        val permit: PathAccessGate.Permit = gate.exclusive("/d/x", "/d/y")
+        val start: CountDownLatch = CountDownLatch(1)
+        val releasers: List<Thread> = List(2) { thread { start.await(20, TimeUnit.SECONDS); permit.release() } }
+        start.countDown()
+        releasers.forEach { it.join(20_000) }
+        assertEquals(0, gate.activeKeyCount)
+        // Released once only: a second unlock would let two exclusive holders in.
+        val first: PathAccessGate.Permit = gate.exclusive("/d/x")
+        val second: AtomicInteger = AtomicInteger(0)
+        val other: Thread = thread { gate.exclusive("/d/x").release(); second.set(1) }
+        waitUntilBlocked(other)
+        assertEquals(0, second.get(), "the path is exclusively held, nobody else may enter")
+        first.release()
+        other.join(20_000)
+        assertEquals(1, second.get())
+        assertEquals(0, gate.activeKeyCount)
+    }
 }
