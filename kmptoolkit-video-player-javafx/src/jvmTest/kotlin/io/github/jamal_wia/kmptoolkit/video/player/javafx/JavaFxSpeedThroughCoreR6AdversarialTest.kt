@@ -20,6 +20,8 @@ import kotlinx.coroutines.withTimeout
  * paused). So the engine's start sees the old rate and plays plainly, and the new rate is written
  * straight after a plain `play()` - the very order round 5 found to freeze the playhead or lose the speed
  * on macOS. These tests go through the player, the way an app does.
+ *
+ * The slope windows are timed at playhead changes; see plans/s6-slope-window-advice.md (ruling D-22).
  */
 @OptIn(ToolkitInternalApi::class)
 class JavaFxSpeedThroughCoreR6AdversarialTest {
@@ -64,15 +66,15 @@ class JavaFxSpeedThroughCoreR6AdversarialTest {
                 p.setPlaybackSpeed(2f)
                 p.play()
                 val deadline: Long = System.nanoTime() + 3_500L * 1_000_000L
-                while (System.nanoTime() < deadline && e.positionMs() <= paused + 600L) Thread.sleep(15L)
+                while (System.nanoTime() < deadline && e.positionMs() <= paused + 600L) Thread.sleep(5L)
                 if (e.positionMs() <= paused + 600L) {
                     failures += "trial $trial stood at ${e.positionMs()} from $paused"
                     return@repeat
                 }
                 val from: Long = e.positionMs()
                 val begin: Long = System.nanoTime()
-                Thread.sleep(400L)
-                val slope: Double = (e.positionMs() - from) / ((System.nanoTime() - begin) / 1_000_000.0)
+                Thread.sleep(WINDOW_MS)
+                val slope: Double = slopeToNextChange(e, from, begin)
                 if (slope < 1.5) failures += "trial $trial moved $slope ms per ms at a speed of 2 (paused at $paused)"
             } finally {
                 p.release()
@@ -121,15 +123,15 @@ class JavaFxSpeedThroughCoreR6AdversarialTest {
                 p.setPlaybackSpeed(2f)
                 p.play()
                 val deadline: Long = System.nanoTime() + 3_500L * 1_000_000L
-                while (System.nanoTime() < deadline && e.positionMs() <= 600L) Thread.sleep(15L)
+                while (System.nanoTime() < deadline && e.positionMs() <= 600L) Thread.sleep(5L)
                 if (e.positionMs() <= 600L) {
                     failures += "trial $trial stood at ${e.positionMs()} after a play from Completed (state ${p.stateFlow.value})"
                     return@repeat
                 }
                 val from: Long = e.positionMs()
                 val begin: Long = System.nanoTime()
-                Thread.sleep(300L)
-                val slope: Double = (e.positionMs() - from) / ((System.nanoTime() - begin) / 1_000_000.0)
+                Thread.sleep(WINDOW_MS)
+                val slope: Double = slopeToNextChange(e, from, begin)
                 if (slope < 1.5 && p.stateFlow.value is VideoPlayerState.Playing) failures += "trial $trial moved $slope ms per ms at a speed of 2 after a play from Completed"
             } finally {
                 p.release()
@@ -149,7 +151,38 @@ class JavaFxSpeedThroughCoreR6AdversarialTest {
         assertEquals(2.0, inspected?.rate, "JavaFX's rate property after a play at a speed of 2 (state ${player.stateFlow.value})")
     }
 
+    /**
+     * Media ms per wall ms from [from], read at [begin] just after the reported playhead changed, to the next
+     * change after the window. JavaFX publishes the playhead about every 100 ms, so a reading taken at an
+     * arbitrary instant is up to one tick old: over a 400 ms window a correct 2x engine can read 600/403 = 1.49
+     * and over 300 ms 1.33 (round 6). Timing both edges at a change removes that grid error; the threshold
+     * and the scenario are unchanged. A playhead that does not change within [END_CHANGE_TIMEOUT_MS] ends the
+     * window where it stands (a freeze reads 0). Ruling: plans/s6-slope-window-advice.md.
+     */
+    private fun slopeToNextChange(e: JavaFxVideoEngine, from: Long, begin: Long): Double {
+        val last: Long = e.positionMs()
+        val deadline: Long = System.nanoTime() + END_CHANGE_TIMEOUT_MS * 1_000_000L
+        var now: Long = last
+        while (now == last && System.nanoTime() < deadline) {
+            Thread.sleep(5L)
+            now = e.positionMs()
+        }
+        val end: Long = System.nanoTime()
+        val slope: Double = (now - from) / ((end - begin) / 1_000_000.0)
+        if (PRINT_SLOPES) println("R6SLOPE $slope")
+        return slope
+    }
+
     private companion object {
+        /** Wall clock of the slope window before its end is timed at the next playhead change (see [slopeToNextChange]). */
+        const val WINDOW_MS: Long = 600L
+
+        /** How long the end of a slope window waits for the reported playhead to change. */
+        const val END_CHANGE_TIMEOUT_MS: Long = 250L
+
+        /** KMPTOOLKIT_R6_PRINT=1 prints every measured slope (for the distribution a ruling asks for). */
+        val PRINT_SLOPES: Boolean = System.getenv("KMPTOOLKIT_R6_PRINT") == "1"
+
         /** KMPTOOLKIT_R6_TRIALS lengthens a run without editing the test. */
         val TRIALS: Int = System.getenv("KMPTOOLKIT_R6_TRIALS")?.toIntOrNull() ?: 6
     }
