@@ -486,17 +486,19 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(names(root) == listOf("b", "c"), "no temporary file is left, was ${names(root)}")
     }
 
-    /** An absent source is [FileError.NotFound]. */
+    /** An absent source is [FileError.NotFound], and the error names the source. */
     public fun moveOfAMissingSourceIsNotFound(): Unit = scenario("moveOfAMissingSourceIsNotFound") {
-        failure<FileError.NotFound>(files.move(p("absent"), p("target")), "move of an absent source")
+        val error: FileError.NotFound = failure<FileError.NotFound>(files.move(p("absent"), p("target")), "move of an absent source")
+        expect(error.path == p("absent"), "the error names the absent source, was ${error.path}")
         expect(files.metadata(p("target")) == null, "nothing was created")
     }
 
-    /** A directory at the target is [FileError.IsADirectory] and is never replaced. */
+    /** A directory at the target is [FileError.IsADirectory] naming the target, and is never replaced. */
     public fun moveOverADirectoryIsADirectory(): Unit = scenario("moveOverADirectoryIsADirectory") {
         write("a", "A")
         mkdir("d")
-        failure<FileError.IsADirectory>(files.move(p("a"), p("d")), "move over a directory")
+        val error: FileError.IsADirectory = failure<FileError.IsADirectory>(files.move(p("a"), p("d")), "move over a directory")
+        expect(error.path == p("d"), "the error names the target directory, was ${error.path}")
         expect(text("a") == "A" && files.metadata(p("d"))?.kind == FileKind.Directory, "both are untouched")
     }
 
@@ -507,10 +509,11 @@ public class FileAccessContract(private val createFixture: () -> FileAccessFixtu
         expect(text("x", "y", "f") == "A" && files.metadata(p("a")) == null, "the file moved into the new directories")
     }
 
-    /** Without it a missing parent is [FileError.NotFound] and the source stays. */
+    /** Without it a missing parent is [FileError.NotFound] naming the target and the source stays. */
     public fun moveWithAMissingParentIsNotFound(): Unit = scenario("moveWithAMissingParentIsNotFound") {
         write("a", "A")
-        failure<FileError.NotFound>(files.move(p("a"), p("nope", "f")), "move into a missing directory")
+        val error: FileError.NotFound = failure<FileError.NotFound>(files.move(p("a"), p("nope", "f")), "move into a missing directory")
+        expect(error.path == p("nope", "f"), "the error names the target while the source exists, was ${error.path}")
         expect(text("a") == "A", "the source is untouched")
         expect(files.metadata(p("nope")) == null, "no directory was created")
     }

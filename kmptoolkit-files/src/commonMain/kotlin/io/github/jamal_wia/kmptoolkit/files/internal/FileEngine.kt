@@ -373,10 +373,22 @@ internal class FileEngine(
                 if (e.error is FileError.CrossDevice && options.acrossVolumes && source.kind == FileKind.RegularFile) {
                     copyAcrossVolumes(from, to, options, cancellation)
                 } else {
-                    FileResult.Failure(e.error)
+                    FileResult.Failure(moveError(e.error, from, to))
                 }
             }
         }
+    }
+
+    /**
+     * The path a failed [move] names: [to] when the destination is the offender (an existing entry of the wrong kind,
+     * or a missing parent while [from] still exists), [from] when [from] itself is absent. Every platform's ops label
+     * a rename failure with `from`, so the engine relabels here.
+     */
+    private fun moveError(error: FileError, from: String, to: String): FileError = when (error) {
+        is FileError.AlreadyExists, is FileError.IsADirectory,
+        is FileError.NotADirectory, is FileError.DirectoryNotEmpty -> error.withPath(to)
+        is FileError.NotFound -> if (metadataOrNull(from, false) != null) error.withPath(to) else error.withPath(from)
+        else -> error
     }
 
     private fun copyAcrossVolumes(

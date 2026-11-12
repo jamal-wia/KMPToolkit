@@ -1,7 +1,8 @@
 package io.github.jamal_wia.kmptoolkit.files
 
 /**
- * A typed file-system failure. Never carries display text; [path] is the path the operation was working on.
+ * A typed file-system failure. Never carries display text; [path] is the path the operation was working on (for
+ * [FileAccess.move], see its documentation).
  *
  * @since 5.0.0
  */
