@@ -87,7 +87,9 @@ Call `post` as often as you like. The module suppresses a determinate update tha
 bar, returning `NotificationResult.Coalesced`, under two limits configured on `NotificationConfig`:
 
 1. **Bucket** (`progressBucketPercent`, default 10) — the update is in the same tenth as the last
-   one actually posted.
+   one actually posted. A 0..100 run posts at most `ceil(100 / progressBucketPercent) + 1` frames
+   (eleven for the default 10; five for a width of 30, because the never-suppressed terminal 100% frame
+   always posts).
 2. **Rate** (`minProgressInterval`, default 500 ms) — less than that has elapsed since the last post
    for this id.
 
