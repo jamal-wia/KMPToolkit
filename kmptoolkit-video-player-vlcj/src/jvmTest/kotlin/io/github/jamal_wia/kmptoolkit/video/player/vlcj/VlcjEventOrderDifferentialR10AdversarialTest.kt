@@ -9,6 +9,7 @@ import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerConfig
 import io.github.jamal_wia.kmptoolkit.video.player.VideoPlayerState
 import io.github.jamal_wia.kmptoolkit.video.player.VideoSource
 import io.github.jamal_wia.kmptoolkit.video.player.createVideoPlayer
+import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -327,6 +328,9 @@ class VlcjEventOrderDifferentialR10AdversarialTest {
         fun frame(buffer: ByteBuffer) = Unit
     }
 
+    /** Every quiet point of every seed, for the 4.0.0-versus-current diff (environment variable KMPTOOLKIT_R10_TRACE). */
+    private val traceLines: MutableList<String> = mutableListOf()
+
     private class Divergence(val key: String, message: String) : AssertionError(message)
 
     private fun norm(state: VideoPlayerState, withPosition: Boolean = true): String = when (state) {
@@ -381,6 +385,8 @@ class VlcjEventOrderDifferentialR10AdversarialTest {
                     runtime.settle()
                 }
                 virtualNanos.addAndGet(2_000_000_000L)
+                traceLines += "$seed [$after] vlc=${norm(vlcPlayer.stateFlow.value)} posFlow=${vlcPlayer.playbackPositionFlow.value} " +
+                    "enginePos=${vlc.positionMs()} native=${model?.state} seen=${vlcSeen.map { norm(it, false) }.takeLast(3)}"
                 if (runtime.violations.isNotEmpty()) throw Divergence("native: ${runtime.violations.first()}", "seed $seed after [$after]: ${runtime.violations}; trace: $trace")
                 // Every native player of a source that is no longer the loaded one is stopped and freed, once.
                 val sessionOpen: Boolean = idealPlayer.stateFlow.value.let { it !is VideoPlayerState.Idle }
@@ -609,6 +615,7 @@ class VlcjEventOrderDifferentialR10AdversarialTest {
                 firstOfKind.putIfAbsent(divergence.key, divergence.message.orEmpty())
             }
         }
+        System.getenv("KMPTOOLKIT_R10_TRACE")?.let { File("$it.$knownLength").writeText(traceLines.joinToString("\n")) }
         if (firstOfKind.isNotEmpty()) {
             fail(firstOfKind.entries.joinToString("\n\n", prefix = "${counts.values.sum()} diverging seeds of $SEEDS, ${firstOfKind.size} kinds:\n") { (key, text) -> "[${counts[key]}x] $key -> $text" })
         }
