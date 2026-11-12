@@ -42,10 +42,12 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
 
     private fun liveThreads(): Int = Thread.getAllStackTraces().keys.count { it.isAlive }
 
+    private fun namedThreads(prefix: String): Int = Thread.getAllStackTraces().keys.count { it.isAlive && it.name.startsWith(prefix) }
+
     private fun threadNames(): Map<String, Int> =
         Thread.getAllStackTraces().keys.filter { it.isAlive }.groupingBy { it.name.replace(Regex("[0-9]+"), "#") }.eachCount()
 
-    private fun cycle(random: Random, weak: MutableList<WeakReference<Any>>) {
+    private fun cycle(random: Random, weak: MutableList<WeakReference<Any>>, trace: StringBuilder = StringBuilder()) {
         val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)
         val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(positionUpdateIntervalMs = 20L), Dispatchers.Default)
         weak += WeakReference(engine); weak += WeakReference(player)
@@ -55,7 +57,9 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
                 withTimeout(60_000L) {
                     player.prepare(VideoSource.Asset(TestClip.ASSET))
                     repeat(random.nextInt(5, 25)) {
-                        when (random.nextInt(14)) {
+                        val op: Int = random.nextInt(14)
+                        trace.append(op).append(',')
+                        when (op) {
                             0 -> player.play()
                             1 -> player.pause()
                             2 -> player.stop()
@@ -95,11 +99,21 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
         val namesBefore: Map<String, Int> = threadNames()
         val deadline: Long = System.nanoTime() + soakSeconds() * 1_000_000_000L
         var cycles = 0
-        while (System.nanoTime() < deadline) { cycle(random, weak); cycles++ }
+        val growing: MutableList<String> = mutableListOf()
+        var timers: Int = namedThreads("Timer-")
+        while (System.nanoTime() < deadline) {
+            val trace = StringBuilder()
+            cycle(random, weak, trace)
+            cycles++
+            Thread.sleep(150L)
+            val now: Int = namedThreads("Timer-")
+            if (now > timers && growing.size < 4) growing += "cycle $cycles +${now - timers}: ops $trace"
+            timers = now
+        }
         val end: Long = System.nanoTime() + 20_000_000_000L
         while (liveThreads() - threadsBefore > 8 && System.nanoTime() < end) Thread.sleep(100L)
         val grown: Map<String, Int> = threadNames().mapValues { (name, n) -> n - (namesBefore[name] ?: 0) }.filterValues { it > 0 }
-        assertTrue(liveThreads() - threadsBefore <= 8, "threads grew ${liveThreads() - threadsBefore} over $cycles cycles: $grown")
+        assertTrue(liveThreads() - threadsBefore <= 8, "threads grew ${liveThreads() - threadsBefore} over $cycles cycles: $grown; first growing cycles: $growing")
         val created: List<String> = (tempNames() - filesBefore).sorted()
         assertEquals(emptyList(), created, "files left behind by $cycles cycles")
         var alive: Int = weak.size
