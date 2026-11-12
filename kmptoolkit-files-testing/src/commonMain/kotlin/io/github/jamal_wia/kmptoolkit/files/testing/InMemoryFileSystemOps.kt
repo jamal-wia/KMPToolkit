@@ -97,11 +97,18 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
     /** Hooks, crash freeze, fault matching, the log and crash-after counting around one low-level operation. */
     private fun <T> exec(operation: FakeOperation, path: String, second: String? = null, body: () -> T): T {
         beforeOperation?.invoke(operation, path)
+        // The path filters are consumer code: they run outside the lock, on a snapshot of the pending faults, and the
+        // fault is consumed under the lock only if it still has a count left.
+        val pending: List<Fault> = monitor.withLock {
+            if (crashed) throw SimulatedCrash()
+            log += FakeOperationRecord(operation, path, second)
+            faults.filter { it.operation == operation && it.remaining > 0 }
+        }
+        val matched: List<Fault> = pending.filter { it.match(path) }
         var crashNow = false
         val result: T = monitor.withLock {
             if (crashed) throw SimulatedCrash()
-            log += FakeOperationRecord(operation, path, second)
-            val fault: Fault? = faults.firstOrNull { it.operation == operation && it.remaining > 0 && it.match(path) }
+            val fault: Fault? = matched.firstOrNull { it.remaining > 0 }
             if (fault != null) {
                 fault.remaining--
                 throw FileOpException(fault.error)

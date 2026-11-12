@@ -131,7 +131,8 @@ public class FakeFileAccess private constructor(
 
     /**
      * The next [count] low-level [operation]s whose path satisfies [path] fail with [error] and have no effect.
-     * The path is the one of [FakeOperationRecord.path]. Faults are consulted in the order they were added.
+     * The path is the one of [FakeOperationRecord.path]. Faults are consulted in the order they were added. The
+     * filter runs outside the fake's lock, so it may block or call back into the fake.
      */
     public fun failNext(
         operation: FakeOperation,
