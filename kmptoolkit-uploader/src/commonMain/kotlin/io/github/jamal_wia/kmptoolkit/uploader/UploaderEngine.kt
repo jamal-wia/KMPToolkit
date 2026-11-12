@@ -142,8 +142,8 @@ public interface UploaderEngine : Uploader {
      * touch the queue: everything owed is still owed, and a freshly constructed engine picks it up. An attempt
      * running at close, also one of a [drain] you called yourself, is cancelled and records nothing except what
      * already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close;
-     * a claim that was being written, or that finished after close, is released if it is still this engine's, so the
-     * next engine starts the item at once.
+     * a claim that was being written, or that finished after close, is released if it is still this engine's, and an
+     * engine already started in this process is woken by the release, so the next engine starts the item at once.
      *
      * [close] does not wait for a running attempt; one that ignores its cancellation may still be running when a new
      * engine starts the same item, so a handler that does not honour cancellation can see its item run twice, as

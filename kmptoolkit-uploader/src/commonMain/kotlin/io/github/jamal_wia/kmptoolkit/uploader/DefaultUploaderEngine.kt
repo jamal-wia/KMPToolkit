@@ -197,6 +197,12 @@ internal class DefaultUploaderEngine(
             }
         }
 
+        // A claim released by a closed engine wakes this one at once (close KDoc, D-31). Registered before the initial
+        // trigger below: a release announced earlier has already written its row, which that pass reads as pending, and
+        // one announced later triggers a pass. The callback is a send to a conflated channel: thread-safe, never throws.
+        val releaseWake: DisposableHandle = ClaimsInDoubt.onRelease { trigger() }
+        engineJob.invokeOnCompletion { releaseWake.dispose() }
+
         constraintProviders.forEach { provider ->
             // Built inside flow {} so that even a `satisfied` getter that throws is caught here, and ending in
             // catch so a flow that fails on collect never reaches the scope's uncaught-exception handler. The
@@ -1044,6 +1050,8 @@ internal class DefaultUploaderEngine(
                         disposition = FailureDisposition.RETRY,
                     )
                 }
+                // The item is startable again: wake the engine that replaced this one, which saw the claim live.
+                ClaimsInDoubt.announceRelease()
             }
         } catch (e: Throwable) {
             logger.w(e) { "Releasing the interrupted claim of ${item.logName} failed; its lease runs out instead." }

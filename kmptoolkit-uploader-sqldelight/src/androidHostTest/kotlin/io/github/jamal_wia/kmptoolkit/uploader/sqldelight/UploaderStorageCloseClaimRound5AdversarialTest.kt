@@ -19,7 +19,6 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -113,7 +112,7 @@ class UploaderStorageCloseClaimRound5AdversarialTest {
     }
 
     private companion object {
-        /** Far more than a 100 ms heartbeat needs; the bound only stops a genuinely stranded item from hanging the test. */
+        /** Below the default heartbeat, so it proves the release wake; also stops a genuinely stranded item from hanging the test. */
         val WAKE_BOUND: Duration = 10.seconds
     }
 
@@ -132,12 +131,12 @@ class UploaderStorageCloseClaimRound5AdversarialTest {
             first.start()
             delay(Random.nextLong(0, 25))
             first.close()
-            // The replacement's heartbeat is the only wake-up it can get for a claim the closed engine releases after
-            // the replacement's first pass already skipped the row as in flight under an unexpired lease (an engine
-            // cannot signal another; see UploaderConfig.heartbeatInterval, the backstop for exactly a lost wake-up).
-            // So the check waits for that bounded wake-up, with a short heartbeat, instead of a fixed second that
-            // the contract never promised: what must hold is unchanged, that every owed item gets started.
-            val second: UploaderEngine = engineOver(storage, handler, heartbeat = 100.milliseconds)
+            // A claim the closed engine releases after the replacement's first pass already skipped the row as in
+            // flight under an unexpired lease wakes the replacement at once (close KDoc, D-31). The default heartbeat
+            // (30 s) is far above WAKE_BOUND, so only that wake can start the item in time: the replacement runs on
+            // the default config. A regression soak over real SQLite, not a deterministic proof (see
+            // EngineBossRound1AdversarialTest).
+            val second: UploaderEngine = engineOver(storage, handler)
             second.start()
             fun launchedIds(): Set<String> =
                 transport.events.value.filter { it.startsWith("launch:") }.map { it.removePrefix("launch:") }.toSet()

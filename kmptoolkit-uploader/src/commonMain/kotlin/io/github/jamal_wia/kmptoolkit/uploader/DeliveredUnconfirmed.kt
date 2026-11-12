@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.update
  * that pruned by its own list would erase the other's entries. An entry leaves when a delete confirms the delivery or
  * an engine withdraws the item ([forget]); only a row removed from outside every engine of the process leaves a leaked
  * entry of about a hundred bytes.
+ *
+ * Residual: a row of another store with the same id and fingerprint (a custom `idGenerator` reusing ids with identical
+ * content and creation time) is taken for the same item.
  */
 internal object DeliveredUnconfirmed {
 
