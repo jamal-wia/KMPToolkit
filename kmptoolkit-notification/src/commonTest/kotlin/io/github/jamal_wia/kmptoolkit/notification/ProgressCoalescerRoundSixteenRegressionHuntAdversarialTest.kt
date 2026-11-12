@@ -44,6 +44,24 @@ class ProgressCoalescerRoundSixteenRegressionHuntAdversarialTest {
     }
 
     @Test
+    fun `a frame acknowledged by the platform sheds the baseline it kept for a rollback`() {
+        // ProgressCoalescer.complete KDoc: with acknowledged = true "nothing can undo it and the record sheds the
+        // baseline it kept for a rollback"; with false it keeps it until acknowledge or rollback settles it.
+        fun lateFrameIsRedundantAfterRollback(acknowledged: Boolean): Boolean {
+            val coalescer: ProgressCoalescer = coalescer()
+            assertTrue(coalescer.post("a", 20))
+            time += 1.seconds
+            val second: ProgressCoalescer.PostTicket = assertNotNull(coalescer.prepare("a", NotificationProgress.Determinate(40)))
+            coalescer.complete(second, acknowledged = acknowledged)
+            coalescer.rollback(second)
+            time += 1.seconds
+            return coalescer.prepare("a", NotificationProgress.Determinate(21)) == null
+        }
+        assertTrue(lateFrameIsRedundantAfterRollback(acknowledged = false), "kept baseline: the 20 percent frame is the tray state again")
+        assertFalse(lateFrameIsRedundantAfterRollback(acknowledged = true), "shed baseline: nothing to fall back to")
+    }
+
+    @Test
     fun `frames sparser than the one minute scan spacing but inside the horizon keep a run alive for three hours`() {
         val coalescer: ProgressCoalescer = coalescer()
         assertTrue(coalescer.post("a", 31))

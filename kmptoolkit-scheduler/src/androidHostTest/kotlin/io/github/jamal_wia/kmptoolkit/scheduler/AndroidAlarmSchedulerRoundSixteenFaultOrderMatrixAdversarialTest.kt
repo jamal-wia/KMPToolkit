@@ -74,6 +74,11 @@ class AndroidAlarmSchedulerRoundSixteenFaultOrderMatrixAdversarialTest {
 
     private fun armedTimes(): List<Long> = shadowAlarmManager.scheduledAlarms.map { it.triggerAtMs }
 
+    /** The content of every armed alarm as the receiver would read it: a refused replacement must not change it. */
+    private fun armedContent(): List<ScheduledAlarm> = shadowAlarmManager.scheduledAlarms.map { armed ->
+        assertNotNull(AlarmIntents.fromIntent(shadowOf(armed.operation).savedIntent, keys), "unreadable armed alarm")
+    }
+
     @Test
     fun `every combination of faults of the four platform calls keeps the contract and the id recovers`() {
         val faults: List<Fault> = Fault.values().toList()
@@ -91,6 +96,7 @@ class AndroidAlarmSchedulerRoundSixteenFaultOrderMatrixAdversarialTest {
             ScriptedShadowAlarmManager.script.set(script)
             for (round in 1..2) {
                 val before: List<Long> = armedTimes()
+                val beforeContent: List<ScheduledAlarm> = armedContent()
                 val outcome: Result<AlarmScheduleResult> =
                     runCatching { runBlocking { withTimeout(20_000) { scheduler.schedule(alarm(id, 1_000L + round)) } } }
                 val thrown: Throwable? = outcome.exceptionOrNull()
@@ -120,6 +126,7 @@ class AndroidAlarmSchedulerRoundSixteenFaultOrderMatrixAdversarialTest {
                 if (result is AlarmScheduleResult.Failed) {
                     assertTrue(result.reason is AlarmFailure.PlatformError, "$label round $round: $result")
                     assertEquals(before, armedTimes(), "$label round $round: Failed means nothing was armed and nothing was disturbed")
+                    assertEquals(beforeContent, armedContent(), "$label round $round: a refused replacement keeps content too")
                 }
                 if (cancel == Fault.NONE) {
                     assertEquals(1, occupiedSlots(id), "$label round $round: without a refused retirement exactly one slot is in use")
