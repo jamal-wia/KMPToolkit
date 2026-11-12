@@ -432,4 +432,54 @@ class EngineBossRound2AdversarialTest {
             parents.forEach { it.cancel() }
         }
     }
+
+    /**
+     * D-29 S1, REPLACE side: the superseded row's entry is forgotten. Under a reused id (the fixer's own reuse setup)
+     * the replacement carries the very fingerprint of the delivered row; a stale entry would delete it unrun.
+     */
+    @Test
+    fun `a REPLACE forgets the delivered entry of the row it supersedes`() = runTest {
+        val parents: List<Job> = List(2) { Job() }
+        try {
+            val inner = TestUploaderStore()
+            val store = FlakyDeleteStore(inner, failures = 1)
+            val handler = TestHandler()
+            val clock = TestClock(1_000_000L)
+            val sameId: () -> String = { "b2-replace-reused-id" }
+            val first: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parents[0]), clock, idGenerator = sameId)
+            first.enqueue(handler, "payload", uniqueKey = "draft")!!
+            first.drain()
+            first.close()
+            assertEquals(1, handler.payloads.size, "setup: the effect ran and its delete failed")
+
+            val second: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parents[1]), clock, idGenerator = sameId)
+            second.enqueue(handler, "payload", uniqueKey = "draft", conflictPolicy = ConflictPolicy.REPLACE)!!
+            second.drain()
+            assertEquals(2, handler.payloads.size, "the replacement was taken for the superseded delivered row and removed unrun")
+            assertNull(inner.find("b2-replace-reused-id"))
+        } finally {
+            parents.forEach { it.cancel() }
+        }
+    }
+
+    /** S4 kept what drain() did before 4.1.0 for a store failure: it reaches the caller, a leaked cancellation too. */
+    @Test
+    fun `a manual drain passes a store failure and a leaked cancellation to its live caller`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val handler = TestHandler()
+            val engine: UploaderEngine = testEngine(inner, listOf(handler), scopeOn(parent), TestClock(1_000L))
+            engine.enqueue(handler, "x")!!
+            inner.failNextGetAllActive = IllegalStateException("database is locked")
+            assertEquals("database is locked", kotlin.runCatching { engine.drain() }.exceptionOrNull()?.message)
+            inner.failNextGetAllActive = kotlinx.coroutines.CancellationException("leaked by the store")
+            val leaked: Throwable? = kotlin.runCatching { engine.drain() }.exceptionOrNull()
+            assertEquals("leaked by the store", leaked?.message, "a live caller of an open engine lost the store's leaked cancellation")
+            engine.drain()
+            assertEquals(1, handler.payloads.size)
+        } finally {
+            parent.cancel()
+        }
+    }
 }
