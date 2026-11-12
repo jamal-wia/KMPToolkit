@@ -181,6 +181,10 @@ The controller waits up to a second for a resumed activity before it launches an
 controller over an `ActivityAccess` that never resumes pays that second, in virtual time under `runTest`,
 once per request call.
 
+Do not `release()` the `ActivityAccess` while a request is pending or before the controller is done
+with: a special-access request over a released access waits until its caller is cancelled and holds the
+request queue meanwhile. Cancel pending requests (or the scope that runs them) before releasing.
+
 ## What the module tests itself
 
 - **`commonTest`**, run on both Android and iOS: every row of the flow's transition table, the
@@ -197,6 +201,14 @@ once per request call.
   assertion that the merged library manifest contributes no permission.
 - **`iosTest`**: the mapping from every authorization status each entry reads to a
   `PermissionStatus`, the missing-purpose-string path for every entry, the notification options, and
-  a foreign type.
+  a foreign type. The controller's own logic runs against a scripted fake of an internal port that
+  carries every platform call (the real adapter delegates to the platform one to one): the request
+  mutex, the batch de-duplication, the shared Bluetooth and calendar authorizations, the upgrade from a
+  limited grant, the two-step background location request, the missing-purpose-string rule and its
+  single warning, a refused prompt reading permanently denied, the re-read after a request, `observe`
+  (activation, repeats, unregistering) and a caller cancelled while a prompt is up. What no test
+  reaches, because it needs a device: the adapter's one-line delegations, the grace period that decides
+  whether a location prompt was shown, the location and Bluetooth delegates, the real `Info.plist`
+  lookup, `openURL`, and the real prompt of every entry.
 - **`kmptoolkit-permission-testing`**: the fixture's own contract, including each place it claims to
   model the OS.

@@ -94,7 +94,9 @@ public sealed interface AndroidPermission : Permission {
 ```
 
 - **`SpecialAccess`** — `request` opens its Settings screen through the `SystemScreenLauncher` and
-  suspends until an activity of the app is resumed again, then re-reads the status. Not granted is
+  suspends until an activity of the app is resumed again, then re-reads the status. Over a released
+  `ActivityAccess` no resume arrives and it waits until cancelled (see the special-access section of
+  [the guide](03-guide.md)). Not granted is
   `Denied(explainFirst = true)`. Below the API level that introduced it, an access the OS used to give
   every app is `Granted`; one that did not exist is `Unavailable`. Nothing is stored.
 - **`AccessibilityService(component)`** — enabled when `component` is in

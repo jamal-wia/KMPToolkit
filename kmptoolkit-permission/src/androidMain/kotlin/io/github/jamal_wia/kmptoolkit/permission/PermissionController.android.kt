@@ -96,6 +96,9 @@ private const val LEGACY_ASKED: String = "true"
  *   that activity until it resumes again. Pass your app's own access to narrow it to your activities.
  *   Each call without one registers a lifecycle callback with the `Application` that lives as long as
  *   the process, so build the controller once, and pass one shared access if you build more than one.
+ *   Do not `release()` the access while the controller is still in use: over a released access no
+ *   resume ever arrives, so a special-access request waits until its caller is cancelled, and later
+ *   requests wait behind it.
  * - **[host]** shows the system dialog and the screens that answer with a result. The default,
  *   [ActivityResultPermissionRequestHost] on [activityAccess], needs no wiring and survives an activity
  *   recreated while a dialog is up; pass your own [PermissionRequestHost] if your app already owns that
