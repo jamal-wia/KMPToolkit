@@ -244,6 +244,18 @@ internal object FxThread {
     }
 
     /**
+     * Like [post], but always queued behind whatever is already waiting, even on the FX thread with nothing queued:
+     * for a step that must run after the calls the caller's thread made right after the current one.
+     */
+    fun postLater(block: () -> Unit) {
+        try {
+            runLaterCounted(block)
+        } catch (e: IllegalStateException) {
+            // Only when the toolkit was never initialized; after an exit runLater drops silently.
+        }
+    }
+
+    /**
      * Runs [block] on the FX thread and suspends for its result or exception. Never resumes if the
      * toolkit has exited, as `runLater` then drops the block: a caller bounds the wait itself.
      */

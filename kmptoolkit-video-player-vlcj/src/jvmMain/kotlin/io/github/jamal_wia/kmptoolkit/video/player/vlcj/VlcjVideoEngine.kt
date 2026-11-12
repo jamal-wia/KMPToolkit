@@ -300,7 +300,8 @@ internal class VlcjVideoEngine(
         if (inFlight != null) return inFlight
         // An unknown length (0) is not an end position.
         if (s.ended) return if (s.lengthMs > 0L) durationMs() else s.timeMs.coerceAtLeast(0L)
-        if (s.started && !inCallbackContext()) {
+        // No clock is read before the output exists: libvlc's reading in a loop gap is the end of the cycle that ended.
+        if (s.started && s.outputBegun && !inCallbackContext()) {
             synchronized(s.nativeCalls) {
                 // The seek target stands until libvlc reports a time near it (see holdsSeekTarget).
                 val player: VlcNativePlayer? = synchronized(lock) {
@@ -713,7 +714,10 @@ internal class VlcjVideoEngine(
                 // again, so a seek made in that gap is parked like one made between start() and the
                 // first Playing. Through the ordered queue: a Playing of the cycle that just ended
                 // may still be waiting there, and must not set outputBegun back after this.
-                inOrder(s) {
+                // The playhead restarted at 0 while libvlc's last reading is the end: until the restart reports
+                // a time the position is the start (set at once, under the lock), unless a seek made
+                // meanwhile holds its target.
+                inOrder(s, atCall = { if (!s.holdsSeekTarget()) s.timeMs = 0L }) {
                     s.outputBegun = false
                     null
                 }

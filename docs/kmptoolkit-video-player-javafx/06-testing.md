@@ -32,8 +32,8 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
   `-Pjavafx.required=true` and a machine where JavaFX cannot run fails them instead: use it wherever
   the real-engine tests are meant to run, so they cannot all be skipped without anyone noticing.
 - **Always run, JavaFX or not:** header rejection, missing asset/file, blank input, an unavailable
-  runtime (through an internal seam), an asset whose class loader returns a `file:` URL that is not
-  percent-encoded resolving to a valid URI of that file, calls before any load; that `prepare` starts the toolkit off
+  runtime (through an internal seam), an asset whose class loader returns a `file:` or `jar:file:` URL that is not
+  percent-encoded resolving to a valid URI of that file (and, with real JavaFX, a clip played out of a jar in such a folder), calls before any load; that `prepare` starts the toolkit off
   the thread that called it (a runtime seam that blocks); and, in a class loader that cannot see
   OpenJFX at all, that `createJavaFxVideoPlayer()` creates a player without touching JavaFX, that
   `frameSourceOrNull()` is non-null, and that `prepare` settles on
@@ -57,6 +57,11 @@ The module's `jvmTest` runs the real engine against real JavaFX Media:
 - **Freeze after a resume** — `JavaFxResumeSettlesAtSpeedR5FixerTest`: after a pause and a start at 2 and at
   4 (six fresh engines each, or `KMPTOOLKIT_FREEZE_TRIALS` for a longer run) the playhead passes where it
   paused plus 1200 ms within 3 s, so a playhead that freezes after the speed is given fails it.
+- **Speed through the shared player** — `JavaFxSpeedThroughCoreR6AdversarialTest` (a speed changed while
+  paused, ready or completed is played from the next `play()` at that speed and the playhead keeps moving;
+  the player gives the speed after `start()`, which no engine-level test above reaches) and
+  `JavaFxSeekAtSpeedFreezeR6AdversarialTest` (a seek just after a loop wrap at a speed of 2 does not leave
+  the playhead standing). Both are races: `KMPTOOLKIT_R6_TRIALS` lengthens a run.
 - **Unreadable file** — `SourceUrisUnreadableFileR5Test`: a `VideoSource.File` the process cannot read
   fails with `FileNotFoundException` before JavaFX is involved (JavaFX itself took 4 s to fail it).
 - **Reading JavaFX back.** Volume, rate and status have no getter on the engine contract; an

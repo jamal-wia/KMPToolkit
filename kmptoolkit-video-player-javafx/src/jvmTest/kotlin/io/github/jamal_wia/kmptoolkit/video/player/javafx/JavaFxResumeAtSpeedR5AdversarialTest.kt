@@ -81,8 +81,18 @@ class JavaFxResumeAtSpeedR5AdversarialTest {
             }
             val first: Long = engine.positionMs()
             val begin: Long = System.nanoTime()
-            Thread.sleep(400L)
-            val speed: Double = (engine.positionMs() - first) / ((System.nanoTime() - begin) / 1_000_000.0)
+            Thread.sleep(600L)
+            // Both edges of the window are timed at a change of the reported playhead (JavaFX publishes it about
+            // every 100 ms, so a window ending at an arbitrary instant reads up to one step short: 1.49 at 400 ms
+            // for a correct engine). D-22, plans/s6-slope-window-advice.md.
+            val last: Long = engine.positionMs()
+            val changeDeadline: Long = System.nanoTime() + 250L * 1_000_000L
+            var now: Long = last
+            while (now == last && System.nanoTime() < changeDeadline) {
+                Thread.sleep(5L)
+                now = engine.positionMs()
+            }
+            val speed: Double = (now - first) / ((System.nanoTime() - begin) / 1_000_000.0)
             kotlin.test.assertTrue(speed > 1.5, "after a resume the playhead moved $speed ms per ms at a speed of 2")
         } finally {
             engine.release()
