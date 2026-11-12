@@ -511,6 +511,8 @@ internal class DefaultUploaderEngine(
             // A store whose calls never suspend gives cancellation no other place to be seen: without this a
             // close() (or a cancelled scope) from inside a handler would not stop the pass.
             currentCoroutineContext().ensureActive()
+            // A closed engine is permanently inert: a manual drain() on one runs nothing, however it is called.
+            if (isClosed) return
             val active: List<UploaderItem> = store.getAllActive()
             pruneOutsideFailures(active)
             if (active.isEmpty()) {
@@ -1379,6 +1381,7 @@ internal class DefaultUploaderEngine(
     /** Routes one progress signal to the handler — see [UploadGateway.progress]. Never parks or retries. */
     @Suppress("UNCHECKED_CAST")
     suspend fun reportUploadProgress(id: String, fraction: Float) {
+        if (fraction.isNaN()) return // not a fraction of anything: dropped, where a number outside 0..1 is clamped
         val record: UploaderItem = try {
             store.getById(id)
         } catch (e: CancellationException) {

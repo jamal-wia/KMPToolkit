@@ -55,7 +55,7 @@ public object UploadGateway {
     /**
      * Reports upload progress of [itemId] to its handler's [UploadHandler.onUploadProgress]. Best
      * effort: dropped silently when no engine is registered right now, the item has settled, or the
-     * payload cannot be decoded. [fraction] is clamped to 0..1.
+     * payload cannot be decoded. [fraction] is clamped to 0..1; a NaN is dropped.
      */
     public suspend fun progress(itemId: String, fraction: Float) {
         (UploaderEngineRegistry.current as? DefaultUploaderEngine)?.reportUploadProgress(itemId, fraction)

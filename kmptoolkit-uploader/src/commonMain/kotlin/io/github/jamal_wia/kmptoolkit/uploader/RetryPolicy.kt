@@ -113,8 +113,12 @@ public class ExponentialBackoffRetryPolicy(
         /** Default [jitterRatio]: ±20%. */
         public const val DEFAULT_JITTER_RATIO: Double = 0.2
 
-        /** Caps `1 shl n` well below `Long` overflow; `2^20 × base` already exceeds any real cap. */
-        private const val MAX_EXPONENT: Int = 20
+        /**
+         * Caps the shift count. Overflow is guarded by the saturation test in [backoffMillis], not by this bound, so it
+         * only has to reach past any `Long` ceiling: `2^62 × base` exceeds every [maxDelayMillis], so the curve is
+         * the documented `min(max, base * 2^(n-1))` for every base, including a tiny one under a huge ceiling.
+         */
+        private const val MAX_EXPONENT: Int = 62
     }
 }
 
