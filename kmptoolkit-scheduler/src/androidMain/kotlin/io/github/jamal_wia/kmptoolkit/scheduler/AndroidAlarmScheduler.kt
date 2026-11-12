@@ -119,6 +119,9 @@ internal class AndroidAlarmScheduler(
         get() = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
 
     override suspend fun schedule(alarm: ScheduledAlarm): AlarmScheduleResult {
+        // Copied now, not after the lock is won: the caller may edit or reuse its payload map while
+        // this call waits behind another one, and the alarm armed is the one passed at the call.
+        val snapshot: ScheduledAlarm = alarm.copy(payload = alarm.payload.toMap())
         val manager: AlarmManager = alarmManager
             ?: return AlarmScheduleResult.Failed(AlarmFailure.SchedulerUnavailable)
         // The guard sits inside the lock and around the non-suspending arm only: a cancellation of
@@ -126,7 +129,7 @@ internal class AndroidAlarmScheduler(
         // IllegalStateException), and must reach the caller rather than become a Failed.
         return platformCalls.withLock {
             try {
-                arm(manager, alarm)
+                arm(manager, snapshot)
             } catch (refusal: RuntimeException) {
                 // AlarmManager refuses in ways a caller cannot prevent: since Android 12 an app holding
                 // too many alarms at once (the limit is 500) gets an IllegalStateException from every

@@ -64,8 +64,10 @@ it, and an alarm whose result is `Failed` is **not** armed — it appears in `sc
 **Recordings are snapshots.** `scheduleCalls` and `armed` hold a copy of each alarm taken when
 `schedule` is called, with its own copy of `payload`. Code that reuses one mutable map to build
 several alarms is recorded as it was at each call, as the real schedulers, which write the payload
-into the platform request at the call, would arm it. A recorded alarm is equal (`==`) to the one
-your code passed, not the same instance: compare with `assertEquals`, not `assertSame`.
+into the platform request at the call, would arm it (the real schedulers copy the payload before
+they wait for their process-wide lock, so a call queued behind another one arms it as it was at the
+call too). A recorded alarm is equal (`==`) to the one your code passed, not the same instance:
+compare with `assertEquals`, not `assertSame`.
 
 **Not thread-safe.** It is meant for one test's coroutine at a time.
 
