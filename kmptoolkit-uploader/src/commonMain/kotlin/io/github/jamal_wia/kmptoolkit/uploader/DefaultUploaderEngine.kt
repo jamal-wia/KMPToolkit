@@ -283,6 +283,7 @@ internal class DefaultUploaderEngine(
             // handler's items have one at all. Whatever the handler kind, an attempt the engine is running for the
             // superseded item is stopped. None of this suspends or throws.
             superseded?.let { old ->
+                DeliveredUnconfirmed.forget(old)
                 stopAttempt(old.id)
                 if (handler is UploadHandler<*> && old.state != UploaderItemState.PARKED) {
                     cancelUpload(old, reason = "superseded by ${record.logName}")
@@ -334,6 +335,7 @@ internal class DefaultUploaderEngine(
                 false
             }
         if (!stillQueued) {
+            DeliveredUnconfirmed.forget(record)
             stopAttempt(id)
             cancelUpload(record, reason = "withdrawn")
         }
@@ -349,7 +351,10 @@ internal class DefaultUploaderEngine(
         // non-cancellable so its list always comes back and every stop and cancel below runs.
         currentCoroutineContext().ensureActive()
         val removed: List<UploaderItem> = withContext(NonCancellable) { store.deleteByTag(tag) }
-        removed.forEach { record -> stopAttempt(record.id) }
+        removed.forEach { record ->
+            DeliveredUnconfirmed.forget(record)
+            stopAttempt(record.id)
+        }
         val owed: List<UploaderItem> = removed.filter { it.state != UploaderItemState.PARKED }
         owed.forEach { record -> cancelUpload(record, reason = "withdrawn by tag") }
         logger.i { "Withdrew every item tagged '$tag' (${owed.size} active)." }
@@ -583,11 +588,12 @@ internal class DefaultUploaderEngine(
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, outside.notBeforeMillis)
                     continue
                 }
-                if (outside != null && outside.deliveredUnconfirmed) {
-                    // The effect succeeded in this process and only its confirming delete failed: repeating the
-                    // effect would send it twice, so only the delete is retried.
+                if (DeliveredUnconfirmed.matches(item)) {
+                    // The effect succeeded in this process (in this engine or one it replaced) and only its
+                    // confirming delete failed: repeating the effect would send it twice, so only the delete is retried.
                     try {
                         store.deleteById(item.id)
+                        DeliveredUnconfirmed.forget(item)
                         outsideFailures.update { it - item.id }
                         logger.i { "Confirmed the delivery of ${item.logName} after its delete failed earlier." }
                     } catch (e: CancellationException) {
@@ -820,7 +826,7 @@ internal class DefaultUploaderEngine(
     ) {
         when (outcome) {
             is AttemptResult.Success -> {
-                deleteAfterEffect(item.id)
+                deleteAfterEffect(item)
                 logger.i { "Delivered ${item.logName} after ${item.attempts} failed attempts." }
             }
 
@@ -845,7 +851,7 @@ internal class DefaultUploaderEngine(
             }
 
             is AttemptResult.Drop -> {
-                deleteAfterEffect(item.id)
+                deleteAfterEffect(item)
                 logger.i { "Dropped ${item.logName} — ${outcome.reason}." }
             }
 
@@ -1152,10 +1158,11 @@ internal class DefaultUploaderEngine(
 
     /**
      * What the engine remembers, in memory only, about an item whose attempt failed outside its handler.
-     * [notBeforeMillis] is the earliest wall-clock time of the next try; [deliveredUnconfirmed] means the
-     * handler already succeeded (or dropped the item) and only the confirming delete failed.
+     * [notBeforeMillis] is the earliest wall-clock time of the next try. Whether the handler already succeeded (or
+     * dropped the item) and only the confirming delete failed is not kept here but process-wide, in
+     * [DeliveredUnconfirmed], so that an engine built to replace this one knows it too.
      */
-    private data class OutsideFailure(val count: Int, val notBeforeMillis: Long, val deliveredUnconfirmed: Boolean) {
+    private data class OutsideFailure(val count: Int, val notBeforeMillis: Long) {
         /**
          * Due when its time has come, or when it lies further ahead than the heartbeat (a clock stepped
          * backwards must not freeze the item for the whole jump).
@@ -1186,25 +1193,24 @@ internal class DefaultUploaderEngine(
             val old: OutsideFailure? = map[id]
             val count: Int = (old?.count ?: 0) + 1
             notBefore = saturatingAdd(now, failedPassRetryMillis(count))
-            map + (id to OutsideFailure(count, notBefore, old?.deliveredUnconfirmed ?: false))
+            map + (id to OutsideFailure(count, notBefore))
         }
         return notBefore
     }
 
     /**
      * Deletes the row of an item whose handler has finished with it (delivered, or dropped). A delete that
-     * fails is remembered as such: the effect already ran in this process, so the drain retries only the
-     * delete and never the handler.
+     * fails is remembered as such, per process ([DeliveredUnconfirmed]): the effect already ran in this process, so
+     * the drain, this engine's or a replacement's, retries only the delete and never the handler.
      */
-    private suspend fun deleteAfterEffect(id: String) {
+    private suspend fun deleteAfterEffect(item: UploaderItem) {
         try {
-            store.deleteById(id)
+            store.deleteById(item.id)
         } catch (e: Throwable) {
-            outsideFailures.update { map ->
-                map + (id to (map[id]?.copy(deliveredUnconfirmed = true) ?: OutsideFailure(0, 0L, true)))
-            }
+            DeliveredUnconfirmed.remember(item)
             throw e
         }
+        DeliveredUnconfirmed.forget(item)
     }
 
     /**

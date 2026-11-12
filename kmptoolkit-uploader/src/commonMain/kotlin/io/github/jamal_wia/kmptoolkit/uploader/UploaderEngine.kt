@@ -29,7 +29,8 @@ import kotlinx.coroutines.CoroutineScope
  * - **At-least-once delivery.** An item is deleted only after its handler confirms success. The
  *   process can die between a successful send and that deletion, so handlers must tolerate a
  *   repeat — see [UploaderHandler]. An effect whose handler succeeded but whose row could not be deleted is not
- *   run again by the same process: the delete is retried with backoff. After a process death it may run again.
+ *   run again by the same process, also not by an engine built to replace a closed one: the delete is retried with
+ *   backoff. After a process death it may run again.
  * - **Single-flight.** Exactly one drain runs at a time. Triggers are conflated.
  * - **FIFO within an ordering channel**, scoped per handler type. See [UploaderHandler.orderingKey]
  *   for what that does and does not promise across channels.

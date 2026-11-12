@@ -28,7 +28,8 @@ Three states, and only two ways out of the queue: a confirmed delivery, or a dec
 
 Delivery is at-least-once: a process that dies between a successful send and the deletion of the row sends again
 on the next launch. Within one process an effect whose handler succeeded but whose row could not be deleted is
-never run again; the engine retries only the delete, with a growing backoff. An attempt that fails outside its
+never run again, also not by an engine you built to replace a closed one (the memory is per process); the engine
+retries only the delete, with a growing backoff. An attempt that fails outside its
 handler (a store write failing, say) backs off the same way instead of repeating at the alarm floor.
 
 A payload is small: it is stored as text in the queue's row, and the SQLDelight store refuses a row over 1 MiB. Queue a
