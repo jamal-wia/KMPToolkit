@@ -115,8 +115,18 @@ internal class AndroidAlarmScheduler(
     private val keys: AlarmIntentKeys,
 ) : AlarmScheduler {
 
+    /**
+     * The platform service, or `null` when it cannot be reached: the lookup answered null, or threw
+     * (a system server that is restarting under the app). A throwing lookup is a platform refusal
+     * like any other, so it is logged and treated as unreachable; the next call looks it up again.
+     */
     private val alarmManager: AlarmManager?
-        get() = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        get() = try {
+            context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        } catch (refusal: RuntimeException) {
+            Log.w(LOG_TAG, "The platform alarm service could not be reached.", refusal)
+            null
+        }
 
     override suspend fun schedule(alarm: ScheduledAlarm): AlarmScheduleResult {
         // Copied now, not after the lock is won: the caller may edit or reuse its payload map while
@@ -169,11 +179,14 @@ internal class AndroidAlarmScheduler(
             AlarmIntents.toIntent(context, alarm, keys),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // Dropped on every exit that did not arm it, an Error (an OutOfMemoryError while the request
+        // is marshalled) included: a slot left behind with no alarm behind it would count toward the
+        // saturation of the id. Only the exception propagates; nothing is caught here.
+        var armed: Boolean = false
         val result: AlarmScheduleResult = try {
-            armIn(manager, alarm, pendingIntent)
-        } catch (refusal: RuntimeException) {
-            pendingIntent.cancel()
-            throw refusal
+            armIn(manager, alarm, pendingIntent).also { armed = true }
+        } finally {
+            if (!armed) pendingIntent.cancel()
         }
         // Each retirement on its own, so a refusal for one does not skip the others.
         for (stale: PendingIntent in retired) {
