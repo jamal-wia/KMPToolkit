@@ -144,7 +144,8 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
     /**
      * Walks [path]. Intermediate symbolic links are always followed, the last one only with [followFinal]. A missing
      * intermediate directory is NotFound and a non-directory one NotADirectory (thrown, with [path]); a missing last
-     * name gives `inode = null`.
+     * name gives `inode = null`. A segment over 255 UTF-8 bytes is NameTooLong in every lookup. A trailing `.` or `..`
+     * resolves to the directory itself (`name = null`), as on a real system.
      */
     private fun locate(path: String, followFinal: Boolean): Located {
         val queue: ArrayDeque<String> = ArrayDeque(path.split('/').filter { it.isNotEmpty() })
@@ -154,7 +155,11 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
         var lastInode: Long? = ROOT
         while (queue.isNotEmpty()) {
             val segment: String = queue.removeFirst()
-            if (segment == ".") continue
+            if (segment == ".") {
+                lastName = null
+                lastInode = stack.last()
+                continue
+            }
             if (segment == "..") {
                 if (stack.size > 1) stack.removeAt(stack.size - 1)
                 lastName = null
@@ -162,8 +167,11 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
                 continue
             }
             val directory: Long = stack.last()
+            checkNameLength(segment, path)
             val found: Long? = lookup(directory, segment)
-            val isFinal: Boolean = queue.none { it != "." }
+            // A segment followed by '.' or '..' is intermediate: POSIX resolves 'link/.' through the link and
+            // 'file/.' is ENOTDIR.
+            val isFinal: Boolean = queue.isEmpty()
             if (found == null) {
                 if (!isFinal) fail(FileError.NotFound(path))
                 lastName = segment
@@ -477,11 +485,19 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
         return current
     }
 
+    /** A seeded segment over 255 UTF-8 bytes would be unreachable (every lookup answers NameTooLong). */
+    private fun requireSegmentLengths(segments: List<String>, path: String) {
+        require(segments.all { it.encodeToByteArray().size <= MAX_NAME_UTF8_BYTES }) {
+            "A seeded path segment must be at most $MAX_NAME_UTF8_BYTES UTF-8 bytes: '$path'"
+        }
+    }
+
     private fun splitForSeeding(path: String): Pair<List<String>, String> {
         requireAbsolute(path)
         val segments: List<String> = path.split('/').filter { it.isNotEmpty() }
         require(segments.isNotEmpty()) { "The root cannot be seeded: '$path'" }
         require(segments.none { it == "." || it == ".." }) { "A seeded path must not contain '.' or '..': '$path'" }
+        requireSegmentLengths(segments, path)
         return segments.dropLast(1) to segments.last()
     }
 
@@ -511,6 +527,7 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
             requireAbsolute(path)
             val segments: List<String> = path.split('/').filter { it.isNotEmpty() }
             require(segments.none { it == "." || it == ".." }) { "A seeded path must not contain '.' or '..': '$path'" }
+            requireSegmentLengths(segments, path)
             ensureDirectories(segments, path)
         }
     }
@@ -533,7 +550,11 @@ internal class InMemoryFileSystemOps(private val caseSensitive: Boolean) : FileS
         monitor.withLock {
             checkAlive()
             requireAbsolute(path)
-            val located: Located = locate(path, false)
+            val located: Located = try {
+                locate(path, false)
+            } catch (e: FileOpException) {
+                throw IllegalArgumentException("'$path' does not exist", e)
+            }
             val id: Long = requireNotNull(located.inode) { "'$path' does not exist" }
             node(id).mtime = millis
         }
