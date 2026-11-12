@@ -9,6 +9,27 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Breaking
+
+- `kmptoolkit-uploader` SPI: `UploaderStore.insertKeep(record)` returns the new public
+  `io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult` (`since 5.0.0`) instead of `Boolean`. Migrate `false` to
+  `KeepResult.Kept` (a `PENDING` or `IN_FLIGHT` holder won: nothing inserted, nothing removed) and `true` to
+  `KeepResult.Inserted(superseded)`, where `superseded` is the `PARKED` row the insert deleted, as it was just before
+  the delete and read in the same atomic step, or `null` when no row held the identity (also for a `null`
+  `uniqueKey`). If identity spellings make one insert remove several rows, return the earliest by insertion order.
+  The engine needs the row to stop its attempt and cancel its upload, as it does for `REPLACE`.
+  **Recompile every custom `UploaderStore`.** On iOS the klib signature changed, so the old build fails to link. On
+  Android and the JVM the erased signature did not change (the old `Boolean` and the new `KeepResult` are both
+  `Object` there), so a store compiled against 4.x still links and then throws a `ClassCastException` on every
+  enqueue with `ConflictPolicy.KEEP`, the default policy; under `TransactionRunner.Direct` its row may already be
+  written by then.
+- `kmptoolkit-uploader-testing`: `InMemoryUploaderStore.insertKeep` returns `KeepResult` (a source break for a test
+  that used its `Boolean`). `UploaderStoreContract` gains `insertKeepReturnsWhatItSuperseded` and
+  `insertKeepReturnsNothingSupersededWhenNoParkedRowHeldTheKey` (`since 5.0.0`), so `verifyAll` runs 60 checks (it
+  ran 58), and a store that returns `Inserted(null)` after it replaced a parked row now fails the contract.
+- `kmptoolkit-uploader-sqldelight`: no API change. `insertKeep` returns the earliest `PARKED` holder. A holder in a
+  state this build does not recognize is removed without being returned, so its upload is not cancelled.
+
 ### Added
 
 - `kmptoolkit-files` (Android, iOS, `jvm`): file-system primitives for shared code behind one `FileAccess`
@@ -33,6 +54,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-storage` (`jvm`): the temporary file of a write is named `<file name><digits>.tmp` as before; for a store
   file name longer than 232 UTF-8 bytes the file name in it is shortened (cut to 215 bytes, then `~` and 16 hex
   characters of its SHA-256), so every store name that fits a file name stays writable.
+- `kmptoolkit-uploader`: an `IN_FLIGHT` item whose type has no registered handler is parked once its lease has
+  ended, not at once while an executor may still hold the lease. An item with a failure outside its handler pending
+  and an unmet constraint now arms its alarm at the failure's backoff gate.
 
 ### Fixed
 
@@ -40,6 +64,25 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   20 digits; they were missed before.
 - `kmptoolkit-files`: `FileAccessConfig.tempPrefix` and `WriteOptions.tempPrefix` accept up to 232 UTF-8 bytes
   (`FileAccessConfig.MAX_TEMP_PREFIX_BYTES`), so every temporary name fits 255 bytes.
+- `kmptoolkit-uploader`: a `KEEP` enqueue that supersedes a `PARKED` item now withdraws it like a `REPLACE` does:
+  its running attempt is stopped and its upload is cancelled (an item parked at its re-hand and then enqueued again
+  under the default `KEEP` no longer uploads twice). A `KEEP` refused by a `PENDING` or `IN_FLIGHT` holder cancels
+  nothing. A consumer transaction that rolls back restores the row, but the cancel is not rolled back.
+- `kmptoolkit-uploader`: one `drain()` call gives an item with no registered handler one turn, and an orphan park
+  that throws no longer stops the items behind it.
+- `kmptoolkit-uploader`: an effect that ran and was reported as delivered (or dropped) is never run again by the
+  same process when only its confirming delete failed, whichever way it was reported and whichever engine of the
+  process comes next. The process remembers such a row until a delete confirms it, and the drain retries only the
+  delete, never the handler: for an engine built to replace a closed one, for an item reported through `settle` or
+  through the upload channel (the outcome journal included), for a row whose withdrawal was rolled back or failed,
+  for a delete that is retried while the item's type has no handler, its constraints are unmet or its backoff gate has
+  not opened, and for a row that a later verdict (a park, a failure, a give-up with a park or a drop) would otherwise
+  have buried. Such a verdict is not applied to a row whose delivery the process holds: the row is deleted instead,
+  `settle` returns normally and an upload's `onSettled` does not run. The reverse order is covered as well: a row
+  that a verdict parked before the delivery's delete failed (or while it was failing) is deleted by the drain like an
+  active one, once per `drain()` call per row with a growing backoff and an alarm kept armed while the store keeps
+  failing, and `settle` starts a drain pass even when its delete throws. A `KEEP` or `REPLACE` enqueue that
+  supersedes the parked row before that retry succeeds still withdraws it, as the conflict policy says.
 
 ## [4.0.0]
 

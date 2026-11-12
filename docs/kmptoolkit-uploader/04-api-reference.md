@@ -27,7 +27,7 @@ whether a call can block.
 |---|---|---|
 | `start` | `fun start()` | Idempotent. Launches one drain coroutine, wires triggers, drains leftovers. A call after `close()` is a no-op. |
 | `drain` | `suspend fun drain()` | One full pass; each item gets at most one turn per call, a failed one included (a clock held at `Long.MAX_VALUE` makes every gate and lease read as due, and the item then waits for the next trigger or alarm). **Do not call on a started engine** — it breaks single-flight. For tests and diagnostics. On a closed engine it runs nothing and returns, however it is called: a closed engine is permanently inert. A `close()` during a `drain()` you called yourself stops it like the engine's own pass, and `drain()` returns; a cancelled caller still gets its cancellation. |
-| `settle` | `suspend fun settle(id: String, claim: Long, result: SettleResult)` | Reports a detached delivery, with the `id` and `claim` from the executor's `AttemptContext`. Every race degrades to a no-op; see below. A `Delivered` or `Drop` whose delete fails throws, and this process still remembers it: the row is deleted at a later pass, by this engine or one built to replace it, and never handed out again, so calling `settle` again is harmless; a later `Park` or `Failed` does not override it (the row is deleted, the verdict is not applied). |
+| `settle` | `suspend fun settle(id: String, claim: Long, result: SettleResult)` | Reports a detached delivery, with the `id` and `claim` from the executor's `AttemptContext`. Every race degrades to a no-op; see below. A `Delivered` or `Drop` whose delete fails throws, and this process still remembers it: the row is deleted at a later pass, by this engine or one built to replace it, and never handed out again, so calling `settle` again is harmless; a later `Park` or `Failed` does not override it (the row is deleted, the verdict is not applied), and a parked row held this way is retried by the drain too. |
 | `awaitDrained` | `suspend fun awaitDrained(timeout: Duration): Boolean` | For a wake job. An `IN_FLIGHT` item counts as **not** drained. An already empty queue is `true` even for a zero timeout. A failing store read never throws: it counts as "not drained" and is re-read at `drainPollInterval`, so a persistent failure ends in `false` at the timeout. |
 | `close` | `fun close()` | Idempotent, non-suspending. Stops the engine, leaves the queue and your scope alone. An attempt running at close, also one of a `drain()` you called yourself, is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, and an engine already started in this process is woken by the release, so the next engine starts the item at once. It does not wait for a running attempt: one that ignores its cancellation may still be running when a new engine starts the same item, so a handler that does not honour cancellation can see its item run twice, as after a process kill. |
 
@@ -386,6 +386,19 @@ Eleven functions; the full contract is in the interface KDoc and in
   engine's; a store that rounds it only loses the prompt release of an interrupted claim.
 - Dedup identity is `(type, uniqueKey)`; a `null` key never conflicts.
 - Payload and tag are opaque.
+
+### `KeepResult` (since 5.0.0)
+
+`sealed interface KeepResult`, what `UploaderStore.insertKeep` returns:
+
+| Case | Meaning |
+|---|---|
+| `KeepResult.Kept` | A `PENDING` or `IN_FLIGHT` holder of the identity won: nothing was inserted and nothing was removed. |
+| `KeepResult.Inserted(superseded: UploaderItem?)` | The record was inserted. `superseded` is the `PARKED` row the insert deleted, as it was just before the delete and read in the same atomic step, or `null` when no row held the identity (also for a `null` `uniqueKey`). When identity spellings make one insert remove several rows, the earliest by insertion order. |
+
+The engine withdraws `superseded` exactly like the row a `REPLACE` removes: it stops the attempt it runs and cancels the
+upload, whatever the row's state. Replaces the `Boolean` of 4.x: `false` is `Kept`, `true` is `Inserted`. See the
+`Breaking` entry in [`CHANGELOG.md`](../../CHANGELOG.md) and [`07-custom-store.md`](07-custom-store.md).
 
 ### `TransactionRunner`
 

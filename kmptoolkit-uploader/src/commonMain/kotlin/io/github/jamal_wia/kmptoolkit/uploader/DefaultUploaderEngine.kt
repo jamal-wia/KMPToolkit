@@ -64,7 +64,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * ## Structure: a front over components that each own rules
  *
  * This class decides what to do and keeps every name the platform entry points and the tests call, but it holds no
- * store and cancels no upload itself. The protocol below is enforced by who can reach what, not by convention:
+ * store and cancels no upload itself. The store is out of reach **by construction** (the constructor hands it to the
+ * ledger and keeps nothing); upload cancels and the process-wide memories are kept to their owners by the review
+ * gate below, not by the compiler:
  *
  * | Component | Owns | Rules |
  * |---|---|---|
@@ -73,9 +75,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * | [AttemptRegistry] | the attempts the drain runs and their handshake with a withdrawal | P1, P2 |
  * | [DrainCall] | the turns of one call of `drain()` | P9 |
  *
- * A write that skips a rule cannot be written here: `rg 'store\.'` and `rg 'transport\.cancel'` over this file find
- * nothing. The attempt runner, the settle desk and the lifecycle are still methods of this class (carry-over: step 2 of
- * the split moves them out, with no test changing).
+ * The review gate: `rg 'store\.'` and `rg 'transport\.cancel'` over this file find nothing, and neither do
+ * `DeliveredUnconfirmed.` or `ClaimsInDoubt.` outside KDoc. This class still reaches the transports (it launches
+ * attempts), so a cancel could be written here again; handing the launch to an attempt runner that alone holds the
+ * transports is the cure, and it belongs to step 2 of the split (carry-over: the attempt runner, the settle desk and
+ * the lifecycle are still methods of this class, and moving them out changes no test).
  *
  * ## Cancellation, close and claims
  *
@@ -158,8 +162,14 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   verdict writers, run the P7 confirming delete instead (forget on success, held on failure) and report the verdict as
  *   not applied: a stale `settle` (`applied = false`), no `onSettled` and a dropped journal entry for an upload. The
  *   drain asks nothing else of a held row before it retries its delete: the check for it follows the gates and the
- *   turn and precedes the handler lookup, the constraints and the backoff gate.
- *   *Pinned by:* EngineBossRound4SuspectsAdversarialTest (bv4-S3a, S3b) and EngineSplit1P10AdversarialTest.
+ *   turn and precedes the handler lookup, the constraints and the backoff gate. The order of the two does not matter: a
+ *   verdict that landed **first** (the row is PARKED, out of the active list the drain reads) is rescued too, because
+ *   a row held as delivered is confirmed in whatever state it is: once per call, ahead of the empty-queue check,
+ *   [RowLedger.heldOutOfRotation] names the parked held rows and the drain retries their delete under the same turn
+ *   and backoff rules, keeps an alarm armed for them when the queue is otherwise empty (the platform wake stays
+ *   disarmed: the memory dies with the process), and `settle` triggers a pass even when its delete throws.
+ *   *Pinned by:* EngineBossRound4SuspectsAdversarialTest (bv4-S3a, S3b), EngineSplit1P10AdversarialTest and
+ *   EngineSplit1HeldRescueAdversarialTest (a verdict that came first).
  */
 internal class DefaultUploaderEngine(
     store: UploaderStore,
@@ -444,40 +454,45 @@ internal class DefaultUploaderEngine(
             logger.i { "settle($result) for unknown id=$id — no-op." }
             return false
         }
-        val applied: Boolean = when (result) {
-            // Facts about the effect, so they stand from any claim: a superseded executor that delivered
-            // has still delivered, and re-handing the item would send it twice.
-            is SettleResult.Delivered -> {
-                deleteAfterEffect(record) // P7
-                logger.i { "Settled ${record.logName} as delivered." }
-                true
-            }
-
-            is SettleResult.Drop -> {
-                deleteAfterEffect(record) // P7
-                logger.i { "Settled ${record.logName} as dropped — ${result.reason}." }
-                true
-            }
-
-            // Verdicts on one attempt, so they stand only from the attempt the engine still runs.
-            is SettleResult.Park -> if (record.isCurrentFor(claim, result)) {
-                val parked: Boolean = ledger.park(record, result.reason)
-                if (parked) {
-                    logger.w { "Settled ${record.logName} as parked — ${result.reason}." }
-                } else {
-                    logger.i { "Park settle for ${record.logName} superseded mid-settle — no-op." }
+        // Whatever the commit did, a throw included, the drain is triggered: a delivery whose delete failed leaves a held
+        // row that only the drain can confirm (P7), and that retry should start now, not at the next unrelated wake.
+        try {
+            val applied: Boolean = when (result) {
+                // Facts about the effect, so they stand from any claim: a superseded executor that delivered
+                // has still delivered, and re-handing the item would send it twice.
+                is SettleResult.Delivered -> {
+                    deleteAfterEffect(record) // P7
+                    logger.i { "Settled ${record.logName} as delivered." }
+                    true
                 }
-                parked
-            } else {
-                false
-            }
 
-            is SettleResult.Failed -> if (record.isCurrentFor(claim, result)) settleFailed(record, result) else false
+                is SettleResult.Drop -> {
+                    deleteAfterEffect(record) // P7
+                    logger.i { "Settled ${record.logName} as dropped — ${result.reason}." }
+                    true
+                }
+
+                // Verdicts on one attempt, so they stand only from the attempt the engine still runs.
+                is SettleResult.Park -> if (record.isCurrentFor(claim, result)) {
+                    val parked: Boolean = ledger.park(record, result.reason)
+                    if (parked) {
+                        logger.w { "Settled ${record.logName} as parked — ${result.reason}." }
+                    } else {
+                        logger.i { "Park settle for ${record.logName} not applied — no-op." }
+                    }
+                    parked
+                } else {
+                    false
+                }
+
+                is SettleResult.Failed -> if (record.isCurrentFor(claim, result)) settleFailed(record, result) else false
+            }
+            // Delivered may have emptied the queue (let the drain disarm the wake); Failed armed a
+            // backoff gate (let the drain schedule an alarm for it).
+            return applied
+        } finally {
+            trigger()
         }
-        // Delivered may have emptied the queue (let the drain disarm the wake); Failed armed a
-        // backoff gate (let the drain schedule an alarm for it).
-        trigger()
-        return applied
     }
 
     /**
@@ -547,16 +562,29 @@ internal class DefaultUploaderEngine(
     private suspend fun drainPass() {
         // Per call of drain(), rule P9: the turns used so far (see DrainCall).
         val call = DrainCall()
+        // The held rows that are out of rotation (see sweepHeldOutOfRotation): the ids whose backoff the pruning keeps,
+        // and the soonest time one of them is worth another try, which keeps an alarm armed when the queue is empty.
+        var heldIds: Set<String> = emptySet()
+        var heldGate: Long? = null
         while (true) {
             // A store whose calls never suspend gives cancellation no other place to be seen: without this a
             // close() (or a cancelled scope) from inside a handler would not stop the pass.
             currentCoroutineContext().ensureActive()
             // A closed engine is permanently inert: a manual drain() on one runs nothing, however it is called.
             if (isClosed) return
+            if (call.takeHeldSweep()) {
+                // P7: a row held as delivered is confirmed in whatever state it is. The active list below never offers a
+                // PARKED one, so they are visited here, once per call, ahead of the empty-queue check.
+                val swept: HeldSweep = sweepHeldOutOfRotation(call)
+                heldIds = swept.ids
+                heldGate = swept.gate
+            }
             val active: List<UploaderItem> = ledger.active()
-            pruneOutsideFailures(active)
+            pruneOutsideFailures(active, heldIds)
             if (active.isEmpty()) {
-                cancelAlarm()
+                // A held row that is still owed its delete keeps the alarm: the delete is retried when it is due, with no
+                // other trigger needed. The platform wake gains nothing (the memory dies with the process).
+                if (heldGate != null) scheduleAlarm(heldGate) else cancelAlarm()
                 wakeScheduler.cancelWake() // nothing owed — disarm the platform wake
                 // An enqueue that landed between the read above and that cancel has already armed its
                 // wake, and the cancel has just disarmed it: a process killed before the next pass would
@@ -614,21 +642,8 @@ internal class DefaultUploaderEngine(
                 if (ledger.holds(item)) {
                     // The effect succeeded in this process (in this engine or one it replaced) and only its
                     // confirming delete failed: repeating the effect would send it twice, so only the delete is retried.
-                    try {
-                        // P7: this is the confirming retry of a remembered delete, so it forgets on success itself.
-                        ledger.confirmHeld(item)
-                        outsideFailures.update { it - item.id }
-                        logger.i { "Confirmed the delivery of ${item.logName} after its delete failed earlier." }
-                    } catch (e: CancellationException) {
-                        currentCoroutineContext().ensureActive()
-                        logger.e(e) { "Confirming the delivery of ${item.logName} leaked a cancellation; retrying later." }
-                        call.spendTurn(item.id) // P9
-                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
-                    } catch (e: Throwable) {
-                        logger.e(e) { "Confirming the delivery of ${item.logName} failed again; retrying later." }
-                        call.spendTurn(item.id) // P9
-                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
-                    }
+                    val retryAt: Long? = confirmHeldInDrain(item, call)
+                    if (retryAt != null) soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, retryAt)
                     executedAny = true
                     continue
                 }
@@ -698,7 +713,7 @@ internal class DefaultUploaderEngine(
             }
 
             if (!executedAny) {
-                scheduleAlarm(soonestGate)
+                scheduleAlarm(minOfNullable(soonestGate, heldGate))
                 // Work remains, gated or backing off — keep the platform wake armed so a killed
                 // process still gets to deliver it.
                 wakeScheduler.scheduleWake()
@@ -706,6 +721,58 @@ internal class DefaultUploaderEngine(
             }
         }
     }
+
+    /**
+     * The drain's confirming retry of a row held as delivered (P7): forgets the entry on success and clears the row's
+     * outside failure. A failure (a leaked cancellation included) uses the item's turn (P9) and backs off like any
+     * failure outside the handler.
+     *
+     * @return `null` when the delete confirmed the delivery, else the time of the next try.
+     */
+    private suspend fun confirmHeldInDrain(item: UploaderItem, call: DrainCall): Long? {
+        try {
+            // P7: this is the confirming retry of a remembered delete, so it forgets on success itself.
+            ledger.confirmHeld(item)
+            outsideFailures.update { it - item.id }
+            logger.i { "Confirmed the delivery of ${item.logName} after its delete failed earlier." }
+            return null
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            logger.e(e) { "Confirming the delivery of ${item.logName} leaked a cancellation; retrying later." }
+        } catch (e: Throwable) {
+            logger.e(e) { "Confirming the delivery of ${item.logName} failed again; retrying later." }
+        }
+        call.spendTurn(item.id) // P9
+        return bumpOutsideFailure(item.id)
+    }
+
+    /** What [sweepHeldOutOfRotation] found: the rows' [ids] and the soonest [gate] a delete is worth another try, if any. */
+    private class HeldSweep(val ids: Set<String>, val gate: Long?)
+
+    /**
+     * Rule P7 for the rows [drainPass]'s active list never offers: a row this process holds as delivered that a verdict
+     * parked (before the delivery's delete failed, or while it was failing) is still owed its delete, whatever its
+     * state. Runs once per call, under the same turn and backoff rules as an active held row.
+     */
+    private suspend fun sweepHeldOutOfRotation(call: DrainCall): HeldSweep {
+        val held: List<UploaderItem> = ledger.heldOutOfRotation()
+        if (held.isEmpty()) return HeldSweep(emptySet(), null)
+        val nowMillis: Long = clock.nowEpochMillis()
+        var gate: Long? = null
+        for (item in held) {
+            currentCoroutineContext().ensureActive()
+            val outside: OutsideFailure? = outsideFailures.value[item.id]
+            if (outside != null && !outside.isDue(nowMillis)) {
+                gate = minOfNullable(gate, outside.notBeforeMillis)
+                continue
+            }
+            if (call.hasHadTurn(item.id)) continue
+            gate = minOfNullable(gate, confirmHeldInDrain(item, call))
+        }
+        return HeldSweep(held.mapTo(HashSet()) { it.id }, gate)
+    }
+
+    private fun minOfNullable(a: Long?, b: Long?): Long? = if (a == null) b else if (b == null) a else minOf(a, b)
 
     /**
      * The oldest active item of each ordering channel, plus every keyless item.
@@ -915,7 +982,7 @@ internal class DefaultUploaderEngine(
                 if (parkAsRead(item, outcome.reason)) {
                     logger.w { "Parked ${item.logName} — ${outcome.reason}." }
                 } else {
-                    logger.i { "Park of ${item.logName} skipped — the item moved while it ran." }
+                    logger.i { "Park of ${item.logName} not applied — no-op." }
                 }
             }
 
@@ -1098,7 +1165,7 @@ internal class DefaultUploaderEngine(
             disposition = disposition,
         )
         if (!applied) {
-            logger.i { "Stale failure report for ${record.logName} — superseded, no-op." }
+            logger.i { "Failure report for ${record.logName} not applied — no-op." }
             return null
         }
         when (disposition) {
@@ -1113,7 +1180,9 @@ internal class DefaultUploaderEngine(
     internal fun runningAttemptStamp(id: String): Int? = attemptRegistry.stampOf(id)
 
     /** See [AttemptRegistry.awaitEnd]. */
-    internal suspend fun awaitHandOff(id: String, timeoutMillis: Long) = attemptRegistry.awaitEnd(id, timeoutMillis)
+    internal suspend fun awaitHandOff(id: String, timeoutMillis: Long): Unit {
+        attemptRegistry.awaitEnd(id, timeoutMillis)
+    }
 
     /**
      * What the engine remembers, in memory only, about an item whose attempt failed outside its handler.
@@ -1137,10 +1206,13 @@ internal class DefaultUploaderEngine(
     private fun OutsideFailure.isDue(nowMillis: Long): Boolean =
         isDue(nowMillis, config.heartbeatInterval.inWholeMilliseconds)
 
-    /** Forgets the entries of items that left the queue, so the map is bounded by the queue itself. */
-    private fun pruneOutsideFailures(active: List<UploaderItem>) {
+    /**
+     * Forgets the entries of items that left the queue, so the map is bounded by the queue itself. The rows [heldIds]
+     * names are held as delivered and out of rotation: their backoff is kept, or it would restart at every pass.
+     */
+    private fun pruneOutsideFailures(active: List<UploaderItem>, heldIds: Set<String>) {
         if (outsideFailures.value.isEmpty()) return
-        val ids: Set<String> = active.mapTo(HashSet()) { it.id }
+        val ids: Set<String> = active.mapTo(HashSet(heldIds)) { it.id }
         outsideFailures.update { map -> map.filterKeys { it in ids } }
     }
 
@@ -1158,7 +1230,9 @@ internal class DefaultUploaderEngine(
     }
 
     /** Rule P7: see [RowLedger.confirm]. */
-    private suspend fun deleteAfterEffect(item: UploaderItem) = ledger.confirm(item)
+    private suspend fun deleteAfterEffect(item: UploaderItem): Unit {
+        ledger.confirm(item)
+    }
 
     /**
      * How long to wait before retrying after [failures] consecutive failed passes (`>= 1`): [UploaderConfig.minAlarmDelay]
