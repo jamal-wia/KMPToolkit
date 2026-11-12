@@ -127,14 +127,16 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S2a and its fix tests), the boss round 1 and 2 suites of
  *   the delivered memory, UploadHandlerTest.
  * - **P9, Turn.** In one call of `drain()` (and in one pass of the engine's own loop) an item gets **at most one
- *   turn**, decided in one place in [drainPass] through [DrainCall], before any work on the item: an attempt that ran, an attempt that
- *   failed (outside its handler or not), or a confirming delete that failed uses it up; a later sweep of the same call
- *   leaves the item for the next trigger or alarm. A confirming delete that **succeeded** uses nothing (the row is
+ *   turn**, owned by [DrainCall] and checked in one place in [drainPass], ahead of every kind of work on the item (it
+ *   follows only the gates, which write nothing): an attempt that ran, an attempt that failed (outside its handler or
+ *   not), a park of an item with no handler, or a confirming delete that failed uses it up; a later sweep of the same
+ *   call leaves the item for the next trigger or alarm. A confirming delete that **succeeded** uses nothing (the row is
  *   gone, and the tail of its ordering channel must still run in the same call). The turn bounds every clock: the
  *   in-memory backoff of a failure outside the handler cannot (a clock held at `Long.MAX_VALUE` saturates every gate
  *   and lease, so each reads as due, and items then retry at the alarm floor per call instead of at their backoff).
- *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S3a, S3b, control and the fix tests) and
- *   EngineBossRound3AdversarialTest (P1: the tail of a confirmed delivery runs in the same drain).
+ *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S3a, S3b, control and the fix tests),
+ *   EngineBossRound3AdversarialTest (P1: the tail of a confirmed delivery runs in the same drain) and
+ *   EngineBossRound4SuspectsAdversarialTest (bv4-S2a, the orphan park).
  */
 internal class DefaultUploaderEngine(
     store: UploaderStore,
@@ -550,15 +552,6 @@ internal class DefaultUploaderEngine(
 
             for (item in eligible) {
                 currentCoroutineContext().ensureActive()
-                val handler: UploaderHandler<*>? = handlersByType[item.type]
-                if (handler == null) {
-                    // Either a wiring bug or a payload from a build that had the type. Parking
-                    // keeps the item visible instead of failing forever or deleting a user's data.
-                    parkAsRead(item, "no handler registered for type '${item.type}'")
-                    logger.e { "Parked ${item.logName} — no handler for its type." }
-                    executedAny = true
-                    continue
-                }
                 if (item.state == UploaderItemState.IN_FLIGHT && item.leaseUntilEpochMillis > nowMillis &&
                     !isClockAnomalyLease(item.leaseUntilEpochMillis, nowMillis)
                 ) {
@@ -570,6 +563,47 @@ internal class DefaultUploaderEngine(
                 }
                 // An expired lease falls through: the item is attemptable again and the handler
                 // runs afresh, its hand-off idempotent by contract.
+                // An attempt that failed outside its handler (a store write failing after the effect ran, a
+                // consumer policy throwing) waits out a growing backoff kept in memory, across passes: the
+                // same effect must not be run again at the alarm floor, pass after pass.
+                val outside: OutsideFailure? = outsideFailures.value[item.id]
+                if (outside != null && !outside.isDue(nowMillis)) {
+                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, outside.notBeforeMillis)
+                    continue
+                }
+                val handler: UploaderHandler<*>? = handlersByType[item.type]
+                // P9: the one place the turn is checked, ahead of every kind of work on the item (a park, a confirming
+                // delete, an attempt) and behind only the gates, which read and write nothing. The item already had its
+                // turn in this call and is due again at once (a retry whose policy returned no delay, a failure whose
+                // gate reads as due on this clock, a park): its next try waits for the next trigger or alarm instead of
+                // repeating in this loop, or for the gate the row carries when that is later.
+                if (call.hasHadTurn(item.id)) {
+                    val floor: Long = saturatingAdd(nowMillis, failedPassRetryMillis(1))
+                    val persistedGate: Long? = item.nextRunAtEpochMillis.takeIf { gate ->
+                        gate > nowMillis && handler != null && !isClockAnomalyGate(gate, nowMillis, handler)
+                    }
+                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, persistedGate ?: floor)
+                    continue
+                }
+                if (handler == null) {
+                    // Either a wiring bug or a payload from a build that had the type. Parking
+                    // keeps the item visible instead of failing forever or deleting a user's data. The park is work like
+                    // an attempt: it uses the item's turn, and a store that throws on it is isolated like one.
+                    call.spendTurn(item.id) // P9
+                    try {
+                        parkAsRead(item, "no handler registered for type '${item.type}'")
+                        logger.e { "Parked ${item.logName} — no handler for its type." }
+                    } catch (e: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        logger.e(e) { "Parking ${item.logName} (no handler for its type) leaked a cancellation; retrying later." }
+                        bumpOutsideFailure(item.id)
+                    } catch (e: Throwable) {
+                        logger.e(e) { "Parking ${item.logName} (no handler for its type) failed; retrying later." }
+                        bumpOutsideFailure(item.id)
+                    }
+                    executedAny = true
+                    continue
+                }
                 // A provider that throws on read must not abort the pass for every item behind it: the
                 // item is skipped like an unsatisfied one (never attempted on an unreadable constraint),
                 // and the next trigger or heartbeat asks again.
@@ -588,21 +622,6 @@ internal class DefaultUploaderEngine(
                     !isClockAnomalyGate(item.nextRunAtEpochMillis, nowMillis, handler)
                 ) {
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, item.nextRunAtEpochMillis)
-                    continue
-                }
-                // An attempt that failed outside its handler (a store write failing after the effect ran, a
-                // consumer policy throwing) waits out a growing backoff kept in memory, across passes: the
-                // same effect must not be run again at the alarm floor, pass after pass.
-                val outside: OutsideFailure? = outsideFailures.value[item.id]
-                if (outside != null && !outside.isDue(nowMillis)) {
-                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, outside.notBeforeMillis)
-                    continue
-                }
-                // P9: the one place the turn is checked. The item already had its turn in this call and is due again at
-                // once (a retry whose policy returned no delay, or a failure whose gate reads as due on this clock): its
-                // next try waits for the next trigger or alarm instead of repeating in this loop.
-                if (call.hasHadTurn(item.id)) {
-                    soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, saturatingAdd(nowMillis, failedPassRetryMillis(1)))
                     continue
                 }
                 if (ledger.holds(item)) {
