@@ -228,17 +228,19 @@ app sharing that code with desktop could not compile it for desktop without the 
 - **Durability.** Every write rewrites the whole file into a temporary sibling, syncs it to the device
   and atomically renames it over the old one, so a process killed — or a machine losing power —
   mid-write leaves the previous contents. A temporary file a killed write left behind is removed by
-  `clear()`, which matches only this store's own temporary names (`<file name><digits>.tmp`), never a
-  neighbouring store's in-flight file. Every read reads the file afresh. The write is
+  `clear()`, which matches only this store's own temporary names (`<file name><digits>.tmp`, the shape of
+  4.x too, or, for a store file name longer than 232 UTF-8 bytes, the name cut to 215 bytes plus `~` and 16
+  hex characters of its SHA-256 as the prefix), never a neighbouring store's in-flight file. Every read reads the file afresh. The write is
   [`kmptoolkit-files`](../kmptoolkit-files/01-overview.md)' `writeAtomically` (`Durability.Synced`): on
   Windows a replace blocked by another process that holds the file open is retried for up to about
-  200 ms, and when the file system refuses an atomic rename the write fails with `OperationFailed`
+  210 ms, and when the file system refuses an atomic rename the write fails with `OperationFailed`
   instead of replacing the file non-atomically (earlier versions fell back to a plain replace).
 - **Failures.** A corrupted or hand-edited file (a malformed `\uXXXX` escape), a name the file system
   rejects (`:` or `*` on Windows) and a denied security check arrive as `OperationFailed`, never as an
-  exception. A name whose part before the first dot is a Windows device name (`CON`, `NUL`, `COM1`, `aux.txt`...)
-  is an ordinary file on Windows 11; earlier Windows versions resolve it to the device, and the write then fails
-  as `OperationFailed`. Avoid such names if the store must work on, or move between, older Windows versions.
+  exception. On Windows, a store whose name makes a reserved device name (`CON`, `NUL`, `COM1`, `aux`...:
+  the part of the file name before its first dot) can be read but not written (`OperationFailed`); pick another
+  name. A name that is a valid file name but longer than 232 bytes in all is still written: its temporary file
+  uses a shortened, hashed prefix.
   The store is meant for a handful of small values; it is not a database.
 - **Concurrency.** Instances over the same file in one process share a lock (a `KeyedMutex` keyed by the
   case- and Unicode-folded canonical path). Two *processes* writing

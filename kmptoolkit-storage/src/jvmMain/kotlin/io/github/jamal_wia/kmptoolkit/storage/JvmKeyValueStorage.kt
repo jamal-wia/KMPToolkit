@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.storage
 import io.github.jamal_wia.kmptoolkit.files.CaseFolding
 import io.github.jamal_wia.kmptoolkit.files.Durability
 import io.github.jamal_wia.kmptoolkit.files.FileAccess
+import io.github.jamal_wia.kmptoolkit.files.FileAccessConfig
 import io.github.jamal_wia.kmptoolkit.files.FileError
 import io.github.jamal_wia.kmptoolkit.files.FileNames
 import io.github.jamal_wia.kmptoolkit.files.FileResult
@@ -19,6 +20,7 @@ import java.io.OutputStreamWriter
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.security.MessageDigest
 import java.util.Properties
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -75,8 +77,9 @@ internal class JvmKeyValueStorage(
     override suspend fun clear(): StorageResult<Unit> = guarded(StorageOperation.CLEAR, key = null) {
         Files.deleteIfExists(file.toPath())
         // A process killed between creating a temporary file and renaming it leaves that file behind.
+        val prefix: String = temporaryPrefixOf(file.name)
         file.absoluteFile.parentFile
-            ?.listFiles { sibling -> FileNames.isTempName(sibling.name, file.name) }
+            ?.listFiles { sibling -> isLegacyTemporary(sibling.name) || FileNames.isTempName(sibling.name, prefix) }
             ?.forEach { leftover -> Files.deleteIfExists(leftover.toPath()) }
     }
 
@@ -99,6 +102,17 @@ internal class JvmKeyValueStorage(
         }
     }
 
+    /**
+     * The shape 4.x gave this store's temporary sibling (`File.createTempFile`): the file name, 1..20 digits (an
+     * unsigned 64-bit number), `.tmp`. Digits only after the full own file name, so a neighbour whose own name merely
+     * starts with this one's is never matched.
+     */
+    private fun isLegacyTemporary(name: String): Boolean {
+        if (!name.startsWith(file.name) || !name.endsWith(".tmp")) return false
+        val middle: String = name.substring(file.name.length, name.length - ".tmp".length)
+        return middle.length in 1..MAX_LEGACY_TEMPORARY_DIGITS && middle.all { it in '0'..'9' }
+    }
+
     private fun load(): Properties {
         val properties = Properties()
         if (file.isFile) {
@@ -113,20 +127,15 @@ internal class JvmKeyValueStorage(
     }
 
     private fun write(properties: Properties) {
-        // The temporary sibling's prefix is the file name, which kmptoolkit-files caps so that every temporary name
-        // fits 255 bytes. A longer store file name could not have a temporary sibling in 4.x either.
-        if (file.name.toByteArray(StandardCharsets.UTF_8).size > MAX_TEMPORARY_PREFIX_BYTES) {
-            throw IOException("store file name too long for a temporary sibling")
-        }
         val buffer = ByteArrayOutputStream()
         val writer = OutputStreamWriter(buffer, StandardCharsets.UTF_8)
         properties.store(writer, null)
         writer.flush()
-        // The temporary sibling is named `<file name><digits>.tmp`, the shape clear() recognizes as this store's own.
+        // The temporary sibling is `<temporaryPrefixOf(file name)><digits>.tmp`, the shape clear() recognizes as this store's own.
         val result: FileResult<Unit> = files.writeAtomically(
             file.absolutePath,
             buffer.toByteArray(),
-            WriteOptions(Durability.Synced, createParentDirectories = true, tempPrefix = file.name),
+            WriteOptions(Durability.Synced, createParentDirectories = true, tempPrefix = temporaryPrefixOf(file.name)),
         )
         if (result is FileResult.Failure) {
             val error: FileError = result.error
@@ -135,8 +144,8 @@ internal class JvmKeyValueStorage(
     }
 
     private companion object {
-        // 255-byte file names minus up to 19 digits and ".tmp": the longest prefix kmptoolkit-files accepts.
-        const val MAX_TEMPORARY_PREFIX_BYTES: Int = FileNames.MAX_NAME_BYTES - 19 - 4
+        // Digits of Long.toUnsignedString, which the JDK's createTempFile put after the prefix in 4.x.
+        const val MAX_LEGACY_TEMPORARY_DIGITS: Int = 20
 
         // Process-wide, one entry per file with a user: entries vanish when no cycle holds or awaits the key.
         val LOCKS: KeyedMutex<String> = KeyedMutex()
@@ -168,4 +177,35 @@ internal fun jvmStorageLockKey(file: File): String {
         file.absoluteFile.normalize().path
     }
     return PathKey.of(path, CaseFolding.Always)
+}
+
+// MAX_TEMP_PREFIX_BYTES minus "~" and 16 hex characters of the hash.
+private const val HASHED_PREFIX_KEPT_BYTES: Int = FileAccessConfig.MAX_TEMP_PREFIX_BYTES - 17
+
+/**
+ * The prefix of this store's temporary siblings. The file name itself (the 4.x shape) when it fits
+ * [FileAccessConfig.MAX_TEMP_PREFIX_BYTES]; otherwise the name cut at a code point boundary to 215 UTF-8 bytes, `~`,
+ * and the first 8 bytes of SHA-256 of the whole name as 16 lowercase hex characters: at most 232 bytes, stable, and
+ * different for two names that share their first 215 bytes (`~` after digits-only legacy matching also keeps a short
+ * store's rule from matching it).
+ */
+internal fun temporaryPrefixOf(fileName: String): String {
+    if (fileName.toByteArray(StandardCharsets.UTF_8).size <= FileAccessConfig.MAX_TEMP_PREFIX_BYTES) return fileName
+    var bytes = 0
+    var end = 0
+    while (end < fileName.length) {
+        val codePoint: Int = fileName.codePointAt(end)
+        val width: Int = when {
+            codePoint < 0x80 -> 1
+            codePoint < 0x800 -> 2
+            codePoint < 0x10000 -> 3
+            else -> 4
+        }
+        if (bytes + width > HASHED_PREFIX_KEPT_BYTES) break
+        bytes += width
+        end += Character.charCount(codePoint)
+    }
+    val digest: ByteArray = MessageDigest.getInstance("SHA-256").digest(fileName.toByteArray(StandardCharsets.UTF_8))
+    val hash: String = digest.take(8).joinToString("") { "%02x".format(it) }
+    return fileName.substring(0, end) + "~" + hash
 }
