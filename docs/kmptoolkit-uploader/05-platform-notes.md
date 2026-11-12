@@ -272,8 +272,8 @@ of the body — in `classify` and `onDelivered`. What differs by platform:
   case is on disk (`photo-1` beside a leftover `Photo-1`), that entry is first moved to its own escaped name, and `photo-1`
   never reads, deletes or replaces it. The volume also treats accents spelled as one character or as a letter plus a combining
   accent as one name, and Foundation lists such a file decomposed, so `inspect`, `delete` and a new write of an id outside
-  ASCII find the entry a version before 4.1.0 wrote for it whichever way the id is spelled (the sweep hands such an entry over
-  under the spelling the directory lists: the file does not remember which one the id had). The sweep never takes the temporary file of an atomic write
+  ASCII find the entry a version before 4.1.0 wrote for it whichever way the id is spelled (the sweep hands such an entry to the item under the spelling the
+  queue holds, and under the directory's spelling when the queue holds neither). The sweep never takes the temporary file of an atomic write
   (`<name>.sb-<hex>-<letters>`) for an entry, and removes one a dead process left once it is five minutes old; the entry a version before 4.1.0 wrote
   for an id that itself ends like such a name (`upload.sb-1234abcd-ABC123`, an id no generator produces) cannot be told from a leftover by its name
   or its content, so it is not read and is removed like one.

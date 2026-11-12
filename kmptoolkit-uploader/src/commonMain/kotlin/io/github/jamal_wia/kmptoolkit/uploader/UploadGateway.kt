@@ -153,6 +153,10 @@ public object UploadGateway {
     internal suspend fun responseBodyLimit(itemId: String, engineWait: Duration): Int? =
         awaitEngine(engineWait)?.responseBodyLimitOf(itemId)
 
+    /** Whether the queue holds an item of [itemId]; `null` when no engine answers within [engineWait] or the store cannot say. */
+    internal suspend fun knowsItem(itemId: String, engineWait: Duration): Boolean? =
+        awaitEngine(engineWait)?.knowsItem(itemId)
+
     private suspend fun awaitEngine(wait: Duration): DefaultUploaderEngine? =
         UploaderEngineRegistry.await(wait) as? DefaultUploaderEngine
 }

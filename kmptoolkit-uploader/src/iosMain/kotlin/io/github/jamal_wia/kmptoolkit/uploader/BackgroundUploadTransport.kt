@@ -334,7 +334,12 @@ internal class BackgroundSessionUploadTransport(
         // Outcomes a dead process journaled and nobody collected: replay them to the engine, or delete the
         // expired ones. Once per transport, so once per process; the engine may not be up yet, which the
         // gateway waits for.
-        scope.launch { journal.sweep(gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT)) }
+        scope.launch {
+            journal.sweep(
+                gatewaySettle(UploadGateway.DEFAULT_ENGINE_WAIT),
+                knows = { UploadGateway.knowsItem(it, UploadGateway.DEFAULT_ENGINE_WAIT) },
+            )
+        }
     }
 
     /** The item id carried by [identifier], or `null` for a session this transport does not own. */

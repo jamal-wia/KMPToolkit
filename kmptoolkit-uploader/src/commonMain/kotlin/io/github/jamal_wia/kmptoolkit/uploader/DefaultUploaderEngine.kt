@@ -1482,6 +1482,15 @@ internal class DefaultUploaderEngine(
         null
     }
 
+    /** Whether the store holds an item of [id]; `null` when the store cannot say. */
+    suspend fun knowsItem(id: String): Boolean? = try {
+        store.getById(id) != null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        null
+    }
+
     /**
      * The body limit the handler of [id] enforces, or `null` when the item is gone, has no upload handler or
      * the store cannot say. Lets a transport hold the outcome journal to the same limit.

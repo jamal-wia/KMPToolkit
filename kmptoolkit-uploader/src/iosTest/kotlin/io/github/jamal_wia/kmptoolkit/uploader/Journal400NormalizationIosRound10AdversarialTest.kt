@@ -9,7 +9,11 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.usePinned
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import platform.Foundation.NSData
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSTemporaryDirectory
@@ -19,8 +23,9 @@ import platform.Foundation.create
 /**
  * Round 10 (compatibility with 4.0.0, iOS), R10-S6: 4.0.0 journaled an id outside ASCII under its own spelling (`dir/<id>`),
  * and Foundation stores and lists the name with accents decomposed. Every operation that takes the id finds that entry
- * whichever way the id is spelled. (What the sweep hands over for such an entry is a separate question: the file does not
- * remember the id's spelling.)
+ * whichever way the id is spelled, and the sweep hands it to the item under the spelling the queue holds (ruling D-28: the
+ * `knows` callback stands for the queue; the breaker's first version of the sweep test had no queue and could not pass
+ * with a decomposed twin).
  */
 @OptIn(ExperimentalForeignApi::class)
 class Journal400NormalizationIosRound10AdversarialTest {
@@ -100,5 +105,100 @@ class Journal400NormalizationIosRound10AdversarialTest {
             assertEquals(1, settled)
         }
         assertEquals(emptyList(), listing())
+    }
+
+    private val decomposed: String = "cafe\u0301"
+
+    private fun journalOver(): OutcomeJournal = OutcomeJournal(IosOutcomeStorage(dir), UploaderClock { now + 1_000L })
+
+    private suspend fun sweepHanding(journal: OutcomeJournal, knows: suspend (String) -> Boolean?): List<Pair<String, String>> {
+        val handed: MutableList<Pair<String, String>> = mutableListOf()
+        journal.sweep(
+            { id, response, _, onSettling ->
+                onSettling()
+                handed += id to response.body().decodeToString()
+                JournalSettleOutcome.LANDED
+            },
+            knows,
+        )
+        return handed
+    }
+
+    @Test
+    fun `the sweep hands a composed id's 4_0_0 entry over under that id once and leaves no file`() = runBlocking {
+        val seeded: List<String> = seed()
+        val handed = sweepHanding(journalOver()) { it in seeded }
+        assertEquals(seeded.sorted(), handed.map { it.first }.sorted(), "ids handed over")
+        assertTrue(handed.all { it.first == it.second }, "an entry handed under another id: $handed")
+        assertEquals(emptyList(), listing())
+    }
+
+    @Test
+    fun `the sweep hands a decomposed id's 4_0_0 entry over under that id once`() = runBlocking {
+        assertTrue(writeRaw(decomposed, OutcomeCodec.encode(responseFor(decomposed), now, null)))
+        val handed = sweepHanding(journalOver()) { it == decomposed }
+        assertEquals(listOf(decomposed to decomposed), handed)
+        assertEquals(emptyList(), listing())
+    }
+
+    @Test
+    fun `the sweep hands the entry over under the listed name when the queue holds neither spelling`() = runBlocking {
+        seed()
+        val listed: Set<String> = listing().toSet()
+        val handed = sweepHanding(journalOver()) { false }
+        assertEquals(composed.size, handed.size)
+        assertEquals(listed, handed.map { it.first }.toSet(), "ids handed over are the listed names")
+    }
+
+    @Test
+    fun `the sweep prefers the listed spelling when the queue holds both`() = runBlocking {
+        assertTrue(writeRaw(decomposed, OutcomeCodec.encode(responseFor(decomposed), now, null)))
+        val handed = sweepHanding(journalOver()) { true }
+        assertEquals(listOf(decomposed), handed.map { it.first })
+    }
+
+    @Test
+    fun `the sweep leaves the entry on disk when no engine answers`() = runBlocking {
+        val seeded: List<String> = seed()
+        val handed = sweepHanding(journalOver()) { null }
+        assertEquals(emptyList(), handed)
+        val journal: OutcomeJournal = journalOver()
+        for (id in seeded) assertTrue(journal.inspect(id) is JournalEntry.Valid, "$id was dropped")
+    }
+
+    @Test
+    fun `an entry of a plain or escaped name never asks the queue`() = runBlocking {
+        val journal: OutcomeJournal = journalOver()
+        assertTrue(journal.record("item-1", responseFor("item-1"), attemptStamp = null))
+        assertTrue(journal.record("Photo-AbC", responseFor("Photo-AbC"), attemptStamp = 1))
+        assertTrue(journal.record(composed[0], responseFor(composed[0]), attemptStamp = 1))
+        writeRaw("legacy-1", OutcomeCodec.encode(responseFor("legacy-1"), now, null))
+        var asked = 0
+        val handed = sweepHanding(journal) {
+            asked += 1
+            true
+        }
+        assertEquals(0, asked)
+        assertEquals(4, handed.size)
+    }
+
+    @Test
+    fun `a sweep and a replay of the composed id at the same time settle the entry once`() = runBlocking {
+        val id: String = composed[0]
+        assertTrue(writeRaw(id, OutcomeCodec.encode(responseFor(id), now, null)))
+        val journal: OutcomeJournal = journalOver()
+        var settles = 0
+        val settle: OutcomeSettle = { _, _, _, onSettling ->
+            settles += 1
+            onSettling()
+            JournalSettleOutcome.LANDED
+        }
+        withTimeout(20_000) {
+            listOf(
+                async(Dispatchers.Default) { journal.sweep(settle) { it == id } },
+                async(Dispatchers.Default) { journal.replay(id, settle) },
+            ).awaitAll()
+        }
+        assertEquals(1, settles, "settlements of the one entry")
     }
 }

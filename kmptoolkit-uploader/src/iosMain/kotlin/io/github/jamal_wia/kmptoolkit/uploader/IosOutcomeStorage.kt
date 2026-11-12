@@ -20,6 +20,7 @@ import platform.Foundation.NSFileSize
 import platform.Foundation.NSNumber
 import platform.Foundation.NSString
 import platform.Foundation.decomposedStringWithCanonicalMapping
+import platform.Foundation.precomposedStringWithCanonicalMapping
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
@@ -93,6 +94,17 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
         if (!fileName.startsWith(HASHED_NAME_PREFIX)) return itemIdOfJournalFileName(fileName)
         val raw: ByteArray = readFile("$dir/$fileName", MAX_HEADER_BYTES) ?: return null
         return idOfHeader(raw) ?: fileName
+    }
+
+    /**
+     * A raw name an earlier version wrote for an id outside ASCII is listed the way Foundation spelled it (accents
+     * decomposed) and the id may have been either: the listed spelling and its composed form.
+     */
+    override fun sweepSpellings(listedId: String): List<String> {
+        if (listedId.startsWith(HASHED_NAME_PREFIX) || keepsOwnFileName(listedId) || isFoundationTempName(listedId)) return listOf(listedId)
+        if (listedId.all { it.code < ASCII_LIMIT } || itemIdOfJournalFileName(listedId) != listedId) return listOf(listedId)
+        if (listedId !in directoryNames()) return listOf(listedId)
+        return listOf(listedId, (listedId as NSString).precomposedStringWithCanonicalMapping).distinct()
     }
 
     private fun directoryNames(): List<String> =

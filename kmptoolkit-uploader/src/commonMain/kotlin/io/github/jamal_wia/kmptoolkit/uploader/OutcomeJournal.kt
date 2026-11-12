@@ -36,6 +36,13 @@ internal interface OutcomeStorage {
 
     /** Removes half-written leftovers of a write that was cut short, so they do not pile up. */
     fun purgeLeftovers()
+
+    /**
+     * The spellings of the id of the entry [itemIds] listed as [listedId], most likely first. A storage whose names
+     * cannot say how the id was spelled (iOS: the volume stores accents decomposed) lists more than one; the sweep asks
+     * the queue which one an item has.
+     */
+    fun sweepSpellings(listedId: String): List<String> = listOf(listedId)
 }
 
 /** What the journal found for an item. */
@@ -407,9 +414,15 @@ internal class OutcomeJournal(
 
     /**
      * Replays or deletes every entry no one claimed — those of items whose transport never ran again — and
-     * clears leftovers of cut-short writes. The 7-day expiry applies as in [inspect].
+     * clears leftovers of cut-short writes. The 7-day expiry applies as in [inspect]. [knows] says whether the queue
+     * holds an item of an id (`null`: it cannot say), and is asked only for an entry whose id has several spellings.
      */
     suspend fun sweep(settle: OutcomeSettle) {
+        sweep(settle) { true }
+    }
+
+    /** [sweep] that asks [knows] which spelling of an id the queue holds. */
+    suspend fun sweep(settle: OutcomeSettle, knows: suspend (String) -> Boolean?) {
         val ids: List<String> = try {
             storage.purgeLeftovers()
             storage.itemIds()
@@ -418,7 +431,34 @@ internal class OutcomeJournal(
             logger.w(failure) { "Could not list the journaled upload outcomes." }
             return
         }
-        for (itemId in ids) replay(itemId, settle)
+        for (listed in ids) {
+            val spellings: List<String> = try {
+                storage.sweepSpellings(listed)
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                listOf(listed)
+            }
+            if (spellings.size <= 1) {
+                replay(listed, settle)
+                continue
+            }
+            // The entry does not say which spelling its id had: hand it over under the one the queue holds, the
+            // listed one when it holds none, and leave it on disk when no engine answers.
+            var itemId: String = listed
+            var undecided = false
+            for (spelling in spellings) {
+                val known: Boolean? = knows(spelling)
+                if (known == null) {
+                    undecided = true
+                    break
+                }
+                if (known) {
+                    itemId = spelling
+                    break
+                }
+            }
+            if (!undecided) replay(itemId, settle)
+        }
     }
 
     companion object {

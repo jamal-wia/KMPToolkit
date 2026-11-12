@@ -62,7 +62,9 @@ SQLite drops a leading U+FEFF and reads a leading U+FFFE as a byte-order mark an
 surrogate; the iOS driver ends a text at a NUL, drops a leading U+FEFF and turns a lone surrogate into U+FFFD. A text
 that holds one of these (a NUL or a lone surrogate anywhere, or a U+FEFF or U+FFFE first) is therefore stored in an escaped
 form that starts with U+FDD0 `kmp2` U+FDD1 and is decoded on the way out; every other text is stored as it is, so a row
-written by an earlier version reads back unchanged. The escaped form is compact (a NUL is one two-byte character, a lone
+written by an earlier version reads back unchanged. The one exception is a text that is itself exactly an escaped form: it starts
+with the noncharacter U+FDD0, then `kmp2` or `kmp1` and U+FDD1, and decodes cleanly. Such a text reads back as the text it encodes,
+and the row is reached by that text. The escaped form is compact (a NUL is one two-byte character, a lone
 surrogate five bytes), so it is never more than twice the size of the text it holds, and the row limit counts it (see
 "One row is at most 1 MiB" in the guide). A row written by a 4.1.0 snapshot in the first escaped form (`kmp1`) is still read.
 The escape matters only if you query the table yourself, which is not supported: read the column of such a row through the
