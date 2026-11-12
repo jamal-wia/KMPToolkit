@@ -20,7 +20,8 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
  * [fromStoredText] reverses it. A text stored by the first 4.1.0 snapshots behind [LEGACY_MARKER] (every escaped unit as
  * U+FDD1 and four hex digits) is still read. A stored text that starts with a marker but is not exactly the
  * form the writer produces for what it decodes to (it is malformed, or a text an earlier version stored that merely starts like
- * one) is returned as it is.
+ * one) is returned as it is, and the store reaches its row by that text through every lookup it has: id, tag, type and
+ * type plus unique key.
  */
 private const val MARKER: String = "﷐kmp2﷑"
 
