@@ -17,6 +17,19 @@ internal class DrainCall {
 
     private val skippedAsMoved: MutableSet<String> = HashSet()
 
+    private var heldSwept: Boolean = false
+
+    /**
+     * Whether the sweep of held rows that are out of rotation (PARKED rows still owed their confirming delete, P7) is
+     * due: `true` once per call, for its first sweep. Later sweeps of the same call leave those rows alone, so a store
+     * that keeps failing costs one delete per row per call.
+     */
+    fun takeHeldSweep(): Boolean {
+        if (heldSwept) return false
+        heldSwept = true
+        return true
+    }
+
     /** Whether [id] already had its turn in this call. Checked first, in one place, for every item. */
     fun hasHadTurn(id: String): Boolean = id in spent
 

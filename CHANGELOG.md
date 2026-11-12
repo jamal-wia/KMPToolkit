@@ -21,6 +21,22 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-files-testing`: `FakeFileAccess`, an in-memory file system that runs the real engine, with fault
   injection, crash and power-loss simulation; `FileAccessContract` to check any `FileAccess` decorator.
 
+### Fixed
+
+- `kmptoolkit-uploader`: an effect that ran and was reported as delivered (or dropped) is never run again by the
+  same process when only its confirming delete failed, whichever way it was reported and whichever engine of the
+  process comes next. The process remembers such a row until a delete confirms it, and the drain retries only the
+  delete, never the handler: for an engine built to replace a closed one, for an item reported through `settle` or
+  through the upload channel (the outcome journal included), for a row whose withdrawal was rolled back or failed,
+  for a delete that is retried while the item's type has no handler, its constraints are unmet or its backoff gate has
+  not opened, and for a row that a later verdict (a park, a failure, a give-up with a park or a drop) would otherwise
+  have buried. Such a verdict is not applied to a row whose delivery the process holds: the row is deleted instead,
+  `settle` returns normally and an upload's `onSettled` does not run. The reverse order is covered as well: a row
+  that a verdict parked before the delivery's delete failed (or while it was failing) is deleted by the drain like an
+  active one, once per `drain()` call per row with a growing backoff and an alarm kept armed while the store keeps
+  failing, and `settle` starts a drain pass even when its delete throws. A `KEEP` or `REPLACE` enqueue that
+  supersedes the parked row before that retry succeeds still withdraws it, as the conflict policy says.
+
 ## [4.0.0]
 
 Source compatible with 3.0.x, except for implementations of the opt-in `ToolkitInheritanceApi` interface

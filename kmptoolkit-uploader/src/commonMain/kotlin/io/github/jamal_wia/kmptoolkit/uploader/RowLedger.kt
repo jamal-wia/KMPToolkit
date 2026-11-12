@@ -159,6 +159,33 @@ internal class RowLedger(
     fun holds(item: UploaderItem): Boolean = DeliveredUnconfirmed.matches(item)
 
     /**
+     * The rows this process holds as delivered, whose confirming delete is still owed, and that [active] never offers:
+     * the PARKED ones (a verdict parked the row before, or while, the delivery's delete failed). Rule P7 confirms a held
+     * row in whatever state it is, and the drain reads only the active rows, so it asks here as well.
+     *
+     * One point read per remembered entry. An entry whose row is gone (a withdrawal keeps its entry on purpose) or whose
+     * row carries another fingerprint (another store of this process) is skipped and never forgotten; a read that fails
+     * is skipped for this call. Only a cancellation of the caller is rethrown.
+     */
+    suspend fun heldOutOfRotation(): List<UploaderItem> {
+        val held: MutableList<UploaderItem> = ArrayList()
+        for (id in DeliveredUnconfirmed.ids()) {
+            val row: UploaderItem? = try {
+                store.getById(id)
+            } catch (e: CancellationException) {
+                currentCoroutineContext().ensureActive()
+                logger.e(e) { "Reading the held row $id leaked a cancellation; skipping it this call." }
+                null
+            } catch (e: Throwable) {
+                logger.e(e) { "Reading the held row $id failed; skipping it this call." }
+                null
+            }
+            if (row != null && row.state == UploaderItemState.PARKED && holds(row)) held += row
+        }
+        return held
+    }
+
+    /**
      * The drain's confirming retry of a remembered delete: forgets on success itself, throws the store's failure (the
      * row stays held).
      */

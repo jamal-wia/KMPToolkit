@@ -247,6 +247,11 @@ A `Delivered` or `Drop` whose delete fails throws, and this process still rememb
 at a later pass, by this engine or one built to replace it, and never handed out again. Calling `settle`
 again is harmless. A later `Park` or `Failed` does not override a delivery the process still holds: the row
 is deleted and that verdict is not applied (`settle` returns normally, an upload's `onSettled` does not run).
+The reverse order is covered too: a verdict that parked the row first does not hide the delivery, and the
+drain retries the delete of such a parked row like that of an active one (one try per row per `drain()` call,
+with a growing backoff and an alarm kept armed while the store keeps failing). The one way to lose it is
+a `KEEP` or `REPLACE` enqueue that supersedes the parked row before the retry succeeds: that withdraws it and
+runs the new intent, as the conflict policy says.
 
 **The lease is a claim, not a lock.** While it is unexpired the drain leaves the item alone. Once it
 expires the item becomes attemptable again and `execute` runs afresh with

@@ -93,7 +93,10 @@ public interface UploaderEngine : Uploader {
      *   delete fails the call throws, and this process still remembers the delivery: the row is deleted at a later
      *   pass, by this engine or one built to replace it, and never handed out again. Calling `settle` again is
      *   harmless. A later `Park` or `Failed` does not override a delivery this process still holds: the row is
-     *   deleted and that verdict is not applied.
+     *   deleted and that verdict is not applied. A verdict that came **first** does not hide it either: the drain
+     *   retries the delete of a parked row this process holds as delivered, just as for an active one. (A `KEEP` or
+     *   `REPLACE` enqueue that supersedes that parked row before the retry runs, which needs the store to be down for
+     *   that long, withdraws it and runs the new intent: that is the conflict policy at work.)
      * - **[SettleResult.Failed] and [SettleResult.Park] stand only from the current claim.** They are
      *   verdicts on one attempt, and they steer the next one — spend the retry budget and back off,
      *   or stop trying. A superseded executor's verdict is about an attempt the engine has already

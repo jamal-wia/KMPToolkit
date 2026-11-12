@@ -34,6 +34,9 @@ internal object DeliveredUnconfirmed {
         entries.update { it + (item.id to item.fingerprint()) }
     }
 
+    /** A snapshot of the ids of every entry, for the drain's sweep of held rows that are out of rotation. */
+    fun ids(): Set<String> = entries.value.keys
+
     /** Whether [item] is the very row an earlier delete failure was recorded for (same id and same fingerprint). */
     fun matches(item: UploaderItem): Boolean = entries.value[item.id] == item.fingerprint()
 
