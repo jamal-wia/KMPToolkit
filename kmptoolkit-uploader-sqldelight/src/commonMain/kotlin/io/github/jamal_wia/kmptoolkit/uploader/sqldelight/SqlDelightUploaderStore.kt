@@ -111,7 +111,7 @@ internal class SqlDelightUploaderStore(
 
     override suspend fun getById(id: String): UploaderItem? = onDatabaseThread(confinement, UploaderStorageOperation.GET_BY_ID) {
         mapFailures(UploaderStorageOperation.GET_BY_ID) {
-            queries.selectById(toStoredText(id)).executeAsOneOrNull()?.toUploaderItem()
+            queries.selectById(queries.storedId(id)).executeAsOneOrNull()?.toUploaderItem()
         }
     }
 
@@ -136,7 +136,7 @@ internal class SqlDelightUploaderStore(
             // reader connection — where it is always 0 — on both of this module's drivers.
             val changed: Long = when (disposition) {
                 FailureDisposition.DROP -> queries.dropOnFailure(
-                    id = toStoredText(id),
+                    id = queries.storedId(id),
                     expectedState = expectedState.name,
                     expectedClaim = expectedClaim,
                 ).value
@@ -151,7 +151,7 @@ internal class SqlDelightUploaderStore(
                         attempts = attempts.toLong(),
                         nextRunAt = nextRunAtEpochMillis,
                         lastError = toStoredTextOrNull(fittedLastError(id, lastError)),
-                        id = toStoredText(id),
+                        id = queries.storedId(id),
                         expectedState = expectedState.name,
                         expectedClaim = expectedClaim,
                     ).value
@@ -172,7 +172,7 @@ internal class SqlDelightUploaderStore(
             // affected-row count is the answer, so the claim is one atomic step.
             queries.markInFlight(
                 leaseUntil = leaseUntilEpochMillis,
-                id = toStoredText(id),
+                id = queries.storedId(id),
                 expectedState = expectedState.name,
                 expectedClaim = expectedClaim,
             ).value > 0L
@@ -190,7 +190,7 @@ internal class SqlDelightUploaderStore(
             database.transactionWithResult {
                 queries.park(
                     lastError = toStoredTextOrNull(fittedLastError(id, lastError)),
-                    id = toStoredText(id),
+                    id = queries.storedId(id),
                     expectedState = expectedState.name,
                     expectedClaim = expectedClaim,
                 ).value > 0L
@@ -205,13 +205,13 @@ internal class SqlDelightUploaderStore(
      */
     private fun fittedLastError(id: String, lastError: String?): String? {
         if (lastError == null) return null
-        val row: UploaderItem = queries.selectById(toStoredText(id)).executeAsOneOrNull()?.toUploaderItem() ?: return lastError
+        val row: UploaderItem = queries.selectById(queries.storedId(id)).executeAsOneOrNull()?.toUploaderItem() ?: return lastError
         return row.fitLastError(lastError)
     }
 
     override suspend fun deleteById(id: String): Unit = onDatabaseThread(confinement, UploaderStorageOperation.DELETE_BY_ID) {
         mapFailures(UploaderStorageOperation.DELETE_BY_ID) {
-            queries.deleteById(toStoredText(id))
+            queries.deleteById(queries.storedId(id))
         }
     }
 
@@ -254,6 +254,18 @@ internal class SqlDelightUploaderStore(
         mapFailures(UploaderStorageOperation.CLEAR_ALL) {
             queries.deleteAll()
         }
+    }
+
+    /**
+     * The text the id column of the row of [id] holds. It is [toStoredText] of [id], except for a row an earlier version
+     * stored under an id that merely starts like a stored form: that row holds the id as it is (see [fromStoredText]), and
+     * is reached by it. Costs a read only for an id that starts with a marker.
+     */
+    private fun UploaderItemQueries.storedId(id: String): String {
+        val stored: String = toStoredText(id)
+        if (stored == id || !startsWithStoredFormMarker(id)) return stored
+        if (selectById(stored).executeAsOneOrNull() != null) return stored
+        return if (fromStoredText(id) == id && selectById(id).executeAsOneOrNull() != null) id else stored
     }
 
     private fun UploaderItemQueries.insert(record: UploaderItem) {

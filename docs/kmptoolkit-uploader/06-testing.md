@@ -50,8 +50,10 @@ passed to `cancelByTag`.
 `FakeUploader` is safe to use from several threads: every call, read and `trigger()` is atomic, and the
 result function runs outside any lock, so it may call back into the fake. `MutableUploaderClock` and
 `RecordingWakeScheduler` are thread-safe too (the engine calls both from the caller's thread and from its drain at once);
-`RecordingUploadTransport` is not. Recording a call costs the same however many calls came before it, so a test that
-enqueues tens of thousands of times stays linear on every platform.
+`RecordingUploadTransport` is not. Recording a call costs the same however many calls came before it, and so do reading the size of `enqueued`, `cancelled`
+or `cancelledByTag` and reading their last element (`enqueued.last()`, `cancelled.last()`), so a test that enqueues tens of
+thousands of times and asserts after every call stays linear on every platform. Reading an earlier element, or iterating,
+copies the log once per list you got.
 
 ## Testing with the real engine
 

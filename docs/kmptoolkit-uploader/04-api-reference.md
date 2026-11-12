@@ -227,7 +227,7 @@ public class UploadResponse(
     body: ByteArray,
     public val isBodyTruncated: Boolean,
 ) {
-    public val headers: Map<String, String>        // lowercase names, read-only (a cast to MutableMap fails)
+    public val headers: Map<String, String>        // lowercase names, read-only (a cast of the map, its keys, values, entries or their iterators to a mutable type fails)
     public fun body(): ByteArray                   // a fresh copy, never null
     public fun header(name: String): String?       // case-insensitive
 }

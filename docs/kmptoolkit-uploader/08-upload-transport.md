@@ -153,6 +153,8 @@ when the settlement is done:
   started and is still running) is journaled unstamped, deleted just before the commit and written back if it does not
   land; a process death in that microsecond window uploads again (at least once). Hand the built-in transport itself to the handler: a wrapper around it (a logging or counting decorator) is launched through the public overload, so its answers are unstamped and stay at least once.
 
+The headers of an answer are journaled as UTF-8, and a lone surrogate in a header value (which UTF-8 cannot hold) in the three-byte form of its code unit, so every header comes back as it went in on both platforms.
+
 An entry file larger than 4 MiB cannot be one the journal wrote (a body is at most 1 MiB and the headers are capped); it is
 deleted without being read, on both platforms, instead of failing every attempt of its item. An item the engine no longer knows settles nothing and its file is deleted. The response body therefore rests
 briefly on disk; see [`05-platform-notes.md`](05-platform-notes.md#the-servers-response). Your own

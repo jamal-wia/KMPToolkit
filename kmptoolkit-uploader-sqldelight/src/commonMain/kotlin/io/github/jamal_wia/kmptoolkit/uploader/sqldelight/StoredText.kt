@@ -7,7 +7,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
  * SQLite and its drivers change some texts: the Android driver binds UTF-16 and SQLite drops a leading U+FEFF, reads a
  * leading U+FFFE as a byte-order mark and mangles a lone surrogate; the iOS driver binds UTF-8, so a NUL ends the text,
  * a leading U+FEFF is dropped and a lone surrogate becomes U+FFFD. [toStoredText] leaves a text that survives
- * untouched (every text a version before 4.1.0 stored stays as it is) and rewrites only the others behind
+ * untouched (every text a version before 4.1.0 stored stays as it is, except one that is itself exactly an escaped form: it reads back as the text it encodes) and rewrites only the others behind
  * [MARKER]. The rewritten form is compact so that it is never more than twice as large in UTF-8 as the text it
  * holds (a NUL is one two-byte character, a lone surrogate five bytes), which is what lets [fitsStoredBudget] keep every
  * accepted row inside Android's cursor window:
@@ -18,8 +18,9 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
  * - a lone surrogate is stored as U+0081 followed by three lower-case hex digits of its distance from U+D000.
  *
  * [fromStoredText] reverses it. A text stored by the first 4.1.0 snapshots behind [LEGACY_MARKER] (every escaped unit as
- * U+FDD1 and four hex digits) is still read. A stored text that starts with a marker but is not well formed is
- * returned as it is.
+ * U+FDD1 and four hex digits) is still read. A stored text that starts with a marker but is not exactly the
+ * form the writer produces for what it decodes to (it is malformed, or a text an earlier version stored that merely starts like
+ * one) is returned as it is.
  */
 private const val MARKER: String = "﷐kmp2﷑"
 
@@ -72,14 +73,23 @@ internal fun toStoredText(text: String): String {
     }
 }
 
+/** Whether [text] starts with the marker of either stored form. */
+internal fun startsWithStoredFormMarker(text: String): Boolean = text.startsWith(MARKER) || text.startsWith(LEGACY_MARKER)
+
 /** [toStoredText] of a nullable text. */
 internal fun toStoredTextOrNull(text: String?): String? = text?.let { toStoredText(it) }
 
 /** The text that [stored] holds: the inverse of [toStoredText]. */
-internal fun fromStoredText(stored: String): String = when {
-    stored.startsWith(MARKER) -> decode(stored)
-    stored.startsWith(LEGACY_MARKER) -> decodeLegacy(stored)
-    else -> stored
+internal fun fromStoredText(stored: String): String {
+    val decoded: String = when {
+        stored.startsWith(MARKER) -> decode(stored)
+        stored.startsWith(LEGACY_MARKER) -> decodeLegacy(stored)
+        else -> return stored
+    }
+    // A text is decoded only when it is exactly what the writer produces for the decoded text: a text an earlier
+    // version stored that merely starts with a marker is not, and is returned as it is.
+    val canonical: Boolean = if (stored.startsWith(MARKER)) toStoredText(decoded) == stored else encodeLegacy(decoded) == stored
+    return if (canonical) decoded else stored
 }
 
 private fun decode(stored: String): String {
@@ -140,6 +150,33 @@ private fun decodeLegacy(stored: String): String {
         i += 1 + HEX_WIDTH
     }
     return out.toString()
+}
+
+/** The writer of the first 4.1.0 snapshots' form, kept only to tell a text in that form from one that starts like it. */
+private fun encodeLegacy(text: String): String {
+    val needs: Boolean = text.startsWith(MARKER) || text.startsWith(LEGACY_MARKER) ||
+        text.firstOrNull().let { it == BYTE_ORDER_MARK || it == REVERSED_BYTE_ORDER_MARK } ||
+        text.indices.any { legacyMustEscape(text, it) }
+    if (!needs) return text
+    return buildString {
+        append(LEGACY_MARKER)
+        text.forEachIndexed { index, c ->
+            if (legacyMustEscape(text, index)) {
+                append(LEGACY_ESCAPE).append(c.code.toString(16).padStart(HEX_WIDTH, '0'))
+            } else {
+                append(c)
+            }
+        }
+    }
+}
+
+private fun legacyMustEscape(text: String, index: Int): Boolean {
+    val c: Char = text[index]
+    return when {
+        c == NUL || c == LEGACY_ESCAPE -> true
+        index == 0 && (c == BYTE_ORDER_MARK || c == REVERSED_BYTE_ORDER_MARK) -> true
+        else -> isLoneSurrogate(text, index)
+    }
 }
 
 /** [fromStoredText] of a nullable text. */

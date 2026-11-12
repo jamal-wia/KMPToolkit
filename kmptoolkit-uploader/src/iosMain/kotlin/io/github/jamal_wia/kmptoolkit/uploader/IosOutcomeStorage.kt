@@ -18,6 +18,9 @@ import platform.Foundation.NSFileModificationDate
 import platform.Foundation.NSFileProtectionKey
 import platform.Foundation.NSFileSize
 import platform.Foundation.NSNumber
+import platform.Foundation.NSString
+import platform.Foundation.decomposedStringWithCanonicalMapping
+import platform.Foundation.precomposedStringWithCanonicalMapping
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLIsExcludedFromBackupKey
@@ -93,6 +96,17 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
         return idOfHeader(raw) ?: fileName
     }
 
+    /**
+     * A raw name an earlier version wrote for an id outside ASCII is listed the way Foundation spelled it (accents
+     * decomposed) and the id may have been either: the listed spelling and its composed form.
+     */
+    override fun sweepSpellings(listedId: String): List<String> {
+        if (listedId.startsWith(HASHED_NAME_PREFIX) || keepsOwnFileName(listedId) || isFoundationTempName(listedId)) return listOf(listedId)
+        if (listedId.all { it.code < ASCII_LIMIT } || itemIdOfJournalFileName(listedId) != listedId) return listOf(listedId)
+        if (listedId !in directoryNames()) return listOf(listedId)
+        return listOf(listedId, (listedId as NSString).precomposedStringWithCanonicalMapping).distinct()
+    }
+
     private fun directoryNames(): List<String> =
         files.contentsOfDirectoryAtPath(dir, error = null).orEmpty().filterIsInstance<String>()
 
@@ -112,18 +126,35 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
 
     /**
      * The path of an entry an earlier version wrote for [itemId] under its own spelling, when that spelling is not
-     * the id's current file name, the directory lists exactly this spelling and it is not a name this scheme
+     * the id's current file name, the directory lists this spelling (or one the volume treats as the same name) and it is not a name this scheme
      * produces (the escaped name of `A` is `~_~a`, which is not the 4.0.0 entry of the id `~_~a`). The listing, not the
      * path, decides: on a case-insensitive volume the path of one id opens the file of another that differs only by case.
      */
-    private fun legacyPathOf(itemId: String): String? =
-        if (!keepsOwnFileName(itemId) && !isFoundationTempName(itemId) && itemId in directoryNames() &&
-            itemIdOfJournalFileName(itemId) == itemId
-        ) {
-            "$dir/$itemId"
-        } else {
-            null
+    private fun legacyPathOf(itemId: String): String? = legacyNameOf(itemId)?.let { "$dir/$it" }
+
+    /**
+     * The name under which the directory lists the entry an earlier version wrote for [itemId], or `null`. For an id
+     * outside ASCII the listed name may spell the same text differently: Foundation decomposes accents when it creates
+     * a file (`é` becomes `e` and a combining accent), the volume treats both spellings as one name, and an earlier
+     * version found its entry again through the path. So a name that is canonically equivalent to the id counts, and
+     * the exact spelling is preferred when both are listed.
+     */
+    private fun legacyNameOf(itemId: String): String? {
+        if (keepsOwnFileName(itemId) || isFoundationTempName(itemId)) return null
+        val names: List<String> = directoryNames()
+        val listed: String = when {
+            itemId in names -> itemId
+            itemId.all { it.code < ASCII_LIMIT } -> return null
+            else -> {
+                val wanted: String = canonicalForm(itemId)
+                names.firstOrNull { it.any { c -> c.code >= ASCII_LIMIT } && !isFoundationTempName(it) && canonicalForm(it) == wanted }
+                    ?: return null
+            }
         }
+        return listed.takeIf { itemIdOfJournalFileName(it) == it }
+    }
+
+    private fun canonicalForm(name: String): String = (name as NSString).decomposedStringWithCanonicalMapping
 
     /**
      * Moves every entry whose name differs from [name] only by letter case (a 4.0.0 entry of an id with an upper-case
@@ -198,6 +229,8 @@ internal class IosOutcomeStorage(private val dir: String) : OutcomeStorage {
     companion object {
 
         private const val LEFTOVER_MIN_AGE_SECONDS: Double = 300.0
+
+        private const val ASCII_LIMIT: Int = 0x80
 
         /** The options every entry is written with: atomic, protected until the first unlock after boot. */
         val WRITE_OPTIONS: ULong = NSDataWritingAtomic or NSDataWritingFileProtectionCompleteUntilFirstUserAuthentication

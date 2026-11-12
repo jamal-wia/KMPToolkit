@@ -49,7 +49,8 @@ public class FakeUploader(
     // as well as the test's own, and readers must never see a half-applied write. No lock is held while the
     // consumer's `enqueueResult` runs, so that hook may call back into the fake. The logs are persistent chains,
     // newest first: an append is O(1) however long the log is (a copied list made N appends cost O(N^2), 27 s for
-    // 30,000 calls on iOS), and only a reader pays for materializing the list.
+    // 30,000 calls on iOS), and a reader gets a snapshot whose size and last element cost O(1) too (a test that asserts after every call stays
+    // linear); only reading an earlier element or iterating materializes the list, once per snapshot.
     private val recorded: MutableStateFlow<Chain<Enqueued>?> = MutableStateFlow(null)
 
     private val observed: MutableStateFlow<List<UploaderItem>> = MutableStateFlow(emptyList())
@@ -61,7 +62,7 @@ public class FakeUploader(
     private val cancelledTags: MutableStateFlow<Chain<String>?> = MutableStateFlow(null)
 
     /** Every [enqueue] call so far, in order. */
-    public val enqueued: List<Enqueued> get() = recorded.value.toList()
+    public val enqueued: List<Enqueued> get() = ChainList(recorded.value)
 
     /** How many times [trigger] was called. */
     public val triggerCount: Int get() = triggers.value
@@ -71,14 +72,14 @@ public class FakeUploader(
      *
      * @since 2.0.0
      */
-    public val cancelled: List<String> get() = cancelledIds.value.toList()
+    public val cancelled: List<String> get() = ChainList(cancelledIds.value)
 
     /**
      * Every tag passed to [cancelByTag], in order.
      *
      * @since 2.0.0
      */
-    public val cancelledByTag: List<String> get() = cancelledTags.value.toList()
+    public val cancelledByTag: List<String> get() = ChainList(cancelledTags.value)
 
     /** The single most recent [enqueue] call, or `null` if there has not been one. */
     public fun lastEnqueued(): Enqueued? = recorded.value?.head
@@ -155,14 +156,29 @@ private class Chain<T>(val head: T, val tail: Chain<T>?) {
 
 private fun <T> Chain<T>?.sizeOrZero(): Int = this?.size ?: 0
 
-/** The log in call order, oldest first. */
-private fun <T> Chain<T>?.toList(): List<T> {
-    val out: MutableList<T> = ArrayList(sizeOrZero())
-    var node: Chain<T>? = this
-    while (node != null) {
-        out.add(node.head)
-        node = node.tail
+/**
+ * A snapshot of a log, in call order, oldest first. [size] and the last element (`last()`, `lastOrNull()`, `get(size - 1)`)
+ * are answered from the chain's head without building anything; the first read of any other element copies the log once and
+ * keeps the copy, so the snapshot never changes after later calls and a repeated read is cheap.
+ */
+private class ChainList<T>(private val chain: Chain<T>?) : AbstractList<T>() {
+
+    private val materialized: Lazy<List<T>> = lazy(LazyThreadSafetyMode.PUBLICATION) {
+        val out: MutableList<T> = ArrayList(chain.sizeOrZero())
+        var node: Chain<T>? = chain
+        while (node != null) {
+            out.add(node.head)
+            node = node.tail
+        }
+        out.reverse()
+        out
     }
-    out.reverse()
-    return out
+
+    override val size: Int get() = chain.sizeOrZero()
+
+    override fun get(index: Int): T {
+        val head: Chain<T>? = chain
+        if (head != null && index == head.size - 1) return head.head
+        return materialized.value[index]
+    }
 }

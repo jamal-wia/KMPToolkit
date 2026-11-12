@@ -116,17 +116,21 @@ Your database has its own version, and this module's schema is a table inside it
 two is a documented procedure rather than an automatic one, because a library silently issuing DDL
 against your database on startup is exactly the kind of thing you would want to have approved.
 
-**Adding the queue to an existing database** is a migration of *yours*. In the `.sqm` that moves
-your database to the version which first has a queue:
+**Adding the queue to an existing database** is a migration of *yours*. SQLDelight runs `AfterVersion(n)` once
+the step from version `n` to `n + 1` has been applied, so the callback is keyed to the version your database
+*leaves*, not to the one that first has a queue: if your next schema version, 7, is the first with a queue
+(a migration `6 -> 7`), the callback is `AfterVersion(6)`. `AfterVersion(7)` would run only after the step
+`7 -> 8`, and a database upgraded from 6 to 7 would have no queue table:
 
 ```kotlin
 // YourDatabase.Schema.migrate(...) runs your .sqm files. Run ours from the matching
 // AfterVersion callback, so the table is created exactly once, at a version you chose.
+// Here the database moves 6 -> 7 and 7 is the first version with a queue, so the callback is AfterVersion(6).
 YourDatabase.Schema.migrate(
     driver = driver,
     oldVersion = old,
     newVersion = new,
-    AfterVersion(7) { uploaderDatabaseSchema.create(it) },
+    AfterVersion(6) { uploaderDatabaseSchema.create(it) },
 )
 ```
 
