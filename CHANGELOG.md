@@ -57,6 +57,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-uploader`: an `IN_FLIGHT` item whose type has no registered handler is parked once its lease has
   ended, not at once while an executor may still hold the lease. An item with a failure outside its handler pending
   and an unmet constraint now arms its alarm at the failure's backoff gate.
+- `kmptoolkit-scheduler` (Android): the saturation message and docs name a process death between arming a
+  replacement and retiring the old alarm as a second cause; behaviour unchanged.
 
 ### Fixed
 

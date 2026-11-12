@@ -159,9 +159,10 @@ internal class AndroidAlarmScheduler(
      *
      * A slot that is already occupied is never written to: writing it would rewrite, with
      * `FLAG_UPDATE_CURRENT`, the extras of an alarm that stays armed if the replacement is then
-     * refused. Slots stay occupied only after a refused retirement, so all of them are taken only
-     * after [AlarmIntents.SLOT_COUNT] - 1 replacements in a row whose retirement was refused, with no successful schedule or
-     * cancel of the id in between. Then the replacement is refused without touching anything
+     * refused. Slots stay occupied only after a retirement that did not happen: refused by the
+     * platform, or cut short by the process dying between arming the new alarm and retiring the old
+     * ones. All of them are taken only after [AlarmIntents.SLOT_COUNT] - 1 replacements in a row
+     * whose retirement did not happen, with no successful schedule or cancel of the id in between. Then the replacement is refused without touching anything
      * ([AlarmScheduleResult.Failed], documented in 04-api-reference.md): the armed alarm stays exactly
      * as it was, and `cancel(id)` (which retires every slot) lets the id schedule again.
      */
@@ -299,7 +300,8 @@ internal class AndroidAlarmScheduler(
         const val LOG_TAG: String = "KmpToolkitScheduler"
 
         const val SATURATED_MESSAGE: String =
-            "Every PendingIntent slot of this alarm id is held by an alarm the platform refused to cancel; " +
+            "Every PendingIntent slot of this alarm id is still held by an earlier alarm that was never retired " +
+                "(the platform refused to cancel it, or the process died before it could); " +
                 "nothing was changed. Call cancel(id) to free them."
         val SLOTS: List<Int> = (0 until AlarmIntents.SLOT_COUNT).toList()
 
