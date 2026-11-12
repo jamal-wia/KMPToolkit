@@ -16,16 +16,24 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.ObjCObjectVar
+import kotlinx.cinterop.alloc
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
 import kotlinx.cinterop.usePinned
+import kotlinx.cinterop.value
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSData
 import platform.Foundation.NSDate
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileModificationDate
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
+import platform.Foundation.NSNumber
 import platform.Foundation.NSTemporaryDirectory
+import platform.Foundation.NSURL
+import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.Foundation.NSUUID
 import platform.Foundation.NSUserDomainMask
 import platform.Foundation.create
@@ -135,10 +143,33 @@ class IosOutcomeStorageFilesTest {
     }
 
     @Test
-    fun `a write whose temporary directory cannot be made reports it and writes nothing`() {
-        val storage = IosOutcomeStorage("/nonexistent-root-for-files-test/outcomes")
+    fun `a write whose temporary directory cannot be made reports it and leaves the earlier entry`() {
+        val storage = IosOutcomeStorage(dir)
+        assertTrue(storage.write("item-1", byteArrayOf(1)))
+        // A regular file where the sibling directory should be: the entry directory is fine, the temporary one is not.
+        manager.removeItemAtPath(partial, error = null)
+        byteArrayOf(9).usePinned { NSData.create(bytes = it.addressOf(0), length = 1.convert()).writeToFile(partial, atomically = false) }
 
-        assertFalse(storage.write("item-1", byteArrayOf(1)))
+        assertFalse(storage.write("item-2", byteArrayOf(2)))
+
+        assertEquals(null, storage.read("item-2"))
+        assertContentEquals(byteArrayOf(1), storage.read("item-1"))
+        assertEquals(listOf("item-1"), names(dir))
+    }
+
+    @Test
+    fun `the sibling temporary directory is excluded from backup like the entry directory`() {
+        val storage = IosOutcomeStorage(dir)
+        assertTrue(storage.write("item-1", byteArrayOf(1)))
+
+        for (path in listOf(dir, partial)) {
+            val excluded: Any? = memScoped {
+                val value = alloc<ObjCObjectVar<Any?>>()
+                NSURL.fileURLWithPath(path).getResourceValue(value.ptr, forKey = NSURLIsExcludedFromBackupKey, error = null)
+                value.value
+            }
+            assertEquals(true, (excluded as? NSNumber)?.boolValue, "$path is not excluded from backup")
+        }
     }
 
     @Test
