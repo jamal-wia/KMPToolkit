@@ -138,6 +138,11 @@ usage-description string.
   about to be coalesced does not need `createNotificationChannel` re-issued, but a channel that is
   missing is still created, because the platform drops a notification on a channel that does not
   exist without a word.
+- **The channel cache is bounded by channel ids.** The Android notifier remembers the spec it last
+  sent for each channel id, so an unchanged spec is not written again and a changed `name` or
+  `description` is. Only the latest spec per id is kept, so a description that carries changing text
+  ("Last sync: 12:01") does not make the notifier grow, however long it lives; the cost is that
+  switching back to an earlier spec writes the channel once more.
 - **The 2.x sweep cache is bounded.** The first post of an id also removes the untagged notification
   a 2.x version would have shown for it (a migration aid, gone in a future major release). The ids already swept are
   remembered only to skip a repeated binder call; `cancel` and `cancelAll` drop them and the set is
