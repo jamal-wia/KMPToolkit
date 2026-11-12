@@ -43,4 +43,21 @@ class FakeFidelityPinnedTest {
         assertEquals(PermissionStatus.Granted, fake.request(CommonPermission.Camera))
         assertEquals(PermissionStatus.Granted, fake.check(CommonPermission.Camera))
     }
+
+    @Test
+    fun `a request the OS would not show returns at once even while requests are held`() = runTest {
+        // "A request the OS would not show is not shown here either": the hold is the system UI being up, and a decided
+        // permission has none. (The KDoc of holdRequests says every request suspends; the more specific rule wins.)
+        val fake = io.github.jamal_wia.kmptoolkit.permission.testing.FakePermissionController()
+        fake.setStatus(CommonPermission.Camera, PermissionStatus.Granted)
+        fake.setStatus(CommonPermission.Microphone, PermissionStatus.PermanentlyDenied)
+        fake.holdRequests = true
+
+        assertEquals(PermissionStatus.Granted, fake.request(CommonPermission.Camera))
+        assertEquals(PermissionStatus.PermanentlyDenied, fake.request(CommonPermission.Microphone))
+        assertEquals<Map<Permission, PermissionStatus>>(
+            mapOf(CommonPermission.Camera to PermissionStatus.Granted, CommonPermission.Microphone to PermissionStatus.PermanentlyDenied),
+            fake.request(listOf(CommonPermission.Camera, CommonPermission.Microphone)),
+        )
+    }
 }
