@@ -64,7 +64,49 @@ class JavaFxSeekAcrossTheEndR9AdversarialTest {
         assertEquals(emptyList(), failures, "of $TRIALS trials, outcomes $outcomes")
     }
 
+    /**
+     * The same race made deterministic: the FX thread is kept busy for 450 ms just before the natural end, so the seek block the
+     * caller posts is queued BEFORE the end-of-media event the native player raises meanwhile. The seek then runs first and the
+     * end handler second (it sets the engine's `atEnd` mark and reports the completion, which the player drops as stale and
+     * answers with `start()`), the order the plain test can only hope to hit.
+     */
+    @Test
+    fun `a seek queued behind a busy FX thread across the natural end still resumes at the target`() {
+        assumeJavaFxMedia()
+        val failures: MutableList<String> = mutableListOf()
+        repeat(DETERMINISTIC_TRIALS) { trial: Int ->
+            val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)
+            val player: VideoPlayer = createVideoPlayer(engine)
+            try {
+                runBlocking { withTimeout(20_000L) { player.prepare(VideoSource.Asset(TestClip.ASSET)) } }
+                player.seekTo(2_000L)
+                player.play()
+                awaitTrue(timeoutMs = 10_000L, message = { "trial $trial: never reached 2.55 s" }) { engine.positionMs() >= 2_550L }
+                // About 450 ms of media remain at most; keep the FX thread busy from now on for 450 ms plus a margin.
+                val busy = java.util.concurrent.CountDownLatch(1)
+                javafx.application.Platform.runLater { busy.countDown(); Thread.sleep(450L + (trial % 3) * 100L) }
+                check(busy.await(5L, java.util.concurrent.TimeUnit.SECONDS)) { "the FX thread did not start the busy block" }
+                player.seekTo(1_000L)
+                // Wait for the busy block, the seek block and the end handler to have run, then watch the playhead.
+                Thread.sleep(800L + (trial % 3) * 100L)
+                val until: Long = System.nanoTime() + 600_000_000L
+                var lowest: Long = Long.MAX_VALUE
+                while (System.nanoTime() < until) {
+                    lowest = minOf(lowest, engine.positionMs())
+                    Thread.sleep(2L)
+                }
+                val state: VideoPlayerState = player.stateFlow.value
+                // A playhead put back at the start (reading near 0) is the restart; one that moved on from 1000 reads at least 800.
+                if (lowest < 800L) failures += "trial $trial: after a seek to 1000 queued across the end the playhead read $lowest (state $state)"
+            } finally {
+                player.release()
+            }
+        }
+        assertEquals(emptyList(), failures, "of $DETERMINISTIC_TRIALS trials")
+    }
+
     private companion object {
         val TRIALS: Int = System.getenv("KMPTOOLKIT_R9_END_TRIALS")?.toIntOrNull() ?: 12
+        val DETERMINISTIC_TRIALS: Int = System.getenv("KMPTOOLKIT_R9_END_DET_TRIALS")?.toIntOrNull() ?: 6
     }
 }
