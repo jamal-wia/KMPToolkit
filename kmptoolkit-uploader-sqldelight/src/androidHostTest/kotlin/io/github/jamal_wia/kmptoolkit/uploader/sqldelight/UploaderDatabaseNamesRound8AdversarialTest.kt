@@ -61,6 +61,7 @@ class UploaderDatabaseNamesRound8AdversarialTest {
             val storage: UploaderStorage = try {
                 createUploaderStorage(application(), config).also { opened += it }
             } catch (e: UploaderStorageException) {
+                // path-hygiene-ignore: PH1,PH3 normalizes the host separator to '/' first; the result is a diagnostic label only
                 outcomes += "#$index (len ${name.length}) refused (${e.cause?.javaClass?.simpleName}: ${e.cause?.message?.take(160)?.replace(File.separatorChar, '/')?.substringAfterLast('/')})"
                 continue
             }
@@ -81,6 +82,7 @@ class UploaderDatabaseNamesRound8AdversarialTest {
         val created: Set<String> = filesUnder(dataRoot) - before
         val outside: List<String> = created.filterNot {
             // the framework's own process-lock files live in the cache directory
+            // path-hygiene-ignore: PH1 normalizes the host separator to '/' before matching relative prefixes
             it.replace(File.separatorChar, '/').let { p -> p.startsWith("databases/") || p.contains("/databases/") || p.endsWith(".lck") }
         }
         assertTrue(outside.isEmpty(), "files created outside the databases directory: $outside")
