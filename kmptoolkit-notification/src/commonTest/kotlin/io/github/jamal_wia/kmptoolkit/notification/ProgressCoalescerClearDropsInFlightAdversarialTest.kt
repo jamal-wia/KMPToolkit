@@ -45,3 +45,60 @@ class ProgressCoalescerClearDropsInFlightAdversarialTest {
         assertEquals(0, coalescer.postedCountForTest())
     }
 }
+
+/**
+ * Mutation survivor hunt (round 13), docs 03-guide "Abandoned runs": a baseline is forgotten only after the id has been
+ * quiet for "the larger of 120 times `minProgressInterval` and ten minutes", and the claims that a cancel cancelled are
+ * unregistered at once.
+ */
+class ProgressCoalescerRetentionAndClaimsAdversarialTest {
+
+    private class ManualClock : kotlin.time.TimeSource {
+        var nowMillis: Long = 0L
+        override fun markNow(): kotlin.time.TimeMark = object : kotlin.time.TimeMark {
+            private val start: Long = nowMillis
+            override fun elapsedNow(): Duration = (nowMillis - start).let { kotlin.time.Duration.parse("${it}ms") }
+        }
+    }
+
+    @Test
+    fun `a baseline outlives ten minutes when 120 rate intervals are longer and is forgotten after them`() {
+        val clock = ManualClock()
+        val minute: Long = 60_000L
+        val coalescer = ProgressCoalescer(bucketPercent = 10, minInterval = kotlin.time.Duration.parse("1m"), timeSource = clock)
+        val progress = NotificationProgress.Determinate(40)
+        assertNotNull(coalescer.prepare("x", progress, "c"))
+        clock.nowMillis = 30 * minute
+        coalescer.prepare("other", progress, "c")
+        assertEquals(true, coalescer.wouldSuppress("x", progress, "c"), "the baseline was forgotten after 30 minutes although 120 rate intervals are two hours")
+        clock.nowMillis = 130 * minute
+        coalescer.prepare("another", progress, "c")
+        assertEquals(false, coalescer.wouldSuppress("x", progress, "c"), "after two hours of quiet the baseline is forgotten and the next frame posts")
+    }
+
+    @Test
+    fun `clear and forget unregister the claims they cancelled at once`() {
+        val coalescer = ProgressCoalescer(bucketPercent = 10, minInterval = Duration.ZERO)
+        coalescer.claim("a")
+        coalescer.claim("b")
+        assertEquals(2, coalescer.claimCountForTest())
+        coalescer.forget("a")
+        assertEquals(1, coalescer.claimCountForTest())
+        coalescer.clear()
+        assertEquals(0, coalescer.claimCountForTest())
+    }
+
+    @Test
+    fun `a refused frame handed over before its predecessor was confirmed falls back to that predecessor`() {
+        val coalescer = ProgressCoalescer(bucketPercent = 10, minInterval = Duration.ZERO)
+        val shownBar = NotificationProgress.Determinate(40)
+        val refusedBar = NotificationProgress.Determinate(70)
+        val first: ProgressCoalescer.PostTicket = assertNotNull(coalescer.prepare("x", shownBar, "c"))
+        coalescer.complete(first)
+        val second: ProgressCoalescer.PostTicket = assertNotNull(coalescer.prepare("x", refusedBar, "c"))
+        coalescer.complete(second)
+        coalescer.rollback(second)
+        assertEquals(true, coalescer.wouldSuppress("x", shownBar, "c"), "the tray still shows the first frame, so the same bar is redundant")
+        assertEquals(false, coalescer.wouldSuppress("x", refusedBar, "c"), "the refused bar was never shown and must post again")
+    }
+}
