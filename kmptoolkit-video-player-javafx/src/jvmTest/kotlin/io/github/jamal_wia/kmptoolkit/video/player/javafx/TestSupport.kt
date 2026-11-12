@@ -42,6 +42,19 @@ internal fun assumeJavaFxMedia() {
 
 internal const val JAVAFX_REQUIRED_PROPERTY: String = "kmptoolkit.javafx.required"
 
+/** Directory the build points the JVM crash logs at (the system property is set by the module's test task). */
+internal const val HS_ERR_DIR_PROPERTY: String = "kmptoolkit.test.hsErrDir"
+
+/**
+ * JVM flags for a child JVM a test starts, mirroring the test task's own: a native crash inside
+ * OpenJFX's macOS media backend then ends the child with SIGKILL (no macOS crash dialog) and leaves
+ * its `hs_err` log under the build directory. See `plans/javafx-native-crash-advice.md`.
+ */
+internal fun childJvmCrashGuardArgs(): List<String> {
+    val dir: String = System.getProperty(HS_ERR_DIR_PROPERTY) ?: return emptyList()
+    return listOf("-XX:OnError=kill -9 %p", "-XX:ErrorFile=" + File(dir, "hs_err_pid%p.log").path)
+}
+
 internal sealed interface EngineEvent {
     data object Completed : EngineEvent
     data class Failed(val cause: Throwable) : EngineEvent

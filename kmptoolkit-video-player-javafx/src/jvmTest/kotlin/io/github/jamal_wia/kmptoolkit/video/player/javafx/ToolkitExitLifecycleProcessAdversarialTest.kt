@@ -15,8 +15,10 @@ class ToolkitExitLifecycleProcessAdversarialTest {
     private fun runChild(scenario: String): Map<String, String> {
         val java: String = File(System.getProperty("java.home"), "bin/java").path
         val process: Process = ProcessBuilder(
-            java, "-cp", System.getProperty("java.class.path"),
-            "io.github.jamal_wia.kmptoolkit.video.player.javafx.ExitLifecycleMain", scenario,
+            listOf(java) + childJvmCrashGuardArgs() + listOf(
+                "-cp", System.getProperty("java.class.path"),
+                "io.github.jamal_wia.kmptoolkit.video.player.javafx.ExitLifecycleMain", scenario,
+            ),
         ).redirectErrorStream(true).start()
         val output = StringBuilder()
         val reader = Thread { process.inputStream.bufferedReader().forEachLine { output.appendLine(it) } }.apply { isDaemon = true; start() }
