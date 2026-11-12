@@ -23,10 +23,10 @@ import org.robolectric.shadows.ShadowAlarmManager
 
 /**
  * `docs/kmptoolkit-scheduler/06-testing.md`: the real schedulers "write the payload into the platform
- * request at the call". The Android scheduler serialises every `schedule` behind one process-wide lock
- * and builds the intent (the payload bundle with it) only after it has won that lock, so a payload map
- * the caller edits or reuses while its call is queued behind another one is armed as it was when the
- * lock was won, not as it was when `schedule` was called.
+ * request at the call". The Android scheduler serialises every `schedule` behind one process-wide lock,
+ * so a payload map the caller edits or reuses while its call is queued behind another one must be
+ * armed as it was when `schedule` was called, not as it was when the lock was won. The lock is held
+ * by a call whose context blocks inside the lock ([LockHoldingContext]).
  *
  * The equivalence audit pins the same property the recording double was fixed to have: what the
  * double records at the call is what the real scheduler must arm.
@@ -38,6 +38,7 @@ class AndroidAlarmSchedulerPayloadReadTimeAdversarialTest {
     private val context: Context = RuntimeEnvironment.getApplication()
     private val shadowAlarmManager: ShadowAlarmManager =
         shadowOf(context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
+    private val holderContext = LockHoldingContext(context, "kmptoolkit-adversarial-holder", CountDownLatch(1), CountDownLatch(1))
     private val keys: AlarmIntentKeys = AlarmIntentKeys.from(AlarmSchedulerConfig(), context.packageName)
 
     @Before
@@ -48,19 +49,6 @@ class AndroidAlarmSchedulerPayloadReadTimeAdversarialTest {
     @After
     fun reset() {
         AlarmDispatch.reset()
-    }
-
-    /** A payload whose iteration blocks, so the call that owns it holds the scheduler lock until released. */
-    private class BlockingPayload(
-        private val entered: CountDownLatch,
-        private val release: CountDownLatch,
-    ) : AbstractMap<String, String>() {
-        override val entries: Set<Map.Entry<String, String>>
-            get() {
-                entered.countDown()
-                release.await(5, TimeUnit.SECONDS)
-                return emptySet()
-            }
     }
 
     private fun alarm(id: String, payload: Map<String, String>): ScheduledAlarm = ScheduledAlarm(
@@ -76,11 +64,11 @@ class AndroidAlarmSchedulerPayloadReadTimeAdversarialTest {
         .singleOrNull { it.id == id }?.payload
 
     private fun queuedBehindSlowSchedule(mutate: (MutableMap<String, String>) -> Unit) {
-        val scheduler: AlarmScheduler = createAlarmScheduler(context)
-        val entered = CountDownLatch(1)
-        val release = CountDownLatch(1)
+        val scheduler: AlarmScheduler = createAlarmScheduler(holderContext)
+        val entered: CountDownLatch = holderContext.entered
+        val release: CountDownLatch = holderContext.release
         val holder: Thread = thread(name = "kmptoolkit-adversarial-holder") {
-            runBlocking { scheduler.schedule(alarm("holder", BlockingPayload(entered, release))) }
+            runBlocking { scheduler.schedule(alarm("holder", emptyMap())) }
         }
         try {
             assertTrue(entered.await(5, TimeUnit.SECONDS), "the first schedule never reached the platform")

@@ -39,6 +39,7 @@ class AndroidAlarmSchedulerQueuedCancellationMatrixAdversarialTest {
         shadowOf(context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
     private val keys: AlarmIntentKeys = AlarmIntentKeys.from(AlarmSchedulerConfig(), context.packageName)
     private var returnedNormally: Boolean = false
+    private val holderContext = LockHoldingContext(context, "kmptoolkit-adversarial-holder", CountDownLatch(1), CountDownLatch(1))
 
     @Before
     fun grant() {
@@ -48,18 +49,6 @@ class AndroidAlarmSchedulerQueuedCancellationMatrixAdversarialTest {
     @After
     fun reset() {
         AlarmDispatch.reset()
-    }
-
-    private class BlockingPayload(
-        private val entered: CountDownLatch,
-        private val release: CountDownLatch,
-    ) : AbstractMap<String, String>() {
-        override val entries: Set<Map.Entry<String, String>>
-            get() {
-                entered.countDown()
-                release.await(5, TimeUnit.SECONDS)
-                return emptySet()
-            }
     }
 
     private fun alarm(id: String, payload: Map<String, String> = emptyMap()): ScheduledAlarm = ScheduledAlarm(
@@ -75,10 +64,10 @@ class AndroidAlarmSchedulerQueuedCancellationMatrixAdversarialTest {
 
     /** Runs [queued] behind a call that holds the lock, cancels it while it waits, then frees the lock. */
     private fun cancelledWhileQueued(scheduler: AlarmScheduler, queued: suspend (AlarmScheduler) -> Unit): Job {
-        val entered = CountDownLatch(1)
-        val release = CountDownLatch(1)
+        val entered: CountDownLatch = holderContext.entered
+        val release: CountDownLatch = holderContext.release
         val holder: Thread = thread(name = "kmptoolkit-adversarial-holder") {
-            runBlocking { scheduler.schedule(alarm("holder", BlockingPayload(entered, release))) }
+            runBlocking { scheduler.schedule(alarm("holder")) }
         }
         lateinit var job: Job
         try {
@@ -99,7 +88,7 @@ class AndroidAlarmSchedulerQueuedCancellationMatrixAdversarialTest {
 
     @Test
     fun `a schedule cancelled while queued ends cancelled and arms nothing`() {
-        val scheduler: AlarmScheduler = createAlarmScheduler(context)
+        val scheduler: AlarmScheduler = createAlarmScheduler(holderContext)
 
         val job: Job = cancelledWhileQueued(scheduler) { it.schedule(alarm("queued")) }
 
@@ -110,7 +99,7 @@ class AndroidAlarmSchedulerQueuedCancellationMatrixAdversarialTest {
 
     @Test
     fun `a cancel cancelled while queued ends cancelled and leaves the alarm armed`() {
-        val scheduler: AlarmScheduler = createAlarmScheduler(context)
+        val scheduler: AlarmScheduler = createAlarmScheduler(holderContext)
         runBlocking { scheduler.schedule(alarm("victim")) }
 
         val job: Job = cancelledWhileQueued(scheduler) { it.cancel("victim") }
@@ -122,7 +111,7 @@ class AndroidAlarmSchedulerQueuedCancellationMatrixAdversarialTest {
 
     @Test
     fun `a cancelAll cancelled while queued ends cancelled and leaves every alarm armed`() {
-        val scheduler: AlarmScheduler = createAlarmScheduler(context)
+        val scheduler: AlarmScheduler = createAlarmScheduler(holderContext)
         runBlocking { listOf("a", "b").forEach { scheduler.schedule(alarm(it)) } }
 
         val job: Job = cancelledWhileQueued(scheduler) { it.cancelAll(listOf("a", "b")) }
@@ -134,7 +123,7 @@ class AndroidAlarmSchedulerQueuedCancellationMatrixAdversarialTest {
 
     @Test
     fun `the lock stays usable after each cancelled call`() {
-        val scheduler: AlarmScheduler = createAlarmScheduler(context)
+        val scheduler: AlarmScheduler = createAlarmScheduler(holderContext)
         cancelledWhileQueued(scheduler) { it.schedule(alarm("q1")) }
         cancelledWhileQueued(scheduler) { it.cancel("q1") }
         cancelledWhileQueued(scheduler) { it.cancelAll(listOf("q1")) }
