@@ -408,6 +408,8 @@ final class io.github.jamal_wia.kmptoolkit.files/FileAccessConfig { // io.github
     final object Companion { // io.github.jamal_wia.kmptoolkit.files/FileAccessConfig.Companion|null[0]
         final const val DEFAULT_TEMP_PREFIX // io.github.jamal_wia.kmptoolkit.files/FileAccessConfig.Companion.DEFAULT_TEMP_PREFIX|{}DEFAULT_TEMP_PREFIX[0]
             final fun <get-DEFAULT_TEMP_PREFIX>(): kotlin/String // io.github.jamal_wia.kmptoolkit.files/FileAccessConfig.Companion.DEFAULT_TEMP_PREFIX.<get-DEFAULT_TEMP_PREFIX>|<get-DEFAULT_TEMP_PREFIX>(){}[0]
+        final const val MAX_TEMP_PREFIX_BYTES // io.github.jamal_wia.kmptoolkit.files/FileAccessConfig.Companion.MAX_TEMP_PREFIX_BYTES|{}MAX_TEMP_PREFIX_BYTES[0]
+            final fun <get-MAX_TEMP_PREFIX_BYTES>(): kotlin/Int // io.github.jamal_wia.kmptoolkit.files/FileAccessConfig.Companion.MAX_TEMP_PREFIX_BYTES.<get-MAX_TEMP_PREFIX_BYTES>|<get-MAX_TEMP_PREFIX_BYTES>(){}[0]
     }
 }
 

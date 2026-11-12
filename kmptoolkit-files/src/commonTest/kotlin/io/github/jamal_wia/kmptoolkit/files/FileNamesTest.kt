@@ -112,6 +112,16 @@ class FileNamesTest {
     }
 
     @Test
+    fun `MAX_TEMP_PREFIX_BYTES is 255 minus 19 digits minus the suffix and is the exact cap`() {
+        assertEquals(FileNames.MAX_NAME_BYTES - 19 - ".tmp".length, FileAccessConfig.MAX_TEMP_PREFIX_BYTES)
+        assertEquals(232, FileAccessConfig.MAX_TEMP_PREFIX_BYTES)
+        FileAccessConfig("a".repeat(FileAccessConfig.MAX_TEMP_PREFIX_BYTES))
+        assertFailsWith<IllegalArgumentException> { FileAccessConfig("a".repeat(FileAccessConfig.MAX_TEMP_PREFIX_BYTES + 1)) }
+        WriteOptions(tempPrefix = "a".repeat(FileAccessConfig.MAX_TEMP_PREFIX_BYTES))
+        assertFailsWith<IllegalArgumentException> { WriteOptions(tempPrefix = "a".repeat(FileAccessConfig.MAX_TEMP_PREFIX_BYTES + 1)) }
+    }
+
+    @Test
     fun `FileAccessConfig accepts a prefix of 1 to 232 plain bytes`() {
         assertEquals(".kmptoolkit-", FileAccessConfig().tempPrefix)
         FileAccessConfig("a")

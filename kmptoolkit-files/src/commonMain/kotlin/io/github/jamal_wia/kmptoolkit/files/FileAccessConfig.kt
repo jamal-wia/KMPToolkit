@@ -16,11 +16,18 @@ public data class FileAccessConfig(public val tempPrefix: String = DEFAULT_TEMP_
     public companion object {
         /** The temporary-file prefix used when none is configured. */
         public const val DEFAULT_TEMP_PREFIX: String = ".kmptoolkit-"
+
+        /**
+         * The longest [tempPrefix] accepted, in UTF-8 bytes: 255 ([FileNames.MAX_NAME_BYTES]) minus 19 digits minus
+         * `.tmp`, so every temporary name fits a file name.
+         *
+         * @since 5.0.0
+         */
+        public const val MAX_TEMP_PREFIX_BYTES: Int = FileNames.MAX_NAME_BYTES - 19 - 4
     }
 }
 
-// A temporary name is <prefix><1..19 digits>.tmp: with this cap the longest one still fits FileNames.MAX_NAME_BYTES (255).
-private const val MAX_PREFIX_BYTES: Int = FileNames.MAX_NAME_BYTES - 19 - TEMP_SUFFIX.length
+private const val MAX_PREFIX_BYTES: Int = FileAccessConfig.MAX_TEMP_PREFIX_BYTES
 
 /** Validates a temporary-file prefix (see [FileAccessConfig.tempPrefix]). */
 internal fun requireTempPrefix(prefix: String, parameterName: String) {
