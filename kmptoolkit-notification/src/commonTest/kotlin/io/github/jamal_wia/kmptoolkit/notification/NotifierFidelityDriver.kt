@@ -19,7 +19,9 @@ import kotlin.time.TestTimeSource
  */
 internal object NotifierFidelityDriver {
 
-    private val IDS: List<String> = listOf("a", "b", "c")
+    // The last four are the awkward ones: unpaired surrogates (what a truncated emoji leaves) and the character a lossy
+    // encoding turns them into. Each must stay its own notification on both platforms and in the double.
+    private val IDS: List<String> = listOf("a", "b", "c", "\uD800", "\uDC00", "x\uD83D", "?")
     private val STATUSES: List<PermissionStatus> = listOf(
         PermissionStatus.Granted,
         PermissionStatus.Limited,

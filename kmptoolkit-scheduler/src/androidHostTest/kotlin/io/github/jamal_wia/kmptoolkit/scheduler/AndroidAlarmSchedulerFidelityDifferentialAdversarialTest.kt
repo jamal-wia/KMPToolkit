@@ -41,7 +41,7 @@ class AndroidAlarmSchedulerFidelityDifferentialAdversarialTest {
     private val host = object : SchedulerFuzzHost {
         override fun reset() {
             shadowOf(alarmManager).scheduledAlarms.toList().forEach { alarmManager.cancel(requireNotNull(it.operation)) }
-            SchedulerProtocolFuzz.IDS.forEach { id: String -> runBlocking { AndroidAlarmScheduler(context, keys).cancel(id) } }
+            (SchedulerProtocolFuzz.IDS + listOf("\uD800", "\uDC00", "x\uD83D", "?")).forEach { id: String -> runBlocking { AndroidAlarmScheduler(context, keys).cancel(id) } }
             AlarmDispatch.reset()
         }
 

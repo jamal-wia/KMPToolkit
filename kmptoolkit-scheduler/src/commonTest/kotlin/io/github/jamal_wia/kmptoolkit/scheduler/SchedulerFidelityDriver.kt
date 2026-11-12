@@ -39,7 +39,9 @@ internal object SchedulerFidelityDriver {
         val askedCancels: MutableList<String> = mutableListOf()
         val order: MutableList<String> = mutableListOf()
         val log = StringBuilder()
-        val ids: List<String> = SchedulerProtocolFuzz.IDS
+        // SchedulerProtocolFuzz.IDS plus the unpaired surrogates (what a truncated emoji leaves) and the "?" a lossy URI encoding
+        // turns them into: each must stay its own alarm on both platforms and in the double.
+        val ids: List<String> = SchedulerProtocolFuzz.IDS + listOf("\uD800", "\uDC00", "x\uD83D", "?")
 
         repeat(steps) { step: Int ->
             val where = "seed $seed step $step"
