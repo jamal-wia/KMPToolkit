@@ -522,6 +522,12 @@ class VideoPlayerStateMachineModelR10AdversarialTest {
         for (line: String in lines) {
             if (line.startsWith("playing-seek-mid") && !line.contains("-> Playing(")) fail("seek mid after a report must read Playing: $line")
             if (line.startsWith("paused-seek-mid") && !line.contains("-> Paused(")) fail("a paused player must stay paused: $line")
+            // 04-api-reference (Threading): a stale completion while Playing makes the player call start() and setSpeed
+            // again; a paused player is left alone; a seek onto the end is not stale.
+            if (line.startsWith("playing-seek-mid") && !line.contains("calls=[seekTo(1000), start, setSpeed(1.0)]")) fail("a stale completion must restart the engine: $line")
+            if (line.startsWith("playing-seek-zero-repeat") && !line.contains("calls=[seekTo(0), start, setSpeed(1.0)]")) fail("a stale completion must restart the engine: $line")
+            if (line.startsWith("paused-seek-mid") && !line.contains("calls=[seekTo(1000)]")) fail("a paused player must not be started by a stale completion: $line")
+            if (line.startsWith("playing-seek-end") && !line.contains("-> Completed(")) fail("a seek onto the end does not make a completion stale: $line")
         }
     }
 }
