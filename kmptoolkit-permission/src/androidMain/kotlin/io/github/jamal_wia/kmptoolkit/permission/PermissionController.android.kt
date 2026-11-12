@@ -18,7 +18,6 @@ import io.github.jamal_wia.kmptoolkit.activity.ActivitySubscription
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenKind
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenLauncher
 import io.github.jamal_wia.kmptoolkit.activity.SystemScreenRequest
-import io.github.jamal_wia.kmptoolkit.activity.createActivityAccess
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.d
@@ -94,8 +93,8 @@ private const val LEGACY_ASKED: String = "true"
  *   open from. The default tracks activities itself; it must then be created in
  *   `Application.onCreate`, because a tracker created after the first activity resumed does not know
  *   that activity until it resumes again. Pass your app's own access to narrow it to your activities.
- *   Each call without one registers a lifecycle callback with the `Application` that lives as long as
- *   the process, so build the controller once, and pass one shared access if you build more than one.
+ *   Every controller built without one shares one tracker per `Application`, registered on first use and
+ *   never released, so building a controller per screen adds no callbacks.
  *   Do not `release()` the access while the controller is still in use: over a released access no
  *   resume ever arrives, so a special-access request waits until its caller is cancelled, and later
  *   requests wait behind it.
@@ -125,7 +124,7 @@ private const val LEGACY_ASKED: String = "true"
 public fun createPermissionController(
     context: Context,
     storage: KeyValueStorage,
-    activityAccess: ActivityAccess = createActivityAccess(context.applicationContext as Application),
+    activityAccess: ActivityAccess = SharedActivityAccess.forApplication(context.applicationContext as Application),
     host: PermissionRequestHost = ActivityResultPermissionRequestHost(activityAccess),
     systemScreenLauncher: SystemScreenLauncher = SystemScreenLauncher.callerTask(activityAccess),
     config: AndroidPermissionConfig = AndroidPermissionConfig(),

@@ -328,7 +328,7 @@ Every collaborator but `context` and `storage` has a default:
 - **`activityAccess`** — the resumed activity the rationale is asked of and screens are opened from.
   The default tracker must be created before the first activity resumes, so build the controller in
   `Application.onCreate` — or pass the `ActivityAccess` your app already owns (typically narrowed with
-  `isTracked`).
+  `isTracked`). Every controller built without one shares one tracker per `Application`.
 - **`host`** — shows the permission dialog and the screens that answer with a result. The default
   needs no wiring; see `ActivityResultPermissionRequestHost` below.
 - **`systemScreenLauncher`** — how a Settings screen opens. The default puts it on your task from the

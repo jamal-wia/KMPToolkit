@@ -317,9 +317,10 @@ is cancelled. When the stale dialog is still up at the bound, the waiting reques
 launch: nothing is shown and the current status is returned. A request arriving after the wait has
 timed out is not held again; it goes straight to the host.
 
-Each `createPermissionController` call without an `activityAccess` registers its own activity
-tracker, a lifecycle callback on the `Application` that lives as long as the process. Build the
-controller once, or pass one shared `ActivityAccess` to every factory that takes one.
+Every `createPermissionController` call without an `activityAccess` shares one activity tracker per
+`Application`, a lifecycle callback registered on first use that lives as long as the process and is
+never released, so a controller per screen adds no callbacks. Pass one shared `ActivityAccess` if
+another factory of yours should track the same activities.
 
 ### `minSdk`
 
