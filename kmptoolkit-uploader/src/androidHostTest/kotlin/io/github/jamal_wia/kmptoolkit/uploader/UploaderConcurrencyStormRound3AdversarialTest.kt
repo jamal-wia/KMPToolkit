@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -529,7 +530,7 @@ class UploaderConcurrencyStormRound3AdversarialTest {
     /** The shared test store loses updates under concurrent writers (read-modify-write on one flow): serialise them. */
     private class LockedStore(private val inner: UploaderStore) : UploaderStore by inner {
         private val lock = kotlinx.coroutines.sync.Mutex()
-        override suspend fun insertKeep(record: UploaderItem): Boolean = lock.withLock { inner.insertKeep(record) }
+        override suspend fun insertKeep(record: UploaderItem): KeepResult = lock.withLock { inner.insertKeep(record) }
         override suspend fun insertReplace(record: UploaderItem): UploaderItem? = lock.withLock { inner.insertReplace(record) }
         override suspend fun deleteById(id: String) = lock.withLock { inner.deleteById(id) }
         override suspend fun recordFailure(

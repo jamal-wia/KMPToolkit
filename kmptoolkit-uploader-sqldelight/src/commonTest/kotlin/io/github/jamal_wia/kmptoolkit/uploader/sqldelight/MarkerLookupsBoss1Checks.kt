@@ -83,8 +83,8 @@ internal class MarkerLookupsBoss1Checks {
         val tag = "${marker2}account-42"
         rawRow(name, "r1", type = "t", uniqueKey = null, tag = tag)
         withStorage(name) { storage ->
-            assertTrue(storage.store.insertKeep(anItem(id = "n1", tag = tag)))
-            assertTrue(storage.store.insertKeep(anItem(id = "other", tag = "${marker2}account-43")))
+            assertTrue(storage.store.insertKeep(anItem(id = "n1", tag = tag)).inserted)
+            assertTrue(storage.store.insertKeep(anItem(id = "other", tag = "${marker2}account-43")).inserted)
         }
         rawRow(name, "r2", type = "t", uniqueKey = null, tag = tag)
         withStorage(name) { storage ->
@@ -114,7 +114,7 @@ internal class MarkerLookupsBoss1Checks {
         val type = "${marker1}type"
         rawRow(name, "r1", type = type, uniqueKey = null, tag = null)
         withStorage(name) { storage ->
-            assertTrue(storage.store.insertKeep(anItem(id = "n1", type = type)))
+            assertTrue(storage.store.insertKeep(anItem(id = "n1", type = type)).inserted)
         }
         rawRow(name, "r2", type = type, uniqueKey = null, tag = null)
         withStorage(name) { storage ->
@@ -123,7 +123,7 @@ internal class MarkerLookupsBoss1Checks {
             assertEquals(listOf(type, type, type), first.map { it.type }, "the type reads back as given")
             coroutineScope {
                 val seen: Deferred<List<UploaderItem>> = async { storage.store.observeByType(type).first { it.size == 4 } }
-                assertTrue(storage.store.insertKeep(anItem(id = "n2", type = type)))
+                assertTrue(storage.store.insertKeep(anItem(id = "n2", type = type)).inserted)
                 assertEquals(listOf("r1", "n1", "r2", "n2"), seen.await().map { it.id }, "a write re-emits the merged list")
             }
         }
@@ -134,7 +134,7 @@ internal class MarkerLookupsBoss1Checks {
         val key = "${marker2}key"
         rawRow(name, "parked", type = type, uniqueKey = key, tag = null, state = "PARKED")
         withStorage(name) { storage ->
-            assertTrue(storage.store.insertKeep(anItem(id = "n1", type = type, uniqueKey = key)), "a parked legacy holder is revived")
+            assertTrue(storage.store.insertKeep(anItem(id = "n1", type = type, uniqueKey = key)).inserted, "a parked legacy holder is revived")
             assertEquals(listOf("n1"), storage.store.getAllActive().map { it.id }, "the parked row is gone, one live row")
             assertNull(storage.store.getById("parked"))
         }
@@ -143,7 +143,7 @@ internal class MarkerLookupsBoss1Checks {
             try {
                 rawRow(live, "legacy", type = type, uniqueKey = key, tag = null, state = state)
                 withStorage(live) { storage ->
-                    assertEquals(false, storage.store.insertKeep(anItem(id = "n2", type = type, uniqueKey = key)), "a $state legacy holder keeps the key")
+                    assertEquals(false, storage.store.insertKeep(anItem(id = "n2", type = type, uniqueKey = key)).inserted, "a $state legacy holder keeps the key")
                     assertEquals(listOf("legacy"), storage.store.getAllActive().map { it.id }, "no second live row beside the $state holder")
                 }
             } finally {
@@ -159,7 +159,7 @@ internal class MarkerLookupsBoss1Checks {
         // The escaped spelling is also occupied: by a row that is live. KEEP must refuse and leave both rows alone.
         rawRow(name, "live", type = toStoredText(type), uniqueKey = toStoredText(key), tag = null, state = "PENDING")
         withStorage(name) { storage ->
-            assertEquals(false, storage.store.insertKeep(anItem(id = "n1", type = type, uniqueKey = key)))
+            assertEquals(false, storage.store.insertKeep(anItem(id = "n1", type = type, uniqueKey = key)).inserted)
             assertNotNull(storage.store.getById("parked"), "a refused KEEP removes nothing")
             assertNotNull(storage.store.getById("live"))
         }

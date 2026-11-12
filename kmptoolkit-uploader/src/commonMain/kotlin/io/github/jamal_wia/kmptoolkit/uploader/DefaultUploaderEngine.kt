@@ -309,9 +309,9 @@ internal class DefaultUploaderEngine(
             createdAtEpochMillis = clock.nowEpochMillis(),
             lastError = null,
         )
-        // The item a REPLACE supersedes comes back from the replacement itself rather than from a read
-        // made first: under a TransactionRunner that is not a real transaction (Direct, the default), an
-        // item enqueued between such a read and the replacement would lose its row without its upload
+        // The item a REPLACE supersedes, or a KEEP supersedes (a PARKED holder), comes back from the insert itself rather
+        // than from a read made first: under a TransactionRunner that is not a real transaction (Direct, the default), an
+        // item enqueued between such a read and the insert would lose its row without its upload
         // ever being cancelled. One handed off before the replacement lands is cancelled here; one whose
         // hand-off is still launching cancels itself, finding its row gone right after the launch.
         val superseded: RowLedger.Superseded = RowLedger.Superseded()

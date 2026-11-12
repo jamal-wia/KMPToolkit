@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlinx.coroutines.CancellationException
@@ -63,9 +64,10 @@ internal class RowLedger(
      * Inserts [record] under [policy], inside the transaction runner and not cancellable: a store that notices a
      * cancelled caller (one that hops to a database thread, say) would otherwise throw after committing.
      *
-     * The row a REPLACE supersedes is written to [superseded] by the replacement itself rather than read first:
-     * under a runner that is not a real transaction (Direct, the default), an item enqueued between such a read and
-     * the replacement would lose its row without its upload ever being cancelled.
+     * The row a REPLACE supersedes, or a KEEP supersedes (a PARKED holder: both policies treat a parked conflict the
+     * same way), is written to [superseded] by the insert itself rather than read first: under a runner that is not a
+     * real transaction (Direct, the default), an item enqueued between such a read and the insert would lose its row
+     * without its upload ever being cancelled.
      *
      * @return whether [record] was inserted (`false`: a KEEP refused by a pending or in-flight holder).
      */
@@ -73,7 +75,14 @@ internal class RowLedger(
         transactionRunner.inTransaction {
             withContext(NonCancellable) {
                 when (policy) {
-                    ConflictPolicy.KEEP -> store.insertKeep(record)
+                    ConflictPolicy.KEEP -> when (val kept: KeepResult = store.insertKeep(record)) {
+                        KeepResult.Kept -> false
+                        is KeepResult.Inserted -> {
+                            superseded.row = kept.superseded
+                            true
+                        }
+                    }
+
                     ConflictPolicy.REPLACE -> {
                         superseded.row = store.insertReplace(record)
                         true

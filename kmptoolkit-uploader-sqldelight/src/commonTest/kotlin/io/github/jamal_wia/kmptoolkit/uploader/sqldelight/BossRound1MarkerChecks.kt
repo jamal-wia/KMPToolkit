@@ -61,7 +61,7 @@ internal class BossRound1MarkerChecks {
             val observed: List<UploaderItem> = real(10_000) { storage.store.observeByType(type).first() }
             if (observed.map { it.id } != listOf("legacy-1")) problems += "observeByType(its own type) saw ${observed.map { it.id }}"
 
-            val kept: Boolean = storage.store.insertKeep(anItem(id = "fresh-1", type = type, uniqueKey = key))
+            val kept: Boolean = storage.store.insertKeep(anItem(id = "fresh-1", type = type, uniqueKey = key)).inserted
             if (kept) problems += "a KEEP enqueue of the same type and unique key was accepted beside the live row"
 
             val removed: List<UploaderItem> = storage.store.deleteByTag(tag)

@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.KmpToolkitUploaderDatabase
 import io.github.jamal_wia.kmptoolkit.uploader.sqldelight.db.Kmptoolkit_uploader_item
@@ -36,7 +37,7 @@ internal class SqlDelightUploaderStore(
 
     private val queries: UploaderItemQueries get() = database.uploaderItemQueries
 
-    override suspend fun insertKeep(record: UploaderItem): Boolean = onDatabaseThread(confinement, UploaderStorageOperation.INSERT_KEEP) {
+    override suspend fun insertKeep(record: UploaderItem): KeepResult = onDatabaseThread(confinement, UploaderStorageOperation.INSERT_KEEP) {
         mapFailures(UploaderStorageOperation.INSERT_KEEP) {
             record.requireWithinRowLimit()
             // The lookup and the insert have to be one atomic step: between them, another writer
@@ -47,31 +48,41 @@ internal class SqlDelightUploaderStore(
                 if (uniqueKey == null) {
                     // A null unique key never conflicts — it is not even in the identity index.
                     queries.insert(record)
-                    return@transactionWithResult true
+                    return@transactionWithResult KeepResult.Inserted(null)
                 }
                 // One identity for every ordinary text, up to four for a type or key that starts like a stored form
                 // (see `spellings`): a 4.0.0 row and a 4.1.0 row of one logical identity must both be seen.
-                val holders: List<Pair<StoredIdentity, String>> = identitiesOf(record.type, uniqueKey).mapNotNull { identity ->
+                val holders: List<Pair<StoredIdentity, Kmptoolkit_uploader_item>> = identitiesOf(record.type, uniqueKey).mapNotNull { identity ->
                     queries.selectByIdentity(type = identity.type, uniqueKey = identity.uniqueKey)
                         .executeAsOneOrNull()
-                        ?.let { row -> identity to row.state }
+                        ?.let { row -> identity to row }
                 }
                 // Compared against the enum's own names rather than string constants, so a
                 // renamed state cannot drift apart from what is written into the column. The
                 // matching literals in `selectAllActive` cannot do the same — SQL has no way
                 // to see the enum — which is called out in UploaderItem.sq.
-                if (holders.any { (_, state) -> state == UploaderItemState.PENDING.name || state == UploaderItemState.IN_FLIGHT.name }) {
-                    false
+                if (holders.any { (_, row) -> row.state == UploaderItemState.PENDING.name || row.state == UploaderItemState.IN_FLIGHT.name }) {
+                    KeepResult.Kept
                 } else {
                     // Covers PARKED and — deliberately — any state string this build does not
                     // recognize, which is what a downgrade past a future state looks like. Neither
                     // is in rotation, so neither may keep the key: a held key with no revive path
                     // would swallow every future enqueue for it.
+                    //
+                    // The row handed back is the parked one the insert removed (the engine withdraws it, so its upload is
+                    // cancelled). Residual, as for insertReplace: more than one row of one logical identity exists only if
+                    // 4.0.0 stored both a raw text and its escaped form as keys; the earliest parked one is returned, the
+                    // others, and a row of an unrecognized state (which cannot be mapped), are removed unreturned.
+                    val superseded: UploaderItem? = holders
+                        .map { (_, row) -> row }
+                        .filter { row -> row.state == UploaderItemState.PARKED.name }
+                        .minByOrNull { row -> row.sequence }
+                        ?.toUploaderItem()
                     holders.forEach { (identity, _) ->
                         queries.deleteByIdentity(type = identity.type, uniqueKey = identity.uniqueKey)
                     }
                     queries.insert(record)
-                    true
+                    KeepResult.Inserted(superseded)
                 }
             }
         }

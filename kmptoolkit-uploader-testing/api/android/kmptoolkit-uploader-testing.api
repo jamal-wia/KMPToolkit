@@ -142,6 +142,8 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/testing/UploaderStore
 	public final fun insertKeepIsRefusedByInFlight (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertKeepIsRefusedByPending (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertKeepOverAParkedItemEntersAtTheTail (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertKeepReturnsNothingSupersededWhenNoParkedRowHeldTheKey (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun insertKeepReturnsWhatItSuperseded (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertKeepSupersedesParked (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertReplaceReturnsNullWhenNothingWasSuperseded (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun insertReplaceReturnsWhatItSuperseded (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

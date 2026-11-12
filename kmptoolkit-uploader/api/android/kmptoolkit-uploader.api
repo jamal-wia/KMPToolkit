@@ -647,6 +647,27 @@ public final class io/github/jamal_wia/kmptoolkit/uploader/spi/FailureDispositio
 	public static fun values ()[Lio/github/jamal_wia/kmptoolkit/uploader/spi/FailureDisposition;
 }
 
+public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/spi/KeepResult {
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/spi/KeepResult$Inserted : io/github/jamal_wia/kmptoolkit/uploader/spi/KeepResult {
+	public fun <init> (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;)V
+	public final fun component1 ()Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;
+	public final fun copy (Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;)Lio/github/jamal_wia/kmptoolkit/uploader/spi/KeepResult$Inserted;
+	public static synthetic fun copy$default (Lio/github/jamal_wia/kmptoolkit/uploader/spi/KeepResult$Inserted;Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;ILjava/lang/Object;)Lio/github/jamal_wia/kmptoolkit/uploader/spi/KeepResult$Inserted;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getSuperseded ()Lio/github/jamal_wia/kmptoolkit/uploader/UploaderItem;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class io/github/jamal_wia/kmptoolkit/uploader/spi/KeepResult$Kept : io/github/jamal_wia/kmptoolkit/uploader/spi/KeepResult {
+	public static final field INSTANCE Lio/github/jamal_wia/kmptoolkit/uploader/spi/KeepResult$Kept;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public abstract interface class io/github/jamal_wia/kmptoolkit/uploader/spi/TransactionRunner {
 	public abstract fun inTransaction (Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }

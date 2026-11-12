@@ -54,7 +54,9 @@ uploader.enqueue(handler, payload, uniqueKey = "draft-$docId",
 
 A parked item is superseded under **either** policy. A parked item has no other way back, so
 letting it keep its key would make that key permanently dead, and `KEEP` would silently swallow
-every future enqueue for it.
+every future enqueue for it. The superseded item is withdrawn as by `cancel`, under either policy: the
+attempt the engine runs for it is stopped and its upload cancelled (a parked item can still have an
+earlier claim's upload running).
 
 Keyless items never conflict. Every keyless enqueue appends.
 

@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader.testing
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
@@ -68,23 +69,23 @@ class UploaderStoreContractMutationRound4AdversarialTest {
             return rows.firstOrNull { it.type == record.type && it.uniqueKey == key }
         }
 
-        override suspend fun insertKeep(record: UploaderItem): Boolean {
+        override suspend fun insertKeep(record: UploaderItem): KeepResult {
             val new: UploaderItem = normalize(record)
             val existing: UploaderItem? = conflict(new)
             return when (existing?.state) {
-                UploaderItemState.PENDING, UploaderItemState.IN_FLIGHT -> false
+                UploaderItemState.PENDING, UploaderItemState.IN_FLIGHT -> KeepResult.Kept
                 UploaderItemState.PARKED -> {
                     state.value = if (bug == Bug.KEEP_PARKED_IN_PLACE) {
                         rows.map { if (it.id == existing.id) new else it }
                     } else {
                         rows.filterNot { it.id == existing.id } + new
                     }
-                    true
+                    KeepResult.Inserted(existing)
                 }
 
                 null -> {
                     state.value = rows + new
-                    true
+                    KeepResult.Inserted(null)
                 }
             }
         }
@@ -229,7 +230,7 @@ class UploaderStoreContractMutationRound4AdversarialTest {
     private class SerializedStore(private val inner: UploaderStore) : UploaderStore {
         private val lock = Mutex()
 
-        override suspend fun insertKeep(record: UploaderItem): Boolean = lock.withLock { inner.insertKeep(record) }
+        override suspend fun insertKeep(record: UploaderItem): KeepResult = lock.withLock { inner.insertKeep(record) }
         override suspend fun insertReplace(record: UploaderItem): UploaderItem? = lock.withLock { inner.insertReplace(record) }
         override suspend fun getAllActive(): List<UploaderItem> = lock.withLock { inner.getAllActive() }
         override suspend fun getById(id: String): UploaderItem? = lock.withLock { inner.getById(id) }

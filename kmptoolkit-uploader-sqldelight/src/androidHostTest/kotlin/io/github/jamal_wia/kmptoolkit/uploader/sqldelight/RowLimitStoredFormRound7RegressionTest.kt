@@ -27,7 +27,7 @@ class RowLimitStoredFormRound7RegressionTest {
 
     private fun chain(failure: Throwable): List<String> = generateSequence(failure) { it.cause }.map { "${it::class.simpleName}: ${it.message?.take(100)}" }.toList()
 
-    private suspend fun accepted(store: UploaderStore, record: UploaderItem): Boolean = runCatching { store.insertKeep(record) }.getOrDefault(false)
+    private suspend fun accepted(store: UploaderStore, record: UploaderItem): Boolean = runCatching { store.insertKeep(record).inserted }.getOrDefault(false)
 
     @Test
     fun `a payload of lone surrogates accepted within the row limit stays readable`() = runTest {

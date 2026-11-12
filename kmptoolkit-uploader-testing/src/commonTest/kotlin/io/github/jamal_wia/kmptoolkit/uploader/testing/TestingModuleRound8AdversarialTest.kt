@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader.testing
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.logging.LogLevel
 import io.github.jamal_wia.kmptoolkit.logging.Logger
 import io.github.jamal_wia.kmptoolkit.uploader.AttemptContext
@@ -235,7 +236,7 @@ class TestingModuleRound8AdversarialTest {
         },
         "insertKeep always inserts" to {
             object : Mutant(InMemoryUploaderStore()) {
-                override suspend fun insertKeep(record: UploaderItem): Boolean = inner.insertReplace(record).let { true }
+                override suspend fun insertKeep(record: UploaderItem): KeepResult = inner.insertReplace(record).let { KeepResult.Inserted(null) }
             }
         },
         "getById drops the last error" to {

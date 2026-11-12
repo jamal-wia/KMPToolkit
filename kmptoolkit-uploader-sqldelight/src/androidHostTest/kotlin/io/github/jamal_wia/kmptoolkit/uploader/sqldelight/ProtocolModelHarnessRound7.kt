@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader.sqldelight
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.AttemptContext
 import io.github.jamal_wia.kmptoolkit.uploader.AttemptResult
 import io.github.jamal_wia.kmptoolkit.uploader.ConflictPolicy
@@ -165,7 +166,7 @@ class GatedStore(
 
     private suspend fun actor(): String = currentCoroutineContext()[ActorElement]?.name ?: "?"
 
-    override suspend fun insertKeep(record: UploaderItem): Boolean = gate("insertKeep(${record.payload})") { inner.insertKeep(record) }
+    override suspend fun insertKeep(record: UploaderItem): KeepResult = gate("insertKeep(${record.payload})") { inner.insertKeep(record) }
 
     override suspend fun insertReplace(record: UploaderItem): UploaderItem? {
         val who: String = actor()

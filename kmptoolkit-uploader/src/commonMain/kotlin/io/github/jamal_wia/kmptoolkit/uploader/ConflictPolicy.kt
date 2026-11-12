@@ -11,7 +11,9 @@ package io.github.jamal_wia.kmptoolkit.uploader
  * supersedes it. A parked item is out of rotation with no other revive path, so letting it keep its
  * key would make that key permanently dead — [KEEP] would then silently swallow every future
  * enqueue for it. A fresh enqueue is new intent, and it revives the key with a new payload and a
- * clean retry budget.
+ * clean retry budget. The superseded item is withdrawn as by [Uploader.cancel], whatever its state, under either policy:
+ * the attempt the engine runs for it is stopped and, for an [UploadHandler]'s item, its upload is cancelled (a parked
+ * item can still have an earlier claim's upload running after its lease ran out).
  */
 public enum class ConflictPolicy {
 
@@ -24,6 +26,9 @@ public enum class ConflictPolicy {
      *
      * This is the right default for "make sure this eventually happens": a second tap on *send*
      * does not queue a second send.
+     *
+     * A [UploaderItemState.PARKED] conflict is the exception: it is superseded, and withdrawn as by
+     * [Uploader.cancel] (its upload cancelled, whatever its state), exactly like a [REPLACE] of the same row.
      */
     KEEP,
 

@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -394,7 +395,7 @@ class WorkManagerClassicStormRound5AdversarialTest {
 
         fun find(id: String): UploaderItem? = inner.find(id)
 
-        override suspend fun insertKeep(record: UploaderItem): Boolean = lock.withLock { inner.insertKeep(record) }
+        override suspend fun insertKeep(record: UploaderItem): KeepResult = lock.withLock { inner.insertKeep(record) }
         override suspend fun insertReplace(record: UploaderItem): UploaderItem? = lock.withLock { inner.insertReplace(record) }
         override suspend fun getAllActive(): List<UploaderItem> = lock.withLock { inner.getAllActive() }
         override suspend fun getById(id: String): UploaderItem? = lock.withLock { inner.getById(id) }

@@ -410,7 +410,7 @@ class UploaderStorageRestartAdversarialTest {
         val outcomes: List<Pair<String, Result<Boolean>>> = together(128) { index ->
             val storage: UploaderStorage = if (index % 2 == 0) first else second
             val id = "w$index"
-            id to runCatching { storage.store.insertKeep(anItem(id)) }
+            id to runCatching { storage.store.insertKeep(anItem(id)).inserted }
         }
 
         val failures: List<Throwable> = outcomes.mapNotNull { it.second.exceptionOrNull() }
@@ -436,7 +436,7 @@ class UploaderStorageRestartAdversarialTest {
 
             val start = CompletableDeferred<Unit>()
             val statements: List<Deferred<Pair<String, Result<Boolean>>>> = List(16) { index ->
-                async { start.await(); "s$index" to runCatching { storage.store.insertKeep(anItem("s$round-$index")) } }
+                async { start.await(); "s$index" to runCatching { storage.store.insertKeep(anItem("s$round-$index")).inserted } }
             }
             start.complete(Unit)
             gate.countDown()
@@ -612,7 +612,7 @@ class UploaderStorageRestartAdversarialTest {
             }
         }
         delay(150)
-        val waiter: Deferred<Boolean> = async { storage.store.insertKeep(anItem("t2")) }
+        val waiter: Deferred<Boolean> = async { storage.store.insertKeep(anItem("t2")).inserted }
         delay(150)
 
         tx.cancelAndJoin()
@@ -742,7 +742,7 @@ class UploaderStorageRestartAdversarialTest {
         val result: Result<Unit> = runCatching { storage.transactionRunner.inTransaction { storage.close() } }
 
         assertTrue(result.exceptionOrNull() is IllegalStateException, "expected a fast IllegalStateException, got ${result.exceptionOrNull()}")
-        assertTrue(storage.store.insertKeep(anItem("still-usable")))
+        assertTrue(storage.store.insertKeep(anItem("still-usable")).inserted)
     }
 
     @Test

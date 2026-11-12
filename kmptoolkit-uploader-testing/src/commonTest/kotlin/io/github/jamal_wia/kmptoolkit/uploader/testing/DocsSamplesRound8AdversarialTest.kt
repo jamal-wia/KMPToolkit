@@ -536,11 +536,11 @@ class DocsSamplesRound8AdversarialTest {
     // ---- 06-testing: "Testing your own store" ---------------------------------------------------
 
     @Test
-    fun `testing chapter sample - the contract runs against the in-memory store and reports fifty-eight checks`() =
+    fun `testing chapter sample - the contract runs against the in-memory store and reports sixty checks`() =
         runTest {
             val passed: Int = UploaderStoreContract { InMemoryUploaderStore() }.verifyAll()
 
-            assertEquals(58, passed)
+            assertEquals(60, passed)
         }
 
     @Test

@@ -115,7 +115,7 @@ class Rows400CompatRound10AdversarialTest {
                         id = "w-$index", type = "t", payload = text, schemaVersion = 1, uniqueKey = "k$text", orderingKey = null, tag = text,
                         state = UploaderItemState.PENDING, attempts = 0, nextRunAtEpochMillis = 0L, createdAtEpochMillis = index.toLong(), lastError = text,
                     ),
-                ),
+                ).inserted,
             )
         }
         storage.close()

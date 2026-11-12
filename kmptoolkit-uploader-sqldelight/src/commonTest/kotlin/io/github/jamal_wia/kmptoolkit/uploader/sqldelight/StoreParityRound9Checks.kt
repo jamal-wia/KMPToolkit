@@ -75,7 +75,7 @@ internal class StoreParityRound9Checks {
                 item("min", attempts = Int.MIN_VALUE, nextRunAt = Long.MIN_VALUE, createdAt = Long.MIN_VALUE, schemaVersion = Int.MIN_VALUE, claim = 0L),
                 item("lease", state = UploaderItemState.IN_FLIGHT, lease = Long.MAX_VALUE - 7, claim = 41),
             )
-            extremes.forEach { assertTrue(storage.store.insertKeep(it)) }
+            extremes.forEach { assertTrue(storage.store.insertKeep(it).inserted) }
             assertEquals(extremes, storage.store.getAllActive())
             for (row in extremes) assertEquals(row, storage.store.getById(row.id))
             assertTrue(storage.store.markInFlight("min", Long.MAX_VALUE - 3, UploaderItemState.PENDING, 0L))
@@ -100,15 +100,15 @@ internal class StoreParityRound9Checks {
             assertEquals(listOf("second", "third", "first2"), store.getAllActive().map { it.id })
 
             assertTrue(store.park("second", "gone", UploaderItemState.PENDING, 0L))
-            assertTrue(store.insertKeep(item("again", uniqueKey = "k", type = "t")).not(), "a live holder wins a KEEP")
+            assertTrue(store.insertKeep(item("again", uniqueKey = "k", type = "t")).inserted.not(), "a live holder wins a KEEP")
             store.park("first2", "stop", UploaderItemState.PENDING, 0L)
-            assertTrue(store.insertKeep(item("revived", uniqueKey = "k")), "a parked holder is revived by a KEEP")
+            assertTrue(store.insertKeep(item("revived", uniqueKey = "k")).inserted, "a parked holder is revived by a KEEP")
             assertEquals(listOf("third", "revived"), store.getAllActive().map { it.id }, "parked rows are not active")
             assertNull(store.getById("first2"))
             assertNull(store.insertReplace(item("fresh", uniqueKey = "unused")))
             assertEquals("fresh", store.getAllActive().last().id)
             // the same key under another type is another identity
-            assertTrue(store.insertKeep(item("othertype", type = "u", uniqueKey = "k")))
+            assertTrue(store.insertKeep(item("othertype", type = "u", uniqueKey = "k")).inserted)
         } finally {
             storage.close()
         }

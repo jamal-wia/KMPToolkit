@@ -329,7 +329,8 @@ boundary and appending `… [truncated N chars]`) before it reaches a store, and
 
 ## `ConflictPolicy`
 
-`KEEP` (default) and `REPLACE`. Both supersede a `PARKED` conflict. Ignored when `uniqueKey` is
+`KEEP` (default) and `REPLACE`. Both supersede a `PARKED` conflict, and a superseded parked item is withdrawn as
+by `cancel`: its attempt is stopped and its upload cancelled, whatever its state. Ignored when `uniqueKey` is
 `null`.
 
 ## `UploaderConfig`
@@ -371,8 +372,9 @@ Eleven functions; the full contract is in the interface KDoc and in
   unguarded form.
 - `UploaderItem.claim` is `0` on insert and advances by exactly one in every guarded write that
   applies, and in no other way — the engine derives the claims it hands out from that rule.
-- `insertReplace` returns the item it superseded and `deleteByTag` the items it removed, each read in
-  the same atomic step as its delete — the engine cancels exactly those uploads.
+- `insertReplace` returns the item it superseded, `insertKeep` returns the `PARKED` item it replaced
+  (`KeepResult.Inserted(superseded)`, or `KeepResult.Kept` when a live holder won) and `deleteByTag` the items it
+  removed, each read in the same atomic step as its delete — the engine cancels exactly those uploads.
 - `getAllActive` returns `PENDING` + `IN_FLIGHT` in **insertion order** (a sequence, not a timestamp).
 - Every id-addressed write treats an absent row as a no-op and is idempotent.
 - Callable concurrently.

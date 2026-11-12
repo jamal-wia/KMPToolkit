@@ -85,7 +85,7 @@ class IosSettleStormRound5AdversarialTest {
 
         fun find(id: String): UploaderItem? = inner.find(id)
 
-        override suspend fun insertKeep(record: UploaderItem): Boolean = lock.withLock { inner.insertKeep(record) }
+        override suspend fun insertKeep(record: UploaderItem): io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult = lock.withLock { inner.insertKeep(record) }
         override suspend fun insertReplace(record: UploaderItem): UploaderItem? = lock.withLock { inner.insertReplace(record) }
         override suspend fun getAllActive(): List<UploaderItem> = lock.withLock { inner.getAllActive() }
         override suspend fun getById(id: String): UploaderItem? = lock.withLock { inner.getById(id) }

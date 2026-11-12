@@ -81,7 +81,7 @@ class UploaderStorageLifecycleRound2AdversarialTest {
         if (first != null) {
             try {
                 runCatching { first.store.getAllActive() } // the first use meets the damage
-                acknowledged = runCatching { first.store.insertKeep(anItem("fresh")) }.getOrNull() == true
+                acknowledged = runCatching { first.store.insertKeep(anItem("fresh")).inserted }.getOrNull() == true
             } finally {
                 first.close()
             }
