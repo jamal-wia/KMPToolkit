@@ -18,7 +18,7 @@ class JournalExpiryOverflowRound9Test {
     private val response = UploadResponse(201, mapOf("Location" to "/f/1"), "ok".encodeToByteArray(), false)
 
     @Test
-    fun `an entry older than a Long can count is expired, not made fresh by an overflowing subtraction`() {
+    fun `an entry older than a Long can count is expired and never made fresh by an overflowing subtraction`() {
         for ((written: Long, read: Long) in listOf(
             -1L to Long.MAX_VALUE,
             Long.MIN_VALUE to 0L,
