@@ -58,6 +58,31 @@ internal class FileEngine(
             FileResult.Failure(FileError.Io(path, null, e))
         }
 
+    /** The error with [path] as its path, for failures of a temp file the caller never named. */
+    private fun FileError.withPath(path: String): FileError = when (this) {
+        is FileError.NotFound -> copy(path = path)
+        is FileError.AlreadyExists -> copy(path = path)
+        is FileError.NotADirectory -> copy(path = path)
+        is FileError.IsADirectory -> copy(path = path)
+        is FileError.DirectoryNotEmpty -> copy(path = path)
+        is FileError.AccessDenied -> copy(path = path)
+        is FileError.NoSpace -> copy(path = path)
+        is FileError.NameTooLong -> copy(path = path)
+        is FileError.CrossDevice -> copy(path = path)
+        is FileError.TooLarge -> copy(path = path)
+        is FileError.Unsupported -> copy(path = path)
+        is FileError.InvalidPath -> copy(path = path)
+        is FileError.Io -> copy(path = path)
+        FileError.Cancelled -> this
+    }
+
+    private inline fun <T> labeled(path: String, block: () -> T): T =
+        try {
+            block()
+        } catch (e: FileOpException) {
+            throw FileOpException(e.error.withPath(path))
+        }
+
     private fun removeQuietly(path: String) {
         try {
             ops.remove(path)
@@ -228,34 +253,35 @@ internal class FileEngine(
                 return FileResult.Failure(FileError.AlreadyExists(path))
             }
             val prefix: String = options.tempPrefix ?: config.tempPrefix
-            val (temp: String, file: WritableFile) = createTemp(tempDirectory, prefix, options.protection)
+            val (temp: String, file: WritableFile) = labeled(tempDirectory) { createTemp(tempDirectory, prefix, options.protection) }
             var settled: Boolean = false
             try {
                 var closed: Boolean = false
                 try {
-                    file.write(bytes, 0, bytes.size)
-                    when (options.durability) {
-                        Durability.Buffered -> Unit
-                        Durability.Synced -> file.sync(false)
-                        Durability.SyncedWithDirectory -> file.sync(true)
+                    labeled(path) {
+                        file.write(bytes, 0, bytes.size)
+                        when (options.durability) {
+                            Durability.Buffered -> Unit
+                            Durability.Synced -> file.sync(false)
+                            Durability.SyncedWithDirectory -> file.sync(true)
+                        }
+                        file.close()
                     }
-                    file.close()
                     closed = true
                 } finally {
                     if (!closed) closeQuietly(file)
                 }
-                when (options.existing) {
-                    ExistingFile.Replace -> {
-                        ops.rename(temp, path)
-                        settled = true
-                    }
-                    ExistingFile.Fail -> {
-                        ops.link(temp, path)
-                        // The new name is in place; a temp that cannot be removed now is swept later by its name.
-                        removeQuietly(temp)
-                        settled = true
+                labeled(path) {
+                    when (options.existing) {
+                        ExistingFile.Replace -> ops.rename(temp, path)
+                        ExistingFile.Fail -> ops.link(temp, path)
                     }
                 }
+                if (options.existing == ExistingFile.Fail) {
+                    // The new name is in place; a temp that cannot be removed now is swept later by its name.
+                    removeQuietly(temp)
+                }
+                settled = true
                 if (options.durability == Durability.SyncedWithDirectory) {
                     try {
                         ops.syncDirectory(parent, true)
@@ -290,8 +316,11 @@ internal class FileEngine(
             if (ops.metadata(to, false)?.kind == FileKind.Directory) {
                 return FileResult.Failure(FileError.IsADirectory(to))
             }
-            if (options.existing == ExistingFile.Fail && source.kind == FileKind.Directory) {
-                // No atomic no-replace rename of a directory exists.
+            if (options.existing == ExistingFile.Fail &&
+                (source.kind == FileKind.Directory || source.kind == FileKind.SymbolicLink)
+            ) {
+                // No atomic no-replace rename of a directory exists, and link(2) follows a symbolic link on Darwin
+                // (and Files.createLink on a macOS JVM): a no-replace move would turn the link into a file.
                 return FileResult.Failure(FileError.Unsupported(from))
             }
             try {
@@ -321,7 +350,7 @@ internal class FileEngine(
         cancellation: CancellationCheck,
     ): FileResult<Unit> {
         val directory: String = rules.parentOf(to) ?: return invalid(to)
-        val (temp: String, out: WritableFile) = createTemp(directory, config.tempPrefix, FileProtection.Default)
+        val (temp: String, out: WritableFile) = labeled(directory) { createTemp(directory, config.tempPrefix, FileProtection.Default) }
         var settled: Boolean = false
         try {
             var outClosed: Boolean = false
@@ -337,22 +366,24 @@ internal class FileEngine(
                     if (cancellation.isCancelled()) return FileResult.Failure(FileError.Cancelled)
                     val read: Int = input.read(buffer, 0, buffer.size)
                     if (read < 0) break
-                    if (read > 0) out.write(buffer, 0, read)
+                    if (read > 0) labeled(to) { out.write(buffer, 0, read) }
                 }
-                out.sync(false)
-                out.close()
+                labeled(to) {
+                    out.sync(false)
+                    out.close()
+                }
                 outClosed = true
             } finally {
                 closeQuietly(input)
                 if (!outClosed) closeQuietly(out)
             }
-            when (options.existing) {
-                ExistingFile.Replace -> ops.rename(temp, to)
-                ExistingFile.Fail -> {
-                    ops.link(temp, to)
-                    removeQuietly(temp)
+            labeled(to) {
+                when (options.existing) {
+                    ExistingFile.Replace -> ops.rename(temp, to)
+                    ExistingFile.Fail -> ops.link(temp, to)
                 }
             }
+            if (options.existing == ExistingFile.Fail) removeQuietly(temp)
             settled = true
             removeQuietly(from)
             return FileResult.Success(Unit)

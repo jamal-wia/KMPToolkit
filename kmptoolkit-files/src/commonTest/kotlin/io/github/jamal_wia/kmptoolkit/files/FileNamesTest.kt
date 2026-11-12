@@ -57,6 +57,16 @@ class FileNamesTest {
     }
 
     @Test
+    fun `trailing spaces before the first dot do not hide a reserved device name`() {
+        for (name: String in listOf("CON .txt", "con  .tar.gz", "COM1 .log", "LPT\u00b9 .x", "NUL ")) {
+            assertTrue(FileNames.isWindowsReserved(name), "'$name'")
+        }
+        for (name: String in listOf("CONX.txt", "CO N.txt", "xCON.txt", "CON-1.txt")) {
+            assertFalse(FileNames.isWindowsReserved(name), "'$name'")
+        }
+    }
+
+    @Test
     fun `windows names reject forbidden characters control characters and trailing dot or space`() {
         for (name: String in listOf("a<b", "a>b", "a:b", "a\"b", "a|b", "a?b", "a*b", "a\\b", "a\u0001b", "a\u001fb", "a.", "a ", "CON", "con.txt", "LPT0")) {
             assertFalse(NameRules.isPlain(name, true), "'$name'")

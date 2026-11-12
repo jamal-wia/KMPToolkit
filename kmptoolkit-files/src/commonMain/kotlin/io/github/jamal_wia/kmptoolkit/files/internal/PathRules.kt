@@ -161,7 +161,8 @@ internal object NameRules {
     private const val WINDOWS_FORBIDDEN: String = "<>:\"|?*\\"
 
     fun isWindowsReserved(name: String): Boolean {
-        val stem: String = name.substringBefore('.').uppercase()
+        // Windows ignores the extension and the trailing spaces of the stem: "CON .txt" opens the console device.
+        val stem: String = name.substringBefore('.').trimEnd(' ').uppercase()
         if (stem in RESERVED_BASES) return true
         if (stem.length != 4) return false
         val prefix: String = stem.substring(0, 3)

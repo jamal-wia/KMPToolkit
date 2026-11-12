@@ -252,7 +252,7 @@ abstract class RealFileAccessTests {
     @Test
     fun `writeAtomically needs the parent unless asked to create it`() {
         val path: String = p("missing/f")
-        failure<FileError.NotFound>(fs.writeAtomically(path, ByteArray(1)))
+        assertEquals(p("missing"), failure<FileError.NotFound>(fs.writeAtomically(path, ByteArray(1))).path, "names the directory, never a temp file")
         assertNull(fs.metadata(p("missing")))
         assertOk(fs.writeAtomically(path, ByteArray(1), WriteOptions(createParentDirectories = true)))
         assertEquals(1L, fs.metadata(path)?.sizeBytes)
@@ -326,7 +326,7 @@ abstract class RealFileAccessTests {
     @Test
     fun `a name over 255 bytes is NameTooLong and leaves no temporary file`() {
         val error: FileError.NameTooLong = failure(fs.writeAtomically(p("n".repeat(256)), ByteArray(1)))
-        assertTrue(error.path.isNotEmpty())
+        assertEquals(p("n".repeat(256)), error.path, "the caller's path, not the temp file")
         assertEquals(emptyList(), names(root))
     }
 
@@ -335,7 +335,7 @@ abstract class RealFileAccessTests {
         fs.createDirectories(p("locked"))
         val restore: AutoCloseable = TestEnv.makeUnwritable(p("locked")) ?: TestEnv.skip("the host does not enforce directory permissions here")
         try {
-            failure<FileError.AccessDenied>(fs.writeAtomically(p("locked/f"), ByteArray(1)))
+            assertEquals(p("locked"), failure<FileError.AccessDenied>(fs.writeAtomically(p("locked/f"), ByteArray(1))).path)
         } finally {
             restore.close()
         }
@@ -454,6 +454,20 @@ abstract class RealFileAccessTests {
     }
 
     @Test
+    fun `move of a symbolic link with ExistingFile Fail is Unsupported and changes nothing`() {
+        val target: String = put("target", bytesOf("T"))
+        symlinkOrSkip(p("link"), target)
+        symlinkOrSkip(p("dangling"), p("nowhere"))
+        failure<FileError.Unsupported>(fs.move(p("link"), p("new"), MoveOptions(existing = ExistingFile.Fail)))
+        failure<FileError.Unsupported>(fs.move(p("dangling"), p("new2"), MoveOptions(existing = ExistingFile.Fail)))
+        assertEquals(FileKind.SymbolicLink, fs.metadata(p("link"))?.kind)
+        assertEquals(FileKind.SymbolicLink, fs.metadata(p("dangling"))?.kind)
+        assertNull(fs.metadata(p("new")))
+        assertNull(fs.metadata(p("new2")))
+        assertEquals("T", text(target))
+    }
+
+    @Test
     fun `move of a directory with ExistingFile Fail is Unsupported and changes nothing`() {
         fs.createDirectories(p("d"))
         failure<FileError.Unsupported>(fs.move(p("d"), p("e"), MoveOptions(existing = ExistingFile.Fail)))
@@ -516,6 +530,15 @@ abstract class RealFileAccessTests {
         assertOk(fs.deleteRecursively(p("x-tree")))
         assertNull(fs.metadata(p("x-tree")))
         assertEquals("keep", text(p("outside/keep")))
+    }
+
+    @Test
+    fun `deleteRecursively of a root that is a link to a directory removes only the link`() {
+        put("real/inner", bytesOf("I"))
+        symlinkOrSkip(p("rootlink"), p("real"))
+        assertOk(fs.deleteRecursively(p("rootlink")))
+        assertNull(fs.metadata(p("rootlink")))
+        assertEquals("I", text(p("real/inner")))
     }
 
     @Test
@@ -662,7 +685,7 @@ abstract class RealFileAccessTests {
     fun `windows reserved names and trailing dots are InvalidPath on a Windows host`() {
         // iOS tests cannot be skipped; the same rules run on every host in ScriptedOpsEngineTest.
         if (!windowsHost) return
-        for (name: String in listOf("CON", "nul.txt", "a.", "b ")) {
+        for (name: String in listOf("CON", "nul.txt", "a.", "b ", "CON .txt")) {
             assertTrue(fs.writeAtomically(p(name), ByteArray(1)).errorOrNull() is FileError.InvalidPath, name)
             assertNull(fs.metadata(p(name)), name)
         }

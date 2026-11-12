@@ -70,7 +70,8 @@ public interface FileAccess {
      * [FileError.CrossDevice]. Once [to] holds the bytes the result is Success even if removing [from] failed.
      * A cancelled copy removes its temporary file and leaves [from] and [to] as they were ([FileError.Cancelled]).
      * Errors: [from] absent [FileError.NotFound]; a directory at [to] [FileError.IsADirectory]; a directory [from]
-     * across volumes [FileError.CrossDevice]; a directory [from] with [ExistingFile.Fail] [FileError.Unsupported].
+     * across volumes [FileError.CrossDevice]; a directory or symbolic link [from] with [ExistingFile.Fail] [FileError.Unsupported] (a hard link
+     * would follow the link on some platforms, and no atomic no-replace rename of a directory exists).
      */
     public fun move(
         from: String,
@@ -90,6 +91,8 @@ public interface FileAccess {
      * the walk counts as removed, so concurrent deletes of one tree all succeed. Keeps going past entries it cannot
      * remove and then reports the first error; Success means nothing is left at [path]. Checks [cancellation] before
      * every entry and stops with [FileError.Cancelled], leaving the rest in place. Iterative: no depth limit.
+     * Links present during the walk are never followed; a concurrent replacement of a directory by a link while the
+     * walk is inside it is not defended against.
      */
     public fun deleteRecursively(path: String, cancellation: CancellationCheck = CancellationCheck.Never): FileResult<Unit>
 

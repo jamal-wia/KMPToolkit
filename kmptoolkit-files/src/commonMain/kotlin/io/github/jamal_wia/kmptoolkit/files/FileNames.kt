@@ -27,7 +27,7 @@ public object FileNames {
     }
 
     /**
-     * Whether the part of [name] before its first '.' is, ignoring case, CON PRN AUX NUL COM0-9 LPT0-9 (also ¹²³).
+     * Whether the part of [name] before its first '.', without trailing spaces, is, ignoring case, CON PRN AUX NUL COM0-9 LPT0-9 (also ¹²³).
      * Host independent.
      */
     public fun isWindowsReserved(name: String): Boolean = NameRules.isWindowsReserved(name)

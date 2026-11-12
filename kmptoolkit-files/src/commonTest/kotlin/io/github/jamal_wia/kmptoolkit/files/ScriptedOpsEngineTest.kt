@@ -21,6 +21,9 @@ private class ScriptedOps(override val windowsPaths: Boolean = false, var now: L
     val removed: MutableList<String> = mutableListOf()
     val touched: MutableList<String> = mutableListOf()
     val created: MutableList<String> = mutableListOf()
+    var onList: ((String) -> List<String>?)? = null
+    var onRemove: ((String) -> Unit)? = null
+    var onOpen: ((String) -> ReadableFile)? = null
 
     override fun nowMillis(): Long = now
 
@@ -31,6 +34,7 @@ private class ScriptedOps(override val windowsPaths: Boolean = false, var now: L
 
     override fun list(directory: String): List<String>? {
         touched += directory
+        onList?.let { return it(directory) }
         val prefix: String = directory + "/"
         return entries.keys.filter { it.startsWith(prefix) && !it.substring(prefix.length).contains('/') }
             .map { it.substring(prefix.length) }
@@ -43,13 +47,15 @@ private class ScriptedOps(override val windowsPaths: Boolean = false, var now: L
         throw FileOpException(FileError.AccessDenied(path))
     }
 
-    override fun openForRead(path: String): ReadableFile = throw AssertionError("unexpected openForRead $path")
+    override fun openForRead(path: String): ReadableFile =
+        onOpen?.invoke(path) ?: throw AssertionError("unexpected openForRead $path")
 
     override fun rename(from: String, to: String) = throw AssertionError("unexpected rename $from")
 
     override fun link(existing: String, newPath: String) = throw AssertionError("unexpected link $newPath")
 
     override fun remove(path: String) {
+        onRemove?.invoke(path)
         removed += path
         entries.remove(path)
     }
@@ -109,7 +115,7 @@ class ScriptedOpsEngineTest {
     fun `windows syntax paths with reserved names or trailing dots never reach the file system`() {
         val ops: ScriptedOps = ScriptedOps(windowsPaths = true)
         val engine: FileAccess = FileEngine(ops, FileAccessConfig())
-        for (path: String in listOf("C:\\d\\CON", "C:\\d\\nul.txt", "C:\\d\\a.", "C:\\d\\b ", "C:\\COM1\\x", "C:/d/LPT3.log", "\\\\srv\\share\\aux")) {
+        for (path: String in listOf("C:\\d\\CON", "C:\\d\\nul.txt", "C:\\d\\a.", "C:\\d\\b ", "C:\\d\\CON .txt", "C:\\d\\com1 .log", "C:\\COM1\\x", "C:/d/LPT3.log", "\\\\srv\\share\\aux")) {
             val result: FileResult<Unit> = engine.writeAtomically(path, ByteArray(1))
             assertEquals(FileError.InvalidPath(path), result.errorOrNull(), path)
             assertEquals(null, engine.metadata(path), path)
@@ -143,6 +149,70 @@ class ScriptedOpsEngineTest {
         val posixTemp: String = posixOps.created.single()
         assertTrue(posixTemp.startsWith("/data/own-"), posixTemp)
         assertTrue(FileNames.isTempName(posixTemp.substring("/data/".length), "own-"), posixTemp)
+    }
+
+    private fun engine(ops: ScriptedOps): FileAccess = FileEngine(ops, FileAccessConfig())
+
+    @Test
+    fun `a device pipe or socket is Unsupported and is never opened`() {
+        val ops: ScriptedOps = ScriptedOps()
+        ops.entries["/d/fifo"] = FileMetadata(FileKind.Other, 0L, 0L)
+        assertEquals(FileError.Unsupported("/d/fifo"), engine(ops).readBytes("/d/fifo", 10).errorOrNull())
+    }
+
+    @Test
+    fun `a huge reported size is TooLarge without opening or allocating`() {
+        val ops: ScriptedOps = ScriptedOps()
+        ops.entries["/d/f"] = FileMetadata(FileKind.RegularFile, Long.MAX_VALUE, 0L)
+        val error: FileError.TooLarge = engine(ops).readBytes("/d/f", 10).errorOrNull() as FileError.TooLarge
+        assertEquals(Long.MAX_VALUE, error.sizeBytes)
+        assertEquals(10L, error.maxBytes)
+    }
+
+    @Test
+    fun `a file that grew after the size was read is TooLarge and reading stops at max plus one byte`() {
+        val ops: ScriptedOps = ScriptedOps()
+        ops.entries["/d/f"] = FileMetadata(FileKind.RegularFile, 1L, 0L)
+        var delivered: Int = 0
+        ops.onOpen = {
+            object : ReadableFile {
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    delivered += length
+                    return length // an endless file
+                }
+
+                override fun close() = Unit
+            }
+        }
+        val error: FileError.TooLarge = engine(ops).readBytes("/d/f", 10).errorOrNull() as FileError.TooLarge
+        assertTrue(error.sizeBytes > 10L, "$error")
+        assertEquals(10L, error.maxBytes)
+        assertTrue(delivered <= 64, "reading went on far past max + 1: $delivered bytes")
+    }
+
+    @Test
+    fun `treeSize counts a vanished entry and an unreadable directory as zero`() {
+        val ops: ScriptedOps = ScriptedOps()
+        ops.entries["/t"] = FileMetadata(FileKind.Directory, 0L, 0L)
+        ops.entries["/t/file"] = file(0L)
+        ops.entries["/t/locked"] = FileMetadata(FileKind.Directory, 0L, 0L)
+        ops.onList = { directory ->
+            when (directory) {
+                "/t" -> listOf("file", "gone", "locked")
+                else -> throw FileOpException(FileError.AccessDenied(directory))
+            }
+        }
+        assertEquals(1L, engine(ops).treeSize("/t").getOrNull())
+    }
+
+    @Test
+    fun `sweep neither counts nor reports an entry whose removal answers NotFound`() {
+        val ops: ScriptedOps = ScriptedOps(now = 100L)
+        ops.entries["/d"] = FileMetadata(FileKind.Directory, 0L, 0L)
+        ops.entries["/d/a"] = file(0L)
+        ops.entries["/d/b"] = file(0L)
+        ops.onRemove = { path -> if (path == "/d/a") throw FileOpException(FileError.NotFound(path)) }
+        assertEquals(1, engine(ops).sweep("/d", 10L) { true }.getOrNull())
     }
 
     @Test
