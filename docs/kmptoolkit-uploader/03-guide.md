@@ -54,7 +54,9 @@ uploader.enqueue(handler, payload, uniqueKey = "draft-$docId",
 
 A parked item is superseded under **either** policy. A parked item has no other way back, so
 letting it keep its key would make that key permanently dead, and `KEEP` would silently swallow
-every future enqueue for it.
+every future enqueue for it. The superseded item is withdrawn as by `cancel`, under either policy: the
+attempt the engine runs for it is stopped and its upload cancelled (a parked item can still have an
+earlier claim's upload running).
 
 Keyless items never conflict. Every keyless enqueue appends.
 
@@ -243,7 +245,8 @@ engine.settle(itemId, claim, SettleResult.Delivered)
 
 A `Delivered` or `Drop` whose delete fails throws, and this process still remembers it: the row is deleted
 at a later pass, by this engine or one built to replace it, and never handed out again. Calling `settle`
-again is harmless.
+again is harmless. A later `Park` or `Failed` does not override a delivery the process still holds: the row
+is deleted and that verdict is not applied (`settle` returns normally, an upload's `onSettled` does not run).
 
 **The lease is a claim, not a lock.** While it is unexpired the drain leaves the item alone. Once it
 expires the item becomes attemptable again and `execute` runs afresh with

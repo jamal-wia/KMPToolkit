@@ -27,7 +27,7 @@ whether a call can block.
 |---|---|---|
 | `start` | `fun start()` | Idempotent. Launches one drain coroutine, wires triggers, drains leftovers. A call after `close()` is a no-op. |
 | `drain` | `suspend fun drain()` | One full pass; each item gets at most one turn per call, a failed one included (a clock held at `Long.MAX_VALUE` makes every gate and lease read as due, and the item then waits for the next trigger or alarm). **Do not call on a started engine** — it breaks single-flight. For tests and diagnostics. On a closed engine it runs nothing and returns, however it is called: a closed engine is permanently inert. A `close()` during a `drain()` you called yourself stops it like the engine's own pass, and `drain()` returns; a cancelled caller still gets its cancellation. |
-| `settle` | `suspend fun settle(id: String, claim: Long, result: SettleResult)` | Reports a detached delivery, with the `id` and `claim` from the executor's `AttemptContext`. Every race degrades to a no-op; see below. A `Delivered` or `Drop` whose delete fails throws, and this process still remembers it: the row is deleted at a later pass, by this engine or one built to replace it, and never handed out again, so calling `settle` again is harmless. |
+| `settle` | `suspend fun settle(id: String, claim: Long, result: SettleResult)` | Reports a detached delivery, with the `id` and `claim` from the executor's `AttemptContext`. Every race degrades to a no-op; see below. A `Delivered` or `Drop` whose delete fails throws, and this process still remembers it: the row is deleted at a later pass, by this engine or one built to replace it, and never handed out again, so calling `settle` again is harmless; a later `Park` or `Failed` does not override it (the row is deleted, the verdict is not applied). |
 | `awaitDrained` | `suspend fun awaitDrained(timeout: Duration): Boolean` | For a wake job. An `IN_FLIGHT` item counts as **not** drained. An already empty queue is `true` even for a zero timeout. A failing store read never throws: it counts as "not drained" and is re-read at `drainPollInterval`, so a persistent failure ends in `false` at the timeout. |
 | `close` | `fun close()` | Idempotent, non-suspending. Stops the engine, leaves the queue and your scope alone. An attempt running at close, also one of a `drain()` you called yourself, is cancelled and records nothing except what already happened: a `Success` still removes its row and a `Detached` still claims it under its lease. A hand-off launches nothing once it has seen the close; a claim that was being written, or that finished after close, is released if it is still this engine's, and an engine already started in this process is woken by the release, so the next engine starts the item at once. It does not wait for a running attempt: one that ignores its cancellation may still be running when a new engine starts the same item, so a handler that does not honour cancellation can see its item run twice, as after a process kill. |
 
@@ -329,7 +329,8 @@ boundary and appending `… [truncated N chars]`) before it reaches a store, and
 
 ## `ConflictPolicy`
 
-`KEEP` (default) and `REPLACE`. Both supersede a `PARKED` conflict. Ignored when `uniqueKey` is
+`KEEP` (default) and `REPLACE`. Both supersede a `PARKED` conflict, and a superseded parked item is withdrawn as
+by `cancel`: its attempt is stopped and its upload cancelled, whatever its state. Ignored when `uniqueKey` is
 `null`.
 
 ## `UploaderConfig`
@@ -371,8 +372,9 @@ Eleven functions; the full contract is in the interface KDoc and in
   unguarded form.
 - `UploaderItem.claim` is `0` on insert and advances by exactly one in every guarded write that
   applies, and in no other way — the engine derives the claims it hands out from that rule.
-- `insertReplace` returns the item it superseded and `deleteByTag` the items it removed, each read in
-  the same atomic step as its delete — the engine cancels exactly those uploads.
+- `insertReplace` returns the item it superseded, `insertKeep` returns the `PARKED` item it replaced
+  (`KeepResult.Inserted(superseded)`, or `KeepResult.Kept` when a live holder won) and `deleteByTag` the items it
+  removed, each read in the same atomic step as its delete — the engine cancels exactly those uploads.
 - `getAllActive` returns `PENDING` + `IN_FLIGHT` in **insertion order** (a sequence, not a timestamp).
 - Every id-addressed write treats an absent row as a no-op and is idempotent.
 - Callable concurrently.

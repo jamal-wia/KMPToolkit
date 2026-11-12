@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader.testing
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.AttemptContext
 import io.github.jamal_wia.kmptoolkit.uploader.AttemptResult
 import io.github.jamal_wia.kmptoolkit.uploader.UploadAttempt
@@ -50,22 +51,31 @@ class ContractMutantsRound8AdversarialTest {
             mapOf(
                 "insertKeep dedups on the unique key across types" to {
                     object : Mutant(InMemoryUploaderStore()) {
-                        override suspend fun insertKeep(record: UploaderItem): Boolean {
+                        override suspend fun insertKeep(record: UploaderItem): KeepResult {
                             val key: String? = record.uniqueKey
-                            if (key != null && inner.snapshot().any { it.uniqueKey == key && it.state != UploaderItemState.PARKED }) return false
+                            if (key != null && inner.snapshot().any { it.uniqueKey == key && it.state != UploaderItemState.PARKED }) return KeepResult.Kept
                             return inner.insertKeep(record)
                         }
                     }
                 },
+                "insertKeep replaces a parked row but reports nothing superseded" to {
+                    object : Mutant(InMemoryUploaderStore()) {
+                        override suspend fun insertKeep(record: UploaderItem): KeepResult =
+                            when (val result: KeepResult = inner.insertKeep(record)) {
+                                is KeepResult.Inserted -> KeepResult.Inserted(null)
+                                KeepResult.Kept -> result
+                            }
+                    }
+                },
                 "unique key compared case-insensitively" to {
                     object : Mutant(InMemoryUploaderStore()) {
-                        override suspend fun insertKeep(record: UploaderItem): Boolean {
+                        override suspend fun insertKeep(record: UploaderItem): KeepResult {
                             val key: String? = record.uniqueKey
                             if (key != null && inner.snapshot().any {
                                     it.type == record.type && it.uniqueKey.equals(key, ignoreCase = true) &&
                                         it.state != UploaderItemState.PARKED
                                 }
-                            ) return false
+                            ) return KeepResult.Kept
                             return inner.insertKeep(record)
                         }
                     }

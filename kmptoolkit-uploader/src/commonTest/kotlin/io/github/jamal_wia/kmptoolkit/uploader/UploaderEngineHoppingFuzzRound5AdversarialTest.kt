@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -61,7 +62,7 @@ class UploaderEngineHoppingFuzzRound5AdversarialTest {
             return result
         }
 
-        override suspend fun insertKeep(record: UploaderItem): Boolean = guarded { inner.insertKeep(record) }
+        override suspend fun insertKeep(record: UploaderItem): KeepResult = guarded { inner.insertKeep(record) }
         override suspend fun insertReplace(record: UploaderItem): UploaderItem? = guarded { inner.insertReplace(record) }
         override suspend fun getAllActive(): List<UploaderItem> = guarded { inner.getAllActive() }
         override suspend fun getById(id: String): UploaderItem? = guarded { inner.getById(id) }

@@ -129,19 +129,25 @@ withdrawal, the release of an interrupted claim) non-cancellable on its own side
 ### `insertKeep` — the conflict rules
 
 Dedup identity is `(type, unique_key)`. A `null` unique key **never** conflicts: always insert,
-always return `true`.
+return `KeepResult.Inserted(null)`.
 
 With a matching row present:
 
 | Existing state | Action | Return |
 |---|---|---|
-| `PENDING` | keep it, insert nothing | `false` |
-| `IN_FLIGHT` | keep it, insert nothing | `false` |
-| `PARKED` | **delete it, insert the new row at the tail** | `true` |
+| `PENDING` | keep it, insert nothing | `KeepResult.Kept` |
+| `IN_FLIGHT` | keep it, insert nothing | `KeepResult.Kept` |
+| `PARKED` | **delete it, insert the new row at the tail** | `KeepResult.Inserted(thatParkedRow)` |
 
 The `PARKED` case is the one people get wrong. A parked item has no other route back into rotation,
 so if it kept its key, that key would be permanently dead and every future `KEEP` enqueue for it
 would be silently swallowed. A fresh enqueue is new intent.
+
+The parked row it removed comes back from the same atomic step, as it was just before the delete, exactly
+like `insertReplace`'s superseded row below: the engine withdraws it (stops its attempt, cancels its
+upload), because a parked item can still have an earlier claim's upload running, and a read made first
+would miss an item parked in between. (4.x stores returned a `Boolean` here: see the `Breaking` entry of
+5.0.0 in the changelog.) If one insert removes more than one row, return the earliest by insertion order.
 
 `insertReplace` is simpler: delete any row with the same identity, in any state, then insert the new
 one at the tail. Never an in-place update — the replacement must carry a clean id, attempt count,
@@ -269,18 +275,18 @@ delivered twice, a conversation silently reordered, a queue that stalls after a 
 ```kotlin
 class MyUploaderStore(private val db: MyDatabase) : UploaderStore {
 
-    override suspend fun insertKeep(record: UploaderItem): Boolean = db.transaction {
+    override suspend fun insertKeep(record: UploaderItem): KeepResult = db.transaction {
         val existing: Row? = record.uniqueKey?.let { db.findByIdentity(record.type, it) }
         when (existing?.state) {
-            "PENDING", "IN_FLIGHT" -> false
+            "PENDING", "IN_FLIGHT" -> KeepResult.Kept
             "PARKED" -> {
                 db.deleteById(existing.id)
                 db.insert(record)
-                true
+                KeepResult.Inserted(existing.toUploaderItem()) // the parked row, as it was
             }
             else -> {
                 db.insert(record)
-                true
+                KeepResult.Inserted(null)
             }
         }
     }

@@ -65,7 +65,7 @@ class UploaderDatabaseNamesRound8AdversarialTest {
                 continue
             }
             try {
-                assertTrue(storage.store.insertKeep(row(id)), "name #$index")
+                assertTrue(storage.store.insertKeep(row(id)).inserted, "name #$index")
                 storage.close()
                 val again: UploaderStorage = createUploaderStorage(application(), config).also { opened += it }
                 val rows: List<String> = again.store.getAllActive().map { it.id }
@@ -95,8 +95,8 @@ class UploaderDatabaseNamesRound8AdversarialTest {
             name to createUploaderStorage(application(), UploaderDatabaseConfig(name)).also { opened += it }
         }
         storages.forEachIndexed { i, (_, s) ->
-            assertTrue(s.store.insertKeep(row("own-$i")))
-            assertTrue(s.store.insertKeep(row("second-$i")))
+            assertTrue(s.store.insertKeep(row("own-$i")).inserted)
+            assertTrue(s.store.insertKeep(row("second-$i")).inserted)
         }
         storages.forEachIndexed { i, (name, s) ->
             assertEquals(listOf("own-$i", "second-$i"), s.store.getAllActive().map { it.id }, "rows of queue $name")

@@ -195,7 +195,7 @@ class UploaderStoreScaleRound8AdversarialTest {
         }
         // every key is its own identity: a second keep of each is refused, a replace hands the old row back
         for (i in listOf(0, rows / 2, rows - 1)) {
-            assertEquals(false, store.insertKeep(item(i).copy(id = "dup-$i", uniqueKey = "k$i")))
+            assertEquals(false, store.insertKeep(item(i).copy(id = "dup-$i", uniqueKey = "k$i")).inserted)
             assertEquals("id-$i", store.insertReplace(item(i).copy(id = "rep-$i", uniqueKey = "k$i"))?.id)
         }
         assertEquals(rows, store.getAllActive().size)

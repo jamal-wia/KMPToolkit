@@ -143,3 +143,12 @@ database thread instead of dispatching onto it — and shows the uncommitted sta
 `android`, `iosArm64`, `iosSimulatorArm64` — the standard set for this toolkit. No
 JVM or desktop target, and no JS: the module exists to back the two synchronous drivers, and the
 asynchronous web-worker driver would change how transactions are expressed throughout.
+
+## A KEEP over a parked row
+
+`SqlDelightUploaderStore.insertKeep` replaces a `PARKED` holder of the key inside the one transaction that reads it, and
+returns it as `KeepResult.Inserted(superseded)` (a `PENDING` or `IN_FLIGHT` holder wins: `KeepResult.Kept`). The engine
+withdraws the returned row like any removed row: its attempt is stopped and its upload cancelled, whatever its state. When a
+logical identity has more than one row (a 4.0.0 table that stored both a raw text and its escaped form as keys), the earliest
+parked one is returned and the others are removed unreturned. A consumer transaction that rolls back restores the replaced
+row; the cancel the engine issued is not rolled back.

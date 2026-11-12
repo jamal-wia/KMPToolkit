@@ -291,11 +291,11 @@ internal class SqlDelightDocsParityRound9Checks {
         val storage: UploaderStorage = createInMemoryUploaderStorage()
         try {
             val keyed: List<Boolean> = real(60_000) {
-                coroutineScope { (0 until 120).map { i -> async(Dispatchers.Default) { storage.store.insertKeep(item("k$i", uniqueKey = "same")) } }.awaitAll() }
+                coroutineScope { (0 until 120).map { i -> async(Dispatchers.Default) { storage.store.insertKeep(item("k$i", uniqueKey = "same")).inserted } }.awaitAll() }
             }
             assertEquals(1, keyed.count { it }, "exactly one KEEP insert of a key wins")
             val distinct: List<Boolean> = real(60_000) {
-                coroutineScope { (0 until 200).map { i -> async(Dispatchers.Default) { storage.store.insertKeep(item("d$i")) } }.awaitAll() }
+                coroutineScope { (0 until 200).map { i -> async(Dispatchers.Default) { storage.store.insertKeep(item("d$i")).inserted } }.awaitAll() }
             }
             assertTrue(distinct.all { it })
             val all: List<UploaderItem> = storage.store.getAllActive()

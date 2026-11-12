@@ -3,6 +3,7 @@ package io.github.jamal_wia.kmptoolkit.uploader.testing
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItem
 import io.github.jamal_wia.kmptoolkit.uploader.UploaderItemState
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
+import io.github.jamal_wia.kmptoolkit.uploader.spi.KeepResult
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -66,21 +67,22 @@ public class InMemoryUploaderStore(
     /** A snapshot of [items] right now. */
     public fun snapshot(): List<UploaderItem> = state.value
 
-    override suspend fun insertKeep(record: UploaderItem): Boolean = write {
+    override suspend fun insertKeep(record: UploaderItem): KeepResult = write {
         val existing: UploaderItem? = findConflict(record)
         when (existing?.state) {
             // An in-flight delivery must win over a re-enqueue exactly like a waiting one.
-            UploaderItemState.PENDING, UploaderItemState.IN_FLIGHT -> false
+            UploaderItemState.PENDING, UploaderItemState.IN_FLIGHT -> KeepResult.Kept
             // A parked item has no other revive path, so a fresh enqueue supersedes it — otherwise
             // its unique key would be permanently dead.
             UploaderItemState.PARKED -> {
                 state.value = state.value.filterNot { it.id == existing.id } + record
-                true
+                // Read and removed under the same lock, so what comes back is exactly what was superseded.
+                KeepResult.Inserted(existing)
             }
 
             null -> {
                 state.value = state.value + record
-                true
+                KeepResult.Inserted(null)
             }
         }
     }

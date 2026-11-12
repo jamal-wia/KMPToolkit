@@ -92,7 +92,8 @@ public interface UploaderEngine : Uploader {
      *   has still delivered, and re-handing the item would send it twice. The row is deleted. If that
      *   delete fails the call throws, and this process still remembers the delivery: the row is deleted at a later
      *   pass, by this engine or one built to replace it, and never handed out again. Calling `settle` again is
-     *   harmless.
+     *   harmless. A later `Park` or `Failed` does not override a delivery this process still holds: the row is
+     *   deleted and that verdict is not applied.
      * - **[SettleResult.Failed] and [SettleResult.Park] stand only from the current claim.** They are
      *   verdicts on one attempt, and they steer the next one — spend the retry budget and back off,
      *   or stop trying. A superseded executor's verdict is about an attempt the engine has already

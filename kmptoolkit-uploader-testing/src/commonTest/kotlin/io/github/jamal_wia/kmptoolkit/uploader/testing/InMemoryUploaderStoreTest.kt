@@ -50,7 +50,7 @@ class InMemoryUploaderStoreTest {
         val store = InMemoryUploaderStore()
 
         val results: List<Boolean> = List(CONCURRENT_WRITERS) { index ->
-            async { store.insertKeep(item("id-$index", uniqueKey = "shared")) }
+            async { store.insertKeep(item("id-$index", uniqueKey = "shared")).inserted }
         }.awaitAll()
 
         assertEquals(1, results.count { it }, "exactly one insert may win the key")
@@ -198,7 +198,7 @@ class InMemoryUploaderStoreTest {
 
     private companion object {
         /** Guards against a silently shrinking contract: verifyAll must keep running them all. */
-        const val EXPECTED_CONTRACT_CHECKS: Int = 58
+        const val EXPECTED_CONTRACT_CHECKS: Int = 60
         const val CONCURRENT_WRITERS: Int = 8
     }
 }

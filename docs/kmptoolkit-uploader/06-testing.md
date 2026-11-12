@@ -132,7 +132,7 @@ engine.settle(first.id, first.claim, SettleResult.Failed()) // superseded: chang
 
 ## Testing your own store
 
-If you implemented `UploaderStore`, run the contract against it. One test gets you fifty-eight checks, covering every invariant the `UploaderStore` KDoc states except durability:
+If you implemented `UploaderStore`, run the contract against it. One test gets you sixty checks, covering every invariant the `UploaderStore` KDoc states except durability:
 
 ```kotlin
 class MyUploaderStoreTest {

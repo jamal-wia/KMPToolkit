@@ -39,8 +39,8 @@ class LeadingBomRound6RegressionTest {
     fun `two unique keys that differ only by a leading byte order mark are two keys`() = runTest {
         val storage: UploaderStorage = createInMemoryUploaderStorage()
         try {
-            assertEquals(true, storage.store.insertKeep(item("a", uniqueKey = "key")))
-            assertEquals(true, storage.store.insertKeep(item("b", uniqueKey = "\uFEFFkey")), "the second key was taken for the first")
+            assertEquals(true, storage.store.insertKeep(item("a", uniqueKey = "key")).inserted)
+            assertEquals(true, storage.store.insertKeep(item("b", uniqueKey = "\uFEFFkey")).inserted, "the second key was taken for the first")
         } finally {
             storage.close()
         }

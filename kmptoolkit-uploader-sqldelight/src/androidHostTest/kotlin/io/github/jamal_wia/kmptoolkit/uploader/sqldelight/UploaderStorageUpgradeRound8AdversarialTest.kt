@@ -353,7 +353,7 @@ class UploaderStorageUpgradeRound8AdversarialTest {
                 state = UploaderItemState.PENDING, attempts = 0, nextRunAtEpochMillis = 0L, createdAtEpochMillis = i.toLong(), lastError = null,
             )
             try {
-                assertTrue(storage.store.insertKeep(item), "insert $i answered false")
+                assertTrue(storage.store.insertKeep(item).inserted, "insert $i answered false")
                 accepted += item.id
             } catch (e: UploaderStorageException) {
                 refused = e
@@ -387,7 +387,7 @@ class UploaderStorageUpgradeRound8AdversarialTest {
         assertTrue(storage.store.insertKeep(UploaderItem(
             id = "after", type = "t", payload = "q", schemaVersion = 1, uniqueKey = null, orderingKey = null, tag = null,
             state = UploaderItemState.PENDING, attempts = 0, nextRunAtEpochMillis = 0L, createdAtEpochMillis = 0L, lastError = null,
-        )), "an enqueue after a delete freed room was refused")
+        )).inserted, "an enqueue after a delete freed room was refused")
         assertEquals(accepted.dropLast(20) + "after", storage.store.getAllActive().map { it.id })
     }
 
