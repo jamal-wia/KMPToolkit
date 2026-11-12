@@ -11,7 +11,7 @@ dependencies {
 
 `kmptoolkit-scheduler-testing` ships one type, `RecordingAlarmScheduler`. It lives in a separate
 artifact for the reason described in
-[`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate-testing-artifacts):
+[`../01-architecture.md`](../01-architecture.md#test-fixtures-ship-as-separate--testing-artifacts):
 Kotlin Multiplatform cannot expose one module's `commonTest` to a consumer, so a published artifact
 is the only mechanism — and a consumer who never writes a test never downloads it.
 

@@ -36,6 +36,8 @@ for it. Full details in [`05-platform-notes.md`](05-platform-notes.md).
 
 ## 3. Create the notifier
 
+Create one `Notifier` for the app and share it (your DI or an application-scoped field).
+
 **Android** — in `Application.onCreate`, or wherever you assemble dependencies:
 
 ```kotlin
