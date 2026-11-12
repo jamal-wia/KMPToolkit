@@ -195,4 +195,37 @@ class PathAccessGateTest {
         assertEquals(0, gate.activeKeyCount)
         gate.shared("/d/x").release()
     }
+
+    @Test
+    fun `a reader queued behind an interrupted exclusive waiter proceeds while the first reader still holds`() {
+        val firstReader: PathAccessGate.Permit = gate.shared("/d/x")
+        val interrupted: java.util.concurrent.atomic.AtomicReference<Throwable?> = java.util.concurrent.atomic.AtomicReference(null)
+        val writer: Thread = thread {
+            try {
+                gate.exclusive("/d/x").release()
+            } catch (t: Throwable) {
+                interrupted.set(t)
+            }
+        }
+        waitUntilBlocked(writer)
+        val secondGot: CountDownLatch = CountDownLatch(1)
+        val secondRelease: CountDownLatch = CountDownLatch(1)
+        val secondReader: Thread = thread {
+            val permit: PathAccessGate.Permit = gate.shared("/d/x")
+            secondGot.countDown()
+            secondRelease.await(20, TimeUnit.SECONDS)
+            permit.release()
+        }
+        waitUntilBlocked(secondReader)
+        assertEquals(1L, secondGot.count, "the second reader is queued behind the waiting writer")
+        writer.interrupt()
+        writer.join(20_000)
+        assertTrue(interrupted.get() is InterruptedException)
+        assertTrue(secondGot.await(20, TimeUnit.SECONDS), "the queued reader must proceed once the writer gave up, while the first reader still holds")
+        secondRelease.countDown()
+        secondReader.join(20_000)
+        firstReader.release()
+        assertEquals(0, gate.activeKeyCount)
+        gate.exclusive("/d/x").release()
+    }
 }

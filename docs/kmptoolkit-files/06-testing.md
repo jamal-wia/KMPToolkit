@@ -43,7 +43,9 @@ assertEquals("Ada", store.loadName())
 It models inodes (a rename carries content and sync state; hard links share them), symbolic links,
 per-file synced content and per-directory synced entries — enough to simulate a power loss. Names over
 255 UTF-8 bytes are `NameTooLong`, as on ext4. `FakeFileAccess(caseSensitive = false)` models a
-case-insensitive volume: `/d/A` and `/d/a` are one entry and the spelling of creation is listed.
+case-insensitive volume: `/d/A` and `/d/a` are one entry and the spelling of creation is listed. Names are
+folded with one fixed rule (NFC, lowercase, uppercase, lowercase, NFC) that does not depend on the host, so a
+name with a backslash stays a different name from its prefix on a Windows test host too.
 
 ### Seeding
 
@@ -88,7 +90,7 @@ files.failNext(FakeOperation.Rename, FileError.AccessDenied("/d"), count = 2, pa
 ```
 
 `failNext(operation, error, count = 1, path = { true })`: the next `count` low-level `operation`s whose
-path satisfies the filter fail with `error` and have **no effect**. The path is the one of
+path satisfies the filter (the filter runs outside the fake's lock, so it may block or call back into the fake) fail with `error` and have **no effect**. The path is the one of
 `FakeOperationRecord.path`: for `Rename` the source, for `Link` the new name, for `Write`/`Sync`/`Close`
 the path the file was created at. The operations are `Metadata`, `List`, `CreateDirectory`,
 `CreateNew`, `OpenForRead`, `Write`, `Sync`, `Close`, `Rename`, `Link`, `Remove`, `SyncDirectory`,
@@ -141,7 +143,10 @@ What the engine guarantees at each crash point, and which `Durability` it takes,
 module's own suite: a crash after `CreateNew`, `Write`, `Sync` or `Close` leaves the old content and
 exactly one temporary file; after `Rename` the new content; a `Buffered` write followed by power loss
 leaves an **empty** target (the reason `Synced` is the default); a `Synced` write followed by power loss
-and reverted entries leaves the old content whole; `SyncedWithDirectory` survives even that.
+and reverted entries leaves the old content whole; `SyncedWithDirectory` survives even that, **including the first record in a
+directory the same call created** (`createParentDirectories`): the engine then syncs the parent of every
+level it created, deepest first, before the final sync of the target's parent (one extra directory sync per
+created level, none when the directory already existed, and none for `Synced` or `Buffered`).
 
 ### What the fake does not model
 
@@ -182,10 +187,12 @@ class MyDecoratorContractTest {
 check. Each check is also a public function (`writeAtomicallyReplacesTheWholeContent()`,
 `deleteRecursivelyDoesNotFollowSymbolicLinks()`, …) so a runner can report them one by one. The
 checks cover metadata kinds and links, `list`, `createDirectories` (including concurrent creators),
-`readBytes` limits, every `writeAtomically` outcome (replace, empty content, missing parent, directory
+`readBytes` limits, `InvalidPath` for a relative, empty or NUL-containing path on every function (so a decorator
+that resolves relative paths against a base fails), every `writeAtomically` outcome (replace, empty content, missing parent, directory
 target, `Fail`, links, temp directory, no leftover, concurrent writers), `move`, `delete`,
-`deleteRecursively` (including concurrent deleters and cancellation), `treeSize`, `sweep`,
-`freeSpaceBytes`, `exists` and `withIo` cancellation.
+`deleteRecursively` (including concurrent deleters and cancellation), `treeSize`, `sweep` (age, cancellation, old symbolic links),
+`freeSpaceBytes`, `exists` and `withIo`. The two `withIo` checks verify the extension, which no implementation can
+override, not the implementation under test.
 
 Two optional fixture members drive the age rule of `sweep`:
 
