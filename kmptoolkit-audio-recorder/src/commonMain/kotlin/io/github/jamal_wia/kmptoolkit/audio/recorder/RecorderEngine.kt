@@ -161,6 +161,13 @@ internal interface RecordingFileSystem {
     /** Whether a file or directory exists at [path]. Never throws; `false` when unsure. */
     fun exists(path: String): Boolean
 
+    /**
+     * Whether [path] is an existing regular file, as opposed to missing or a directory. Never throws.
+     * The recorder asks it after the encoder finished, to refuse to call a recording that is no longer
+     * there complete. An implementation that cannot tell answers `true`, so the default does.
+     */
+    fun isRegularFile(path: String): Boolean = true
+
     /** Deletes [path] if it exists. Never throws; a failure to delete is not worth a crash. */
     fun delete(path: String)
 }

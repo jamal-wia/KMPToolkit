@@ -286,6 +286,12 @@ On engine failure `state` becomes `Failed(error, outputPath)` and **the partial 
 library does not delete a user's audio because the encoder complained on close. The path is carried
 on the state so you can find the file; `cancel()` deletes it.
 
+A file that is no longer there when the encoder has finished — deleted, or replaced by a directory,
+by a cache cleaner, the user or another process while the recording ran — is the same failure:
+`EngineFailure(STOP, cause)` with an `IllegalStateException` as `cause`, and `state` becomes
+`Failed(error, outputPath)`. `Completed` never names a path that is not an existing regular file;
+`cancel()` clears what is left at that path.
+
 ### `suspend fun cancel(): RecorderResult<Unit>`
 
 `Ready` / `Recording` / `Paused` → `Idle`. Releases the native handle, deletes the partial file,
@@ -381,7 +387,8 @@ public data class RecordedFile(
 )
 ```
 
-An existing, closed audio file. `duration` is measured by the recorder (wall clock between `start`
+An existing, closed audio file: `stop()` checks that the path is a regular file after the encoder
+finished and answers a failure otherwise. `duration` is measured by the recorder (wall clock between `start`
 and `stop`, excluding paused time), accurate to roughly one tick — not read back from the encoded
 file.
 

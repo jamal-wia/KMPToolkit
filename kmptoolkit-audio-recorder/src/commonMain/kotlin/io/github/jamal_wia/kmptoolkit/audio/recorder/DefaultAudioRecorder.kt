@@ -476,7 +476,19 @@ internal class DefaultAudioRecorder(
 
     private suspend fun finishStop(finalization: Finalization): RecorderResult<RecordedFile> =
         // Finalizing the container is the one genuinely slow call in the whole module.
-        runFinalization(finalization, releasesEngine = true, slow = { engine.stop() }) { stopFailure: Throwable? ->
+        runFinalization(
+            finalization,
+            releasesEngine = true,
+            slow = {
+                engine.stop()
+                // The encoder answered, but the file it wrote may have been deleted or replaced under
+                // the recording (a cache cleaner, the user, another process). Completed promises an
+                // existing, closed file, so a result that is not one is a failed stop.
+                check(fileSystem.isRegularFile(finalization.path)) {
+                    "The recording file is missing or is not a regular file: ${finalization.path}"
+                }
+            },
+        ) { stopFailure: Throwable? ->
             if (stopFailure != null) {
                 // Whatever was captured up to this point stays on disk: it may be salvageable, and
                 // deleting a user's audio because the encoder complained on close is not a call a

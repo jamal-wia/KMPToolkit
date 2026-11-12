@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 import org.robolectric.Robolectric
 import org.robolectric.Shadows
 
@@ -41,6 +42,7 @@ class RecorderRotationProbeActivity : Activity() {
  * stop must deliver the file, and no generation of the screen may stay reachable.
  */
 @RunWith(AndroidJUnit4::class)
+@Config(shadows = [StrictShadowMediaRecorder::class])
 class ActivityRotationTest {
 
     @Test

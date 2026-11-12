@@ -27,7 +27,7 @@ import org.robolectric.annotation.Config
  * constructor below 31). Every other host test pins one level.
  */
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [24, 26, 28, 29, 31, 34])
+@Config(sdk = [24, 26, 28, 29, 31, 34], shadows = [StrictShadowMediaRecorder::class])
 class RecorderApiMatrixTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
