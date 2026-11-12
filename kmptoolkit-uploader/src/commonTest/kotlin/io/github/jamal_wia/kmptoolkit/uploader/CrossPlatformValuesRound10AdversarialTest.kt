@@ -73,7 +73,7 @@ class CrossPlatformValuesRound10AdversarialTest {
         )
         val lines: List<String> = cases.map { (label, t) ->
             val text: String? = describeFailure(t)
-            "$label -> ${text?.length}:${text?.take(40)?.map { it.code.toString(16) }?.joinToString(",") { it }?.hashCode()}:${text?.take(24)}"
+            "$label -> ${text?.length}:${text?.take(40)?.map { it.code.toString(16) }?.joinToString(",") { it }?.hashCode()}:${text?.take(24)?.map { if (it.code < 0x20) "<${it.code}>" else it.toString() }?.joinToString("")}"
         }
         assertEquals(FAILURE_GOLDEN.trim(), lines.joinToString("\n"), "transcript:\n" + lines.joinToString("\n"))
     }
@@ -136,7 +136,7 @@ quoted -> 14:-1265184117:Quoted Name: q
 local -> 8:1150894299:Local: l
 anonymous -> 15:-617400514:Throwable: anon
 ise -> 26:1918939787:IllegalStateException: i
-unicode -> 10:-2138513324:Boom: é😀?
+unicode -> 10:-2138513324:Boom: é😀<0>
 long -> 4119:-986357972:Boom: xxxxxxxxxxxxxxxxxx
 pair-split -> 4117:-986357972:Boom: xxxxxxxxxxxxxxxxxx
 """
