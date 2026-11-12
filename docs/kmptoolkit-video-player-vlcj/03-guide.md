@@ -28,7 +28,12 @@ VLC can only open real files, so:
   place;
 - packed into a jar (a distributable), it is **copied to a temporary file** for as long as that
   source stays loaded, then deleted — on the next `prepare`, on `unload`, on `release`, and in the
-  worst case at JVM exit.
+  worst case at JVM exit. The copy keeps the asset's extension (so libvlc can tell the container) when it is
+  plain, 1 to 16 letters, digits, `_` or `-`; any other extension is replaced by `.tmp`.
+
+Any name the file system accepts plays, including one with a character outside the Basic Multilingual Plane (an
+emoji): the JDK's class loader encodes such a name one UTF-16 surrogate at a time, which is not valid UTF-8, and
+the resolver joins the pairs again before it opens the file or the jar entry.
 
 For large videos in a packaged app, prefer installing them next to the app and using
 `VideoSource.File` — the copy costs disk and time on every prepare.
