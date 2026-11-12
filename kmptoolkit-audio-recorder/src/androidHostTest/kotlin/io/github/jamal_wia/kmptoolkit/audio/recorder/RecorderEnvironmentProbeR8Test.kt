@@ -59,7 +59,9 @@ class RecorderEnvironmentProbeR8Test {
         (blocking { recorder.prepare() } as? RecorderResult.Success)?.value
             ?: error("prepare failed, state ${recorder.state.value}")
 
+    // The silence monitor exists only from API 29; below it the three injected failures are never reached.
     @Test
+    @Config(minSdk = 29, maxSdk = 35)
     fun `a silence monitor the platform refuses at every step leaves a working recording`() {
         StrictRecorderWorld.failures["registerAudioRecordingCallback"] = IllegalStateException("register")
         StrictRecorderWorld.failures["unregisterAudioRecordingCallback"] = IllegalStateException("unregister")
