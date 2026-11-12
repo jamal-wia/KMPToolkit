@@ -19,7 +19,9 @@ internal object ClaimsInDoubt {
 
     /**
      * Returns [lease], or the nearest later value that no unresolved claim of [id] holds, and holds it until [drop].
-     * Without an overlap nothing is shifted; in one, the later claim's lease is a millisecond longer.
+     * Without an overlap nothing is shifted; in one, the later claim's lease is a millisecond longer. At the very top of
+     * the `Long` range, where nothing is longer, the lease is a millisecond shorter instead, so the grants stay
+     * distinct there too.
      */
     fun reserve(id: String, lease: Long): Long {
         var granted: Long = lease
@@ -27,6 +29,11 @@ internal object ClaimsInDoubt {
             val taken: Set<Long> = map[id].orEmpty()
             var candidate: Long = lease
             while (candidate in taken && candidate < Long.MAX_VALUE) candidate++
+            if (candidate in taken) {
+                // [lease] and everything above it is held: the top of the range. Look below instead.
+                candidate = lease
+                while (candidate in taken) candidate--
+            }
             granted = candidate
             map + (id to (taken + candidate))
         }
