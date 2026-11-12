@@ -40,6 +40,9 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
+            // Test scope only (never in the published POM): the fidelity differential runs the real notifiers
+            // and RecordingNotifier through one script, which needs both in one test source set.
+            implementation(project(":kmptoolkit-notification-testing"))
         }
         androidMain.dependencies {
             // NotificationCompat, NotificationManagerCompat, and String.toUri.
