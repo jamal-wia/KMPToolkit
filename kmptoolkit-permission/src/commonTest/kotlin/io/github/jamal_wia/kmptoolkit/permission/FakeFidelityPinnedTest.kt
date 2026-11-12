@@ -1,0 +1,37 @@
+package io.github.jamal_wia.kmptoolkit.permission
+
+import io.github.jamal_wia.kmptoolkit.permission.FidelityScenarios.runAll
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+
+/** What the scenarios must read like, written out by hand from the API reference, played on the fake. */
+class FakeFidelityPinnedTest {
+
+    @Test
+    fun `the fake plays the scenarios as the API reference describes the real controllers`() = runTest {
+        val scope: TestScope = this
+        val got: Map<String, List<String>> = runAll { FakeWorld { scope.testScheduler.runCurrent() } }
+
+        assertEquals(
+            listOf("fresh:notGranted", "request:granted", "check:granted", "again:granted", "observed:notGranted", "observed:granted"),
+            got.getValue("basic"),
+        )
+        assertEquals(
+            listOf("keys:CAMERA, MICROPHONE", "CAMERA:granted", "MICROPHONE:notGranted", "after:granted,notGranted", "empty:0"),
+            got.getValue("batch"),
+        )
+        assertEquals(
+            listOf("whileUp:false,false", "after:granted,notGranted", "order:[r1, r2]"),
+            got.getValue("serialized"),
+        )
+        assertEquals(listOf("open:true", "opened:1", "cannotOpen:false"), got.getValue("settings"))
+        assertEquals(listOf("first:granted", "queuedCancelledNeverAsked:notGranted"), got.getValue("cancelQueued"))
+        assertEquals(
+            listOf("observed:notGranted", "observed:granted", "check:granted"),
+            got.getValue("settingsTrip"),
+        )
+    }
+}
