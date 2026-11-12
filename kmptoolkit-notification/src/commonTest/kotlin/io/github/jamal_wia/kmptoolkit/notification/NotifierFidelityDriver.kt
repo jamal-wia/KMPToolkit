@@ -5,6 +5,7 @@ import io.github.jamal_wia.kmptoolkit.permission.PermissionStatus
 import kotlin.random.Random
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TestTimeSource
 
@@ -112,6 +113,10 @@ internal object NotifierFidelityDriver {
                     assertEquals(answered, recorded, "$where: the double answers what it was told. Steps: $log")
                     assertEquals(id to frame, fake.posted.last().let { it.id to it.notification }, "$where: the log holds the post. Steps: $log")
                     assertEquals(options, fake.posted.last().options, "$where: the log holds the options. Steps: $log")
+                    if (options === NotificationOptions.DEFAULT) {
+                        // The double's doc: DEFAULT is recorded as itself.
+                        assertSame(NotificationOptions.DEFAULT, fake.posted.last().options, "$where: DEFAULT is recorded as itself. Steps: $log")
+                    }
                 }
             }
             val onScreen: Map<String, Pair<String, String>> = host.shown(IDS)
