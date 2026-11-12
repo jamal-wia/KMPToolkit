@@ -103,7 +103,7 @@ class UploaderStorageTransactionChaosRound5AdversarialTest {
                             delay(secondDelay[n])
                             store.insertKeep(item("c$n"))
                         }
-                    }
+                    }.map { }
                 }.also { job ->
                     when (n % 3) {
                         0 -> cancellers += launch(Dispatchers.Default) { delay(cancelAfter[n]); job.cancel() }
@@ -118,7 +118,15 @@ class UploaderStorageTransactionChaosRound5AdversarialTest {
             for (n in 0 until 150) {
                 val present: List<Boolean> = listOf("a$n", "b$n", "c$n").map { store.getById(it) != null }
                 assertTrue(present.all { it } || present.none { it }, "iteration $iteration: transaction $n half applied: $present")
-                val outcome: Result<Unit> = checkNotNull(outcomes[n]) { "seed $seed iteration $iteration: caller $n recorded no outcome" }
+                // A mode-0 caller cancelled before its coroutine body started records no outcome: it never entered the
+                // transaction, so it must have left no row. Any other caller must have recorded one.
+                val outcome: Result<Unit> = outcomes[n] ?: run {
+                    assertTrue(
+                        n % 3 == 0 && !entered[n].isCompleted && callers[n].isCancelled && present.none { it },
+                        "seed $seed iteration $iteration: caller $n recorded no outcome (entered=${entered[n].isCompleted}, rows=$present)",
+                    )
+                    Result.failure(CancellationException("cancelled before it started"))
+                }
                 val failure: Throwable? = outcome.exceptionOrNull()
                 assertTrue(
                     failure == null || failure is CancellationException,
