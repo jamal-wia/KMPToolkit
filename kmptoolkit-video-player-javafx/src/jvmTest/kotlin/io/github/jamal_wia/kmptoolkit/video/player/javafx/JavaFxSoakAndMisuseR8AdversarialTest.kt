@@ -42,6 +42,9 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
 
     private fun liveThreads(): Int = Thread.getAllStackTraces().keys.count { it.isAlive }
 
+    private fun threadNames(): Map<String, Int> =
+        Thread.getAllStackTraces().keys.filter { it.isAlive }.groupingBy { it.name.replace(Regex("[0-9]+"), "#") }.eachCount()
+
     private fun cycle(random: Random, weak: MutableList<WeakReference<Any>>) {
         val engine = JavaFxVideoEngine(readyTimeoutMs = 15_000L)
         val player: VideoPlayer = createVideoPlayer(engine, VideoPlayerConfig(positionUpdateIntervalMs = 20L), Dispatchers.Default)
@@ -89,12 +92,14 @@ class JavaFxSoakAndMisuseR8AdversarialTest {
         weak.clear()
         val threadsBefore: Int = liveThreads()
         val filesBefore: Set<String> = tempNames()
+        val namesBefore: Map<String, Int> = threadNames()
         val deadline: Long = System.nanoTime() + soakSeconds() * 1_000_000_000L
         var cycles = 0
         while (System.nanoTime() < deadline) { cycle(random, weak); cycles++ }
         val end: Long = System.nanoTime() + 20_000_000_000L
         while (liveThreads() - threadsBefore > 8 && System.nanoTime() < end) Thread.sleep(100L)
-        assertTrue(liveThreads() - threadsBefore <= 8, "threads grew ${liveThreads() - threadsBefore} over $cycles cycles")
+        val grown: Map<String, Int> = threadNames().mapValues { (name, n) -> n - (namesBefore[name] ?: 0) }.filterValues { it > 0 }
+        assertTrue(liveThreads() - threadsBefore <= 8, "threads grew ${liveThreads() - threadsBefore} over $cycles cycles: $grown")
         val created: List<String> = (tempNames() - filesBefore).sorted()
         assertEquals(emptyList(), created, "files left behind by $cycles cycles")
         var alive: Int = weak.size
