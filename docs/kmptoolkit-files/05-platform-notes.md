@@ -125,7 +125,10 @@ temporary file before the rename and on a read-only descriptor of the parent dir
 with `ENOTSUP` or `EINVAL` falls back to `fsync`. `Synced` is plain `fsync` — the downloader's choice
 — because a full flush costs milliseconds per call and is the wrong default. A JVM on macOS cannot issue
 `F_FULLFSYNC` (`FileChannel.force` is `fsync`); on that host `SyncedWithDirectory` is as strong as
-the JDK allows. Windows skips the directory sync: NTFS journals the rename.
+the JDK allows. A directory created by the same call (`createParentDirectories`) is made durable too: after the rename the
+parent of each level the call created is synced, deepest first, then the target's parent, so the first record in
+a new directory survives power loss (a new directory's entry is durable only once its parent is synced; F2FS on
+Android is the file system known to need it). Windows skips the directory sync: NTFS journals the rename.
 
 ## Protection classes and backup flags (iOS)
 
