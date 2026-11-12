@@ -220,7 +220,7 @@ cannot be read completely — the connection broke, or the time ran out —
 is reported as truncated with the bytes read so far, not as a transport failure. A status that carries no content (`1xx`,
 `204`, `205`, `304`) has an empty body that is never flagged truncated, whatever length its headers name.
 A redirect (`3xx` other than `304`) whose body the stack does not hand over is flagged truncated unless its headers declare an empty body (`Content-Length: 0`).
-A body with a declared `Content-Length` (and no content encoding or chunked transfer) is read up to that length and no
+A body with a declared `Content-Length` (and no content encoding, `identity` counting as none, or chunked transfer) is read up to that length and no
 further, so bytes a confused server or proxy sends behind it (a second response glued on) are not part of the body.
 The status line and headers must arrive within twice the read timeout after the body is sent: a server that
 trickles them longer fails the attempt as a transport failure (no status was received). A reply that is not a final HTTP

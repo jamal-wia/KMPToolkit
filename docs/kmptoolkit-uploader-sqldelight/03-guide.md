@@ -232,13 +232,16 @@ was running and the platform cause. A corrupt database file is by default never 
 ### One row is at most 1 MiB
 
 The text columns of one row (payload, id, type, unique key, ordering key, tag and last error) may hold at most
-1 MiB of UTF-8 together. An insert over that is refused with `UploaderStorageException`. The limit exists because
+1 MiB of UTF-8 together, counted on the texts as given; a text with NUL characters or lone surrogates is stored in a
+larger escaped form (at most twice the size), and the stored form of the row may not pass 2,048,000 bytes either. An
+insert over either limit is refused with `UploaderStorageException`. The limits exist because
 Android reads a row through a `CursorWindow` of about 2 MiB: a bigger row can be written but never read back, and
 because the queue is read as a whole, that one row would make every item unreadable and impossible to withdraw.
 The same limit holds on every platform so the queue behaves alike. Keep a large payload elsewhere (a file) and
 queue a reference to it. The engine itself bounds the failure text it stores to about 4096 characters. The bound also holds for later writes:
 a failure text or park reason written after the insert is cut (on a character boundary, or dropped) to whatever room
-the rest of the row leaves, so a row accepted at the limit never grows past it.
+the rest of the row leaves (as given and as stored), so a row accepted at the limit never grows past it and is always
+readable.
 
 A storage used after `close()` fails with `UploaderStorageException` whose cause is an `IllegalStateException`,
 never with a `CancellationException`.
