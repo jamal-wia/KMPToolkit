@@ -64,7 +64,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * ## Structure: a front over components that each own rules
  *
  * This class decides what to do and keeps every name the platform entry points and the tests call, but it holds no
- * store and cancels no upload itself. The protocol below is enforced by who can reach what, not by convention:
+ * store and cancels no upload itself. The store is out of reach **by construction** (the constructor hands it to the
+ * ledger and keeps nothing); upload cancels and the process-wide memories are kept to their owners by the review
+ * gate below, not by the compiler:
  *
  * | Component | Owns | Rules |
  * |---|---|---|
@@ -73,9 +75,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * | [AttemptRegistry] | the attempts the drain runs and their handshake with a withdrawal | P1, P2 |
  * | [DrainCall] | the turns of one call of `drain()` | P9 |
  *
- * A write that skips a rule cannot be written here: `rg 'store\.'` and `rg 'transport\.cancel'` over this file find
- * nothing. The attempt runner, the settle desk and the lifecycle are still methods of this class (carry-over: step 2 of
- * the split moves them out, with no test changing).
+ * The review gate: `rg 'store\.'` and `rg 'transport\.cancel'` over this file find nothing, and neither do
+ * `DeliveredUnconfirmed.` or `ClaimsInDoubt.` outside KDoc. This class still reaches the transports (it launches
+ * attempts), so a cancel could be written here again; handing the launch to an attempt runner that alone holds the
+ * transports is the cure, and it belongs to step 2 of the split (carry-over: the attempt runner, the settle desk and
+ * the lifecycle are still methods of this class, and moving them out changes no test).
  *
  * ## Cancellation, close and claims
  *
@@ -474,7 +478,7 @@ internal class DefaultUploaderEngine(
                     if (parked) {
                         logger.w { "Settled ${record.logName} as parked — ${result.reason}." }
                     } else {
-                        logger.i { "Park settle for ${record.logName} superseded mid-settle — no-op." }
+                        logger.i { "Park settle for ${record.logName} not applied — no-op." }
                     }
                     parked
                 } else {
@@ -978,7 +982,7 @@ internal class DefaultUploaderEngine(
                 if (parkAsRead(item, outcome.reason)) {
                     logger.w { "Parked ${item.logName} — ${outcome.reason}." }
                 } else {
-                    logger.i { "Park of ${item.logName} skipped — the item moved while it ran." }
+                    logger.i { "Park of ${item.logName} not applied — no-op." }
                 }
             }
 
@@ -1161,7 +1165,7 @@ internal class DefaultUploaderEngine(
             disposition = disposition,
         )
         if (!applied) {
-            logger.i { "Stale failure report for ${record.logName} — superseded, no-op." }
+            logger.i { "Failure report for ${record.logName} not applied — no-op." }
             return null
         }
         when (disposition) {
@@ -1176,7 +1180,9 @@ internal class DefaultUploaderEngine(
     internal fun runningAttemptStamp(id: String): Int? = attemptRegistry.stampOf(id)
 
     /** See [AttemptRegistry.awaitEnd]. */
-    internal suspend fun awaitHandOff(id: String, timeoutMillis: Long) = attemptRegistry.awaitEnd(id, timeoutMillis)
+    internal suspend fun awaitHandOff(id: String, timeoutMillis: Long): Unit {
+        attemptRegistry.awaitEnd(id, timeoutMillis)
+    }
 
     /**
      * What the engine remembers, in memory only, about an item whose attempt failed outside its handler.
@@ -1224,7 +1230,9 @@ internal class DefaultUploaderEngine(
     }
 
     /** Rule P7: see [RowLedger.confirm]. */
-    private suspend fun deleteAfterEffect(item: UploaderItem) = ledger.confirm(item)
+    private suspend fun deleteAfterEffect(item: UploaderItem): Unit {
+        ledger.confirm(item)
+    }
 
     /**
      * How long to wait before retrying after [failures] consecutive failed passes (`>= 1`): [UploaderConfig.minAlarmDelay]

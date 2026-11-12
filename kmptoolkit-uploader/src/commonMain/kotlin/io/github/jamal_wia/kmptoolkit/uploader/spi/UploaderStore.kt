@@ -94,7 +94,7 @@ public interface UploaderStore {
      * [ConflictPolicy.KEEP][io.github.jamal_wia.kmptoolkit.uploader.ConflictPolicy.KEEP].
      *
      * Per-state behavior of an existing item with the same identity:
-     * - [UploaderItemState.PENDING] — keep it, do not insert, return `false`.
+     * - [UploaderItemState.PENDING] — keep it, do not insert, return [KeepResult.Kept].
      * - [UploaderItemState.IN_FLIGHT] — same: an in-flight delivery must win over a re-enqueue
      *   exactly like a waiting one, or a duplicate would be sent.
      * - [UploaderItemState.PARKED] — **replace it** and return it as [KeepResult.Inserted.superseded]. A parked item

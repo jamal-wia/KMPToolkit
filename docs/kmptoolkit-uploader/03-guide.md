@@ -259,6 +259,11 @@ expires the item becomes attemptable again and `execute` runs afresh with
 executor may have completed and merely failed to report (the app died right after the upload
 finished), so a re-hand-off should probe or rejoin rather than start over.
 
+An in-flight item whose type has no registered handler (a payload from a build that had the type) is parked, not
+run, once its lease has ended: an unexpired lease is respected first, because the executor that holds it may still
+be running. A single `drain()` call gives such an item one turn, and a park that throws no longer stops the items
+behind it.
+
 Size the lease to the executor's realistic worst case. Too short and you get redundant hand-offs
 racing a live executor — wasteful but survivable. Too long and recovery from a silently dead
 executor is delayed by exactly that much.

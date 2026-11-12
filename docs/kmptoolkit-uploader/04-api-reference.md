@@ -387,6 +387,19 @@ Eleven functions; the full contract is in the interface KDoc and in
 - Dedup identity is `(type, uniqueKey)`; a `null` key never conflicts.
 - Payload and tag are opaque.
 
+### `KeepResult` (since 5.0.0)
+
+`sealed interface KeepResult`, what `UploaderStore.insertKeep` returns:
+
+| Case | Meaning |
+|---|---|
+| `KeepResult.Kept` | A `PENDING` or `IN_FLIGHT` holder of the identity won: nothing was inserted and nothing was removed. |
+| `KeepResult.Inserted(superseded: UploaderItem?)` | The record was inserted. `superseded` is the `PARKED` row the insert deleted, as it was just before the delete and read in the same atomic step, or `null` when no row held the identity (also for a `null` `uniqueKey`). When identity spellings make one insert remove several rows, the earliest by insertion order. |
+
+The engine withdraws `superseded` exactly like the row a `REPLACE` removes: it stops the attempt it runs and cancels the
+upload, whatever the row's state. Replaces the `Boolean` of 4.x: `false` is `Kept`, `true` is `Inserted`. See the
+`Breaking` entry in [`CHANGELOG.md`](../../CHANGELOG.md) and [`07-custom-store.md`](07-custom-store.md).
+
 ### `TransactionRunner`
 
 `suspend fun <R> inTransaction(block: suspend () -> R): R`. Must be atomic and **reentrant** — a
