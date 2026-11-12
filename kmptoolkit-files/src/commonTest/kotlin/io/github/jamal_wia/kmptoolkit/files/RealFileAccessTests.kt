@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.test.AfterTest
@@ -360,11 +361,15 @@ abstract class RealFileAccessTests {
         val writers: List<Deferred<Int>> = List(8) { writer ->
             async {
                 val payload: ByteArray = ByteArray(size) { (writer + 1).toByte() }
-                repeat(200) {
-                    assertOk(fs.writeAtomically(target, payload, WriteOptions(durability = Durability.Buffered)), "writer $writer")
-                    writtenOnce.store(1)
+                try {
+                    repeat(200) {
+                        assertOk(fs.writeAtomically(target, payload, WriteOptions(durability = Durability.Buffered)), "writer $writer")
+                        writtenOnce.store(1)
+                    }
+                } finally {
+                    // A failing writer must still release the readers, or they would spin forever.
+                    writersLeft.addAndFetch(-1)
                 }
-                writersLeft.addAndFetch(-1)
             }
         }
         val readers: List<Deferred<Int>> = List(4) {
@@ -385,6 +390,8 @@ abstract class RealFileAccessTests {
                         }
                     }
                     reads++
+                    // A suspension point, so cancellation and the timeout can stop a reader.
+                    yield()
                 }
                 reads
             }
