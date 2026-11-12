@@ -30,14 +30,14 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowActivity
 
 /**
- * 05-platform-notes, entry by entry, on the API levels the earlier matrices skip (25, 27, 28, 31, 32 and 35; a full 24..35 sweep of this class passed 24 to 32 and then ran the test JVM out of memory loading the 33 and 34 images, so it is kept lean) through the real factory, the real
+ * 05-platform-notes, entry by entry, on API 25, 28, 31 and 35, levels other test classes already load (a sweep of 24..32 passed in isolation, 27 and 32 included, but the full-suite JVM ran out of memory once this class added images no other class uses, so it is kept lean) through the real factory, the real
  * dialog host and a real `ComponentActivity` (the earlier matrices cover six levels and mostly read
  * statuses). The expected strings are written out here from the notes, not taken from the rules: which
  * strings one dialog asks for, which entries show no dialog, what a grant, a refusal with and without a
  * rationale, a dialog that returned nothing and a partial answer read as.
  */
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [25, 27, 28, 31, 32, 35])
+@Config(sdk = [25, 28, 31, 35])
 class RealDialogEveryApiLevelTest {
 
     private val application: Application = ApplicationProvider.getApplicationContext()
