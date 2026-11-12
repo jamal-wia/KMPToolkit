@@ -177,7 +177,8 @@ internal class OutcomeJournal(
             delete(itemId)
             return JournalEntry.Discarded
         }
-        if (clock.nowEpochMillis() - decoded.writtenAtMillis > retentionMillis) {
+        // Saturating: a gap wider than a Long holds (a negative stamp read far ahead) is expired, never a wrapped "fresh".
+        if (saturatingSubtract(clock.nowEpochMillis(), decoded.writtenAtMillis) > retentionMillis) {
             logger.i { "Discarded an expired journaled outcome — item=$itemId" }
             delete(itemId)
             return JournalEntry.Discarded

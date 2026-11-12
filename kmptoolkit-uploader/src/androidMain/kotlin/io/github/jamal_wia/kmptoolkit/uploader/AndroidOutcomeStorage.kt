@@ -55,7 +55,7 @@ internal class AndroidOutcomeStorage(
     override fun itemIds(): List<String> = dir.list()?.sorted().orEmpty()
 
     override fun purgeLeftovers() {
-        val cutoff: Long = now() - leftoverAgeMillis
+        val cutoff: Long = saturatingSubtract(now(), leftoverAgeMillis)
         leftoversDir.listFiles()?.forEach { file -> if (file.lastModified() < cutoff) file.delete() }
     }
 
