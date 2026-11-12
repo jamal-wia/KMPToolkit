@@ -207,13 +207,45 @@ class JavaFxRateGivingR8AdversarialTest {
         assertEquals(0L, longField(e, "playIssuedAtNanos"), "a seek was posted before this play")
     }
 
+    // The native currentTime does not always read a seek that was just posted (it read 0.0 right after seek(2000) in a
+    // full-suite run), so a seek to "where the player stands" issued after a posted seek would undo that seek. start()
+    // and setSpeed() skip it when a seek is posted since the last play: these trials hit the stale reading sometimes.
+
     @Test
-    fun `the native player reads a posted seek as its current time at once`() {
-        // The premise that makes an extra seek to the current time a no-op (mutants J2 and J12 are equivalent).
-        val e: JavaFxVideoEngine = loaded()
-        e.seekTo(2_000L)
-        val player: MediaPlayer = nativePlayer(e)
-        val read: Double = runBlocking { withTimeout(5_000L) { FxThread.call { player.currentTime.toMillis() } } }
-        assertTrue(kotlin.math.abs(read - 2_000.0) < 150.0, "currentTime read $read right after seek(2000)")
+    fun `a seek posted before a resume at a speed is not undone by the resume`() {
+        repeat(12) { trial ->
+            val e: JavaFxVideoEngine = loaded()
+            try {
+                e.setSpeed(2f)
+                e.seekTo(2_000L)
+                e.start()
+                sleep(350L)
+                val position: Long = e.positionMs()
+                assertTrue(position >= 1_900L, "trial $trial: the playhead is at $position ms after seekTo(2000) and a resume at speed 2")
+            } finally {
+                e.release()
+            }
+        }
+    }
+
+    @Test
+    fun `a replay after the end at a speed starts over and does not complete again at once`() {
+        repeat(6) { trial ->
+            val listener = RecordingListener()
+            val e: JavaFxVideoEngine = loaded(listener)
+            try {
+                e.setSpeed(2f)
+                e.start()
+                await(10_000L, "completed") { listener.events.any { it is EngineEvent.Completed } }
+                e.start()
+                sleep(300L)
+                val completions: Int = listener.events.count { it is EngineEvent.Completed }
+                val position: Long = e.positionMs()
+                assertEquals(1, completions, "trial $trial: the replay completed again within 300 ms (playhead $position)")
+                assertTrue(position < 2_500L, "trial $trial: the replay stands at $position ms")
+            } finally {
+                e.release()
+            }
+        }
     }
 }
