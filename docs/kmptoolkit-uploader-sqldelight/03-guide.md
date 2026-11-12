@@ -223,8 +223,8 @@ already on the database thread rather than dispatching onto it — though what i
 uncommitted state your own transaction has written so far.
 
 Withdrawals are not transactional. `cancel`, `cancelByTag` and `REPLACE` called inside a transaction cancel a
-running upload or attempt at once. If that transaction later rolls back, the row is restored and stays queued, and
-its upload resumes no later than when its lease expires; the cancelled attempt spent nothing.
+running upload or attempt at once. If that transaction later rolls back, the row is restored and stays queued (an item whose effect already ran in this process and only its delete was owed is
+deleted without running again), and its upload resumes no later than when its lease expires; the cancelled attempt spent nothing.
 
 ## Failures
 

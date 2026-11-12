@@ -69,6 +69,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   starts does nothing. Once the write has started it runs under `NonCancellable`, and the stop of the attempt and the
  *   cancel of the upload follow it in a `finally`. The side effects follow the row: they run unless the row is
  *   provably still there (a failed delete followed by a read that still finds the row changes nothing, so the call
+ *   may be repeated). The delivered-but-unconfirmed memory is not a side effect: a withdrawal never clears it (it may be
+ *   rolled back), only a confirming delete does.
  *   *Pinned by:* UploaderEngineWithdrawalWindowRound5AdversarialTest, UploaderStorageCancelledCallerRound5AdversarialTest,
  *   UploaderEngineRestartAdversarialTest, UploaderCancelTest, UploaderEngineContractRound6AdversarialTest (hung
  *   withdrawal) and UploaderEngineContractGapsRound6AdversarialTest (failed cancel, throwing wake scheduler).
@@ -290,7 +292,6 @@ internal class DefaultUploaderEngine(
             // handler's items have one at all. Whatever the handler kind, an attempt the engine is running for the
             // superseded item is stopped. None of this suspends or throws.
             superseded?.let { old ->
-                DeliveredUnconfirmed.forget(old)
                 stopAttempt(old.id)
                 if (handler is UploadHandler<*> && old.state != UploaderItemState.PARKED) {
                     cancelUpload(old, reason = "superseded by ${record.logName}")
@@ -342,7 +343,6 @@ internal class DefaultUploaderEngine(
                 false
             }
         if (!stillQueued) {
-            DeliveredUnconfirmed.forget(record)
             stopAttempt(id)
             cancelUpload(record, reason = "withdrawn")
         }
@@ -359,7 +359,6 @@ internal class DefaultUploaderEngine(
         currentCoroutineContext().ensureActive()
         val removed: List<UploaderItem> = withContext(NonCancellable) { store.deleteByTag(tag) }
         removed.forEach { record ->
-            DeliveredUnconfirmed.forget(record)
             stopAttempt(record.id)
         }
         val owed: List<UploaderItem> = removed.filter { it.state != UploaderItemState.PARKED }

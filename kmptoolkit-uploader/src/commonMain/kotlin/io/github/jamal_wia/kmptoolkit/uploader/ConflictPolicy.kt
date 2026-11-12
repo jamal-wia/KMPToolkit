@@ -39,8 +39,8 @@ public enum class ConflictPolicy {
      * [Uploader.cancel] would: the old version must not keep uploading next to the new one.
      *
      * Cancelling the superseded item's upload or running attempt is a side effect that happens at once and is
-     * not rolled back: if a transaction around the enqueue rolls back, the old row is restored and stays queued,
-     * its upload resuming no later than when its lease expires.
+     * not rolled back: if a transaction around the enqueue rolls back, the old row is restored and stays queued; an item whose effect already ran in this process and only its delete was
+     * owed is deleted without running again, its upload resuming no later than when its lease expires.
      *
      * A caller cancelled before the enqueue starts writes nothing. Once the write has started, cancelling the
      * caller does not interrupt it: the replacement completes, and the stop of the superseded item's attempt and

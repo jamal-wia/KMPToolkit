@@ -13,9 +13,10 @@ import kotlinx.coroutines.flow.update
  * nor removes the entry, so it runs normally and nothing is deleted on a guess.
  *
  * Not bounded by an active list on purpose. Two live engines over two stores are a documented setup, and an engine
- * that pruned by its own list would erase the other's entries. An entry leaves when a delete confirms the delivery or
- * an engine withdraws the item ([forget]); only a row removed from outside every engine of the process leaves a leaked
- * entry of about a hundred bytes.
+ * that pruned by its own list would erase the other's entries. An entry leaves only when a delete confirms the
+ * delivery ([forget]). A withdrawal keeps it: a rolled-back or failed withdrawal leaves the row queued, and its effect
+ * must still not run again. A row removed for good, by a withdrawal or from outside every engine, leaves a leaked entry
+ * of about a hundred bytes.
  *
  * Residual: a row of another store with the same id and fingerprint (a custom `idGenerator` reusing ids with identical
  * content and creation time) is taken for the same item.
@@ -37,8 +38,8 @@ internal object DeliveredUnconfirmed {
     fun matches(item: UploaderItem): Boolean = entries.value[item.id] == item.fingerprint()
 
     /**
-     * Forgets the entry of [item] when it was recorded for this very row (a delete confirmed, or an engine withdrew
-     * the item). An entry recorded for another row of the same id stays.
+     * Forgets the entry of [item] when it was recorded for this very row (a delete confirmed the delivery; a
+     * withdrawal never calls this). An entry recorded for another row of the same id stays.
      */
     fun forget(item: UploaderItem) {
         val print: Fingerprint = item.fingerprint()

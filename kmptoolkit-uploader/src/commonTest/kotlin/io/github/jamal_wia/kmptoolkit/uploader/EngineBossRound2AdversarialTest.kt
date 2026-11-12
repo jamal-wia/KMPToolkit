@@ -434,11 +434,11 @@ class EngineBossRound2AdversarialTest {
     }
 
     /**
-     * D-29 S1, REPLACE side: the superseded row's entry is forgotten. Under a reused id (the fixer's own reuse setup)
-     * the replacement carries the very fingerprint of the delivered row; a stale entry would delete it unrun.
+     * A REPLACE keeps the delivered entry of the row it supersedes because it may be rolled back (D-29 S1 as ruled by
+     * boss 2): a reused id with a later creation time is another item, so the replacement runs.
      */
     @Test
-    fun `a REPLACE forgets the delivered entry of the row it supersedes`() = runTest {
+    fun `a REPLACE under a reused id runs the replacement`() = runTest {
         val parents: List<Job> = List(2) { Job() }
         try {
             val inner = TestUploaderStore()
@@ -453,6 +453,7 @@ class EngineBossRound2AdversarialTest {
             assertEquals(1, handler.payloads.size, "setup: the effect ran and its delete failed")
 
             val second: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parents[1]), clock, idGenerator = sameId)
+            clock.millis += 1
             second.enqueue(handler, "payload", uniqueKey = "draft", conflictPolicy = ConflictPolicy.REPLACE)!!
             second.drain()
             assertEquals(2, handler.payloads.size, "the replacement was taken for the superseded delivered row and removed unrun")

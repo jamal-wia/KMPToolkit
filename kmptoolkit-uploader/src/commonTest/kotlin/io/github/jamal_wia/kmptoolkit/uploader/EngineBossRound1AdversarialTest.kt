@@ -170,7 +170,7 @@ class EngineBossRound1AdversarialTest {
     }
 
     @Test
-    fun `an item withdrawn by a replacement engine is forgotten and runs again under a reused id`() = runTest {
+    fun `an item withdrawn by a replacement engine is withdrawn without a run and a new item under a reused id runs`() = runTest {
         val parents: List<Job> = List(2) { Job() }
         try {
             val inner = TestUploaderStore()
@@ -188,7 +188,9 @@ class EngineBossRound1AdversarialTest {
             second.cancel("s1c-reused-id")
             assertNull(inner.find("s1c-reused-id"), "the replacement's cancel left the row")
             assertEquals(1, handler.payloads.size, "withdrawing ran the effect")
-            // The id and every field of the fingerprint come back: a stale entry would take it for the delivered one.
+            // A withdrawal keeps the entry because it may be rolled back; a reused id with a later creation time is
+            // another item.
+            clock.millis += 1
             second.enqueue(handler, "payload")!!
             second.drain()
             assertEquals(2, handler.payloads.size, "a new item under a withdrawn id was taken for the delivered one")
@@ -198,7 +200,7 @@ class EngineBossRound1AdversarialTest {
     }
 
     @Test
-    fun `an item withdrawn by tag by a replacement engine is forgotten too`() = runTest {
+    fun `an item withdrawn by tag by a replacement engine is withdrawn without a run and a new item under a reused id runs`() = runTest {
         val parents: List<Job> = List(2) { Job() }
         try {
             val inner = TestUploaderStore()
@@ -215,6 +217,9 @@ class EngineBossRound1AdversarialTest {
             val second: UploaderEngine = testEngine(store, listOf(handler), scopeOn(parents[1]), clock, idGenerator = sameId)
             second.cancelByTag("account")
             assertNull(inner.find("s1d-reused-id"), "the wipe left the row")
+            // A withdrawal keeps the entry because it may be rolled back; a reused id with a later creation time is
+            // another item.
+            clock.millis += 1
             second.enqueue(handler, "payload")!!
             second.drain()
             assertEquals(2, handler.payloads.size, "a new item under a wiped id was taken for the delivered one")
