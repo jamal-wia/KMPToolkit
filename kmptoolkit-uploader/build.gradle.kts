@@ -40,6 +40,10 @@ kotlin {
             // this module's public signature. kmptoolkit-logging itself has no dependencies, so
             // this adds nothing else to a consumer's graph.
             api(project(":kmptoolkit-logging"))
+
+            // implementation: the outcome journals write and read their entries through FileAccess; no type of
+            // kmptoolkit-files appears in this module's public signatures.
+            implementation(project(":kmptoolkit-files"))
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)

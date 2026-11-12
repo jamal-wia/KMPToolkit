@@ -1,5 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
+import io.github.jamal_wia.kmptoolkit.files.FileNames
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -26,8 +27,15 @@ import kotlin.time.Duration.Companion.seconds
  *   when WorkManager dispatches before your bootstrap has finished. Must be positive.
  * @param connectTimeoutMillis passed to `HttpURLConnection.setConnectTimeout`. Must be positive.
  * @param readTimeoutMillis passed to `HttpURLConnection.setReadTimeout`. Must be positive.
- * @throws IllegalArgumentException if [uniqueWorkNamePrefix] or [workTag] is blank, or a duration or
- *   timeout is out of range.
+ * @param journalDirectoryName the name of the directory under the app's no-backup directory that holds the outcome
+ *   journal (`<journalDirectoryName>/outcomes`), used by [createWorkManagerUploadHandlerTransport] only. The default,
+ *   `kmptoolkit-uploader`, is the name earlier versions used, so existing journals are found; give each independent
+ *   uploader in one app its own name, or their item ids share one journal. It travels in the work request's input data,
+ *   so a job enqueued by an earlier version (no such key) falls back to the default. Must be a plain file name
+ *   ([FileNames.isPlainName]).
+ * @throws IllegalArgumentException if [uniqueWorkNamePrefix] or [workTag] is blank, a duration or
+ *   timeout is out of range, or [journalDirectoryName] is not a plain file name.
+ * @since 1.5.0 ([journalDirectoryName] since 5.0.0)
  */
 public data class UploadTransportConfig(
     val uniqueWorkNamePrefix: String? = null,
@@ -38,6 +46,7 @@ public data class UploadTransportConfig(
     val engineWait: Duration = DEFAULT_ENGINE_WAIT,
     val connectTimeoutMillis: Int = DEFAULT_CONNECT_TIMEOUT_MILLIS,
     val readTimeoutMillis: Int = DEFAULT_READ_TIMEOUT_MILLIS,
+    val journalDirectoryName: String = DEFAULT_JOURNAL_DIRECTORY_NAME,
 ) {
     init {
         require(uniqueWorkNamePrefix == null || uniqueWorkNamePrefix.isNotBlank()) {
@@ -51,6 +60,7 @@ public data class UploadTransportConfig(
         require(engineWait.isPositive()) { "engineWait must be positive, was $engineWait." }
         require(connectTimeoutMillis > 0) { "connectTimeoutMillis must be > 0, was $connectTimeoutMillis." }
         require(readTimeoutMillis > 0) { "readTimeoutMillis must be > 0, was $readTimeoutMillis." }
+        FileNames.requirePlainName(journalDirectoryName, "journalDirectoryName")
     }
 
     public companion object {
@@ -59,6 +69,12 @@ public data class UploadTransportConfig(
         public val DEFAULT_ENGINE_WAIT: Duration = 5.seconds
         public const val DEFAULT_CONNECT_TIMEOUT_MILLIS: Int = 30_000
         public const val DEFAULT_READ_TIMEOUT_MILLIS: Int = 60_000
+
+        /**
+         * The default [journalDirectoryName]: the directory name the outcome journal has always used.
+         * @since 5.0.0
+         */
+        public const val DEFAULT_JOURNAL_DIRECTORY_NAME: String = "kmptoolkit-uploader"
         public val MIN_WORK_BACKOFF: Duration = 10.seconds
         public const val WORK_NAME_PREFIX_SUFFIX: String = ".uploader.upload."
         public const val WORK_TAG_SUFFIX: String = ".uploader.upload"
