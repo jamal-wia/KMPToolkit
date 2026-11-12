@@ -60,7 +60,23 @@ class AndroidAlarmSchedulerServiceLookupRecoveryAdversarialTest {
     private fun scheduler(): AlarmScheduler = AndroidAlarmScheduler(FlakyServiceContext(context), keys)
 
     @Test
-    fun `the scheduler recovers once the service is reachable again - the refused cancel is retried by the next cancel and a schedule arms`() {
+    fun `a scheduler whose very first lookups hit a dead service works once the service is reachable again`() {
+        val scheduler: AlarmScheduler = scheduler()
+        dead.set(true)
+        runCatching { runBlocking { scheduler.schedule(alarm("b")) } }
+        runCatching { runBlocking { scheduler.cancel("b") } }
+        dead.set(false)
+
+        val result: AlarmScheduleResult = runBlocking { scheduler.schedule(alarm("b")) }
+
+        assertEquals(AlarmScheduleResult.Exact, result, "a lookup failure must not be remembered")
+        assertEquals(1, shadowAlarmManager.scheduledAlarms.size)
+        runBlocking { scheduler.cancel("b") }
+        assertEquals(0, shadowAlarmManager.scheduledAlarms.size, "and cancel reaches the service again")
+    }
+
+    @Test
+    fun `an alarm armed while healthy is cancelled once the service is back after a dead window`() {
         val scheduler: AlarmScheduler = scheduler()
         runBlocking { scheduler.schedule(alarm("a")) }
         dead.set(true)
