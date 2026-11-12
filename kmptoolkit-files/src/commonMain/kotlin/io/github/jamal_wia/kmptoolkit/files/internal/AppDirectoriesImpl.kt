@@ -39,7 +39,7 @@ internal class AppDirectoriesImpl(
             return FileResult.Failure(FileError.Unsupported(base))
         }
         val path: String = PathRules.host.join(base, name)
-        val made: FileResult<Unit> = files.createDirectories(path)
+        val made: FileResult<Unit> = files.createDirectories(path, durable = true)
         if (made is FileResult.Failure) return made
         if (wantsExclusion && mode == BackupSupport.Markable) {
             val marked: FileResult<Unit> = exclude(path)

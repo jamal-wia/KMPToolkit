@@ -29,20 +29,31 @@ internal fun typedNioError(e: Throwable, path: String): FileError? = when (e) {
     else -> null
 }
 
-/** Maps what java.nio throws to a typed [FileError]; [path] is the path the operation was working on. */
+/** Whether this host's file system counts a name in Unicode code points, not UTF-8 bytes: APFS on a macOS host. */
+internal val hostCountsCodePoints: Boolean = System.getProperty("os.name").orEmpty().startsWith("Mac", ignoreCase = true)
+
+/**
+ * Maps what java.nio throws to a typed [FileError]; [path] is the path the operation was working on.
+ *
+ * [namesEntry] is true for an operation that names or creates a directory entry (open, create, rename, link, remove,
+ * list, stat) and false for a read, write, sync or close of a file that is already open: only the former can fail
+ * because of a name, so only the former gets the length classification.
+ */
 internal fun mapNioError(
     e: Throwable,
     path: String,
     forLink: Boolean = false,
     windows: Boolean = hostUsesWindowsPaths,
     also: List<String> = emptyList(),
+    namesEntry: Boolean = true,
+    codePoints: Boolean = hostCountsCodePoints,
 ): FileError {
     typedNioError(e, path)?.let { return it }
-    if (e is FileSystemException || e is IOException) {
+    if (namesEntry && (e is FileSystemException || e is IOException)) {
         // A classification of a failure that already happened, by the length of a segment of a path the operation
         // names: no message text, so no language can change it. Never a pre-check.
         for (named: String in listOf(path) + also) {
-            if (segmentTooLong(named, windows)) return FileError.NameTooLong(named)
+            if (segmentTooLong(named, windows, codePoints)) return FileError.NameTooLong(named)
         }
     }
     val reason: String = ((e as? FileSystemException)?.reason ?: e.message ?: "").lowercase()
@@ -51,12 +62,17 @@ internal fun mapNioError(
 
 private const val MAX_SEGMENT_UNITS: Int = 255
 
-/** Whether a segment of [path] is over the file system's limit: 255 UTF-16 units on Windows, 255 UTF-8 bytes elsewhere. */
-internal fun segmentTooLong(path: String, windows: Boolean): Boolean {
+/**
+ * Whether a segment of [path] is over the file system's limit: 255 UTF-16 units on Windows, 255 code points when
+ * [codePoints] (APFS on a macOS host), 255 UTF-8 bytes elsewhere.
+ */
+internal fun segmentTooLong(path: String, windows: Boolean, codePoints: Boolean = false): Boolean {
     for (segment: String in path.split('/', '\\')) {
         if (segment.isEmpty()) continue
         if (windows) {
             if (segment.length > MAX_SEGMENT_UNITS) return true
+        } else if (codePoints) {
+            if (segment.codePointCount(0, segment.length) > MAX_SEGMENT_UNITS) return true
         } else {
             if (NameRules.utf8Length(segment) > MAX_SEGMENT_UNITS) return true
         }
@@ -78,6 +94,7 @@ internal fun classifyLinkFailure(
     targetStore: () -> FileStore?,
     windows: Boolean = hostUsesWindowsPaths,
     also: List<String> = emptyList(),
+    codePoints: Boolean = hostCountsCodePoints,
 ): FileError {
     typedNioError(e, path)?.let { return it }
     if (e is FileSystemException) {
@@ -89,7 +106,7 @@ internal fun classifyLinkFailure(
             if (type != null && type in FAT_FAMILY) return FileError.Unsupported(path)
         }
     }
-    return mapNioError(e, path, forLink = true, windows = windows, also = also)
+    return mapNioError(e, path, forLink = true, windows = windows, also = also, codePoints = codePoints)
 }
 
 private fun mapByText(e: Throwable, reason: String, path: String, forLink: Boolean): FileError = when {
@@ -111,11 +128,11 @@ private fun mapByText(e: Throwable, reason: String, path: String, forLink: Boole
 
 /** Runs [block], turning anything it throws into a [FileOpException] (a [FileOpException] passes through). */
 @OptIn(ToolkitInternalApi::class)
-internal inline fun <T> nio(path: String, forLink: Boolean = false, block: () -> T): T =
+internal inline fun <T> nio(path: String, forLink: Boolean = false, namesEntry: Boolean = true, block: () -> T): T =
     try {
         block()
     } catch (e: FileOpException) {
         throw e
     } catch (e: Exception) {
-        throw FileOpException(mapNioError(e, path, forLink))
+        throw FileOpException(mapNioError(e, path, forLink, namesEntry = namesEntry))
     }

@@ -84,4 +84,78 @@ class WindowsGateTest {
             readers.forEach { it.join(20_000) }
         }
     }
+
+    @Test
+    fun `a replace or an open that is interrupted while waiting for the gate fails with AccessDenied and keeps the flag`() {
+        val ops: NioFileSystemOps = NioFileSystemOps()
+        val target: File = File(root, "target")
+        val temp: File = File(root, "temp")
+        target.writeText("old")
+        temp.writeText("new")
+        val reader: ReadableFile = ops.openForRead(target.path)
+        val outcome: java.util.concurrent.atomic.AtomicReference<Throwable?> = java.util.concurrent.atomic.AtomicReference(null)
+        val flag: AtomicBoolean = AtomicBoolean(false)
+        val renamer: Thread = thread {
+            try {
+                ops.rename(temp.path, target.path)
+            } catch (t: Throwable) {
+                outcome.set(t)
+            }
+            flag.set(Thread.currentThread().isInterrupted)
+        }
+        val deadline: Long = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+        while (renamer.state != Thread.State.WAITING) {
+            check(System.nanoTime() < deadline) { "the rename never blocked on the reader: ${renamer.state}" }
+            Thread.yield()
+        }
+        renamer.interrupt()
+        renamer.join(20_000)
+        val failure: Throwable? = outcome.get()
+        assertTrue(failure is io.github.jamal_wia.kmptoolkit.files.spi.FileOpException, "was $failure")
+        assertEquals(FileError.AccessDenied(target.path), (failure as io.github.jamal_wia.kmptoolkit.files.spi.FileOpException).error)
+        assertTrue(flag.get(), "the interrupt flag must be set again")
+        reader.close()
+        assertEquals("old", target.readText())
+        assertEquals(0, NioFileSystemOps.gate.activeKeyCount)
+    }
+
+    @Test
+    fun `an open that fails releases the gate permit it took`() {
+        val ops: NioFileSystemOps = NioFileSystemOps()
+        val missing: File = File(root, "missing")
+        val thrown: Throwable? = try {
+            ops.openForRead(missing.path)
+            null
+        } catch (t: Throwable) {
+            t
+        }
+        assertTrue(thrown != null, "opening a missing file must fail")
+        assertEquals(0, NioFileSystemOps.gate.activeKeyCount, "the failed open must not leave its permit behind")
+    }
+
+    @Test
+    fun `a rename that fails releases the exclusive permits and a later rename does not block`() {
+        val ops: NioFileSystemOps = NioFileSystemOps()
+        val target: File = File(root, "target")
+        val temp: File = File(root, "temp")
+        val missingTemp: File = File(root, "missing-temp")
+        target.writeText("old")
+        val thrown: Throwable? = try {
+            ops.rename(missingTemp.path, target.path)
+            null
+        } catch (t: Throwable) {
+            t
+        }
+        assertTrue(thrown != null, "renaming a missing source must fail")
+        assertEquals(0, NioFileSystemOps.gate.activeKeyCount, "the failed rename must not leave its permits behind")
+        temp.writeText("new")
+        val done: java.util.concurrent.CountDownLatch = java.util.concurrent.CountDownLatch(1)
+        val renamer: Thread = thread {
+            ops.rename(temp.path, target.path)
+            done.countDown()
+        }
+        assertTrue(done.await(20, TimeUnit.SECONDS), "the next rename must not block behind a leaked permit")
+        renamer.join(20_000)
+        assertEquals("new", target.readText())
+    }
 }

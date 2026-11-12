@@ -29,6 +29,7 @@ rootProject.name = "KMPToolkit"
 // modules lives in the root README's module table.
 include(":kmptoolkit-core")
 include(":kmptoolkit-files")
+include(":kmptoolkit-files-testing")
 include(":kmptoolkit-logging")
 include(":kmptoolkit-logging-overlay")
 include(":kmptoolkit-audio-player")

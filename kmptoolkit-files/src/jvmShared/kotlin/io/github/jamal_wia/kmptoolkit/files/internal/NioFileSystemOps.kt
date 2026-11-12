@@ -108,7 +108,16 @@ internal class NioFileSystemOps : FileSystemOps {
     override fun openForRead(path: String): ReadableFile {
         val p: Path = pathOf(path)
         // A reader of this library never blocks a replace of the same path inside the process (Windows only).
-        val permit: PathAccessGate.Permit? = if (windowsPaths) gate.shared(path) else null
+        val permit: PathAccessGate.Permit? = if (windowsPaths) {
+            try {
+                gate.shared(path)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw FileOpException(FileError.AccessDenied(path))
+            }
+        } else {
+            null
+        }
         val channel: FileChannel = try {
             nio(path) { FileChannel.open(p, StandardOpenOption.READ) }
         } catch (t: Throwable) {
@@ -121,7 +130,17 @@ internal class NioFileSystemOps : FileSystemOps {
     override fun rename(from: String, to: String) {
         val source: Path = pathOf(from)
         val target: Path = pathOf(to)
-        val permit: PathAccessGate.Permit? = if (windowsPaths) gate.exclusive(from, to) else null
+        val permit: PathAccessGate.Permit? = if (windowsPaths) {
+            try {
+                gate.exclusive(from, to)
+            } catch (interrupted: InterruptedException) {
+                // Same as an interrupted retry sleep below.
+                Thread.currentThread().interrupt()
+                throw FileOpException(FileError.AccessDenied(to))
+            }
+        } else {
+            null
+        }
         try {
             moveWithRetries(source, target, from, to)
         } finally {
@@ -196,18 +215,18 @@ internal class NioFileSystemOps : FileSystemOps {
 @OptIn(ToolkitInternalApi::class)
 private class NioWritableFile(private val channel: FileChannel, private val path: String) : WritableFile {
     override fun write(bytes: ByteArray, offset: Int, length: Int) {
-        nio(path) {
+        nio(path, namesEntry = false) {
             val buffer: ByteBuffer = ByteBuffer.wrap(bytes, offset, length)
             while (buffer.hasRemaining()) channel.write(buffer)
         }
     }
 
     override fun sync(full: Boolean) {
-        nio(path) { channel.force(true) }
+        nio(path, namesEntry = false) { channel.force(true) }
     }
 
     override fun close() {
-        nio(path) { channel.close() }
+        nio(path, namesEntry = false) { channel.close() }
     }
 }
 
@@ -218,11 +237,11 @@ private class NioReadableFile(
     private val permit: PathAccessGate.Permit?,
 ) : ReadableFile {
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-        nio(path) { channel.read(ByteBuffer.wrap(buffer, offset, length)) }
+        nio(path, namesEntry = false) { channel.read(ByteBuffer.wrap(buffer, offset, length)) }
 
     override fun close() {
         try {
-            nio(path) { channel.close() }
+            nio(path, namesEntry = false) { channel.close() }
         } finally {
             permit?.release()
         }

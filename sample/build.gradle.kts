@@ -57,10 +57,12 @@ val usePublishedArtifacts: Boolean = providers.gradleProperty("usePublishedArtif
 dependencies {
     if (usePublishedArtifacts) {
         implementation(platform("io.github.jamal-wia:kmptoolkit-bom:${providers.gradleProperty("kmptoolkit.version").get()}"))
+        implementation("io.github.jamal-wia:kmptoolkit-files")
         implementation("io.github.jamal-wia:kmptoolkit-logging")
         implementation("io.github.jamal-wia:kmptoolkit-storage")
         implementation("io.github.jamal-wia:kmptoolkit-haptics")
     } else {
+        implementation(project(":kmptoolkit-files"))
         implementation(project(":kmptoolkit-logging"))
         implementation(project(":kmptoolkit-storage"))
         implementation(project(":kmptoolkit-haptics"))

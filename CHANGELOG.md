@@ -9,6 +9,18 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ## [Unreleased]
 
+### Added
+
+- `kmptoolkit-files` (Android, iOS, `jvm`): file-system primitives for shared code behind one `FileAccess`
+  interface - atomic writes with a chosen durability (`Buffered`, `Synced`, `SyncedWithDirectory`, iOS
+  `F_FULLFSYNC`), no-replace writes and moves, moves across volumes, bounded reads, recursive delete and tree size
+  that never follow symbolic links, age-based leftover sweeps, free space at the nearest existing ancestor - with
+  typed `FileError` results instead of exceptions; `KeyedMutex` and `PathLocks` for per-key coroutine locking;
+  `Paths`, `FileNames` and `PathKey` with Windows rules and Unicode-safe case folding; `AppDirectories` for the
+  app's private roots with backup exclusion; `withIo` for cancellable use from coroutines.
+- `kmptoolkit-files-testing`: `FakeFileAccess`, an in-memory file system that runs the real engine, with fault
+  injection, crash and power-loss simulation; `FileAccessContract` to check any `FileAccess` decorator.
+
 ## [4.0.0]
 
 Source compatible with 3.0.x, except for implementations of the opt-in `ToolkitInheritanceApi` interface

@@ -38,7 +38,13 @@ public enum class Durability {
     /** The file is synced before the rename: after power loss the path holds old or new content, never a torn file. */
     Synced,
 
-    /** Synced, plus the directory entry after the rename (iOS: F_FULLFSYNC): once Success, the new content survives power loss. */
+    /**
+     * Synced, plus the directory entries after the rename (iOS: F_FULLFSYNC), including the entry of every directory
+     * this call created for [WriteOptions.createParentDirectories]: once Success, the new content survives power loss,
+     * provided the directories on the path that existed before the call are durable: created with
+     * `createDirectories(durable = true)`, by `AppDirectories`, by an earlier `SyncedWithDirectory` write, or present
+     * long enough for the system to have written them back.
+     */
     SyncedWithDirectory,
 }
 

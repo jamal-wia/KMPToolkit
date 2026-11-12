@@ -54,6 +54,7 @@ check the "What this is not" section for a pointer to the right one instead.
 | `kmptoolkit-audio-recorder` | Audio recording | [`kmptoolkit-audio-recorder/`](kmptoolkit-audio-recorder/01-overview.md) |
 | `kmptoolkit-scheduler` | Exact-time one-shot local alarms | [`kmptoolkit-scheduler/`](kmptoolkit-scheduler/01-overview.md) |
 | `kmptoolkit-storage` | Key-value storage, plain and encrypted | [`kmptoolkit-storage/`](kmptoolkit-storage/01-overview.md) |
+| `kmptoolkit-files` | File-system primitives for shared code | [`kmptoolkit-files/`](kmptoolkit-files/01-overview.md) |
 | `kmptoolkit-logging-overlay` | On-screen log overlay for debug builds | [`kmptoolkit-logging-overlay/`](kmptoolkit-logging-overlay/01-overview.md) |
 | `kmptoolkit-permission` | Runtime permissions, special access and roles behind one controller, plus a headless request flow ([migrating to 3.0](kmptoolkit-permission/07-migrating-to-3.md)) | [`kmptoolkit-permission/`](kmptoolkit-permission/01-overview.md) |
 | `kmptoolkit-biometric` | Biometric authentication gate | [`kmptoolkit-biometric/`](kmptoolkit-biometric/01-overview.md) |
@@ -80,7 +81,9 @@ four-line fake. Two more ship no double for a reason of their own — `kmptoolki
 whose fixtures are storage-agnostic and already live in `kmptoolkit-uploader-testing`, and
 `kmptoolkit-hijri`, where `toHijriDate` is a pure function with no seam to fake: call it in your
 test and assert the date. `kmptoolkit-systembars` publishes doubles for both of its controllers —
-see its `06-testing.md`.
+see its `06-testing.md`. `kmptoolkit-files-testing` ships `FakeFileAccess` (in memory, with fault and crash
+injection) and `FileAccessContract` for decorators — see
+[`kmptoolkit-files/06-testing.md`](kmptoolkit-files/06-testing.md).
 
 `kmptoolkit-core` is not in the table above on purpose: it is an internal support artifact that other
 modules pull in, not something you add to a build. Its [`docs/kmptoolkit-core/`](kmptoolkit-core/01-overview.md)

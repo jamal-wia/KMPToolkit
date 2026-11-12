@@ -1,0 +1,227 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <io.github.jamal-wia:kmptoolkit-files-testing>
+final enum class io.github.jamal_wia.kmptoolkit.files.testing/CrashKind : kotlin/Enum<io.github.jamal_wia.kmptoolkit.files.testing/CrashKind> { // io.github.jamal_wia.kmptoolkit.files.testing/CrashKind|null[0]
+    enum entry PowerLoss // io.github.jamal_wia.kmptoolkit.files.testing/CrashKind.PowerLoss|null[0]
+    enum entry ProcessDeath // io.github.jamal_wia.kmptoolkit.files.testing/CrashKind.ProcessDeath|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.files.testing/CrashKind.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.files.testing/CrashKind> // io.github.jamal_wia.kmptoolkit.files.testing/CrashKind.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.files.testing/CrashKind // io.github.jamal_wia.kmptoolkit.files.testing/CrashKind.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.files.testing/CrashKind> // io.github.jamal_wia.kmptoolkit.files.testing/CrashKind.values|values#static(){}[0]
+}
+
+final enum class io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation : kotlin/Enum<io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation> { // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation|null[0]
+    enum entry Close // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.Close|null[0]
+    enum entry CreateDirectory // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.CreateDirectory|null[0]
+    enum entry CreateNew // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.CreateNew|null[0]
+    enum entry Link // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.Link|null[0]
+    enum entry List // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.List|null[0]
+    enum entry Metadata // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.Metadata|null[0]
+    enum entry OpenForRead // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.OpenForRead|null[0]
+    enum entry Remove // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.Remove|null[0]
+    enum entry Rename // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.Rename|null[0]
+    enum entry Sync // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.Sync|null[0]
+    enum entry SyncDirectory // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.SyncDirectory|null[0]
+    enum entry UsableSpace // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.UsableSpace|null[0]
+    enum entry Write // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.Write|null[0]
+
+    final val entries // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation> // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation> // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation.values|values#static(){}[0]
+}
+
+sealed interface io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry { // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry|null[0]
+    final class File : io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry { // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.File|null[0]
+        constructor <init>(kotlin/ByteArray) // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.File.<init>|<init>(kotlin.ByteArray){}[0]
+
+        final val bytes // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.File.bytes|{}bytes[0]
+            final fun <get-bytes>(): kotlin/ByteArray // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.File.bytes.<get-bytes>|<get-bytes>(){}[0]
+
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.File.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.File.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.File.toString|toString(){}[0]
+    }
+
+    final class SymbolicLink : io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry { // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink|null[0]
+        constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink.<init>|<init>(kotlin.String){}[0]
+
+        final val target // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink.target|{}target[0]
+            final fun <get-target>(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink.target.<get-target>|<get-target>(){}[0]
+
+        final fun component1(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink.component1|component1(){}[0]
+        final fun copy(kotlin/String = ...): io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink.copy|copy(kotlin.String){}[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.SymbolicLink.toString|toString(){}[0]
+    }
+
+    final object Directory : io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry { // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.Directory|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.Directory.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.Directory.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry.Directory.toString|toString(){}[0]
+    }
+}
+
+final class io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess : io.github.jamal_wia.kmptoolkit.files/FileAccess { // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess|null[0]
+    constructor <init>(kotlin/Boolean = ..., io.github.jamal_wia.kmptoolkit.files/FileAccessConfig = ...) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.<init>|<init>(kotlin.Boolean;io.github.jamal_wia.kmptoolkit.files.FileAccessConfig){}[0]
+
+    final val operations // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.operations|{}operations[0]
+        final fun <get-operations>(): kotlin.collections/List<io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.operations.<get-operations>|<get-operations>(){}[0]
+
+    final var beforeOperation // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.beforeOperation|{}beforeOperation[0]
+        final fun <get-beforeOperation>(): kotlin/Function2<io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation, kotlin/String, kotlin/Unit>? // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.beforeOperation.<get-beforeOperation>|<get-beforeOperation>(){}[0]
+        final fun <set-beforeOperation>(kotlin/Function2<io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation, kotlin/String, kotlin/Unit>?) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.beforeOperation.<set-beforeOperation>|<set-beforeOperation>(kotlin.Function2<io.github.jamal_wia.kmptoolkit.files.testing.FakeOperation,kotlin.String,kotlin.Unit>?){}[0]
+    final var freeSpaceBytes // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.freeSpaceBytes|{}freeSpaceBytes[0]
+        final fun <get-freeSpaceBytes>(): kotlin/Long? // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.freeSpaceBytes.<get-freeSpaceBytes>|<get-freeSpaceBytes>(){}[0]
+        final fun <set-freeSpaceBytes>(kotlin/Long?) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.freeSpaceBytes.<set-freeSpaceBytes>|<set-freeSpaceBytes>(kotlin.Long?){}[0]
+    final var hardLinksSupported // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.hardLinksSupported|{}hardLinksSupported[0]
+        final fun <get-hardLinksSupported>(): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.hardLinksSupported.<get-hardLinksSupported>|<get-hardLinksSupported>(){}[0]
+        final fun <set-hardLinksSupported>(kotlin/Boolean) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.hardLinksSupported.<set-hardLinksSupported>|<set-hardLinksSupported>(kotlin.Boolean){}[0]
+    final var nowMillis // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.nowMillis|{}nowMillis[0]
+        final fun <get-nowMillis>(): kotlin/Long // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.nowMillis.<get-nowMillis>|<get-nowMillis>(){}[0]
+        final fun <set-nowMillis>(kotlin/Long) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.nowMillis.<set-nowMillis>|<set-nowMillis>(kotlin.Long){}[0]
+
+    final fun crashAfter(io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation, kotlin/Int = ...) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.crashAfter|crashAfter(io.github.jamal_wia.kmptoolkit.files.testing.FakeOperation;kotlin.Int){}[0]
+    final fun createDirectories(kotlin/String, kotlin/Boolean): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.createDirectories|createDirectories(kotlin.String;kotlin.Boolean){}[0]
+    final fun createDirectory(kotlin/String) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.createDirectory|createDirectory(kotlin.String){}[0]
+    final fun createFile(kotlin/String, kotlin/ByteArray = ...) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.createFile|createFile(kotlin.String;kotlin.ByteArray){}[0]
+    final fun createSymbolicLink(kotlin/String, kotlin/String) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.createSymbolicLink|createSymbolicLink(kotlin.String;kotlin.String){}[0]
+    final fun delete(kotlin/String): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.delete|delete(kotlin.String){}[0]
+    final fun deleteRecursively(kotlin/String, io.github.jamal_wia.kmptoolkit.files/CancellationCheck): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.deleteRecursively|deleteRecursively(kotlin.String;io.github.jamal_wia.kmptoolkit.files.CancellationCheck){}[0]
+    final fun entries(): kotlin.collections/Map<kotlin/String, io.github.jamal_wia.kmptoolkit.files.testing/FakeEntry> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.entries|entries(){}[0]
+    final fun failNext(io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation, io.github.jamal_wia.kmptoolkit.files/FileError, kotlin/Int = ..., kotlin/Function1<kotlin/String, kotlin/Boolean> = ...) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.failNext|failNext(io.github.jamal_wia.kmptoolkit.files.testing.FakeOperation;io.github.jamal_wia.kmptoolkit.files.FileError;kotlin.Int;kotlin.Function1<kotlin.String,kotlin.Boolean>){}[0]
+    final fun freeSpaceBytes(kotlin/String): kotlin/Long? // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.freeSpaceBytes|freeSpaceBytes(kotlin.String){}[0]
+    final fun list(kotlin/String): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin.collections/List<kotlin/String>> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.list|list(kotlin.String){}[0]
+    final fun markAllDurable() // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.markAllDurable|markAllDurable(){}[0]
+    final fun metadata(kotlin/String, kotlin/Boolean): io.github.jamal_wia.kmptoolkit.files/FileMetadata? // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.metadata|metadata(kotlin.String;kotlin.Boolean){}[0]
+    final fun move(kotlin/String, kotlin/String, io.github.jamal_wia.kmptoolkit.files/MoveOptions, io.github.jamal_wia.kmptoolkit.files/CancellationCheck): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.move|move(kotlin.String;kotlin.String;io.github.jamal_wia.kmptoolkit.files.MoveOptions;io.github.jamal_wia.kmptoolkit.files.CancellationCheck){}[0]
+    final fun readBytes(kotlin/String, kotlin/Long): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/ByteArray> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.readBytes|readBytes(kotlin.String;kotlin.Long){}[0]
+    final fun restartAfterCrash(io.github.jamal_wia.kmptoolkit.files.testing/CrashKind = ..., kotlin/Boolean = ...): io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.restartAfterCrash|restartAfterCrash(io.github.jamal_wia.kmptoolkit.files.testing.CrashKind;kotlin.Boolean){}[0]
+    final fun setLastModified(kotlin/String, kotlin/Long) // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.setLastModified|setLastModified(kotlin.String;kotlin.Long){}[0]
+    final fun sweep(kotlin/String, kotlin/Long, io.github.jamal_wia.kmptoolkit.files/CancellationCheck, kotlin/Function1<kotlin/String, kotlin/Boolean>): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Int> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.sweep|sweep(kotlin.String;kotlin.Long;io.github.jamal_wia.kmptoolkit.files.CancellationCheck;kotlin.Function1<kotlin.String,kotlin.Boolean>){}[0]
+    final fun treeSize(kotlin/String, io.github.jamal_wia.kmptoolkit.files/CancellationCheck): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Long> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.treeSize|treeSize(kotlin.String;io.github.jamal_wia.kmptoolkit.files.CancellationCheck){}[0]
+    final fun writeAtomically(kotlin/String, kotlin/ByteArray, io.github.jamal_wia.kmptoolkit.files/WriteOptions): io.github.jamal_wia.kmptoolkit.files/FileResult<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files.testing/FakeFileAccess.writeAtomically|writeAtomically(kotlin.String;kotlin.ByteArray;io.github.jamal_wia.kmptoolkit.files.WriteOptions){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord { // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation, kotlin/String, kotlin/String?) // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.<init>|<init>(io.github.jamal_wia.kmptoolkit.files.testing.FakeOperation;kotlin.String;kotlin.String?){}[0]
+
+    final val operation // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.operation|{}operation[0]
+        final fun <get-operation>(): io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.operation.<get-operation>|<get-operation>(){}[0]
+    final val path // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.path|{}path[0]
+        final fun <get-path>(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.path.<get-path>|<get-path>(){}[0]
+    final val secondPath // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.secondPath|{}secondPath[0]
+        final fun <get-secondPath>(): kotlin/String? // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.secondPath.<get-secondPath>|<get-secondPath>(){}[0]
+
+    final fun component1(): io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.component1|component1(){}[0]
+    final fun component2(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.component2|component2(){}[0]
+    final fun component3(): kotlin/String? // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.component3|component3(){}[0]
+    final fun copy(io.github.jamal_wia.kmptoolkit.files.testing/FakeOperation = ..., kotlin/String = ..., kotlin/String? = ...): io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.copy|copy(io.github.jamal_wia.kmptoolkit.files.testing.FakeOperation;kotlin.String;kotlin.String?){}[0]
+    final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.hashCode|hashCode(){}[0]
+    final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FakeOperationRecord.toString|toString(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract { // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract|null[0]
+    constructor <init>(kotlin/Function0<io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture>) // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.<init>|<init>(kotlin.Function0<io.github.jamal_wia.kmptoolkit.files.testing.FileAccessFixture>){}[0]
+
+    final fun concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload|concurrentWritersOfOnePathAllSucceedAndLeaveOneWholePayload(){}[0]
+    final fun createDirectoriesByConcurrentCreatorsAllSucceed() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesByConcurrentCreatorsAllSucceed|createDirectoriesByConcurrentCreatorsAllSucceed(){}[0]
+    final fun createDirectoriesCreatesParentsAndIsIdempotent() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesCreatesParentsAndIsIdempotent|createDirectoriesCreatesParentsAndIsIdempotent(){}[0]
+    final fun createDirectoriesDurableGivesTheSameResults() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesDurableGivesTheSameResults|createDirectoriesDurableGivesTheSameResults(){}[0]
+    final fun createDirectoriesOverAFileIsNotADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.createDirectoriesOverAFileIsNotADirectory|createDirectoriesOverAFileIsNotADirectory(){}[0]
+    final fun deleteOfANonEmptyDirectoryIsDirectoryNotEmpty() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteOfANonEmptyDirectoryIsDirectoryNotEmpty|deleteOfANonEmptyDirectoryIsDirectoryNotEmpty(){}[0]
+    final fun deleteOfASymbolicLinkLeavesItsTarget() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteOfASymbolicLinkLeavesItsTarget|deleteOfASymbolicLinkLeavesItsTarget(){}[0]
+    final fun deleteOfAnAbsentPathIsSuccess() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteOfAnAbsentPathIsSuccess|deleteOfAnAbsentPathIsSuccess(){}[0]
+    final fun deleteRecursivelyByConcurrentDeletersAllSucceed() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyByConcurrentDeletersAllSucceed|deleteRecursivelyByConcurrentDeletersAllSucceed(){}[0]
+    final fun deleteRecursivelyDoesNotFollowSymbolicLinks() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyDoesNotFollowSymbolicLinks|deleteRecursivelyDoesNotFollowSymbolicLinks(){}[0]
+    final fun deleteRecursivelyOfAnAbsentPathIsSuccess() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyOfAnAbsentPathIsSuccess|deleteRecursivelyOfAnAbsentPathIsSuccess(){}[0]
+    final fun deleteRecursivelyRemovesAFullTree() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyRemovesAFullTree|deleteRecursivelyRemovesAFullTree(){}[0]
+    final fun deleteRecursivelyStopsWhenCancelled() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRecursivelyStopsWhenCancelled|deleteRecursivelyStopsWhenCancelled(){}[0]
+    final fun deleteRemovesAFileALinkAndAnEmptyDirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.deleteRemovesAFileALinkAndAnEmptyDirectory|deleteRemovesAFileALinkAndAnEmptyDirectory(){}[0]
+    final fun everyFunctionRejectsRelativeEmptyAndNulPaths() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.everyFunctionRejectsRelativeEmptyAndNulPaths|everyFunctionRejectsRelativeEmptyAndNulPaths(){}[0]
+    final fun existsFollowsSymbolicLinks() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.existsFollowsSymbolicLinks|existsFollowsSymbolicLinks(){}[0]
+    final fun freeSpaceOfAMissingPathFollowsItsAncestor() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.freeSpaceOfAMissingPathFollowsItsAncestor|freeSpaceOfAMissingPathFollowsItsAncestor(){}[0]
+    final fun listIsSortedWithoutDotEntries() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.listIsSortedWithoutDotEntries|listIsSortedWithoutDotEntries(){}[0]
+    final fun listOfAFileIsNotADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.listOfAFileIsNotADirectory|listOfAFileIsNotADirectory(){}[0]
+    final fun listOfAnAbsentDirectoryIsEmpty() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.listOfAnAbsentDirectoryIsEmpty|listOfAnAbsentDirectoryIsEmpty(){}[0]
+    final fun metadataDoesNotFollowLinksByDefault() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.metadataDoesNotFollowLinksByDefault|metadataDoesNotFollowLinksByDefault(){}[0]
+    final fun metadataFollowLinksReportsTheTarget() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.metadataFollowLinksReportsTheTarget|metadataFollowLinksReportsTheTarget(){}[0]
+    final fun metadataOfADanglingLinkIsNullWhenFollowing() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.metadataOfADanglingLinkIsNullWhenFollowing|metadataOfADanglingLinkIsNullWhenFollowing(){}[0]
+    final fun metadataReportsKinds() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.metadataReportsKinds|metadataReportsKinds(){}[0]
+    final fun moveCreatesParentDirectoriesWhenAsked() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveCreatesParentDirectoriesWhenAsked|moveCreatesParentDirectoriesWhenAsked(){}[0]
+    final fun moveMovesADirectoryWithinOneVolume() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveMovesADirectoryWithinOneVolume|moveMovesADirectoryWithinOneVolume(){}[0]
+    final fun moveMovesASymbolicLinkAsALink() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveMovesASymbolicLinkAsALink|moveMovesASymbolicLinkAsALink(){}[0]
+    final fun moveOfAMissingSourceIsNotFound() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveOfAMissingSourceIsNotFound|moveOfAMissingSourceIsNotFound(){}[0]
+    final fun moveOverADirectoryIsADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveOverADirectoryIsADirectory|moveOverADirectoryIsADirectory(){}[0]
+    final fun moveReplacesTheTargetWithTheSourceContent() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveReplacesTheTargetWithTheSourceContent|moveReplacesTheTargetWithTheSourceContent(){}[0]
+    final fun moveWithAMissingParentIsNotFound() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveWithAMissingParentIsNotFound|moveWithAMissingParentIsNotFound(){}[0]
+    final fun moveWithFailNeverReplaces() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.moveWithFailNeverReplaces|moveWithFailNeverReplaces(){}[0]
+    final fun readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead|readBytesLargerThanMaxIsTooLargeAndExactMaxIsRead(){}[0]
+    final fun readBytesOfADirectoryIsADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesOfADirectoryIsADirectory|readBytesOfADirectoryIsADirectory(){}[0]
+    final fun readBytesOfAnAbsentFileIsNotFound() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesOfAnAbsentFileIsNotFound|readBytesOfAnAbsentFileIsNotFound(){}[0]
+    final fun readBytesRejectsAnInvalidMax() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.readBytesRejectsAnInvalidMax|readBytesRejectsAnInvalidMax(){}[0]
+    final fun sweepDeletesAnOldSymbolicLink() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepDeletesAnOldSymbolicLink|sweepDeletesAnOldSymbolicLink(){}[0]
+    final fun sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest|sweepDeletesEntriesOlderThanTheAgeAndKeepsTheRest(){}[0]
+    final fun sweepKeepsEntriesNewerThanTheAge() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepKeepsEntriesNewerThanTheAge|sweepKeepsEntriesNewerThanTheAge(){}[0]
+    final fun sweepNeverDeletesWhatDoesNotMatchOrADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepNeverDeletesWhatDoesNotMatchOrADirectory|sweepNeverDeletesWhatDoesNotMatchOrADirectory(){}[0]
+    final fun sweepOfAnAbsentDirectoryIsZero() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepOfAnAbsentDirectoryIsZero|sweepOfAnAbsentDirectoryIsZero(){}[0]
+    final fun sweepPropagatesExceptionsOfTheMatcher() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepPropagatesExceptionsOfTheMatcher|sweepPropagatesExceptionsOfTheMatcher(){}[0]
+    final fun sweepRejectsANegativeAge() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepRejectsANegativeAge|sweepRejectsANegativeAge(){}[0]
+    final fun sweepStopsWhenCancelled() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepStopsWhenCancelled|sweepStopsWhenCancelled(){}[0]
+    final fun sweepWithZeroAgeDeletesAnOldEntry() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.sweepWithZeroAgeDeletesAnOldEntry|sweepWithZeroAgeDeletesAnOldEntry(){}[0]
+    final fun treeSizeCountsALinkAsZero() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.treeSizeCountsALinkAsZero|treeSizeCountsALinkAsZero(){}[0]
+    final fun treeSizeOfAnAbsentPathIsZero() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.treeSizeOfAnAbsentPathIsZero|treeSizeOfAnAbsentPathIsZero(){}[0]
+    final fun treeSizeStopsWhenCancelled() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.treeSizeStopsWhenCancelled|treeSizeStopsWhenCancelled(){}[0]
+    final fun treeSizeSumsTheRegularFiles() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.treeSizeSumsTheRegularFiles|treeSizeSumsTheRegularFiles(){}[0]
+    final fun verifyAll() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.verifyAll|verifyAll(){}[0]
+    final fun withIoCancelledThrowsCancellationException() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.withIoCancelledThrowsCancellationException|withIoCancelledThrowsCancellationException(){}[0]
+    final fun withIoReturnsTheResultOfTheBlock() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.withIoReturnsTheResultOfTheBlock|withIoReturnsTheResultOfTheBlock(){}[0]
+    final fun writeAtomicallyAcceptsEmptyContent() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyAcceptsEmptyContent|writeAtomicallyAcceptsEmptyContent(){}[0]
+    final fun writeAtomicallyCreatesParentDirectoriesWhenAsked() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyCreatesParentDirectoriesWhenAsked|writeAtomicallyCreatesParentDirectoriesWhenAsked(){}[0]
+    final fun writeAtomicallyHonoursTheTempDirectoryAndLeavesItClean() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyHonoursTheTempDirectoryAndLeavesItClean|writeAtomicallyHonoursTheTempDirectoryAndLeavesItClean(){}[0]
+    final fun writeAtomicallyLeavesNoTemporaryFile() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyLeavesNoTemporaryFile|writeAtomicallyLeavesNoTemporaryFile(){}[0]
+    final fun writeAtomicallyOverADirectoryIsADirectory() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyOverADirectoryIsADirectory|writeAtomicallyOverADirectoryIsADirectory(){}[0]
+    final fun writeAtomicallyRejectsRelativeEmptyAndNulPaths() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyRejectsRelativeEmptyAndNulPaths|writeAtomicallyRejectsRelativeEmptyAndNulPaths(){}[0]
+    final fun writeAtomicallyReplacesASymbolicLinkNotItsTarget() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyReplacesASymbolicLinkNotItsTarget|writeAtomicallyReplacesASymbolicLinkNotItsTarget(){}[0]
+    final fun writeAtomicallyReplacesTheWholeContent() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyReplacesTheWholeContent|writeAtomicallyReplacesTheWholeContent(){}[0]
+    final fun writeAtomicallyWithACustomTempPrefixLeavesNothing() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyWithACustomTempPrefixLeavesNothing|writeAtomicallyWithACustomTempPrefixLeavesNothing(){}[0]
+    final fun writeAtomicallyWithAMissingParentIsNotFound() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyWithAMissingParentIsNotFound|writeAtomicallyWithAMissingParentIsNotFound(){}[0]
+    final fun writeAtomicallyWithFailRefusesAnExistingTarget() // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContract.writeAtomicallyWithFailRefusesAnExistingTarget|writeAtomicallyWithFailRefusesAnExistingTarget(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContractViolation : kotlin/AssertionError { // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContractViolation|null[0]
+    constructor <init>(kotlin/String) // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessContractViolation.<init>|<init>(kotlin.String){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture { // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture|null[0]
+    constructor <init>(io.github.jamal_wia.kmptoolkit.files/FileAccess, kotlin/String, kotlin/Char = ..., kotlin/Function2<kotlin/String, kotlin/String, kotlin/Unit>? = ..., kotlin/Function2<kotlin/String, kotlin/Long, kotlin/Boolean>? = ..., kotlin/Function0<kotlin/Long> = ..., kotlin/Function0<kotlin/Unit> = ...) // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.<init>|<init>(io.github.jamal_wia.kmptoolkit.files.FileAccess;kotlin.String;kotlin.Char;kotlin.Function2<kotlin.String,kotlin.String,kotlin.Unit>?;kotlin.Function2<kotlin.String,kotlin.Long,kotlin.Boolean>?;kotlin.Function0<kotlin.Long>;kotlin.Function0<kotlin.Unit>){}[0]
+
+    final val cleanup // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.cleanup|{}cleanup[0]
+        final fun <get-cleanup>(): kotlin/Function0<kotlin/Unit> // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.cleanup.<get-cleanup>|<get-cleanup>(){}[0]
+    final val createSymbolicLink // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.createSymbolicLink|{}createSymbolicLink[0]
+        final fun <get-createSymbolicLink>(): kotlin/Function2<kotlin/String, kotlin/String, kotlin/Unit>? // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.createSymbolicLink.<get-createSymbolicLink>|<get-createSymbolicLink>(){}[0]
+    final val files // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.files|{}files[0]
+        final fun <get-files>(): io.github.jamal_wia.kmptoolkit.files/FileAccess // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.files.<get-files>|<get-files>(){}[0]
+    final val nowMillis // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.nowMillis|{}nowMillis[0]
+        final fun <get-nowMillis>(): kotlin/Function0<kotlin/Long> // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.nowMillis.<get-nowMillis>|<get-nowMillis>(){}[0]
+    final val root // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.root|{}root[0]
+        final fun <get-root>(): kotlin/String // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.root.<get-root>|<get-root>(){}[0]
+    final val separator // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.separator|{}separator[0]
+        final fun <get-separator>(): kotlin/Char // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.separator.<get-separator>|<get-separator>(){}[0]
+    final val setLastModified // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.setLastModified|{}setLastModified[0]
+        final fun <get-setLastModified>(): kotlin/Function2<kotlin/String, kotlin/Long, kotlin/Boolean>? // io.github.jamal_wia.kmptoolkit.files.testing/FileAccessFixture.setLastModified.<get-setLastModified>|<get-setLastModified>(){}[0]
+}
+
+final class io.github.jamal_wia.kmptoolkit.files.testing/SimulatedCrash : kotlin/Error { // io.github.jamal_wia.kmptoolkit.files.testing/SimulatedCrash|null[0]
+    constructor <init>() // io.github.jamal_wia.kmptoolkit.files.testing/SimulatedCrash.<init>|<init>(){}[0]
+}

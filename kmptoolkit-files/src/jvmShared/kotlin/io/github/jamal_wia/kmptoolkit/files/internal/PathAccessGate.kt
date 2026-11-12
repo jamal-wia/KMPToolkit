@@ -3,7 +3,8 @@ package io.github.jamal_wia.kmptoolkit.files.internal
 import io.github.jamal_wia.kmptoolkit.files.CaseFolding
 import io.github.jamal_wia.kmptoolkit.files.PathKey
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.locks.ReentrantReadWriteLock
+import java.util.concurrent.Semaphore
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Coordinates the access of one process to paths, for the Windows ops: a rename cannot replace a target that is open,
@@ -11,7 +12,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
  * paths. Blocking, because FileAccess is blocking. The registry holds an entry only while somebody holds or awaits it,
  * so it does not grow with the paths ever used. Keys fold by [PathKey] with [CaseFolding.Always] (NTFS is
  * case-insensitive). Locks are fair: a waiting exclusive holder blocks later shared requests, so continuous readers
- * cannot starve a replace. A shared permit must be released by the thread that took it.
+ * cannot starve a replace. A permit may be released by any thread: it is made of semaphore permits, which no thread
+ * owns, so a close on another thread than the open can never leak it. The engine never holds a shared permit (an open
+ * ReadableFile) while it asks for an exclusive one, which keeps the gate free of deadlock. The waits are unbounded
+ * (a holder inside the process is expected to finish) but interruptible: an interrupted wait leaves nothing held and
+ * throws [InterruptedException] with the interrupt flag cleared, for the caller to turn into a failure.
  */
 internal class PathAccessGate {
 
@@ -21,8 +26,14 @@ internal class PathAccessGate {
     }
 
     private class Entry {
-        val lock: ReentrantReadWriteLock = ReentrantReadWriteLock(true)
+        // A fair semaphore: a shared holder takes one permit, an exclusive holder all of them, and the FIFO queue makes
+        // a waiting exclusive holder block later shared requests.
+        val permits: Semaphore = Semaphore(ALL_PERMITS, true)
         var users: Int = 0
+    }
+
+    private companion object {
+        const val ALL_PERMITS: Int = Int.MAX_VALUE
     }
 
     private val entries: ConcurrentHashMap<String, Entry> = ConcurrentHashMap()
@@ -43,23 +54,29 @@ internal class PathAccessGate {
         }
     }
 
-    /** Waits until no exclusive permit is held or awaited on [path], then holds a shared one. */
+    /**
+     * Waits until no exclusive permit is held or awaited on [path], then holds a shared one.
+     * @throws InterruptedException when the waiting thread is interrupted; nothing is held then.
+     */
     fun shared(path: String): Permit {
         val key: String = PathKey.of(path, CaseFolding.Always)
         val entry: Entry = join(key)
         try {
-            entry.lock.readLock().lock()
+            entry.permits.acquire(1)
         } catch (t: Throwable) {
             leave(key)
             throw t
         }
         return OncePermit {
-            entry.lock.readLock().unlock()
+            entry.permits.release(1)
             leave(key)
         }
     }
 
-    /** Waits for every holder of every one of [paths] (distinct keys, taken in ascending key order), then holds all. */
+    /**
+     * Waits for every holder of every one of [paths] (distinct keys, taken in ascending key order), then holds all.
+     * @throws InterruptedException when the waiting thread is interrupted; nothing is held then.
+     */
     fun exclusive(vararg paths: String): Permit {
         val keys: List<String> = paths.map { PathKey.of(it, CaseFolding.Always) }.distinct().sorted()
         val taken: MutableList<Pair<String, Entry>> = mutableListOf()
@@ -67,7 +84,7 @@ internal class PathAccessGate {
             for (key: String in keys) {
                 val entry: Entry = join(key)
                 try {
-                    entry.lock.writeLock().lock()
+                    entry.permits.acquire(ALL_PERMITS)
                 } catch (t: Throwable) {
                     leave(key)
                     throw t
@@ -83,17 +100,16 @@ internal class PathAccessGate {
 
     private fun release(taken: List<Pair<String, Entry>>) {
         for ((key: String, entry: Entry) in taken.asReversed()) {
-            entry.lock.writeLock().unlock()
+            entry.permits.release(ALL_PERMITS)
             leave(key)
         }
     }
 
     private class OncePermit(private val action: () -> Unit) : Permit {
-        private var released: Boolean = false
+        private val released: AtomicBoolean = AtomicBoolean(false)
 
         override fun release() {
-            if (released) return
-            released = true
+            if (!released.compareAndSet(false, true)) return
             action()
         }
     }

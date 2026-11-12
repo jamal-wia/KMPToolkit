@@ -52,5 +52,7 @@ internal actual object TestEnv {
 
     actual fun openDescriptorCount(): Long? = null
 
+    actual val isLinuxHost: Boolean = false
+
     actual fun skip(reason: String): Nothing = throw AssertionError("cannot skip on iOS: $reason")
 }

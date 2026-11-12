@@ -9,9 +9,9 @@ import io.github.jamal_wia.kmptoolkit.files.internal.NameRules
  */
 public object FileNames {
     /**
-     * The portable name limit [isPlainName] applies on every host: 255 UTF-8 bytes (APFS, ext4, F2FS). NTFS counts
-     * 255 UTF-16 code units instead, so a longer UTF-8 name can still be valid on Windows; FileAccess never
-     * pre-rejects such a name.
+     * The portable name limit [isPlainName] applies on every host: 255 UTF-8 bytes, the limit of ext4 and F2FS
+     * (Android) and of most Linux file systems. APFS counts 255 characters and NTFS 255 UTF-16 code units, so a
+     * longer UTF-8 name can still be valid there; FileAccess never pre-rejects such a name.
      */
     public const val MAX_NAME_BYTES: Int = 255
 

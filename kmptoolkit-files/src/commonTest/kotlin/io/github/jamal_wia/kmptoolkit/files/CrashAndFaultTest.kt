@@ -65,6 +65,33 @@ class CrashAndFaultTest {
     }
 
     @Test
+    fun `durable createDirectories syncs only the levels it created deepest first with the full flush last`() {
+        val existing: String = p("e")
+        assertTrue(plain.createDirectories(existing).isSuccess)
+        assertTrue(engine.createDirectories(existing, durable = true).isSuccess)
+        assertTrue(ops.log.none { it.op == Op.SyncDirectory }, "nothing was created, nothing is synced")
+
+        assertTrue(engine.createDirectories(p("e/x/y"), durable = true).isSuccess)
+        val synced: List<String> = ops.log.filter { it.op == Op.SyncDirectory }.map { it.path }
+        assertEquals(listOf(p("e/x"), existing), synced, "the parents of the two new levels, deepest first")
+        assertEquals(listOf(false, true), ops.syncFlags)
+    }
+
+    @Test
+    fun `a failing directory sync of durable createDirectories is Io and the directories exist`() {
+        ops.failNext(Op.SyncDirectory, FileError.Io(root, 5))
+        val result: FileResult<Unit> = engine.createDirectories(p("n/m"), durable = true)
+        assertTrue(result.errorOrNull() is FileError.Io, "was $result")
+        assertEquals(FileKind.Directory, plain.metadata(p("n/m"))?.kind)
+    }
+
+    @Test
+    fun `createDirectories without durable never syncs a directory`() {
+        assertTrue(engine.createDirectories(p("q/r")).isSuccess)
+        assertTrue(ops.log.none { it.op == Op.SyncDirectory })
+    }
+
+    @Test
     fun `a crash after CreateNew Write Sync or Close leaves the old content and exactly one temp file`() {
         for (op: Op in listOf(Op.CreateNew, Op.Write, Op.Sync, Op.Close)) {
             freshEngine()

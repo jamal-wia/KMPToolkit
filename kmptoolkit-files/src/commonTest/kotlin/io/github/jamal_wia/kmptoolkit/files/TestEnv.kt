@@ -28,6 +28,9 @@ internal expect object TestEnv {
     /** The number of open descriptors of this process, or null when the host cannot say. */
     fun openDescriptorCount(): Long?
 
+    /** Whether the host is Linux, whose common file systems (ext4, XFS, Btrfs, tmpfs, F2FS) limit a name to 255 UTF-8 bytes. */
+    val isLinuxHost: Boolean
+
     /** Skips the running test (reported as skipped where the platform can; fails on iOS, which cannot). */
     fun skip(reason: String): Nothing
 }

@@ -332,12 +332,16 @@ abstract class RealFileAccessTests {
     }
 
     @Test
-    fun `a 200 character CJK name is accepted on Windows and NameTooLong where names count UTF-8 bytes`() {
+    fun `a 200 character CJK name is accepted on Windows and APFS and NameTooLong on a Linux host where names count UTF-8 bytes`() {
         val name: String = "\u4e2d".repeat(200) // 200 UTF-16 units, 600 UTF-8 bytes
         val result: FileResult<Unit> = fs.writeAtomically(p(name), bytesOf("cjk"))
         if (windowsHost) {
             assertOk(result)
             assertEquals("cjk", text(p(name)))
+        } else if (TestEnv.isLinuxHost) {
+            // ext4, XFS, Btrfs, tmpfs and F2FS all enforce 255 UTF-8 bytes: pin the byte rule end to end.
+            assertEquals(p(name), failure<FileError.NameTooLong>(result).path)
+            assertEquals(emptyList(), names(root))
         } else if (result.isSuccess) {
             // APFS (macOS, iOS) counts 255 characters, not bytes, so it accepts this name; ext4 and F2FS do not.
             assertEquals("cjk", text(p(name)))

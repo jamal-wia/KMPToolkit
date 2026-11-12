@@ -32,8 +32,13 @@ public interface FileAccess {
     /**
      * Creates [path] and every missing parent. Succeeds when [path] is already a directory, also when another thread
      * or process creates it concurrently. [FileError.NotADirectory] when [path] or a parent is a non-directory.
+     *
+     * With [durable], every directory this call created, or found created by a concurrent caller while creating it,
+     * is synced into its parent before Success is returned (iOS: one `F_FULLFSYNC`). Directories that existed before
+     * are assumed durable. Without [durable] nothing is synced, so a power loss shortly after the call can lose the
+     * new directories. A sync failure is [FileError.Io]; the directories then exist but may not be durable.
      */
-    public fun createDirectories(path: String): FileResult<Unit>
+    public fun createDirectories(path: String, durable: Boolean = false): FileResult<Unit>
 
     /**
      * The whole content of the file at [path] (links followed), at most [maxBytes] bytes.
@@ -55,7 +60,7 @@ public interface FileAccess {
      * [FileError.AccessDenied] once the rename retry budget (about 210 ms, see 05-platform-notes) is used up; [path]
      * is then untouched and no temporary file is left.
      * On every [FileResult.Failure] the temporary file is removed and [path] is untouched, except a failure of the
-     * final directory sync of [Durability.SyncedWithDirectory] (reported as [FileError.Io]), when [path] already holds
+     * final directory syncs of [Durability.SyncedWithDirectory] (reported as [FileError.Io]), when [path] already holds
      * the new bytes. A crash can leave a temporary file behind; [sweep] it by [FileNames.isTempName].
      * A symbolic link at [path] is replaced by a regular file; its target is untouched.
      * Errors: missing parent [FileError.NotFound] (unless [WriteOptions.createParentDirectories]); a directory at

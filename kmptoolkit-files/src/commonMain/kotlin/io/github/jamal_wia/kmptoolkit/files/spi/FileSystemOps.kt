@@ -83,7 +83,8 @@ public interface WritableFile {
 }
 
 /**
- * A file open for reading, created by [FileSystemOps.openForRead].
+ * A file open for reading, created by [FileSystemOps.openForRead]. The engine closes every one it opens, and never
+ * keeps one open while it renames; [close] may run on a different thread than the open.
  *
  * @since 5.0.0
  */
