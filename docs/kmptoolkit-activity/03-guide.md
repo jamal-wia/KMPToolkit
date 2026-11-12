@@ -43,11 +43,12 @@ val wakeLock = createScreenWakeLockController(activityAccess)
 
 Each of those keeps a reference to it and neither releases it — the lifetime is yours.
 
-The factories of the other modules that take an optional `activityAccess` (the permission controller,
-the biometric gate) register a tracker of their own when you pass none, and nothing ever releases it:
-it is one small object and one slot in the `Application`'s callback list per call. That is invisible
-when each factory is called once, in `Application.onCreate`, as their documentation asks, and a cost
-you pay per call if you build a controller or a gate per screen. Share one `ActivityAccess` instead.
+The permission controller shares one tracker per `Application` when you pass no `activityAccess`: it is
+registered on first use, never released, and a controller per screen adds nothing. The biometric gate
+still registers a tracker of its own on every call when you pass none, and nothing ever releases it: it
+is one small object and one slot in the `Application`'s callback list per call. That is invisible when
+the gate is built once, in `Application.onCreate`, as its documentation asks, and a cost you pay per
+call if you build one per screen. Share one `ActivityAccess` instead.
 
 ## `withActivity` returns null, and that is normal
 

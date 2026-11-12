@@ -84,6 +84,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `RecordingAlarmScheduler` now record a snapshot of each notification or alarm taken at call time, so a later change
   to the caller's lists and maps does not alter a recorded call; a consumer test that compares `posted[i].notification`
   (or the one passed to `resultFor`) with `assertSame` or `===` now fails and must compare by value.
+- `kmptoolkit-permission` and `kmptoolkit-activity` docs: an `ActivityAccess` must outlive the permission controller built
+  over it, and a special-access request over a released access waits until its caller is cancelled.
+- `kmptoolkit-permission` docs: a request cancelled while its dialog is up makes the next request wait on Android only;
+  on iOS the queue is freed at once.
+- `kmptoolkit-permission` (iOS): `openSettings` logs a warning when the settings URL cannot be built, as the other
+  failures of the controller do.
 
 ### Fixed
 
@@ -129,6 +135,15 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-notification` (Android): the notifier remembers only the latest channel spec per channel id, so a channel
   whose `description` changes over time no longer grows memory and per-post cost without bound; a changed spec is
   still re-applied.
+- `kmptoolkit-permission-testing`: `FakePermissionController` no longer loses the answer of a request cancelled while
+  `holdRequests` is `true`; the scripted outcome is stored when the hold is cleared, as both real controllers do, and
+  of a cancelled batch only for the permission whose dialog was up.
+- `kmptoolkit-permission` (Android): controllers built without an `activityAccess` share one activity tracker per
+  `Application` instead of registering a new lifecycle callback each.
+- `kmptoolkit-permission` (Android): a refusal flag the storage failed to clear when the permission was granted no
+  longer turns a later system reset into `PermanentlyDenied`.
+- `kmptoolkit-permission` (Android): the default host no longer leaves a request code in the activity's result registry
+  (and its saved state) for every finished dialog.
 
 ## [4.0.0]
 

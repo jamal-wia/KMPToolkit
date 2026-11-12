@@ -328,7 +328,7 @@ Every collaborator but `context` and `storage` has a default:
 - **`activityAccess`** — the resumed activity the rationale is asked of and screens are opened from.
   The default tracker must be created before the first activity resumes, so build the controller in
   `Application.onCreate` — or pass the `ActivityAccess` your app already owns (typically narrowed with
-  `isTracked`).
+  `isTracked`). Every controller built without one shares one tracker per `Application`.
 - **`host`** — shows the permission dialog and the screens that answer with a result. The default
   needs no wiring; see `ActivityResultPermissionRequestHost` below.
 - **`systemScreenLauncher`** — how a Settings screen opens. The default puts it on your task from the
@@ -338,8 +338,12 @@ Every collaborator but `context` and `storage` has a default:
 - **`config`** — see `AndroidPermissionConfig`.
 - **`logger`** — where an undeclared permission, a dialog that could not be shown, an unreadable flag
   and a launcher failure are reported. A flag the storage cannot read, write or remove is treated as
-  not set and logged as a warning once per flag, so a storage that is down is visible without a line
-  on every check.
+  not set and logged as a warning once per permission (or flag) for the controller's lifetime, so a
+  storage that is down is visible without a line on every check. A refusal flag that could not be removed
+  when the permission was granted is remembered by the controller, read as absent and removed again at
+  the next read, so a later system reset reads as if never refused; a refusal made after that is recorded
+  as usual. If the process dies before the storage recovers, the flags can be read again until the next
+  check that sees the permission granted removes them.
 
 ### `AndroidPermissionConfig` (Android only)
 
