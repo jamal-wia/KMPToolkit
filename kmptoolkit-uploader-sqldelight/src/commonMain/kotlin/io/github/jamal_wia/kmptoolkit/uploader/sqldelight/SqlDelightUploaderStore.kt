@@ -43,33 +43,35 @@ internal class SqlDelightUploaderStore(
             // could take the identity, and the KEEP decision would then be made against a row that
             // no longer describes the queue.
             database.transactionWithResult {
-                val key: String? = toStoredTextOrNull(record.uniqueKey)
-                if (key == null) {
+                val uniqueKey: String? = record.uniqueKey
+                if (uniqueKey == null) {
                     // A null unique key never conflicts — it is not even in the identity index.
                     queries.insert(record)
                     return@transactionWithResult true
                 }
-                val holder: String? =
-                    queries.selectByIdentity(type = toStoredText(record.type), uniqueKey = key)
+                // One identity for every ordinary text, up to four for a type or key that starts like a stored form
+                // (see `spellings`): a 4.0.0 row and a 4.1.0 row of one logical identity must both be seen.
+                val holders: List<Pair<StoredIdentity, String>> = identitiesOf(record.type, uniqueKey).mapNotNull { identity ->
+                    queries.selectByIdentity(type = identity.type, uniqueKey = identity.uniqueKey)
                         .executeAsOneOrNull()
-                        ?.state
-                when (holder) {
-                    // Compared against the enum's own names rather than string constants, so a
-                    // renamed state cannot drift apart from what is written into the column. The
-                    // matching literals in `selectAllActive` cannot do the same — SQL has no way
-                    // to see the enum — which is called out in UploaderItem.sq.
-                    UploaderItemState.PENDING.name, UploaderItemState.IN_FLIGHT.name -> false
+                        ?.let { row -> identity to row.state }
+                }
+                // Compared against the enum's own names rather than string constants, so a
+                // renamed state cannot drift apart from what is written into the column. The
+                // matching literals in `selectAllActive` cannot do the same — SQL has no way
+                // to see the enum — which is called out in UploaderItem.sq.
+                if (holders.any { (_, state) -> state == UploaderItemState.PENDING.name || state == UploaderItemState.IN_FLIGHT.name }) {
+                    false
+                } else {
                     // Covers PARKED and — deliberately — any state string this build does not
                     // recognize, which is what a downgrade past a future state looks like. Neither
                     // is in rotation, so neither may keep the key: a held key with no revive path
                     // would swallow every future enqueue for it.
-                    else -> {
-                        if (holder != null) {
-                            queries.deleteByIdentity(type = toStoredText(record.type), uniqueKey = key)
-                        }
-                        queries.insert(record)
-                        true
+                    holders.forEach { (identity, _) ->
+                        queries.deleteByIdentity(type = identity.type, uniqueKey = identity.uniqueKey)
                     }
+                    queries.insert(record)
+                    true
                 }
             }
         }
@@ -78,8 +80,8 @@ internal class SqlDelightUploaderStore(
     override suspend fun insertReplace(record: UploaderItem): UploaderItem? = onDatabaseThread(confinement, UploaderStorageOperation.INSERT_REPLACE) {
         mapFailures(UploaderStorageOperation.INSERT_REPLACE) {
             record.requireWithinRowLimit()
-            val key: String? = toStoredTextOrNull(record.uniqueKey)
-            if (key == null) {
+            val uniqueKey: String? = record.uniqueKey
+            if (uniqueKey == null) {
                 // Nothing to supersede — a keyless item conflicts with nothing — so this is a plain
                 // append and needs no transaction to be atomic.
                 queries.insert(record)
@@ -90,12 +92,19 @@ internal class SqlDelightUploaderStore(
                 // position at the tail, so a key that is replaced over and over cannot hold the
                 // head of its ordering channel forever. The superseded row is read in the same
                 // transaction, so what is handed back is exactly what the delete removed.
+                //
+                // A marker-prefixed type or key is looked up under every spelling (see `spellings`). Residual: two live
+                // rows of one logical identity exist only if 4.0.0 stored both a raw text and its escaped form as
+                // keys; the earliest is returned and cancelled by the engine, the other is removed unreturned.
                 database.transactionWithResult {
-                    val superseded: UploaderItem? =
-                        queries.selectByIdentity(type = toStoredText(record.type), uniqueKey = key)
-                            .executeAsOneOrNull()
-                            ?.toUploaderItem()
-                    queries.deleteByIdentity(type = toStoredText(record.type), uniqueKey = key)
+                    val identities: List<StoredIdentity> = identitiesOf(record.type, uniqueKey)
+                    val superseded: UploaderItem? = identities
+                        .mapNotNull { identity ->
+                            queries.selectByIdentity(type = identity.type, uniqueKey = identity.uniqueKey).executeAsOneOrNull()
+                        }
+                        .minByOrNull { row -> row.sequence }
+                        ?.toUploaderItem()
+                    identities.forEach { identity -> queries.deleteByIdentity(type = identity.type, uniqueKey = identity.uniqueKey) }
                     queries.insert(record)
                     superseded
                 }
@@ -222,23 +231,31 @@ internal class SqlDelightUploaderStore(
             // being returned, and its upload never cancelled. (`DELETE … RETURNING` would do it in
             // one statement, but needs SQLite 3.35 — see recordFailure.)
             database.transactionWithResult {
-                val removed: List<UploaderItem> =
-                    queries.selectByTag(toStoredText(tag)).executeAsList().map { row -> row.toUploaderItem() }
-                queries.deleteByTag(toStoredText(tag))
-                removed
+                val rows: List<Kmptoolkit_uploader_item> = spellings(tag).flatMap { stored -> queries.selectByTag(stored).executeAsList() }
+                spellings(tag).forEach { stored -> queries.deleteByTag(stored) }
+                rows.sortedBy { row -> row.sequence }.map { row -> row.toUploaderItem() }
             }
         }
     }
 
-    override fun observeByType(type: String): Flow<List<UploaderItem>> =
-        queries.selectByType(toStoredText(type))
+    override fun observeByType(type: String): Flow<List<UploaderItem>> {
+        val spellings: List<String> = spellings(type)
+        val extraSpellings: String? = spellings.getOrNull(1)
+        return queries.selectByType(spellings[0])
             .asFlow()
             // `onDatabaseThread` rather than coroutines-extensions' `mapToList(dispatcher)`: both
             // run the query on the thread every write runs on — so an emission can never observe a
             // half-applied transaction — but only this one recognizes that it may already be there.
             // A plain dispatch would deadlock when the flow is collected from inside a transaction,
             // because the thread it dispatches to is the thread that transaction is occupying.
-            .map { query -> onDatabaseThread(confinement, UploaderStorageOperation.OBSERVE_BY_TYPE) { query.executeAsList() } }
+            // Every spelling of a marker-prefixed type is read inside the one block, so no write can interleave; the
+            // notification is per table, so the first spelling's query is trigger enough.
+            .map { query ->
+                onDatabaseThread(confinement, UploaderStorageOperation.OBSERVE_BY_TYPE) {
+                    val rows: List<Kmptoolkit_uploader_item> = query.executeAsList()
+                    if (extraSpellings == null) rows else (rows + queries.selectByType(extraSpellings).executeAsList()).sortedBy { row -> row.sequence }
+                }
+            }
             .map { rows -> rows.map { row -> row.toUploaderItem() } }
             .catch { cause ->
                 throw when {
@@ -249,6 +266,7 @@ internal class SqlDelightUploaderStore(
                     else -> UploaderStorageException(UploaderStorageOperation.OBSERVE_BY_TYPE, cause)
                 }
             }
+    }
 
     override suspend fun clearAll(): Unit = onDatabaseThread(confinement, UploaderStorageOperation.CLEAR_ALL) {
         mapFailures(UploaderStorageOperation.CLEAR_ALL) {
@@ -266,6 +284,24 @@ internal class SqlDelightUploaderStore(
         if (stored == id || !startsWithStoredFormMarker(id)) return stored
         if (selectById(stored).executeAsOneOrNull() != null) return stored
         return if (fromStoredText(id) == id && selectById(id).executeAsOneOrNull() != null) id else stored
+    }
+
+    /** One (type, unique key) pair as the table holds it. */
+    private class StoredIdentity(val type: String, val uniqueKey: String)
+
+    /** Every way the table can hold the identity of [type] and [uniqueKey]: the product of both texts' spellings. */
+    private fun identitiesOf(type: String, uniqueKey: String): List<StoredIdentity> =
+        spellings(type).flatMap { storedType -> spellings(uniqueKey).map { storedKey -> StoredIdentity(storedType, storedKey) } }
+
+    /**
+     * Every text the column of [text] can hold, the one a 4.1.0 write stores first: [toStoredText] of it, then [text] itself
+     * when a row an earlier version stored under it reads back as it (see [fromStoredText]). That is the condition [storedId]
+     * uses for an id: a text that starts like a stored form and is not exactly one. A text that is exactly an escaped form
+     * has no second spelling, its raw row reads back as the text it decodes to. Every other text has one spelling.
+     */
+    private fun spellings(text: String): List<String> {
+        val stored: String = toStoredText(text)
+        return if (startsWithStoredFormMarker(text) && fromStoredText(text) == text) listOf(stored, text) else listOf(stored)
     }
 
     private fun UploaderItemQueries.insert(record: UploaderItem) {
