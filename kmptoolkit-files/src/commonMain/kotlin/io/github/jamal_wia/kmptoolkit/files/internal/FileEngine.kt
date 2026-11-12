@@ -145,7 +145,10 @@ internal class FileEngine(
 
     // ---- directories ------------------------------------------------------------------------------
 
-    override fun createDirectories(path: String): FileResult<Unit> {
+    override fun createDirectories(path: String): FileResult<Unit> = createDirectoriesTracking(path, ArrayList())
+
+    /** [createDirectories] that appends to [created], outermost first, each level this call itself created. */
+    private fun createDirectoriesTracking(path: String, created: MutableList<String>): FileResult<Unit> {
         if (!isValid(path)) return invalid(path)
         return attempt(path) {
             val missing: ArrayDeque<String> = ArrayDeque()
@@ -162,6 +165,7 @@ internal class FileEngine(
             for (level: String in missing) {
                 try {
                     ops.createDirectory(level)
+                    created += level
                 } catch (e: FileOpException) {
                     if (e.error !is FileError.AlreadyExists) throw e
                     // The race loser succeeds when the winner made a directory.
@@ -239,8 +243,10 @@ internal class FileEngine(
         val parent: String = rules.parentOf(path) ?: return invalid(path)
         val tempDirectory: String = tempDirectoryOption ?: parent
         return attempt(path) {
+            // The levels this call created below the target: SyncedWithDirectory must make each one durable.
+            val createdLevels: MutableList<String> = ArrayList()
             if (options.createParentDirectories) {
-                val made: FileResult<Unit> = createDirectories(parent)
+                val made: FileResult<Unit> = createDirectoriesTracking(parent, createdLevels)
                 if (made is FileResult.Failure) return made
                 if (tempDirectoryOption != null) {
                     val madeTemp: FileResult<Unit> = createDirectories(tempDirectoryOption)
@@ -284,6 +290,11 @@ internal class FileEngine(
                 settled = true
                 if (options.durability == Durability.SyncedWithDirectory) {
                     try {
+                        // A new directory's entry is durable only once its parent is synced: deepest level first,
+                        // then the target's parent with the full flush (one device flush covers them all on iOS).
+                        for (level: String in createdLevels.asReversed()) {
+                            ops.syncDirectory(rules.parentOf(level) ?: continue, false)
+                        }
                         ops.syncDirectory(parent, true)
                     } catch (e: FileOpException) {
                         return FileResult.Failure(FileError.Io(parent, (e.error as? FileError.Io)?.platformCode, e))

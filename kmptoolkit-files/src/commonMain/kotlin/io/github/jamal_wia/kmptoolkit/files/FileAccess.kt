@@ -32,6 +32,8 @@ public interface FileAccess {
     /**
      * Creates [path] and every missing parent. Succeeds when [path] is already a directory, also when another thread
      * or process creates it concurrently. [FileError.NotADirectory] when [path] or a parent is a non-directory.
+     * Does not make the new directories durable against power loss; [writeAtomically] with
+     * [Durability.SyncedWithDirectory] does.
      */
     public fun createDirectories(path: String): FileResult<Unit>
 
@@ -55,7 +57,7 @@ public interface FileAccess {
      * [FileError.AccessDenied] once the rename retry budget (about 210 ms, see 05-platform-notes) is used up; [path]
      * is then untouched and no temporary file is left.
      * On every [FileResult.Failure] the temporary file is removed and [path] is untouched, except a failure of the
-     * final directory sync of [Durability.SyncedWithDirectory] (reported as [FileError.Io]), when [path] already holds
+     * final directory syncs of [Durability.SyncedWithDirectory] (reported as [FileError.Io]), when [path] already holds
      * the new bytes. A crash can leave a temporary file behind; [sweep] it by [FileNames.isTempName].
      * A symbolic link at [path] is replaced by a regular file; its target is untouched.
      * Errors: missing parent [FileError.NotFound] (unless [WriteOptions.createParentDirectories]); a directory at

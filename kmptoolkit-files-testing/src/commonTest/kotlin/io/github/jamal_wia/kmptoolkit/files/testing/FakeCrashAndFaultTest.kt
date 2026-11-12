@@ -115,6 +115,64 @@ class FakeCrashAndFaultTest {
         assertEquals("unsynced", fake.restartAfterCrash(CrashKind.ProcessDeath).text("/d/f"))
     }
 
+    // ---- F-16..F-19: directories created by the write ---------------------------------------------
+
+    private fun FakeFileAccess.syncedDirectories(): List<String> =
+        operations.filter { it.operation == FakeOperation.SyncDirectory }.map { it.path }
+
+    @Test
+    fun `a SyncedWithDirectory write into a new directory survives power loss with every unsynced entry reverted`() {
+        val fake: FakeFileAccess = fakeWith()
+        val options: WriteOptions = WriteOptions(durability = Durability.SyncedWithDirectory, createParentDirectories = true)
+        assertTrue(fake.writeAtomically("/d/receipts/r1", bytes("receipt"), options).isSuccess)
+        fake.crashAfter(FakeOperation.Metadata)
+        assertFailsWith<SimulatedCrash> { fake.metadata("/d") }
+        val restarted: FakeFileAccess = fake.restartAfterCrash(CrashKind.PowerLoss, revertUnsyncedDirectoryEntries = true)
+        assertEquals("receipt", restarted.text("/d/receipts/r1"), "the new directory and the record are both durable")
+    }
+
+    @Test
+    fun `a write that dies after the rename but before the directory syncs may lose the record but never tears it`() {
+        val fake: FakeFileAccess = fakeWith()
+        fake.crashAfter(FakeOperation.Rename)
+        val options: WriteOptions = WriteOptions(durability = Durability.SyncedWithDirectory, createParentDirectories = true)
+        assertFailsWith<SimulatedCrash> { fake.writeAtomically("/d/receipts/r1", bytes("receipt"), options) }
+        val restarted: FakeFileAccess = fake.restartAfterCrash(CrashKind.PowerLoss, revertUnsyncedDirectoryEntries = true)
+        val content: String? = restarted.text("/d/receipts/r1")
+        assertTrue(content == null || content == "receipt", "absent or whole, was '$content'")
+        assertEquals(emptyList(), restarted.tempNames("/d/receipts"))
+    }
+
+    @Test
+    fun `the directory syncs of a SyncedWithDirectory write are one for an existing directory and one per created level deepest first`() {
+        val existing: FakeFileAccess = fakeWith()
+        assertTrue(existing.writeAtomically("/d/f", bytes("v"), WriteOptions(durability = Durability.SyncedWithDirectory)).isSuccess)
+        assertEquals(listOf("/d"), existing.syncedDirectories())
+
+        val created: FakeFileAccess = fakeWith()
+        val options: WriteOptions = WriteOptions(durability = Durability.SyncedWithDirectory, createParentDirectories = true)
+        assertTrue(created.writeAtomically("/d/a/b/f", bytes("v"), options).isSuccess)
+        assertEquals(listOf("/d/a", "/d", "/d/a/b"), created.syncedDirectories(), "the parents of the new levels, deepest first, then the target's parent")
+    }
+
+    @Test
+    fun `Synced and Buffered writes with createParentDirectories issue no directory sync`() {
+        for (durability: Durability in listOf(Durability.Synced, Durability.Buffered)) {
+            val fake: FakeFileAccess = fakeWith()
+            assertTrue(fake.writeAtomically("/d/a/b/f", bytes("v"), WriteOptions(durability = durability, createParentDirectories = true)).isSuccess)
+            assertEquals(emptyList(), fake.syncedDirectories(), "$durability")
+        }
+    }
+
+    @Test
+    fun `a failing sync of a created level reports Io with the target already new`() {
+        val fake: FakeFileAccess = fakeWith()
+        fake.failNext(FakeOperation.SyncDirectory, FileError.Io("/d"), path = { it == "/d" })
+        val result: FileResult<Unit> = fake.writeAtomically("/d/a/f", bytes("v"), WriteOptions(durability = Durability.SyncedWithDirectory, createParentDirectories = true))
+        assertTrue(result.errorOrNull() is FileError.Io, "was $result")
+        assertEquals("v", fake.text("/d/a/f"))
+    }
+
     // ---- F-6, F-11, F-13: no-replace ---------------------------------------------------------------
 
     @Test
