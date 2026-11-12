@@ -178,7 +178,9 @@ Practical consequences:
   `NSError` from `addNotificationRequest` become `Failed(PlatformError)`, and removing pending
   requests cannot fail. Unlike Android, nothing is caught: an exception thrown by your
   `AlarmSoundResolver` is your code's failure and propagates out of `schedule`, with nothing armed
-  and the lock released.
+  and the lock released. A cancellation that arrives while the notification center is adding a
+  replacement also removes the alarm it was replacing (iOS had already replaced it), so the id is
+  left with no alarm until your next reconcile pass.
 
   Verification status: the pre-check is verified by unit tests against a fake notification center
   only. Confirming the OS behavior on a real device (schedule 65) is still outstanding, as is confirming that a completed add is immediately visible in the pending list, which the lock relies on.

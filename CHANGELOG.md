@@ -83,6 +83,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   active one, once per `drain()` call per row with a growing backoff and an alarm kept armed while the store keeps
   failing, and `settle` starts a drain pass even when its delete throws. A `KEEP` or `REPLACE` enqueue that
   supersedes the parked row before that retry succeeds still withdraws it, as the conflict policy says.
+- `kmptoolkit-scheduler` (iOS): a `schedule` cancelled while the notification center was adding the request
+  no longer leaves the alarm armed; the request is removed before the cancellation propagates.
 
 ## [4.0.0]
 
