@@ -61,39 +61,40 @@ app. Construction is cheap and cannot fail. To change the temporary-file prefix 
 ## 3. One durable record from shared code
 
 ```kotlin
-class ProfileStore(
-    private val files: FileAccess,
-    private val directories: AppDirectories,
-) {
-    private suspend fun path(): String? =
-        when (val dir = directories.directory(AppRoot.Files, "profile")) {
-            is FileResult.Success -> Paths.join(dir.value, "profile.json")
-            is FileResult.Failure -> null
-        }
+// The store knows one path and nothing about where it lives, so a test can give it any path.
+class ProfileStore(private val files: FileAccess, private val path: String) {
 
-    suspend fun save(json: String): FileResult<Unit> {
-        val path: String = path() ?: return FileResult.Failure(FileError.Io(path = null))
-        return files.withIo {
-            writeAtomically(path, json.encodeToByteArray(), WriteOptions(durability = Durability.Synced))
-        }
+    suspend fun save(json: String): FileResult<Unit> = files.withIo {
+        writeAtomically(
+            path,
+            json.encodeToByteArray(),
+            WriteOptions(durability = Durability.Synced, createParentDirectories = true),
+        )
     }
 
-    suspend fun load(): String? {
-        val path: String = path() ?: return null
-        return files.withIo { readBytes(path, maxBytes = 1L shl 20).getOrNull()?.decodeToString() }
-    }
+    suspend fun load(): String? =
+        files.withIo { readBytes(path, maxBytes = 1L shl 20).getOrNull()?.decodeToString() }
 }
+
+// Composition root (platform or shared wiring): the app's own directory, then the record path.
+fun profileStore(files: FileAccess, directories: AppDirectories): ProfileStore? =
+    when (val dir = directories.directory(AppRoot.Files, "profile")) {
+        is FileResult.Success -> ProfileStore(files, Paths.join(dir.value, "profile.json"))
+        is FileResult.Failure -> null
+    }
 ```
 
 What happened here:
 
 - `directories.directory(AppRoot.Files, "profile")` created `<filesDir>/profile` (and returned its
   absolute path) on Android, `<Application Support>/profile` on iOS, `<filesDirectory>/profile` on
-  the JVM. It is idempotent and safe to call from many threads.
+  the JVM. It is idempotent and safe to call from many threads. `Paths.join` follows the **host's**
+  path rules (POSIX, or Windows on a Windows JVM), which is what a real path needs.
 - `withIo` moved the blocking calls to `Dispatchers.IO` and gave the block a cancellation check.
   Every `FileAccess` function is blocking: never call one from the main thread.
-- `writeAtomically` replaced the previous record whole. If the process dies at any point, `load()`
-  returns the previous record or the new one — never half of one.
+- `writeAtomically` replaced the previous record whole, and `createParentDirectories` made the
+  directory when it was missing. If the process dies at any point, `load()` returns the previous
+  record or the new one — never half of one.
 - `readBytes` took a limit. A file larger than the limit is `FileError.TooLarge`, not an
   out-of-memory error.
 - `getOrNull()` collapsed the typed result into `null` because this caller does not care why. When
@@ -105,17 +106,19 @@ What happened here:
 @Test
 fun `a saved profile is loaded back`() = runTest {
     val files = FakeFileAccess()
-    files.createDirectory("/data")
-    val store = ProfileStore(files, FakeAppDirectories("/data"))   // your own tiny AppDirectories double
+    val store = ProfileStore(files, path = "/data/profile/profile.json")   // a string: the fake is POSIX on every host
 
     assertTrue(store.save("""{"name":"Ada"}""").isSuccess)
     assertEquals("""{"name":"Ada"}""", store.load())
 }
 ```
 
-`FakeFileAccess` runs the real engine over memory and can fail an operation or crash in the middle of
-a write — see [`06-testing.md`](06-testing.md). `AppDirectories` is an interface; a two-line double
-that returns a path of the fake is enough in tests.
+`FakeFileAccess` runs the real engine over memory, so `createParentDirectories` creates `/data/profile`
+in it exactly as on a device, and it can fail an operation or crash in the middle of a write — see
+[`06-testing.md`](06-testing.md). Give the fake **string** paths, not `Paths.join` results: `Paths`
+follows the host, so on a Windows test host it would join with `\`. `AppDirectories` is an interface; a
+test that needs it implements it in a few lines, returning paths of the fake and creating the directory
+with `files.createDirectories(...)`.
 
 ## Next
 
