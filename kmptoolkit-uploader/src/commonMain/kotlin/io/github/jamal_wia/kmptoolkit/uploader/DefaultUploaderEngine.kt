@@ -41,23 +41,32 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * ## Structure: a front over components that each own rules
  *
- * This class decides what to do and keeps every name the platform entry points and the tests call, but it holds no
- * store and cancels no upload itself. The store is out of reach **by construction** (the constructor hands it to the
- * ledger and keeps nothing); upload cancels and the process-wide memories are kept to their owners by the review
- * gate below, not by the compiler:
+ * This class is the facade: it keeps every name the platform entry points and the tests call (each forwards, with an
+ * unchanged signature), wires the components and runs the drain pass itself (the scheduling of channels, gates,
+ * alarms and outside failures). It holds no store, no transport call and no settle logic. The store is out of reach
+ * **by construction** (the constructor hands it to the ledger and keeps nothing); upload cancels, upload launches and
+ * the process-wide memories are kept to their owners by the review gate below, not by the compiler:
  *
  * | Component | Owns | Rules |
  * |---|---|---|
  * | [RowLedger] | the only holder of the [UploaderStore] and the [TransactionRunner]; the only code that touches [DeliveredUnconfirmed] and [ClaimsInDoubt] | P2 (fact writes), P3, P7, P10, the row half of P1 |
  * | [Withdrawals] | the side effects of a removed row; the only caller of `UploadTransport.cancel` | P1 order, P8 |
- * | [AttemptRegistry] | the attempts the drain runs and their handshake with a withdrawal | P1, P2 |
+ * | [AttemptRegistry] | the attempts the drain runs and their handshake with a withdrawal | none of its own (serves P1, P2) |
+ * | [AttemptRunner] | one admitted attempt: the handler run, the upload hand-off (the engine's only launch of an upload), the decision what an answer means; decides, never writes | P4, P5 |
+ * | [SettleDesk] | `settle` and its commit, the upload settle path and journal entry points, the worker-side preparation, classification and the handler's hooks, the transports' small reads | verdict staleness, D-21 |
+ * | [EngineLifecycle] | scope and job, `start` and `close`, the drain loop's channel, the alarm, the stop job of a manual drain, the registry entry, the release wake | P6, D-31 |
  * | [DrainCall] | the turns of one call of `drain()` | P9 |
  *
- * The review gate: `rg 'store\.'` and `rg 'transport\.cancel'` over this file find nothing, and neither do
- * `DeliveredUnconfirmed.` or `ClaimsInDoubt.` outside KDoc. This class still reaches the transports (it launches
- * attempts), so a cancel could be written here again; handing the launch to an attempt runner that alone holds the
- * transports is the cure, and it belongs to step 2 of the split (carry-over: the attempt runner, the settle desk and
- * the lifecycle are still methods of this class, and moving them out changes no test).
+ * The review gate: `rg 'store\.'`, `rg 'transport\.'` and `rg 'DeliveredUnconfirmed\.|ClaimsInDoubt\.'` over this
+ * file find nothing outside KDoc, and over the whole of `commonMain` `transport.cancel` appears only in [Withdrawals]
+ * and the engine's launch of an upload (`launchAttempt` of the hand-off) only in [AttemptRunner]. (An [UploadHandler]'s
+ * own `execute` launches the classic path's transport itself; that is the handler's code, not the engine's.)
+ *
+ * Owner of each rule, exactly one: P1 [Withdrawals], P2 [RowLedger], P3 [RowLedger], P4 [AttemptRunner], P5
+ * [AttemptRunner], P6 [EngineLifecycle], P7 [RowLedger], P8 [Withdrawals], P9 [DrainCall], P10 [RowLedger]. A component
+ * that is not the owner only calls it, supplies the state it reads, or carries the rule's comment at one more call site:
+ * the ledger's row writes behind P1, [EngineLifecycle.isClosed] behind P4, the one turn check of this class's pass for
+ * P9, the worker-side preparation of [SettleDesk] for P5, and [AttemptRunner] choosing which answers are facts for P2.
  *
  * ## Cancellation, close and claims
  *
