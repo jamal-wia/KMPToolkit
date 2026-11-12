@@ -301,6 +301,9 @@ interface RetryPolicy {
 giveUp = Never, random = Random.Default)` — `min(max, base × 2^(n−1))`, spread by ±`jitterRatio`,
 clamped to `0..maxDelayMillis`. Rejects a non-positive base, a max below the base, and a jitter
 outside `0.0..1.0`. Inject a seeded `Random` for a deterministic test.
+A count below `1` (down to `Int.MIN_VALUE`) is treated as `1`. The engine's failure count of an item saturates at
+`Int.MAX_VALUE` instead of wrapping, so an item that already holds that many failures is still parked or dropped by its
+give-up policy.
 
 `GiveUpPolicy`: `Never` (default), `ParkAfterAttempts(n)`, `DropAfterAttempts(n)`; `n` must be
 positive.

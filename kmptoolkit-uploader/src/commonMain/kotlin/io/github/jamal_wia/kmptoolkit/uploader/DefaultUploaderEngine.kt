@@ -1029,7 +1029,8 @@ internal class DefaultUploaderEngine(
         expectedState: UploaderItemState = record.state,
         expectedClaim: Long = record.claim,
     ): Boolean {
-        val attempts: Int = record.attempts + 1
+        // Saturating: a count already at the Int range's end stays there (and parks) instead of wrapping negative.
+        val attempts: Int = if (record.attempts == Int.MAX_VALUE) Int.MAX_VALUE else record.attempts + 1
         val error: String? = describeFailure(cause)
         val nextRunAt: Long = saturatingAdd(clock.nowEpochMillis(), handler.retryPolicy.backoffMillis(attempts))
         // The give-up is decided before the write and made by it, not by a second write after it: a row

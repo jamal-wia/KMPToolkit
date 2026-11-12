@@ -94,7 +94,7 @@ public class ExponentialBackoffRetryPolicy(
      *   treated as `1`.
      */
     override fun backoffMillis(attempts: Int): Long {
-        val exponent: Int = (attempts - 1).coerceIn(0, MAX_EXPONENT)
+        val exponent: Int = (attempts.coerceAtLeast(1) - 1).coerceIn(0, MAX_EXPONENT)
         // Saturating: a base so large that doubling it overflows the Long range must stay at the ceiling, never wrap.
         val raw: Long = if (baseDelayMillis > (maxDelayMillis shr exponent)) maxDelayMillis else baseDelayMillis shl exponent
         val spread: Double = 1.0 + jitterRatio * (random.nextDouble() * 2 - 1)
