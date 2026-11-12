@@ -1,11 +1,6 @@
 package io.github.jamal_wia.kmptoolkit.downloader
 
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
+import io.github.jamal_wia.kmptoolkit.files.KeyedMutex
 
 /**
  * Names the scope inside which two engines contend for the same files: what a storage tells the
@@ -23,7 +18,7 @@ internal interface TransferLockScope {
 }
 
 /**
- * One [Mutex] per unit per storage scope, shared by every engine in the process: it makes the whole
+ * One lock per unit per storage scope, shared by every engine in the process: it makes the whole
  * transfer-and-commit of one unit exclusive across engines over the same directory.
  *
  * A second engine used to start its own transfer of a unit after the first engine's transfer had
@@ -34,70 +29,29 @@ internal interface TransferLockScope {
  * unit to its commit makes the second engine wait and then find the resource available.
  *
  * Distinct from [UnitCommitLocks], which only serializes a commit and is taken inside the storage:
- * the same lock cannot be used here, since a [Mutex] is not reentrant and the commit runs inside this
+ * the same lock cannot be used here, since a lock is not reentrant and the commit runs inside this
  * one. Lock order is always: the engine's own unit mutex, then this lock, then the commit lock.
  *
  * An entry lives only while a call holds or awaits it, so the registry does not grow with the
- * catalogue. [entries] is an immutable map updated by compare-and-set, which works on Kotlin/Native.
+ * catalogue. The lock is a [KeyedMutex] of `kmptoolkit-files`, which works on Kotlin/Native.
  */
 internal object UnitTransferLocks {
 
-    private class Entry(val mutex: Mutex, val users: Int)
+    private val locks: KeyedMutex<Pair<String, String>> = KeyedMutex()
 
-    private val entries: MutableStateFlow<Map<Pair<String, String>, Entry>> = MutableStateFlow(emptyMap())
+    /** Keys held or awaited right now; for leak checks in tests. */
+    internal val activeKeyCount: Int get() = locks.activeKeyCount
 
     /** Runs [action] while no other call holds the transfer lock of [unitKey] under [scope]. */
-    suspend fun <T> withTransferLock(scope: String, unitKey: String, action: suspend () -> T): T {
-        val key: Pair<String, String> = scope to unitKey
-        var registered: Mutex? = null
-        entries.update { current: Map<Pair<String, String>, Entry> ->
-            val entry: Entry? = current[key]
-            val mutex: Mutex = entry?.mutex ?: Mutex()
-            registered = mutex
-            current + (key to Entry(mutex, (entry?.users ?: 0) + 1))
-        }
-        val mutex: Mutex = checkNotNull(registered)
-        try {
-            return mutex.withLock { action() }
-        } finally {
-            // NonCancellable: a call cancelled while waiting must still give its slot back.
-            withContext(NonCancellable) {
-                entries.update { current: Map<Pair<String, String>, Entry> ->
-                    val entry: Entry = current.getValue(key)
-                    if (entry.users <= 1) current - key else current + (key to Entry(entry.mutex, entry.users - 1))
-                }
-            }
-        }
-    }
+    suspend fun <T> withTransferLock(scope: String, unitKey: String, action: suspend () -> T): T =
+        locks.withLock(scope to unitKey, action)
 
     /**
-     * Runs [action] only if the transfer lock of [unitKey] under [scope] is free right now, and says
-     * whether it ran. Never waits, so it can be used where nothing may suspend (a cancel). A caller
-     * that finds the lock held leaves the unit's files alone: they belong to the transfer in flight.
+     * Runs [action] only if no call holds or awaits the transfer lock of [unitKey] under [scope] right
+     * now, and says whether it ran. Never waits, so it can be used where nothing may suspend (a
+     * cancel). A caller that finds the lock held leaves the unit's files alone: they belong to the
+     * transfer in flight, or to one that is about to start.
      */
-    fun tryWithTransferLock(scope: String, unitKey: String, action: () -> Unit): Boolean {
-        val key: Pair<String, String> = scope to unitKey
-        var registered: Mutex? = null
-        entries.update { current: Map<Pair<String, String>, Entry> ->
-            val entry: Entry? = current[key]
-            val mutex: Mutex = entry?.mutex ?: Mutex()
-            registered = mutex
-            current + (key to Entry(mutex, (entry?.users ?: 0) + 1))
-        }
-        val mutex: Mutex = checkNotNull(registered)
-        val locked: Boolean = mutex.tryLock()
-        try {
-            if (locked) action()
-            return locked
-        } finally {
-            try {
-                if (locked) mutex.unlock()
-            } finally {
-                entries.update { current: Map<Pair<String, String>, Entry> ->
-                    val entry: Entry = current.getValue(key)
-                    if (entry.users <= 1) current - key else current + (key to Entry(entry.mutex, entry.users - 1))
-                }
-            }
-        }
-    }
+    fun tryWithTransferLock(scope: String, unitKey: String, action: () -> Unit): Boolean =
+        locks.tryWithLock(scope to unitKey, action)
 }
