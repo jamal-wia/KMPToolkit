@@ -1,11 +1,13 @@
 package io.github.jamal_wia.kmptoolkit.uploader
 
 import io.github.jamal_wia.kmptoolkit.logging.Logger
+import io.github.jamal_wia.kmptoolkit.logging.e
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
 import io.github.jamal_wia.kmptoolkit.uploader.spi.FailureDisposition
 import io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.uploader.spi.UploaderStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
@@ -26,6 +28,8 @@ import kotlinx.coroutines.withContext
  *   claim is this hand-off's.
  * - **P7, confirm:** [confirm] is the one delete of a row whose effect ran; [confirmHeld] is the drain's confirming
  *   retry; both forget the delivered-but-unconfirmed memory, nothing else does.
+ * - **P10, a fact outranks a verdict:** [park] and [recordFailure], the two verdict writers, refuse a row this process
+ *   holds as delivered and run the confirming delete instead.
  * - **P1, withdrawal writes:** [withdraw] and [withdrawByTag] remove rows and return them, never touching the memory.
  *
  * It decides nothing about attempts or about upload cancellation: the side effects of a removal belong to
@@ -158,15 +162,23 @@ internal class RowLedger(
 
     /**
      * Parks [record] if it is still in the state and claim it was read in. Every park the engine makes follows a read,
-     * and a settle can land between the two on an executor's own coroutine.
+     * and a settle can land between the two on an executor's own coroutine. Rule P10: a row this process holds as
+     * delivered is not parked (the confirming delete runs instead).
+     *
+     * @return whether the park was applied.
      */
-    suspend fun park(record: UploaderItem, reason: String?): Boolean =
-        store.park(record.id, boundedFailureText(reason), record.state, record.claim)
+    suspend fun park(record: UploaderItem, reason: String?): Boolean {
+        if (holds(record)) return confirmInstead(record, "park")
+        return store.park(record.id, boundedFailureText(reason), record.state, record.claim)
+    }
 
     /**
      * Writes the failure of one attempt of [record], guarded by [expectedState] and [expectedClaim].
      *
-     * @return whether the store applied it (`false`: the row moved).
+     * Rule P10: a row this process holds as delivered takes no verdict, whatever its disposition (a charge, a park or
+     * a drop would bury a delivery, or spend a retry on one): the confirming delete runs instead.
+     *
+     * @return whether the store applied it (`false`: the row moved, or P10 refused it).
      */
     suspend fun recordFailure(
         record: UploaderItem,
@@ -176,15 +188,36 @@ internal class RowLedger(
         expectedState: UploaderItemState,
         expectedClaim: Long,
         disposition: FailureDisposition,
-    ): Boolean = store.recordFailure(
-        id = record.id,
-        attempts = attempts,
-        nextRunAtEpochMillis = nextRunAtEpochMillis,
-        lastError = boundedFailureText(lastError),
-        expectedState = expectedState,
-        expectedClaim = expectedClaim,
-        disposition = disposition,
-    )
+    ): Boolean {
+        if (holds(record)) return confirmInstead(record, "$disposition verdict")
+        return store.recordFailure(
+            id = record.id,
+            attempts = attempts,
+            nextRunAtEpochMillis = nextRunAtEpochMillis,
+            lastError = boundedFailureText(lastError),
+            expectedState = expectedState,
+            expectedClaim = expectedClaim,
+            disposition = disposition,
+        )
+    }
+
+    /**
+     * Rule P10: a verdict met a row held as delivered. Runs the confirming retry of its delete (P7: forgets on
+     * success, stays held on failure, where the drain's next turn for it retries again) and reports the verdict as not
+     * applied. Never throws, apart from the caller's own cancellation.
+     */
+    private suspend fun confirmInstead(held: UploaderItem, verdict: String): Boolean {
+        try {
+            confirmHeld(held)
+            logger.i { "A $verdict for ${held.logName} was not applied: its delivery is confirmed (the row is deleted)." }
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            logger.e(e) { "A $verdict for ${held.logName} was not applied; confirming its delivery leaked a cancellation." }
+        } catch (e: Throwable) {
+            logger.e(e) { "A $verdict for ${held.logName} was not applied: its delivery stays held, the drain retries the delete." }
+        }
+        return false
+    }
 
     // ---- claims (P3) -----------------------------------------------------------------------------------------------
 

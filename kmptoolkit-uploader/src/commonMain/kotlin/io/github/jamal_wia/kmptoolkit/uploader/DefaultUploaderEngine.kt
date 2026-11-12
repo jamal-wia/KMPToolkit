@@ -137,6 +137,13 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S3a, S3b, control and the fix tests),
  *   EngineBossRound3AdversarialTest (P1: the tail of a confirmed delivery runs in the same drain) and
  *   EngineBossRound4SuspectsAdversarialTest (bv4-S2a, the orphan park).
+ * - **P10, A fact outranks a verdict.** A Park, a Failed or any give-up (PARK or DROP) is never applied to a row this
+ *   process still holds as delivered ([RowLedger.holds]): [RowLedger.park] and [RowLedger.recordFailure], the only two
+ *   verdict writers, run the P7 confirming delete instead (forget on success, held on failure) and report the verdict as
+ *   not applied: a stale `settle` (`applied = false`), no `onSettled` and a dropped journal entry for an upload. The
+ *   drain asks nothing else of a held row before it retries its delete: the check for it follows the gates and the
+ *   turn and precedes the handler lookup, the constraints and the backoff gate.
+ *   *Pinned by:* EngineBossRound4SuspectsAdversarialTest (bv4-S3a, S3b) and EngineSplit1P10AdversarialTest.
  */
 internal class DefaultUploaderEngine(
     store: UploaderStore,
@@ -585,6 +592,30 @@ internal class DefaultUploaderEngine(
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, persistedGate ?: floor)
                     continue
                 }
+                // P10: a row held as delivered is confirmed before anything else is asked of it: whether its type still has a
+                // handler, whether its constraints hold or its gate has opened are questions about running the effect again,
+                // and a delete needs none of them.
+                if (ledger.holds(item)) {
+                    // The effect succeeded in this process (in this engine or one it replaced) and only its
+                    // confirming delete failed: repeating the effect would send it twice, so only the delete is retried.
+                    try {
+                        // P7: this is the confirming retry of a remembered delete, so it forgets on success itself.
+                        ledger.confirmHeld(item)
+                        outsideFailures.update { it - item.id }
+                        logger.i { "Confirmed the delivery of ${item.logName} after its delete failed earlier." }
+                    } catch (e: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        logger.e(e) { "Confirming the delivery of ${item.logName} leaked a cancellation; retrying later." }
+                        call.spendTurn(item.id) // P9
+                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
+                    } catch (e: Throwable) {
+                        logger.e(e) { "Confirming the delivery of ${item.logName} failed again; retrying later." }
+                        call.spendTurn(item.id) // P9
+                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
+                    }
+                    executedAny = true
+                    continue
+                }
                 if (handler == null) {
                     // Either a wiring bug or a payload from a build that had the type. Parking
                     // keeps the item visible instead of failing forever or deleting a user's data. The park is work like
@@ -622,27 +653,6 @@ internal class DefaultUploaderEngine(
                     !isClockAnomalyGate(item.nextRunAtEpochMillis, nowMillis, handler)
                 ) {
                     soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, item.nextRunAtEpochMillis)
-                    continue
-                }
-                if (ledger.holds(item)) {
-                    // The effect succeeded in this process (in this engine or one it replaced) and only its
-                    // confirming delete failed: repeating the effect would send it twice, so only the delete is retried.
-                    try {
-                        // P7: this is the confirming retry of a remembered delete, so it forgets on success itself.
-                        ledger.confirmHeld(item)
-                        outsideFailures.update { it - item.id }
-                        logger.i { "Confirmed the delivery of ${item.logName} after its delete failed earlier." }
-                    } catch (e: CancellationException) {
-                        currentCoroutineContext().ensureActive()
-                        logger.e(e) { "Confirming the delivery of ${item.logName} leaked a cancellation; retrying later." }
-                        call.spendTurn(item.id) // P9
-                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
-                    } catch (e: Throwable) {
-                        logger.e(e) { "Confirming the delivery of ${item.logName} failed again; retrying later." }
-                        call.spendTurn(item.id) // P9
-                        soonestGate = minOf(soonestGate ?: Long.MAX_VALUE, bumpOutsideFailure(item.id))
-                    }
-                    executedAny = true
                     continue
                 }
                 try {
