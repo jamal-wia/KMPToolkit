@@ -533,9 +533,12 @@ final class io.github.jamal_wia.kmptoolkit.uploader/BackgroundTaskWakeScheduler 
 }
 
 final class io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig { // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig|null[0]
-    constructor <init>(kotlin/String? = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ...) // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.<init>|<init>(kotlin.String?;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration){}[0]
+    constructor <init>(kotlin/String? = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin.time/Duration = ..., kotlin/String = ...) // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.<init>|<init>(kotlin.String?;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration;kotlin.String){}[0]
     constructor <init>(kotlin/String?, kotlin.time/Duration, kotlin.time/Duration) // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.<init>|<init>(kotlin.String?;kotlin.time.Duration;kotlin.time.Duration){}[0]
+    constructor <init>(kotlin/String?, kotlin.time/Duration, kotlin.time/Duration, kotlin.time/Duration, kotlin.time/Duration) // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.<init>|<init>(kotlin.String?;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration;kotlin.time.Duration){}[0]
 
+    final val journalDirectoryName // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.journalDirectoryName|{}journalDirectoryName[0]
+        final fun <get-journalDirectoryName>(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.journalDirectoryName.<get-journalDirectoryName>|<get-journalDirectoryName>(){}[0]
     final val lease // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.lease|{}lease[0]
         final fun <get-lease>(): kotlin.time/Duration // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.lease.<get-lease>|<get-lease>(){}[0]
     final val rehandFlushWindow // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.rehandFlushWindow|{}rehandFlushWindow[0]
@@ -550,6 +553,11 @@ final class io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig { // 
     final fun equals(kotlin/Any?): kotlin/Boolean // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.equals|equals(kotlin.Any?){}[0]
     final fun hashCode(): kotlin/Int // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.hashCode|hashCode(){}[0]
     final fun toString(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.toString|toString(){}[0]
+
+    final object Companion { // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.Companion|null[0]
+        final const val DEFAULT_JOURNAL_DIRECTORY_NAME // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.Companion.DEFAULT_JOURNAL_DIRECTORY_NAME|{}DEFAULT_JOURNAL_DIRECTORY_NAME[0]
+            final fun <get-DEFAULT_JOURNAL_DIRECTORY_NAME>(): kotlin/String // io.github.jamal_wia.kmptoolkit.uploader/BackgroundUploadConfig.Companion.DEFAULT_JOURNAL_DIRECTORY_NAME.<get-DEFAULT_JOURNAL_DIRECTORY_NAME>|<get-DEFAULT_JOURNAL_DIRECTORY_NAME>(){}[0]
+    }
 }
 
 final class io.github.jamal_wia.kmptoolkit.uploader/ExponentialBackoffRetryPolicy : io.github.jamal_wia.kmptoolkit.uploader/RetryPolicy { // io.github.jamal_wia.kmptoolkit.uploader/ExponentialBackoffRetryPolicy|null[0]
