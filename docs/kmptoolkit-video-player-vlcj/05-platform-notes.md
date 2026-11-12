@@ -82,7 +82,7 @@ user for access to protected folders (Desktop, Documents, removable volumes) the
 | First frame | Shown once prepared | Nothing decoded before the first `play()` |
 | Remote headers | Any header | `User-Agent` and `Referer` only; any other fails the prepare with `IllegalArgumentException` |
 | `bufferedPositionFlow` | How far the platform buffered | Duration (local) / playhead (remote) — VLC does not report it |
-| `RepeatMode.One` | Restarted by the platform player | The input re-opens at the end; a short gap is possible |
+| `RepeatMode.One` | Restarted by the platform player | The input re-opens at the end; a short gap is possible, and the playhead reads 0 (not the end) until the restart reports a time |
 | Volume above `1f` | Not possible | Not done either — VLC's amplification (up to 200 %) is never used |
 | Failure detail | Platform exception | `VlcPlaybackException` without detail; VLC's log (`-vvv`) has it |
 | Assets | App bundle | Classpath resources; copied to a temporary file when packed in a jar |

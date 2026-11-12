@@ -65,7 +65,7 @@ The end of the source is handled by VLCJ's repeat support, which starts the sour
 reports its end. The player never reports `Completed` while looping. The restart re-opens the
 input, so there can be a short gap at the loop point — VLC does not offer a gapless loop that can be
 switched on and off for a source already loaded.
-A seek made in the gap at the loop point is reported at once and applied as soon as the restarted
+The playhead reads 0 in the gap, never the end of the cycle that just ended. A seek made in the gap at the loop point is reported at once and applied as soon as the restarted
 source has output.
 
 ## Volume
