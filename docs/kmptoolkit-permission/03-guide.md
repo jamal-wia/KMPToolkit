@@ -263,6 +263,15 @@ suspend fun onBecomeLauncherTapped() {
 A special access request that is cancelled while the user is on the Settings screen leaves the screen
 where it is; the next `check` or `observe` sees what the user did there.
 
+Do not release an `ActivityAccess` while a permission controller built over it is still in use. Over a
+released access no resume ever arrives. A special-access request, whether it starts after `release()` or
+is already waiting in Settings when `release()` runs, therefore does not return until its caller is
+cancelled, and later requests wait behind it. Cancelling it ends the wait at once and frees the queue. As
+with any cancelled special-access request, the Settings screen stays where it is, nothing is recorded, and
+the next `check` reads the real status. `observe` over a released access re-reads only after requests,
+never on resume. In tests, cancel pending requests (or the scope that runs them) before releasing the
+access.
+
 A runtime request cancelled while its system dialog is up leaves that dialog on screen too. A request
 queued behind it waits (up to 30 seconds) for the user to answer it, then shows its own dialog; if the
 dialog is still up after that, the request returns the unchanged status without showing anything, as

@@ -92,6 +92,10 @@ public interface ActivityAccess {
      * `release()` runs is never called.
      *
      * A process-lifetime tracker never needs this. It exists for tests. Idempotent.
+     *
+     * Release only after everything built on the access is torn down: a consumer that is waiting for a
+     * resume (for example a permission request that sent the user to Settings) never gets one from a
+     * released access, and waits until its caller is cancelled.
      */
     public fun release()
 }

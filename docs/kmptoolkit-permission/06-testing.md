@@ -181,6 +181,10 @@ The controller waits up to a second for a resumed activity before it launches an
 controller over an `ActivityAccess` that never resumes pays that second, in virtual time under `runTest`,
 once per request call.
 
+Do not `release()` the `ActivityAccess` while a request is pending or before the controller is done
+with: a special-access request over a released access waits until its caller is cancelled and holds the
+request queue meanwhile. Cancel pending requests (or the scope that runs them) before releasing.
+
 ## What the module tests itself
 
 - **`commonTest`**, run on both Android and iOS: every row of the flow's transition table, the

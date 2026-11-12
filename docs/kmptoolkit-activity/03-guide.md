@@ -104,7 +104,8 @@ runs is never called. Cancelling (or releasing) also drops the listener itself a
 belongs to, so a handle you keep pins neither what the listener captured nor the released access. A
 resume that was already in flight when `release()` ran does not put its activity back: a released
 access reports no activity. Release an access only after everything built on it is torn down: a controller over
-a released access can no longer reach any window, so a window flag it set stays on that window.
+a released access can no longer reach any window, so a window flag it set stays on that window, and a
+permission request waiting for the user's return waits until it is cancelled.
 
 ## Opening system screens
 
