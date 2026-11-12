@@ -16,7 +16,7 @@ class RetryArithmeticRound7AdversarialTest {
     private val attempts: List<Int> = listOf(-1, 0, 1, 2, 3, 20, 21, 22, 40, 62, 63, 64, 65, 1_000, Int.MAX_VALUE)
 
     private fun exact(base: Long, max: Long, n: Int): Long {
-        val exponent: Int = (n - 1).coerceIn(0, 20)
+        val exponent: Int = (n - 1).coerceIn(0, 62)
         var value: Long = base
         repeat(exponent) { value = if (value > max / 2) return max else value * 2 }
         return minOf(value, max)
