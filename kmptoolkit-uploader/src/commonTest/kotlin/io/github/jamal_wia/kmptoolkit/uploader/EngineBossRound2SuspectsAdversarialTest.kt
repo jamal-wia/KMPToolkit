@@ -213,4 +213,168 @@ class EngineBossRound2SuspectsAdversarialTest {
             parent.cancel()
         }
     }
+
+    private fun dropAfterRelease(release: CompletableDeferred<Unit>, answer: AttemptResult): TestHandler =
+        TestHandler(onExecute = { _, _ ->
+            release.await()
+            answer
+        })
+
+    /** Control for boss2-S2: the started engine's attempt, resumed in the same step as close(), records nothing. */
+    @Test
+    fun `boss2-S2 control - a started engine records no drop answered right after close`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val release = CompletableDeferred<Unit>()
+            val handler = dropAfterRelease(release, AttemptResult.Drop("no longer wanted"))
+            val engine: UploaderEngine = testEngine(inner, listOf(handler), scopeOn(parent), TestClock(1_000L), idGenerator = SequentialIds("b2s2c")::next)
+            val id: String = engine.enqueue(handler, "x")!!
+            engine.start()
+            runCurrent()
+            assertEquals(1, handler.payloads.size, "setup: the attempt is running")
+            release.complete(Unit) // the handler's answer is on its way
+            engine.close()
+            runCurrent()
+            assertEquals(UploaderItemState.PENDING, inner.find(id)?.state, "the started engine recorded a drop after close")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `boss2-S2a a manual drain records no drop answered right after close`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val release = CompletableDeferred<Unit>()
+            val handler = dropAfterRelease(release, AttemptResult.Drop("no longer wanted"))
+            val engine: UploaderEngine = testEngine(inner, listOf(handler), scopeOn(parent), TestClock(1_000L), idGenerator = SequentialIds("b2s2a")::next)
+            val id: String = engine.enqueue(handler, "x")!!
+            val drain: Job = launch { engine.drain() }
+            runCurrent()
+            assertEquals(1, handler.payloads.size, "setup: the attempt is running")
+            release.complete(Unit)
+            engine.close()
+            runCurrent()
+            drain.join()
+            assertEquals(UploaderItemState.PENDING, inner.find(id)?.state, "the closed engine's manual drain dropped the row after close() returned")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `boss2-S2b a manual drain charges no retry answered right after close`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val release = CompletableDeferred<Unit>()
+            val handler = dropAfterRelease(release, AttemptResult.Retry(RuntimeException("socket closed")))
+            val engine: UploaderEngine = testEngine(inner, listOf(handler), scopeOn(parent), TestClock(1_000L), idGenerator = SequentialIds("b2s2b")::next)
+            val id: String = engine.enqueue(handler, "x")!!
+            val drain: Job = launch { engine.drain() }
+            runCurrent()
+            release.complete(Unit)
+            engine.close()
+            runCurrent()
+            drain.join()
+            assertEquals(0, inner.find(id)?.attempts, "the closed engine's manual drain charged an attempt after close() returned")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `boss2-S2c a handler that closes its engine during a manual drain has its retry ignored as on a started engine`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            lateinit var engine: UploaderEngine
+            val handler = TestHandler(onExecute = { _, _ ->
+                engine.close()
+                AttemptResult.Retry(RuntimeException("signed out"))
+            })
+            engine = testEngine(inner, listOf(handler), scopeOn(parent), TestClock(1_000L), idGenerator = SequentialIds("b2s2d")::next)
+            val id: String = engine.enqueue(handler, "x")!!
+            engine.drain()
+            assertEquals(1, handler.payloads.size)
+            assertEquals(0, inner.find(id)?.attempts, "the manual drain charged the retry of an attempt whose engine closed under it")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `boss2-S2 control - a handler that closes its started engine has its retry ignored`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            lateinit var engine: UploaderEngine
+            val handler = TestHandler(onExecute = { _, _ ->
+                engine.close()
+                AttemptResult.Retry(RuntimeException("signed out"))
+            })
+            engine = testEngine(inner, listOf(handler), scopeOn(parent), TestClock(1_000L), idGenerator = SequentialIds("b2s2e")::next)
+            val id: String = engine.enqueue(handler, "x")!!
+            engine.start()
+            runCurrent()
+            assertEquals(1, handler.payloads.size)
+            assertEquals(0, inner.find(id)?.attempts, "the started engine charged the retry of an attempt whose engine closed under it")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    /** A handler of another type whose every attempt fails: one drain leaves a backoff alarm armed in the engine scope. */
+    private fun alwaysFailing(): TestHandler =
+        TestHandler(type = "boss2.failing", onExecute = { _, _ -> AttemptResult.Retry(RuntimeException("offline")) })
+
+    @Test
+    fun `boss2-S2d a manual drain with a backoff alarm armed records no drop answered right after close`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            val release = CompletableDeferred<Unit>()
+            val handler = dropAfterRelease(release, AttemptResult.Drop("no longer wanted"))
+            val failing: TestHandler = alwaysFailing()
+            val engine: UploaderEngine = testEngine(inner, listOf(handler, failing), scopeOn(parent), TestClock(1_000L), idGenerator = SequentialIds("b2s2f")::next)
+            engine.enqueue(failing, "f")!!
+            engine.drain() // the failing item backs off: an alarm is armed in the engine's scope
+            val id: String = engine.enqueue(handler, "x")!!
+            val drain: Job = launch { engine.drain() }
+            runCurrent()
+            assertEquals(1, handler.payloads.size, "setup: the attempt is running")
+            release.complete(Unit) // the handler's answer is on its way
+            engine.close()
+            runCurrent()
+            drain.join()
+            assertEquals(UploaderItemState.PENDING, inner.find(id)?.state, "the closed engine's manual drain dropped the row after close() returned")
+        } finally {
+            parent.cancel()
+        }
+    }
+
+    @Test
+    fun `boss2-S2e a handler that closes its engine with a backoff alarm armed has its retry ignored on a manual drain`() = runTest {
+        val parent = Job()
+        try {
+            val inner = TestUploaderStore()
+            lateinit var engine: UploaderEngine
+            val handler = TestHandler(onExecute = { _, _ ->
+                engine.close()
+                AttemptResult.Retry(RuntimeException("signed out"))
+            })
+            val failing: TestHandler = alwaysFailing()
+            engine = testEngine(inner, listOf(handler, failing), scopeOn(parent), TestClock(1_000L), idGenerator = SequentialIds("b2s2g")::next)
+            engine.enqueue(failing, "f")!!
+            engine.drain()
+            val id: String = engine.enqueue(handler, "x")!!
+            engine.drain()
+            assertEquals(1, handler.payloads.size)
+            assertEquals(0, inner.find(id)?.attempts, "the manual drain charged the retry of an attempt whose engine closed under it")
+        } finally {
+            parent.cancel()
+        }
+    }
 }

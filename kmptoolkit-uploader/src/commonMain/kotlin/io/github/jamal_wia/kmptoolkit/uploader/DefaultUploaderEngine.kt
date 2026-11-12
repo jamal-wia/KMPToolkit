@@ -12,6 +12,7 @@ import io.github.jamal_wia.kmptoolkit.uploader.spi.TransactionRunner
 import io.github.jamal_wia.kmptoolkit.uploader.spi.WakeScheduler
 import kotlin.time.Duration
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -520,16 +521,18 @@ internal class DefaultUploaderEngine(
         try {
             coroutineScope {
                 val pass: CoroutineScope = this
-                val watcher: Job = launch(start = CoroutineStart.UNDISPATCHED) {
-                    closed.first { it }
-                    pass.cancel()
-                }
-                val ended: DisposableHandle = engineJob.invokeOnCompletion { pass.cancel() }
+                // A plain child job of the engine, not a coroutine: close() (engineScope.cancel()) or the end of the
+                // engine's scope cancels it synchronously, and its completion handler cancels the pass (and with it
+                // the running attempt) on the thread that called close(), before close() returns. The handler only
+                // calls pass.cancel(), which is thread-safe, non-throwing and non-suspending. A drain started after
+                // the engine ended gets a child that is cancelled at creation, so the handler runs at registration.
+                val stop: CompletableJob = Job(engineJob)
+                stop.invokeOnCompletion { cause -> if (cause != null) pass.cancel() }
                 try {
                     drainPass()
                 } finally {
-                    watcher.cancel()
-                    ended.dispose()
+                    // Must stay in this finally: an uncompleted child would keep engineJob from ever completing.
+                    stop.complete()
                 }
             }
         } catch (e: CancellationException) {
