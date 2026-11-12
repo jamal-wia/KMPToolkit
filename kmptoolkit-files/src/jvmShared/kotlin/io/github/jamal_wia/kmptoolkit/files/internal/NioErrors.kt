@@ -2,6 +2,7 @@ package io.github.jamal_wia.kmptoolkit.files.internal
 
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
 import io.github.jamal_wia.kmptoolkit.files.FileError
+import io.github.jamal_wia.kmptoolkit.files.hostUsesWindowsPaths
 import io.github.jamal_wia.kmptoolkit.files.spi.FileOpException
 import java.io.IOException
 import java.nio.file.AccessDeniedException
@@ -29,10 +30,38 @@ internal fun typedNioError(e: Throwable, path: String): FileError? = when (e) {
 }
 
 /** Maps what java.nio throws to a typed [FileError]; [path] is the path the operation was working on. */
-internal fun mapNioError(e: Throwable, path: String, forLink: Boolean = false): FileError {
+internal fun mapNioError(
+    e: Throwable,
+    path: String,
+    forLink: Boolean = false,
+    windows: Boolean = hostUsesWindowsPaths,
+    also: List<String> = emptyList(),
+): FileError {
     typedNioError(e, path)?.let { return it }
+    if (e is FileSystemException || e is IOException) {
+        // A classification of a failure that already happened, by the length of a segment of a path the operation
+        // names: no message text, so no language can change it. Never a pre-check.
+        for (named: String in listOf(path) + also) {
+            if (segmentTooLong(named, windows)) return FileError.NameTooLong(named)
+        }
+    }
     val reason: String = ((e as? FileSystemException)?.reason ?: e.message ?: "").lowercase()
     return if (e is FileSystemException || e is IOException) mapByText(e, reason, path, forLink) else FileError.Io(path, null, e)
+}
+
+private const val MAX_SEGMENT_UNITS: Int = 255
+
+/** Whether a segment of [path] is over the file system's limit: 255 UTF-16 units on Windows, 255 UTF-8 bytes elsewhere. */
+internal fun segmentTooLong(path: String, windows: Boolean): Boolean {
+    for (segment: String in path.split('/', '\\')) {
+        if (segment.isEmpty()) continue
+        if (windows) {
+            if (segment.length > MAX_SEGMENT_UNITS) return true
+        } else {
+            if (NameRules.utf8Length(segment) > MAX_SEGMENT_UNITS) return true
+        }
+    }
+    return false
 }
 
 private val FAT_FAMILY: Set<String> = setOf("fat", "fat12", "fat16", "fat32", "vfat", "msdos", "exfat")
@@ -47,6 +76,8 @@ internal fun classifyLinkFailure(
     path: String,
     sourceStore: () -> FileStore?,
     targetStore: () -> FileStore?,
+    windows: Boolean = hostUsesWindowsPaths,
+    also: List<String> = emptyList(),
 ): FileError {
     typedNioError(e, path)?.let { return it }
     if (e is FileSystemException) {
@@ -58,7 +89,7 @@ internal fun classifyLinkFailure(
             if (type != null && type in FAT_FAMILY) return FileError.Unsupported(path)
         }
     }
-    return mapNioError(e, path, forLink = true)
+    return mapNioError(e, path, forLink = true, windows = windows, also = also)
 }
 
 private fun mapByText(e: Throwable, reason: String, path: String, forLink: Boolean): FileError = when {

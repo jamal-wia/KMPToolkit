@@ -49,7 +49,11 @@ public interface FileAccess {
      * sees the previous content or the whole new content, never a mix, never an empty file in between.
      * The bytes go to a new uniquely named temporary file first (see [FileNames.isTempName]) - in [path]'s directory or
      * in [WriteOptions.tempDirectory] - which is synced per [WriteOptions.durability] and then renamed over [path].
-     * Concurrent calls for one path never share a temporary file; the last rename wins.
+     * Concurrent calls for one path never share a temporary file; the last rename wins. Writers and readers of one
+     * path that go through FileAccess in this process never make each other fail, on every platform. On Windows,
+     * another process or code outside FileAccess holding [path] open can make the replace fail with
+     * [FileError.AccessDenied] once the rename retry budget (about 210 ms, see 05-platform-notes) is used up; [path]
+     * is then untouched and no temporary file is left.
      * On every [FileResult.Failure] the temporary file is removed and [path] is untouched, except a failure of the
      * final directory sync of [Durability.SyncedWithDirectory] (reported as [FileError.Io]), when [path] already holds
      * the new bytes. A crash can leave a temporary file behind; [sweep] it by [FileNames.isTempName].

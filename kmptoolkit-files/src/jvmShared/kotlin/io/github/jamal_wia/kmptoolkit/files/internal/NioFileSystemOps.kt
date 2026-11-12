@@ -31,6 +31,11 @@ internal class NioFileSystemOps : FileSystemOps {
 
     override val windowsPaths: Boolean = hostUsesWindowsPaths
 
+    internal companion object {
+        /** Shared by every FileAccess of the process; used only by ops with Windows path syntax. */
+        val gate: PathAccessGate = PathAccessGate()
+    }
+
     override fun nowMillis(): Long = System.currentTimeMillis()
 
     private fun pathOf(path: String): Path =
@@ -102,13 +107,29 @@ internal class NioFileSystemOps : FileSystemOps {
 
     override fun openForRead(path: String): ReadableFile {
         val p: Path = pathOf(path)
-        val channel: FileChannel = nio(path) { FileChannel.open(p, StandardOpenOption.READ) }
-        return NioReadableFile(channel, path)
+        // A reader of this library never blocks a replace of the same path inside the process (Windows only).
+        val permit: PathAccessGate.Permit? = if (windowsPaths) gate.shared(path) else null
+        val channel: FileChannel = try {
+            nio(path) { FileChannel.open(p, StandardOpenOption.READ) }
+        } catch (t: Throwable) {
+            permit?.release()
+            throw t
+        }
+        return NioReadableFile(channel, path, permit)
     }
 
     override fun rename(from: String, to: String) {
         val source: Path = pathOf(from)
         val target: Path = pathOf(to)
+        val permit: PathAccessGate.Permit? = if (windowsPaths) gate.exclusive(from, to) else null
+        try {
+            moveWithRetries(source, target, from, to)
+        } finally {
+            permit?.release()
+        }
+    }
+
+    private fun moveWithRetries(source: Path, target: Path, from: String, to: String) {
         var attempt: Int = 0
         while (true) {
             try {
@@ -128,7 +149,7 @@ internal class NioFileSystemOps : FileSystemOps {
                 }
                 attempt++
             } catch (e: Exception) {
-                throw FileOpException(mapNioError(e, from))
+                throw FileOpException(mapNioError(e, from, also = listOf(to)))
             }
         }
     }
@@ -147,6 +168,7 @@ internal class NioFileSystemOps : FileSystemOps {
                     newPath,
                     sourceStore = { Files.getFileStore(source) },
                     targetStore = { Files.getFileStore(target.parent) },
+                    also = listOf(existing),
                 ),
             )
         }
@@ -190,11 +212,19 @@ private class NioWritableFile(private val channel: FileChannel, private val path
 }
 
 @OptIn(ToolkitInternalApi::class)
-private class NioReadableFile(private val channel: FileChannel, private val path: String) : ReadableFile {
+private class NioReadableFile(
+    private val channel: FileChannel,
+    private val path: String,
+    private val permit: PathAccessGate.Permit?,
+) : ReadableFile {
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
         nio(path) { channel.read(ByteBuffer.wrap(buffer, offset, length)) }
 
     override fun close() {
-        nio(path) { channel.close() }
+        try {
+            nio(path) { channel.close() }
+        } finally {
+            permit?.release()
+        }
     }
 }
