@@ -31,6 +31,11 @@ kotlin {
             // is expressible without coroutines, and the public API is suspend regardless.
             implementation(libs.kotlinx.coroutines.core)
         }
+        commonTest.dependencies {
+            // Test scope only (never in the published POM): the fidelity differential runs the real
+            // schedulers and RecordingAlarmScheduler through one script, which needs both in one test source set.
+            implementation(project(":kmptoolkit-scheduler-testing"))
+        }
         androidHostTest.dependencies {
             implementation(libs.junit)
             implementation(libs.kotlinx.coroutines.test)
