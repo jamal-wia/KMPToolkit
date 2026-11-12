@@ -122,19 +122,22 @@ internal class AndroidNotifier(
     private val sweptLegacyIds: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
 
     /**
-     * Channel specs already handed to the platform by this instance.
+     * The spec most recently handed to the platform for each channel id by this instance.
      *
      * Creating a channel is a binder round-trip that the system persists, and the second one for an
-     * unchanged spec achieves nothing. Keying on the whole spec rather than on the id means a
+     * unchanged spec achieves nothing. Comparing the whole spec rather than only the id means a
      * changed `name` or `description` — the two fields the platform *does* still update — is
-     * re-applied rather than cached away.
+     * re-applied rather than cached away. Keying by id, with the latest spec winning, keeps the map
+     * no larger than the number of channel ids, however often a description changes ("Last sync:
+     * 12:01"); a set of whole specs would keep every spec ever sent and copy itself on each one.
      *
-     * A [MutableStateFlow] of an immutable set, updated with `update`, because [post] is documented
-     * safe to call concurrently from any thread and a plain `mutableSetOf()` — a `LinkedHashSet` —
+     * A [MutableStateFlow] of an immutable map, updated with `update`, because [post] is documented
+     * safe to call concurrently from any thread and a plain `mutableMapOf()` — a `LinkedHashMap` —
      * has undefined behavior under concurrent writes. A lost entry here would only cost one more
      * idempotent channel write; a corrupted hash table would not be so harmless.
      */
-    private val ensuredChannels: MutableStateFlow<Set<NotificationChannelSpec>> = MutableStateFlow(emptySet())
+    private val ensuredChannels: MutableStateFlow<Map<String, NotificationChannelSpec>> =
+        MutableStateFlow(emptyMap())
 
     override suspend fun post(id: String, notification: LocalNotification): NotificationResult =
         post(id, notification, NotificationOptions.DEFAULT)
@@ -352,9 +355,9 @@ internal class AndroidNotifier(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
         val manager: NotificationManager = context.frameworkNotificationManager() ?: return null
         var channel: NotificationChannel? = manager.getNotificationChannel(spec.id)
-        if (channel == null || (!redundant && spec !in ensuredChannels.value)) {
+        if (channel == null || (!redundant && ensuredChannels.value[spec.id] != spec)) {
             manager.createNotificationChannel(context.notificationChannelFor(spec))
-            ensuredChannels.update { ensured: Set<NotificationChannelSpec> -> ensured + spec }
+            ensuredChannels.update { ensured: Map<String, NotificationChannelSpec> -> ensured + (spec.id to spec) }
             channel = manager.getNotificationChannel(spec.id)
         }
         val existing: NotificationChannel = channel ?: return null
@@ -380,6 +383,9 @@ internal class AndroidNotifier(
 
     /** What a post shows apart from its progress, compared by the coalescer. */
     private data class CoalescingKey(val notification: LocalNotification, val options: NotificationOptions)
+
+    /** Test seam: how many channel ids [ensuredChannels] currently remembers. */
+    internal fun ensuredChannelCountForTest(): Int = ensuredChannels.value.size
 
     /** Test seam: how many ids [sweptLegacyIds] currently remembers. */
     internal fun sweptLegacyCountForTest(): Int = sweptLegacyIds.value.size
