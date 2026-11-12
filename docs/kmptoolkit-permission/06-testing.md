@@ -51,6 +51,14 @@ own tests:
 - **Requests are serialized**, as the real controllers' are. With `holdRequests`, a test can look at
   your code while the system UI is "up", cancel the request then, or check that a second request
   waits.
+- **A cancelled request keeps the user's answer.** Cancel a request while `holdRequests` is `true` and
+  its scripted outcome is stored when you clear the hold, before any held request resumes, so the next
+  `check` sees it, as on both real controllers. A status changed meanwhile (for example by `setStatus`)
+  to one that shows no UI is left alone. A request cancelled while only queued stores nothing. A
+  cancelled batch stores only the permission whose dialog was up. On Android the runtime permissions
+  that shared that dialog are answered too: use `setStatus` if your test needs that. Like the iOS
+  controller, and unlike the Android one, the fake does not make the next request wait for a cancelled
+  request's dialog.
 - **`observe` follows every change**: `setStatus`, `request` and a changed `defaultStatus` re-emit,
   and only a *different* status is emitted. Collect with an `UnconfinedTestDispatcher` so each change
   is delivered before your next line runs.

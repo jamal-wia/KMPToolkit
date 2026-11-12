@@ -200,11 +200,13 @@ public interface PermissionController {
   (when the app is in the background after a refusal), not once per permission. Everything else is
   requested in order, one at a time.
 - **Requests are serialized.** A request made while another is in flight — through the same
-  controller — waits for it, so two prompts never overlap. That includes a request cancelled while
-  its system dialog is still up: the dialog cannot be taken back, so the next request waits (at most
-  30 seconds, and its own cancellation ends the wait at once) until that dialog is answered, then
-  shows its own. If the dialog is still up after that, the request fails like a refused launch:
-  nothing shown, the status returned unchanged.
+  controller — waits for it, so two prompts never overlap. On Android that includes a request
+  cancelled while its system dialog is still up: the dialog cannot be taken back, so the next request
+  waits (at most 30 seconds, and its own cancellation ends the wait at once) until that dialog is
+  answered, then shows its own. If the dialog is still up after that, the request fails like a refused
+  launch: nothing shown, the status returned unchanged. On iOS the queue is freed the moment the caller
+  is cancelled, and the answer to the abandoned prompt is ignored by the next request: iOS lines up its
+  own prompts, so the next request raises its prompt at once and the system shows it after the first.
 - **`observe`** emits the current status on collection, then each *different* status: on every
   activity resume on Android, every time the app becomes active on iOS, and after every request
   through the same controller that asked Android for a permission it depends on: the entry itself,
