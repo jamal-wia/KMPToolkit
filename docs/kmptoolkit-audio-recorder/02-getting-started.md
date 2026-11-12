@@ -19,6 +19,8 @@ kotlin {
 }
 ```
 
+The module depends on `kmptoolkit-files` (its file operations); Gradle brings it along.
+
 With the BOM, drop the version:
 
 ```kotlin

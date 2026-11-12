@@ -237,5 +237,6 @@ and pins every crash, power-loss and fault-injection case above (`FakeCrashAndFa
 contract's ability to fail (a decorator that breaks the sort order, one that leaks a temporary file).
 `kmptoolkit-files`' own suite holds the pure rules (paths, names, keys, `KeyedMutex` storms), the
 real-file behaviour on every platform, the engine's crash behaviour over real files, and the Windows
-gate. API 24–25 is not covered by any host test; see
+gate. The `android.system.Os` ops of API 24–25 devices are not covered by any host test (a host runtime at
+SDK 24 selects the NIO ops and runs the contract as "API 24 host runtime (NIO selected)"); see
 [`05-platform-notes.md`](05-platform-notes.md#android-api-2425-the-legacy-path).

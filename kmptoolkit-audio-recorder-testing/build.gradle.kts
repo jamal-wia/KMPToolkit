@@ -27,8 +27,8 @@ kotlin {
             // api, not implementation: FakeAudioRecorder implements AudioRecorder and returns
             // RecorderResult/RecorderState, so those types are part of this module's own API.
             api(project(":kmptoolkit-audio-recorder"))
-            // implementation: only isAbsoluteFilePath (internal marker), never in this module's API.
-            implementation(project(":kmptoolkit-core"))
+            // implementation: only Paths.isAbsolute, never in this module's API.
+            implementation(project(":kmptoolkit-files"))
         }
         commonTest.dependencies {
             // Only the fake's own suite needs this — `prepare` is a suspend function, so exercising

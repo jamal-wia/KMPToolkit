@@ -1,7 +1,7 @@
 package io.github.jamal_wia.kmptoolkit.audio.recorder
 
 import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import io.github.jamal_wia.kmptoolkit.core.isAbsoluteFilePath
+import io.github.jamal_wia.kmptoolkit.files.Paths
 
 /**
  * An in-memory [RecordingFileSystem] using `/` as its separator, so path handling, directory
@@ -54,7 +54,7 @@ internal class FakeRecordingFileSystem : RecordingFileSystem {
     // This fake is POSIX-style ("/data/app/..."), and a test that needs a configured directory has to
     // give a host-absolute one ("C:\..." on Windows, where RecordingStorage rejects "/x"): accept both.
     @OptIn(ToolkitInternalApi::class)
-    override fun isAbsolute(path: String): Boolean = path.startsWith('/') || isAbsoluteFilePath(path)
+    override fun isAbsolute(path: String): Boolean = path.startsWith('/') || Paths.isAbsolute(path)
 
     override fun ensureWritableDirectory(path: String): Boolean {
         onEnsureWritableDirectory()

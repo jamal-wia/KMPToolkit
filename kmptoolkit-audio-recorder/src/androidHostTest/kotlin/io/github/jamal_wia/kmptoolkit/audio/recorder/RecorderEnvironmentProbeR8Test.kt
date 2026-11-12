@@ -43,7 +43,9 @@ class RecorderEnvironmentProbeR8Test {
     @After
     fun tearDown() {
         recorders.forEach { it.release() }
+        // path-hygiene-ignore: PH2 restores the flags a permission test cleared; harmless on Windows
         root.setWritable(true)
+        // path-hygiene-ignore: PH2 restores the flags a permission test cleared; harmless on Windows
         root.walkTopDown().forEach { it.setWritable(true) }
         root.deleteRecursively()
     }
@@ -92,6 +94,7 @@ class RecorderEnvironmentProbeR8Test {
     fun `a read only output directory is refused as not writable and never reaches the platform`() {
         val dir = File(root, "ro")
         assertTrue(dir.mkdirs())
+        // path-hygiene-ignore: PH2 POSIX permission probe; the test returns early where the host ignores it
         assertTrue(dir.setWritable(false))
         if (dir.canWrite()) return // running as a user that ignores permissions
         val recorder: AudioRecorder = newRecorder("ro")

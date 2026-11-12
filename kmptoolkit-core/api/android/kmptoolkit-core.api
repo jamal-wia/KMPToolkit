@@ -1,7 +1,3 @@
-public final class io/github/jamal_wia/kmptoolkit/core/FilePaths_androidKt {
-	public static final fun isAbsoluteFilePath (Ljava/lang/String;)Z
-}
-
 public abstract interface class io/github/jamal_wia/kmptoolkit/core/ReentrantLockHandle {
 	public abstract fun lock ()V
 	public abstract fun tryLock ()Z

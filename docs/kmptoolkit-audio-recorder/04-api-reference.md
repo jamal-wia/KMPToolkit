@@ -290,7 +290,8 @@ A file that is no longer there when the encoder has finished — deleted, or rep
 by a cache cleaner, the user or another process while the recording ran — is the same failure:
 `EngineFailure(STOP, cause)` with an `IllegalStateException` as `cause`, and `state` becomes
 `Failed(error, outputPath)`. `Completed` never names a path that is not an existing regular file;
-`cancel()` clears what is left at that path.
+`cancel()` clears what is left at that path: a file, a link or an empty directory is removed; a
+non-empty directory that replaced the file is left alone, on iOS as on Android.
 
 ### `suspend fun cancel(): RecorderResult<Unit>`
 

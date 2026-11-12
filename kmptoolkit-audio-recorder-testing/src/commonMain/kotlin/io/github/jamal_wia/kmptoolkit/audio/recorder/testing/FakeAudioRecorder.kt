@@ -9,8 +9,7 @@ import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderOperation
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderResult
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecorderState
 import io.github.jamal_wia.kmptoolkit.audio.recorder.RecordingStorage
-import io.github.jamal_wia.kmptoolkit.core.ToolkitInternalApi
-import io.github.jamal_wia.kmptoolkit.core.isAbsoluteFilePath
+import io.github.jamal_wia.kmptoolkit.files.Paths
 import kotlin.time.Duration
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
@@ -73,7 +72,6 @@ import kotlinx.coroutines.flow.asStateFlow
  *   app-private path against. A trailing or repeated separator is dropped from generated paths, as the
  *   real recorder's join does; `.` and `..` segments are not resolved, as neither platform join does.
  */
-@OptIn(ToolkitInternalApi::class)
 public class FakeAudioRecorder(
     private val config: AudioRecorderConfig = AudioRecorderConfig(),
     private val directory: String = DEFAULT_FAKE_DIRECTORY,
@@ -393,8 +391,8 @@ public class FakeAudioRecorder(
      * has no file system, and its own [DEFAULT_FAKE_DIRECTORY] is a `/` path that must keep working
      * on a Windows build machine.
      */
-    // path-hygiene-ignore: PH5 the fake's logical paths are POSIX-style; the host's own absolute form is covered by isAbsoluteFilePath on the same line
-    private fun isAbsolutePath(path: String): Boolean = path.startsWith('/') || isAbsoluteFilePath(path)
+    // path-hygiene-ignore: PH5 the fake's logical paths are POSIX-style; the host's own absolute form is covered by Paths.isAbsolute on the same line
+    private fun isAbsolutePath(path: String): Boolean = path.startsWith('/') || Paths.isAbsolute(path)
 
     private fun generatePath(): String {
         val storage: RecordingStorage = config.storage

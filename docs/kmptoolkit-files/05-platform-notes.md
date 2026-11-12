@@ -13,7 +13,7 @@ SAF trees, document pickers) is out of scope; see [`01-overview.md`](01-overview
 
 ## What each operation uses
 
-| Step | Android API ≥ 26 (NIO) | Android API 24–25 (`android.system.Os`) | iOS (POSIX) | JVM Linux/macOS | JVM Windows |
+| Step | Android with `java.nio.file` (API ≥ 26, host tests) | Android API 24–25 (`android.system.Os`) | iOS (POSIX) | JVM Linux/macOS | JVM Windows |
 |---|---|---|---|---|---|
 | create temp | `FileChannel.open(CREATE_NEW, WRITE)` | `Os.open(O_CREAT or O_EXCL or O_WRONLY)` | `open(O_WRONLY or O_CREAT or O_EXCL or O_CLOEXEC, 0666)`, protection set through `NSFileManager` before the first write | as Android NIO | as Android NIO |
 | `Synced` | `force(true)` | `Os.fsync` | `fsync` | `force(true)` | `force(true)` |
@@ -144,7 +144,9 @@ for important usage" (which counts purgeable space and would move a threshold yo
 
 ## Android API 24–25: the legacy path
 
-Below API 26 `java.nio.file` is not available; the Android factory then uses `java.io.File` plus
+Android uses `java.nio.file` where the runtime has it (devices from API 26, and host test runtimes such as
+Robolectric at any SDK level) and `android.system.Os` otherwise (API 24–25 devices). The factory asks whether
+`java.nio.file.Files` is loadable, not for `SDK_INT`. On the legacy path it uses `java.io.File` plus
 `android.system.Os` (`open`, `fsync`, `rename`, `link`, `lstat`). The result is the same contract.
 Two differences remain:
 
@@ -152,7 +154,9 @@ Two differences remain:
   than it is. Use ages in minutes, not milliseconds.
 - **It cannot be exercised by a host test.** Under Robolectric `android.system.Os` is a stub at every
   API level (calls return without doing anything), so this path is covered by a canary test that fails
-  the day Robolectric implements `Os`, plus a check of the SDK switch, and by an owner device check.
+  the day Robolectric implements `Os`, plus a check of the ops selection, and by an owner device check.
+  Robolectric's host runtime has `java.nio.file`, so a host test at SDK 24 runs the NIO ops (the contract
+  run "API 24 host runtime (NIO selected)" of `kmptoolkit-files-testing`).
 
 ## Cross-process and concurrency notes
 

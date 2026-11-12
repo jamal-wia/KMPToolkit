@@ -28,8 +28,6 @@ kotlin {
     sourceSets {
         commonTest.dependencies {
             implementation(libs.kotlinx.coroutines.test)
-            // Not published; supplies the host's path syntax so a test pins what "absolute" means there.
-            implementation(project(":test-support"))
         }
     }
 }

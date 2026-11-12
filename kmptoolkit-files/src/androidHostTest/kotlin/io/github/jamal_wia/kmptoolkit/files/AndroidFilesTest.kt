@@ -36,17 +36,15 @@ class AndroidSdk26FilesTest : RealFileAccessTests() {
     override fun files(): FileAccess = createFileAccess()
 }
 
-/** The factory's SDK switch, and the Android app directories. */
+/** The factory's ops selection, and the Android app directories. */
 @RunWith(RobolectricTestRunner::class)
 class AndroidFactoryTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun `API 25 and below get the Os based ops and API 26 and above the NIO ops`() {
-        assertTrue(androidOpsFor(24) is LegacyAndroidFileSystemOps)
-        assertTrue(androidOpsFor(25) is LegacyAndroidFileSystemOps)
-        assertTrue(androidOpsFor(26) is NioFileSystemOps)
-        assertTrue(androidOpsFor(35) is NioFileSystemOps)
+    fun `the ops follow the availability of java nio file, not the SDK level`() {
+        assertTrue(selectAndroidOps(true) is NioFileSystemOps)
+        assertTrue(selectAndroidOps(false) is LegacyAndroidFileSystemOps)
     }
 
     @Test
@@ -109,6 +107,29 @@ class AndroidFactoryTest {
         val d: AppDirectories = createAppDirectories(context)
         for (name: String in listOf("", "..", "a/b")) {
             kotlin.test.assertFailsWith<IllegalArgumentException> { d.directory(AppRoot.Files, name) }
+        }
+    }
+}
+
+/**
+ * The real factory at Robolectric API 24: the host runtime has java.nio.file, so the NIO ops are selected and a
+ * write, read and delete round trip works although `android.system.Os` is a stub there.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [24])
+class AndroidSdk24RoundTripTest {
+    @Test
+    fun `createFileAccess writes reads and deletes at API 24 on a host runtime`() {
+        val files: FileAccess = createFileAccess()
+        val root: File = java.nio.file.Files.createTempDirectory("kmptoolkit-files-api24").toFile()
+        try {
+            val path: String = File(root, "record").path
+            assertTrue(files.writeAtomically(path, "v".encodeToByteArray(), WriteOptions(createParentDirectories = true)).isSuccess)
+            assertEquals("v", files.readBytes(path, 16).getOrNull()?.decodeToString())
+            assertTrue(files.delete(path).isSuccess)
+            assertEquals(null, files.metadata(path))
+        } finally {
+            root.deleteRecursively()
         }
     }
 }

@@ -22,7 +22,7 @@ internal enum class PathHygieneRule(val id: String, val advice: String) {
     ),
     PH5(
         "PH5",
-        "startsWith('/') as an absolute-path check is false for C:\\ paths; use isAbsoluteFilePath, " +
+        "startsWith('/') as an absolute-path check is false for C:\\ paths; use Paths.isAbsolute from kmptoolkit-files, " +
             "or suppress it where the string is a logical name rather than a file path",
     ),
 }

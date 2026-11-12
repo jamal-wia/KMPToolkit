@@ -48,7 +48,7 @@ rule id. iOS source sets are never scanned. The rules:
 | PH2 | every scanned source set | `PosixFilePermission(s)`, `setPosixFilePermissions`, `.setReadable(` / `.setWritable(` / `.setExecutable(` / `.setReadOnly(` (also without a receiver, as `setWritable(false)` / `setReadOnly()`), `UnixOperatingSystemMXBean`, `"/proc/`, `"/dev/fd` |
 | PH3 | `*Test` source sets | taking a path apart on `/`: `substringBeforeLast('/')`, `substringAfterLast('/')`, `lastIndexOf('/')`, `.split('/')`, with or without further arguments |
 | PH4 | `*Test` source sets | a path-like name (`dir`, `path`, `base`, `root`, `folder`, `tmp`, `temp`, ...) joined with `/` in a template (`"$dir/x"`, `"${x.path}/x"`) or a `+ "/..."` |
-| PH5 | every scanned source set that is not a `*Test` one | `startsWith('/')` or `startsWith(PATH_SEPARATOR)` as an absolute-path check, `path[0] == '/'`, `path.first() == '/'`, and a `val x = "/"` declaration (use `isAbsoluteFilePath` from `kmptoolkit-core`) |
+| PH5 | every scanned source set that is not a `*Test` one | `startsWith('/')` or `startsWith(PATH_SEPARATOR)` as an absolute-path check, `path[0] == '/'`, `path.first() == '/'`, and a `val x = "/"` declaration (use `Paths.isAbsolute` from `kmptoolkit-files`) |
 
 When a hit is legitimate — a URL, a logical name, a fake file system, a POSIX-only test that skips
 itself on Windows — say so, with a reason (a suppression without one fails the task):

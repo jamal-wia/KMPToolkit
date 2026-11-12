@@ -32,6 +32,9 @@ kotlin {
             // implementation: the state-machine lock is an internal detail; nothing in the public
             // API mentions kmptoolkit-core.
             implementation(project(":kmptoolkit-core"))
+            // implementation: the platform file systems of the recorder are kmptoolkit-files calls; nothing in
+            // the public API mentions it.
+            implementation(project(":kmptoolkit-files"))
             // api, not implementation: AudioRecorder exposes StateFlow in its own signatures, so
             // consumers need kotlinx-coroutines-core on their compile classpath.
             api(libs.kotlinx.coroutines.core)

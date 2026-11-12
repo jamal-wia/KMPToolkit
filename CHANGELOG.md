@@ -57,13 +57,12 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 - `kmptoolkit-uploader`: an `IN_FLIGHT` item whose type has no registered handler is parked once its lease has
   ended, not at once while an executor may still hold the lease. An item with a failure outside its handler pending
   and an unmet constraint now arms its alarm at the failure's backoff gate.
+- `kmptoolkit-audio-recorder` now depends on `kmptoolkit-files`. No file name or directory layout changes.
+- `kmptoolkit-core` no longer contains `isAbsoluteFilePath` (internal API without a compatibility promise); use
+  `Paths.isAbsolute` from `kmptoolkit-files`.
 
 ### Fixed
 
-- `kmptoolkit-storage` (`jvm`): `clear()` also removes the temporary files of a killed 4.x write whose random part has
-  20 digits; they were missed before.
-- `kmptoolkit-files`: `FileAccessConfig.tempPrefix` and `WriteOptions.tempPrefix` accept up to 232 UTF-8 bytes
-  (`FileAccessConfig.MAX_TEMP_PREFIX_BYTES`), so every temporary name fits 255 bytes.
 - `kmptoolkit-uploader`: a `KEEP` enqueue that supersedes a `PARKED` item now withdraws it like a `REPLACE` does:
   its running attempt is stopped and its upload is cancelled (an item parked at its re-hand and then enqueued again
   under the default `KEEP` no longer uploads twice). A `KEEP` refused by a `PENDING` or `IN_FLIGHT` holder cancels
@@ -83,6 +82,8 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   active one, once per `drain()` call per row with a growing backoff and an alarm kept armed while the store keeps
   failing, and `settle` starts a drain pass even when its delete throws. A `KEEP` or `REPLACE` enqueue that
   supersedes the parked row before that retry succeeds still withdraws it, as the conflict policy says.
+- `kmptoolkit-audio-recorder` (iOS): deleting a recording no longer removes a directory tree that replaced the output
+  file.
 
 ## [4.0.0]
 
