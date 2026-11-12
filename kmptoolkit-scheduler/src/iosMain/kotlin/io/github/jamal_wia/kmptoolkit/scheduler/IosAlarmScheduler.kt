@@ -1,8 +1,11 @@
 package io.github.jamal_wia.kmptoolkit.scheduler
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import platform.Foundation.NSDate
 import platform.Foundation.NSError
 import platform.Foundation.timeIntervalSince1970
@@ -86,7 +89,17 @@ internal class IosAlarmScheduler(
                 content = contentFor(snapshot),
                 trigger = triggerFor(snapshot.fireAtEpochMillis),
             )
-            val error: NSError? = center.add(request)
+            // The center accepts the request when it is handed over; only its answer arrives later.
+            // A cancellation that lands while that answer is awaited would otherwise leave the
+            // request pending behind a caller that was told the call did not happen (and, for a
+            // replacement, the old request is already gone), so the request is removed before the
+            // cancellation propagates. A pending list is cheap to repair, a ghost alarm would fire.
+            val error: NSError? = try {
+                center.add(request)
+            } catch (cancelled: CancellationException) {
+                withContext(NonCancellable) { center.remove(listOf(snapshot.id)) }
+                throw cancelled
+            }
             if (error == null) {
                 AlarmScheduleResult.Exact
             } else {

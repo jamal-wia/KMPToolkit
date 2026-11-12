@@ -117,16 +117,20 @@ What breaks delivery entirely:
 - **Aggressive OEM battery management** (Xiaomi, Huawei, Samsung and others) can suppress alarms for
   apps the user has not whitelisted. Nothing in the Android API can override it.
 
-### A refused cancel
+### A refused or interrupted cancel
 
 When a `schedule` replaces an alarm, the new alarm is armed first and the old one is cancelled
 after. If `AlarmManager` refuses that cancel (a `SecurityException` or `IllegalStateException`,
 logged), `schedule` still reports the new alarm, and the old one stays armed and may fire once more.
-`cancel(id)` is the same: a refusal is logged and the alarm may stay armed.
+`cancel(id)` is the same: a refusal is logged and the alarm may stay armed. A process death in the
+one-call window between arming the new alarm and retiring the old one has the same result: the old
+alarm stays armed and may fire once more, and the next successful `schedule` or `cancel` of the id
+retires it.
 
 - An id owns four `PendingIntent` slots. The new alarm goes into a slot the id does not occupy, and a
-  retirement the platform refused leaves its slot occupied.
-- When all four slots are occupied (three replacements in a row whose cancel was refused, with no successful
+  retirement that did not happen (refused by the platform, or cut short by a process death) leaves its
+  slot occupied.
+- When all four slots are occupied (three replacements in a row whose cancel was refused or interrupted, with no successful
   `schedule` or `cancel` of the id in between), a further `schedule` of that id answers
   `Failed(PlatformError)` and changes nothing: the armed alarm stays exactly as it was. A healthy
   `schedule` does not recover it, because the newest alarm cannot be told from the stale ones.
@@ -178,7 +182,9 @@ Practical consequences:
   `NSError` from `addNotificationRequest` become `Failed(PlatformError)`, and removing pending
   requests cannot fail. Unlike Android, nothing is caught: an exception thrown by your
   `AlarmSoundResolver` is your code's failure and propagates out of `schedule`, with nothing armed
-  and the lock released.
+  and the lock released. A cancellation that arrives while the notification center is adding a
+  replacement also removes the alarm it was replacing (iOS had already replaced it), so the id is
+  left with no alarm until your next reconcile pass.
 
   Verification status: the pre-check is verified by unit tests against a fake notification center
   only. Confirming the OS behavior on a real device (schedule 65) is still outstanding, as is confirming that a completed add is immediately visible in the pending list, which the lock relies on.
