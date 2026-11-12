@@ -98,7 +98,8 @@ public interface FileAccess {
     /**
      * Removes [path] and everything under it without following any symbolic link. An entry that disappears during
      * the walk counts as removed, so concurrent deletes of one tree all succeed. Keeps going past entries it cannot
-     * remove and then reports the first error; Success means nothing is left at [path]. Checks [cancellation] before
+     * remove and then reports the first error; Success means nothing is left at [path] (a path that cannot be
+     * examined is reported with that error). Checks [cancellation] before
      * every entry and stops with [FileError.Cancelled], leaving the rest in place. Iterative: no depth limit.
      * Links present during the walk are never followed; a concurrent replacement of a directory by a link while the
      * walk is inside it is not defended against.

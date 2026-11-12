@@ -491,7 +491,13 @@ internal class FileEngine(
                 frame.listed = true
                 for (name: String in names) stack.addLast(Frame(rules.join(frame.path, name), false))
             }
-            if (metadataOrNull(path, false) == null) {
+            // A root that cannot be examined is not "nothing left": report the error, never Success.
+            val left: FileMetadata? = try {
+                ops.metadata(path, false)
+            } catch (e: FileOpException) {
+                return FileResult.Failure(firstError ?: e.error)
+            }
+            if (left == null) {
                 FileResult.Success(Unit)
             } else {
                 FileResult.Failure(firstError ?: FileError.DirectoryNotEmpty(path))
