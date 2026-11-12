@@ -61,6 +61,22 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   scope, so [close] can stop the engine without cancelling a scope it does not own — while
  *   cancelling the caller's scope still stops the engine.
  *
+ * ## Structure: a front over components that each own rules
+ *
+ * This class decides what to do and keeps every name the platform entry points and the tests call, but it holds no
+ * store and cancels no upload itself. The protocol below is enforced by who can reach what, not by convention:
+ *
+ * | Component | Owns | Rules |
+ * |---|---|---|
+ * | [RowLedger] | the only holder of the [UploaderStore] and the [TransactionRunner]; the only code that touches [DeliveredUnconfirmed] and [ClaimsInDoubt] | P2 (fact writes), P3, P7, P10, the row half of P1 |
+ * | [Withdrawals] | the side effects of a removed row; the only caller of `UploadTransport.cancel` | P1 order, P8 |
+ * | [AttemptRegistry] | the attempts the drain runs and their handshake with a withdrawal | P1, P2 |
+ * | [DrainCall] | the turns of one call of `drain()` | P9 |
+ *
+ * A write that skips a rule cannot be written here: `rg 'store\.'` and `rg 'transport\.cancel'` over this file find
+ * nothing. The attempt runner, the settle desk and the lifecycle are still methods of this class (carry-over: step 2 of
+ * the split moves them out, with no test changing).
+ *
  * ## Cancellation, close and claims
  *
  * What an attempt, a withdrawal, a claim or a closing engine may still write once a cancellation has landed is one
@@ -117,7 +133,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   gave up on with a drop): the item is gone, so the earlier claim's transfer is cancelled, once the drop applied.
  *   *Pinned by:* EngineBossRound3SuspectsAdversarialTest (bn3-S1a, S1b, S1c) and UploaderCancelTest.
  * - **P7, Confirm.** Every row the engine deletes because its effect ran or was dropped goes through one funnel,
- *   [deleteAfterEffect], whichever path reports it: a handler's `Success` or `Drop`, a `Delivered` or `Drop` settled
+ *   [RowLedger.confirm], whichever path reports it: a handler's `Success` or `Drop`, a `Delivered` or `Drop` settled
  *   through [settle] (an executor's own report, the upload channel's included), an upload preparation's `Drop`. A
  *   delete that fails is **remembered for this process** ([DeliveredUnconfirmed], also seen by an engine built to
  *   replace this one) and a delete that succeeds forgets it, so the row is never handed out again: the drain's next
