@@ -23,7 +23,8 @@ package io.github.jamal_wia.kmptoolkit.uploader.spi
  *   back and `CancellationException` propagates. A half-applied transaction is never left behind.
  * - **Withdrawals are not transactional.** The engine's `cancel`, `cancelByTag` and `REPLACE` cancel a running
  *   upload or attempt at once; a rollback of the enclosing transaction restores the row but cannot undo that.
- *   The restored item stays queued and its upload resumes no later than when its lease expires.
+ *   The restored item stays queued; an item whose effect already ran in this process and only its delete was owed
+ *   is deleted without running again; its upload resumes no later than when its lease expires.
  * - **Concurrency.** May be called from several coroutines at once. Serializing writers is a
  *   normal implementation (most embedded databases have a single writer anyway).
  * - **No suspension across the boundary that your database forbids.** [block] is suspending

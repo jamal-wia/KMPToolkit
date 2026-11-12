@@ -302,6 +302,8 @@ fun Scenario.withBound(bound: Int): Scenario = Scenario(
 
 class RunResult(val choices: List<Int>, val optionCounts: List<Int>, val violations: List<String>, val log: List<String>)
 
+private val runCounter: java.util.concurrent.atomic.AtomicLong = java.util.concurrent.atomic.AtomicLong()
+
 class ScenarioRunner(
     private val storage: UploaderStorage,
     private val testScheduler: TestCoroutineScheduler,
@@ -318,7 +320,10 @@ class ScenarioRunner(
         storage.store.clearAll()
         val sched = Sched(testScheduler)
         val observed = Observed()
-        val clock = StepClock(1_000_000L)
+        // A later start for every run: the harness reuses the id and payload of seed row A in every run of the JVM, and a
+        // withdrawn row whose delete failed stays remembered process-wide (D-34), so a run's A must not carry the exact
+        // fingerprint (creation time) of an earlier run's A. Every time in a run is relative to this start.
+        val clock = StepClock(1_000_000L + runCounter.getAndIncrement())
         val gated = GatedStore(storage.store, sched, observed, scenario.blindDeleteByTag, scenario.failAt, scenario.failAfterCommit)
         var counter = 0
         val ids: () -> String = { "g${counter++}" }

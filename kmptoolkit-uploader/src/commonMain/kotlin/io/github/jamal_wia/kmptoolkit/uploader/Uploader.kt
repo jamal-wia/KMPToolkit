@@ -102,7 +102,8 @@ public interface Uploader {
      *
      * **Side effects are not transactional.** Cancelling a running upload or attempt happens at once and is not
      * rolled back. When this call runs inside a consumer's transaction that later rolls back, the row is
-     * restored and stays queued; its upload resumes no later than when its lease expires, and a cancelled plain
+     * restored and stays queued; an item whose effect already ran in this process and only its delete was owed is
+     * deleted without running again; its upload resumes no later than when its lease expires, and a cancelled plain
      * attempt, which recorded nothing, simply runs on the next pass.
      *
      * @param id the id [enqueue] returned. An unknown id — already delivered, dropped, or never
