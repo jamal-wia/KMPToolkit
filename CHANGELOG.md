@@ -87,8 +87,9 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
 
 ### Fixed
 
-- `kmptoolkit-downloader` (Android): resource sizes and recursive deletes never follow a symbolic link inside a
-  resource directory; a link cycle no longer recurses without end.
+- `kmptoolkit-downloader` (Android): the resource-size walk no longer follows a symbolic link inside a resource
+  directory: a link counted its target's size, and a link cycle recursed until the stack overflowed. Recursive deletes,
+  which already removed a link as a link, now share the same walk.
 - `kmptoolkit-uploader`: a `KEEP` enqueue that supersedes a `PARKED` item now withdraws it like a `REPLACE` does:
   its running attempt is stopped and its upload is cancelled (an item parked at its re-hand and then enqueued again
   under the default `KEEP` no longer uploads twice). A `KEEP` refused by a `PENDING` or `IN_FLIGHT` holder cancels
