@@ -14,6 +14,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import io.github.jamal_wia.kmptoolkit.files.FileNames
 import io.github.jamal_wia.kmptoolkit.logging.Logger
+import io.github.jamal_wia.kmptoolkit.logging.createLoggerFactory
 import io.github.jamal_wia.kmptoolkit.logging.NoopLogger
 import io.github.jamal_wia.kmptoolkit.logging.i
 import io.github.jamal_wia.kmptoolkit.logging.w
@@ -170,9 +171,10 @@ public open class UploadHandlerWorker(
         ).milliseconds
 
         // A job enqueued by an earlier version carries no journal directory name: the default is the name it used.
-        val journalDirectoryName: String = inputData.getString(JOURNAL_DIRECTORY_NAME_KEY)
-            ?.takeIf { name -> FileNames.isPlainName(name) }
-            ?: UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME
+        val journalDirectoryName: String = resolveJournalDirectoryName(
+            inputData.getString(JOURNAL_DIRECTORY_NAME_KEY),
+            createLoggerFactory().logger("UploadHandlerWorker"),
+        )
         val journal: OutcomeJournal = androidOutcomeJournal(applicationContext, directoryName = journalDirectoryName)
         val ledger: UploadHandOffLedger = UploadHandOffLedger.shared
         // Counted before waiting for the item's lock: a job that waits will still read the row.
@@ -359,3 +361,15 @@ private val PROGRESS_HOOKS: CoroutineDispatcher = Dispatchers.IO.limitedParallel
 
 /** How long the worker waits for [UploadHandler.onUploadProgress] to drain after the transfer ended. */
 private val PROGRESS_FLUSH_TIMEOUT: kotlin.time.Duration = 2.seconds
+
+/**
+ * The journal directory a job's input data names: [raw] when it is a plain file name, the default when it is absent
+ * (a job enqueued by 4.x), and the default with a warning naming the rejected value when it is not a plain name. Never
+ * silent: a second directory would split the journal.
+ */
+internal fun resolveJournalDirectoryName(raw: String?, logger: Logger): String {
+    if (raw == null) return UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME
+    if (FileNames.isPlainName(raw)) return raw
+    logger.w { "The journal directory name '$raw' in the job's input data is not a plain file name; using the default '${UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME}'." }
+    return UploadTransportConfig.DEFAULT_JOURNAL_DIRECTORY_NAME
+}

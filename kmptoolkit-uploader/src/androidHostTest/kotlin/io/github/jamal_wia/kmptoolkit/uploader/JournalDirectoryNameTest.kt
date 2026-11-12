@@ -6,6 +6,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
+import io.github.jamal_wia.kmptoolkit.logging.LogLevel
+import io.github.jamal_wia.kmptoolkit.logging.LogSink
+import io.github.jamal_wia.kmptoolkit.logging.Logger
+import io.github.jamal_wia.kmptoolkit.logging.createLoggerFactory
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
@@ -159,6 +163,20 @@ class JournalDirectoryNameTest {
 
         assertIs<ListenableWorker.Result.Success>(result)
         assertEquals(listOf<UploadResponse?>(sent()), handler.delivered)
+    }
+
+    @Test
+    fun `a rejected name is logged with its value and the default is used, a good or absent name is silent`() {
+        val warnings: MutableList<String> = mutableListOf()
+        val logger: Logger = createLoggerFactory(LogLevel.VERBOSE, listOf(LogSink { level, _, message, _ -> if (level == LogLevel.WARN) warnings += message }))
+            .logger("test")
+
+        assertEquals("kmptoolkit-uploader", resolveJournalDirectoryName("../escape", logger))
+        assertEquals(1, warnings.size)
+        assertTrue("../escape" in warnings.single(), warnings.single())
+        assertEquals("kmptoolkit-uploader", resolveJournalDirectoryName(null, logger))
+        assertEquals(CUSTOM, resolveJournalDirectoryName(CUSTOM, logger))
+        assertEquals(1, warnings.size, "only the rejected name warns")
     }
 
     private suspend fun TestScope.startEngine(handler: ReplayHandler) {
