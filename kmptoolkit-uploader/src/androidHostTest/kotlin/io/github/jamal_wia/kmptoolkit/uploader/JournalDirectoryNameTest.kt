@@ -179,6 +179,18 @@ class JournalDirectoryNameTest {
         assertEquals(1, warnings.size, "only the rejected name warns")
     }
 
+    @Test
+    fun `the work request the transport builds carries the configured journal directory name`() {
+        val custom: UploadTransportConfig = UploadTransportConfig(journalDirectoryName = CUSTOM)
+
+        assertEquals(CUSTOM, uploadHandlerInputData("item-1", custom).getString(UploadHandlerWorker.JOURNAL_DIRECTORY_NAME_KEY))
+        assertEquals("item-1", uploadHandlerInputData("item-1", custom).getString(UploadHandlerWorker.ITEM_ID_KEY))
+        assertEquals(
+            "kmptoolkit-uploader",
+            uploadHandlerInputData("item-1", UploadTransportConfig()).getString(UploadHandlerWorker.JOURNAL_DIRECTORY_NAME_KEY),
+        )
+    }
+
     private suspend fun TestScope.startEngine(handler: ReplayHandler) {
         val started: UploaderEngine = testEngine(TestUploaderStore(), listOf(handler), backgroundScope)
         engine = started

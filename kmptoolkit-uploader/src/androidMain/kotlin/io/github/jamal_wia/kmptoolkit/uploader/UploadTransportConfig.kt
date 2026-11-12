@@ -35,7 +35,7 @@ import kotlin.time.Duration.Companion.seconds
  *   ([FileNames.isPlainName]).
  * @throws IllegalArgumentException if [uniqueWorkNamePrefix] or [workTag] is blank, a duration or
  *   timeout is out of range, or [journalDirectoryName] is not a plain file name.
- * @since 1.5.0 ([journalDirectoryName] since 5.0.0)
+ * @since 1.1.0 ([journalDirectoryName] since 5.0.0)
  */
 public data class UploadTransportConfig(
     val uniqueWorkNamePrefix: String? = null,
