@@ -62,6 +62,10 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   `Paths.isAbsolute` from `kmptoolkit-files`.
 - `kmptoolkit-scheduler` (Android): the saturation message and docs name a process death between arming a
   replacement and retiring the old alarm as a second cause; behaviour unchanged.
+- `kmptoolkit-notification-testing` and `kmptoolkit-scheduler-testing`: `RecordingNotifier` and
+  `RecordingAlarmScheduler` now record a snapshot of each notification or alarm taken at call time, so a later change
+  to the caller's lists and maps does not alter a recorded call; a consumer test that compares `posted[i].notification`
+  (or the one passed to `resultFor`) with `assertSame` or `===` now fails and must compare by value.
 
 ### Fixed
 
@@ -88,6 +92,22 @@ silently folded into `Changed`, since minor version bumps are not yet a compatib
   file.
 - `kmptoolkit-scheduler` (iOS): a `schedule` cancelled while the notification center was adding the request
   no longer leaves the alarm armed; the request is removed before the cancellation propagates.
+- `kmptoolkit-scheduler` (Android): a `getSystemService(ALARM_SERVICE)` that throws (a restarting system server) no
+  longer makes `schedule`, `cancel` or `cancelAll` throw; `schedule` answers `Failed(SchedulerUnavailable)` and the
+  cancels log and return.
+- `kmptoolkit-scheduler` (Android): an `Error` (such as `OutOfMemoryError`) thrown by `AlarmManager` while arming no
+  longer leaves its `PendingIntent` slot occupied, so repeated failures cannot make the id answer `Failed` until
+  `cancel(id)`.
+- `kmptoolkit-notification`: a progress run that keeps posting frames inside one bucket for longer than the
+  abandoned-run horizon (the larger of 120 times `minProgressInterval` and ten minutes) is no longer forgotten as if
+  abandoned; only an id that sent no frame at all for that long is. Before, a slow download whose bar stayed in one
+  tenth for over ten minutes had a redundant frame posted roughly every eleven minutes.
+- `kmptoolkit-notification`: a progress run that stays live past the abandoned-run horizon no longer loses the memory
+  of the frame on the tray when one later frame is refused by the platform; the next frame of the same tenth is
+  coalesced instead of posted again.
+- `kmptoolkit-notification` (Android): the notifier remembers only the latest channel spec per channel id, so a channel
+  whose `description` changes over time no longer grows memory and per-post cost without bound; a changed spec is
+  still re-applied.
 
 ## [4.0.0]
 
