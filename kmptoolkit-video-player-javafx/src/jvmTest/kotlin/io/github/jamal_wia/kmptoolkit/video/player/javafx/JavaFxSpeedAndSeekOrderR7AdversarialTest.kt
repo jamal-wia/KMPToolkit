@@ -138,6 +138,68 @@ class JavaFxSpeedAndSeekOrderR7AdversarialTest {
         assertEquals(emptyList(), failures, "of $TRIALS trials")
     }
 
+    @Test
+    fun `a speed changed just after a loop wrap replaces the speed that wrap deferred`() {
+        val failures: MutableList<String> = mutableListOf()
+        repeat(TRIALS) { trial: Int ->
+            val (engine, player) = newPlayer()
+            try {
+                prepare(player)
+                player.setRepeatMode(io.github.jamal_wia.kmptoolkit.video.player.RepeatMode.One)
+                player.setPlaybackSpeed(4f)
+                player.play()
+                // The first wrap: the playhead falls from near the end of the 3 s clip back to the start.
+                var last: Long = 0L
+                var wrapped = false
+                val until: Long = System.nanoTime() + 6_000_000_000L
+                while (System.nanoTime() < until && !wrapped) {
+                    val now: Long = engine.positionMs()
+                    if (now + 1_000L < last) wrapped = true else last = now
+                    Thread.sleep(2L)
+                }
+                if (!wrapped) { failures += "trial $trial: the source never wrapped"; return@repeat }
+                // The wrap deferred the speed of 4; the newer speed must win, however soon it comes.
+                player.setPlaybackSpeed(2f)
+                // JavaFX restarts a looping source after about a second (the playhead reads 0 meanwhile) and the
+                // deferred speed is given back about 300 ms after the playhead moves: 1.9 s covers both.
+                Thread.sleep(1_900L)
+                val rate: Double? = runBlocking { engine.inspectPlayback()?.rate }
+                if (rate != 2.0) failures += "trial $trial: the rate property reads $rate after a speed of 2 was given right after the wrap"
+            } finally {
+                player.release()
+            }
+        }
+        assertEquals(emptyList(), failures, "of $TRIALS trials")
+    }
+
+    @Test
+    fun `a speed changed a short while after a play keeps the playhead moving at that speed`() {
+        val failures: MutableList<String> = mutableListOf()
+        for (delayMs: Long in listOf(150L, 250L, 400L)) {
+            repeat(TRIALS) { trial: Int ->
+                val (engine, player) = newPlayer()
+                try {
+                    prepare(player)
+                    player.play()
+                    Thread.sleep(delayMs)
+                    val at: Long = engine.positionMs()
+                    player.setPlaybackSpeed(2f)
+                    val until: Long = System.nanoTime() + 3_500_000_000L
+                    while (System.nanoTime() < until && engine.positionMs() < at + 700L && player.stateFlow.value !is VideoPlayerState.Completed) Thread.sleep(5L)
+                    if (engine.positionMs() < at + 700L && player.stateFlow.value !is VideoPlayerState.Completed) {
+                        failures += "delay $delayMs trial $trial: the playhead stood at ${engine.positionMs()} from $at after a speed of 2"
+                    } else if (player.stateFlow.value !is VideoPlayerState.Completed) {
+                        val rate: Double? = runBlocking { engine.inspectPlayback()?.rate }
+                        if (rate != 2.0) failures += "delay $delayMs trial $trial: the rate property reads $rate"
+                    }
+                } finally {
+                    player.release()
+                }
+            }
+        }
+        assertEquals(emptyList(), failures, "speed changes after a play")
+    }
+
     /** Polls the engine's playhead until the player completes or [boundMs] passes; the lowest reading seen. */
     private fun sampleLowestUntilCompleted(engine: JavaFxVideoEngine, player: VideoPlayer, boundMs: Long): Long {
         val until: Long = System.nanoTime() + boundMs * 1_000_000L
